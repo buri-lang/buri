@@ -672,7 +672,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for id in reverse_postorder(code) {
             let block = code.get(id);
             b.to_end(state.block(id).start);
-            let cancelled = self.cancelled_counts(code, &block.insts, &projections);
+            let cancelled = self.cancelled_counts(&block.insts, &projections);
             for (inst, cancelled) in block.insts.iter().zip(cancelled) {
                 if cancelled {
                     self.observe_cancelled(&mut state, code, inst);
@@ -1018,9 +1018,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArrayAlloc { dest, ty, len } => self.array_alloc(state, *dest, *ty, *len),
             ir::Inst::ArraySet {
                 array,
+                ty,
                 index,
                 value,
-            } => self.array_set(state, code, *array, *index, *value),
+            } => self.array_set(state, *array, *ty, *index, *value),
             ir::Inst::ArrayPrefix {
                 dest,
                 array,
@@ -1343,7 +1344,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         fields: &[ir::ValueId],
     ) {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let boxed = self.boxed_fields(code.ty_of(dest));
+        let boxed = self.boxed_fields(ty);
         if repr::in_memory(&slots) {
             self.make_record_in_memory(state, code, dest, ty, fields, &slots, &boxed);
             return;
@@ -1423,11 +1424,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Which of an aggregate's fields `middle::layout` keeps behind an
     /// indirection, in declaration order.
     ///
-    /// The empty answer for anything that is not a struct, which is what the
-    /// callers want: an enum's variants are laid out per variant and a scalar
-    /// has no fields at all.
-    fn boxed_fields(&mut self, ty: ir::Type) -> Vec<bool> {
-        let owner = self.agg_ty(ty);
+    fn boxed_fields(&mut self, ty: ir::RecTy) -> Vec<bool> {
+        let owner = self.program.type_info(ty.id()).ty;
         let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
         fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
     }
@@ -1538,7 +1536,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
             let at = self.reprs.of(self.program, id).layout.field(index);
             let boxed = self
-                .boxed_fields(code.ty_of(agg))
+                .boxed_fields(ty)
                 .get(index)
                 .copied()
                 .unwrap_or(false);
@@ -1551,7 +1549,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
         if self
-            .boxed_fields(code.ty_of(agg))
+            .boxed_fields(ty)
             .get(index)
             .copied()
             .unwrap_or(false)
@@ -2225,12 +2223,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn array_set(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         array: ir::ValueId,
+        list: ir::ListTy,
         index: ir::ValueId,
         value: ir::ValueId,
     ) {
-        let list = list_ty(code.ty_of(array));
         let read = self.element_at(state, array, list, index);
         let (stride, slots, align) = {
             let r = self.reprs.of_ty(&read.element);
@@ -3194,9 +3191,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `x` being a payload of variant `k` says `w` is variant `k` too.
     fn cancelled_counts(
         &mut self,
-        code: &ir::Code,
         insts: &[ir::Inst],
-        projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
+        projections: &Map<usize, Projection>,
     ) -> Vec<bool> {
         let mut cancelled: Set<usize> = Set::default();
         for (i, inst) in insts.iter().enumerate() {
@@ -3219,7 +3215,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // Neither is taken yet: an earlier pair's `incref` stopped at this
             // one, which is not a `decref`.
             let j = after.saturating_add(k);
-            if *x == w || self.holds_only(code, *x, w, projections) {
+            if *x == w || self.holds_only(*x, w, projections) {
                 cancelled.extend([i, j]);
             }
         }
@@ -3229,19 +3225,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Whether `x` is a field of `w` that holds every count `w` holds.
     fn holds_only(
         &mut self,
-        code: &ir::Code,
         x: ir::ValueId,
         w: ir::ValueId,
-        projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
+        projections: &Map<usize, Projection>,
     ) -> bool {
-        let Some(&(agg, variant, index)) = projections.get(&x.index()) else {
+        let Some(&(agg, id, variant, index)) = projections.get(&x.index()) else {
             return false;
         };
         if agg != w {
             return false;
         }
-        // `w` is released, so counted, so an aggregate; `x` is one of its fields.
-        let owner = self.agg_ty(code.ty_of(w));
+        // `x` is one of `w`'s fields.
+        let owner = self.program.type_info(id).ty;
         let fields = match variant {
             None => types::field_types(self.tables, &owner),
             Some(v) => types::variant_types(self.tables, &owner, v as usize),
@@ -8489,9 +8484,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    pub fn entry_point(&mut self, main: FuncIdx) {
-        let func = self.func(main);
-        let callee = self.declare(main);
+    pub fn entry_point(&mut self, main: ir::Main) {
+        let callee = self.declare(main.func);
         let i32t = self.ctx.i32_type();
         let (shim, b) = self.main_shim();
         self.declare_values_may_cross_tasks(b);
@@ -8508,7 +8502,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // layout table like every other enum's, so a change to the encoding
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
-        let e = enum_ty(func.sig.ret);
+        let e = main.ret;
         let err_offsets = self
             .reprs
             .of(self.program, e.id())
@@ -8869,7 +8863,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> ir::PerValue<bool> {
                         set(&mut based, *dest, false, &mut changed);
                     }
                     ir::Inst::GetField { dest, .. } | ir::Inst::GetPayload { dest, .. }
-                        if boxes.unboxes(code, inst) =>
+                        if boxes.unboxes(inst) =>
                     {
                         set(&mut based, *dest, false, &mut changed);
                     }
@@ -8941,16 +8935,16 @@ impl<'a> Boxes<'a> {
     }
 
     /// Whether a `MakeStruct` or `MakeEnum` puts a member in a box.
-    fn boxes(&self, code: &ir::Code, inst: &ir::Inst) -> bool {
+    fn boxes(&self, inst: &ir::Inst) -> bool {
         match inst {
-            ir::Inst::MakeStruct { dest, .. } => {
-                let owner = self.owner(code, *dest);
+            ir::Inst::MakeStruct { ty, .. } => {
+                let owner = self.program.type_info(ty.id()).ty;
                 types::field_types(self.tables, &owner)
                     .iter()
                     .any(|f| self.layouts.boxes(&owner, f))
             }
-            ir::Inst::MakeEnum { dest, variant, .. } => {
-                let owner = self.owner(code, *dest);
+            ir::Inst::MakeEnum { ty, variant, .. } => {
+                let owner = self.program.type_info(ty.id()).ty;
                 types::variant_types(self.tables, &owner, *variant as usize)
                     .iter()
                     .any(|f| self.layouts.boxes(&owner, f))
@@ -8960,18 +8954,15 @@ impl<'a> Boxes<'a> {
     }
 
     /// Whether a `GetField` or `GetPayload` reads a member out of its box.
-    fn unboxes(&self, code: &ir::Code, inst: &ir::Inst) -> bool {
-        let (agg, variant, index) = match inst {
-            ir::Inst::GetField { agg, index, .. } => (*agg, None, *index),
+    fn unboxes(&self, inst: &ir::Inst) -> bool {
+        let (id, variant, index) = match inst {
+            ir::Inst::GetField { ty, index, .. } => (ty.id(), None, *index),
             ir::Inst::GetPayload {
-                agg,
-                variant,
-                index,
-                ..
-            } => (*agg, Some(*variant), *index),
+                ty, variant, index, ..
+            } => (ty.id(), Some(*variant), *index),
             _ => return false,
         };
-        let owner = self.owner(code, agg);
+        let owner = self.program.type_info(id).ty;
         let fields = match variant {
             None => types::field_types(self.tables, &owner),
             Some(v) => types::variant_types(self.tables, &owner, v as usize),
@@ -8980,34 +8971,33 @@ impl<'a> Boxes<'a> {
             .get(index as usize)
             .is_some_and(|f| self.layouts.boxes(&owner, f))
     }
-
-    /// The type of `v`, a struct or an enum: what a projection reads and what
-    /// a constructor builds.
-    fn owner(&self, code: &ir::Code, v: ir::ValueId) -> Ty {
-        let id = agg(code.ty_of(v));
-        self.program.type_info(id).ty
-    }
 }
 
-/// Every `GetField` and `GetPayload` in a body, by the value it defines: the
-/// aggregate, the variant for a payload, and the field.
-fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
+/// One `GetField` or `GetPayload`: the aggregate, its type, the variant for a
+/// payload, and the field.
+type Projection = (ir::ValueId, ir::TypeId, Option<u32>, u32);
+
+/// Every `GetField` and `GetPayload` in a body, by the value it defines.
+fn projections(code: &ir::Code) -> Map<usize, Projection> {
     let mut out = Map::default();
     for inst in code.blocks().iter().flat_map(|b| &b.insts) {
         match inst {
             ir::Inst::GetField {
-                dest, agg, index, ..
+                dest,
+                agg,
+                ty,
+                index,
             } => {
-                out.insert(dest.index(), (*agg, None, *index));
+                out.insert(dest.index(), (*agg, ty.id(), None, *index));
             }
             ir::Inst::GetPayload {
                 dest,
                 agg,
+                ty,
                 variant,
                 index,
-                ..
             } => {
-                out.insert(dest.index(), (*agg, Some(*variant), *index));
+                out.insert(dest.index(), (*agg, ty.id(), Some(*variant), *index));
             }
             _ => {}
         }
@@ -9055,14 +9045,14 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                 // A struct or a variant with a member behind a box allocates
                 // the box (`Unit::make_record`, `Unit::make_enum`).
                 ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. } => {
-                    if boxes.boxes(code, inst) {
+                    if boxes.boxes(inst) {
                         o.allocates = true;
                     }
                 }
                 // Reading a boxed member loads out of the box, which is
                 // argument memory only when the box is a parameter's.
                 ir::Inst::GetField { agg, .. } | ir::Inst::GetPayload { agg, .. } => {
-                    if boxes.unboxes(code, inst) && !from_args(agg) {
+                    if boxes.unboxes(inst) && !from_args(agg) {
                         o.reads_far = true;
                     }
                 }
@@ -9316,6 +9306,7 @@ mod cycles {
             cell_equal: Default::default(),
             intrinsics: Default::default(),
             runtimes: Default::default(),
+            roots: ir::Roots::Tests(Vec::new()),
         }
     }
 

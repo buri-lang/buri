@@ -117,6 +117,7 @@ mod tests {
             cell_equal: Default::default(),
             intrinsics: Default::default(),
             runtimes: Default::default(),
+            roots: crate::compiler::middle::ir::Roots::Tests(Vec::new()),
         };
         assert_eq!(
             named_elsewhere(&program).as_slice(),

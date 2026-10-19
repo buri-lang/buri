@@ -161,7 +161,7 @@ use crate::compiler::backend::{
     no_implementation, Backend, Emitted, Native, Options, Target, Units,
 };
 use crate::compiler::middle::layout::{EnumRepr, Layouts};
-use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
+use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::middle::{ir, lower};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables};
@@ -411,7 +411,7 @@ impl Native for Stencil {
     /// shape `llvm/mod.rs::emit_units` has.
     fn emit_units(
         &mut self,
-        program: &Program,
+        _: &Program,
         tables: &Tables,
         opts: &Options<'_>,
         lowered: &ir::Program,
@@ -429,10 +429,7 @@ impl Native for Stencil {
         if cfg!(debug_assertions) {
             ir::verify(lowered);
         }
-        let root = match &program.roots {
-            ProgramRoots::Main(idx) => Root::Main(*idx),
-            ProgramRoots::Tests(tests) => Root::Tests(tests.iter().map(|t| t.func).collect()),
-        };
+        let root = &lowered.roots;
         let members: Vec<&[FuncIdx]> = lowered.units.iter().map(|u| u.funcs.as_slice()).collect();
 
         // Whole-program, and therefore computed here rather than inside the
@@ -450,7 +447,7 @@ impl Native for Stencil {
             routes,
             tables,
             frames: &frames,
-            root: &root,
+            root,
             target,
             shares: runtime::shares_counts(lowered),
         };
@@ -550,12 +547,6 @@ impl Native for Stencil {
     }
 }
 
-/// Which root a program has, with the indices resolved.
-enum Root {
-    Main(FuncIdx),
-    Tests(Vec<FuncIdx>),
-}
-
 fn one(message: String) -> Diagnostics {
     let mut diags = Diagnostics::new();
     diags.push(Diagnostic::error(Span::NONE, message));
@@ -644,7 +635,7 @@ struct Whole<'a> {
     routes: &'a route::Routes<'a>,
     tables: &'a Tables,
     frames: &'a Dense<FuncIdx, jit::FrameSig>,
-    root: &'a Root,
+    root: &'a ir::Roots,
     target: abi::StencilTarget,
     /// `runtime::shares_counts`: whether the program can fan out, so its
     /// counts read `buri_rt_shared_mask` and its entry point says so.
@@ -858,18 +849,18 @@ fn assemble_unit(
     // The one fact an entry point states that no `Func` in it carries.
     let marking = asm::Marking::of(shares);
     match root {
-        Root::Main(idx) if members.contains(idx) => {
-            let sym = jit::symbol_of(program, *idx);
+        ir::Roots::Main(main) if members.contains(&main.func) => {
+            let sym = jit::symbol_of(program, main.func);
             shims.push((
                 String::from(ENTRY_SYMBOL),
-                asm::program_entry(target, sym, main_result(program, tables, *idx), marking),
+                asm::program_entry(target, sym, main_result(program, tables, main.ret), marking),
             ));
             shims.push((
                 String::from(task_thread::MAIN_ENTRY),
-                thread_door(target, frames, *idx, sym),
+                thread_door(target, frames, main.func, sym),
             ));
         }
-        Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
+        ir::Roots::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
                 .iter()
                 .map(|i| String::from(jit::symbol_of(program, *i)))
@@ -1271,9 +1262,7 @@ const STACK: usize = 2;
 /// Where a `main` returning `Result<(), Str>` keeps its answer.
 ///
 /// Read off `middle::layout` here so that `asm.rs` never learns a layout rule.
-fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::MainResult {
-    let f = program.funcs.get(idx);
-    let e = jit::enum_ty(f.sig.ret);
+fn main_result(program: &ir::Program, tables: &Tables, e: ir::EnumTy) -> asm::MainResult {
     let mut layouts = Layouts::new(tables);
     let l = layouts.of_enum(&program.types.enum_head(e));
     let (repr, variants) = (&l.repr, &l.variants);

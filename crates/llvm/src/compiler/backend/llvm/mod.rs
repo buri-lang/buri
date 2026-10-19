@@ -229,7 +229,7 @@ impl Native for Llvm {
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let counted = classifier(program);
-        let root = root_of(program);
+        let root = root_of(lowered);
         emit_selected(
             lowered,
             routes,
@@ -281,7 +281,7 @@ impl Llvm {
             &routes,
             tables,
             opts,
-            root_of(program),
+            root_of(&lowered),
             Units::Only(&only),
             &counted,
             For::reader(&lowered),
@@ -296,24 +296,22 @@ impl Llvm {
     }
 }
 
-/// The root a monomorphized program has, in the shape the unit loop needs.
-fn root_of(program: &monomorphize::Program) -> Option<Root> {
-    Some(match &program.roots {
-        monomorphize::ProgramRoots::Main(idx) => Root::Main(*idx),
-        monomorphize::ProgramRoots::Tests(tests) => {
-            Root::Tests(tests.iter().map(|t| t.func).collect())
-        }
+/// The root a lowered program has, in the shape the unit loop needs.
+fn root_of(lowered: &ir::Program) -> Option<Root> {
+    Some(match &lowered.roots {
+        ir::Roots::Main(main) => Root::Main(*main),
+        ir::Roots::Tests(tests) => Root::Tests(tests.clone()),
     })
 }
 
 /// Which root this program has, with the function indices resolved.
 ///
-/// `monomorphize::ProgramRoots` already says there are exactly two cases, and
+/// `ir::Roots` already says there are exactly two cases, and
 /// `stencil/mod.rs` names the same two for the same reason: a binary's `main`
 /// and a test binary's list of `test` blocks are two different entry points and
 /// only one of them exists in any program.
 enum Root {
-    Main(FuncIdx),
+    Main(ir::Main),
     Tests(Vec<FuncIdx>),
 }
 
@@ -324,7 +322,7 @@ fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
         x.unit == unit && x.code().is_some()
     };
     match root {
-        Root::Main(e) => here(*e),
+        Root::Main(e) => here(e.func),
         Root::Tests(tests) => tests.first().copied().is_some_and(here),
     }
 }
@@ -474,7 +472,7 @@ fn emit_selected(
         emit::observe(program, &emit::Boxes::new(program, tables, &layouts))
     };
     let roots = match &root {
-        Some(Root::Main(e)) => std::slice::from_ref(e),
+        Some(Root::Main(e)) => std::slice::from_ref(&e.func),
         Some(Root::Tests(tests)) => tests.as_slice(),
         None => &[],
     };
@@ -630,7 +628,7 @@ fn emit_unit(
                 // for the same reason the stencil backend puts it there:
                 // they are the two ways into this program's Buri code and
                 // they name the same root.
-                emitter.thread_door(*e, task_thread::MAIN_ENTRY);
+                emitter.thread_door(e.func, task_thread::MAIN_ENTRY);
             }
             Some(Root::Tests(tests)) => {
                 emitter.test_entry_point(tests);

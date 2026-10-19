@@ -529,10 +529,11 @@ impl<'a> Jit<'a> {
             }
             Inst::ArraySet {
                 array,
+                ty,
                 index,
                 value,
             } => {
-                let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
+                let (stride, w, _) = self.list_elem(prog, *ty);
                 self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
             }
             // `elemalloc` zeroes the block, so the elements past `len` are the

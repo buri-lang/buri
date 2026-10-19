@@ -693,9 +693,10 @@ pub enum Inst {
     },
     /// Stores `value` as element `index` of a block an [`Inst::ArrayAlloc`]
     /// in this function made, which nothing else holds yet. The value's counts
-    /// move into the block.
+    /// move into the block. `ty` is the list the `ArrayAlloc` made.
     ArraySet {
         array: ValueId,
+        ty: ListTy,
         index: ValueId,
         value: ValueId,
     },
@@ -918,6 +919,7 @@ impl Inst {
                 array,
                 index,
                 value,
+                ..
             } => {
                 out.push(*array);
                 out.push(*index);
@@ -1224,6 +1226,7 @@ impl Code {
                 | Inst::GetTag { ty, .. } => *ty = remap.enum_ty(*ty),
                 Inst::ArrayGet { ty, .. }
                 | Inst::ArrayAlloc { ty, .. }
+                | Inst::ArraySet { ty, .. }
                 | Inst::ArrayPrefix { ty, .. } => *ty = remap.list(*ty),
                 _ => {}
             }
@@ -1493,6 +1496,23 @@ pub struct Program {
     /// differently: a call is emitted where it stands, and a runtime body is a
     /// function.
     pub runtimes: Dense<RuntimeId, Box<str>>,
+    /// Where the program starts.
+    pub roots: Roots,
+}
+
+/// Where a program starts: a binary's `main`, or a test binary's `test`
+/// blocks. Only one of them exists in any program.
+#[derive(Clone, Debug)]
+pub enum Roots {
+    Main(Main),
+    Tests(Vec<FuncIdx>),
+}
+
+/// A binary's `main`, and the `Result<(), Str>` it answers.
+#[derive(Clone, Copy, Debug)]
+pub struct Main {
+    pub func: FuncIdx,
+    pub ret: EnumTy,
 }
 
 impl Program {
@@ -2121,6 +2141,7 @@ impl Program {
                 array,
                 index,
                 value: v,
+                ..
             } => {
                 out.push_str("set ");
                 pair(out, *array, *index);
@@ -2385,6 +2406,7 @@ mod tests {
             cell_equal: HashMap::default(),
             intrinsics: Dense::default(),
             runtimes: Dense::default(),
+            roots: Roots::Tests(Vec::new()),
         }
     }
 

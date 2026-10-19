@@ -376,6 +376,7 @@ impl FnLower<'_> {
                 let r = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
                 self.push(Inst::ArraySet {
                     array: out,
+                    ty: out_l,
                     index: w.i,
                     value: r,
                 });
@@ -408,6 +409,7 @@ impl FnLower<'_> {
                 }
                 self.push(Inst::ArraySet {
                     array: out,
+                    ty: out_l,
                     index: k,
                     value: e.value,
                 });
@@ -470,6 +472,7 @@ impl FnLower<'_> {
                 });
                 self.push(Inst::ArraySet {
                     array: out,
+                    ty: out_l,
                     index: k,
                     value: x,
                 });
@@ -688,10 +691,10 @@ impl FnLower<'_> {
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let n = self.shorter(la, lb);
-        let t = self.list_of(pair);
+        let out_l = self.list_of(pair);
         let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
             dest,
-            ty: t,
+            ty: out_l,
             len: n,
         });
         let w = self.walk(n, &[]);
@@ -722,6 +725,7 @@ impl FnLower<'_> {
         });
         self.push(Inst::ArraySet {
             array: out,
+            ty: out_l,
             index: w.i,
             value: p,
         });
@@ -756,10 +760,10 @@ impl FnLower<'_> {
         self.again(&sizing, vec![grown]);
         self.end(&sizing);
 
-        let t = self.list_of(elem);
+        let out_l = self.list_of(elem);
         let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
             dest,
-            ty: t,
+            ty: out_l,
             len: total,
         });
         let zero = self.int(Type::I64, 0);
@@ -787,6 +791,7 @@ impl FnLower<'_> {
         let at = self.add(k, one.i);
         self.push(Inst::ArraySet {
             array: out,
+            ty: out_l,
             index: at,
             value: e,
         });
@@ -1009,10 +1014,10 @@ impl FnLower<'_> {
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
         let callee = self.callee(f, step, 1);
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
-        let t = self.list_of(*ret);
+        let out_l = self.list_of(*ret);
         let strs = self.emit(shown_t, |dest| Inst::ArrayAlloc {
             dest,
-            ty: t,
+            ty: out_l,
             len: n,
         });
         let w = self.walk(n, &[]);
@@ -1034,6 +1039,7 @@ impl FnLower<'_> {
         );
         self.push(Inst::ArraySet {
             array: strs,
+            ty: out_l,
             index: w.i,
             value: s,
         });
@@ -1172,6 +1178,7 @@ impl FnLower<'_> {
             let e = get(self, xs, copy.i);
             self.push(Inst::ArraySet {
                 array: a0,
+                ty: list,
                 index: to,
                 value: e,
             });
@@ -1182,6 +1189,7 @@ impl FnLower<'_> {
                 self.push(Inst::IncRef { value: e });
                 self.push(Inst::ArraySet {
                     array: b0,
+                    ty: list,
                     index: to,
                     value: e,
                 });
@@ -1243,6 +1251,7 @@ impl FnLower<'_> {
         self.cur = moved;
         self.push(Inst::ArraySet {
             array: a0,
+            ty: list,
             index: j,
             value: y,
         });
@@ -1251,6 +1260,7 @@ impl FnLower<'_> {
         let k = *self.code.get(place).params.first()?;
         self.push(Inst::ArraySet {
             array: a0,
+            ty: list,
             index: k,
             value: x,
         });
@@ -1352,6 +1362,7 @@ impl FnLower<'_> {
         let dest_at = self.add(to, moving.i);
         self.push(Inst::ArraySet {
             array: b,
+            ty: list,
             index: dest_at,
             value: e,
         });
@@ -1386,6 +1397,7 @@ impl FnLower<'_> {
             let e = get(self, a, from);
             self.push(Inst::ArraySet {
                 array: b,
+                ty: list,
                 index: out,
                 value: e,
             });
