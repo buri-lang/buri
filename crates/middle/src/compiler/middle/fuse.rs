@@ -350,6 +350,7 @@ impl Fuse<'_> {
             kind: FuncKind::Intrinsic(combinator.key().to_string()),
             ret,
             desc: None,
+            env: false,
             span,
         })
     }
@@ -524,6 +525,7 @@ mod tests {
             kind: FuncKind::Intrinsic(key.to_string()),
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }
     }
@@ -544,6 +546,7 @@ mod tests {
             kind: FuncKind::Body(body),
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }];
         funcs.extend(keys.iter().map(|k| intrinsic(k)));

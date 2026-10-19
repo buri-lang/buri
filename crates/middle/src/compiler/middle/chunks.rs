@@ -246,6 +246,7 @@ mod tests {
             kind,
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }
     }

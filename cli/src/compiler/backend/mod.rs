@@ -542,6 +542,7 @@ mod tests {
                 kind: FuncKind::Intrinsic(key.to_string()),
                 ret: Ty::UNIT,
                 desc: None,
+                env: false,
                 span: Span::default(),
             })
             .collect::<crate::compiler::semantics::layered::Dense<_, _>>();

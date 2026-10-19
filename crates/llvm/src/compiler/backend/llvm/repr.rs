@@ -61,8 +61,7 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
     Cycles, EnumLayout, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
-use crate::compiler::semantics::types::{Tables, Ty, TyKind};
-use crate::diagnostics::Invariant;
+use crate::compiler::semantics::types::{Tables, Ty};
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -298,9 +297,8 @@ impl<'a> Reprs<'a> {
                 // second niche), so its slots are the payload's — and every
                 // count in them becomes nullable, because `.None` is the null
                 // this niche spends.
-                EnumRepr::Niche { .. } => {
-                    let payload = self.option_payload(ty).or_ice("a niche is an `Option`'s");
-                    self.place(ty, &payload, 0, &mut slots, &mut counted);
+                EnumRepr::Niche { payload, .. } => {
+                    self.place(ty, payload, 0, &mut slots, &mut counted);
                     for c in &mut counted {
                         if c.is_some() {
                             *c = Some(Counted::Nullable);
@@ -398,14 +396,6 @@ impl<'a> Reprs<'a> {
     /// See `Counts::weight`.
     pub fn rc_weight(&mut self, ty: &Ty) -> u32 {
         self.counts.weight(self.tables, &mut self.layouts, ty)
-    }
-
-    /// `T` of an `Option<T>` that took the niche.
-    fn option_payload(&self, ty: &Ty) -> Option<Ty> {
-        match ty.kind() {
-            TyKind::Con(_, args) => args.first().cloned(),
-            _ => None,
-        }
     }
 }
 

@@ -184,6 +184,7 @@ fn convert(e: &mut Expr, parent: &Parent, funcs: &mut Dense<FuncIdx, Func>) {
         kind: FuncKind::Body(inner),
         ret,
         desc: None,
+        env: true,
         span: e.span,
     });
 
@@ -286,6 +287,7 @@ mod tests {
                 kind: FuncKind::Body(body),
                 ret: Ty::UNIT,
                 desc: None,
+                env: false,
                 span: Span::default(),
             }]
             .into_iter()

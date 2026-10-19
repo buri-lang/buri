@@ -190,13 +190,19 @@ kind_id!(
     "An enum: a tag, or a niche, and each variant's fields."
 );
 kind_id!(ListTy, "A list, `[T]`.");
-kind_id!(FnTy, "A closure: a function and its environment.");
 
-/// What a function type is made of: its parameters and its result.
-#[derive(Clone, Copy, Debug)]
-pub struct FnSig {
-    pub params: &'static [Ty],
-    pub ret: &'static Ty,
+/// A closure: a function and its environment.
+///
+/// Only [`TypeList::ty`] makes one, from the kind the interner recorded for the
+/// type, so the id and its kind always agree.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct FnTy(TypeId);
+
+impl FnTy {
+    /// The interned type.
+    pub fn id(self) -> TypeId {
+        self.0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -258,7 +264,7 @@ enum Kind {
     Record,
     Enum(u32),
     List(u32),
-    Fn(u32),
+    Fn,
 }
 
 impl Type {
@@ -302,17 +308,15 @@ pub struct TypeInfo {
 
 /// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
 ///
-/// What only one kind has (an enum's constructor, a list's element, a
-/// function's signature) is kept in a row of its own, read off the source type
-/// once, when the type is interned. The kind's id carries its row, so a backend
-/// holding an [`EnumTy`] reads its head without asking the source type again
-/// what it is.
+/// What only one kind has (an enum's constructor, a list's element) is kept
+/// in a row of its own, read off the source type once, when the type is
+/// interned. The kind's id carries its row, so a backend holding an
+/// [`EnumTy`] reads its head without asking the source type again what it is.
 #[derive(Default)]
 pub struct TypeList {
     infos: Vec<TypeInfo>,
     enums: Vec<EnumHead>,
     lists: Vec<Ty>,
-    fns: Vec<FnSig>,
 }
 
 /// The row the next push to `rows` makes.
@@ -333,11 +337,7 @@ impl TypeList {
                 self.lists.push(*elem);
                 Kind::List(row)
             }
-            TyKind::Fn(params, ret) => {
-                let row = next_row(&self.fns);
-                self.fns.push(FnSig { params, ret });
-                Kind::Fn(row)
-            }
+            TyKind::Fn(..) => Kind::Fn,
             TyKind::Con(con, args) if matches!(tables.tycon(*con).def, TyDef::Enum { .. }) => {
                 let row = next_row(&self.enums);
                 self.enums.push(EnumHead {
@@ -364,7 +364,7 @@ impl TypeList {
             Kind::Record => Agg::Record(RecTy(id)),
             Kind::Enum(row) => Agg::Enum(EnumTy { id, row }),
             Kind::List(row) => Agg::List(ListTy { id, row }),
-            Kind::Fn(row) => Agg::Fn(FnTy { id, row }),
+            Kind::Fn => Agg::Fn(FnTy(id)),
         }
     }
 
@@ -381,11 +381,6 @@ impl TypeList {
     /// A list's element type.
     pub fn elem(&self, l: ListTy) -> Ty {
         self.lists[l.row as usize]
-    }
-
-    /// A closure's parameters and result.
-    pub fn sig(&self, f: FnTy) -> FnSig {
-        self.fns[f.row as usize]
     }
 
     pub fn len(&self) -> usize {
@@ -1350,6 +1345,9 @@ pub struct Func {
     pub debug_name: String,
     pub sig: Signature,
     pub facts: Facts,
+    /// Whether the first parameter is an environment, which a closure's
+    /// `env` word holds: `closures` lifted this function out of a lambda.
+    pub env: bool,
     /// The codegen unit this function belongs to: an index into
     /// [`Program::units`] (ARCHITECTURE.md §5).
     pub unit: u32,
@@ -2288,6 +2286,7 @@ mod tests {
                     purity: Purity::Effectful,
                     can_abort: true,
                 },
+                env: false,
                 unit: 0,
                 body: Body::Code(code),
                 span: Span::NONE,

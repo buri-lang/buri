@@ -83,16 +83,11 @@ use crate::compiler::semantics::types::{FuncIdx, Ty};
 pub enum Helper {
     /// `code(fp)` for a closure over `func`.
     ///
-    /// `args` is how many parameters the closure's *type* declares, which is
-    /// what separates a leading environment parameter from a value one: a
-    /// capture-free lambda still has the first, of the unit type, and a plain
-    /// `FuncRef` has none at all. `boxed` says whether the `env` word holds a
-    /// block to read the record out of.
-    Thunk {
-        func: FuncIdx,
-        args: u32,
-        boxed: bool,
-    },
+    /// The callee's [`ir::Func::env`] says whether it takes a leading
+    /// environment parameter: a lifted lambda does, even one that captures
+    /// nothing and so takes a unit, and a plain `FuncRef` doesn't. `boxed` says
+    /// whether the `env` word holds a block to read the record out of.
+    Thunk { func: FuncIdx, boxed: bool },
     /// `op` over one value of a type, as `fn(*mut u8)`. A copy replaces every
     /// counted pointer in the value, in place, by a pointer to a fresh block.
     Walk { ty: Ty, op: Op },
@@ -329,7 +324,7 @@ impl Jit<'_> {
         self.region.align_code(4);
         let at = self.region.code_addr();
         match h {
-            Helper::Thunk { func, args, boxed } => self.thunk(prog, *func, *args, *boxed),
+            Helper::Thunk { func, boxed } => self.thunk(prog, *func, *boxed),
             Helper::Walk { ty, op } => self.walk_glue(*ty, *op),
             Helper::Elems { ty, op } => self.elems_glue(*ty, *op),
             Helper::Env { op } => self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 }),
@@ -1494,13 +1489,13 @@ impl Jit<'_> {
     ///  * an argument the callee **borrows** is released here, after the call;
     ///  * the environment record is **retained** where the callee owns it,
     ///    because those bytes belong to the closure's block.
-    fn thunk(&mut self, prog: &ir::Program, func: FuncIdx, args: u32, boxed: bool) {
+    fn thunk(&mut self, prog: &ir::Program, func: FuncIdx, boxed: bool) {
         let f = prog.funcs.get(func);
         let sig_params = f.sig.params.clone();
         let sig_ret = f.sig.ret;
         let facts = f.facts.params.clone();
-        let skip = sig_params.len().saturating_sub(args as usize);
-        let env = skip > 0;
+        let env = f.env;
+        let skip = usize::from(env);
 
         let ret_n = self.slot_bytes_of(prog, sig_ret);
         let mut at = RET + ret_n;

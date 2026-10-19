@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, copyless_test, enum_ty, fn_ty, Bind, Fn2, Jit, Plan, RET, V};
+use super::jit::{agg_of, copyless_test, enum_ty, Bind, Fn2, Jit, Plan, RET, V};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
@@ -420,14 +420,8 @@ impl<'a> Jit<'a> {
                 // (`let f = identity<Int>`) does not.
                 // `llvm/emit.rs::make_closure` builds the same two words.
                 let d = st.at(*dest);
-                // How many parameters the closure's *type* declares is what
-                // separates the environment parameter from a value one: a
-                // capture-free lambda still has a leading parameter, of the
-                // unit type, and a plain `FuncRef` has none at all.
-                let args = prog.types.sig(fn_ty(code.ty_of(*dest))).params.len();
                 let thunk = self.helper(super::glue::Helper::Thunk {
                     func: *func,
-                    args: args as u32,
                     boxed: env.is_some(),
                 });
                 self.emit(
@@ -613,7 +607,7 @@ impl<'a> Jit<'a> {
                 self.imm_w(d, tag.size(), variant as u64);
                 self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
             }
-            EnumRepr::Niche { null_at } => {
+            EnumRepr::Niche { null_at, .. } => {
                 if offs.is_empty() {
                     // The null variant: VALUE-MODEL.md §6's second niche.
                     self.imm_to(d + null_at.bytes(), 0);
@@ -788,7 +782,7 @@ impl<'a> Jit<'a> {
         let (repr, variants) = (&l.repr, &l.variants);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => self.load_w(d, a, tag.size()),
-            EnumRepr::Niche { null_at } => {
+            EnumRepr::Niche { null_at, .. } => {
                 let null_variant = variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u64;
                 let other = u64::from(null_variant == 0);
                 self.emit(
@@ -1694,7 +1688,7 @@ impl<'a> Jit<'a> {
         let (repr, variants) = (&l.repr, &l.variants);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),
-            EnumRepr::Niche { null_at } => (
+            EnumRepr::Niche { null_at, .. } => (
                 base + null_at.bytes(),
                 variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u32,
                 true,

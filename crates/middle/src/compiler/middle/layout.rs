@@ -367,8 +367,8 @@ pub enum EnumRepr {
     Bare { tag: Scalar },
     /// `Option<T>` where `T` carries a pointer that is never null: the value
     /// is a `T`, and `.None` is that pointer set to null (§6, second niche).
-    /// `null_at` is its offset.
-    Niche { null_at: Words },
+    /// `null_at` is its offset, and `payload` is `T`.
+    Niche { null_at: Words, payload: Ty },
     /// `tag ++ payload`. The tag is at offset 0 and holds the variant's index
     /// in declaration order; the payload area starts at `payload`.
     Tagged { tag: Scalar, payload: u32 },
@@ -912,7 +912,7 @@ impl<'a> Layouts<'a> {
                         size: inner.size,
                         align: inner.align,
                         stride: inner.stride,
-                        repr: EnumRepr::Niche { null_at },
+                        repr: EnumRepr::Niche { null_at, payload },
                         // `.Some`'s payload is the whole value; `.None` has
                         // none.
                         variants: vec![vec![At::ZERO], Vec::new()],
@@ -1350,7 +1350,7 @@ mod tests {
                         EnumRepr::Bare { tag } => {
                             let _ = writeln!(out, "  enum bare tag {}", tag.name());
                         }
-                        EnumRepr::Niche { null_at } => {
+                        EnumRepr::Niche { null_at, .. } => {
                             let _ = writeln!(
                                 out,
                                 "  enum niche, .None is a null pointer @{}",
@@ -2037,7 +2037,7 @@ mod tests {
         match layout.repr {
             // `base` is null for a literal, so the niche has to be `ptr`.
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at },
+                repr: EnumRepr::Niche { null_at, .. },
                 ref variants,
             } => {
                 assert_eq!(null_at, 8);
@@ -2077,7 +2077,7 @@ mod tests {
         let layout = l.of(at(option, &[pair]));
         match layout.repr {
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at },
+                repr: EnumRepr::Niche { null_at, .. },
                 ..
             } => {
                 // 16 bytes of `[Int]`, then the `Str`'s `ptr` at its offset 8.
@@ -2100,7 +2100,8 @@ mod tests {
             layout.repr,
             Repr::Enum {
                 repr: EnumRepr::Niche {
-                    null_at: Words::ZERO
+                    null_at: Words::ZERO,
+                    ..
                 },
                 ..
             }
@@ -2124,7 +2125,7 @@ mod tests {
         assert!(matches!(
             layout.repr,
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at },
+                repr: EnumRepr::Niche { null_at, .. },
                 ..
             } if null_at == 16
         ));
@@ -2556,7 +2557,8 @@ mod tests {
             layout.repr,
             Repr::Enum {
                 repr: EnumRepr::Niche {
-                    null_at: Words::ZERO
+                    null_at: Words::ZERO,
+                    ..
                 },
                 ..
             }

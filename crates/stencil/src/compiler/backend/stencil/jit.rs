@@ -633,14 +633,6 @@ pub(crate) fn enum_ty(t: ir::Type) -> ir::EnumTy {
     }
 }
 
-/// The function type an IR value's type names: a closure's (`middle/ir.rs`).
-pub(crate) fn fn_ty(t: ir::Type) -> ir::FnTy {
-    match t {
-        ir::Type::Agg(ir::Agg::Fn(f)) => f,
-        _ => crate::diagnostics::ice("the IR gives this value a function type"),
-    }
-}
-
 /// Sets entry `i` of a side table.
 fn put<T>(t: &mut [T], i: usize, x: T) {
     *ent_mut(t, i) = x;

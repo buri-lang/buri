@@ -637,6 +637,7 @@ mod tests {
             },
             ret: Ty::ERROR,
             desc: None,
+            env: false,
             span: span(),
         }
     }

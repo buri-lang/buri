@@ -87,6 +87,7 @@ fn intrinsic_func(name: &str, key: &str) -> Func {
         kind: FuncKind::Intrinsic(key.to_string()),
         ret: Ty::UNIT,
         desc: None,
+        env: false,
         span: Span::default(),
     }
 }
@@ -100,6 +101,7 @@ fn body_func(name: &str, body: Expr) -> Func {
         kind: FuncKind::Body(body),
         ret: Ty::UNIT,
         desc: None,
+        env: false,
         span: Span::default(),
     }
 }

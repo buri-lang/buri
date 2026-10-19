@@ -268,6 +268,7 @@ fn lower_one(
         facts: facts(fplan, dispatch),
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
+        env: f.env,
         sig,
         unit: units.of(i),
         body,

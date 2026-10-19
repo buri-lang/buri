@@ -64,6 +64,9 @@ pub struct Func {
     /// runner's `report` needs one: it renders both values on a failure, and
     /// rendering is the runner's rather than the program's.
     pub desc: Option<usize>,
+    /// Whether the first parameter is an environment: `closures` lifted this
+    /// function out of a lambda, and a closure's `env` word holds it.
+    pub env: bool,
     pub span: Span,
 }
 
@@ -78,6 +81,7 @@ impl Default for Func {
             kind: FuncKind::Unbuilt,
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }
     }
@@ -964,6 +968,7 @@ impl<'a> Monomorphizer<'a> {
             kind: FuncKind::Body(call),
             ret: info.ret,
             desc: None,
+            env: false,
             span,
         })
     }
@@ -1018,6 +1023,7 @@ impl<'a> Monomorphizer<'a> {
             kind: FuncKind::Unbuilt,
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span,
         }
     }
@@ -4078,6 +4084,7 @@ mod tests {
             kind,
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::NONE,
         }
     }
