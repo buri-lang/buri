@@ -20,11 +20,11 @@ crates/js                         985/1018   96.76%         5298/5541   95.61%
 crates/llvm                        548/548  100.00%         7387/7564   97.66%
 crates/middle                    1840/1876   98.08%       14657/15065   97.29%
 crates/project                   1346/1360   98.97%         6325/6493   97.41%
-crates/semantics                 2154/2154  100.00%       13378/13680   97.79%
+crates/semantics                 2154/2154  100.00%       13379/13680   97.80%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
-crates/stencil                   1069/1080   98.98%         8155/8620   94.61%
-crates/syntax                    1210/1212   99.83%         6605/6759   97.72%
-total                          14883/15071   98.75%       96835/99908   96.92%
+crates/stencil                   1070/1080   99.07%         8195/8659   94.64%
+crates/syntax                    1209/1210   99.92%         6607/6761   97.72%
+total                          14883/15069   98.77%       96878/99949   96.93%
 
 cli/src                           branches                      lines         
 build                            1677/1685   99.53%       10739/11023   97.42%
@@ -78,9 +78,9 @@ uncovered          branches           file
         2             76/78   97.44%  cli/src/language_server/file_operations.rs
         2             68/70   97.14%  crates/js/src/compiler/backend/js/park.rs
         2             38/40   95.00%  crates/stencil/src/compiler/backend/stencil/elf.rs
-        2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/mod.rs
+        2             46/48   95.83%  crates/stencil/src/compiler/backend/stencil/mod.rs
         2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/object.rs
-        2           378/380   99.47%  crates/syntax/src/formatting.rs
         1           260/261   99.62%  cli/src/build/actions.rs
         1               1/2   50.00%  cli/src/commands/interrupt.rs
         1             35/36   97.22%  cli/src/commands/lint_cache.rs
+        1             39/40   97.50%  cli/src/commands/query.rs
