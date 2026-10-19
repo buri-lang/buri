@@ -119,6 +119,34 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 64
+
+## What landed
+
+- `Key::Derived` and `Key::DerivedItems` carry a `Derivable`: the trait plus its `Op`. Only `Monomorphizer::derivable` makes one, after checking the trait's name, so `deriving` is total and `derived_name` reads `derive.op.tag()` with no `"derive"` fallback.
+- `unbounded_fn` takes an `Op` and finds its trait by `Op::name`.
+- rc numbers pre-order nodes through a private `Pre` id over `Dense`. `subtree_sizes` and `BodyIndex::go` write a subtree's size back through the id `push` returned.
+- `BodyIndex` records each node's `continue` flag in pre-order as it walks, so the second pass over `continues` is gone.
+
+## Guards
+
+The plan-rule count goes from 58 to 53 (definitions included; 57 to 52 by the prompt's count):
+
+- "only a derivable trait is requested", twice;
+- "`me` was pushed above";
+- "`id` was pushed on the way in";
+- "a `Continue` is a node of the body".
+
+The `map_or("derive", Op::tag)` silent default went with them. No branch was removed.
+
+## Coverage
+
+Base and head measured locally on macOS give byte-identical `compiler-branches.txt` (total 14814/15050, middle 1858/1888).
+
+## Left
+
+See `guard-phase-65.md`: the effect binding needs evidence passing, `continue_` and `release_except` need IR-changing or silent-default fixes, and the `rtcall.rs` invariants need typed runtime-row signatures.
+
 # Guard phase 63
 
 ## What landed
