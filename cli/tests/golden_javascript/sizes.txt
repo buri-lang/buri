@@ -27,6 +27,7 @@ str_match: 2678 bytes artifact, 760 generated
 structs: 3133 bytes artifact, 803 generated
 tail_closure: 4285 bytes artifact, 2850 generated
 tail_mutual: 2702 bytes artifact, 937 generated
+tail_rebound_tuple: 2818 bytes artifact, 1293 generated
 tail_self: 2968 bytes artifact, 1608 generated
 tail_short_circuit: 3272 bytes artifact, 2060 generated
 traits: 2560 bytes artifact, 629 generated
@@ -40,5 +41,5 @@ ui_styles_handed: 50921 bytes artifact, 38987 generated
 ui_theme: 43532 bytes artifact, 12881 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 
-total: 486294 bytes artifact, 161618 generated
+total: 489112 bytes artifact, 162911 generated
 largest function: 10692 bytes, ui_animation/$tree_render
