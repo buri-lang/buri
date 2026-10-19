@@ -59,7 +59,15 @@ unsafe extern "C" {
     fn close(fd: i32) -> i32;
     fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
+    fn sigemptyset(set: *mut u64) -> i32;
+    fn sigaddset(set: *mut u64, sig: i32) -> i32;
+    fn sigprocmask(how: i32, set: *const u64, old: *mut u64) -> i32;
 }
+
+#[cfg(target_os = "macos")]
+const SIG_BLOCK: i32 = 1;
+#[cfg(not(target_os = "macos"))]
+const SIG_BLOCK: i32 = 0;
 
 const F_SETFL: i32 = 4;
 #[cfg(target_os = "macos")]
@@ -74,12 +82,28 @@ const O_NONBLOCK: i32 = 0o4000;
 /// test process has a read end until it's dropped, and a short output fits in
 /// the buffer, so the write can succeed. On macOS, a test thread that spawns
 /// before close-on-exec is set even hands that read end to its own child.
-fn reader_gone(mut cmd: Command, what: &str) -> (ExitStatus, String) {
+fn reader_gone(cmd: Command, what: &str) -> (ExitStatus, String) {
+    reader_gone_with(cmd, what, false)
+}
+
+/// [`reader_gone`], with `SIGPIPE` blocked in the child when `blocked`, as a
+/// parent that blocks it hands it down.
+fn reader_gone_with(mut cmd: Command, what: &str, blocked: bool) -> (ExitStatus, String) {
     use std::os::unix::process::CommandExt as _;
-    // SAFETY: `pipe`, `dup2` and `close` are on POSIX's async-signal-safe list,
-    // the whole of what a `pre_exec` closure may call.
+    // SAFETY: `sigemptyset`, `sigaddset`, `sigprocmask`, `pipe`, `dup2` and
+    // `close` are on POSIX's async-signal-safe list, the whole of what a
+    // `pre_exec` closure may call. The set is as large as Linux's `sigset_t`,
+    // the larger of the two.
     unsafe {
-        cmd.pre_exec(|| {
+        cmd.pre_exec(move || {
+            let mut set = [0u64; 16];
+            if blocked
+                && (sigemptyset(set.as_mut_ptr()) == -1
+                    || sigaddset(set.as_mut_ptr(), SIGPIPE) == -1
+                    || sigprocmask(SIG_BLOCK, set.as_ptr(), std::ptr::null_mut()) == -1)
+            {
+                return Err(std::io::Error::last_os_error());
+            }
             let mut fds = [0; 2];
             if pipe(fds.as_mut_ptr()) == -1 || dup2(fds[1], 1) == -1 {
                 return Err(std::io::Error::last_os_error());
@@ -254,6 +278,27 @@ fn help() {
 #[test]
 fn version() {
     closes_quietly(&["version"]);
+}
+
+/// With `SIGPIPE` blocked, so it can't end the process, a reader that has gone
+/// ends it with 141, the status a shell shows for one `SIGPIPE` ended, and
+/// still quietly. `version` prints with `println!` and `--help` through the
+/// CLI's own writer.
+#[test]
+fn a_reader_gone_under_a_blocked_sigpipe_exits_141() {
+    let scratch = example();
+    for args in [&["version"][..], &["--help"]] {
+        let what = format!("buri {}", args.join(" "));
+        let (status, stderr) = reader_gone_with(buri_in(&scratch, args), &what, true);
+        assert_eq!(
+            status.code(),
+            Some(141),
+            "`{what}` ended {status}:\n{}",
+            indent(&stderr)
+        );
+        quiet(&what, &stderr);
+        assert!(stderr.is_empty(), "`{what}` said:\n{}", indent(&stderr));
+    }
 }
 
 /// A full stdout is an error: one line, exit 2. `version` prints with

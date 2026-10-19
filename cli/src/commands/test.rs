@@ -1323,6 +1323,9 @@ impl Shared {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if painters.iter().any(|(d, _)| d == dir) {
+            drop(painters);
+            #[cfg(feature = "test-hooks")]
+            REFUSED.held();
             return false;
         }
         painters.push((dir.to_string(), slot));
@@ -1344,6 +1347,11 @@ impl Shared {
             .retain(|(d, s)| !((d == dir) & (*s == slot)));
     }
 }
+
+/// Where a test holds `buri test` once a suite has been refused a snapshot
+/// directory another suite is painting into ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static REFUSED: crate::hold::Point = crate::hold::Point::new("refused");
 
 /// Work for the pool. Each one owns what it compiles, so a worker needs no
 /// session.

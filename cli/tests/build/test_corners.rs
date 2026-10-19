@@ -668,3 +668,172 @@ fn a_remembered_verdict_with_no_results_is_run_again() {
         .says("run    test //lib/a")
         .says("1 passed, 0 failed, 0 skipped");
 }
+
+/// Under `--filter`, a suite whose source is missing is reported as missing,
+/// not skipped as a suite the filter left nothing in.
+#[test]
+fn a_filtered_suite_with_a_missing_source_says_so() {
+    let scratch = Scratch::repo("corners-filtered-missing");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/missing.buri\"]\n",
+        &blocks("a", 1),
+    );
+    scratch
+        .run(&["test", "//lib/a", "--filter=nothing"])
+        .exits(1)
+        .says("error: test/missing.buri does not exist [unknown-source]")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+}
+
+/// A suite that asks for the native backend and reaches what it has no body
+/// for is refused with the keys it lacks and what to do, rather than run
+/// anywhere else.
+#[test]
+fn a_suite_that_asks_for_native_and_reaches_a_gap_is_refused() {
+    let scratch = Scratch::repo("corners-asked-native-gap");
+    library(
+        &scratch,
+        "g",
+        "        sources: [\"test/t.buri\"]\n        backends: [NATIVE]\n",
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"core/math\" import * as math;\n\n\
+         test \"logs\" {\n    assert.equal(math.ln(1.0), 0.0);\n}\n",
+    );
+    let run = scratch.run(&["test", "//lib/g"]);
+    run.exits(1);
+    if run.stderr.contains("test-run-unavailable") {
+        return;
+    }
+    run.says("backend has no implementation of math.ln")
+        .says("= fix: declare `test { backends: [JS] }` for this suite")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+}
+
+/// A refusal that points into a comment follows the comment when only the
+/// whitespace before it changes, rather than repeating where it was.
+#[test]
+fn a_refusal_in_a_comment_follows_a_blank_line_added_before_it() {
+    let scratch = Scratch::repo("corners-refusal-moves");
+    let suite = |gap: &str| {
+        format!(
+            "from \"core/testing/assert\" import * as assert;\n{gap}\
+             //! A late module doc.\n\n\
+             test \"t\" {{\n    assert.equal(1, 1);\n}}\n"
+        )
+    };
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &suite(""),
+    );
+    scratch
+        .run(&["test", "//lib/a"])
+        .exits(1)
+        .says("[module-doc-not-first]")
+        .says("--> lib/a/test/t.buri:2:1");
+    scratch.write("lib/a/test/t.buri", &suite("\n"));
+    scratch
+        .run(&["test", "//lib/a"])
+        .exits(1)
+        .says("[module-doc-not-first]")
+        .says("--> lib/a/test/t.buri:3:1");
+}
+
+/// `//lib/p`: a library and a binary whose suites both paint goldens into the
+/// package's one snapshot directory, with `extra` in each `test` block.
+fn painting_package(name: &str, extra: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    let suite =
+        |source: &str| format!("  test {{\n    sources: [\"test/{source}.buri\"]\n{extra}  }}\n");
+    scratch.write(
+        "lib/p/BUILD.buri",
+        &format!(
+            "library {{\n  sources: []\n{}}}\n\nbinary {{\n  outputs: [{{ platform: \"node\" }}]\n{}}}\n",
+            suite("a"),
+            suite("b"),
+        ),
+    );
+    scratch.write("lib/p/lib.buri", "// The package is its suites.\n");
+    scratch.write(
+        "lib/p/main.buri",
+        "from \"node\" import { NodeHost };\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n  .Ok(())\n}\n",
+    );
+    for source in ["a", "b"] {
+        scratch.write(
+            &format!("lib/p/test/{source}.buri"),
+            &format!(
+                "from \"platform/effect\" import {{ Allocator, Ui }};\n\
+                 from \"platform/effect/testing\" import {{ alloc, headless, snapshot }};\n\
+                 from \"ui/node\" import * as ui;\n\n\
+                 test \"panel {source}\" {{\n  \
+                   let ctx = context {{ Allocator: alloc(), Ui: headless() }};\n  \
+                   snapshot(\n    ctx,\n    \"panel-{source}\",\n    \
+                     ui.text({{ content: .Const(\"{source}\"), headingLevel: .None, styles: .Some([]) }}),\n    \
+                     .Hover,\n    [],\n  );\n}}\n"
+            ),
+        );
+    }
+    scratch
+}
+
+/// Two suites that paint into one snapshot directory take turns: the second
+/// waits while the first is painting, and both goldens are recorded.
+///
+/// The first test process to start waits at a FIFO, so the first suite is
+/// still painting when the second is refused the directory.
+fn painters_take_turns(name: &str, extra: &str) {
+    let scratch = painting_package(name, extra);
+    let held = crate::held::Held::new(name);
+    held.hold("gate", 1);
+    held.hold("refused", 1);
+    let gate = held.dir().join("gate-1");
+    let runner = scratch.write_executable(
+        "gated",
+        &format!(
+            "#!/bin/sh\nif mkdir \"{0}.started\" 2>/dev/null; then read _ < \"{0}\"; fi\nexec \"$@\"\n",
+            gate.display()
+        ),
+    );
+    let runner = runner.display().to_string();
+    let mut run = held.start_with_env(
+        &scratch,
+        &["test", "//...", "--update", "--jobs=4", "--color=never"],
+        &[("BURI_TEST_RUNNER", &runner), LINKED],
+    );
+    let painting = held.reached("gate", 1);
+    held.at("refused", 1, || {});
+    painting.go();
+    let status = hang::wait_capped(&mut run, "buri test --update", hang::cap());
+    assert!(status.success(), "{}", held.printed());
+    assert!(
+        held.printed().contains("2 passed, 0 failed, 0 skipped"),
+        "{}",
+        held.printed()
+    );
+    for source in ["a", "b"] {
+        assert!(
+            scratch
+                .path(&format!("lib/p/test/__snapshots__/panel-{source}.png"))
+                .is_file(),
+            "panel-{source} was not recorded:\n{}",
+            held.printed()
+        );
+    }
+}
+
+/// Suites in one binary take turns at their snapshot directory.
+#[test]
+fn suites_in_one_binary_take_turns_painting_one_directory() {
+    painters_take_turns("corners-painters-batched", "");
+}
+
+/// Suites with a timeout, each in a binary of its own, take turns at their
+/// snapshot directory.
+#[test]
+fn suites_with_a_timeout_take_turns_painting_one_directory() {
+    painters_take_turns("corners-painters-alone", "    timeout_seconds: 600\n");
+}
