@@ -554,9 +554,14 @@ test "a watcher shows message and nested maps that have split, in key order" {
         }),
     );
     let nested = orderedmap.of(ctx, SCATTERED.map(ctx, fn(k) => (k, defaultMaps())));
+    // A bool key has two values, so `moods` can't split, but it shows both.
+    let moods = orderedmap.of(ctx, [
+        (true, Mood.HAPPY),
+        (false, Mood.MOOD_UNSPECIFIED),
+    ]);
     let shown = watched([
         defaultMaps(),
-        Maps { ..defaultMaps(), places: places, nested: nested },
+        Maps { ..defaultMaps(), moods: moods, places: places, nested: nested },
     ]);
     let bare =
         "Maps { counts: {}, names: {}, flags: {}, ratios: {}, blobs: {}, moods: {}, places: {}, nested: {}, totals: {} }";
@@ -575,7 +580,8 @@ test "a watcher shows message and nested maps that have split, in key order" {
     assert.equal(shown, [
         bare,
         [
-            "Maps { counts: {}, names: {}, flags: {}, ratios: {}, blobs: {}, moods: {}, places: {",
+            "Maps { counts: {}, names: {}, flags: {}, ratios: {}, blobs: {}, ",
+            "moods: {false: .MOOD_UNSPECIFIED, true: .HAPPY}, places: {",
             cities,
             "}, nested: {",
             kids,
