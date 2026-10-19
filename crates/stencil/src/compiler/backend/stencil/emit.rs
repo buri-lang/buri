@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, copyless_test, enum_ty, Bind, Fn2, Jit, Plan, RET, V};
+use super::jit::{copyless_test, Bind, Fn2, Jit, Plan, RET, V};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
@@ -77,12 +77,6 @@ const RC_OUT_OF_LINE: u32 = 16;
 /// `Ordered` at a primitive, never at `Str`.
 pub fn num_tag(p: Prim) -> (&'static str, u32, bool) {
     prim_tag(p).or_ice("a numeric operation is at a type with a stencil tag")
-}
-
-/// The aggregate a function answers, for a `Body::Runtime` whose signature
-/// makes it one.
-fn ret_agg(prog: &ir::Program, fi: FuncIdx) -> ir::TypeId {
-    agg_of(prog.funcs.get(fi).sig.ret)
 }
 
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
@@ -314,9 +308,14 @@ impl<'a> Jit<'a> {
             Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(prog, code, st, *dest, *callee, args)
             }
-            Inst::CallIntrinsic { dest, key, args } => {
+            Inst::CallIntrinsic {
+                dest,
+                key,
+                answer,
+                args,
+            } => {
                 let route = *self.routes.calls.get(*key);
-                self.intrinsic(prog, code, st, *dest, route, args)
+                self.intrinsic(prog, code, st, *dest, (route, *answer), args)
             }
             // The row's three arguments, and the step after them.
             Inst::Parallel(p) => {
@@ -326,7 +325,8 @@ impl<'a> Jit<'a> {
                     .map(|a| (st.at(*a), code.ty_of(*a)))
                     .collect();
                 let dest = (st.at(p.dest), code.ty_of(p.dest));
-                self.rt_call(prog, st, runtime::parallel(p.tasks), dest, &list, tail);
+                let entry = runtime::parallel(p.tasks);
+                self.rt_call(prog, st, (entry, p.answer), dest, &list, tail);
             }
             // The row's arguments, and the closure after them.
             Inst::Handover(h) => {
@@ -335,7 +335,7 @@ impl<'a> Jit<'a> {
                     h.args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 let tail = self.handover_words(st, entry, h, &list);
                 let dest = (st.at(h.dest), code.ty_of(h.dest));
-                self.rt_call(prog, st, entry, dest, &list, tail);
+                self.rt_call(prog, st, (entry, h.answer), dest, &list, tail);
             }
             Inst::MakeStruct { dest, ty, fields } => {
                 let d = st.at(*dest);
@@ -671,11 +671,10 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
-        prim: Prim,
+        (prim, e): (Prim, ir::EnumTy),
         arg: ir::ValueId,
         dest: ir::ValueId,
     ) {
-        let e = enum_ty(code.ty_of(dest));
         let owner = prog.type_info(e.id()).ty;
         let arm = json_arm(prim);
         let variant = json_variant(self.tables, &owner, arm)
@@ -1229,7 +1228,7 @@ impl<'a> Jit<'a> {
         func: FuncIdx,
         args: &[ir::ValueId],
     ) {
-        if let ir::Body::Runtime(id) = &prog.funcs.get(func).body {
+        if let ir::Body::Runtime(r) = &prog.funcs.get(func).body {
             // The archive boundary, **emitted here rather than called**, which
             // is every backend's first act at a `Body::Runtime` call.
             //
@@ -1255,11 +1254,11 @@ impl<'a> Jit<'a> {
             // A key with no row in `runtime.rs`'s table is `str.length`,
             // `number.<T>.<op>` and the rest, whose bodies `runtime_body`
             // generates from the signature; those are called.
-            if let route::Body::Row(entry) = *self.routes.bodies.get(*id) {
+            if let route::Body::Row(entry) = *self.routes.bodies.get(r.key) {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 let dest = (st.at(dest), code.ty_of(dest));
-                self.rt_call(prog, st, entry, dest, &list, Vec::new());
+                self.rt_call(prog, st, (entry, r.answer), dest, &list, Vec::new());
                 return;
             }
         }
@@ -1338,13 +1337,13 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         st: &mut Fn2,
         dest: ir::ValueId,
-        route: route::Call,
+        (route, answer): (route::Call, ir::Answer),
         args: &[ir::ValueId],
     ) {
         let scr = st.scratch;
         let d = st.at(dest);
         let arg = |st: &Fn2, i: usize| -> u32 { args.get(i).map(|v| st.at(*v)).unwrap_or(0) };
-        match route {
+        match (route, answer) {
             // A failed assertion is an abort, and the kind is what makes it
             // attributable (`cli/runtime/testing.rs`). Both are the shape
             // `llvm/emit.rs` emits, symbol for symbol, because what `buri test`
@@ -1354,7 +1353,7 @@ impl<'a> Jit<'a> {
             // `failExpected<T, R>(kind, got): R` answers the bottom type: the
             // call does not come back, and the destination the IR gives it is
             // unreachable.
-            route::Call::FailExpectedShown => {
+            (route::Call::FailExpectedShown, _) => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
                 self.c_call(
@@ -1366,7 +1365,7 @@ impl<'a> Jit<'a> {
                     "v",
                 );
             }
-            route::Call::ReportShown => {
+            (route::Call::ReportShown, _) => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
                 let (ep, el) = self.str_arg(arg(st, 2), scr + 16);
@@ -1382,24 +1381,37 @@ impl<'a> Jit<'a> {
             // `str.concat` is a runtime call with no table row, so its
             // arguments are narrowed here rather than flattened: the two
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
-            route::Call::Concat => {
+            (route::Call::Concat, _) => {
                 let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
                 self.str_concat(st, strs, d);
             }
             // `middle::derives` names each leaf by its primitive's type.
-            route::Call::Derive(Leaf::Hash, prim) => {
+            (route::Call::Derive(Leaf::Hash, prim), _) => {
                 self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
             }
-            route::Call::Derive(Leaf::Show, prim) => self.show_prim(st, prim, arg(st, 0), d, true),
-            route::Call::Derive(Leaf::Json, prim) => {
-                let value = args.first().copied().unwrap_or(dest);
-                self.json_prim(prog, code, st, prim, value, dest)
+            (route::Call::Derive(Leaf::Show, prim), _) => {
+                self.show_prim(st, prim, arg(st, 0), d, true);
             }
+            // `middle::lower` answers a key with no row with its destination's
+            // enum, which for a `ToJson` leaf is `core/json`'s `Json`; there is
+            // nothing to write into any other destination.
+            (route::Call::Derive(Leaf::Json, prim), ir::Answer::Inline(Some(e))) => {
+                let value = args.first().copied().unwrap_or(dest);
+                self.json_prim(prog, code, st, (prim, e), value, dest)
+            }
+            (route::Call::Derive(Leaf::Json, _), _) => {}
             // `middle` writes every other key itself, and each has a row.
-            route::Call::Row(entry) => {
+            (route::Call::Row(entry), _) => {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list, Vec::new());
+                self.rt_call(
+                    prog,
+                    st,
+                    (entry, answer),
+                    (d, code.ty_of(dest)),
+                    &list,
+                    Vec::new(),
+                );
             }
         }
     }
@@ -1919,7 +1931,7 @@ impl<'a> Jit<'a> {
         &mut self,
         prog: &ir::Program,
         fi: FuncIdx,
-        route: route::Body<'_>,
+        (route, answer): (route::Body<'_>, ir::Answer),
         st: &mut Fn2,
     ) {
         let fs = self.frame_sig_of(fi);
@@ -1977,8 +1989,8 @@ impl<'a> Jit<'a> {
                 self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
             }
             // `number.<T>.<op>`, which the native backends open-code.
-            route::Body::Number(prim, op) => self.number_body(prog, fi, st, prim, op),
-            route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, entry, fs, st),
+            route::Body::Number(prim, op) => self.number_body(prog, fi, st, prim, (op, answer)),
+            route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, (entry, answer), fs, st),
             // `str.length` is the number of Unicode scalar values
             // (VALUE-MODEL.md §3.1), which `cli/runtime/text.rs` answers for
             // both the ASCII and the multibyte case. Not in the table because
@@ -2035,26 +2047,26 @@ impl<'a> Jit<'a> {
         fi: FuncIdx,
         st: &mut Fn2,
         prim: Prim,
-        op: route::Number<'_>,
+        (op, answer): (route::Number<'_>, ir::Answer),
     ) {
         let fs = self.frame_sig_of(fi);
         let ret0 = RET;
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
-        match op {
-            route::Number::Show => self.show_prim(st, prim, p(0), ret0, true),
+        match (op, answer) {
+            (route::Number::Show, _) => self.show_prim(st, prim, p(0), ret0, true),
             // `Bounded::minValue` and `Bounded::maxValue`. The type comes from
             // the key — `middle::lower`'s `bounded_key` puts it there, because
             // the methods take no argument and the IR type of the result has
             // lost the signedness that separates `0` from `-128`. The bounds
             // are the **type's**, not JavaScript's exactly-representable ones:
             // `exact_int_range` is the JavaScript backend's business alone.
-            route::Number::Bound(bits) => self.imm_num(ret0, prim, bits),
+            (route::Number::Bound(bits), _) => self.imm_num(ret0, prim, bits),
             // A conversion is named by its target: `toU8`, `wrapToI32`,
             // `toChar`. Between two integers it is a truncation and a
             // re-widening, because a frame slot holds an integer zero-extended
             // at its own width — so the source is sign-extended first where it
             // is signed, and masked to the target's width after.
-            route::Number::Convert(to) => {
+            (route::Number::Convert(to), _) => {
                 // An **aggregate** result is the whole of the test, and it is
                 // the same one `llvm/emit.rs::numeric` makes before its
                 // `toChar` arm: an exact conversion, a `wrapTo` among them,
@@ -2065,17 +2077,16 @@ impl<'a> Jit<'a> {
                 // a scalar value — and casting anyway would have written a
                 // `Char` into a `Result` and called it success. An inexact one
                 // is a range test and two arms rather than a cast.
-                let exact = !matches!(prog.funcs.get(fi).sig.ret, ir::Type::Agg(_));
-                if exact {
-                    self.convert(st, prim, to, p(0), ret0);
+                if let ir::Answer::Inline(Some(e)) = answer {
+                    self.convert_checked(prog, st, e, prim, to, p(0), ret0);
                 } else {
-                    self.convert_checked(prog, fi, st, prim, to, p(0), ret0);
+                    self.convert(st, prim, to, p(0), ret0);
                 }
             }
             // `Hash::hash` takes no accumulator, so it is the seeded form
             // (`cli/runtime/hash.rs`), and a float hashes through the double
             // it widens to.
-            route::Number::Hash => {
+            (route::Number::Hash, _) => {
                 let seed = fs.param_end;
                 self.imm_to(seed, runtime::HASH_SEED);
                 self.hash_prim(st, prim, seed, p(0), ret0);
@@ -2085,20 +2096,24 @@ impl<'a> Jit<'a> {
             // open-codes. `llvm/emit.rs::numeric` is the twin, and the bound
             // each one checks is the **type's own range** — SPEC 6.2.2 and
             // VALUE-MODEL.md §12 row 2.
-            route::Number::Checked(kind) => {
-                self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
+            // `middle::lower` answers a key with no row with its destination's
+            // enum, which for a checked operation is `Option<T>`; there is
+            // nothing to write into any other destination.
+            (route::Number::Checked(kind), ir::Answer::Inline(Some(e))) => {
+                self.checked(prog, st, (prim, e), kind, p(0), p(1), ret0);
             }
-            route::Number::Saturating(int, kind) => {
+            (route::Number::Checked(_), _) => {}
+            (route::Number::Saturating(int, kind), _) => {
                 self.saturating(st, int, kind, p(0), p(1), ret0);
             }
             // Wrapping **is** the machine operation: two's complement at the
             // operand's own width is what an `i8` addition already does, and a
             // frame slot holds the answer re-truncated.
-            route::Number::Wrapping(kind) => self.wrapping(prim, kind, p(0), p(1), ret0),
-            route::Number::AbsSignum(abs) => self.abs_signum(st, prim, abs, p(0), ret0),
+            (route::Number::Wrapping(kind), _) => self.wrapping(prim, kind, p(0), p(1), ret0),
+            (route::Number::AbsSignum(abs), _) => self.abs_signum(st, prim, abs, p(0), ret0),
             // `Ordered::compare` answers an `Order`, which is an enum and not a
             // register.
-            route::Number::Compare => match self.ret_tag(prog, fi) {
+            (route::Number::Compare, _) => match self.ret_tag(prog, fi) {
                 Some(w) => self.compare_prim(st, prim, p(0), p(1), ret0, w),
                 None => crate::diagnostics::ice(&format!(
                     "stencil: number.{}.compare into a destination that is not a tag",
@@ -2106,7 +2121,7 @@ impl<'a> Jit<'a> {
                 )),
             },
             // A number operator answers `Self`, one result.
-            route::Number::Bin(name) => {
+            (route::Number::Bin(name), _) => {
                 let (tag, _, _) = num_tag(prim);
                 self.emit(
                     &key!["bin/", name, "/", tag, "/ff/f"],
@@ -2120,7 +2135,7 @@ impl<'a> Jit<'a> {
                 );
             }
             // `Negate::negate(self)` takes its one operand.
-            route::Number::Negate => {
+            (route::Number::Negate, _) => {
                 let (tag, _, _) = num_tag(prim);
                 self.emit(
                     &key!["un/neg/", tag, "/f/f"],
@@ -2153,7 +2168,7 @@ impl<'a> Jit<'a> {
         &mut self,
         prog: &ir::Program,
         fi: FuncIdx,
-        entry: &'static runtime::Entry,
+        (entry, answer): (&'static runtime::Entry, ir::Answer),
         fs: &super::jit::FrameSig,
         st: &mut Fn2,
     ) {
@@ -2166,7 +2181,7 @@ impl<'a> Jit<'a> {
             .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
             .collect();
         let dest = (RET, f.sig.ret);
-        self.rt_call(prog, st, entry, dest, &args, Vec::new());
+        self.rt_call(prog, st, (entry, answer), dest, &args, Vec::new());
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
@@ -2339,17 +2354,15 @@ impl Jit<'_> {
     fn checked(
         &mut self,
         prog: &ir::Program,
-        fi: FuncIdx,
         st: &mut Fn2,
-        prim: Prim,
+        (prim, answer): (Prim, ir::EnumTy),
         kind: &str,
         a: u32,
         b: u32,
         dest: u32,
     ) -> bool {
         let (_, bits, _) = num_tag(prim);
-        let id = ret_agg(prog, fi);
-        let l = self.layout_id_shared(prog, id);
+        let l = self.layout_id_shared(prog, answer.id());
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
         let pay = super::lists::payload_at(&l, 0);
@@ -2396,7 +2409,7 @@ impl Jit<'_> {
     /// value survived as a finite one.
     #[allow(
         clippy::too_many_arguments,
-        reason = "the program and the function index locate the `Result`'s layout, \
+        reason = "the program and the answer locate the `Result`'s layout, \
                   the two primitives are the conversion, and the two offsets are \
                   where the value comes from and where the answer goes; none is \
                   derivable from another"
@@ -2404,15 +2417,15 @@ impl Jit<'_> {
     fn convert_checked(
         &mut self,
         prog: &ir::Program,
-        fi: FuncIdx,
         st: &mut Fn2,
+        answer: ir::EnumTy,
         from: Prim,
         to: Prim,
         src: u32,
         dest: u32,
     ) {
         let kind = checked_kind(from, to);
-        let ty = prog.type_info(ret_agg(prog, fi)).ty;
+        let ty = prog.type_info(answer.id()).ty;
         let error_ty = match ty.kind() {
             TyKind::Con(_, arguments) => arguments.get(1).copied(),
             _ => None,

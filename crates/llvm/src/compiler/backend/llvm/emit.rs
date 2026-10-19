@@ -1032,9 +1032,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(state, code, *dest, *callee, args)
             }
-            ir::Inst::CallIntrinsic { dest, key, args } => {
+            ir::Inst::CallIntrinsic {
+                dest,
+                key,
+                answer,
+                args,
+            } => {
                 let route = *self.routes.calls.get(*key);
-                self.call_intrinsic(state, code, *dest, route, args)
+                self.call_intrinsic(state, code, *dest, route, *answer, args)
             }
             ir::Inst::Parallel(p) => self.parallel(state, code, p),
             ir::Inst::Handover(h) => self.handover(state, code, h),
@@ -2449,9 +2454,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // into `cli/runtime` (VALUE-MODEL.md §10), not a call to a Buri
         // function — the backend declares the import and defines nothing.
         let f = self.func(func);
-        if let Some(id) = f.runtime() {
-            let route = *self.routes.bodies.get(id);
-            self.call_intrinsic(state, code, dest, route, args);
+        if let Some(r) = f.runtime() {
+            let route = *self.routes.bodies.get(r.key);
+            self.call_intrinsic(state, code, dest, route, r.answer, args);
             return;
         }
         let callee = self.declare(func);
@@ -2515,11 +2520,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         route: Route<'_>,
+        answer: ir::Answer,
         args: &[ir::ValueId],
     ) {
         match route {
             Route::Numeric(from, op) => {
-                self.numeric(state, code, dest, from, op, args);
+                self.numeric(state, code, dest, (from, op), answer, args);
             }
             Route::CopyOut => {
                 self.copy_out(state, code, dest, args);
@@ -2534,9 +2540,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.open_coded(state, code, dest, key, args);
             }
             Route::Derived(leaf, prim) => {
-                self.derived(state, code, dest, leaf, prim, args);
+                self.derived(state, code, dest, (leaf, prim), answer, args);
             }
-            Route::Row(entry) => self.call_row(state, code, dest, entry, args),
+            Route::Row(entry) => self.call_row(state, code, dest, entry, answer, args),
         }
     }
 
@@ -2547,6 +2553,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         entry: &'static runtime::Entry,
+        answer: ir::Answer,
         args: &[ir::ValueId],
     ) {
         let carried = match self.generic_element(code, dest, entry, args) {
@@ -2554,7 +2561,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             None => self.bare_carrier(code, dest, entry, args),
         };
         let argv = self.entry_args(state, code, entry, args, carried);
-        self.call_entry(state, code, dest, entry, argv);
+        self.call_entry(state, code, dest, entry, answer, argv);
     }
 
     /// `Tasks.parallel`: the row's arguments, then the trampoline's four
@@ -2592,7 +2599,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         argv.push(record.into());
         argv.push(word.const_int(u64::from(a), false).into());
         argv.push(word.const_int(u64::from(b), false).into());
-        self.call_entry(state, code, p.dest, entry, argv);
+        self.call_entry(state, code, p.dest, entry, p.answer, argv);
     }
 
     /// A row that hands the runtime a closure: the row's arguments, then the
@@ -2613,7 +2620,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.press_words(state, code, entry, h, ps, closure, &mut argv)
             }
         }
-        self.call_entry(state, code, h.dest, entry, argv);
+        self.call_entry(state, code, h.dest, entry, h.answer, argv);
     }
 
     /// A deferred body's seven words. The record is built the way a step's is
@@ -2999,22 +3006,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         entry: &runtime::Entry,
+        answer: ir::Answer,
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         // The two out-pointer shapes append a buffer to the argument list and
         // then take the result out of it, so they are handled before the
         // declaration is written — the buffer is a parameter.
-        match entry.ret {
-            runtime::Ret::Out => {
+        match answer {
+            ir::Answer::Out => {
                 self.call_out(state, code, dest, &entry.symbol(), &mut argv);
                 return;
             }
-            runtime::Ret::Sum => {
-                self.call_sum(state, code, dest, entry, argv);
+            ir::Answer::Sum(e) => {
+                self.call_sum(state, dest, e, entry, argv);
                 return;
             }
-            runtime::Ret::Res | runtime::Ret::ResMsg => {
-                self.call_result(state, code, dest, entry, argv);
+            ir::Answer::Res(e) => {
+                self.call_result(state, code, dest, (e, false), entry, argv);
+                return;
+            }
+            ir::Answer::ResMsg(e) => {
+                self.call_result(state, code, dest, (e, true), entry, argv);
                 return;
             }
             _ => {}
@@ -3023,29 +3035,31 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .iter()
             .map(|a| metadata_type_of(self.ctx, *a))
             .collect();
-        let ret_type = match entry.ret {
-            runtime::Ret::Void
-            | runtime::Ret::NoReturn
-            | runtime::Ret::Out
-            | runtime::Ret::Sum
-            | runtime::Ret::Res
-            | runtime::Ret::ResMsg => None,
-            runtime::Ret::Scalar => Some(repr::ir_type(
+        // A row's answer is never `Inline`, which is a key with no row.
+        let ret_type = match answer {
+            ir::Answer::Void
+            | ir::Answer::NoReturn
+            | ir::Answer::Out
+            | ir::Answer::Sum(_)
+            | ir::Answer::Res(_)
+            | ir::Answer::ResMsg(_)
+            | ir::Answer::Inline(_) => None,
+            ir::Answer::Scalar => Some(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,
                 self.program,
                 code.ty_of(dest),
             )),
-            runtime::Ret::Int(bits) => Some(self.int_of_width(bits).as_basic_type_enum()),
+            ir::Answer::Int(bits) => Some(self.int_of_width(bits).as_basic_type_enum()),
         };
         let f = self.declare_rt(&entry.symbol(), &param_types, ret_type);
-        if matches!(entry.ret, runtime::Ret::NoReturn) {
+        if matches!(answer, ir::Answer::NoReturn) {
             attrs::mark_noreturn(self.ctx, f);
         }
         let call = self.call_c(state.b, f, &argv);
         // A host capability is the world: the caller keeps `memory(readwrite)`.
         state.observed.opaque = true;
-        if matches!(entry.ret, runtime::Ret::NoReturn) {
+        if matches!(answer, ir::Answer::NoReturn) {
             attrs::noreturn_call(self.ctx, call);
             state.b.unreachable();
             let after = self.ctx.append_basic_block(state.value, "after.exit");
@@ -3056,7 +3070,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // register shape: `u8` for a `Bool`, `i32` for a bare enum tag. The
         // narrowing happens here rather than in the declaration, because the
         // declaration is what has to agree with the archive.
-        if let runtime::Ret::Int(_) = entry.ret {
+        if let ir::Answer::Int(_) = answer {
             let want = int_ty(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,
@@ -4064,14 +4078,6 @@ fn agg(ty: ir::Type) -> ir::TypeId {
     match ty {
         ir::Type::Agg(id) => id.id(),
         _ => crate::diagnostics::ice("the verified IR types this value as an aggregate"),
-    }
-}
-
-/// The enum a value's type names.
-fn enum_ty(ty: ir::Type) -> ir::EnumTy {
-    match ty {
-        ir::Type::Agg(ir::Agg::Enum(e)) => e,
-        _ => crate::diagnostics::ice("the verified IR types this value as an enum"),
     }
 }
 
@@ -5572,13 +5578,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn call_sum(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         entry: &runtime::Entry,
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let e = enum_ty(code.ty_of(dest));
         let (some_at, none_at) = self.option_variants(e);
         let (slots, size, align, payload_at) = {
             let r = self.reprs.of(self.program, e.id());
@@ -5709,13 +5714,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
+        (e, message): (ir::EnumTy, bool),
         entry: &runtime::Entry,
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let (ok, err, ok_bytes, err_ty) = self.result_shape(code, dest);
+        let (ok, err, ok_bytes, err_ty) = self.result_shape(e);
         let (slots, size, align) = self.dest_shape(code, dest);
-        let e = enum_ty(code.ty_of(dest));
         let (ok_at, err_at) = {
             let r = self.reprs.of(self.program, e.id());
             (
@@ -5756,8 +5761,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             argv.push(out.into());
         }
         // Only an enum has a message offset.
-        let message_at = runtime_native::error_message_offset(&err_layout)
-            .filter(|_| entry.ret == runtime::Ret::ResMsg);
+        let message_at = runtime_native::error_message_offset(&err_layout).filter(|_| message);
         if let Some(at) = message_at {
             let where_ = i64::from(err_at.saturating_add(at));
             let out = b.byte_offset(buf, where_, "res.err.message");
@@ -5837,8 +5841,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// list, because `Layout::variant` records where a field is and never how
     /// big it is: `Result<(), E>` has a field of no bytes, and whether the C
     /// signature carries an out-pointer turns on exactly that.
-    fn result_shape(&mut self, code: &ir::Code, dest: ir::ValueId) -> (usize, usize, u32, Ty) {
-        let source = self.agg_ty(code.ty_of(dest));
+    fn result_shape(&mut self, e: ir::EnumTy) -> (usize, usize, u32, Ty) {
+        let source = self.program.type_info(e.id()).ty;
         let shape =
             types::result_shape(self.tables, &source).or_ice("the destination is a `Result`");
         let ok_bytes = self.reprs.of_ty(&shape.t).layout.size;
@@ -6244,16 +6248,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        name: Leaf,
-        prim: Prim,
+        (name, prim): (Leaf, Prim),
+        answer: ir::Answer,
         args: &[ir::ValueId],
     ) -> bool {
-        match (name, args) {
+        match (name, args, answer) {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
-            (Leaf::Show, &[x, ..]) => self.show_prim(state, dest, prim, x, true),
-            (Leaf::Json, &[x, ..]) => self.json_prim(state, code, dest, prim, x),
-            (Leaf::Hash, &[acc, x, ..]) => {
+            (Leaf::Show, &[x, ..], _) => self.show_prim(state, dest, prim, x, true),
+            (Leaf::Json, &[x, ..], ir::Answer::Inline(Some(e))) => {
+                self.json_prim(state, code, dest, e, prim, x);
+            }
+            (Leaf::Hash, &[acc, x, ..], _) => {
                 let acc = self.get(state, acc);
                 self.hash_prim(state, code, dest, prim, acc, x);
             }
@@ -6282,11 +6288,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         prim: Prim,
         arg: ir::ValueId,
     ) {
         let b = state.b;
-        let e = enum_ty(code.ty_of(dest));
         let owner = self.program.type_info(e.id()).ty;
         let arm = json_arm(prim);
         let variant = json_variant(self.tables, &owner, arm).or_ice("`core/json` has the arm");
@@ -7133,8 +7139,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        from: Prim,
-        op: &str,
+        (from, op): (Prim, &str),
+        answer: ir::Answer,
         args: &[ir::ValueId],
     ) -> bool {
         let b = state.b;
@@ -7169,14 +7175,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // target where it does not. `stencil/emit.rs`'s `convert_checked`
             // is the twin, and the two agree because both render the value with
             // `show_prim` and name the target with a `Str` literal.
-            return self.convert_checked(state, code, dest, from, to, x);
+            return match answer {
+                ir::Answer::Inline(Some(e)) => self.convert_checked(state, dest, e, from, to, x),
+                _ => false,
+            };
         }
         // `U32.toChar` is the one inexact conversion [`conversion_target`] does
         // not name — `Char` is not a numeric target — and it is the same
         // `Result<Char, RangeError>` shape: not every `U32` is a Unicode
         // scalar (`text/json.buri`'s `\uXXXX` path is the reachable caller).
-        if let ("toChar", Some(x)) = (op, first) {
-            return self.convert_checked(state, code, dest, from, Prim::Char, x);
+        if let ("toChar", Some(x), ir::Answer::Inline(Some(e))) = (op, first, answer) {
+            return self.convert_checked(state, dest, e, from, Prim::Char, x);
         }
 
         // `Bounded`'s two, which take no `self` and whose type is in the key
@@ -7209,7 +7218,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             _ => {}
         }
         let signed = from.is_signed();
-        let value = match (op, a, rhs, from.as_int()) {
+        let value = match (op, a, rhs, from.as_int(), answer) {
             // `wrappingAdd` and `add` are the same instruction here: §3.4
             // declines to set `nsw`/`nuw`, so the plain operation already wraps
             // and the `Wrapping` trait's promise is the one this backend keeps
@@ -7220,6 +7229,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 | "wrappingSubtract" | "wrappingMultiply",
                 Some(x),
                 Some(y),
+                _,
                 _,
             ) => {
                 let binop = match op {
@@ -7234,18 +7244,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one place rather than from two that have to agree.
                 self.binary(state, binop, from, code.ty_of(dest), x, y)
             }
-            ("negate", Some(x), _, _) => self.unary(b, ir::UnOp::Neg, x),
-            ("abs", Some(BasicValueEnum::FloatValue(x)), _, _) => self.fabs(b, x),
+            ("negate", Some(x), _, _, _) => self.unary(b, ir::UnOp::Neg, x),
+            ("abs", Some(BasicValueEnum::FloatValue(x)), _, _, _) => self.fabs(b, x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check. The checker refuses an
             // unsigned one.
-            ("abs", Some(BasicValueEnum::IntValue(x)), _, _) => {
+            ("abs", Some(BasicValueEnum::IntValue(x)), _, _, _) => {
                 let zero = x.get_type().const_zero();
                 let flipped = b.neg(x, "abs.neg");
                 let below = b.icmp(IntPredicate::SLT, x, zero, "abs.lt");
                 b.select(below, flipped, x, "abs")
             }
-            ("signum", Some(x), _, _) => self.signum(b, x, signed),
+            ("signum", Some(x), _, _, _) => self.signum(b, x, signed),
             // The three structural leaves declared on every primitive
             // (`semantics/builtins.rs`'s `numeric_methods`). Unlike
             // `derivePrimShow` and `derivePrimHash`, the *key* says which
@@ -7255,14 +7265,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `cli/runtime/hash.rs` rather than an exported symbol, and
             // copying `0x811c9dc5` into a backend is the one thing
             // VALUE-MODEL.md §12 most wants stated once.
-            ("equal", Some(x), Some(y), _) => {
+            ("equal", Some(x), Some(y), _, _) => {
                 let operand = args
                     .first()
                     .copied()
                     .map_or(ir::Type::I64, |v| code.ty_of(v));
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
-            ("compare", Some(x), Some(y), _) => self.order(b, x, y, signed, int_ty(want)),
+            ("compare", Some(x), Some(y), _, _) => self.order(b, x, y, signed, int_ty(want)),
             // `Checked` and `Saturating`, which are integer traits: exact
             // arithmetic in 128 bits, then a range test or a clamp.
             (
@@ -7271,6 +7281,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
                 Some(int),
+                ir::Answer::Inline(Some(e)),
             ) => {
                 let task = Wide {
                     op,
@@ -7278,12 +7289,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     x,
                     y,
                 };
-                return self.checked(state, code, dest, &task);
+                return self.checked(state, dest, e, &task);
             }
             // `0 - x`, tested against the type's range: the minimum of a signed
             // type has no negative, and neither has any non-zero value of an
             // unsigned one.
-            ("checkedNegate", Some(BasicValueEnum::IntValue(x)), _, Some(int)) => {
+            (
+                "checkedNegate",
+                Some(BasicValueEnum::IntValue(x)),
+                _,
+                Some(int),
+                ir::Answer::Inline(Some(e)),
+            ) => {
                 let zero = x.get_type().const_zero();
                 let task = Wide {
                     op,
@@ -7291,21 +7308,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     x: zero,
                     y: x,
                 };
-                return self.checked(state, code, dest, &task);
+                return self.checked(state, dest, e, &task);
             }
             (
                 "checkedPower",
                 Some(BasicValueEnum::IntValue(x)),
-                Some(BasicValueEnum::IntValue(e)),
+                Some(BasicValueEnum::IntValue(power)),
                 Some(int),
+                ir::Answer::Inline(Some(e)),
             ) => {
-                return self.checked_power(state, code, dest, int, x, e);
+                return self.checked_power(state, dest, e, int, x, power);
             }
             (
                 "saturatingAdd" | "saturatingSubtract" | "saturatingMultiply",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
                 Some(int),
+                _,
             ) => {
                 let task = Wide {
                     op,
@@ -7349,13 +7368,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn checked(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         task: &Wide<'_, 'ctx>,
     ) -> bool {
         let Wide { op, prim, x, y } = *task;
         if prim.bits() == 128 {
-            return self.checked_128(state, code, dest, task);
+            return self.checked_128(state, dest, e, task);
         }
         let b = state.b;
         let (lo, hi) = prim.range();
@@ -7415,7 +7434,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ok = b.and(ok, inside, "ck.ok");
         }
         let narrow = b.trunc(value, x.get_type(), "ck.v");
-        let v = self.option_value(b, code, dest, ok, narrow);
+        let v = self.option_value(b, e, ok, narrow);
         self.set(state, dest, v);
         true
     }
@@ -7443,8 +7462,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn checked_power(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        answer: ir::EnumTy,
         prim: IntPrim,
         x: IntValue<'ctx>,
         e: IntValue<'ctx>,
@@ -7459,7 +7478,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 x,
                 y: exponent,
             };
-            return self.checked_128(state, code, dest, &task);
+            return self.checked_128(state, dest, answer, &task);
         }
         let (lo, hi) = prim.range();
         let ty = wide.as_basic_type_enum();
@@ -7533,7 +7552,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let ok = int(ok_phi.as_basic_value());
         let value = int(value_phi.as_basic_value());
         let narrow = b.trunc(value, x.get_type(), "pw.n8");
-        let v = self.option_value(b, code, dest, ok, narrow);
+        let v = self.option_value(b, answer, ok, narrow);
         self.set(state, dest, v);
         true
     }
@@ -7556,12 +7575,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn checked_128(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         task: &Wide<'_, 'ctx>,
     ) -> bool {
         let argv = self.wide_op_args(state.b, task);
-        self.call_sum(state, code, dest, &runtime::I128_CHECKED_ENTRY, argv);
+        self.call_sum(state, dest, e, &runtime::I128_CHECKED_ENTRY, argv);
         true
     }
 
@@ -7662,12 +7681,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn option_value(
         &mut self,
         b: At<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
+        e: ir::EnumTy,
         ok: IntValue<'ctx>,
         payload: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let e = enum_ty(code.ty_of(dest));
         let (some_at, none_at) = self.option_variants(e);
         let (slots, payload_at, size) = {
             let r = self.reprs.of(self.program, e.id());
@@ -7748,15 +7765,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn convert_checked(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         from: Prim,
         to: Prim,
         arg: ir::ValueId,
     ) -> bool {
         let b = state.b;
         // A `Result<T, RangeError>`, whose error names the value and the target.
-        let e = enum_ty(code.ty_of(dest));
         let id = e.id();
         let kind = checked_kind(from, to);
         let owner = self.program.type_info(id).ty;

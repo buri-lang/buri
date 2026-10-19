@@ -54,6 +54,7 @@ use std::sync::{Mutex, OnceLock};
 
 use super::FnLower;
 use crate::compiler::backend::intrinsic_keys::{self, Handoff, Step, Tasks};
+use crate::compiler::backend::runtime_table;
 use crate::compiler::middle::ir::{
     BinOp, BlockId, Code, Const, EnumTy, Handover, Inst, Kept, Ownership, Parallel, Target, Term,
     Type, UnOp, ValueId,
@@ -236,6 +237,8 @@ impl FnLower<'_> {
                 TyKind::Fn([c, i, a], b) => {
                     let (params, ret_ty) = ([*c, *i, *a], *b);
                     let t = self.type_of(ret);
+                    let shape = runtime_table::parallel(tasks).ret;
+                    let answer = self.types.row_answer(self.tables, shape, ret);
                     Some(self.emit(t, |dest| {
                         Inst::Parallel(Box::new(Parallel {
                             dest,
@@ -246,6 +249,7 @@ impl FnLower<'_> {
                             step,
                             params,
                             ret: ret_ty,
+                            answer,
                         }))
                     }))
                 }
@@ -272,6 +276,8 @@ impl FnLower<'_> {
             _ => return None,
         };
         let t = self.type_of(ret);
+        let shape = runtime_table::handoff(row).ret;
+        let answer = self.types.row_answer(self.tables, shape, ret);
         Some(self.emit(t, |dest| {
             Inst::Handover(Box::new(Handover {
                 dest,
@@ -280,6 +286,7 @@ impl FnLower<'_> {
                 ty,
                 ret: ret_ty,
                 kept,
+                answer,
             }))
         }))
     }
@@ -968,7 +975,7 @@ impl FnLower<'_> {
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let callee = self.callee(f, step, 2);
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
-        let sized = self.call_intrinsic(ret_t, "derivePrimHash.I64", Box::new([h, n]));
+        let sized = self.call_intrinsic(ret_t, ret, "derivePrimHash.I64", Box::new([h, n]));
         let w = self.walk(n, &[sized]);
         let acc = *w.vars.first()?;
         let t = self.list_of(elem);
@@ -1045,7 +1052,7 @@ impl FnLower<'_> {
         });
         self.again(&w, Vec::new());
         self.end(&w);
-        let joined = self.call_intrinsic(ret_t, "show.list", Box::new([strs]));
+        let joined = self.call_intrinsic(ret_t, ret, "show.list", Box::new([strs]));
         self.push(Inst::DecRef { value: strs });
         Some(joined)
     }

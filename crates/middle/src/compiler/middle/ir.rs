@@ -478,6 +478,17 @@ impl Remap {
     pub fn list(&self, l: ListTy) -> ListTy {
         self.lists[l.row as usize]
     }
+
+    /// An [`Answer`], with the enum it names remapped.
+    pub fn answer(&self, a: Answer) -> Answer {
+        match a {
+            Answer::Sum(e) => Answer::Sum(self.enum_ty(e)),
+            Answer::Res(e) => Answer::Res(self.enum_ty(e)),
+            Answer::ResMsg(e) => Answer::ResMsg(self.enum_ty(e)),
+            Answer::Inline(e) => Answer::Inline(e.map(|e| self.enum_ty(e))),
+            other => other,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -735,6 +746,7 @@ pub enum Inst {
     CallIntrinsic {
         dest: ValueId,
         key: IntrinsicId,
+        answer: Answer,
         args: Box<[ValueId]>,
     },
     /// `Tasks.parallel`: every element of a list through a step, on a
@@ -781,6 +793,35 @@ pub struct Env {
     pub ty: RecTy,
 }
 
+/// How an intrinsic's result comes back, with the type each shape needs.
+///
+/// `middle::lower` writes it from the key's runtime row
+/// (`runtime_table::Ret`) and the result's type, so a backend reads the
+/// destination's enum from here rather than asking whether the destination's
+/// type is one. A key with no row is one the backend writes itself:
+/// [`Answer::Inline`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Answer {
+    /// `Ret::Void`.
+    Void,
+    /// `Ret::Scalar`.
+    Scalar,
+    /// `Ret::NoReturn`.
+    NoReturn,
+    /// `Ret::Int`: an integer of this many bits, narrowed to the destination.
+    Int(u32),
+    /// `Ret::Out`.
+    Out,
+    /// `Ret::Sum`: the `Option` the destination is.
+    Sum(EnumTy),
+    /// `Ret::Res`: the `Result` the destination is.
+    Res(EnumTy),
+    /// `Ret::ResMsg`: the `Result` the destination is.
+    ResMsg(EnumTy),
+    /// A key with no row: the enum the destination is, where it is one.
+    Inline(Option<EnumTy>),
+}
+
 /// One [`Inst::Parallel`]: `tasks.parallel(sched, ctx, items, step)`.
 ///
 /// The step is a `fn(C, Int, A) => B` and the answer a `[B]`. Its operands are
@@ -805,6 +846,8 @@ pub struct Parallel {
     pub params: [Ty; 3],
     /// The step's answer, `B`.
     pub ret: Ty,
+    /// How the row's result comes back.
+    pub answer: Answer,
 }
 
 /// One [`Inst::Handover`]: a runtime row's arguments, then the closure the
@@ -827,6 +870,8 @@ pub struct Handover {
     pub ret: Ty,
     /// The row, with the closure's parameters.
     pub kept: Kept,
+    /// How the row's result comes back.
+    pub answer: Answer,
 }
 
 /// A [`Handover`]'s row, with its closure's parameters in that row's shape.
@@ -1128,7 +1173,14 @@ pub enum Body {
     Code(Code),
     /// An intrinsic key, by its id in [`Program::runtimes`]. The backend
     /// declares an import and defines nothing (VALUE-MODEL.md §10).
-    Runtime(RuntimeId),
+    Runtime(Runtime),
+}
+
+/// A [`Body::Runtime`]: the key, and how its result comes back.
+#[derive(Clone, Copy, Debug)]
+pub struct Runtime {
+    pub key: RuntimeId,
+    pub answer: Answer,
 }
 
 /// The blocks of one function, and the type of every value in it.
@@ -1241,6 +1293,9 @@ impl Code {
                 | Inst::ArrayAlloc { ty, .. }
                 | Inst::ArraySet { ty, .. }
                 | Inst::ArrayPrefix { ty, .. } => *ty = remap.list(*ty),
+                Inst::CallIntrinsic { answer, .. } => *answer = remap.answer(*answer),
+                Inst::Parallel(p) => p.answer = remap.answer(p.answer),
+                Inst::Handover(h) => h.answer = remap.answer(h.answer),
                 _ => {}
             }
         }
@@ -1456,9 +1511,9 @@ impl Func {
     }
 
     /// The runtime key this function's body is, where it is one.
-    pub fn runtime(&self) -> Option<RuntimeId> {
+    pub fn runtime(&self) -> Option<Runtime> {
         match &self.body {
-            Body::Runtime(k) => Some(*k),
+            Body::Runtime(r) => Some(*r),
             Body::Code(_) => None,
         }
     }
@@ -1541,7 +1596,7 @@ impl Program {
 
     /// The runtime key a function's body is, where it is one.
     pub fn runtime_key(&self, func: &Func) -> Option<&str> {
-        func.runtime().map(|id| self.runtime(id))
+        func.runtime().map(|r| self.runtime(r.key))
     }
 
     pub fn type_info(&self, id: TypeId) -> &TypeInfo {
@@ -1952,8 +2007,8 @@ impl Program {
         out.push_str(" -> ");
         self.ty_into(func.sig.ret, out);
         let code = match &func.body {
-            Body::Runtime(id) => {
-                let _ = writeln!(out, " = runtime {:?}", self.runtime(*id));
+            Body::Runtime(r) => {
+                let _ = writeln!(out, " = runtime {:?}", self.runtime(r.key));
                 return;
             }
             Body::Code(c) => c,
@@ -2191,7 +2246,9 @@ impl Program {
                 value(out, *callee);
                 wrapped(out, args);
             }
-            Inst::CallIntrinsic { dest: d, key, args } => {
+            Inst::CallIntrinsic {
+                dest: d, key, args, ..
+            } => {
                 dest(out, d);
                 let _ = write!(out, "intrinsic {:?}", self.intrinsic(*key));
                 wrapped(out, args);
