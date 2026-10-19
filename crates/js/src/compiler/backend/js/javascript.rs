@@ -4127,18 +4127,7 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
                 continue;
             }
             b'"' | b'\'' | b'`' => {
-                let q = c;
-                i += 1;
-                while let Some(&c) = b.get(i) {
-                    if c == b'\\' {
-                        i += 2;
-                        continue;
-                    }
-                    i += 1;
-                    if c == q {
-                        break;
-                    }
-                }
+                i = string_end(b, i, c);
                 continue;
             }
             b'{' => depth += 1,
@@ -4240,21 +4229,10 @@ pub fn strip(src: &str) -> String {
                 }
             }
             b'"' | b'\'' | b'`' => {
-                let quote = c;
-                out.push(c as char);
-                i += 1;
-                while let Some(&c) = b.get(i) {
-                    if c == b'\\' {
-                        out.push('\\');
-                        i += 1;
-                        i += copy_char(src, i, &mut out);
-                        continue;
-                    }
-                    i += copy_char(src, i, &mut out);
-                    if c == quote {
-                        break;
-                    }
-                }
+                // Copied whole: nothing inside a string is whitespace to strip.
+                let end = string_end(b, i, c);
+                out.push_str(src.get(i..end).unwrap_or_default());
+                i = end;
             }
             b' ' | b'\t' | b'\r' | b'\n' => {
                 // Keep one space only where removing it would join two tokens.
@@ -4278,12 +4256,30 @@ pub fn strip(src: &str) -> String {
     out
 }
 
+/// Where the string literal opening with `quote` at `start` ends: just past its
+/// closing quote, or at the end of the source when nothing closes it. A
+/// backslash escapes the byte after it, which is all a quote needs.
+fn string_end(b: &[u8], start: usize, quote: u8) -> usize {
+    let mut i = start + 1;
+    while let Some(&c) = b.get(i) {
+        if c == b'\\' {
+            i += 2;
+            continue;
+        }
+        i += 1;
+        if c == quote {
+            break;
+        }
+    }
+    i.min(b.len())
+}
+
 /// Copies the character at `i` to `out` and answers its width in bytes.
 ///
-/// The tokenizer above decides everything from ASCII bytes, so this is the
-/// only place a multi-byte character is reached — and it is reached whole,
-/// rather than a byte at a time, which is what keeps a `·` in a string
-/// literal a `·`.
+/// The tokenizer above decides everything from ASCII bytes, so outside a
+/// string, which is copied as a slice, this is the only place a multi-byte
+/// character is reached — and it is reached whole, rather than a byte at a
+/// time, which is what keeps a `·` a `·`.
 fn copy_char(src: &str, i: usize, out: &mut String) -> usize {
     match src.get(i..).and_then(|rest| rest.chars().next()) {
         Some(c) => {
