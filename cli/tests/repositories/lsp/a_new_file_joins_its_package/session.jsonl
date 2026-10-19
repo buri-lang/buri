@@ -21,5 +21,10 @@
 # The file was written. Nothing about the open buffer changed, and it is told
 # so — a publish that takes nothing away is what says the findings still hold.
 {"jsonrpc": "2.0", "method": "workspace/didCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/rate.buri"}]}}
-{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+# The package's build file is open, and the buffer has turned the library on
+# disk into a binary. The edit is made to the buffer, which has no `library`
+# for the new file to join, and none is invented for it: no answer.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/counter/BUILD.buri", "languageId": "buri", "version": 1, "text": "binary {\n    sources: [\"counter.buri\"]\n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "workspace/willCreateFiles", "params": {"files": [{"uri": "file://<scratch>/lib/counter/more.buri"}]}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

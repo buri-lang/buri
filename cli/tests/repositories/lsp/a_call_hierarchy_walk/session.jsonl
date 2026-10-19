@@ -43,5 +43,10 @@
 # A type is not a node in a call hierarchy. "Nothing calls this struct" is not
 # a shorter answer than the list; it is not the question.
 {"jsonrpc": "2.0", "id": 15, "method": "textDocument/prepareCallHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 11, "character": 16}}}
-{"jsonrpc": "2.0", "id": 16, "method": "shutdown"}
+# An item whose position lands on a standard-library function — `fold`, which
+# `prepare` declines to hand out, but which a client keeping an item
+# across an edit can end up pointing at. It walks to nothing rather than to an
+# error: no body of that function is one this repository wrote.
+{"jsonrpc": "2.0", "id": 16, "method": "callHierarchy/outgoingCalls", "params": {"item": {"data": {"position": {"character": 11, "line": 4}, "uri": "file://<scratch>/lib/shop/cart.buri"}, "detail": "//lib/shop/cart", "kind": 12, "name": "fold", "range": {"end": {"character": 15, "line": 4}, "start": {"character": 10, "line": 4}}, "selectionRange": {"end": {"character": 15, "line": 4}, "start": {"character": 10, "line": 4}}, "uri": "file://<scratch>/lib/shop/cart.buri"}}}
+{"jsonrpc": "2.0", "id": 17, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
