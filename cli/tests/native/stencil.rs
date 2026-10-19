@@ -25,13 +25,12 @@
 //! rather than breaks" clause of the dependency bar applied to the suite,
 //! without the silence that would make a skipped suite look like a passing one.
 use crate::hang::Capped;
+use crate::stencil_host::unavailable_reason as stencil_unavailable_reason;
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
-use buri::compiler::backend::stencil::{
-    self as stencil, abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
-};
+use buri::compiler::backend::stencil::{self as stencil, abi as stencil_abi, Stencil};
 use buri::compiler::backend::LinkOptions;
 use buri::compiler::backend::{Backend, Emitted, Native, Options, Profile, Target, Units};
 use buri::compiler::driver;
@@ -47,7 +46,7 @@ use std::sync::OnceLock;
 /// Why this host cannot build and run a stencil artifact, or `None`.
 ///
 /// Two conditions, and each is a real one: no runtime archive means nothing to
-/// link against, and `stencil::unavailable_reason` is "this host has a stencil
+/// link against, and `stencil_host::unavailable_reason` is "this host has a stencil
 /// library *and* an entry point to put in front of it" answered as a sentence.
 /// Both of this repository's machines are covered today — x86-64 Linux runs
 /// since `asm.rs` gained its SysV shim — so what is left is a host whose `cc`
