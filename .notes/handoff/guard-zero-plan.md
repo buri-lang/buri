@@ -119,6 +119,46 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 59
+
+## What landed
+
+- `types::Scalar` is a primitive that is not a string: `Prim` without `Str` and `Template`. It has `Prim::scalar`, `IntPrim::scalar`, `Num::scalar` and `Scalar::prim`.
+  - `typed::ExprKind::Unary` and `ir::Inst::Unary` carry a `Scalar`. `ExprKind::Prim` and `Inst::Binary` keep `Prim`, because a `Str` comparison is real.
+  - `JsonArm::Num` carries the `Scalar` it widens from, and `conversion_target` answers a `Num`.
+  - Stencil `prim_tag` takes a `Scalar` and is total; `num_tag` is gone. The jit's `cmpbr` stores a `Scalar`, and its immediate pass skips a `Str` comparison with a `let ... else`.
+- Stencil `put_enum` writes an enum value: the tag for `Bare` and `Tagged`, null for an empty `Niche`, and the payload through a closure otherwise. `make_enum` and `json_prim` both use it; `store_variant` is gone.
+  - `json_prim` picks its source per arm. A `Char` now goes to a `Str` in scratch first and is then copied, which costs one extra move.
+
+## Guards
+
+The plan-rule count in code goes from 70 to 66:
+- stencil `prim_tag(..).or_ice` (two sites: `binary` and the jit);
+- stencil `json_prim`'s "`Json` is a tagged enum" and "each `Json` arm carries a payload".
+
+## Coverage
+
+Branches, measured locally on macOS. Every branch in the changed code is covered.
+
+| Area | Phase 57 local | Phase 59 local | CI baseline (staging) |
+| --- | --- | --- | --- |
+| middle | 1865/1898 (98.26%) | 1858/1890 (98.31%) | 1863/1896 (98.26%) |
+| stencil | 1039/1079 (96.29%) | 1045/1085 (96.31%) | 1069/1078 (99.17%) |
+| semantics | 2154/2154 | 2154/2154 | 2158/2158 |
+| llvm | 531/532 | 531/532 | 580/580 |
+| js | 996/1022 | 996/1022 | 996/1022 |
+
+## Left
+
+- Stencil `GetPayload of an absent field` (an uncounted `ice`) and llvm's matching `unwrap_or(0)`. Both need payload-field ids per enum, so that a `GetPayload` names a field its variant has.
+- Phase 58's entry is missing from this file: its notes were not available to phase 59.
+
+## Validation and landing
+
+- `cargo fmt --all` and CI's clippy commands report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`.
+- `tests/example` gives the same `test //...` and `run //tools/report` output as base, in debug and `--release`; only test timings differ.
+
 # Guard phase 57
 
 ## What landed

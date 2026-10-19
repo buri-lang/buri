@@ -6,7 +6,7 @@ use crate::compiler::backend::intrinsic_keys::JsonArm;
 use crate::compiler::driver::{self, Analysis};
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::resolve::Sym;
-use crate::compiler::semantics::types::{MethodId, TraitId, TyConId};
+use crate::compiler::semantics::types::{MethodId, Scalar, TraitId, TyConId};
 use crate::compiler::standard_library;
 use crate::diagnostics::SourceMap;
 
@@ -120,7 +120,7 @@ fn each_json_arm_is_the_variant_it_names() {
     let variants = tables.tycon(json).variants();
     for (arm, name) in [
         (JsonArm::Bool, "Bool"),
-        (JsonArm::Num, "Num"),
+        (JsonArm::Num(Scalar::F64), "Num"),
         (JsonArm::Str, "Str"),
     ] {
         let v = variants.get(arm.variant());

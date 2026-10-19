@@ -532,7 +532,7 @@ impl Env {
                         prim_of.entry(*prim).or_insert_with(|| a.ty);
                     }
                     ExprKind::Unary { prim, arg: a, .. } => {
-                        prim_of.entry(*prim).or_insert_with(|| a.ty);
+                        prim_of.entry(prim.prim()).or_insert_with(|| a.ty);
                     }
                     ExprKind::Intrinsic { name, .. } => {
                         if let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) {

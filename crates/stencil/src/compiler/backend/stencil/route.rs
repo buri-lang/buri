@@ -13,7 +13,7 @@ use crate::compiler::backend::intrinsic_keys::{
 };
 use crate::compiler::middle::ir;
 use crate::compiler::semantics::layered::Dense;
-use crate::compiler::semantics::types::{IntPrim, Prim};
+use crate::compiler::semantics::types::{IntPrim, Prim, Scalar};
 
 /// Every key a lowered program names, resolved.
 pub struct Routes<'p> {
@@ -77,7 +77,7 @@ pub(crate) enum Number<'p> {
     Show,
     /// `minValue` or `maxValue`: the bound's bit pattern.
     Bound(u128),
-    Convert(Prim),
+    Convert(Scalar),
     Hash,
     Checked(&'p str),
     Saturating(IntPrim, &'p str),
@@ -141,7 +141,7 @@ fn number(num: Num, op: &str) -> Option<Number<'_>> {
         "show" => Number::Show,
         "minValue" => Number::Bound(bound_pattern(num, true)),
         "maxValue" => Number::Bound(bound_pattern(num, false)),
-        "toChar" => Number::Convert(Prim::Char),
+        "toChar" => Number::Convert(Scalar::Char),
         "hash" => Number::Hash,
         "abs" => Number::AbsSignum(true),
         "signum" => Number::AbsSignum(false),
@@ -162,7 +162,7 @@ fn number(num: Num, op: &str) -> Option<Number<'_>> {
 /// the operation they guard. `Saturating` is declared on the integers only.
 fn prefixed(prim: Prim, op: &str) -> Option<Number<'_>> {
     conversion_target(op)
-        .map(Number::Convert)
+        .map(|n| Number::Convert(n.scalar()))
         .or_else(|| op.strip_prefix("checked").map(Number::Checked))
         .or_else(|| {
             Some(Number::Saturating(

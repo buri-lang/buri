@@ -43,7 +43,7 @@ use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{At, EnumRepr, Repr};
-use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Ty};
+use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Scalar, Ty};
 use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
@@ -73,33 +73,27 @@ const RC_LIGHT: u32 = 4;
 /// writing each one out made a match over `n` counted variants `n²` code.
 const RC_OUT_OF_LINE: u32 = 16;
 
-/// [`prim_tag`] where the operation makes the type numeric: `core/number` and
-/// `Ordered` at a primitive, never at `Str`.
-pub fn num_tag(p: Prim) -> (&'static str, u32, bool) {
-    prim_tag(p).or_ice("a numeric operation is at a type with a stencil tag")
-}
-
-pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
-    Some(match p {
-        Prim::Bool => ("u64", 64, false),
-        Prim::I8 => ("i8", 8, true),
-        Prim::I16 => ("i16", 16, true),
-        Prim::I32 => ("i32", 32, true),
-        Prim::I64 => ("i64", 64, true),
-        Prim::U8 => ("u8", 8, false),
-        Prim::U16 => ("u16", 16, false),
-        Prim::U32 => ("u32", 32, false),
-        Prim::U64 => ("u64", 64, false),
-        Prim::Char => ("u32", 32, false),
-        Prim::F32 => ("f32", 32, true),
-        Prim::F64 => ("f64", 64, true),
+/// A scalar's stencil tag, its width in bits, and whether it is signed.
+pub fn prim_tag(s: Scalar) -> (&'static str, u32, bool) {
+    match s {
+        Scalar::Bool => ("u64", 64, false),
+        Scalar::I8 => ("i8", 8, true),
+        Scalar::I16 => ("i16", 16, true),
+        Scalar::I32 => ("i32", 32, true),
+        Scalar::I64 => ("i64", 64, true),
+        Scalar::U8 => ("u8", 8, false),
+        Scalar::U16 => ("u16", 16, false),
+        Scalar::U32 => ("u32", 32, false),
+        Scalar::U64 => ("u64", 64, false),
+        Scalar::Char => ("u32", 32, false),
+        Scalar::F32 => ("f32", 32, true),
+        Scalar::F64 => ("f64", 64, true),
         // Sixteen bytes, and the register file is eight: every stencil at
         // these two widths is frame-to-frame (`sources.rs::wide`), which is
         // what the `Loc` tests at each call site already fall back to.
-        Prim::I128 => ("i128", 128, true),
-        Prim::U128 => ("u128", 128, false),
-        Prim::Str | Prim::Template => return None,
-    })
+        Scalar::I128 => ("i128", 128, true),
+        Scalar::U128 => ("u128", 128, false),
+    }
 }
 
 // `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables and carry one
@@ -604,53 +598,49 @@ impl<'a> Jit<'a> {
         variant: u32,
         fields: &[ir::ValueId],
     ) {
+        let d = st.at(dest);
+        self.put_enum(prog, st, d, e, variant, |s, st, offs, owner, ftys| {
+            for (i, (f, o)) in fields.iter().zip(offs.iter().copied()).enumerate() {
+                let w = s.width_of(prog, code.ty_of(*f));
+                if ftys.get(i).is_some_and(|t| s.boxes(owner, t)) {
+                    s.box_into(st, d + o.bytes(), st.at(*f), w);
+                    continue;
+                }
+                s.store_w(d + o.bytes(), st.at(*f), w);
+            }
+        });
+    }
+
+    /// Variant `variant` of `e` at frame offset `d`: its discriminant where
+    /// the layout has one, and `payload` to store its fields where it has any,
+    /// handed their offsets, the enum's type and their declared types.
+    fn put_enum(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        d: u32,
+        e: ir::EnumTy,
+        variant: u32,
+        payload: impl FnOnce(&mut Self, &mut Fn2, &[At], &Ty, &[Ty]),
+    ) {
         let owner = &prog.type_info(e.id()).ty;
         let l = self.enum_layout(prog, e);
         let ftys = variant_types(self.tables, owner, variant as usize);
-        let d = st.at(dest);
-        let repr = &l.repr;
         let offs: &[At] = l.variants.get(variant as usize).map_or(&[], Vec::as_slice);
-        match repr {
+        match &l.repr {
             EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
             EnumRepr::Tagged { tag, .. } => {
                 self.imm_w(d, tag.size(), variant as u64);
-                self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
+                payload(self, st, offs, owner, &ftys);
             }
             EnumRepr::Niche { null_at, .. } => {
                 if offs.is_empty() {
                     // The null variant: VALUE-MODEL.md §6's second niche.
                     self.imm_to(d + null_at.bytes(), 0);
                 } else {
-                    self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
+                    payload(self, st, offs, owner, &ftys);
                 }
             }
-        }
-    }
-
-    /// One variant's payload fields, at the offsets the layout gave them.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one variant's fields, and the four tables that say where each \
-                  goes and whether it is behind a pointer"
-    )]
-    fn store_variant(
-        &mut self,
-        prog: &ir::Program,
-        code: &ir::Code,
-        st: &mut Fn2,
-        d: u32,
-        fields: &[ir::ValueId],
-        offs: &[At],
-        owner: &Ty,
-        ftys: &[Ty],
-    ) {
-        for (i, (f, o)) in fields.iter().zip(offs.iter().copied()).enumerate() {
-            let w = self.width_of(prog, code.ty_of(*f));
-            if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
-                self.box_into(st, d + o.bytes(), st.at(*f), w);
-                continue;
-            }
-            self.store_w(d + o.bytes(), st.at(*f), w);
         }
     }
 
@@ -681,54 +671,41 @@ impl<'a> Jit<'a> {
         dest: ir::ValueId,
     ) {
         let arm = json_arm(prim);
-        let variant = arm.variant().index();
-        let l = self.layout_id_shared(prog, e.id());
-        let tag = match self.enum_layout(prog, e).repr {
-            EnumRepr::Tagged { tag, .. } => Some(tag),
-            _ => None,
-        }
-        .or_ice("`Json` is a tagged enum");
-        let off = *l
-            .variant(variant)
-            .first()
-            .or_ice("each `Json` arm a primitive takes carries a payload");
         let (d, a) = (st.at(dest), st.at(arg));
-        self.imm_w(d, tag.size(), variant as u64);
-        match arm {
-            JsonArm::Bool => {
-                let w = self.width_of(prog, code.ty_of(arg));
-                self.store_w(d + off.bytes(), a, w);
-            }
+        // Where the payload is before it is stored: the argument itself, or a
+        // scratch word the conversion wrote it to.
+        let src = match arm {
+            JsonArm::Bool => a,
             // JSON's one number type is a double, so every numeric primitive
             // widens to `F64` — the same narrowing `$json_of` does with
             // `Number(v)`, and lossy in the same place.
-            JsonArm::Num => {
-                let scratch = st.scratch;
-                self.convert(st, prim, Prim::F64, a, scratch);
-                self.store_w(d + off.bytes(), scratch, 8);
+            JsonArm::Num(number) => {
+                self.convert(st, number, Scalar::F64, a, st.scratch);
+                st.scratch
             }
             JsonArm::Str => match prim {
                 Prim::Str | Prim::Template => {
                     self.rc(prog, code, st, arg, Op::Retain);
-                    let w = self.width_of(prog, code.ty_of(arg));
-                    self.mv(d + off.bytes(), a, w);
+                    a
                 }
                 // A `Char` is a one-scalar string, and the runtime already
                 // builds it: `buri_rt_char_to_str` is the unquoted half of
                 // `show_prim`'s `Char` arm, and the block it answers is fresh,
                 // so this arm needs no retain.
                 _ => {
-                    self.c_call(
-                        runtime::CHAR_TO_STR,
-                        st,
-                        &[Src::Word(a), Src::Addr(d + off.bytes())],
-                        &[],
-                        d + off.bytes(),
-                        "v",
-                    );
+                    let at = [Src::Word(a), Src::Addr(st.scratch)];
+                    self.c_call(runtime::CHAR_TO_STR, st, &at, &[], st.scratch, "v");
+                    st.scratch
                 }
             },
-        }
+        };
+        let variant = arm.variant().index() as u32;
+        self.put_enum(prog, st, d, e, variant, |s, _, offs, _, ftys| {
+            for (o, t) in offs.iter().zip(ftys) {
+                let w = s.layout_of_type(*t).size;
+                s.store_w(d + o.bytes(), src, w);
+            }
+        });
     }
 
     /// A **boxed** field: `middle::layout` puts a pointer where the field would
@@ -1114,10 +1091,10 @@ impl<'a> Jit<'a> {
         // `Str` has no arithmetic and no `bin/*` stencil: a comparison of two
         // is a length-and-bytes question the runtime answers, which is what
         // `buri_rt_str_equal` and `buri_rt_str_compare` are on the native side.
-        if matches!(prim, Prim::Str | Prim::Template) {
+        let Some(scalar) = prim.scalar() else {
             return self.str_binary(st, dest, op, lhs, rhs);
-        }
-        let (tag, _, _) = num_tag(prim);
+        };
+        let (tag, _, _) = prim_tag(scalar);
         let name = op.name();
         let d = st.at(dest);
         let a = st.at(lhs);
@@ -1172,7 +1149,7 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
         dest: ir::ValueId,
         op: UnOp,
-        prim: Prim,
+        prim: Scalar,
         arg: ir::ValueId,
     ) {
         let d = st.at(dest);
@@ -1197,7 +1174,7 @@ impl<'a> Jit<'a> {
                 ],
             );
         }
-        let (tag, _, _) = num_tag(prim);
+        let (tag, _, _) = prim_tag(prim);
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
         let key = key![
             "un/",
@@ -1623,7 +1600,7 @@ impl<'a> Jit<'a> {
     /// The stencil key this terminator's test wants.
     fn cond_key(&self, st: &Fn2, cond: ir::ValueId, plan: &Plan) -> Option<super::jit::Key> {
         if let Some((op, prim, lhs, rhs)) = plan.cmpbr {
-            let (tag, _, _) = prim_tag(prim)?;
+            let (tag, _, _) = prim_tag(prim);
             let la = st.loc(lhs).tag();
             let lb = st.loc(rhs).tag();
             let k = key!["brcmp/", op.name(), "/", tag, "/", la, lb];
@@ -1993,7 +1970,7 @@ impl<'a> Jit<'a> {
             }
             // `number.<T>.<op>`, which the native backends open-code.
             route::Body::Number(num, op) => {
-                self.number_body(prog, fi, st, num.prim(), (op, answer))
+                self.number_body(prog, fi, st, num.scalar(), (op, answer))
             }
             route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, (entry, answer), fs, st),
             // `str.length` is the number of Unicode scalar values
@@ -2051,14 +2028,14 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         fi: FuncIdx,
         st: &mut Fn2,
-        prim: Prim,
+        prim: Scalar,
         (op, answer): (route::Number<'_>, ir::Answer),
     ) {
         let fs = self.frame_sig_of(fi);
         let ret0 = RET;
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
         match (op, answer) {
-            (route::Number::Show, _) => self.show_prim(st, prim, p(0), ret0, true),
+            (route::Number::Show, _) => self.show_prim(st, prim.prim(), p(0), ret0, true),
             // `Bounded::minValue` and `Bounded::maxValue`. The type comes from
             // the key — `middle::lower`'s `bounded_key` puts it there, because
             // the methods take no argument and the IR type of the result has
@@ -2094,7 +2071,7 @@ impl<'a> Jit<'a> {
             (route::Number::Hash, _) => {
                 let seed = fs.param_end;
                 self.imm_to(seed, runtime::HASH_SEED);
-                self.hash_prim(st, prim, seed, p(0), ret0);
+                self.hash_prim(st, prim.prim(), seed, p(0), ret0);
             }
             // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`, which
             // `core/number` declares without a body and every backend
@@ -2127,7 +2104,7 @@ impl<'a> Jit<'a> {
             },
             // A number operator answers `Self`, one result.
             (route::Number::Bin(name), _) => {
-                let (tag, _, _) = num_tag(prim);
+                let (tag, _, _) = prim_tag(prim);
                 self.emit(
                     &key!["bin/", name, "/", tag, "/ff/f"],
                     &[
@@ -2141,7 +2118,7 @@ impl<'a> Jit<'a> {
             }
             // `Negate::negate(self)` takes its one operand.
             (route::Number::Negate, _) => {
-                let (tag, _, _) = num_tag(prim);
+                let (tag, _, _) = prim_tag(prim);
                 self.emit(
                     &key!["un/neg/", tag, "/f/f"],
                     &[
@@ -2312,8 +2289,8 @@ impl Jit<'_> {
 
     /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
     /// for an operation or a width there is no stencil for.
-    fn overflowing(&mut self, st: &Fn2, prim: Prim, kind: &str, a: u32, b: u32) {
-        let (tag, _, _) = num_tag(prim);
+    fn overflowing(&mut self, st: &Fn2, prim: Scalar, kind: &str, a: u32, b: u32) {
+        let (tag, _, _) = prim_tag(prim);
         let name = match kind {
             "Add" => Some("add"),
             "Subtract" => Some("sub"),
@@ -2354,13 +2331,13 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        (prim, answer): (Prim, ir::EnumTy),
+        (prim, answer): (Scalar, ir::EnumTy),
         kind: &str,
         a: u32,
         b: u32,
         dest: u32,
     ) -> bool {
-        let (_, bits, _) = num_tag(prim);
+        let (_, bits, _) = prim_tag(prim);
         let l = self.layout_id_shared(prog, answer.id());
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
@@ -2418,12 +2395,12 @@ impl Jit<'_> {
         prog: &ir::Program,
         st: &mut Fn2,
         answer: ir::ResTy,
-        from: Prim,
-        to: Prim,
+        from: Scalar,
+        to: Scalar,
         src: u32,
         dest: u32,
     ) {
-        let kind = checked_kind(from, to);
+        let kind = checked_kind(from.prim(), to.prim());
         let ty = prog.type_info(answer.id()).ty;
         let shape = prog.types.result_shape(answer);
         // `middle::layout` gives a niche only to an `Option`, so the result
@@ -2446,7 +2423,7 @@ impl Jit<'_> {
             // Integer to integer. The test is at the **source's** width, and a
             // bound the source cannot reach is not tested at all.
             CheckedKind::Ints(source, target) => {
-                let (tag, _, _) = num_tag(from);
+                let (tag, _, _) = prim_tag(from);
                 let ((from_lo, from_hi), (to_lo, to_hi)) = (source.range(), target.range());
                 for (op, needed, pattern) in [
                     ("lt", to_lo > from_lo, to_lo as u128),
@@ -2475,7 +2452,7 @@ impl Jit<'_> {
             CheckedKind::FloatToInt(target) => {
                 let v = self.as_f64(st, from, src);
                 let (to_lo, to_hi) = target.range();
-                let (ttag, tw, _) = num_tag(to);
+                let (ttag, tw, _) = prim_tag(to);
                 #[allow(
                     clippy::cast_precision_loss,
                     reason = "every integer type's lower bound is zero or a negative power \
@@ -2489,9 +2466,9 @@ impl Jit<'_> {
                               it; that is the property the bound relies on"
                 )]
                 let over = to_hi.saturating_add(1) as f64;
-                self.imm_num(bound, Prim::F64, u128::from(lo.to_bits()));
+                self.imm_num(bound, Scalar::F64, u128::from(lo.to_bits()));
                 self.cmp_to("f64", "lt", v, bound, verdict, err);
-                self.imm_num(bound, Prim::F64, u128::from(over.to_bits()));
+                self.imm_num(bound, Scalar::F64, u128::from(over.to_bits()));
                 self.cmp_to("f64", "ge", v, bound, verdict, err);
                 // In range, so the truncation is exact and the round trip back
                 // through a double says whether the value was an integer at
@@ -2517,7 +2494,7 @@ impl Jit<'_> {
             // than a range: everything above U+10FFFF is out, and so is the
             // surrogate block in the middle of it (`runtime.js`'s `$toChar`).
             CheckedKind::ToChar => {
-                let (tag, _, _) = num_tag(from);
+                let (tag, _, _) = prim_tag(from);
                 let scalar = st.label();
                 self.imm_num(bound, from, 0x0010_ffff);
                 self.cmp_to(tag, "gt", src, bound, verdict, err);
@@ -2541,7 +2518,7 @@ impl Jit<'_> {
                 self.cvt("cvt/f322f", back, dest + ok_at);
                 for infinite in [f64::INFINITY, f64::NEG_INFINITY] {
                     let survived = st.label();
-                    self.imm_num(bound, Prim::F64, u128::from(infinite.to_bits()));
+                    self.imm_num(bound, Scalar::F64, u128::from(infinite.to_bits()));
                     self.cmp_to("f64", "ne", back, bound, verdict, survived);
                     self.cmp_to("f64", "ne", src, bound, verdict, err);
                     let here = self.region.code_addr();
@@ -2554,7 +2531,13 @@ impl Jit<'_> {
 
         let here = self.region.code_addr();
         st.place(err, here);
-        self.show_prim(st, from, src, dest + err_at.bytes() + error.field(0), false);
+        self.show_prim(
+            st,
+            from.prim(),
+            src,
+            dest + err_at.bytes() + error.field(0),
+            false,
+        );
         self.str_literal(dest + err_at.bytes() + error.field(1), to.name().as_bytes());
         self.store_disc(&result, dest, 1);
         let here = self.region.code_addr();
@@ -2625,8 +2608,8 @@ impl Jit<'_> {
     /// sequence below reads a slot as a double — so the widening happens once,
     /// here, and it is exact. It is also what JavaScript compares: an `F32`
     /// there is a `number`, which is the double this produces.
-    fn as_f64(&mut self, st: &Fn2, from: Prim, src: u32) -> u32 {
-        if from == Prim::F32 {
+    fn as_f64(&mut self, st: &Fn2, from: Scalar, src: u32) -> u32 {
+        if from == Scalar::F32 {
             let wide = st.scratch + super::rtcall::RAW_WORD * 8;
             self.cvt("cvt/f322f", wide, src);
             return wide;
@@ -2649,8 +2632,8 @@ impl Jit<'_> {
         b: u32,
         dest: u32,
     ) -> bool {
-        let prim = int.prim();
-        let (tag, _, signed) = num_tag(prim);
+        let prim = int.scalar();
+        let (tag, _, signed) = prim_tag(prim);
         // `core/number` declares no saturating division: it has no end to run off.
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
@@ -2743,7 +2726,7 @@ impl Jit<'_> {
 
     /// A literal into a destination at the type's own width: one store, or two
     /// where the type is sixteen bytes.
-    fn imm_num(&mut self, dest: u32, prim: Prim, v: u128) {
+    fn imm_num(&mut self, dest: u32, prim: Scalar, v: u128) {
         if prim.bits() > 64 {
             self.imm_to(dest, v as u64);
             self.imm_to(dest + 8, (v >> 64) as u64);
@@ -2754,8 +2737,8 @@ impl Jit<'_> {
 
     /// `wrappingAdd`, `wrappingSubtract`, `wrappingMultiply` — the machine operation at
     /// the operand's own width, which is what the ordinary stencil already is.
-    fn wrapping(&mut self, prim: Prim, kind: &str, a: u32, b: u32, dest: u32) {
-        let (tag, _, _) = num_tag(prim);
+    fn wrapping(&mut self, prim: Scalar, kind: &str, a: u32, b: u32, dest: u32) {
+        let (tag, _, _) = prim_tag(prim);
         let name = match kind {
             "Add" => Some("add"),
             "Subtract" => Some("sub"),
@@ -2781,8 +2764,8 @@ impl Jit<'_> {
     /// (SPEC 6.2), so there is nothing to check. A float's is the sign bit
     /// cleared, which is exact for every value including the infinities and
     /// leaves a NaN a NaN.
-    fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) {
-        let (tag, bits, _) = num_tag(prim);
+    fn abs_signum(&mut self, st: &mut Fn2, prim: Scalar, abs: bool, a: u32, dest: u32) {
+        let (tag, bits, _) = prim_tag(prim);
         let mask = if bits >= 64 {
             u64::MAX
         } else {
@@ -2794,7 +2777,7 @@ impl Jit<'_> {
         // compare against a materialised zero.
         if abs {
             if prim.is_float() {
-                let sign = if prim == Prim::F32 {
+                let sign = if prim == Scalar::F32 {
                     0x7fff_ffffu64
                 } else {
                     !(1u64 << 63)
@@ -2840,13 +2823,13 @@ impl Jit<'_> {
         // `1.0`, `-1.0` and `0.0`, so a NaN — which is neither above nor
         // below — answers zero, exactly as the two `select`s `llvm/emit.rs`
         // chains do.
-        let (zero, one, minus) = if prim == Prim::F64 {
+        let (zero, one, minus) = if prim == Scalar::F64 {
             (
                 0u128,
                 u128::from(1.0f64.to_bits()),
                 u128::from((-1.0f64).to_bits()),
             )
-        } else if prim == Prim::F32 {
+        } else if prim == Scalar::F32 {
             (
                 0,
                 u128::from(1.0f32.to_bits()),
@@ -2910,8 +2893,8 @@ impl Jit<'_> {
     /// `Equal` is the answer neither test claims — and the tests are at the
     /// operand's *own* type, so a signed compare is signed and a `Float`'s is
     /// `fcmp`.
-    fn compare_prim(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
-        let (tag, _, _) = num_tag(prim);
+    fn compare_prim(&mut self, st: &mut Fn2, prim: Scalar, a: u32, b: u32, dest: u32, w: u32) {
+        let (tag, _, _) = prim_tag(prim);
         if prim.is_float() {
             return self.compare_float(st, prim, a, b, dest, w);
         }
@@ -2953,11 +2936,11 @@ impl Jit<'_> {
     /// earlier. `eq` at a float is SPEC 7.2's, where every NaN equals every
     /// other, so `x == NaN` is how a NaN is found, and `1 / x` is how a zero's
     /// sign is read.
-    fn compare_float(&mut self, st: &mut Fn2, prim: Prim, a: u32, b: u32, dest: u32, w: u32) {
-        let (tag, _, _) = num_tag(prim);
+    fn compare_float(&mut self, st: &mut Fn2, prim: Scalar, a: u32, b: u32, dest: u32, w: u32) {
+        let (tag, _, _) = prim_tag(prim);
         let word = |k: u32| st.scratch + (super::rtcall::RAW_WORD + k) * 8;
         let (raw, constant, ia, ib) = (word(0), word(1), word(2), word(3));
-        let (one, nan) = if prim == Prim::F32 {
+        let (one, nan) = if prim == Scalar::F32 {
             (u64::from(1.0f32.to_bits()), u64::from(f32::NAN.to_bits()))
         } else {
             (1.0f64.to_bits(), f64::NAN.to_bits())
@@ -3069,9 +3052,9 @@ impl Jit<'_> {
     /// to the target, which is the same zero-extension at the new width. A
     /// 128-bit type on either side has stencils of its own, because it is two
     /// words rather than one.
-    fn convert(&mut self, st: &Fn2, from: Prim, to: Prim, src: u32, dest: u32) {
-        let (ftag, fw, fsigned) = num_tag(from);
-        let (ttag, tw, _) = num_tag(to);
+    fn convert(&mut self, st: &Fn2, from: Scalar, to: Scalar, src: u32, dest: u32) {
+        let (ftag, fw, fsigned) = prim_tag(from);
+        let (ttag, tw, _) = prim_tag(to);
         // The sixteen-byte types, first, because everything below assumes a
         // value that fits one frame word.
         if fw == 128 || tw == 128 {
@@ -3098,8 +3081,8 @@ impl Jit<'_> {
                 return;
             }
             let key = match to {
-                Prim::F32 => key!["cvt/from/", ftag, "/f32"],
-                Prim::F64 => key!["cvt/from/", ftag, "/f"],
+                Scalar::F32 => key!["cvt/from/", ftag, "/f32"],
+                Scalar::F64 => key!["cvt/from/", ftag, "/f"],
                 _ => key!["cvt/from/", ftag, "/", tw],
             };
             self.emit(
@@ -3114,7 +3097,7 @@ impl Jit<'_> {
         }
         match (from.is_float(), to.is_float()) {
             (true, true) => {
-                let key = if to == Prim::F32 {
+                let key = if to == Scalar::F32 {
                     "cvt/f2f32"
                 } else {
                     "cvt/f322f"
@@ -3135,7 +3118,7 @@ impl Jit<'_> {
             (false, true) => {
                 let wide = st.scratch + super::rtcall::SPARE_WORD * 8;
                 let at = self.widen(src, wide, fw, fsigned);
-                let key = match (fsigned, to == Prim::F32) {
+                let key = match (fsigned, to == Scalar::F32) {
                     (true, true) => "cvt/i2f32",
                     (true, false) => "cvt/i2f",
                     (false, true) => "cvt/u2f32",

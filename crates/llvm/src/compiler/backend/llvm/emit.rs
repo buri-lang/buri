@@ -6282,7 +6282,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let pieces = match arm {
             JsonArm::Bool => self.pieces(b, &slots, self.get(state, arg)),
-            JsonArm::Num => {
+            JsonArm::Num(_) => {
                 let want = self.ctx.f64_type().as_basic_type_enum();
                 let x = self.cast(b, self.get(state, arg), prim, Prim::F64, want);
                 vec![x]
@@ -7137,7 +7137,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // building a `RangeError`, whose fields are two `Str`s naming the
         // value and the target — a rendering, not a conversion — so those keys
         // are left to the table and to `missing_intrinsics`.
-        if let (Some(to), Some(x)) = (conversion_target(op), first) {
+        if let (Some(to), Some(x)) = (conversion_target(op).map(Num::prim), first) {
             let v = self.get(state, x);
             // The modular form always answers the target type. From a float it
             // truncates and keeps the low bits, as `$wrapTo` does

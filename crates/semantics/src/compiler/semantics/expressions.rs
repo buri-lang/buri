@@ -2995,7 +2995,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         typed::Expr::new(
             typed::ExprKind::Unary {
                 op: typed::UnaryOp::Not,
-                prim: Prim::Bool,
+                prim: Scalar::Bool,
                 arg: Box::new(e),
             },
             b,
@@ -3041,7 +3041,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let e = self.check_expr(operand, expected);
         let ty = self.resolve(&e.ty);
-        if let Some(p) = self.as_prim(&ty).filter(|p| p.is_signed() || p.is_float()) {
+        if let Some(p) = self
+            .as_prim(&ty)
+            .and_then(Prim::scalar)
+            .filter(|p| p.is_signed() || p.is_float())
+        {
             typed::Expr::new(
                 typed::ExprKind::Unary {
                     op: typed::UnaryOp::Neg,
@@ -3059,7 +3063,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn check_bit_not(&mut self, operand: ExprId, span: Span, expected: Option<&Ty>) -> typed::Expr {
         let e = self.check_expr(operand, expected);
         let ty = self.resolve(&e.ty);
-        if let Some(p) = self.as_prim(&ty).filter(|p| p.is_integer()) {
+        if let Some(p) = self
+            .as_prim(&ty)
+            .and_then(Prim::scalar)
+            .filter(|p| p.prim().is_integer())
+        {
             typed::Expr::new(
                 typed::ExprKind::Unary {
                     op: typed::UnaryOp::BitNot,
@@ -3209,7 +3217,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     typed::Expr::new(
                         typed::ExprKind::Unary {
                             op: typed::UnaryOp::Not,
-                            prim: Prim::Bool,
+                            prim: Scalar::Bool,
                             arg: Box::new(call),
                         },
                         bool_ty,

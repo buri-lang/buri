@@ -2737,7 +2737,7 @@ impl<'a> Gen<'a> {
             }
             ExprKind::Unary { op, prim, arg } => {
                 let a = self.expr(arg, out);
-                self.prim_unary(*op, *prim, a)
+                self.prim_unary(*op, prim.prim(), a)
             }
             ExprKind::Template { parts } => {
                 // Every part is rendered to a string from its static type, so

@@ -284,6 +284,28 @@ impl Prim {
         })
     }
 
+    /// This primitive as a [`Scalar`], where it is one: everything but the
+    /// two string types.
+    pub fn scalar(self) -> Option<Scalar> {
+        Some(match self {
+            Prim::Bool => Scalar::Bool,
+            Prim::I8 => Scalar::I8,
+            Prim::I16 => Scalar::I16,
+            Prim::I32 => Scalar::I32,
+            Prim::I64 => Scalar::I64,
+            Prim::I128 => Scalar::I128,
+            Prim::U8 => Scalar::U8,
+            Prim::U16 => Scalar::U16,
+            Prim::U32 => Scalar::U32,
+            Prim::U64 => Scalar::U64,
+            Prim::U128 => Scalar::U128,
+            Prim::F32 => Scalar::F32,
+            Prim::F64 => Scalar::F64,
+            Prim::Char => Scalar::Char,
+            Prim::Str | Prim::Template => return None,
+        })
+    }
+
     pub fn all() -> &'static [Prim; 16] {
         &[
             Prim::Bool,
@@ -303,6 +325,64 @@ impl Prim {
             Prim::Str,
             Prim::Template,
         ]
+    }
+}
+
+/// The primitives a value of which is one machine number: every [`Prim`] but
+/// `Str` and `Template`. A unary operator is at one of these, and so is every
+/// `number.<T>` operation, so a backend reading one has no string case.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Scalar {
+    Bool,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    F32,
+    F64,
+    Char,
+}
+
+impl Scalar {
+    pub fn prim(self) -> Prim {
+        match self {
+            Scalar::Bool => Prim::Bool,
+            Scalar::I8 => Prim::I8,
+            Scalar::I16 => Prim::I16,
+            Scalar::I32 => Prim::I32,
+            Scalar::I64 => Prim::I64,
+            Scalar::I128 => Prim::I128,
+            Scalar::U8 => Prim::U8,
+            Scalar::U16 => Prim::U16,
+            Scalar::U32 => Prim::U32,
+            Scalar::U64 => Prim::U64,
+            Scalar::U128 => Prim::U128,
+            Scalar::F32 => Prim::F32,
+            Scalar::F64 => Prim::F64,
+            Scalar::Char => Prim::Char,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        self.prim().name()
+    }
+
+    pub fn is_signed(self) -> bool {
+        self.prim().is_signed()
+    }
+
+    pub fn is_float(self) -> bool {
+        self.prim().is_float()
+    }
+
+    pub fn bits(self) -> u32 {
+        self.prim().bits()
     }
 }
 
@@ -334,6 +414,21 @@ impl IntPrim {
             IntPrim::U32 => Prim::U32,
             IntPrim::U64 => Prim::U64,
             IntPrim::U128 => Prim::U128,
+        }
+    }
+
+    pub fn scalar(self) -> Scalar {
+        match self {
+            IntPrim::I8 => Scalar::I8,
+            IntPrim::I16 => Scalar::I16,
+            IntPrim::I32 => Scalar::I32,
+            IntPrim::I64 => Scalar::I64,
+            IntPrim::I128 => Scalar::I128,
+            IntPrim::U8 => Scalar::U8,
+            IntPrim::U16 => Scalar::U16,
+            IntPrim::U32 => Scalar::U32,
+            IntPrim::U64 => Scalar::U64,
+            IntPrim::U128 => Scalar::U128,
         }
     }
 

@@ -73,7 +73,7 @@ use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Ta
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
-use crate::compiler::semantics::types::{self, FuncIdx, Prim, ResultShape, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, Prim, ResultShape, Scalar, Ty};
 use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
@@ -648,7 +648,7 @@ pub enum Inst {
     Unary {
         dest: ValueId,
         op: UnOp,
-        prim: Prim,
+        prim: Scalar,
         arg: ValueId,
     },
     Binary {
@@ -2151,7 +2151,7 @@ impl Program {
                 dest(out, d);
                 out.push_str(un_op(*op));
                 out.push('.');
-                out.push_str(prim.name());
+                out.push_str(prim.prim().name());
                 out.push(' ');
                 value(out, *arg);
             }
