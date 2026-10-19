@@ -407,16 +407,6 @@ impl Default for FuncPlan {
 }
 
 impl FuncPlan {
-    /// The three columns `ir::Facts` wants, so `lower` copies rather than
-    /// recomputes.
-    pub fn facts(&self) -> ir::Facts {
-        ir::Facts {
-            params: self.params.clone(),
-            purity: self.purity,
-            can_abort: self.can_abort,
-        }
-    }
-
     /// The operations at one node, in the order they must be emitted.
     pub fn at(&self, node: NodeId, at: Position) -> impl Iterator<Item = &Site> {
         self.sites

@@ -81,8 +81,8 @@
 use crate::compiler::backend::runtime_table::{self, Ret};
 use crate::compiler::middle::ir::{
     self, Adopt, Agg, Answer, BinOp, BlockId, Body, Code, Const, EnumTy, Facts, FnTy, Func, Inst,
-    IntrinsicId, ListTy, Ownership, RecTy, Remap, ResTy, RuntimeId, Signature, Target, Term, Type,
-    TypeList, UnOp, ValueId,
+    IntrinsicId, ListTy, Ownership, Passing, RecTy, Remap, ResTy, RuntimeId, Signature, Target,
+    Term, Type, TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout::{self, EnumHead};
 use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
@@ -278,7 +278,7 @@ fn lower_one(
     };
 
     Func {
-        facts: facts(fplan, dispatch),
+        facts: facts(fplan, dispatch, &sig),
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
         env: f.env,
@@ -295,6 +295,9 @@ fn remap_func_types(func: &mut Func, remap: &Remap) {
     for t in func.sig.params.iter_mut().chain([&mut func.sig.ret]) {
         remap.ty(t);
     }
+    for p in &mut func.facts.params {
+        *p = remap.passing(*p);
+    }
     if let Body::Code(code) = &mut func.body {
         code.remap_types(remap);
     }
@@ -309,12 +312,21 @@ fn remap_func_types(func: &mut Func, remap: &Remap) {
 /// the signature is not trusted at all, because a *shifted* ownership column
 /// is a missing increment on the wrong parameter.
 /// The plan has one ownership per parameter, and the signature has those and
-/// the entry index a merged group's dispatch adds.
-fn facts(plan: &rc::FuncPlan, dispatch: bool) -> Facts {
-    let mut params = plan.params.clone();
+/// the entry index a merged group's dispatch adds. A borrowed parameter is a
+/// counted one, which is an aggregate.
+fn facts(plan: &rc::FuncPlan, dispatch: bool, sig: &Signature) -> Facts {
+    let mut owns = plan.params.clone();
     if dispatch {
-        params.insert(0, Ownership::Own);
+        owns.insert(0, Ownership::Own);
     }
+    let params = owns
+        .iter()
+        .zip(&sig.params)
+        .map(|(o, t)| match (o, t) {
+            (Ownership::Borrow, Type::Agg(agg)) => Passing::Borrow(*agg),
+            _ => Passing::Own,
+        })
+        .collect();
     Facts {
         params,
         purity: plan.purity,

@@ -513,6 +513,14 @@ impl Remap {
         ResTy(self.enum_ty(r.0))
     }
 
+    /// A [`Passing`], with the aggregate it borrows remapped.
+    pub fn passing(&self, p: Passing) -> Passing {
+        match p {
+            Passing::Borrow(agg) => Passing::Borrow(self.aggs[agg.id().index()]),
+            Passing::Own => Passing::Own,
+        }
+    }
+
     /// An [`Answer`], with the enum it names remapped.
     pub fn answer(&self, a: Answer) -> Answer {
         match a {
@@ -1164,11 +1172,19 @@ pub struct Signature {
 }
 
 /// Whether the callee takes a reference count for a parameter or relies on the
-/// caller's (MEMORY.md §5.2).
+/// caller's (MEMORY.md §5.2), as `middle::rc` plans it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ownership {
     Own,
     Borrow,
+}
+
+/// An [`Ownership`] as a backend reads it: a borrowed parameter names the
+/// aggregate whose count the caller keeps, since only an aggregate is counted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Passing {
+    Own,
+    Borrow(Agg),
 }
 
 /// What SPEC 10.4's purity theorem says about a function, which is what
@@ -1198,7 +1214,7 @@ pub enum Purity {
 /// function is a constant somebody eventually sets to `false`.
 pub struct Facts {
     /// One per [`Signature::params`] entry.
-    pub params: Vec<Ownership>,
+    pub params: Vec<Passing>,
     pub purity: Purity,
     /// Whether the function, or anything it calls, can reach `buri_abort`.
     pub can_abort: bool,
@@ -2500,7 +2516,7 @@ mod tests {
                     ret: Type::I64,
                 },
                 facts: Facts {
-                    params: vec![Ownership::Own, Ownership::Own],
+                    params: vec![Passing::Own, Passing::Own],
                     purity: Purity::Effectful,
                     can_abort: true,
                 },
