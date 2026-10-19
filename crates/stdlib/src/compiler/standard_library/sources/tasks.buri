@@ -401,11 +401,15 @@ fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
 /// The slot comes back as a list of none or one, so running what is in it is a
 /// fold and asks nothing.
 fn running<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
-    taking(ctx, scope, at).foldCtx(ctx, fn(c, _ran, wrapped) => {
-        let task = wrapped.value;
-        let _ = task(c);
-        true
-    }, false)
+    taking(ctx, scope, at).foldCtx(
+        ctx,
+        fn(c, _ran, wrapped) => {
+            let task = wrapped.value;
+            let _ = task(c);
+            true
+        },
+        false,
+    )
 }
 
 /// The round's task at `at`, **at the type it was spawned at**.

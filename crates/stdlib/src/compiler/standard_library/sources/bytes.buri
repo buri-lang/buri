@@ -423,7 +423,9 @@ fn padding(cs: [Char]): Int {
 /// The octets of each group of four sextets from `at` on. The length is already
 /// a multiple of four.
 fn decodeFrom<C: Allocator>(ctx: C, places: [Int], at: Int, acc: [U8]): [U8] {
-    match ((places.get(at), places.get(at + 1), places.get(at + 2), places.get(at + 3))) {
+    match (
+        (places.get(at), places.get(at + 1), places.get(at + 2), places.get(at + 3))
+    ) {
         (.Some(a), .Some(b), .Some(c), .Some(d)) => {
             let grown = acc
                 .push(ctx, (a * 4 + b / 16).wrapToU8())
@@ -437,9 +439,6 @@ fn decodeFrom<C: Allocator>(ctx: C, places: [Int], at: Int, acc: [U8]): [U8] {
 
 /// Each character's place in the alphabet from `i` on, with padding as 0. The
 /// error is the first character that is neither, or a `=` before the last two.
-///
-/// Reading and checking are one walk, so a character is looked up once and no
-/// later step has to make up a place for one it was told is there.
 fn sextetsFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
@@ -466,7 +465,9 @@ fn sextetsFrom<C: Allocator>(
 fn alphabetIndex(ch: Char, alphabet: Str, i: Int): Option<Int> {
     match (alphabet.charAt(i)) {
         .None => .None,
-        .Some(b) => if (b == ch) { .Some(i) } else { alphabetIndex(ch, alphabet, i + 1) },
+        .Some(b) => {
+            if (b == ch) { .Some(i) } else { alphabetIndex(ch, alphabet, i + 1) }
+        },
     }
 }
 
