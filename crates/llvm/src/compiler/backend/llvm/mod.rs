@@ -701,7 +701,7 @@ mod tests {
     /// musl toolchain.
     #[test]
     fn the_identity_names_the_linked_llvm_and_its_triples() {
-        let id = Llvm::default().identity();
+        let id = Llvm.identity();
         assert!(id.starts_with("llvm 21."), "{id}");
         assert!(id.contains("inkwell"), "{id}");
         for triple in [
