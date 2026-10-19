@@ -11,7 +11,7 @@
 //! The one place this deviates from the paper is *what a hole is patched with*,
 //! and it is an ISA fact rather than a design choice — see [`HoleKind`].
 
-use super::abi::{HoleName, Slot};
+use super::abi::{HoleName, Reg, Slot};
 use crate::hash::Map as HashMap;
 
 /// How a hole's value reaches the instruction stream.
@@ -240,6 +240,10 @@ const TWINS: usize = FOLD_SUFFIXES_LEN + 1;
 pub struct Known {
     /// `br/f`: a branch on a boolean in the frame.
     pub br_f: usize,
+    /// `br/r0`, `br/r1` and `br/r2`: a branch on a boolean in a register.
+    pub br_r0: usize,
+    pub br_r1: usize,
+    pub br_r2: usize,
     /// `brcmp/eq/u64/fi`: a frame word against a literal.
     pub eq_u64_fi: usize,
     /// `brcmp/lt/u64/ff`: two frame words, unsigned.
@@ -255,8 +259,11 @@ pub struct Known {
 
 impl Known {
     /// Every key a [`Known`] holds, in its fields' order.
-    pub const KEYS: [&'static str; 7] = [
+    pub const KEYS: [&'static str; 10] = [
         "br/f",
+        "br/r0",
+        "br/r1",
+        "br/r2",
         "brcmp/eq/u64/fi",
         "brcmp/lt/u64/ff",
         "incbr/lt",
@@ -267,11 +274,14 @@ impl Known {
 
     /// Each key's index in `index`, or the first key it lacks.
     fn find(index: &HashMap<&str, u32>) -> Result<Known, String> {
-        let [br_f, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq] =
+        let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq] =
             Known::KEYS.map(|key| index.get(key).map(|i| *i as usize).ok_or(key));
         let missing = |key: &str| format!("the library has no `{key}` stencil");
         Ok(Known {
             br_f: br_f.map_err(missing)?,
+            br_r0: br_r0.map_err(missing)?,
+            br_r1: br_r1.map_err(missing)?,
+            br_r2: br_r2.map_err(missing)?,
             eq_u64_fi: eq_u64_fi.map_err(missing)?,
             lt_u64_ff: lt_u64_ff.map_err(missing)?,
             inc_lt: inc_lt.map_err(missing)?,
@@ -279,6 +289,16 @@ impl Known {
             tag_eq32: tag_eq32.map_err(missing)?,
             tag_eq: tag_eq.map_err(missing)?,
         })
+    }
+
+    /// The branch on a boolean in this register, or in the frame for `None`.
+    pub fn br(&self, at: Option<Reg>) -> usize {
+        match at {
+            None => self.br_f,
+            Some(Reg::R0) => self.br_r0,
+            Some(Reg::R1) => self.br_r1,
+            Some(Reg::R2) => self.br_r2,
+        }
     }
 }
 
@@ -824,8 +844,11 @@ mod tests {
         assert_eq!(lib.missing_known(), None);
         let back = read(&lib);
         let k = back.known;
-        let found = [
+        let found: [usize; Known::KEYS.len()] = [
             k.br_f,
+            k.br_r0,
+            k.br_r1,
+            k.br_r2,
             k.eq_u64_fi,
             k.lt_u64_ff,
             k.inc_lt,

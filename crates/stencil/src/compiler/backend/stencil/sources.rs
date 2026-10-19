@@ -33,7 +33,7 @@
 //! The measured consequence is in the report: it is small, because the register
 //! pressure in a stencil is 2–3 values.
 
-use super::abi::{Loc, StencilTarget, CPS_REGISTER_COUNT, RETURN_SHAPES};
+use super::abi::{Loc, Reg, StencilTarget, CPS_REGISTER_COUNT, RETURN_SHAPES};
 use super::elfobj as elf;
 use super::extract::{extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms};
 use super::library::{Builder, HoleKind, Stencil};
@@ -786,17 +786,13 @@ fn types_for() -> Vec<Sc> {
 /// Operand-location combinations.
 fn locs_for() -> Vec<Loc> {
     let mut v = vec![Loc::Frame, Loc::Imm];
-    for k in 0..CPS_REGISTER_COUNT {
-        v.push(Loc::Reg(k as u8));
-    }
+    v.extend(Reg::ALL.map(Loc::Reg));
     v
 }
 
 fn dsts_for() -> Vec<Loc> {
     let mut v = vec![Loc::Frame];
-    for k in 0..CPS_REGISTER_COUNT {
-        v.push(Loc::Reg(k as u8));
-    }
+    v.extend(Reg::ALL.map(Loc::Reg));
     v
 }
 
