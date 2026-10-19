@@ -2736,7 +2736,7 @@ mod tests {
             checked > 140,
             "only {checked} rows were read against a declaration"
         );
-        assert_eq!(contexts, 56);
+        assert_eq!(contexts, 57);
     }
 
     /// Every row's C scalars agree with the declaration: a `Float` parameter
