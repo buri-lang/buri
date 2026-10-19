@@ -650,28 +650,35 @@ impl<'ctx> At<'ctx> {
     }
 
     /// `bytes` bytes on the stack, at the top of the entry block of the
-    /// function the builder is in, leaving the builder at the end of the
-    /// block it was in.
+    /// function the builder is in, leaving the builder where it was.
     ///
     /// The entry block, because `alloca` in LLVM is not scoped to a block: a
     /// buffer emitted inside a loop body would grow the frame once per
-    /// iteration.
+    /// iteration. Built by a builder of its own, because this one may be just
+    /// after a definition, in a block that already ends (`Unit::read_once`).
     pub fn entry_buffer(self, bytes: u32, align: Align) -> PointerValue<'ctx> {
         let here = self.block();
-        // SAFETY: a positioned builder's block is in a function, and a
-        // function with a block has an entry block.
-        let entry = unsafe {
-            let f = llvm::LLVMGetBasicBlockParent(here.as_mut_ptr());
-            BasicBlock::new(llvm::LLVMGetEntryBasicBlock(f)).unwrap_unchecked()
-        };
-        self.top_of(entry);
-        let ctx = entry.get_context();
+        let ctx = here.get_context();
         // A zero-byte buffer is legal and useless; one byte keeps the pointer
         // distinct from every other object, which is what the C side assumes.
         let count = ctx.i64_type().const_int(u64::from(bytes.max(1)), false);
-        let buf = self.array_alloca(ctx.i8_type(), count, align, "out");
-        self.to_end(here);
-        buf
+        let own = ctx.create_builder();
+        // SAFETY: a positioned builder's block is in a function, and a
+        // function with a block has an entry block; a null instruction means
+        // that block's end. `count` is an integer and `i8` is sized.
+        unsafe {
+            let entry =
+                llvm::LLVMGetEntryBasicBlock(llvm::LLVMGetBasicBlockParent(here.as_mut_ptr()));
+            llvm::LLVMPositionBuilder(
+                own.as_mut_ptr(),
+                entry,
+                llvm::LLVMGetFirstInstruction(entry),
+            );
+            let i8t = ctx.i8_type().as_type_ref();
+            let v = llvm::LLVMBuildArrayAlloca(own.as_mut_ptr(), i8t, count.as_value_ref(), NONE);
+            llvm::LLVMSetAlignment(v, align.bytes());
+            PointerValue::new(named(v, "out"))
+        }
     }
 
     pub fn load(

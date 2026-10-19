@@ -1653,17 +1653,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let i32t = self.ctx.i32_type();
         let r = self.reprs.of(self.program, e.id());
-        let slots = r.slots.clone();
+        let (slots, shape) = (r.slots.clone(), (r.layout.size, r.layout.align));
         match self.reprs.of_enum(self.program, e).repr {
             // The value *is* the tag; widen it to the `i32` the IR says a tag
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
+            //
+            // In registers the value is the tag or `{ tag, payload }`, never a
+            // pointer, so a pointer is the value held in memory.
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
                 let slot = Slot {
                     offset: 0,
                     ty: SlotTy::Scalar(tag),
                 };
-                let tag = int(self.piece(b, &slots, whole, 0, slot));
+                let tag = int(match whole {
+                    BasicValueEnum::PointerValue(p) => {
+                        self.load_one(b, p, slot, repr::memory_align(&slots))
+                    }
+                    _ => repr::slot_at(b, whole, 0),
+                });
                 b.zext(tag, i32t, "tag").into()
             }
             // The niche: `.None` is the pointer at `null_at` set to null, so
@@ -1671,18 +1679,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // indices (VALUE-MODEL.md §6).
             //
             // The niche spends one variant's *absence* of fields: `.None` is
-            // the pointer set to null and `.Some` is everything else.
+            // the pointer set to null and `.Some` is everything else. The
+            // pointer is read at its offset, so a value in registers is
+            // spilled first, which `opt` takes back out.
             EnumRepr::Niche { null_at, .. } => {
                 let (some_variant, none_variant) = self.option_variants(e);
-                let i = slots
-                    .iter()
-                    .position(|s| s.offset == null_at.bytes() && s.ty.is_pointer())
-                    .or_ice("a niche is a pointer slot");
-                let slot = Slot {
-                    offset: null_at.bytes(),
-                    ty: SlotTy::Scalar(Scalar::Ptr),
-                };
-                let p = ptr(self.piece(b, &slots, whole, i as u32, slot));
+                let place = self.addressed(b, &slots, whole, shape);
+                let p = self.place_pointer(b, &place, null_at.bytes());
                 let is_null = b.is_null(p, "isnone");
                 let some = i32t.const_int(some_variant as u64, false);
                 let none = i32t.const_int(none_variant as u64, false);
@@ -3254,21 +3257,51 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.rc_observed(state, v, op);
             return;
         }
-        // A value in registers is walked through a stack copy, as
-        // `Unit::copy_out` hands one to glue: the walk then reads each count
-        // at its offset, which a register value has no way to answer.
-        let pieces = self.pieces(state.b, &slots, value);
-        let (size, align) = self.spill_shape(code.ty_of(v));
-        let base = self.scratch(state, size, align);
-        self.store_slots(state.b, base, &slots, align, &pieces);
+        let shape = self.spill_shape(code.ty_of(v));
+        let place = self.spilled(state.b, &slots, value, shape);
         if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
             // Too large to write out here: the value goes through its type's
             // glue instead.
-            self.call_glue(state.b, op.op(), &ty, base);
+            self.call_glue(state.b, op.op(), &ty, place.base);
         } else {
-            self.walk_rc(state, &ty, &Place { base, align }, 0, op);
+            self.walk_rc(state, &ty, &place, 0, op);
         }
         self.rc_observed(state, v, op);
+    }
+
+    /// `value`, of `slots`, at an address: its own for one held in memory, and
+    /// otherwise [`Unit::spilled`].
+    fn addressed(
+        &mut self,
+        b: At<'ctx>,
+        slots: &[Slot],
+        value: BasicValueEnum<'ctx>,
+        shape: (u32, u32),
+    ) -> Place<'ctx> {
+        if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(slots), value) {
+            return Place {
+                base,
+                align: repr::memory_align(slots),
+            };
+        }
+        self.spilled(b, slots, value, shape)
+    }
+
+    /// A value in registers, copied to the stack in a buffer of `(size,
+    /// align)`, as `Unit::copy_out` hands one to glue: each of its fields is
+    /// then read at its offset, which a value in registers has no way to
+    /// answer.
+    fn spilled(
+        &mut self,
+        b: At<'ctx>,
+        slots: &[Slot],
+        value: BasicValueEnum<'ctx>,
+        (size, align): (u32, u32),
+    ) -> Place<'ctx> {
+        let pieces = self.pieces(b, slots, value);
+        let base = b.entry_buffer(size, Align::of(align));
+        self.store_slots(b, base, slots, align, &pieces);
+        Place { base, align }
     }
 
     /// What an `incref` or `decref` of `v` tells the attributes.
@@ -5109,23 +5142,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         value: BasicValueEnum<'ctx>,
     ) -> Vec<BasicValueEnum<'ctx>> {
         self.pieces_range(b, slots, value, 0..slots.len())
-    }
-
-    /// The one slot value at `at`, which is `slot`.
-    fn piece(
-        &mut self,
-        b: At<'ctx>,
-        slots: &[Slot],
-        value: BasicValueEnum<'ctx>,
-        at: u32,
-        slot: Slot,
-    ) -> BasicValueEnum<'ctx> {
-        match value {
-            BasicValueEnum::PointerValue(p) if repr::in_memory(slots) => {
-                self.load_one(b, p, slot, repr::memory_align(slots))
-            }
-            _ => repr::slot_at(b, value, at),
-        }
     }
 
     /// The slot values at `range`, and no others.
