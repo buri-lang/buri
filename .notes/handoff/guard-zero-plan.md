@@ -119,6 +119,33 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 51
+
+Commit: `llvm: a value's counts are always read at an address`.
+
+## What changed
+
+- `types::result_shape` returns a `ResultShape` with `ok`, `err`, `t` and `e`. The old code read `E` with `args.get(err)`, which used a variant index as an index into the type arguments.
+- llvm `Place` is now a single struct, `{ base, align }`. A value in registers is spilled to an entry-block scratch before its counts are walked, the same way glue already gets it. `place_pointer` and `place_int` return values directly.
+- stencil `rtcall`'s `Ret::Res` reads `T` from the shape, so `ok_payload_bytes` and its guard are gone.
+
+## Counts
+
+- llvm emit.rs: 25 → 18 counting every form, 16 → 10 by the plan rule.
+- stencil rtcall.rs: 9 → 8 by the plan rule.
+- Repo plan-rule count: 89 → 82.
+
+## Output
+
+- Debug native output and the JS tools are byte-identical.
+- Release native output is not. The example `server` binary has the same size and the same instruction count, but different register allocation and branch layout. Every release test still passes. Widening the spill stores was not the cause; I didn't find which site is.
+
+## Left
+
+- `tag_of`'s niche `position().or_ice`, at about emit.rs:1686.
+- The 7 type-shape `ice` arms (`agg`, `enum_ty`, `list_ty`, `int`, `int_ty`, `float`, `ptr`). The IR-kind ones need instructions to carry `EnumTy` and `ListTy`. The inkwell ones need typed values across 55+ call sites.
+- stencil `jit::fn_ty`: the thunk needs an IR fact saying whether the function takes an env, such as an `env` flag on `ir::Func` set from the lifted set. Dropping the leading unit param changes the stencil frame layout, so the output is no longer byte-identical, and it removes covered branches in middle.
+
 # Guard plan, phase 50
 
 - **`glue.rs` `load_through` unaligned offset**: removed structurally.
