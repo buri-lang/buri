@@ -3,7 +3,7 @@
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Response };
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, Stdin, Stdout };
+from "platform/effect" import { Allocator, IoError, Stdin, Stdout };
 from "platform/effect/testing" import { alloc, stdin, stdout };
 
 test "no input at all is an error, and nothing is written" {
@@ -109,6 +109,38 @@ test "an input that is not a list at all is not a pair" {
         "codegen: `inputs` holds something that is not a (path, text) pair",
     );
     assert.equal(out.captured(), "");
+}
+
+/// A standard output whose reader has gone: every write fails with `why`.
+struct Gone {
+    why: Str,
+}
+
+impl Stdout for Gone {
+    fn print(self, _text: Template): Result<(), IoError> {
+        .Err(.Other(self.why))
+    }
+
+    fn println(self, _text: Template): Result<(), IoError> {
+        .Err(.Other(self.why))
+    }
+
+    fn writeBytes(self, _bytes: [U8]): Result<(), IoError> {
+        .Err(.Other(self.why))
+    }
+}
+
+test "a response that can't be written is an error that says why" {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdin: stdin().lines(["{\"inputs\":[],\"dependencies\":[]}"]),
+        Stdout: Gone { why: "pipe closed" },
+    };
+    let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
+    assert.equal(
+        assert.err(codegen.run(ctx, silent)),
+        "codegen: the response could not be written: .Other(\"pipe closed\")",
+    );
 }
 
 test "an input whose path is not a string is not a pair" {

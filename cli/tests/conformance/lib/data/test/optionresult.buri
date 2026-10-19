@@ -401,6 +401,15 @@ test "andThenCtx leaves Err alone" {
 
 // --- Result: toOption ---------------------------------------------------------
 
+test "a result shows as the variant it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let ok: Result<Int, Str> = .Ok(7);
+    let err: Result<Int, Str> = .Err("no");
+    assert.equal(str.format(ctx, "${ok} ${err}"), ".Ok(7) .Err(\"no\")");
+}
+
 test "toOption turns Ok into Some" {
     let r: Result<Int, Str> = .Ok(3);
     assert.equal(assert.some(r.toOption()), 3);

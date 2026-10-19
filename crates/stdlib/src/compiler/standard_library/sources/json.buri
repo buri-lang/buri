@@ -403,8 +403,9 @@ fn grammatical(cs: [Char], start: Int, end: Int): Bool {
         let signed = cs.get(afterFraction + 1) == .Some('+')
             || cs.get(afterFraction + 1) == .Some('-');
         let first = if (signed) { afterFraction + 2 } else { afterFraction + 1 };
-        let d = digitsFrom(cs, first, end);
-        if (d > first) { d } else { -1 }
+        // At least one digit follows, because `toFloat` refuses an exponent
+        // with none.
+        digitsFrom(cs, first, end)
     } else {
         afterFraction
     };

@@ -101,6 +101,28 @@ test "input with no newline at its end is all of the input" {
     assert.equal(io.readAllBytes(ctx), [97, 10, 98]);
 }
 
+/// A standard input that answers every read with no octets rather than
+/// `.None`.
+struct Drained {}
+
+impl Stdin for Drained {
+    fn readLine(self): Option<Str> {
+        .None
+    }
+
+    fn readBytes(self, _count: Int): Option<[U8]> {
+        .Some([])
+    }
+}
+
+test "a read that answers no octets is the end of the input" {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdin: Drained {},
+    };
+    assert.isEmpty(io.readAllBytes(ctx));
+}
+
 test "readAllBytes leaves the stream at its end" {
     let ctx = context {
         Allocator: alloc(),
