@@ -1,0 +1,15 @@
+# A suite that names no backend runs on this host's own platform, and one that
+# decodes JSON through a derived decoder is no exception: the native backends
+# build `json.decode`, so the suite runs rather than being refused.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite on the host's own platform may decode JSON"
+
+run {
+  args: ["test", "//lib/decode", "--force"]
+  exit: 0
+  golden: "test.txt"
+  stream: OUT
+}
