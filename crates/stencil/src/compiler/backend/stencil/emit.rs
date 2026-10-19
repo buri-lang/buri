@@ -43,7 +43,7 @@ use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{At, EnumRepr, Repr};
-use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Ty};
 use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
@@ -2077,8 +2077,8 @@ impl<'a> Jit<'a> {
                 // a scalar value — and casting anyway would have written a
                 // `Char` into a `Result` and called it success. An inexact one
                 // is a range test and two arms rather than a cast.
-                if let ir::Answer::Inline(Some(e)) = answer {
-                    self.convert_checked(prog, st, e, prim, to, p(0), ret0);
+                if let ir::Answer::InlineRes(r) = answer {
+                    self.convert_checked(prog, st, r, prim, to, p(0), ret0);
                 } else {
                     self.convert(st, prim, to, p(0), ret0);
                 }
@@ -2418,7 +2418,7 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        answer: ir::EnumTy,
+        answer: ir::ResTy,
         from: Prim,
         to: Prim,
         src: u32,
@@ -2426,19 +2426,15 @@ impl Jit<'_> {
     ) {
         let kind = checked_kind(from, to);
         let ty = prog.type_info(answer.id()).ty;
-        let error_ty = match ty.kind() {
-            TyKind::Con(_, arguments) => arguments.get(1).copied(),
-            _ => None,
-        }
-        .or_ice("a checked conversion answers `Result<T, ConversionError>`");
+        let shape = prog.types.result_shape(answer);
         // `middle::layout` gives a niche only to an `Option`, so the result
         // keeps a tag and each payload at its own offset. The error is
         // `core/number`'s `RangeError`: its value, then its target.
         let result = self.layout_of_type(ty);
-        let error = self.layout_of_type(error_ty);
-        let ok_at = super::lists::payload_at(&result, 0);
+        let error = self.layout_of_type(shape.e);
+        let ok_at = super::lists::payload_at(&result, shape.ok);
         let err_at = result
-            .variant(1)
+            .variant(shape.err)
             .first()
             .copied()
             .or_ice("`.Err` carries its error");

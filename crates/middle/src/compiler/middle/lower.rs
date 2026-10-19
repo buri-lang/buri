@@ -81,7 +81,7 @@
 use crate::compiler::backend::runtime_table::{self, Ret};
 use crate::compiler::middle::ir::{
     self, Adopt, Agg, Answer, BinOp, BlockId, Body, Code, Const, EnumTy, Facts, FnTy, Func, Inst,
-    IntrinsicId, ListTy, Ownership, RecTy, Remap, RuntimeId, Signature, Target, Term, Type,
+    IntrinsicId, ListTy, Ownership, RecTy, Remap, ResTy, RuntimeId, Signature, Target, Term, Type,
     TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout::{self, EnumHead};
@@ -539,10 +539,13 @@ impl Types {
     /// destination's own id: `ty` was interned from the same `ret`.
     fn answer(&mut self, tables: &Tables, key: &str, ret: &Ty, ty: Type) -> Answer {
         let Some(row) = runtime_table::entry(key) else {
-            return Answer::Inline(match ty {
-                Type::Agg(Agg::Enum(e)) => Some(e),
-                _ => None,
-            });
+            return match ty {
+                Type::Agg(Agg::Enum(e)) if self.list.enum_head(e).con == TyConId::RESULT => {
+                    Answer::InlineRes(ResTy::new(e))
+                }
+                Type::Agg(Agg::Enum(e)) => Answer::Inline(Some(e)),
+                _ => Answer::Inline(None),
+            };
         };
         self.row_answer(tables, row.ret, ret)
     }
@@ -557,9 +560,14 @@ impl Types {
             Ret::Int(bits) => Answer::Int(bits),
             Ret::Out => Answer::Out,
             Ret::Sum => Answer::Sum(self.enum_of(tables, &ret, TyConId::OPTION)),
-            Ret::Res => Answer::Res(self.enum_of(tables, &ret, TyConId::RESULT)),
-            Ret::ResMsg => Answer::ResMsg(self.enum_of(tables, &ret, TyConId::RESULT)),
+            Ret::Res => Answer::Res(self.result_of(tables, &ret)),
+            Ret::ResMsg => Answer::ResMsg(self.result_of(tables, &ret)),
         }
+    }
+
+    /// `ty`, an instance of `core/result`'s `Result`.
+    fn result_of(&mut self, tables: &Tables, ty: &Ty) -> ResTy {
+        ResTy::new(self.enum_of(tables, ty, TyConId::RESULT))
     }
 
     /// `ty`, an instance of the enum `con`.

@@ -109,8 +109,8 @@ impl TraitId {
     pub const SATURATING: TraitId = TraitId(31);
 }
 
-/// The variants `core/option` and `core/order` declare, in their order, which
-/// the backends already depend on.
+/// The variants `core/option`, `core/result` and `core/order` declare, in their
+/// order, which the backends already depend on.
 impl MethodId {
     /// A trait's first method, which is a derivable trait's only one.
     pub const FIRST: MethodId = MethodId(0);
@@ -121,6 +121,8 @@ impl VariantId {
     pub const FIRST: VariantId = VariantId(0);
     pub const SOME: VariantId = VariantId(0);
     pub const NONE: VariantId = VariantId(1);
+    pub const OK: VariantId = VariantId(0);
+    pub const ERR: VariantId = VariantId(1);
     pub const LESS: VariantId = VariantId(0);
     pub const EQUAL: VariantId = VariantId(1);
     pub const GREATER: VariantId = VariantId(2);
@@ -1930,21 +1932,19 @@ pub struct ResultShape {
     pub e: Ty,
 }
 
-/// `ty`'s [`ResultShape`].
+/// The [`ResultShape`] of `core/result`'s `Result` applied to `args`.
 ///
-/// By name rather than by index: `core/result` declares `Ok` first, but a
-/// backend that hard-coded `0` and `1` would be reading a declaration order
-/// out of a table that records it, and the two would have to be kept in step
-/// by hand. `None` for anything that is not a two-armed `Result<T, E>`.
-pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<ResultShape> {
-    let (id, t, e) = match ty.kind() {
-        TyKind::Con(id, &[t, e]) => (id, t, e),
-        _ => return None,
-    };
-    let variants = tables.tycon(*id).variants();
-    let ok = variants.iter().position(|v| v.name == "Ok")?;
-    let err = variants.iter().position(|v| v.name == "Err")?;
-    Some(ResultShape { ok, err, t, e })
+/// `Ok` and `Err` are [`VariantId::OK`] and [`VariantId::ERR`], as `Some` and
+/// `None` are constants, and `T` and `E` are the arguments, substituted the
+/// way `middle::layout` substitutes the variants' fields, so the two can't
+/// disagree.
+pub fn result_shape(args: &[Ty]) -> ResultShape {
+    ResultShape {
+        ok: VariantId::OK.index(),
+        err: VariantId::ERR.index(),
+        t: substitute(&Ty::param(0), args, None),
+        e: substitute(&Ty::param(1), args, None),
+    }
 }
 
 // ---------------------------------------------------------------------------

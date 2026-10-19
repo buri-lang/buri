@@ -212,9 +212,10 @@ pub fn json_arm(prim: Prim) -> JsonArm {
 
 /// Where that arm sits in `Json`'s variant list.
 ///
-/// **By name**, for the reason `types::result_shape` is one: `core/json`
-/// declares `Null` first, and a backend that hard-coded `1`, `2`, `3` would be
-/// reading a declaration order out of a table that records it.
+/// **By name**: `core/json` declares `Null` first, and a backend that
+/// hard-coded `1`, `2`, `3` would be reading a declaration order out of a table
+/// that records it.
+
 /// `middle::derives` builds the *compound* arms of the same enum through its
 /// own `Environment::json_variant`, asking the same question of the same declaration;
 /// this is the half a **backend** needs, because a primitive leaf is an

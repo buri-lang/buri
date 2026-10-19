@@ -3043,7 +3043,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | ir::Answer::Sum(_)
             | ir::Answer::Res(_)
             | ir::Answer::ResMsg(_)
-            | ir::Answer::Inline(_) => None,
+            | ir::Answer::Inline(_)
+            | ir::Answer::InlineRes(_) => None,
             ir::Answer::Scalar => Some(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,
@@ -5714,12 +5715,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        (e, message): (ir::EnumTy, bool),
+        (r, message): (ir::ResTy, bool),
         entry: &runtime::Entry,
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let (ok, err, ok_bytes, err_ty) = self.result_shape(e);
+        let (ok, err, ok_bytes, err_ty) = self.result_shape(r);
+        let e = r.enum_ty();
         let (slots, size, align) = self.dest_shape(code, dest);
         let (ok_at, err_at) = {
             let r = self.reprs.of(self.program, e.id());
@@ -5832,19 +5834,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `.Ok`'s and `.Err`'s variant indices, `.Ok`'s payload size, and `E`, for
     /// a `Result<T, E>` destination.
     ///
-    /// By **name**, for [`Unit::call_sum`]'s reason: `core/result` declares `Ok`
-    /// first and `middle::layout` numbers in declaration order, so the answer is
-    /// `(0, 1)` today, and a declaration this did not expect would otherwise be
-    /// a wrong answer with no symptom.
+    /// The indices are `VariantId::OK` and `VariantId::ERR`, the order
+    /// `core/result` declares them in and `middle::layout` numbers them by.
     ///
+
     /// The payload's *size* comes from `T` and not from the variant's field
     /// list, because `Layout::variant` records where a field is and never how
     /// big it is: `Result<(), E>` has a field of no bytes, and whether the C
     /// signature carries an out-pointer turns on exactly that.
-    fn result_shape(&mut self, e: ir::EnumTy) -> (usize, usize, u32, Ty) {
-        let source = self.program.type_info(e.id()).ty;
-        let shape =
-            types::result_shape(self.tables, &source).or_ice("the destination is a `Result`");
+    fn result_shape(&mut self, r: ir::ResTy) -> (usize, usize, u32, Ty) {
+        let shape = self.program.types.result_shape(r);
         let ok_bytes = self.reprs.of_ty(&shape.t).layout.size;
         (shape.ok, shape.err, ok_bytes, shape.e)
     }
@@ -7176,7 +7175,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // is the twin, and the two agree because both render the value with
             // `show_prim` and name the target with a `Str` literal.
             return match answer {
-                ir::Answer::Inline(Some(e)) => self.convert_checked(state, dest, e, from, to, x),
+                ir::Answer::InlineRes(r) => self.convert_checked(state, dest, r, from, to, x),
                 _ => false,
             };
         }
@@ -7184,8 +7183,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // not name — `Char` is not a numeric target — and it is the same
         // `Result<Char, RangeError>` shape: not every `U32` is a Unicode
         // scalar (`text/json.buri`'s `\uXXXX` path is the reachable caller).
-        if let ("toChar", Some(x), ir::Answer::Inline(Some(e))) = (op, first, answer) {
-            return self.convert_checked(state, dest, e, from, Prim::Char, x);
+        if let ("toChar", Some(x), ir::Answer::InlineRes(r)) = (op, first, answer) {
+            return self.convert_checked(state, dest, r, from, Prim::Char, x);
         }
 
         // `Bounded`'s two, which take no `self` and whose type is in the key
@@ -7766,23 +7765,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         dest: ir::ValueId,
-        e: ir::EnumTy,
+        r: ir::ResTy,
         from: Prim,
         to: Prim,
         arg: ir::ValueId,
     ) -> bool {
         let b = state.b;
         // A `Result<T, RangeError>`, whose error names the value and the target.
-        let id = e.id();
+        let id = r.id();
         let kind = checked_kind(from, to);
-        let owner = self.program.type_info(id).ty;
-        let variant = |at| {
-            types::variant_types(self.tables, &owner, at)
-                .into_iter()
-                .next()
-                .or_ice("`Result`'s arms carry a value")
-        };
-        let (ok_ty, err_ty) = (variant(0), variant(1));
+        let types::ResultShape {
+            ok,
+            err,
+            t: ok_ty,
+            e: err_ty,
+        } = self.program.types.result_shape(r);
+        let e = r.enum_ty();
         let [value_ty, target_ty]: [Ty; 2] = types::field_types(self.tables, &err_ty)
             .as_slice()
             .try_into()
@@ -7815,7 +7813,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         // `.Ok(narrowed)`.
         b.to_end(ok_bb);
-        let ok_value = self.build_variant(b, e, 0, &[(ok_slots, vec![narrowed])]);
+        let ok_value = self.build_variant(b, e, ok, &[(ok_slots, vec![narrowed])]);
         let ok_end = b.block();
         b.br(join);
 
@@ -7833,7 +7831,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             &err_ty,
             &[(value_ty, value_str), (target_ty, target_str)],
         );
-        let err_value = self.build_variant(b, e, 1, &[range_error]);
+        let err_value = self.build_variant(b, e, err, &[range_error]);
         let err_end = b.block();
         b.br(join);
 
