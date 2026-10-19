@@ -1156,14 +1156,15 @@ const TAKEN_NATIVELY: &[(&str, usize)] = &[
     ("list.removeAt", 0),
 ];
 
-/// The intrinsic parameters a JavaScript list **keeps**: the element `push`,
-/// `insertAt`, `replaceAt` and `repeat` put in the list they answer, and the
-/// one `core/map`'s splices put in a node's children.
+/// The intrinsic parameters JavaScript **keeps**: the element `push`,
+/// `insertAt`, `replaceAt` and `repeat` put in the list they answer, the one
+/// `core/map`'s splices put in a node's children, and the value `copyOut`
+/// answers as it is, because there is no arena to copy out of.
 ///
-/// Under [`Options::sharing`] only. A caller that keeps the element then holds
+/// Under [`Options::sharing`] only. A caller that keeps the value then holds
 /// a second reference to it, and the duplication is the mark that stops a
-/// later push onto the element, through the caller's own name, from writing
-/// into the list that holds it. Natively the runtime retains what it stores.
+/// later push through either name from writing into the other.
+/// Natively the runtime retains what it stores, and `copyOut` copies.
 const STORED_BY: &[(&str, usize)] = &[
     ("list.push", 2),
     ("list.insertAt", 3),
@@ -1171,6 +1172,7 @@ const STORED_BY: &[(&str, usize)] = &[
     ("list.repeat", 1),
     ("map.insertAt", 3),
     ("map.replaceAt", 3),
+    ("alloc.copyOut", 0),
 ];
 
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
@@ -1237,7 +1239,7 @@ fn infer_ownership(
     // An intrinsic borrows what it is given (see the module docs), so its row
     // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
     // before the fixpoint so that callers are promoted against it. Under
-    // `sharing`, all eleven, and the six elements [`STORED_BY`] names.
+    // `sharing`, all eleven, and the seven values [`STORED_BY`] names.
     // Natively, the four folds' seed and `str.show`'s receiver alone: both
     // native backends hand the seed to the first step, and answer the shown
     // `Str`, without a retain of their own.

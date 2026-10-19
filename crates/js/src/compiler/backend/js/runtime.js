@@ -2218,9 +2218,11 @@ function $alloc_arenaTotal(h) {
 //     there are no counts here, because `middle/mod.rs`'s pipeline does not run
 //     `rc` for this backend;
 //   * a copy must be freshly *unique*, so that a later in-place write is
-//     licensed — but uniqueness here is the sticky `$u` bit, which the value
-//     already carries or already lacks, and duplicating it would change nothing
-//     about the answer while making every scope cost the size of its result.
+//     licensed — but uniqueness here is the sticky `$u` bit, and duplicating
+//     the value would make every scope cost the size of its result. The answer
+//     is the argument, so a caller that keeps the argument holds two names for
+//     one value: `middle/rc.rs`'s `STORED_BY` makes the parameter owned, and
+//     the caller's duplication marks it, so a push through either name copies.
 //
 // So the two backends agree on every number and every value a program can
 // observe, and disagree only about pages and blocks, which no program can ask

@@ -421,6 +421,41 @@ test "the value copied out of is unchanged by the copy" {
     assert.equal(original, ["keepkeep", "mememe"]);
 }
 
+// Two values after the copy, so growing one in place may not change the
+// other (SPEC §8.1). The lists are built rather than written, so each is one
+// a push could write into.
+test "a copy grown through its own name leaves the original alone" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let original = [1].concat(ctx, [2]);
+    let copy = alloc.copyOut(original);
+    assert.equal(copy.push(ctx, 3), [1, 2, 3]);
+    assert.equal(original, [1, 2]);
+}
+
+test "the original grown through its own name leaves the copy alone" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let original = [1].concat(ctx, [2]);
+    let copy = alloc.copyOut(original);
+    let across = alloc.copyAcross(original);
+    assert.equal(original.reverse(ctx), [2, 1]);
+    assert.equal(copy, [1, 2]);
+    assert.equal(across, [1, 2]);
+}
+
+test "a scope's answer grown through its own name leaves what it captured alone" {
+    let ctx = context {
+        Allocator: testing.alloc(),
+    };
+    let captured = [1].concat(ctx, [2]);
+    let answer = alloc.scoped(ctx, fn(c) => captured);
+    assert.equal(answer.push(ctx, 3), [1, 2, 3]);
+    assert.equal(captured, [1, 2]);
+}
+
 test "copyOut of a closure answers one that still reads its captures" {
     let ctx = context {
         Allocator: testing.alloc(),
