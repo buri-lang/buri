@@ -16,15 +16,15 @@ crates/backend                       66/66  100.00%           403/437   92.22%
 crates/diagnostics                 195/198   98.48%         1591/1669   95.33%
 crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                         978/1004   97.41%         5288/5527   95.68%
-crates/llvm                        532/532  100.00%         7356/7527   97.73%
-crates/middle                    1833/1866   98.23%       14657/15049   97.40%
+crates/js                         996/1022   97.46%         5364/5599   95.80%
+crates/llvm                        532/532  100.00%         7365/7536   97.73%
+crates/middle                    1839/1872   98.24%       14977/15377   97.40%
 crates/project                   1346/1360   98.97%         6325/6493   97.41%
 crates/semantics                 2154/2154  100.00%       13382/13680   97.82%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
-crates/stencil                   1069/1078   99.17%         8182/8644   94.66%
+crates/stencil                   1069/1078   99.17%         8186/8645   94.69%
 crates/syntax                    1209/1210   99.92%         6609/6763   97.72%
-total                          14866/15019   98.98%       96868/99874   96.99%
+total                          14890/15043   98.98%      97277/100284   97.00%
 
 cli/src                           branches                      lines         
 build                            1677/1685   99.53%       10747/11030   97.43%
@@ -54,7 +54,7 @@ main                                 11/12   91.67%             61/65   93.85%
 The 30 files with the most uncovered branches:
 
 uncovered          branches           file
-       21           509/530   96.04%  crates/js/src/compiler/backend/js/javascript.rs
+       21           527/548   96.17%  crates/js/src/compiler/backend/js/javascript.rs
        17           491/508   96.65%  cli/src/commands/test.rs
        11             49/60   81.67%  cli/src/compiler/driver.rs
        11           237/248   95.56%  crates/project/src/languages/json/schema.rs
