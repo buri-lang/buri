@@ -547,8 +547,8 @@ impl Types {
     /// to `ty`: the shape its runtime row names, or, for a key with no row,
     /// the enum the backend builds.
     ///
-    /// A row's `Option` or `Result` is the enum of `ret` itself, so it is the
-    /// destination's own id: `ty` was interned from the same `ret`.
+    /// A row's `Option`, `Result` or `Order` is the enum of `ret` itself, so
+    /// it is the destination's own id: `ty` was interned from the same `ret`.
     fn answer(&mut self, tables: &Tables, key: &str, ret: &Ty, ty: Type) -> Answer {
         let Some(row) = runtime_table::entry(key) else {
             return match ty {
@@ -569,7 +569,8 @@ impl Types {
             Ret::Void => Answer::Void,
             Ret::Scalar(c) => Answer::Scalar(c),
             Ret::NoReturn => Answer::NoReturn,
-            Ret::Int(n) => Answer::Int(n),
+            Ret::Bool => Answer::Bool,
+            Ret::Order => Answer::Order(self.enum_of(tables, &ret, TyConId::ORDER)),
             Ret::Out => Answer::Out,
             Ret::Sum => Answer::Sum(self.enum_of(tables, &ret, TyConId::OPTION)),
             Ret::Res => Answer::Res(self.result_of(tables, &ret)),

@@ -3019,7 +3019,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.program,
                 code.ty_of(dest),
             )),
-            ir::Answer::Int(n) => Some(self.int_of_width(n.bits()).as_basic_type_enum()),
+            ir::Answer::Bool => Some(self.ctx.i8_type().as_basic_type_enum()),
+            ir::Answer::Order(_) => Some(self.ctx.i32_type().as_basic_type_enum()),
         };
         let f = self.declare_rt(&entry.symbol(), &param_types, ret_type);
         if matches!(answer, ir::Answer::NoReturn) {
@@ -3035,11 +3036,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             state.b.to_end(after);
             return;
         }
-        // `Ret::Int` is the one shape where the C result is not the dest's
-        // register shape: `u8` for a `Bool`, `i32` for a bare enum tag. The
+        // `Ret::Bool` and `Ret::Order` are the shapes where the C result is not
+        // the dest's register shape: `u8` for a `Bool`, `i32` for a bare tag. The
         // narrowing happens here rather than in the declaration, because the
         // declaration is what has to agree with the archive.
-        if let ir::Answer::Int(_) = answer {
+        if let ir::Answer::Bool | ir::Answer::Order(_) = answer {
             let want = int_ty(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,

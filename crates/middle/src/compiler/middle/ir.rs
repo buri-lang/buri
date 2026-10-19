@@ -538,6 +538,7 @@ impl Remap {
     pub fn answer(&self, a: Answer) -> Answer {
         match a {
             Answer::Sum(e) => Answer::Sum(self.enum_ty(e)),
+            Answer::Order(e) => Answer::Order(self.enum_ty(e)),
             Answer::Res(r) => Answer::Res(self.result(r)),
             Answer::ResMsg(r) => Answer::ResMsg(self.result(r)),
             Answer::Inline(e) => Answer::Inline(e.map(|e| self.enum_ty(e))),
@@ -867,8 +868,10 @@ pub enum Answer {
     Scalar(crate::compiler::backend::runtime_table::CScalar),
     /// `Ret::NoReturn`.
     NoReturn,
-    /// `Ret::Int`: a narrow integer, widened or narrowed to the destination.
-    Int(crate::compiler::backend::runtime_table::Narrow),
+    /// `Ret::Bool`: a C `u8`, narrowed to the destination.
+    Bool,
+    /// `Ret::Order`: a C `i32`, narrowed to the `Order` the destination is.
+    Order(EnumTy),
     /// `Ret::Out`.
     Out,
     /// `Ret::Sum`: the `Option` the destination is.

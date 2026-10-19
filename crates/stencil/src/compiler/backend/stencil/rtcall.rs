@@ -50,7 +50,7 @@
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Bind, Fn2, Jit, V};
-use super::runtime::{self, Arg, CScalar, Entry, Extra, Narrow, OptRepr, Ret, BURI_OK};
+use super::runtime::{self, Arg, CScalar, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir::{self, Answer};
 use crate::compiler::middle::layout::{EnumRepr, Repr, Words};
@@ -141,7 +141,7 @@ const _: () = {
         ints += match row.ret {
             Ret::Sum | Ret::Out => 1,
             Ret::Res | Ret::ResMsg => 2,
-            Ret::Void | Ret::Scalar(_) | Ret::NoReturn | Ret::Int(_) => 0,
+            Ret::Void | Ret::Scalar(_) | Ret::NoReturn | Ret::Bool | Ret::Order => 0,
         };
         assert!(
             ints <= MAX_INT && floats <= MAX_FLOAT,
@@ -305,7 +305,8 @@ impl Jit<'_> {
             Answer::Void
             | Answer::NoReturn
             | Answer::Scalar(_)
-            | Answer::Int(_)
+            | Answer::Bool
+            | Answer::Order(_)
             | Answer::Res(_)
             | Answer::ResMsg(_)
             | Answer::Inline(_)
@@ -414,37 +415,20 @@ impl Jit<'_> {
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Answer::Sum(_) | Answer::Int(Narrow::I32) | Answer::Res(_) | Answer::ResMsg(_) => "w",
+            Answer::Sum(_) | Answer::Order(_) | Answer::Res(_) | Answer::ResMsg(_) => "w",
             // The C return type's own width (`abi::RETURN_SHAPES`): a `u8`
             // read as `uint64_t` has unspecified upper bits.
-            Answer::Int(Narrow::U8) | Answer::Scalar(CScalar::U8) => "b",
+            Answer::Bool | Answer::Scalar(CScalar::U8) => "b",
             Answer::Scalar(CScalar::U32) => "u",
             Answer::Scalar(CScalar::U64) => "i",
             Answer::Scalar(CScalar::F64) => "d",
         };
 
-        // A `Tag` whose destination is an aggregate has to land at the tag's
-        // own offset and width; one whose destination is a scalar already
-        // occupies the whole slot, which is what the `w` shape wrote.
-        let narrow = match (answer, dty) {
-            (Answer::Int(Narrow::I32), ir::Type::Agg(agg)) => {
-                let id = agg.id();
-                let l = self.layout_id_shared(prog, id);
-                match &l.repr {
-                    Repr::Enum {
-                        repr: EnumRepr::Bare { tag },
-                        ..
-                    }
-                    | Repr::Enum {
-                        repr: EnumRepr::Tagged { tag, .. },
-                        ..
-                    } => Some(tag.size()),
-                    _ => crate::diagnostics::ice(&format!(
-                        "{}: a tag destination is an enum",
-                        entry.key
-                    )),
-                }
-            }
+        // An `Order` lands at its tag's own width. `Order` carries nothing in
+        // any variant (`every_declared_answer_has_its_shape`), so its layout
+        // is the bare tag and the layout's size is the tag's.
+        let narrow = match answer {
+            Answer::Order(e) => Some(self.enum_layout(prog, e).size),
             _ => None,
         };
         let into = if opt.is_some() || narrow.is_some() || res.is_some() {
