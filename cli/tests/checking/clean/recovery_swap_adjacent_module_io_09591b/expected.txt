@@ -1,9 +1,0 @@
-error: expected `from`, found a string literal [unexpected-token]
- --> main.buri:9:1
-  |
-9 | "platform/effect/testing" from import { alloc, stdin };
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = expected: `from`
-  = actual: a string literal
-  = fix: write `from` first: `from "platform/effect/testing"`

@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
-  --> main.buri:64:6
-   |
-64 |     }
-   |      ^
-   |
-   = fix: write `;` here

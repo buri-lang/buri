@@ -1,0 +1,28 @@
+error: `stdin` takes no arguments, but 1 was given [argument-count]
+   --> main.buri:129:16
+    |
+129 |         Stdin: stdin(.bytes([7]),
+    |                ^^^^^^^^^^^^^^^^^^
+    |
+    = expected: 0
+    = actual: 1
+    = fix: pass `stdin` the following arguments: stdin()
+error: `.bytes` needs a known expected type [untyped-variant]
+   --> main.buri:129:22
+    |
+129 |         Stdin: stdin(.bytes([7]),
+    |                      ^^^^^^
+    |
+    = fix: write the qualified form, as in `Option.bytes(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+   --> main.buri:130:5
+    |
+130 |     };
+    |     ^
+    |
+   --> main.buri:129:21
+    |
+129 |         Stdin: stdin(.bytes([7]),
+    |                     ^ opened here
+    |
+    = fix: write `)` here

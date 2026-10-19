@@ -1,0 +1,12 @@
+error: this context is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:56:5
+   |
+56 |     ;
+   |     ^
+   |
+  --> main.buri:52:23
+   |
+52 |     let ctx = context {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

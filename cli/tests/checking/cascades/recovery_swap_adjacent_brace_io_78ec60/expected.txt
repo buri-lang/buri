@@ -1,0 +1,17 @@
+error: `Drained`'s `impl Stdin` is missing `readLine` and `readBytes` [impl-missing-method]
+   --> main.buri:108:1
+    |
+108 | impl Stdin for Drained {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = an `impl` supplies every method its trait declares
+    = fix: add `readLine` and `readBytes` to the block, with the signature `Stdin` declares
+error: expected `:`, found `Option` [unexpected-token]
+   --> main.buri:109:22
+    |
+109 |     fn readLine(self)Option :<Str> {
+    |                      ^^^^^^
+    |
+    = expected: `:`
+    = actual: `Option`
+    = fix: write `:` here

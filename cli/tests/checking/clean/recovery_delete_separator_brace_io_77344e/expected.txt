@@ -1,0 +1,7 @@
+error: an import name ends with `,` [missing-comma]
+ --> main.buri:9:46
+  |
+9 | from "platform/effect/testing" import { alloc stdin };
+  |                                              ^
+  |
+  = fix: write `,` here

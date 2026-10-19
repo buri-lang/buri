@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:14:36
+   |
+14 |         Stdin: stdin().lines(["one" "two", "three"]),
+   |                                    ^
+   |
+   = fix: write `,` here
