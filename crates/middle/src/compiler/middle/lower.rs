@@ -78,8 +78,9 @@
 //!   supplies a generated `show`/`decode` at the type instead, as it does for
 //!   every structural operation.
 
+use crate::compiler::backend::runtime_table::{self, Ret};
 use crate::compiler::middle::ir::{
-    self, Adopt, Agg, BinOp, BlockId, Body, Code, Const, EnumTy, Facts, FnTy, Func, Inst,
+    self, Adopt, Agg, Answer, BinOp, BlockId, Body, Code, Const, EnumTy, Facts, FnTy, Func, Inst,
     IntrinsicId, ListTy, Ownership, RecTy, Remap, RuntimeId, Signature, Target, Term, Type,
     TypeList, UnOp, ValueId,
 };
@@ -173,7 +174,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         .map(|(mut func, local, local_keys)| {
             let remap = types.adopt(tables, local);
             remap_func_types(&mut func, &remap);
-            keys.adopt(&mut func, &local_keys);
+            keys.adopt(&mut func, &local_keys, &remap);
             func
         })
         .collect();
@@ -238,7 +239,11 @@ fn lower_one(
     let fplan = plan.func(i);
     let body = match &f.kind {
         FuncKind::Intrinsic(key) if !lists::handles(key) => {
-            Body::Runtime(keys.runtimes.intern(&bounded_key(tables, key, &ret)))
+            let key = bounded_key(tables, key, &ret);
+            Body::Runtime(ir::Runtime {
+                key: keys.runtimes.intern(&key),
+                answer: types.answer(tables, &key, &ret, sig.ret),
+            })
         }
         kind => {
             let lower = FnLower {
@@ -428,11 +433,16 @@ struct Keys {
 
 impl Keys {
     /// Folds a function's own keys into these, and points its ids at them.
-    fn adopt(&mut self, func: &mut Func, local: &Keys) {
+    /// A runtime body's answer names a type, so `remap` points it at the
+    /// program's table, as [`remap_func_types`] does for a body's code.
+    fn adopt(&mut self, func: &mut Func, local: &Keys, remap: &Remap) {
         let calls = local.calls.keys.map(|k| self.calls.intern(k));
         let runtimes = local.runtimes.keys.map(|k| self.runtimes.intern(k));
         match &mut func.body {
-            Body::Runtime(id) => *id = *runtimes.get(*id),
+            Body::Runtime(r) => {
+                r.key = *runtimes.get(r.key);
+                r.answer = remap.answer(r.answer);
+            }
             Body::Code(code) => code.remap_intrinsics(&calls),
         }
     }
@@ -518,6 +528,37 @@ impl Types {
                 ))
             }
             _ => Agg::Record(self.record(tables, ty)),
+        }
+    }
+
+    /// How `key`'s result comes back, where the result is `ret`, which lowers
+    /// to `ty`: the shape its runtime row names, or, for a key with no row,
+    /// the enum the backend builds.
+    ///
+    /// A row's `Option` or `Result` is the enum of `ret` itself, so it is the
+    /// destination's own id: `ty` was interned from the same `ret`.
+    fn answer(&mut self, tables: &Tables, key: &str, ret: &Ty, ty: Type) -> Answer {
+        let Some(row) = runtime_table::entry(key) else {
+            return Answer::Inline(match ty {
+                Type::Agg(Agg::Enum(e)) => Some(e),
+                _ => None,
+            });
+        };
+        self.row_answer(tables, row.ret, ret)
+    }
+
+    /// How a row answering `shape` returns `ret`.
+    fn row_answer(&mut self, tables: &Tables, shape: Ret, ret: &Ty) -> Answer {
+        let ret = Types::runtime_ty(tables, ret);
+        match shape {
+            Ret::Void => Answer::Void,
+            Ret::Scalar => Answer::Scalar,
+            Ret::NoReturn => Answer::NoReturn,
+            Ret::Int(bits) => Answer::Int(bits),
+            Ret::Out => Answer::Out,
+            Ret::Sum => Answer::Sum(self.enum_of(tables, &ret, TyConId::OPTION)),
+            Ret::Res => Answer::Res(self.enum_of(tables, &ret, TyConId::RESULT)),
+            Ret::ResMsg => Answer::ResMsg(self.enum_of(tables, &ret, TyConId::RESULT)),
         }
     }
 
@@ -1320,7 +1361,7 @@ impl FnLower<'_> {
             ExprKind::Intrinsic { name, args, .. } if lists::handles(name) => {
                 self.list_call(name, args, &e.ty)
             }
-            ExprKind::Intrinsic { name, args, .. } => self.intrinsic(ty, name, args),
+            ExprKind::Intrinsic { name, args, .. } => self.intrinsic(ty, &e.ty, name, args),
 
             ExprKind::StructLit { fields, .. } => {
                 let fields = self.exprs(fields);
@@ -1796,16 +1837,28 @@ impl FnLower<'_> {
     ///
     /// The `structural*` family never reaches here: `middle::derives` replaced
     /// each with a call to the function it generated for the type.
-    fn intrinsic(&mut self, ty: Type, name: &str, args: &[Expr]) -> ValueId {
+    fn intrinsic(&mut self, ty: Type, ret: &Ty, name: &str, args: &[Expr]) -> ValueId {
         let key = qualified_key(self.tables, name, args);
         let args = self.exprs(args).into_boxed_slice();
-        self.call_intrinsic(ty, &key, args)
+        self.call_intrinsic(ty, ret, &key, args)
     }
 
-    /// An [`Inst::CallIntrinsic`] of `key`.
-    fn call_intrinsic(&mut self, ty: Type, key: &str, args: Box<[ValueId]>) -> ValueId {
+    /// An [`Inst::CallIntrinsic`] of `key`, answering `ret`, which lowers to
+    /// `ty`.
+    fn call_intrinsic(&mut self, ty: Type, ret: &Ty, key: &str, args: Box<[ValueId]>) -> ValueId {
+        let answer = self.answer(key, ret, ty);
         let key = self.keys.calls.intern(key);
-        self.emit(ty, |dest| Inst::CallIntrinsic { dest, key, args })
+        self.emit(ty, |dest| Inst::CallIntrinsic {
+            dest,
+            key,
+            answer,
+            args,
+        })
+    }
+
+    /// How `key`'s result comes back ([`Types::answer`]).
+    fn answer(&mut self, key: &str, ret: &Ty, ty: Type) -> Answer {
+        self.types.answer(self.tables, key, ret, ty)
     }
 
     /// An interpolation: render every hole from its static type and join the
@@ -1846,8 +1899,9 @@ impl FnLower<'_> {
         let (mut acc, mut acc_is_mine) = it
             .next()
             .unwrap_or_else(|| (self.constant(ty, Const::Str("".into())), false));
+        let str_ty = self.tables.prim(Prim::Str);
         for (next, next_is_mine) in it {
-            let joined = self.call_intrinsic(ty, "str.concat", Box::new([acc, next]));
+            let joined = self.call_intrinsic(ty, &str_ty, "str.concat", Box::new([acc, next]));
             // *After* the join, not before. On MEMORY.md §5.3's in-place path
             // the result is `acc`'s own block with one more count on it, so
             // this drop takes that count back and frees nothing; on the two
@@ -1975,7 +2029,9 @@ impl FnLower<'_> {
         // (`runtime_table`'s `Arg::Dropped`), so nothing stands in for it.
         let ctx = self.constant(Type::Unit, Const::Unit);
         let separator = self.constant(ty, Const::Str(Box::default()));
-        let joined = self.call_intrinsic(ty, "list.join", Box::new([list, ctx, separator]));
+        let str_ty = self.tables.prim(Prim::Str);
+        let joined =
+            self.call_intrinsic(ty, &str_ty, "list.join", Box::new([list, ctx, separator]));
         self.push(Inst::DecRef { value: list });
         joined
     }

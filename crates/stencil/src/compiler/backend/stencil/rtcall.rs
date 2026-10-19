@@ -49,10 +49,10 @@
 // the stencil library holds, read from `abi.rs` — the one file the library
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
-use super::jit::{agg_of, enum_ty, Bind, Fn2, Jit, V};
-use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
+use super::jit::{Bind, Fn2, Jit, V};
+use super::runtime::{self, Entry, Extra, OptRepr, BURI_OK};
 use crate::compiler::backend::counts::Op;
-use crate::compiler::middle::ir;
+use crate::compiler::middle::ir::{self, Answer};
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr, Words};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
 use crate::diagnostics::{invariant_with, Invariant};
@@ -131,7 +131,7 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        entry: &Entry,
+        (entry, answer): (&Entry, ir::Answer),
         dest: (u32, ir::Type),
         args: &[(u32, ir::Type)],
         tail: Vec<Src>,
@@ -254,7 +254,7 @@ impl Jit<'_> {
         // share its slot with the destination, so each argument word that
         // overlaps it is read into its own argument word first. Otherwise
         // `xs.replaceAt(…)` handed straight to a tail call read a zeroed list.
-        if matches!(entry.ret, Ret::Out | Ret::Res | Ret::ResMsg) {
+        if matches!(answer, Answer::Out | Answer::Res(_) | Answer::ResMsg(_)) {
             let end = dslot + round8(self.width_of(prog, dty));
             let base = st.scratch + CARG_WORD * 8;
             for (srcs, at) in [(&mut ints, base), (&mut floats, base + MAX_INT as u32 * 8)] {
@@ -271,14 +271,14 @@ impl Jit<'_> {
                 }
             }
         }
-        let opt = match entry.ret {
-            Ret::Sum => {
-                let l = self.enum_layout(prog, enum_ty(dty));
+        let opt = match answer {
+            Answer::Sum(e) => {
+                let l = self.enum_layout(prog, e);
                 let o = OptRepr::of(&l).or_ice("a `Ret::Sum` row answers an `Option`");
                 ints.push(Src::Addr(dslot + o.payload));
                 Some(o)
             }
-            Ret::Out => {
+            Answer::Out => {
                 // Every `Ret::Out` row answers a `Str` or a list, which has
                 // bytes to write.
                 let width = self.width_of(prog, dty);
@@ -286,7 +286,13 @@ impl Jit<'_> {
                 ints.push(Src::Addr(dslot));
                 None
             }
-            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Int(_) | Ret::Res | Ret::ResMsg => None,
+            Answer::Void
+            | Answer::NoReturn
+            | Answer::Scalar
+            | Answer::Int(_)
+            | Answer::Res(_)
+            | Answer::ResMsg(_)
+            | Answer::Inline(_) => None,
         };
 
         // `lib.rs` §2.1's `Result<T, E>`: `.Ok`'s payload through an
@@ -310,12 +316,12 @@ impl Jit<'_> {
         // in memory, and the five stream writers stay out of it because the
         // pointer is an address into this destination and a function that
         // prints would stop keeping its `Result` in registers.
-        let res = match entry.ret {
-            Ret::Res | Ret::ResMsg => {
-                let l = self.layout_id_shared(prog, agg_of(dty));
-                let types::ResultShape { ok, err, t, e } = self
-                    .result_shape(prog, dty)
-                    .or_ice("a `Ret::Res` row answers a `Result`");
+        let res = match answer {
+            Answer::Res(r) | Answer::ResMsg(r) => {
+                let l = self.layout_id_shared(prog, r.id());
+                let types::ResultShape { ok, err, t, e } =
+                    types::result_shape(self.tables, &prog.type_info(r.id()).ty)
+                        .or_ice("a `Ret::Res` row answers a `Result`");
                 let err_l = self.layouts_of(e);
                 // From `T` rather than from the enum: a variant records
                 // *where* a field is and never how big it is, and
@@ -354,7 +360,7 @@ impl Jit<'_> {
                 let message_at =
                     crate::compiler::backend::runtime_native::error_message_offset(&err_l)
                         // A message offset is a tagged enum's, which has a tag.
-                        .filter(|_| entry.ret == Ret::ResMsg);
+                        .filter(|_| matches!(answer, Answer::ResMsg(_)));
                 if let Some(at) = message_at {
                     ints.push(Src::Addr(dslot + err_at + at));
                     // The half of the shape the **caller** owes, and it is paid
@@ -384,14 +390,15 @@ impl Jit<'_> {
 
         // The result's register shape, which is the destination's own except
         // where the discriminant of a fallible entry is what comes back.
-        let kind = match entry.ret {
-            Ret::Void | Ret::NoReturn | Ret::Out => "v",
+        // A row's answer is never `Inline`, which is a key with no row.
+        let kind = match answer {
+            Answer::Void | Answer::NoReturn | Answer::Out | Answer::Inline(_) => "v",
             // An `i32` from C, and a frame slot holds an integer
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Ret::Sum | Ret::Int(32) | Ret::Res | Ret::ResMsg => "w",
-            Ret::Scalar | Ret::Int(_) => {
+            Answer::Sum(_) | Answer::Int(32) | Answer::Res(_) | Answer::ResMsg(_) => "w",
+            Answer::Scalar | Answer::Int(_) => {
                 let mut leaves = self.leaves(prog, dty);
                 let one = leaves.pop().filter(|_| leaves.is_empty());
                 scalar_kind(one.or_ice("a scalar row answers one scalar"), dty)
@@ -401,8 +408,8 @@ impl Jit<'_> {
         // A `Tag` whose destination is an aggregate has to land at the tag's
         // own offset and width; one whose destination is a scalar already
         // occupies the whole slot, which is what the `w` shape wrote.
-        let narrow = match (entry.ret, dty) {
-            (Ret::Int(32), ir::Type::Agg(agg)) => {
+        let narrow = match (answer, dty) {
+            (Answer::Int(32), ir::Type::Agg(agg)) => {
                 let id = agg.id();
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
@@ -512,12 +519,6 @@ impl Jit<'_> {
         self.store_disc(l, dslot, err);
         let here = self.region.code_addr();
         st.place(done, here);
-    }
-
-    /// A `Result` destination's shape.
-    fn result_shape(&mut self, prog: &ir::Program, dty: ir::Type) -> Option<types::ResultShape> {
-        let source = source_ty(prog, dty)?;
-        types::result_shape(self.tables, &source)
     }
 
     /// One C call: the arguments into the scratch area, then the `crt` stencil

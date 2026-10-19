@@ -614,25 +614,6 @@ fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
     t.get(i).copied().unwrap_or(d)
 }
 
-/// The aggregate an IR value's type names, where its instruction or its
-/// function's signature makes it one (`middle/ir.rs`).
-pub(crate) fn agg_of(t: ir::Type) -> ir::TypeId {
-    match t {
-        ir::Type::Agg(id) => Some(id.id()),
-        _ => None,
-    }
-    .or_ice("the IR gives this value an aggregate type")
-}
-
-/// The enum an IR value's type names, where its instruction makes it one
-/// (`middle/ir.rs`).
-pub(crate) fn enum_ty(t: ir::Type) -> ir::EnumTy {
-    match t {
-        ir::Type::Agg(ir::Agg::Enum(e)) => e,
-        _ => crate::diagnostics::ice("the IR gives this value an enum type"),
-    }
-}
-
 /// Sets entry `i` of a side table.
 fn put<T>(t: &mut [T], i: usize, x: T) {
     *ent_mut(t, i) = x;
@@ -1443,7 +1424,7 @@ impl<'a> Jit<'a> {
             // branch resolution a real body gets. So it is given an empty
             // `Fn2` whose frame is its own signature's and whose scratch is the
             // area `Jit::plan` reserved past the parameters.
-            ir::Body::Runtime(id) => {
+            ir::Body::Runtime(r) => {
                 let mut st = Fn2 {
                     slot: Vec::new(),
                     blk: Vec::new(),
@@ -1458,8 +1439,8 @@ impl<'a> Jit<'a> {
                     uses: Vec::new(),
                 };
                 let base = self.fixups.len();
-                let route = *self.routes.bodies.get(*id);
-                self.runtime_body(prog, fi, route, &mut st);
+                let route = *self.routes.bodies.get(r.key);
+                self.runtime_body(prog, fi, (route, r.answer), &mut st);
                 self.resolve_blocks(base, &st.blk);
             }
         }
