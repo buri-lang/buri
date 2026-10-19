@@ -313,11 +313,14 @@ impl Jit<'_> {
         let res = match entry.ret {
             Ret::Res | Ret::ResMsg => {
                 let l = self.layout_id_shared(prog, agg_of(dty));
-                let (ok, err, err_ty) = self
+                let types::ResultShape { ok, err, t, e } = self
                     .result_shape(prog, dty)
                     .or_ice("a `Ret::Res` row answers a `Result`");
-                let err_l = self.layouts_of(err_ty);
-                let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
+                let err_l = self.layouts_of(e);
+                // From `T` rather than from the enum: a variant records
+                // *where* a field is and never how big it is, and
+                // `Result<(), E>` has a field of no size.
+                let ok_bytes = self.layouts_of(t).size;
                 // A payload with bytes is a field of the `Ok` variant.
                 if ok_bytes > 0 {
                     ints.push(Src::Addr(dslot + super::lists::payload_at(&l, ok)));
@@ -511,23 +514,10 @@ impl Jit<'_> {
         st.place(done, here);
     }
 
-    /// `(the `.Ok` variant, the `.Err` variant, `E`)` for a `Result`
-    /// destination.
-    fn result_shape(&mut self, prog: &ir::Program, dty: ir::Type) -> Option<(usize, usize, Ty)> {
+    /// A `Result` destination's shape.
+    fn result_shape(&mut self, prog: &ir::Program, dty: ir::Type) -> Option<types::ResultShape> {
         let source = source_ty(prog, dty)?;
         types::result_shape(self.tables, &source)
-    }
-
-    /// How many bytes `.Ok`'s payload occupies, from `T` rather than from the
-    /// enum: a variant records *where* a field is and never how big it is, and
-    /// `Result<(), E>` has a field of no size.
-    fn ok_payload_bytes(&mut self, prog: &ir::Program, dty: ir::Type, ok: usize) -> u32 {
-        let payload = match source_ty(prog, dty).map(Ty::kind) {
-            Some(TyKind::Con(_, args)) => args.get(ok).copied(),
-            _ => None,
-        };
-        self.layouts_of(payload.or_ice("a `Result` destination has its `.Ok` type"))
-            .size
     }
 
     /// One C call: the arguments into the scratch area, then the `crt` stencil

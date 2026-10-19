@@ -91,9 +91,7 @@ use crate::compiler::middle::layout::{
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
-use crate::compiler::semantics::types::{
-    self as types, FuncIdx, IntPrim, Prim, Tables, Ty, TyKind,
-};
+use crate::compiler::semantics::types::{self as types, FuncIdx, IntPrim, Prim, Tables, Ty};
 use crate::diagnostics::Invariant;
 use crate::hash::{Map, Set};
 
@@ -3251,7 +3249,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
                 self.call_glue(state.b, op.op(), &ty, base);
             } else {
-                let place = Place::Memory {
+                let place = Place {
                     base,
                     align: repr::memory_align(&slots),
                 };
@@ -3260,17 +3258,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.rc_observed(state, v, op);
             return;
         }
+        // A value in registers is walked through a stack copy, as
+        // `Unit::copy_out` hands one to glue: the walk then reads each count
+        // at its offset, which a register value has no way to answer.
         let pieces = self.pieces(state.b, &slots, value);
+        let (size, align) = self.spill_shape(code.ty_of(v));
+        let base = self.scratch(state, size, align);
+        self.store_slots(state.b, base, &slots, align, &pieces);
         if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
             // Too large to write out here: the value goes through its type's
-            // glue instead, from a stack copy, as `Unit::copy_out` hands it.
-            let (size, align) = self.spill_shape(code.ty_of(v));
-            let buf = self.scratch(state, size, align);
-            self.store_slots(state.b, buf, &slots, align, &pieces);
-            self.call_glue(state.b, op.op(), &ty, buf);
+            // glue instead.
+            self.call_glue(state.b, op.op(), &ty, base);
         } else {
-            let place = Place::Registers { slots, pieces };
-            self.walk_rc(state, &ty, &place, 0, op);
+            self.walk_rc(state, &ty, &Place { base, align }, 0, op);
         }
         self.rc_observed(state, v, op);
     }
@@ -3314,7 +3314,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         align: u32,
         op: Op,
     ) {
-        let place = Place::Memory { base, align };
+        let place = Place { base, align };
         let walk = match op {
             Op::Retain => Walk::Count(Count::Retain, &place),
             Op::Release => Walk::Count(Count::Release, &place),
@@ -3340,7 +3340,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let place = match walk {
             Walk::Count(_, place) => *place,
             Walk::Copy { base, align } => {
-                held = Place::Memory {
+                held = Place {
                     base: *base,
                     align: *align,
                 };
@@ -3363,9 +3363,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             }
                         }
                         Walk::Count(count, _) => {
-                            let p = self
-                                .place_pointer(state.b, place, at)
-                                .or_ice("a count is a pointer slot");
+                            let p = self.place_pointer(state.b, place, at);
                             match count {
                                 Count::Retain => self.incref_pointer(state, p, Counted::Nullable),
                                 Count::Release => {
@@ -3382,9 +3380,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // `unreachable`: a variant with nothing counted has no arm.
                 Site::Tagged { tag, arms } => {
                     let b = state.b;
-                    let raw = self
-                        .place_int(b, place, base, *tag)
-                        .or_ice("a tag leads its enum");
+                    let raw = self.place_int(b, place, base, *tag);
                     let i32t = self.ctx.i32_type();
                     let key = b.zext(raw, i32t, "rc.tag");
                     let done = self.ctx.append_basic_block(state.value, "rc.join");
@@ -3414,9 +3410,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Site::Guarded { null_at, ty } => {
                     let at = base.saturating_add(null_at.bytes());
                     let b = state.b;
-                    let p = self
-                        .place_pointer(b, place, at)
-                        .or_ice("a niche is a pointer slot");
+                    let p = self.place_pointer(b, place, at);
                     let is_null = b.is_null(p, "rc.isnone");
                     let live = self.ctx.append_basic_block(state.value, "rc.some");
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
@@ -3446,22 +3440,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // A large field of a value in memory is its type's glue's, so a
             // glue body stays one level of its type deep.
             if self.reprs.rc_weight(&f.ty) > OPEN_CODED_RC {
-                if let Some(p) = Self::place_address(b, place, at) {
-                    self.call_glue(state.b, walk.op(), &f.ty, p);
-                    return;
-                }
+                let p = b.byte_offset(place.base, i64::from(at), "rc.at");
+                self.call_glue(state.b, walk.op(), &f.ty, p);
+                return;
             }
             self.walk(state, &f.ty, walk, at);
             return;
         }
-        const BOX: &str = "a box is a pointer slot";
         match walk {
             Walk::Count(Count::Retain, _) => {
-                let p = self.place_pointer(state.b, place, at).or_ice(BOX);
+                let p = self.place_pointer(state.b, place, at);
                 self.incref_pointer(state, p, Counted::NonNull);
             }
             Walk::Count(Count::Release, _) => {
-                let p = self.place_pointer(state.b, place, at).or_ice(BOX);
+                let p = self.place_pointer(state.b, place, at);
                 let g = self.glue(Op::Release, &f.ty).map(function_pointer);
                 self.decref_pointer(state, p, Counted::NonNull, g);
             }
@@ -3479,102 +3471,38 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.call_c(b, f, &[p.into()]);
     }
 
-    /// The address of a byte offset into a value held in memory. A value in
-    /// registers has none.
-    fn place_address(b: At<'ctx>, place: &Place<'ctx>, at: u32) -> Option<PointerValue<'ctx>> {
-        match place {
-            Place::Memory { base, .. } => Some(b.byte_offset(*base, i64::from(at), "rc.at")),
-            Place::Registers { .. } => None,
-        }
-    }
-
-    /// One piece of a value at a byte offset, however the value is held.
-    ///
-    /// The register form answers from the slot list where it can, which keeps a
-    /// pointer typed as a pointer; where it cannot, the byte is inside a tagged
-    /// enum's payload blob and is shifted out, which is the same
-    /// `ptrtoint`/`inttoptr` round trip `get_payload` already pays for that
-    /// shape (see `repr.rs`'s header).
-    fn place_piece(
-        &self,
+    /// The address `at` bytes into `place`, and the alignment a `scalar`
+    /// there may claim.
+    fn place_at(
         b: At<'ctx>,
         place: &Place<'ctx>,
         at: u32,
-        want: SlotTy,
-    ) -> Option<BasicValueEnum<'ctx>> {
-        match place {
-            Place::Memory { base, align } => {
-                let p = b.byte_offset(*base, i64::from(at), "rc.p");
-                let ty = repr::slot_type(self.ctx, want);
-                let slot = Slot {
-                    offset: at,
-                    ty: want,
-                };
-                let align = Align::of(repr::access_align(*align, slot));
-                Some(b.load(ty, p, align, "rc.v"))
-            }
-            Place::Registers { slots, pieces } => {
-                for (slot, piece) in slots.iter().zip(pieces) {
-                    if slot.offset == at && slot.ty == want {
-                        return Some(*piece);
-                    }
-                }
-                for (slot, piece) in slots.iter().zip(pieces) {
-                    let end = slot.offset.saturating_add(slot.ty.size());
-                    if !matches!(slot.ty, SlotTy::Blob(_)) || !(slot.offset..end).contains(&at) {
-                        continue;
-                    }
-                    let within = at.saturating_sub(slot.offset);
-                    if let BasicValueEnum::ArrayValue(blob) = *piece {
-                        let want = Slot {
-                            offset: at,
-                            ty: want,
-                        };
-                        return Some(repr::take_from_blob(self.ctx, b, blob, within, want));
-                    }
-                    let blob = int(*piece);
-                    let shift = u64::from(within).saturating_mul(8);
-                    let moved = b.lshr(blob, blob.get_type().const_int(shift, false), "rc.sh");
-                    let narrow = repr::int_type(self.ctx, want.size());
-                    let cut = b.trunc(moved, narrow, "rc.cut");
-                    return Some(repr::slot_from_bits(
-                        self.ctx,
-                        b,
-                        Slot {
-                            offset: at,
-                            ty: want,
-                        },
-                        cut,
-                    ));
-                }
-                None
-            }
-        }
+        scalar: Scalar,
+    ) -> (PointerValue<'ctx>, Align) {
+        let p = b.byte_offset(place.base, i64::from(at), "rc.p");
+        let slot = Slot {
+            offset: at,
+            ty: SlotTy::Scalar(scalar),
+        };
+        (p, Align::of(repr::access_align(place.align, slot)))
     }
 
-    fn place_pointer(
-        &self,
-        b: At<'ctx>,
-        place: &Place<'ctx>,
-        at: u32,
-    ) -> Option<PointerValue<'ctx>> {
-        match self.place_piece(b, place, at, SlotTy::Scalar(Scalar::Ptr))? {
-            BasicValueEnum::PointerValue(p) => Some(p),
-            _ => None,
-        }
+    /// The pointer `at` bytes into `place`.
+    fn place_pointer(&self, b: At<'ctx>, place: &Place<'ctx>, at: u32) -> PointerValue<'ctx> {
+        let (p, align) = Self::place_at(b, place, at, Scalar::Ptr);
+        b.load_ptr(self.ptr_ty(), p, align, "rc.v")
     }
 
+    /// The integer `scalar` `at` bytes into `place`.
     fn place_int(
         &self,
         b: At<'ctx>,
         place: &Place<'ctx>,
         at: u32,
         scalar: Scalar,
-    ) -> Option<IntValue<'ctx>> {
-        match self.place_piece(b, place, at, SlotTy::Scalar(scalar))? {
-            BasicValueEnum::IntValue(v) => Some(v),
-            _ => None,
-        }
+    ) -> IntValue<'ctx> {
+        let (p, align) = Self::place_at(b, place, at, scalar);
+        b.load_int(repr::int_type(self.ctx, scalar.size()), p, align, "rc.v")
     }
 
     /// `incref`: a **saturating** increment of the header count.
@@ -3911,20 +3839,14 @@ impl Walk<'_, '_> {
     }
 }
 
-/// Where a value's bytes are, for the purpose of finding the counts in them.
-enum Place<'ctx> {
-    /// An SSA value: its slots, and the piece for each. There is no address
-    /// (CODEGEN-LLVM.md §2.2), so a pointer at a byte offset is found by
-    /// matching the offset against a slot rather than by loading one.
-    Registers {
-        slots: Vec<Slot>,
-        pieces: Vec<BasicValueEnum<'ctx>>,
-    },
-    /// A heap block or a stack aggregate, at the alignment its layout claims.
-    Memory {
-        base: PointerValue<'ctx>,
-        align: u32,
-    },
+/// Where a value's bytes are, for the purpose of finding the counts in them:
+/// a heap block or a stack aggregate, at the alignment its layout claims. A
+/// value in registers is walked through a stack copy, so every count is at an
+/// address.
+#[derive(Clone, Copy)]
+struct Place<'ctx> {
+    base: PointerValue<'ctx>,
+    align: u32,
 }
 
 /// The largest walk, by `Counts::weight`, that a reference operation writes
@@ -4434,7 +4356,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty),
                     value,
                 ) {
-                    let place = Place::Memory {
+                    let place = Place {
                         base,
                         align: repr::memory_align(&slots),
                     };
@@ -4445,11 +4367,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             let pieces = self.load_slots(b, at, &slots, align);
             if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
-                let place = Place::Registers {
-                    slots: slots.clone(),
-                    pieces: pieces.clone(),
-                };
-                self.walk_rc(state, ty, &place, 0, Count::Retain);
+                self.walk_rc(state, ty, &Place { base: at, align }, 0, Count::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -4615,7 +4533,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if repr::in_memory(&slots) {
             let value = self.load_value(b, at, &slots, align);
             if let (true, BasicValueEnum::PointerValue(base)) = (retain, value) {
-                let place = Place::Memory {
+                let place = Place {
                     base,
                     align: repr::memory_align(&slots),
                 };
@@ -4625,11 +4543,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         } else {
             let pieces = self.load_slots(b, at, &slots, align);
             if retain {
-                let place = Place::Registers {
-                    slots,
-                    pieces: pieces.clone(),
-                };
-                self.walk_rc(state, ty, &place, 0, Count::Retain);
+                self.walk_rc(state, ty, &Place { base: at, align }, 0, Count::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -4901,7 +4815,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if own.first() == Some(&ir::Ownership::Own) {
                 let ty = self.agg_ty(first);
                 if self.rc_counted(&ty) {
-                    let place = Place::Memory {
+                    let place = Place {
                         base: record,
                         align,
                     };
@@ -4934,7 +4848,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 {
                     borrowed.push((
                         ty,
-                        Place::Memory {
+                        Place {
                             base,
                             align: repr::memory_align(&slots),
                         },
@@ -4947,15 +4861,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if own.get(j) != Some(&ir::Ownership::Borrow) {
                 continue;
             }
-            // Only a counted value is borrowed, and only an aggregate is counted.
+            // Only a counted value is borrowed, and only an aggregate is
+            // counted. It is released from a stack copy, as `Unit::rc` does.
             let ty = self.agg_ty(*p);
-            borrowed.push((
-                ty,
-                Place::Registers {
-                    slots,
-                    pieces: taken,
-                },
-            ));
+            let (size, align) = self.spill_shape(*p);
+            let base = self.scratch(state, size, align);
+            self.store_slots(b, base, &slots, align, &taken);
+            borrowed.push((ty, Place { base, align }));
         }
         let call = b.call(callee, &argv);
         attrs::set_call_convention(call, attrs::FAST);
@@ -5897,18 +5809,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// signature carries an out-pointer turns on exactly that.
     fn result_shape(&mut self, code: &ir::Code, dest: ir::ValueId) -> (usize, usize, u32, Ty) {
         let source = self.agg_ty(code.ty_of(dest));
-        let (ok, err, err_ty) =
+        let shape =
             types::result_shape(self.tables, &source).or_ice("the destination is a `Result`");
-        let args = match source.kind() {
-            TyKind::Con(_, args) => args,
-            _ => crate::diagnostics::ice("a `Result` is a constructor applied to its arguments"),
-        };
-        let ok_bytes = self
-            .reprs
-            .of_ty(args.get(ok).or_ice("`Result` takes `T`"))
-            .layout
-            .size;
-        (ok, err, ok_bytes, err_ty)
+        let ok_bytes = self.reprs.of_ty(&shape.t).layout.size;
+        (shape.ok, shape.err, ok_bytes, shape.e)
     }
 
     /// One constant discriminant, written into a buffer whose payload the

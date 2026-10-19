@@ -1918,22 +1918,33 @@ pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<St
         .collect()
 }
 
-/// Where `Ok` and `Err` sit in a `Result`'s variant list, and what `Err`
-/// carries.
+/// A `Result<T, E>`: where `Ok` and `Err` sit in its variant list, and what
+/// each carries.
+#[derive(Clone, Copy, Debug)]
+pub struct ResultShape {
+    pub ok: usize,
+    pub err: usize,
+    /// `T`, which `Ok` carries.
+    pub t: Ty,
+    /// `E`, which `Err` carries.
+    pub e: Ty,
+}
+
+/// `ty`'s [`ResultShape`].
 ///
 /// By name rather than by index: `core/result` declares `Ok` first, but a
 /// backend that hard-coded `0` and `1` would be reading a declaration order
 /// out of a table that records it, and the two would have to be kept in step
-/// by hand. `None` for anything that is not a two-armed `Result`.
-pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
-    let (id, args) = match ty.kind() {
-        TyKind::Con(id, args) => (id, args),
+/// by hand. `None` for anything that is not a two-armed `Result<T, E>`.
+pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<ResultShape> {
+    let (id, t, e) = match ty.kind() {
+        TyKind::Con(id, &[t, e]) => (id, t, e),
         _ => return None,
     };
     let variants = tables.tycon(*id).variants();
     let ok = variants.iter().position(|v| v.name == "Ok")?;
     let err = variants.iter().position(|v| v.name == "Err")?;
-    Some((ok, err, *args.get(err)?))
+    Some(ResultShape { ok, err, t, e })
 }
 
 // ---------------------------------------------------------------------------
