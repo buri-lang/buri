@@ -2794,6 +2794,97 @@ mod tests {
         assert!(answers > 70, "only {answers} answers were read");
     }
 
+    /// Every row's argument shapes agree with a declaration of the same arity:
+    /// a `Str` crosses as [`Arg::Str`], a list as [`Arg::List`] or
+    /// [`Arg::Elems`], and a one-word value as [`Arg::Scalar`].
+    ///
+    /// The stencil backend flattens an argument by its row's shape and the
+    /// LLVM backend by its type, so a row that names the wrong shape builds
+    /// two different C calls from one program.
+    ///
+    /// A key is looked up by its last segment, so two owners' methods of one
+    /// name and arity both answer: `TestStdin.bytes` takes a `[U8]` and
+    /// `TestEntropy.bytes` an `Int`. One of the declarations has to agree.
+    #[test]
+    fn every_declared_argument_has_its_shape() {
+        let fits = |key: &str, shape: Arg, ty: &str| {
+            // A bare `self` is the module's own type, or a handle or an empty
+            // struct for an effect's implementation.
+            let ty = match (ty, key.split('.').next()) {
+                ("", Some("str")) => "Str",
+                ("", Some("list")) => "[T]",
+                ("", Some("character")) => "Char",
+                ("", _) => "self",
+                (ty, _) => ty,
+            };
+            let text = matches!(ty, "Str" | "Path" | "Template");
+            let list = ty.starts_with('[');
+            // A `C: Allocator` crosses nothing, whatever its name.
+            let context = ty == "C";
+            match shape {
+                Str => text,
+                List | Elems => list,
+                Float => ty == "Float",
+                Scalar => !text && !list && !context && ty != "Float",
+                Dropped => true,
+                Spilled | Step | Compute | Walk | Press => !context,
+                Stride | Retain | Release | Equal => false,
+            }
+        };
+        let mut checked = 0usize;
+        for entry in ENTRIES {
+            let Some((_, path)) = DECLARED_IN
+                .iter()
+                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
+            else {
+                continue;
+            };
+            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
+            let consumed: Vec<Arg> = entry.consumed().collect();
+            let declared = declarations(module_source(path), name);
+            // `str.equal` and `str.hash` are `semantics/builtins.rs`'s.
+            if declared.is_empty() {
+                continue;
+            }
+            let arity: Vec<&Declared> = declared
+                .iter()
+                .filter(|d| d.params.len() == consumed.len())
+                .collect();
+            assert!(
+                !arity.is_empty(),
+                "{}: no declaration takes {} arguments",
+                entry.key,
+                consumed.len()
+            );
+            assert!(
+                arity
+                    .iter()
+                    .any(|d| consumed.iter().enumerate().all(|(i, arg)| fits(
+                        entry.key,
+                        *arg,
+                        d.param_ty(i)
+                    ))),
+                "{}: {consumed:?} against {:?}",
+                entry.key,
+                arity.iter().map(|d| &d.params).collect::<Vec<_>>()
+            );
+            // A fallible entry's error crosses through an out-pointer unless
+            // it's an enum, and the runtime writes bytes there.
+            if matches!(entry.ret, Ret::Res | Ret::ResMsg) {
+                assert!(
+                    arity
+                        .iter()
+                        .all(|d| !d.ret.replace(' ', "").ends_with(",()>")),
+                    "{}: fails with `()`",
+                    entry.key
+                );
+            }
+            checked += 1;
+        }
+        // A scan that matched nothing would pass every assertion above.
+        assert!(checked > 140, "only {checked} rows were read");
+    }
+
     /// The two places a context sits, by example, so that the indices are
     /// legible without opening `core/list`.
     #[test]
