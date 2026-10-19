@@ -1733,9 +1733,9 @@ Both carry `Allocator` beside `Tasks`: `spawn` copies the task out of whatever a
 it was written in, and a scope runs its tasks through `parallel`.
 
 In a native `--release` build a spawned task starts at once, on a thread of its
-own, beside the body. Everywhere else — `buri run`, JavaScript, and tests on
-every backend — the body runs first and the scope then runs what was spawned in
-rounds. That is why a task that never ends starves the ones behind it under
+own, beside the body. Everywhere else — `buri run`, JavaScript, and a test
+that makes a `TestTasks` double — the body runs first and the scope then runs
+what was spawned in rounds. That is why a task that never ends starves the ones behind it under
 `buri run`: the round they wait for never finishes. And a task spawned *after*
 the body returned runs on the task that spawned it, which is what lets a page's
 handler spawn once `main` has gone.
