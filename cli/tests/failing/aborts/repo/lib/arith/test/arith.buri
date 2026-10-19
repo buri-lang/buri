@@ -31,7 +31,7 @@ test "an allocation past a fixed budget" {
     assert.equal(1, 1);
 }
 
-// `* 2 + n` keeps the recursion from becoming a loop.
+// Not a tail call, so it runs out of stack (SPEC 8.3).
 fn deep(n: Int): Int {
     if (n == 0) { 0 } else { deep(n + 1) * 2 + n }
 }

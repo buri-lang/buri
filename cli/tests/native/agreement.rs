@@ -4722,7 +4722,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// What bun says when JavaScript runs out of stack, and so what every backend says.
 const STACK_EXHAUSTED: &str = "Maximum call stack size exceeded.";
 
-/// A recursion with no end. `* 2 + n` keeps LLVM from turning it into a loop.
+/// A recursion with no end that is not a tail call, so it runs out of stack
+/// on every backend (SPEC 8.3).
 const RUNAWAY: &str = r#"
 fn deep(n: Int): Int {
   if (n == 0) { 0 } else { deep(n + 1) * 2 + n }
@@ -4803,6 +4804,179 @@ export fn main(host: NativeHost): Result<(), Str> {{
   let _ = io.println(ctx, "before").ignore();
   let answers = tasks.parallel(ctx, [1, 2, 3, 4], fn(c, i, n) => deep(n));
   let _ = io.println(ctx, "${{answers.length()}}").ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// What a program that runs out of stack in a task or a step imports.
+const RUNAWAY_IMPORTS: &str = r#"
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped };
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+"#;
+
+/// The same in a scope's body, which runs as a step beside the tasks it spawns.
+#[test]
+fn a_scope_body_beside_its_tasks_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in a scope's body",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let _ = io.println(ctx, "before").ignore();
+  let _ = tasks.scope(ctx, fn(c, here) => {{
+    let _ = tasks.spawn(c, here, fn(c2) => ());
+    let _ = io.println(c, "${{deep(1)}}").ignore();
+    ()
+  }});
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same in a `parallel` step a task started, a fan-out from a pool thread.
+#[test]
+fn a_step_a_task_started_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in a task's parallel",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let _ = io.println(ctx, "before").ignore();
+  let _ = tasks.scope(ctx, fn(c, here) => {{
+    tasks.spawn(c, here, fn(c2) => {{
+      let answers = tasks.parallel(c2, [1, 2], fn(c3, i, n) => deep(n));
+      let _ = io.println(c2, "${{answers.length()}}").ignore();
+      ()
+    }})
+  }});
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// An actor whose step, and whose last hook, recurse without end.
+const RUNAWAY_ACTOR: &str = r#"
+fn runaway<C: Allocator + Tasks>(): Actor<C, Int, Int, Int> {
+  Actor {
+    state: 0,
+    step: fn(c, s, m) => Stepped { state: s, answer: deep(m) },
+    onStop: .Some(fn(c, s) => {
+      let _ = deep(s + 1);
+      ()
+    }),
+  }
+}
+"#;
+
+/// The same in an actor's step, driven by `main`.
+#[test]
+fn an_actor_step_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in an actor's step",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}{RUNAWAY_ACTOR}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let looping = actor.start(ctx, runaway());
+  let _ = io.println(ctx, "before").ignore();
+  let _ = looping.sendMessage(ctx, 1).ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same in an actor's step, driven by `parallel` steps on pool threads.
+#[test]
+fn an_actor_step_driven_by_parallel_steps_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in an actor's step in tasks.parallel",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}{RUNAWAY_ACTOR}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let looping = actor.start(ctx, runaway());
+  let _ = io.println(ctx, "before").ignore();
+  let answers = tasks.parallel(ctx, [1, 2], fn(c, i, n) => {{
+    match (looping.sendMessage(c, n)) {{
+      .Ok(answer) => answer,
+      .Err(_why) => 0,
+    }}
+  }});
+  let _ = io.println(ctx, "${{answers.length()}}").ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same in an actor's `onStop` hook.
+#[test]
+fn an_actor_stop_hook_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in an actor's onStop",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}{RUNAWAY_ACTOR}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let looping = actor.start(ctx, runaway());
+  let _ = io.println(ctx, "before").ignore();
+  let _ = looping.stop(ctx).ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same in a timer's body, which fires once `main` has returned.
+#[test]
+fn a_timer_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in tasks.after",
+        &format!(
+            r#"{RUNAWAY}{RUNAWAY_IMPORTS}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => {{
+    let _ = io.println(c, "${{deep(1)}}").ignore();
+    ()
+  }});
+  let _ = io.println(ctx, "before").ignore();
   .Ok(())
 }}
 "#
