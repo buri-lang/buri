@@ -73,7 +73,7 @@ use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Ta
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
-use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, Prim, ResultShape, Ty};
 use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
@@ -202,6 +202,31 @@ impl FnTy {
     /// The interned type.
     pub fn id(self) -> TypeId {
         self.0
+    }
+}
+
+/// A `Result`: an [`EnumTy`] whose constructor is `core/result`'s, so
+/// [`TypeList::result_shape`] reads its arms and arguments without a check.
+///
+/// Lowering makes one where the constructor is known to be `Result`'s: a row
+/// that answers one, or a destination it has checked.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ResTy(EnumTy);
+
+impl ResTy {
+    /// `e`, whose constructor is `core/result`'s.
+    pub(crate) fn new(e: EnumTy) -> ResTy {
+        ResTy(e)
+    }
+
+    /// The enum it is.
+    pub fn enum_ty(self) -> EnumTy {
+        self.0
+    }
+
+    /// The interned type.
+    pub fn id(self) -> TypeId {
+        self.0.id
     }
 }
 
@@ -385,6 +410,11 @@ impl TypeList {
         self.enums[e.row as usize]
     }
 
+    /// Where a `Result`'s arms sit, and what each carries.
+    pub fn result_shape(&self, r: ResTy) -> ResultShape {
+        types::result_shape(self.enum_head(r.0).args)
+    }
+
     /// A list's element type.
     pub fn elem(&self, l: ListTy) -> Ty {
         self.lists[l.row as usize]
@@ -479,13 +509,18 @@ impl Remap {
         self.lists[l.row as usize]
     }
 
+    pub fn result(&self, r: ResTy) -> ResTy {
+        ResTy(self.enum_ty(r.0))
+    }
+
     /// An [`Answer`], with the enum it names remapped.
     pub fn answer(&self, a: Answer) -> Answer {
         match a {
             Answer::Sum(e) => Answer::Sum(self.enum_ty(e)),
-            Answer::Res(e) => Answer::Res(self.enum_ty(e)),
-            Answer::ResMsg(e) => Answer::ResMsg(self.enum_ty(e)),
+            Answer::Res(r) => Answer::Res(self.result(r)),
+            Answer::ResMsg(r) => Answer::ResMsg(self.result(r)),
             Answer::Inline(e) => Answer::Inline(e.map(|e| self.enum_ty(e))),
+            Answer::InlineRes(r) => Answer::InlineRes(self.result(r)),
             other => other,
         }
     }
@@ -815,11 +850,15 @@ pub enum Answer {
     /// `Ret::Sum`: the `Option` the destination is.
     Sum(EnumTy),
     /// `Ret::Res`: the `Result` the destination is.
-    Res(EnumTy),
+    Res(ResTy),
     /// `Ret::ResMsg`: the `Result` the destination is.
-    ResMsg(EnumTy),
-    /// A key with no row: the enum the destination is, where it is one.
+    ResMsg(ResTy),
+    /// A key with no row: the enum the destination is, where it is one and
+    /// isn't a `Result`.
     Inline(Option<EnumTy>),
+    /// A key with no row whose destination is a `Result`: a checked
+    /// conversion.
+    InlineRes(ResTy),
 }
 
 /// One [`Inst::Parallel`]: `tasks.parallel(sched, ctx, items, step)`.

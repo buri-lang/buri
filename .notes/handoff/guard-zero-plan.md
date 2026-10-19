@@ -119,6 +119,55 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 56
+
+## What landed
+
+- `runtime_table.rs` and the symbol rule (`symbol_for`, `SYMBOL_PREFIX`, now in `runtime_symbol.rs`) live in `crates/middle/src/compiler/backend/`. Backend re-exports both, so old paths keep working. The thread-stack test stays in backend's `task_thread.rs`.
+- `ir::Answer` is `Void`, `Scalar`, `NoReturn`, `Int(u32)`, `Out`, `Sum(EnumTy)`, `Res(EnumTy)`, `ResMsg(EnumTy)` or `Inline(Option<EnumTy>)`.
+  - Lowering attaches it to `CallIntrinsic`, `Parallel`, `Handover` and `Body::Runtime`, which is now `Body::Runtime(ir::Runtime { key, answer })`.
+  - A row's answer comes from its `Ret`, and the enum comes from `Types::enum_of` on the `runtime_ty`-normalized return type. So the id is the destination's own.
+  - A key with no row gets `Inline`, which holds the destination's enum where it has one.
+  - `Remap::answer` keeps the enum ids right when tables are adopted.
+- llvm reads the answer where it used to read `entry.ret`, in `call_entry`, `call_sum`, `call_result`, `result_shape`, `option_value`, `checked*` and `convert_checked`. The open-coded `json_prim`, `toChar`, conversions and `checked*` arms match on `Answer::Inline(Some(e))`. The `enum_ty` helper and its `ice` arm are gone.
+- Stencil's `rt_call` takes `(entry, answer)` and decides everything from the answer. `json_prim`, `checked` and `convert_checked` take the enum. `jit::agg_of` (an `.or_ice`), `jit::enum_ty` (an `ice` arm) and `ret_agg` are gone. So is rtcall's `result_shape` helper.
+- Number conversion in stencil is now `if let Answer::Inline(Some(e))` in place of `if exact`. The branch count is the same.
+
+Debug and release native output is byte-identical to base on conformance and `tests/example`. That covers build, test and test `--release`. JS differs only in `$t.seed` and the hashed `.mjs` filenames, and the contents are the same. Conformance passes 4760 and the example passes as before.
+
+## Not done, and why
+
+- llvm `list_ty`: four callers remain, so the helper and its `ice` arm stay.
+  - `make_array` needs `MakeArray` to carry a `ListTy`. That needs an element type on typed `ExprKind::Array`, which crates/js matches.
+  - `array_slice` and `generic_element` go through `element_of`. Both read the list type of an argument, not the answer. Removing them needs a `ListTy` on `ArraySlice` and an element type for the row's `Elems` argument, such as `Answer` carrying the call's element `Ty`.
+  - `open_coded` `list.empty` could use the answer if `Inline` held an `ir::Agg` rather than an `EnumTy`. That change alone doesn't remove the helper.
+- llvm `agg` and `agg_ty`: their only caller is the borrowed thunk parameter. `Ownership::Borrow` carrying the parameter's aggregate id would remove both. It touches about 20 `Ownership` comparisons in middle's `rc.rs`, `lists.rs` and cli tests, and the id has to be remapped with the plan. It's a separate small phase.
+- `OptRepr::of(..).or_ice` in stencil's rtcall, and `types::result_shape(..).or_ice` in both backends, stay. An answer names an `Option` or `Result` enum, but the layout and shape helpers still return `Option`. A total `result_shape` over a `Result` `EnumTy` would remove them.
+- Stencil `convert_checked`'s `error_ty` `.or_ice` stays for the same reason.
+
+## Guards
+
+The plan-rule count (`invariant(`, `invariant_with(` and `.or_ice(` under crates, cli and tools) goes from 79 to 78: `jit::agg_of` went. Two uncounted `ice` arms went too: llvm `enum_ty` and stencil `jit::enum_ty`.
+
+## Coverage
+
+Branches, measured locally on macOS. 22 covered branches moved from backend to middle with the runtime table. Lowering's `let Some(row) = runtime_table::entry(key) else` adds 2, and both are covered.
+
+| Area | Local base | Local new | CI baseline (staging 4bb779c44) | CI estimate |
+| --- | --- | --- | --- | --- |
+| middle | 1839/1872 (98.24%) | 1863/1896 (98.26%) | 1833/1866 (98.23%) | 1857/1890 (98.25%) |
+| backend | 66/66 | 44/44 | 68/68 | 46/46 (100%) |
+| llvm | 531/532 | 531/532 | 580/580 | unchanged |
+| stencil | 1039/1079 | 1039/1079 | 1069/1078 | unchanged |
+| semantics | 2154/2154 | 2154/2154 | 2158/2158 | unchanged |
+| total | 14803/15042 | 14805/15044 | 14866/15019 (98.98%) | 14868/15021 |
+
+## Validation and landing
+
+- `cargo fmt --all --check` and CI's clippy commands (plus `-p buri --features backend-llvm --all-targets`) report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes before and after the final rebase. After the rebase it took 5.8 minutes, including the build.
+- Landed on staging as 0e5b0d269 and 373022167, on top of 4bb779c44.
+
 # Guard phase 55
 
 ## What landed

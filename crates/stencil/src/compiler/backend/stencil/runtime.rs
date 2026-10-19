@@ -18,6 +18,7 @@
 //! literals.
 
 use crate::compiler::middle::layout::{EnumLayout, EnumRepr};
+use crate::compiler::semantics::types::VariantId;
 
 /// The table, the shapes it is written in, and the symbols called without a
 /// key.
@@ -69,21 +70,17 @@ pub struct OptRepr {
 }
 
 impl OptRepr {
-    /// Reads the four facts off a destination's layout, which is an enum's, or
-    /// answers `None` when it has no empty variant — which is what an `Option`
-    /// is, structurally, and the only thing this may be asked about.
-    pub fn of(l: &EnumLayout) -> Option<OptRepr> {
+    /// Reads the four facts off an `Option`'s layout, whose variants are
+    /// [`VariantId::SOME`] and [`VariantId::NONE`].
+    pub fn of(l: &EnumLayout) -> OptRepr {
         let (repr, variants) = (&l.repr, &l.variants);
-        // `Option` declares `Some` first, so `Some` is variant 0 — but read it
-        // off the layout rather than assuming: the empty variant is the one
-        // with no fields.
-        let none = variants.iter().position(|v| v.is_empty())? as u64;
-        let some = u64::from(none == 0);
+        let (some, none) = (VariantId::SOME.index(), VariantId::NONE.index());
         let payload = variants
-            .get(some as usize)
+            .get(some)
             .and_then(|v| v.first())
             .map_or(0, |a| a.bytes());
-        Some(match repr {
+        let (some, none) = (some as u64, none as u64);
+        match repr {
             EnumRepr::Bare { tag } => OptRepr {
                 tag: (0, tag.size()),
                 niche: false,
@@ -105,6 +102,6 @@ impl OptRepr {
                 some,
                 none,
             },
-        })
+        }
     }
 }

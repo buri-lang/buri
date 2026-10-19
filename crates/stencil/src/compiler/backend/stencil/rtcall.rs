@@ -274,7 +274,7 @@ impl Jit<'_> {
         let opt = match answer {
             Answer::Sum(e) => {
                 let l = self.enum_layout(prog, e);
-                let o = OptRepr::of(&l).or_ice("a `Ret::Sum` row answers an `Option`");
+                let o = OptRepr::of(&l);
                 ints.push(Src::Addr(dslot + o.payload));
                 Some(o)
             }
@@ -292,7 +292,8 @@ impl Jit<'_> {
             | Answer::Int(_)
             | Answer::Res(_)
             | Answer::ResMsg(_)
-            | Answer::Inline(_) => None,
+            | Answer::Inline(_)
+            | Answer::InlineRes(_) => None,
         };
 
         // `lib.rs` §2.1's `Result<T, E>`: `.Ok`'s payload through an
@@ -319,9 +320,7 @@ impl Jit<'_> {
         let res = match answer {
             Answer::Res(r) | Answer::ResMsg(r) => {
                 let l = self.layout_id_shared(prog, r.id());
-                let types::ResultShape { ok, err, t, e } =
-                    types::result_shape(self.tables, &prog.type_info(r.id()).ty)
-                        .or_ice("a `Ret::Res` row answers a `Result`");
+                let types::ResultShape { ok, err, t, e } = prog.types.result_shape(r);
                 let err_l = self.layouts_of(e);
                 // From `T` rather than from the enum: a variant records
                 // *where* a field is and never how big it is, and
@@ -392,7 +391,11 @@ impl Jit<'_> {
         // where the discriminant of a fallible entry is what comes back.
         // A row's answer is never `Inline`, which is a key with no row.
         let kind = match answer {
-            Answer::Void | Answer::NoReturn | Answer::Out | Answer::Inline(_) => "v",
+            Answer::Void
+            | Answer::NoReturn
+            | Answer::Out
+            | Answer::Inline(_)
+            | Answer::InlineRes(_) => "v",
             // An `i32` from C, and a frame slot holds an integer
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
