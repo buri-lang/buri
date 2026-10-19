@@ -35,7 +35,7 @@ type Expr = typed::Expr;
 
 /// The four traits this covers. `ToJson` and `FromJson` cannot be written by
 /// hand, and the operator traits derive only on a primitive.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Op {
     Show,
     Equal,
@@ -45,12 +45,18 @@ enum Op {
 
 impl Op {
     fn of(name: &str) -> Option<Op> {
-        match name {
-            "Show" => Some(Op::Show),
-            "Equal" => Some(Op::Equal),
-            "Ordered" => Some(Op::Compare),
-            "Hash" => Some(Op::Hash),
-            _ => None,
+        [Op::Show, Op::Equal, Op::Compare, Op::Hash]
+            .into_iter()
+            .find(|op| op.name() == name)
+    }
+
+    /// The trait's name in `core/order`.
+    fn name(self) -> &'static str {
+        match self {
+            Op::Show => "Show",
+            Op::Equal => "Equal",
+            Op::Compare => "Ordered",
+            Op::Hash => "Hash",
         }
     }
 
@@ -66,6 +72,15 @@ impl Op {
     fn binary(self) -> bool {
         matches!(self, Op::Equal | Op::Compare)
     }
+}
+
+/// A trait this module generates, with the operation it is. Only
+/// [`Monomorphizer::derivable`] makes one, so a generated function's trait
+/// always has an [`Op`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(super) struct Derivable {
+    trait_id: TraitId,
+    op: Op,
 }
 
 /// `Order`'s variants, in its declaration order.
@@ -86,6 +101,15 @@ struct Deriving {
     /// inside it, for a `T` with no bound: the test report's `Show` and a
     /// signal's `Equal`. A derive's components all have an `impl`.
     unbounded: bool,
+}
+
+impl Deriving {
+    fn derivable(&self) -> Derivable {
+        Derivable {
+            trait_id: self.trait_id,
+            op: self.op,
+        }
+    }
 }
 
 /// One component of a struct, tuple or variant.
@@ -174,17 +198,17 @@ impl Monomorphizer<'_> {
         recv: &Ty,
         args: &[Expr],
     ) -> Option<ExprKind> {
-        let op = Op::of(&self.tables().trait_(trait_id).name)?;
+        let derive = self.derivable(trait_id)?;
         if !self.reaches_hand_written(trait_id, recv, false) {
             return None;
         }
-        let ctx = if op == Op::Show {
+        let ctx = if derive.op == Op::Show {
             Some(args.get(1)?.ty)
         } else {
             None
         };
         let slot = self.request(Key::Derived {
-            trait_id,
+            derive,
             ty: *recv,
             ctx,
             unbounded: false,
@@ -203,10 +227,10 @@ impl Monomorphizer<'_> {
     /// `ctx` is `Show`'s context type. The test report and a signal's write are
     /// the two callers: neither may require the trait, so a type with no `impl`
     /// is walked as it always was. Answers the generated function.
-    fn unbounded_fn(&mut self, trait_name: &str, ty: Ty, ctx: Option<Ty>) -> Option<FuncIdx> {
+    fn unbounded_fn(&mut self, op: Op, ty: Ty, ctx: Option<Ty>) -> Option<FuncIdx> {
         let module_paths = &self.module_paths;
         let (trait_id, _) = self.tables().traits.entries().find(|(_, t)| {
-            t.name == trait_name
+            t.name == op.name()
                 && module_paths
                     .get(t.module.index())
                     .is_some_and(|m| m == "core/order")
@@ -220,7 +244,7 @@ impl Monomorphizer<'_> {
             return None;
         }
         let slot = self.request(Key::Derived {
-            trait_id,
+            derive: Derivable { trait_id, op },
             ty,
             ctx,
             unbounded: true,
@@ -255,7 +279,7 @@ impl Monomorphizer<'_> {
         // A reporter's values are of one type.
         let ty = f.locals.get(value).ty;
         let scope_ty = Ty::con(scope, []);
-        let Some(show) = self.unbounded_fn("Show", ty, Some(scope_ty)) else {
+        let Some(show) = self.unbounded_fn(Op::Show, ty, Some(scope_ty)) else {
             return false;
         };
         let ctx = Expr::new(
@@ -308,7 +332,7 @@ impl Monomorphizer<'_> {
         if self.cell_equal.contains_key(&ty) {
             return;
         }
-        if let Some(f) = self.unbounded_fn("Equal", ty, None) {
+        if let Some(f) = self.unbounded_fn(Op::Equal, ty, None) {
             self.cell_equal.insert(ty, f);
         }
     }
@@ -485,14 +509,13 @@ impl Monomorphizer<'_> {
 
     pub(super) fn derived_name(
         &mut self,
-        trait_id: TraitId,
+        derive: Derivable,
         ty: Ty,
         ctx: Option<Ty>,
         items: bool,
         unbounded: bool,
     ) -> (String, String, Span) {
-        let name = self.tables().trait_(trait_id).name.clone();
-        let tag = Op::of(&name).map_or("derive", Op::tag);
+        let tag = derive.op.tag();
         let base = format!(
             "$derived${tag}{}{}",
             if items { "$items" } else { "" },
@@ -508,13 +531,14 @@ impl Monomorphizer<'_> {
         (symbol, format!("{module}:{owner}.{tag}"), Span::NONE)
     }
 
-    fn deriving(
-        &mut self,
-        trait_id: TraitId,
-        ctx: Option<Ty>,
-        unbounded: bool,
-    ) -> Option<Deriving> {
+    /// `trait_id` as a trait this module generates, where it is one.
+    fn derivable(&self, trait_id: TraitId) -> Option<Derivable> {
         let op = Op::of(&self.tables().trait_(trait_id).name)?;
+        Some(Derivable { trait_id, op })
+    }
+
+    fn deriving(&mut self, derive: Derivable, ctx: Option<Ty>, unbounded: bool) -> Deriving {
+        let Derivable { trait_id, op } = derive;
         let ret_con = match op {
             Op::Show => Prim::Str.con(),
             Op::Equal => Prim::Bool.con(),
@@ -523,14 +547,14 @@ impl Monomorphizer<'_> {
         };
         let ret = Ty::con(ret_con, []);
         let ctx = ctx.map(|c| (self.new_local("ctx", c, Span::NONE), c));
-        Some(Deriving {
+        Deriving {
             trait_id,
             op,
             ret_con,
             ret,
             ctx,
             unbounded,
-        })
+        }
     }
 
     fn finish(&mut self, f: &mut Func, params: Vec<LocalId>, ret: Ty, body: Expr) {
@@ -544,7 +568,7 @@ impl Monomorphizer<'_> {
     /// `Key::Derived`: the derive at `ty`, one level deep.
     pub(super) fn build_derived(
         &mut self,
-        trait_id: TraitId,
+        derive: Derivable,
         ty: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
@@ -553,9 +577,7 @@ impl Monomorphizer<'_> {
     ) {
         self.locals = typed::Locals::new();
         let x = self.new_local("x", ty, Span::NONE);
-        let d = self
-            .deriving(trait_id, ctx, unbounded)
-            .or_ice("only a derivable trait is requested");
+        let d = self.deriving(derive, ctx, unbounded);
         let y = d.op.binary().then(|| self.new_local("y", ty, Span::NONE));
         let mut params = vec![x];
         params.extend(y);
@@ -564,7 +586,7 @@ impl Monomorphizer<'_> {
         let body = match ty.kind() {
             // At a hand-written type the `impl` is the whole answer, wrapped so
             // a caller that needs a function, such as a signal, has one.
-            _ if self.hand_written(trait_id, &ty) => {
+            _ if self.hand_written(d.trait_id, &ty) => {
                 let mut args = vec![a];
                 args.extend(b);
                 self.component(&d, ty, args)
@@ -590,7 +612,7 @@ impl Monomorphizer<'_> {
     /// what `Show` or `Hash` has made of the elements so far.
     pub(super) fn build_derived_items(
         &mut self,
-        trait_id: TraitId,
+        derive: Derivable,
         elem: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
@@ -600,9 +622,7 @@ impl Monomorphizer<'_> {
         self.locals = typed::Locals::new();
         let list = Ty::array(elem);
         let xs = self.new_local("xs", list, Span::NONE);
-        let d = self
-            .deriving(trait_id, ctx, unbounded)
-            .or_ice("only a derivable trait is requested");
+        let d = self.deriving(derive, ctx, unbounded);
         let acc = self.new_local("acc", d.ret, Span::NONE);
         let mut params = vec![xs, acc];
         params.extend(d.ctx.map(|(c, _)| c));
@@ -655,7 +675,7 @@ impl Monomorphizer<'_> {
         } else if d.unbounded && self.reaches_hand_written(d.trait_id, &ty, true) {
             let ctx = d.ctx.map(|(_, ct)| ct);
             let slot = self.request(Key::Derived {
-                trait_id: d.trait_id,
+                derive: d.derivable(),
                 ty,
                 ctx,
                 unbounded: true,
@@ -773,7 +793,7 @@ impl Monomorphizer<'_> {
             (Op::Show, _) => {
                 let first = self.component(d, elem, vec![local(h, elem)]);
                 let items = self.request(Key::DerivedItems {
-                    trait_id: d.trait_id,
+                    derive: d.derivable(),
                     elem,
                     ctx: d.ctx.map(|(_, ct)| ct),
                     unbounded: d.unbounded,
@@ -793,7 +813,7 @@ impl Monomorphizer<'_> {
             }
             _ => {
                 let items = self.request(Key::DerivedItems {
-                    trait_id: d.trait_id,
+                    derive: d.derivable(),
                     elem,
                     ctx: None,
                     unbounded: d.unbounded,
