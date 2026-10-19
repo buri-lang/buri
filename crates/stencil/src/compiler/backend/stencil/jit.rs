@@ -910,9 +910,10 @@ impl<'a> Jit<'a> {
                 .get(index)
                 .map(|(_, t)| *t),
             (TyKind::Con(id, args), None) => match &self.tables.tycon(*id).def {
-                TyDef::Struct { fields, .. } => {
-                    fields.get(index).map(|f| substitute(&f.ty, args, None))
-                }
+                TyDef::Struct { fields, .. } => fields
+                    .as_slice()
+                    .get(index)
+                    .map(|f| substitute(&f.ty, args, None)),
                 TyDef::Prim(_) | TyDef::Enum { .. } => None,
             },
             (TyKind::Con(id, args), Some(v)) => match &self.tables.tycon(*id).def {
@@ -924,6 +925,7 @@ impl<'a> Jit<'a> {
                         .as_slice()
                         .get(v)?
                         .fields
+                        .as_slice()
                         .get(index)?;
                     Some(substitute(&field.ty, args, None))
                 }
@@ -2241,15 +2243,21 @@ impl<'a> Jit<'a> {
                         ) {
                             continue;
                         }
-                        (*dest, fields, ty.id(), Some(*variant as usize))
+                        (*dest, fields, ty.id(), Some((*ty, *variant)))
                     }
                     _ => continue,
                 };
-                let l = self.layout_of(prog, id);
+                let (l, e);
                 let owner = prog.type_info(id).ty;
                 let offs: &[At] = match variant {
-                    None => &l.fields,
-                    Some(v) => l.variant(v),
+                    None => {
+                        l = self.layout_of(prog, id);
+                        &l.fields
+                    }
+                    Some((ty, v)) => {
+                        e = self.enum_layout(prog, ty);
+                        e.variants.get(v).as_slice()
+                    }
                 };
                 if ent(pin, dest.index(), None).is_some() {
                     continue;
@@ -2266,7 +2274,7 @@ impl<'a> Jit<'a> {
                         || !alone(*f)
                         || ent(uses, f.index(), 0) != 1
                         || self
-                            .field_ty(&owner, variant, fi)
+                            .field_ty(&owner, variant.map(|(_, v)| v.index()), fi)
                             .is_some_and(|t| self.boxes(&owner, &t))
                     {
                         continue;

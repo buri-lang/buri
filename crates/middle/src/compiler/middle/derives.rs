@@ -172,7 +172,9 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind, VariantId};
+use crate::compiler::semantics::types::{
+    FieldId, FuncIdx, LocalId, Prim, Ty, TyConId, TyKind, VariantId,
+};
 use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
@@ -698,7 +700,7 @@ fn merge(parts: Vec<Part>) -> Vec<Part> {
 }
 
 /// One side's pattern bindings: each field's index, local and type.
-type Binds = Vec<(usize, LocalId, Ty)>;
+type Binds = Vec<(FieldId, LocalId, Ty)>;
 
 /// How a derived function reads variant `vi`'s payload out of each of its
 /// sides: the arm's patterns, one per side, and the fields they bind.
@@ -706,8 +708,8 @@ struct Payload {
     ty: Ty,
     vi: VariantId,
     sides: Vec<Expr>,
-    /// Each field's descriptor and type.
-    fields: Vec<(usize, Ty)>,
+    /// Each field's id, descriptor and type.
+    fields: Vec<(FieldId, usize, Ty)>,
     patterns: Vec<Pattern>,
     /// Each field's value on every side, or `None` where the patterns bind
     /// nothing and [`Generator::read`] reads the fields where they're used.
@@ -1180,7 +1182,7 @@ impl Generator {
         &self,
         ty: &Ty,
         variant: VariantId,
-        binds: &[(usize, LocalId, Ty)],
+        binds: &[(FieldId, LocalId, Ty)],
     ) -> Option<Pattern> {
         let con = ty.head()?;
         let fields = binds
@@ -1392,8 +1394,8 @@ impl Generator {
         let inner_ty = self.ty_of(inner);
         let bool_ty = self.bool_ty();
         let (x, y) = (frame.local("x", &inner_ty), frame.local("y", &inner_ty));
-        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty)])?;
-        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty)])?;
+        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, x, inner_ty)])?;
+        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, y, inner_ty)])?;
         let none = self.variant_pattern(&ty, OPTION_NONE, &[])?;
         let inner_eq = self.at(
             Op::Eq,
@@ -1445,7 +1447,7 @@ impl Generator {
                 acc = Some(
                     self.read(&payload, run, frame, false_.clone(), |g, _, values| {
                         let mut acc = acc;
-                        for ((d, _), xs) in descs.iter().zip(values).rev() {
+                        for ((_, d, _), xs) in descs.iter().zip(values).rev() {
                             let one = g.at(Op::Eq, *d, xs)?;
                             acc = Some(g.then_eq(one, acc));
                         }
@@ -1612,8 +1614,8 @@ impl Generator {
         let inner_ty = self.ty_of(inner);
         let order = self.result_ty(Op::Compare);
         let (x, y) = (frame.local("x", &inner_ty), frame.local("y", &inner_ty));
-        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(0, x, inner_ty)])?;
-        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(0, y, inner_ty)])?;
+        let some_x = self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, x, inner_ty)])?;
+        let some_y = self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, y, inner_ty)])?;
         let none = self.variant_pattern(&ty, OPTION_NONE, &[])?;
         let inner_cmp = self.at(
             Op::Compare,
@@ -1714,7 +1716,7 @@ impl Generator {
                 equal_lit.clone(),
                 |g, frame, values| {
                     let mut acc = acc;
-                    for ((d, _), xs) in descs.iter().zip(values).rev() {
+                    for ((_, d, _), xs) in descs.iter().zip(values).rev() {
                         let one = g.at(Op::Compare, *d, xs)?;
                         acc = Some(g.then_compare(one, acc, frame)?);
                     }
@@ -1870,7 +1872,11 @@ impl Generator {
         sides: &[Expr],
         frame: &mut Frame,
     ) -> Option<Payload> {
-        let fields: Vec<(usize, Ty)> = v.fields.iter().map(|f| (f.ty, self.ty_of(f.ty))).collect();
+        let fields: Vec<(FieldId, usize, Ty)> = v
+            .fields
+            .entries()
+            .map(|(id, f)| (id, f.ty, self.ty_of(f.ty)))
+            .collect();
         let lazy = fields.len() > EAGER_FIELDS_MAX && sides.iter().all(Generator::duplicable);
         let mut payload = Payload {
             ty: *ty,
@@ -1905,11 +1911,11 @@ impl Generator {
         let mut binds: Vec<Binds> = vec![Vec::new(); payload.sides.len()];
         let mut values: Vec<Vec<Expr>> = Vec::new();
         for fi in run {
-            let (_, fty) = payload.fields.get(fi)?;
+            let (id, _, fty) = payload.fields.get(fi)?;
             let mut each = Vec::new();
             for (side, b) in binds.iter_mut().enumerate() {
                 let l = frame.local(side_name(side), fty);
-                b.push((fi, l, *fty));
+                b.push((*id, l, *fty));
                 each.push(self.local_expr(l, fty));
             }
             values.push(each);
@@ -2070,7 +2076,8 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let inner_ty = self.ty_of(*inner);
                 let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
+                let some =
+                    self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, v, inner_ty)])?;
                 let shown = self.at(Op::Show, *inner, vec![self.local_expr(v, &inner_ty)])?;
                 let body = self.joined(vec![
                     Part::Text(".Some(".into()),
@@ -2090,8 +2097,8 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let mut arms: Vec<Arm> = Vec::new();
                 for (vi, v) in variants.entries() {
-                    let mut binds: Vec<(usize, LocalId, Ty)> = Vec::new();
-                    for (fi, f) in v.fields.iter().enumerate() {
+                    let mut binds: Binds = Vec::new();
+                    for (fi, f) in v.fields.entries() {
                         let fty = self.ty_of(f.ty);
                         binds.push((fi, frame.local("v", &fty), fty));
                     }
@@ -2381,7 +2388,8 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let inner_ty = self.ty_of(*inner);
                 let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
+                let some =
+                    self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, v, inner_ty)])?;
                 let body = self.at(Op::ToJson, *inner, vec![self.local_expr(v, &inner_ty)])?;
                 let null = self.json_lit("Null", Vec::new())?;
                 Some(self.match_(
@@ -2394,8 +2402,8 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let mut arms: Vec<Arm> = Vec::new();
                 for (vi, v) in variants.entries() {
-                    let mut binds: Vec<(usize, LocalId, Ty)> = Vec::new();
-                    for (fi, f) in v.fields.iter().enumerate() {
+                    let mut binds: Binds = Vec::new();
+                    for (fi, f) in v.fields.entries() {
                         let fty = self.ty_of(f.ty);
                         binds.push((fi, frame.local("v", &fty), fty));
                     }
@@ -2573,7 +2581,7 @@ impl Generator {
         let json = self.json_ty();
         let vi = self.env.json_variant(variant)?;
         let pat = match x {
-            Some((l, t)) => self.variant_pattern(&json, vi, &[(0, l, t)])?,
+            Some((l, t)) => self.variant_pattern(&json, vi, &[(FieldId::FIRST, l, t)])?,
             None => self.tag_pattern(&json, vi)?,
         };
         let ty = then.ty;
@@ -2711,7 +2719,7 @@ impl Generator {
                 let args = vec![xe, self.int_lit(0)];
                 let first = self.rt("str.charAt", args, opt);
                 let c = frame.local("c", ty);
-                let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, c, *ty)])?;
+                let some = self.variant_pattern(&opt, OPTION_SOME, &[(FieldId::FIRST, c, *ty)])?;
                 let got = self.ok(ty, self.local_expr(c, ty))?;
                 let arms = vec![
                     self.arm(some, got),
@@ -2911,7 +2919,7 @@ impl Generator {
         let at = self.index(xse.clone(), ie.clone(), json)?;
         let opt = at.ty;
         let e = frame.local("e", &json);
-        let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, e, json)])?;
+        let some = self.variant_pattern(&opt, OPTION_SOME, &[(FieldId::FIRST, e, json)])?;
         let shown = self.intrinsic("derivePrimShow", vec![int], vec![ie.clone()], str_ty);
         let path = self.template_of(vec![
             Part::Str(pe.clone()),
@@ -3138,7 +3146,8 @@ impl Generator {
                 let opt = at.ty;
                 let pair = frame.local("pair", &pair_ty);
                 let pair_e = self.local_expr(pair, &pair_ty);
-                let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, pair, pair_ty)])?;
+                let some =
+                    self.variant_pattern(&opt, OPTION_SOME, &[(FieldId::FIRST, pair, pair_ty)])?;
                 let k = self.project(pair_e.clone(), 0, true, str_ty);
                 let same = self.prim_test(PrimOp::Eq, Prim::Str, k, keye.clone());
                 let here = self.ok(&json, self.project(pair_e, 1, true, json))?;
@@ -3327,7 +3336,7 @@ impl Generator {
                         let from = cur.clone();
                         cur = self.read(&payload, run, frame, cur, |g, _, values| {
                             let mut cur = from;
-                            for ((d, _), xs) in descs.iter().zip(values) {
+                            for ((_, d, _), xs) in descs.iter().zip(values) {
                                 cur = g.at_hash(*d, cur, one(&xs)?)?;
                             }
                             Some(cur)
@@ -3370,7 +3379,7 @@ impl Generator {
         let ty = self.ty_of(desc);
         let inner_ty = self.ty_of(inner);
         let v = frame.local("v", &inner_ty);
-        let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
+        let some = self.variant_pattern(&ty, OPTION_SOME, &[(FieldId::FIRST, v, inner_ty)])?;
         let value = self.local_expr(v, &inner_ty);
         let body = match self.descs.get(inner) {
             Some(Desc::Option(deeper)) => {

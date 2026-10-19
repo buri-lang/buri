@@ -714,8 +714,8 @@ fn declared_fields(
     variant: Option<VariantId>,
 ) -> &[types::FieldInfo] {
     match variant {
-        Some(v) => &tables.tycon(con).variant(v).fields,
-        None => tables.tycon(con).fields(),
+        Some(v) => tables.tycon(con).variant(v).fields.as_slice(),
+        None => tables.tycon(con).fields().as_slice(),
     }
 }
 

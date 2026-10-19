@@ -91,7 +91,9 @@ use crate::compiler::middle::layout::{
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
-use crate::compiler::semantics::types::{self as types, FuncIdx, IntPrim, Prim, Tables, Ty};
+use crate::compiler::semantics::types::{
+    self as types, FieldId, FuncIdx, IntPrim, Prim, Tables, Ty, VariantId,
+};
 use crate::diagnostics::Invariant;
 use crate::hash::{Map, Set};
 
@@ -990,16 +992,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 agg,
                 ty,
                 variant,
-                index,
-            } => self.get_payload(
-                state,
-                code,
-                *dest,
-                *agg,
-                *ty,
-                *variant as usize,
-                *index as usize,
-            ),
+                field,
+            } => self.get_payload(state, code, *dest, *agg, *ty, *variant, *field),
             ir::Inst::GetTag { dest, agg, ty } => self.get_tag(state, *dest, *agg, *ty),
             ir::Inst::ArrayLen { dest, array } => {
                 let list = self.get(state, *array);
@@ -1445,9 +1439,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Link(Box) }` whose `Box` names `Chain` back keeps its payload behind an
     /// indirection, so the variant's slot in the blob is one pointer and not
     /// the payload's own words.
-    fn boxed_payload(&mut self, id: ir::TypeId, variant: usize) -> Vec<(bool, u32, u32)> {
+    fn boxed_payload(&mut self, id: ir::TypeId, variant: VariantId) -> Vec<(bool, u32, u32)> {
         let owner = self.program.type_info(id).ty;
-        let fields = crate::compiler::semantics::types::variant_types(self.tables, &owner, variant);
+        let fields =
+            crate::compiler::semantics::types::variant_types(self.tables, &owner, variant.index());
         fields
             .iter()
             .map(|f| {
@@ -1652,18 +1647,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.set(state, dest, tag);
     }
 
-    /// Where `.Some` and `.None` sit, read off the layout's per-variant field
-    /// lists rather than assumed to be 0 and 1: a declaration order of
-    /// `{ None, Some(T) }` has to work as well as the other.
-    fn option_variants(&mut self, e: ir::EnumTy) -> (usize, usize) {
-        let layout = self.reprs.of_enum(self.program, e);
-        let variants = &layout.variants;
-        (
-            variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-            variants.iter().position(Vec::is_empty).unwrap_or(1),
-        )
-    }
-
     /// An enum's discriminant, from the value rather than from a `ValueId`.
     ///
     /// Split out of [`Unit::get_tag`] so that a `Result` this backend built for
@@ -1702,17 +1685,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // the tag is a null test and a `select` between the two variant
             // indices (VALUE-MODEL.md §6).
             //
-            // The niche spends one variant's *absence* of fields: `.None` is
-            // the pointer set to null and `.Some` is everything else. The
-            // pointer is read at its offset, so a value in registers is
-            // spilled first, which `opt` takes back out.
+            // Only `Option` has the niche: `.None` is the pointer set to null
+            // and `.Some` is everything else. The pointer is read at its
+            // offset, so a value in registers is spilled first, which `opt`
+            // takes back out.
             EnumRepr::Niche { null_at, .. } => {
-                let (some_variant, none_variant) = self.option_variants(e);
                 let place = self.addressed(b, &slots, whole, shape);
                 let p = self.place_pointer(b, &place, null_at.bytes());
                 let is_null = b.is_null(p, "isnone");
-                let some = i32t.const_int(some_variant as u64, false);
-                let none = i32t.const_int(none_variant as u64, false);
+                let some = i32t.const_int(VariantId::SOME.index() as u64, false);
+                let none = i32t.const_int(VariantId::NONE.index() as u64, false);
                 b.select(is_null, none, some, "tag")
             }
         }
@@ -1724,7 +1706,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         e: ir::EnumTy,
-        variant: u32,
+        variant: VariantId,
         fields: &[ir::ValueId],
     ) {
         let parts: Vec<(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> = fields
@@ -1743,13 +1725,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .collect();
         // A boxed payload is a block, so a variant that has one allocates.
         if self
-            .boxed_payload(e.id(), variant as usize)
+            .boxed_payload(e.id(), variant)
             .iter()
             .any(|(boxed, _, _)| *boxed)
         {
             state.observed.allocates = true;
         }
-        let value = self.build_variant(state.b, e, variant as usize, &parts);
+        let value = self.build_variant(state.b, e, variant, &parts);
         self.set(state, dest, value);
     }
 
@@ -1766,21 +1748,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         b: At<'ctx>,
         e: ir::EnumTy,
-        variant: usize,
+        variant: VariantId,
         fields: &[(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)],
     ) -> BasicValueEnum<'ctx> {
         let id = e.id();
-        let (slots, offsets, size) = {
+        let (slots, size) = {
             let r = self.reprs.of(self.program, id);
-            let offsets = r
-                .layout
-                .variant(variant)
-                .iter()
-                .map(|a| a.bytes())
-                .collect::<Vec<u32>>();
-            (r.slots.clone(), offsets, r.layout.size)
+            (r.slots.clone(), r.layout.size)
         };
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let enum_layout = self.reprs.of_enum(self.program, e);
+        let offsets = enum_layout
+            .variants
+            .get(variant)
+            .iter()
+            .map(|a| a.bytes())
+            .collect::<Vec<u32>>();
+        let enum_repr = enum_layout.repr.clone();
         if repr::in_memory(&slots) {
             return self.variant_in_memory(b, id, variant, fields, &slots, &enum_repr, &offsets);
         }
@@ -1788,7 +1771,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             EnumRepr::Bare { tag } => {
                 let t = repr::slot_type(self.ctx, SlotTy::Scalar(tag));
                 match t {
-                    BasicTypeEnum::IntType(t) => t.const_int(variant as u64, false).into(),
+                    BasicTypeEnum::IntType(t) => t.const_int(variant.index() as u64, false).into(),
                     other => other.const_zero(),
                 }
             }
@@ -1802,7 +1785,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             },
             EnumRepr::Tagged { tag, payload } => {
                 let tag_value = match repr::slot_type(self.ctx, SlotTy::Scalar(tag)) {
-                    BasicTypeEnum::IntType(t) => t.const_int(variant as u64, false).into(),
+                    BasicTypeEnum::IntType(t) => t.const_int(variant.index() as u64, false).into(),
                     other => other.const_zero(),
                 };
                 let bytes = size.saturating_sub(payload);
@@ -1867,7 +1850,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         b: At<'ctx>,
         id: ir::TypeId,
-        variant: usize,
+        variant: VariantId,
         fields: &[(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)],
         slots: &[Slot],
         enum_repr: &EnumRepr,
@@ -1932,37 +1915,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dest: ir::ValueId,
         of: ir::ValueId,
         e: ir::EnumTy,
-        variant: usize,
-        index: usize,
+        variant: VariantId,
+        field: FieldId,
     ) {
-        let id = e.id();
-        let (slots, offsets) = {
-            let r = self.reprs.of(self.program, id);
-            (
-                r.slots.clone(),
-                r.layout
-                    .variant(variant)
-                    .iter()
-                    .map(|a| a.bytes())
-                    .collect::<Vec<u32>>(),
-            )
-        };
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let slots = self.reprs.of(self.program, e.id()).slots.clone();
+        let layout = self.reprs.of_enum(self.program, e);
+        let at = layout.variants.get(variant).get(field).bytes();
+        let enum_repr = layout.repr.clone();
         let whole = self.get(state, of);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
+        let head = self.program.types.enum_head(e);
         let boxed = self
-            .boxed_payload(id, variant)
-            .get(index)
-            .copied()
-            .is_some_and(|(boxed, _, _)| boxed);
+            .reprs
+            .boxes(&head.ty, &head.payload(self.tables, variant, field));
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
             let value = match enum_repr {
                 // `.Some`'s payload is the whole value (`layout::build_enum`).
                 EnumRepr::Niche { .. } => whole,
-                _ => {
-                    let at = offsets.get(index).copied().unwrap_or(0);
-                    self.field_in_memory(state.b, code, dest, base, at, boxed)
-                }
+                _ => self.field_in_memory(state.b, code, dest, base, at, boxed),
             };
             self.set(state, dest, value);
             return;
@@ -1978,7 +1948,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         } else {
             want.clone()
         };
-        let taken = self.payload_of(state.b, &enum_repr, &offsets, index, &read, whole);
+        let taken = self.payload_of(state.b, &enum_repr, at, &read, whole);
         let value = if boxed {
             let (_, _, align) = self.dest_shape(code, dest);
             self.load_value(state.b, ptr(taken), &want, align)
@@ -1998,8 +1968,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         b: At<'ctx>,
         enum_repr: &EnumRepr,
-        offsets: &[u32],
-        index: usize,
+        at: u32,
         want: &[Slot],
         whole: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
@@ -2013,11 +1982,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // `get_payload` reads an enum held in memory there, so this
                 // one is in registers.
                 let [_, blob] = repr::disassemble_n(b, whole);
-                let within = offsets
-                    .get(index)
-                    .copied()
-                    .unwrap_or(0)
-                    .saturating_sub(payload);
+                let within = at.saturating_sub(payload);
                 if let BasicValueEnum::ArrayValue(blob) = blob {
                     let taken: Vec<_> = want
                         .iter()
@@ -5573,17 +5538,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let (some_at, none_at) = self.option_variants(e);
-        let (slots, size, align, payload_at) = {
+        let (some_at, none_at) = (VariantId::SOME, VariantId::NONE);
+        let (slots, size, align) = {
             let r = self.reprs.of(self.program, e.id());
-            (
-                r.slots.clone(),
-                r.layout.size,
-                r.layout.align,
-                r.layout.variant(some_at).first().map_or(0, |a| a.bytes()),
-            )
+            (r.slots.clone(), r.layout.size, r.layout.align)
         };
         let enum_layout = self.reprs.of_enum(self.program, e);
+        let payload_at = enum_layout
+            .variants
+            .get(some_at)
+            .get(FieldId::FIRST)
+            .bytes();
         let buf = self.scratch(state, size, align);
         let out = b.byte_offset(buf, i64::from(payload_at), "sum.p");
         argv.push(out.into());
@@ -5642,14 +5607,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         slots: &[Slot],
         enum_layout: &EnumLayout,
         align: u32,
-        variant: usize,
+        variant: VariantId,
         loaded: bool,
     ) -> BasicValueEnum<'ctx> {
         let tag_const =
             |ctx: &'ctx Context, tag: Scalar| match repr::slot_type(ctx, SlotTy::Scalar(tag)) {
-                BasicTypeEnum::IntType(t) => {
-                    t.const_int(variant as u64, false).as_basic_value_enum()
-                }
+                BasicTypeEnum::IntType(t) => t
+                    .const_int(variant.index() as u64, false)
+                    .as_basic_value_enum(),
                 other => other.const_zero(),
             };
         match enum_layout.repr {
@@ -5708,17 +5673,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let (ok, err, ok_bytes, err_ty) = self.result_shape(r);
+        let (ok_bytes, err_ty) = self.result_shape(r);
         let e = r.enum_ty();
         let (slots, size, align) = self.dest_shape(code, dest);
-        let (ok_at, err_at) = {
-            let r = self.reprs.of(self.program, e.id());
-            (
-                r.layout.variant(ok).first().map_or(0, |a| a.bytes()),
-                r.layout.variant(err).first().map_or(0, |a| a.bytes()),
-            )
-        };
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let enum_layout = self.reprs.of_enum(self.program, e);
+        let ok_at = enum_layout
+            .variants
+            .get(VariantId::OK)
+            .get(FieldId::FIRST)
+            .bytes();
+        let err_at = enum_layout
+            .variants
+            .get(VariantId::ERR)
+            .get(FieldId::FIRST)
+            .bytes();
+        let enum_repr = enum_layout.repr.clone();
         let err_layout = self.reprs.of_ty(&err_ty).layout.clone();
 
         let buf = self.scratch(state, size, align);
@@ -5804,11 +5773,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.cond_br(is_ok, good, bad);
 
         b.to_end(good);
-        self.store_tag(b, buf, &enum_repr, align, ok);
+        self.store_tag(b, buf, &enum_repr, align, VariantId::OK);
         b.br(join);
 
         b.to_end(bad);
-        self.store_tag(b, buf, &enum_repr, align, err);
+        self.store_tag(b, buf, &enum_repr, align, VariantId::ERR);
         if let Some(tag) = err_tag {
             self.store_variant_index(b, buf, err_at, &err_layout, align, tag, disc, message_at);
         }
@@ -5822,17 +5791,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `.Ok`'s and `.Err`'s variant indices, `.Ok`'s payload size, and `E`, for
     /// a `Result<T, E>` destination.
     ///
-    /// The indices are `VariantId::OK` and `VariantId::ERR`, the order
-    /// `core/result` declares them in and `middle::layout` numbers them by.
-    ///
     /// The payload's *size* comes from `T` and not from the variant's field
-    /// list, because `Layout::variant` records where a field is and never how
+    /// list, because an enum's layout records where a field is and never how
     /// big it is: `Result<(), E>` has a field of no bytes, and whether the C
     /// signature carries an out-pointer turns on exactly that.
-    fn result_shape(&mut self, r: ir::ResTy) -> (usize, usize, u32, Ty) {
+    fn result_shape(&mut self, r: ir::ResTy) -> (u32, Ty) {
         let shape = self.program.types.result_shape(r);
         let ok_bytes = self.reprs.of_ty(&shape.t).layout.size;
-        (shape.ok, shape.err, ok_bytes, shape.e)
+        (ok_bytes, shape.e)
     }
 
     /// One constant discriminant, written into a buffer whose payload the
@@ -5849,7 +5815,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         buf: PointerValue<'ctx>,
         enum_repr: &EnumRepr,
         align: u32,
-        variant: usize,
+        variant: VariantId,
     ) {
         match enum_repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
@@ -5858,9 +5824,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     ty: SlotTy::Scalar(*tag),
                 };
                 let value = match repr::slot_type(self.ctx, slot.ty) {
-                    BasicTypeEnum::IntType(t) => {
-                        t.const_int(variant as u64, false).as_basic_value_enum()
-                    }
+                    BasicTypeEnum::IntType(t) => t
+                        .const_int(variant.index() as u64, false)
+                        .as_basic_value_enum(),
                     other => other.const_zero(),
                 };
                 let payload = payload_at(enum_repr, *tag);
@@ -6312,7 +6278,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.load_slots(b, buf, &slots, align)
             }
         };
-        let value = self.build_variant(b, e, arm.variant().index(), &[(slots, pieces)]);
+        let value = self.build_variant(b, e, arm.variant(), &[(slots, pieces)]);
         self.set(state, dest, value);
     }
 
@@ -7662,21 +7628,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ok: IntValue<'ctx>,
         payload: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let (some_at, none_at) = self.option_variants(e);
-        let (slots, payload_at, size) = {
+        let (some_at, none_at) = (VariantId::SOME, VariantId::NONE);
+        let (slots, size) = {
             let r = self.reprs.of(self.program, e.id());
-            (
-                r.slots.clone(),
-                r.layout.variant(some_at).first().map_or(0, |a| a.bytes()),
-                r.layout.size,
-            )
+            (r.slots.clone(), r.layout.size)
         };
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
-        let tag_const = |ctx: &'ctx Context, tag: Scalar, v: usize| match repr::slot_type(
+        let enum_layout = self.reprs.of_enum(self.program, e);
+        let payload_at = enum_layout
+            .variants
+            .get(some_at)
+            .get(FieldId::FIRST)
+            .bytes();
+        let enum_repr = enum_layout.repr.clone();
+        let tag_const = |ctx: &'ctx Context, tag: Scalar, v: VariantId| match repr::slot_type(
             ctx,
             SlotTy::Scalar(tag),
         ) {
-            BasicTypeEnum::IntType(t) => t.const_int(v as u64, false).as_basic_value_enum(),
+            BasicTypeEnum::IntType(t) => t.const_int(v.index() as u64, false).as_basic_value_enum(),
             other => other.const_zero(),
         };
         let (some, none) = match enum_repr {
@@ -7753,8 +7721,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let id = r.id();
         let kind = checked_kind(from, to);
         let types::ResultShape {
-            ok,
-            err,
             t: ok_ty,
             e: err_ty,
         } = self.program.types.result_shape(r);
@@ -7791,7 +7757,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         // `.Ok(narrowed)`.
         b.to_end(ok_bb);
-        let ok_value = self.build_variant(b, e, ok, &[(ok_slots, vec![narrowed])]);
+        let ok_value = self.build_variant(b, e, VariantId::OK, &[(ok_slots, vec![narrowed])]);
         let ok_end = b.block();
         b.br(join);
 
@@ -7809,7 +7775,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             &err_ty,
             &[(value_ty, value_str), (target_ty, target_str)],
         );
-        let err_value = self.build_variant(b, e, err, &[range_error]);
+        let err_value = self.build_variant(b, e, VariantId::ERR, &[range_error]);
         let err_end = b.block();
         b.br(join);
 
@@ -8485,15 +8451,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
         let e = main.ret;
-        let err_offsets = self
-            .reprs
-            .of(self.program, e.id())
-            .layout
-            .variant(1)
-            .iter()
-            .map(|a| a.bytes())
-            .collect::<Vec<u32>>();
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let layout = self.reprs.of_enum(self.program, e);
+        let message_at = layout
+            .variants
+            .get(VariantId::ERR)
+            .get(FieldId::FIRST)
+            .bytes();
+        let enum_repr = layout.repr.clone();
         let tag = int(self.tag_of(b, e, result));
         let ok = self.ctx.append_basic_block(shim, "ok");
         let err = self.ctx.append_basic_block(shim, "err");
@@ -8501,8 +8465,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.cond_br(is_ok, ok, err);
 
         b.to_end(err);
-        // `.Err`'s message, the one field of variant 1.
-        let message = self.payload_of(b, &enum_repr, &err_offsets, 0, &repr::STR, result);
+        // `.Err`'s message, its one field.
+        let message = self.payload_of(b, &enum_repr, message_at, &repr::STR, result);
         let argv: Vec<BasicMetadataValueEnum<'ctx>> = repr::disassemble_n::<3>(b, message)
             .into_iter()
             .map(Into::into)
@@ -8929,7 +8893,7 @@ impl<'a> Boxes<'a> {
             }
             ir::Inst::MakeEnum { ty, variant, .. } => {
                 let owner = self.program.type_info(ty.id()).ty;
-                types::variant_types(self.tables, &owner, *variant as usize)
+                types::variant_types(self.tables, &owner, variant.index())
                     .iter()
                     .any(|f| self.layouts.boxes(&owner, f))
             }
@@ -8942,8 +8906,8 @@ impl<'a> Boxes<'a> {
         let (id, variant, index) = match inst {
             ir::Inst::GetField { ty, index, .. } => (ty.id(), None, *index),
             ir::Inst::GetPayload {
-                ty, variant, index, ..
-            } => (ty.id(), Some(*variant), *index),
+                ty, variant, field, ..
+            } => (ty.id(), Some(variant.index() as u32), field.index() as u32),
             _ => return false,
         };
         let owner = self.program.type_info(id).ty;
@@ -8979,9 +8943,10 @@ fn projections(code: &ir::Code) -> Map<usize, Projection> {
                 agg,
                 ty,
                 variant,
-                index,
+                field,
             } => {
-                out.insert(dest.index(), (*agg, ty.id(), Some(*variant), *index));
+                let (v, f) = (variant.index() as u32, field.index() as u32);
+                out.insert(dest.index(), (*agg, ty.id(), Some(v), f));
             }
             _ => {}
         }

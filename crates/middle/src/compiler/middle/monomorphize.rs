@@ -205,7 +205,7 @@ impl Desc {
 pub struct DescVariant {
     pub name: String,
     pub record: bool,
-    pub fields: Vec<DescField>,
+    pub fields: Dense<FieldId, DescField>,
 }
 
 /// What a compiled program is run for.
@@ -2701,7 +2701,7 @@ impl Monomorphizer<'_> {
             .head()
             .or_ice("only a struct derives an arithmetic operator");
         let tycon = self.tables().tycon(con).clone();
-        let fields = tycon.fields().to_vec();
+        let fields = tycon.fields().as_slice().to_vec();
         let [field] = fields.as_slice() else {
             self.diags.push(
                 Diagnostic::templated("derive-operator-not-newtype", span)
@@ -2875,17 +2875,13 @@ impl Monomorphizer<'_> {
                         let vs: Dense<VariantId, DescVariant> = variants
                             .iter()
                             .map(|v| {
-                                let fields: Vec<DescField> = v
-                                    .fields
-                                    .iter()
-                                    .map(|f| {
-                                        let t = substitute(&f.ty, args, None);
-                                        DescField {
-                                            name: f.name.clone(),
-                                            ty: self.descriptor(&t),
-                                        }
-                                    })
-                                    .collect();
+                                let fields = v.fields.map(|f| {
+                                    let t = substitute(&f.ty, args, None);
+                                    DescField {
+                                        name: f.name.clone(),
+                                        ty: self.descriptor(&t),
+                                    }
+                                });
                                 DescVariant {
                                     name: v.name.clone(),
                                     record: v.record,

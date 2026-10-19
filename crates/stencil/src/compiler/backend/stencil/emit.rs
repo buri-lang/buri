@@ -43,7 +43,7 @@ use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{At, EnumRepr, Repr};
-use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Scalar, Ty};
+use crate::compiler::semantics::types::{FieldId, FuncIdx, IntPrim, Prim, Scalar, Ty, VariantId};
 use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
@@ -378,24 +378,22 @@ impl<'a> Jit<'a> {
                 agg,
                 ty,
                 variant,
-                index,
+                field,
             } => {
-                let l = self.layout_id_shared(prog, ty.id());
-                let owner = &prog.type_info(ty.id()).ty;
+                let at = self
+                    .enum_layout(prog, *ty)
+                    .variants
+                    .get(*variant)
+                    .get(*field)
+                    .bytes();
+                let src = st.at(*agg) + at;
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let off = l.variant(*variant as usize).get(*index as usize).copied();
-                match off {
-                    Some(o) => {
-                        let src = st.at(*agg) + o.bytes();
-                        let fty = self.field_ty(owner, Some(*variant as usize), *index as usize);
-                        if fty.is_some_and(|t| self.boxes(owner, &t)) {
-                            self.unbox_from(st, st.at(*dest), src, w);
-                            return;
-                        }
-                        self.load_w(st.at(*dest), src, w)
-                    }
-                    None => crate::diagnostics::ice("stencil: GetPayload of an absent field"),
+                let head = prog.types.enum_head(*ty);
+                if self.boxes(&head.ty, &head.payload(self.tables, *variant, *field)) {
+                    self.unbox_from(st, st.at(*dest), src, w);
+                    return;
                 }
+                self.load_w(st.at(*dest), src, w)
             }
             Inst::GetTag { dest, agg, ty } => self.get_tag(prog, st, *dest, *agg, *ty),
             Inst::MakeClosure { dest, func, env } => {
@@ -595,7 +593,7 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
         dest: ir::ValueId,
         e: ir::EnumTy,
-        variant: u32,
+        variant: VariantId,
         fields: &[ir::ValueId],
     ) {
         let d = st.at(dest);
@@ -620,17 +618,17 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
         d: u32,
         e: ir::EnumTy,
-        variant: u32,
+        variant: VariantId,
         payload: impl FnOnce(&mut Self, &mut Fn2, &[At], &Ty, &[Ty]),
     ) {
         let owner = &prog.type_info(e.id()).ty;
         let l = self.enum_layout(prog, e);
-        let ftys = variant_types(self.tables, owner, variant as usize);
-        let offs: &[At] = l.variants.get(variant as usize).map_or(&[], Vec::as_slice);
+        let ftys = variant_types(self.tables, owner, variant.index());
+        let offs: &[At] = l.variants.get(variant).as_slice();
         match &l.repr {
-            EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
+            EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant.index() as u64),
             EnumRepr::Tagged { tag, .. } => {
-                self.imm_w(d, tag.size(), variant as u64);
+                self.imm_w(d, tag.size(), variant.index() as u64);
                 payload(self, st, offs, owner, &ftys);
             }
             EnumRepr::Niche { null_at, .. } => {
@@ -699,7 +697,7 @@ impl<'a> Jit<'a> {
                 }
             },
         };
-        let variant = arm.variant().index() as u32;
+        let variant = arm.variant();
         self.put_enum(prog, st, d, e, variant, |s, _, offs, _, ftys| {
             for (o, t) in offs.iter().zip(ftys) {
                 let w = s.layout_of_type(*t).size;
@@ -762,19 +760,17 @@ impl<'a> Jit<'a> {
         let l = self.enum_layout(prog, e);
         let d = st.at(dest);
         let a = st.at(agg);
-        let (repr, variants) = (&l.repr, &l.variants);
-        match repr {
+        match &l.repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => self.load_w(d, a, tag.size()),
+            // Only `Option` has the niche: a null pointer is `.None`.
             EnumRepr::Niche { null_at, .. } => {
-                let null_variant = variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u64;
-                let other = u64::from(null_variant == 0);
                 self.emit(
                     "niche_tag",
                     &[
                         Lit::D.of(d as u64),
                         Lit::A.of((a + null_at.bytes()) as u64),
-                        Lit::N.of(null_variant),
-                        Lit::P.of(other),
+                        Lit::N.of(VariantId::NONE.index() as u64),
+                        Lit::P.of(VariantId::SOME.index() as u64),
                         Jump::Cont.to(V::Fall),
                     ],
                 );
@@ -1681,14 +1677,12 @@ impl<'a> Jit<'a> {
     ) -> (u32, u32, bool) {
         let base = st.at(agg);
         let l = self.enum_layout(prog, e);
-        let (repr, variants) = (&l.repr, &l.variants);
-        match repr {
+        match &l.repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),
-            EnumRepr::Niche { null_at, .. } => (
-                base + null_at.bytes(),
-                variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u32,
-                true,
-            ),
+            // Only `Option` has the niche: a null pointer is `.None`.
+            EnumRepr::Niche { null_at, .. } => {
+                (base + null_at.bytes(), VariantId::NONE.index() as u32, true)
+            }
         }
     }
 
@@ -2341,7 +2335,12 @@ impl Jit<'_> {
         let l = self.layout_id_shared(prog, answer.id());
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
-        let pay = super::lists::payload_at(&l, 0);
+        let pay = self
+            .enum_layout(prog, answer)
+            .variants
+            .get(VariantId::SOME)
+            .get(FieldId::FIRST)
+            .bytes();
         let some = st.label();
         let done = st.label();
         let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
@@ -2354,12 +2353,12 @@ impl Jit<'_> {
                 Jump::F.to(V::Fall),
             ],
         );
-        self.store_disc(&l, dest, 1);
+        self.store_disc(&l, dest, VariantId::NONE);
         self.emit("jump", &[Jump::T.to(V::Blk(done))]);
         let here = self.region.code_addr();
         st.place(some, here);
         self.store_w(dest + pay, res, bits / 8);
-        self.store_disc(&l, dest, 0);
+        self.store_disc(&l, dest, VariantId::SOME);
         let here = self.region.code_addr();
         st.place(done, here);
         true
@@ -2408,12 +2407,9 @@ impl Jit<'_> {
         // `core/number`'s `RangeError`: its value, then its target.
         let result = self.layout_of_type(ty);
         let error = self.layout_of_type(shape.e);
-        let ok_at = super::lists::payload_at(&result, shape.ok);
-        let err_at = result
-            .variant(shape.err)
-            .first()
-            .copied()
-            .or_ice("`.Err` carries its error");
+        let variants = &self.enum_layout(prog, answer.enum_ty()).variants;
+        let ok_at = variants.get(VariantId::OK).get(FieldId::FIRST).bytes();
+        let err_at = variants.get(VariantId::ERR).get(FieldId::FIRST);
 
         let bound = st.scratch + super::rtcall::SPARE_WORD * 8;
         let verdict = st.scratch;
@@ -2526,7 +2522,7 @@ impl Jit<'_> {
                 }
             }
         }
-        self.store_disc(&result, dest, 0);
+        self.store_disc(&result, dest, VariantId::OK);
         self.emit("jump", &[Jump::T.to(V::Blk(done))]);
 
         let here = self.region.code_addr();
@@ -2539,7 +2535,7 @@ impl Jit<'_> {
             false,
         );
         self.str_literal(dest + err_at.bytes() + error.field(1), to.name().as_bytes());
-        self.store_disc(&result, dest, 1);
+        self.store_disc(&result, dest, VariantId::ERR);
         let here = self.region.code_addr();
         st.place(done, here);
     }

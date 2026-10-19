@@ -119,6 +119,51 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 60
+
+## What landed
+
+- A field of a declaration is a minted `types::FieldId`, the way a variant is a `VariantId`. `FieldId::FIRST` is the payload of `Some`, `Ok` and `Err`.
+  - `VariantInfo::fields` and a struct's fields are a `FieldList`, a `Dense<FieldId, FieldInfo>`. `typed::FieldPat::index` is a `FieldId`.
+  - `EnumLayout::variants` is `Dense<VariantId, Dense<FieldId, At>>`, built by mapping the declaration, so it has the same ids.
+  - `EnumHead::payload` gives a payload field's declared type, substituted.
+- `ir::Inst::GetPayload` names a `VariantId` and a `FieldId`, and `MakeEnum` a `VariantId`. Lowering uses the known constants, and `variant_of` is gone.
+- Both native backends read offsets with a total `Dense::get`:
+  - Stencil `GetPayload`'s "absent field" `ice` is gone, and so are the `map_or(0)` defaults in `OptRepr::of`, `main_result` and `lists::payload_at` (deleted). `get_tag` and `tag_field` take the niche's `.None` from `VariantId::NONE`, not a `position(..).unwrap_or(1)`.
+  - llvm's `unwrap_or(0)` in `get_payload` and `payload_of` is gone, and so are `option_variants` and the `first().map_or(0, ..)` offsets in `call_sum`, `call_result` and `option_value`.
+- `Layout::variant` is gone; its callers read `EnumLayout`. `ResultShape` drops `ok` and `err`, which were always the constants. Stencil `store_disc` and llvm `store_tag` take a `VariantId`.
+
+## Guards
+
+The plan-rule count in code goes from 66 to 64:
+- `Layout::variant`'s `or_ice`;
+- stencil's "`.Err` carries its error".
+
+The uncounted stencil `ice` went too, and so did every silent default named above.
+
+## Coverage
+
+Branches, measured locally on macOS, base and head with the same tool. Branches are equal in every area; only lines moved, because the code got shorter.
+
+| Area | Base (staging) | Phase 60 |
+| --- | --- | --- |
+| middle | 1858/1890 (98.31%) | 1858/1890 (98.31%) |
+| stencil | 1045/1085 (96.31%) | 1045/1085 (96.31%) |
+| semantics | 2154/2154 | 2154/2154 |
+| llvm | 531/532 | 531/532 |
+| js | 996/1022 | 996/1022 |
+
+## Left
+
+- `Layout::field`'s `or_ice` and llvm `get_field`'s `boxed_fields(..).get(index).unwrap_or(false)`. Struct fields have `FieldId`s now, so `GetField` can carry one and `Layout::fields` can be a `Dense<FieldId, At>`. Tuples need ids of their own.
+- Stencil `store_disc`'s "has a tag" `or_ice`.
+
+## Validation and landing
+
+- `cargo fmt --all` and CI's clippy commands, plus `-p buri-llvm`, report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`.
+- Every native object and binary that `tests/example` builds in `test` and `test --release` is byte-identical to base. Only action records differ, because they carry the compiler's hash. Conformance and example logs match apart from timings, and JS differs only in `$t.seed`.
+
 # Guard phase 59
 
 ## What landed

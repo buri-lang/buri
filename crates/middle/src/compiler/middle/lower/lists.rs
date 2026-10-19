@@ -62,7 +62,9 @@ use crate::compiler::middle::ir::{
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind};
+use crate::compiler::semantics::types::{
+    FieldId, FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind, VariantId,
+};
 
 /// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] or
 /// [`Inst::Handover`] a runtime-driven key is.
@@ -441,8 +443,8 @@ impl FnLower<'_> {
             // holds, and a `.None` holds nothing to give back.
             Step::FilterMap => {
                 let out_l = self.list_of(elem_of(ret)?);
-                let some = self.variant_of(&step_ret, "Some", 0);
-                let some_tag = self.int(Type::I32, some as usize);
+                let some = VariantId::SOME;
+                let some_tag = self.int(Type::I32, some.index());
                 let b_t = self.type_of(&elem_of(ret)?);
                 let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
                     dest,
@@ -475,7 +477,7 @@ impl FnLower<'_> {
                     ty: t,
                     agg: r,
                     variant: some,
-                    index: 0,
+                    field: FieldId::FIRST,
                 });
                 self.push(Inst::ArraySet {
                     array: out,
@@ -579,8 +581,8 @@ impl FnLower<'_> {
             // keeps, for `any`'s reason. `find`'s answer is a second owner of
             // the element it carries.
             Step::Find | Step::FindIndex => {
-                let some = self.variant_of(ret, "Some", 0);
-                let none = self.variant_of(ret, "None", 1);
+                let some = VariantId::SOME;
+                let none = VariantId::NONE;
                 let w = self.walk(n, &[]);
                 let e = element(self, w.i);
                 let b = self.step(&callee, vec![e], step_t);
@@ -626,8 +628,8 @@ impl FnLower<'_> {
                 let init = *vals.get(call.init?)?;
                 let init_ty = *tys.get(call.init?)?;
                 let acc_t = self.type_of(&init_ty);
-                let ok = self.variant_of(ret, "Ok", 0);
-                let ok_tag = self.int(Type::I32, ok as usize);
+                let ok = VariantId::OK;
+                let ok_tag = self.int(Type::I32, ok.index());
                 let w = self.walk(n, &[init]);
                 let acc = *w.vars.first()?;
                 let e = element(self, w.i);
@@ -664,7 +666,7 @@ impl FnLower<'_> {
                     ty: t,
                     agg: r,
                     variant: ok,
-                    index: 0,
+                    field: FieldId::FIRST,
                 });
                 self.again(&w, vec![next]);
                 self.end(&w);
@@ -896,10 +898,10 @@ impl FnLower<'_> {
             self.end(&w);
             self.set_term(Term::Jump(Target::new(exit, vec![yes])));
         } else {
-            let less = self.variant_of(ret, "Less", 0);
-            let same = self.variant_of(ret, "Equal", 1);
-            let greater = self.variant_of(ret, "Greater", 2);
-            let same_tag = self.int(Type::I32, same as usize);
+            let less = VariantId::LESS;
+            let same = VariantId::EQUAL;
+            let greater = VariantId::GREATER;
+            let same_tag = self.int(Type::I32, same.index());
             let n = self.shorter(la, lb);
             let w = self.walk(n, &[]);
             let args = pair(self, w.i);
@@ -1087,8 +1089,8 @@ impl FnLower<'_> {
         let elem_t = self.type_of(elem);
         let list = self.list_of(*elem);
         let order_t = self.type_of(order_ty);
-        let greater = self.variant_of(order_ty, "Greater", 2);
-        let greater = self.int(Type::I32, greater as usize);
+        let greater = VariantId::GREATER;
+        let greater = self.int(Type::I32, greater.index());
         let order = Order {
             callee,
             elem: *elem,
@@ -1519,8 +1521,8 @@ impl FnLower<'_> {
         let (&xs, &i) = (vals.first()?, vals.get(1)?);
         let elem = elem_of(tys.first()?)?;
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
-        let some = self.variant_of(ret, "Some", 0);
-        let none = self.variant_of(ret, "None", 1);
+        let some = VariantId::SOME;
+        let none = VariantId::NONE;
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let outside = self.emit(Type::I1, |dest| Inst::Binary {
             dest,

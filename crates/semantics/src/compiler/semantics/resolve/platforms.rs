@@ -388,7 +388,7 @@ impl<'a> Checker<'a> {
     /// `js` file can implement.
     fn check_host_fields(&mut self, custom: &CustomPlatform, platform: ModuleId, host: TyConId) {
         let label = custom.label.value.clone();
-        let fields = self.tables.tycon(host).fields().to_vec();
+        let fields = self.tables.tycon(host).fields().as_slice().to_vec();
         for field in fields {
             if field.ty.is_error() {
                 continue;

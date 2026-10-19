@@ -73,7 +73,9 @@ use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Ta
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
-use crate::compiler::semantics::types::{self, FuncIdx, Prim, ResultShape, Scalar, Ty};
+use crate::compiler::semantics::types::{
+    self, FieldId, FuncIdx, Prim, ResultShape, Scalar, Ty, VariantId,
+};
 use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
@@ -410,7 +412,7 @@ impl TypeList {
         self.enums[e.row as usize]
     }
 
-    /// Where a `Result`'s arms sit, and what each carries.
+    /// What a `Result`'s arms carry.
     pub fn result_shape(&self, r: ResTy) -> ResultShape {
         types::result_shape(self.enum_head(r.0).args)
     }
@@ -670,7 +672,7 @@ pub enum Inst {
     MakeEnum {
         dest: ValueId,
         ty: EnumTy,
-        variant: u32,
+        variant: VariantId,
         fields: Vec<ValueId>,
     },
     /// A `[T]` of exactly these elements: one allocation (VALUE-MODEL.md §4).
@@ -702,8 +704,8 @@ pub enum Inst {
         dest: ValueId,
         agg: ValueId,
         ty: EnumTy,
-        variant: u32,
-        index: u32,
+        variant: VariantId,
+        field: FieldId,
     },
     /// The discriminant, as an `i32`. The width it is *stored* at is the
     /// layout table's answer (VALUE-MODEL.md §6) and widening on load is the
@@ -2184,7 +2186,7 @@ impl Program {
             } => {
                 dest(out, d);
                 out.push_str("make #");
-                num(out, u64::from(*variant));
+                num(out, variant.index() as u64);
                 out.push(' ');
                 wrapped(out, fields);
             }
@@ -2219,14 +2221,14 @@ impl Program {
                 dest: d,
                 agg,
                 variant,
-                index,
+                field,
                 ..
             } => {
                 dest(out, d);
                 out.push_str("payload.#");
-                num(out, u64::from(*variant));
+                num(out, variant.index() as u64);
                 out.push('.');
-                num(out, u64::from(*index));
+                num(out, field.index() as u64);
                 out.push(' ');
                 value(out, *agg);
             }

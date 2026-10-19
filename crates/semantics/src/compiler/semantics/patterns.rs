@@ -520,7 +520,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Read from the tables at each step rather than copied out first: the
     /// pattern under each field is checked with the checker borrowed
     /// mutably, and the copy was a name and a field list per pattern.
-    fn field_decls(&self, of: Fields) -> &[FieldInfo] {
+    fn field_decls(&self, of: Fields) -> &FieldList {
         match of {
             Fields::Variant(con, index) => &self.c.tables.tycon(con).variant(index).fields,
             Fields::Struct(con) => self.c.tables.tycon(con).fields(),
@@ -528,10 +528,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     /// The declared field type at `index`, with the type's arguments put in.
-    fn field_ty(&self, of: Fields, index: usize, args: &[Ty]) -> Ty {
-        self.field_decls(of)
-            .get(index)
-            .map_or(Ty::ERROR, |d| substitute(&d.ty, args, None))
+    fn field_ty(&self, of: Fields, index: FieldId, args: &[Ty]) -> Ty {
+        substitute(&self.field_decls(of).get(index).ty, args, None)
     }
 
     /// What a diagnostic about the payload calls the type or the variant.
@@ -587,9 +585,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // A payload with more patterns than the declaration has
                 // fields is already reported above; the extra ones have no
                 // field to check against, so `take` stops at the shorter.
-                ps.iter()
-                    .take(declared)
-                    .enumerate()
+                self.field_decls(of)
+                    .ids()
+                    .zip(ps)
                     .map(|(i, p)| {
                         let ty = self.field_ty(of, i, args);
                         typed::FieldPat {
@@ -608,7 +606,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 for f in fields {
                     let fname = t.text(f.name);
                     let fspan = t.span_of(f.name);
-                    let Some(i) = self.field_decls(of).iter().position(|d| d.name == fname) else {
+                    let Some(i) = self.field_decls(of).position(|d| d.name == fname) else {
                         let what = self.fields_owner(of);
                         self.templated("unknown-field", fspan)
                             .bind("type", what)
@@ -642,8 +640,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !rest {
                     let missing: Vec<String> = self
                         .field_decls(of)
-                        .iter()
-                        .enumerate()
+                        .entries()
                         .filter(|(i, _)| !seen.contains(i))
                         .map(|(_, d)| d.name.clone())
                         .collect();
@@ -664,7 +661,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // for. A wildcard is exactly what `field: _` produces, so
                 // nothing else reads them: no test, no binding, and no line of
                 // JavaScript.
-                for i in 0..declared {
+                for i in self.field_decls(of).ids() {
                     if seen.contains(&i) {
                         continue;
                     }

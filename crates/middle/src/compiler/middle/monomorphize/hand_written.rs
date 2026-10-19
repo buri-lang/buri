@@ -1134,10 +1134,10 @@ impl Monomorphizer<'_> {
         payload: &[Part],
         binds: &[LocalId],
     ) -> Pattern {
-        let fields = payload
-            .iter()
-            .zip(binds)
-            .enumerate()
+        let declared = &self.tables().tycon(con).variant(variant).fields;
+        let fields = declared
+            .ids()
+            .zip(payload.iter().zip(binds))
             .map(|(index, (p, l))| FieldPat {
                 index,
                 pattern: bind(*l, p.ty),

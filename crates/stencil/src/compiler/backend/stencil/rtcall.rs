@@ -54,7 +54,7 @@ use super::runtime::{self, Entry, Extra, OptRepr, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir::{self, Answer};
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr, Words};
-use crate::compiler::semantics::types::{self as types, Ty, TyKind};
+use crate::compiler::semantics::types::{self as types, FieldId, Ty, TyKind, VariantId};
 use crate::diagnostics::{invariant_with, Invariant};
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
@@ -320,7 +320,9 @@ impl Jit<'_> {
         let res = match answer {
             Answer::Res(r) | Answer::ResMsg(r) => {
                 let l = self.layout_id_shared(prog, r.id());
-                let types::ResultShape { ok, err, t, e } = prog.types.result_shape(r);
+                let types::ResultShape { t, e } = prog.types.result_shape(r);
+                let variants = self.enum_layout(prog, r.enum_ty());
+                let variants = &variants.variants;
                 let err_l = self.layouts_of(e);
                 // From `T` rather than from the enum: a variant records
                 // *where* a field is and never how big it is, and
@@ -328,7 +330,9 @@ impl Jit<'_> {
                 let ok_bytes = self.layouts_of(t).size;
                 // A payload with bytes is a field of the `Ok` variant.
                 if ok_bytes > 0 {
-                    ints.push(Src::Addr(dslot + super::lists::payload_at(&l, ok)));
+                    ints.push(Src::Addr(
+                        dslot + variants.get(VariantId::OK).get(FieldId::FIRST).bytes(),
+                    ));
                 }
                 // `E`'s own shape, as one question: an enum error is named by
                 // its tag's width, and anything else has none and goes through
@@ -344,7 +348,7 @@ impl Jit<'_> {
                     } => Some(tag.size()),
                     _ => None,
                 };
-                let err_at = super::lists::payload_at(&l, err);
+                let err_at = variants.get(VariantId::ERR).get(FieldId::FIRST).bytes();
                 if tag_w.is_none() {
                     // Every row's non-enum error is a `Str` or has fields.
                     crate::diagnostics::invariant(
@@ -382,7 +386,7 @@ impl Jit<'_> {
                     }
                 }
                 let zero_bytes = message_at.unwrap_or(err_l.size);
-                Some((l, ok, err, err_at, tag_w, zero_bytes))
+                Some((l, err_at, tag_w, zero_bytes))
             }
             _ => None,
         };
@@ -444,8 +448,8 @@ impl Jit<'_> {
         if let Some(w) = narrow {
             self.store_w(dslot, into, w);
         }
-        if let Some((l, ok, err, err_at, tag_w, zero_bytes)) = res {
-            self.store_result_tag(st, dslot, &l, ok, err, err_at, tag_w, zero_bytes);
+        if let Some((l, err_at, tag_w, zero_bytes)) = res {
+            self.store_result_tag(st, dslot, &l, err_at, tag_w, zero_bytes);
         }
     }
 
@@ -469,18 +473,11 @@ impl Jit<'_> {
     /// front of it and what the runtime wrote is what the program reads. For
     /// every other `E` it is the error's whole size, which is what this did
     /// before the shape existed.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one `Result` destination's shape, read off two layouts by the \
-                  caller that already had both in hand"
-    )]
     fn store_result_tag(
         &mut self,
         st: &mut Fn2,
         dslot: u32,
         l: &Layout,
-        ok: usize,
-        err: usize,
         err_at: u32,
         tag_w: Option<u32>,
         zero_bytes: u32,
@@ -500,7 +497,7 @@ impl Jit<'_> {
                 Jump::F.to(V::Blk(bad)),
             ],
         );
-        self.store_disc(l, dslot, ok);
+        self.store_disc(l, dslot, VariantId::OK);
         self.emit("jump", &[Jump::T.to(V::Blk(done))]);
         let here = self.region.code_addr();
         st.place(bad, here);
@@ -519,7 +516,7 @@ impl Jit<'_> {
             // gives a niche only to `Option<T>`.
             self.store_w(dslot + err_at, disc, w);
         }
-        self.store_disc(l, dslot, err);
+        self.store_disc(l, dslot, VariantId::ERR);
         let here = self.region.code_addr();
         st.place(done, here);
     }

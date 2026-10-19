@@ -917,7 +917,7 @@ impl<'a> Checker<'a> {
                     name: t.name(d.name).to_string(),
                     module,
                     generics,
-                    def: TyDef::Struct { fields: Vec::new(), form: struct_form(d) },
+                    def: TyDef::Struct { fields: Dense::new(), form: struct_form(d) },
                     exported: d.exported,
                     span: d.name.span,
                 });
@@ -1522,7 +1522,7 @@ impl<'a> Checker<'a> {
                             .iter()
                             .map(|v| {
                                 let (fields, record) = match &v.payload {
-                                    tree::VariantPayload::None => (Vec::new(), false),
+                                    tree::VariantPayload::None => (Dense::new(), false),
                                     tree::VariantPayload::Tuple(tys) => (
                                         t.type_list(*tys)
                                             .iter()

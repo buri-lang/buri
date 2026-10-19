@@ -27,7 +27,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
 use crate::compiler::semantics::types::{
-    self, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+    self, FieldList, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Span;
 use std::collections::HashMap;
@@ -426,7 +426,7 @@ impl Shadows<'_> {
                                 pairs,
                                 &format!("{}.", v.name),
                             )?;
-                            let pattern = variant(con, ty, vi, &ys, &types, span);
+                            let pattern = variant(con, ty, vi, &v.fields, &ys, &types, span);
                             let arms = match other {
                                 Some(other) => vec![
                                     arm(pattern, body.counted(&other, 0, same)),
@@ -474,7 +474,7 @@ impl Shadows<'_> {
                         }
                     };
                     arms.push(arm(
-                        variant(con, ty, vi, &xs, &types, span),
+                        variant(con, ty, vi, &v.fields, &xs, &types, span),
                         body.counted(&which, vi.index(), inner),
                     ));
                 }
@@ -753,14 +753,14 @@ fn variant(
     con: TyConId,
     ty: Ty,
     variant: VariantId,
+    declared: &FieldList,
     binds: &[LocalId],
     types: &[Ty],
     span: Span,
 ) -> Pattern {
-    let fields = binds
-        .iter()
-        .zip(types)
-        .enumerate()
+    let fields = declared
+        .ids()
+        .zip(binds.iter().zip(types))
         .map(|(index, (l, t))| FieldPat {
             index,
             pattern: Pattern {

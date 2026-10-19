@@ -18,7 +18,7 @@
 //! literals.
 
 use crate::compiler::middle::layout::{EnumLayout, EnumRepr};
-use crate::compiler::semantics::types::VariantId;
+use crate::compiler::semantics::types::{FieldId, VariantId};
 
 /// The table, the shapes it is written in, and the symbols called without a
 /// key.
@@ -74,12 +74,11 @@ impl OptRepr {
     /// [`VariantId::SOME`] and [`VariantId::NONE`].
     pub fn of(l: &EnumLayout) -> OptRepr {
         let (repr, variants) = (&l.repr, &l.variants);
-        let (some, none) = (VariantId::SOME.index(), VariantId::NONE.index());
-        let payload = variants
-            .get(some)
-            .and_then(|v| v.first())
-            .map_or(0, |a| a.bytes());
-        let (some, none) = (some as u64, none as u64);
+        let payload = variants.get(VariantId::SOME).get(FieldId::FIRST).bytes();
+        let (some, none) = (
+            VariantId::SOME.index() as u64,
+            VariantId::NONE.index() as u64,
+        );
         match repr {
             EnumRepr::Bare { tag } => OptRepr {
                 tag: (0, tag.size()),

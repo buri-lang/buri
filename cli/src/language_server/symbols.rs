@@ -1456,7 +1456,13 @@ fn pattern_symbols(
     match &pattern.kind {
         typed::PatKind::Struct { con, fields } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
-            labelled_fields(tables, *con, None, fields.iter().map(|f| f.index), out);
+            labelled_fields(
+                tables,
+                *con,
+                None,
+                fields.iter().map(|f| f.index.index()),
+                out,
+            );
         }
         typed::PatKind::Variant {
             con,
@@ -1477,7 +1483,7 @@ fn pattern_symbols(
                 tables,
                 *con,
                 Some(*variant),
-                fields.iter().map(|f| f.index),
+                fields.iter().map(|f| f.index.index()),
                 out,
             );
         }
@@ -1832,8 +1838,8 @@ fn field_info(
 ) -> Option<&types::FieldInfo> {
     let con = tables.tycon(con);
     match variant {
-        Some(v) => con.variant(v).fields.get(index),
-        None => con.fields().get(index),
+        Some(v) => con.variant(v).fields.as_slice().get(index),
+        None => con.fields().as_slice().get(index),
     }
 }
 
