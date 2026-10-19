@@ -95,6 +95,7 @@ unsafe extern "C" {
     fn mmap(addr: *mut Void, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut Void;
     fn mprotect(addr: *mut Void, len: usize, prot: i32) -> i32;
     fn munmap(addr: *mut Void, len: usize) -> i32;
+    fn getpagesize() -> i32;
     fn write(fd: i32, buf: *const Void, len: usize) -> isize;
     fn nanosleep(asked: *const Timespec, left: *mut Timespec) -> i32;
     fn raise(sig: i32) -> i32;
@@ -110,10 +111,57 @@ const MAP_PRIVATE_ANON: i32 = 0x1002;
 const MAP_PRIVATE_ANON: i32 = 0x22;
 const MAP_FAILED: usize = usize::MAX;
 
-/// The handler's own stack, and a page-sized guard under it: 16 KiB is a page
-/// on every host.
+/// What the handler needs of its own stack, and of the guard under it.
 const ALT_BYTES: usize = 64 * 1024;
 const ALT_GUARD: usize = 16 * 1024;
+
+/// The smallest stack the kernel delivers a signal on, which grows with a
+/// machine's vector state.
+#[cfg(target_os = "macos")]
+fn kernel_minimum() -> usize {
+    32 * 1024 // MINSIGSTKSZ
+}
+
+#[cfg(not(target_os = "macos"))]
+fn kernel_minimum() -> usize {
+    unsafe extern "C" {
+        fn getauxval(kind: u64) -> u64;
+    }
+    const AT_MINSIGSTKSZ: u64 = 51;
+    // SAFETY: reads the auxiliary vector; an absent entry is 0.
+    unsafe { getauxval(AT_MINSIGSTKSZ) as usize }
+}
+
+/// An alternate stack's mapping: a guard at its low end, then the stack.
+#[derive(Debug, PartialEq)]
+struct AltLayout {
+    guard: usize,
+    usable: usize,
+}
+
+impl AltLayout {
+    /// The layout on a host with `page`-byte pages, whose kernel needs at
+    /// least `minimum` bytes to deliver a signal. Both parts are whole pages,
+    /// so the guard never eats into the stack above it.
+    fn new(page: usize, minimum: usize) -> AltLayout {
+        let pages = |bytes: usize| bytes.div_ceil(page).wrapping_mul(page);
+        AltLayout {
+            guard: pages(ALT_GUARD),
+            usable: pages(ALT_BYTES.max(minimum)),
+        }
+    }
+
+    /// The layout on this host.
+    fn here() -> AltLayout {
+        // SAFETY: no preconditions.
+        let page = unsafe { getpagesize() } as usize;
+        AltLayout::new(page, kernel_minimum())
+    }
+
+    fn len(&self) -> usize {
+        self.guard.wrapping_add(self.usable)
+    }
+}
 
 /// Install the handler, once, and give the calling thread its alternate stack.
 /// `buri_rt_argv_init` calls this on the process's own thread.
@@ -151,7 +199,7 @@ impl Drop for AltStack {
         // SAFETY: the thread is ending, so it is not on this stack.
         unsafe {
             sigaltstack(&raw const off, std::ptr::null_mut());
-            munmap(mapped.cast(), ALT_GUARD.wrapping_add(ALT_BYTES));
+            munmap(mapped.cast(), AltLayout::here().len());
         }
     }
 }
@@ -167,7 +215,8 @@ pub(crate) fn arm_thread() {
         if !alt.0.get().is_null() {
             return;
         }
-        let len = ALT_GUARD.wrapping_add(ALT_BYTES);
+        let layout = AltLayout::here();
+        let len = layout.len();
         // SAFETY: a fresh anonymous mapping, then a guard at its low end and the
         // rest handed to the kernel as this thread's alternate stack.
         unsafe {
@@ -183,10 +232,10 @@ pub(crate) fn arm_thread() {
             if p.is_null() || p as usize == MAP_FAILED {
                 return;
             }
-            mprotect(p.cast(), ALT_GUARD, PROT_NONE);
+            mprotect(p.cast(), layout.guard, PROT_NONE);
             let on = AltStackSpec {
-                sp: p.wrapping_add(ALT_GUARD),
-                size: ALT_BYTES,
+                sp: p.wrapping_add(layout.guard),
+                size: layout.usable,
                 flags: 0,
             };
             sigaltstack(&raw const on, std::ptr::null_mut());
@@ -517,4 +566,55 @@ pub(crate) fn nap() {
     };
     // SAFETY: a valid request and no remainder wanted.
     unsafe { nanosleep(&raw const asked, std::ptr::null_mut()) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AltLayout;
+
+    const K: usize = 1024;
+
+    #[test]
+    fn small_pages_keep_the_sizes_they_had() {
+        for page in [4 * K, 16 * K] {
+            let want = AltLayout {
+                guard: 16 * K,
+                usable: 64 * K,
+            };
+            assert_eq!(AltLayout::new(page, 32 * K), want);
+        }
+    }
+
+    #[test]
+    fn a_large_page_widens_the_guard_not_the_stack_over_it() {
+        let want = AltLayout {
+            guard: 64 * K,
+            usable: 64 * K,
+        };
+        assert_eq!(AltLayout::new(64 * K, 5 * K), want);
+    }
+
+    #[test]
+    fn every_part_is_whole_pages_and_the_stack_never_shrinks() {
+        for page in [4 * K, 16 * K, 64 * K] {
+            for minimum in [0, 2 * K, 5 * K, 32 * K, 64 * K + 1, 200 * K] {
+                let layout = AltLayout::new(page, minimum);
+                assert_eq!(layout.guard % page, 0);
+                assert!(layout.guard >= 16 * K);
+                assert_eq!(layout.usable % page, 0);
+                assert!(layout.usable >= 64 * K);
+                assert!(layout.usable >= minimum);
+            }
+        }
+    }
+
+    #[test]
+    fn this_host_has_whole_pages() {
+        let layout = AltLayout::here();
+        // SAFETY: no preconditions.
+        let page = unsafe { super::getpagesize() } as usize;
+        assert_eq!(layout.guard % page, 0);
+        assert_eq!(layout.usable % page, 0);
+        assert!(layout.usable >= super::kernel_minimum());
+    }
 }
