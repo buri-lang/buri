@@ -2084,7 +2084,10 @@ impl Monomorphizer<'_> {
                 args: self.rewrite_all(args, targs),
             },
             ExprKind::Tuple(xs) => ExprKind::Tuple(self.rewrite_all(xs, targs)),
-            ExprKind::Array(xs) => ExprKind::Array(self.rewrite_all(xs, targs)),
+            ExprKind::Array { elem, elems } => ExprKind::Array {
+                elem: self.sub(&elem, targs),
+                elems: self.rewrite_all(elems, targs),
+            },
             ExprKind::Field { base, index } => {
                 let base = self.rewrite(*base, targs);
                 if let Some(word) = self.flags_word(&base.ty, e.span) {
@@ -2238,7 +2241,8 @@ impl Monomorphizer<'_> {
                     })
                     .collect(),
             },
-            PatKind::Array { elems, rest } => PatKind::Array {
+            PatKind::Array { elem, elems, rest } => PatKind::Array {
+                elem: self.sub(&elem, targs),
                 elems: elems
                     .into_iter()
                     .map(|x| self.rewrite_pattern(x, targs))

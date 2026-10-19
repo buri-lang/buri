@@ -841,12 +841,13 @@ impl<'a> Extractor<'a> {
                 } else {
                     vec![self.extracted(&atoms, span)]
                 };
-                *e = typed::Expr::new(ExprKind::Array(items), e.ty, span);
+                let elem = Ty::con(self.style_con, []);
+                *e = typed::Expr::new(ExprKind::Array { elem, elems: items }, e.ty, span);
             }
             self.keep(e, s, atoms);
             return;
         }
-        if let ExprKind::Array(items) = &mut e.kind {
+        if let ExprKind::Array { elems: items, .. } = &mut e.kind {
             for item in items {
                 self.style(item, s, cond);
             }
@@ -1065,7 +1066,7 @@ impl<'a> Extractor<'a> {
                 (
                     true,
                     [value, typed::Expr {
-                        kind: ExprKind::Array(known),
+                        kind: ExprKind::Array { elems: known, .. },
                         ..
                     }, typed::Expr {
                         kind: ExprKind::Bool(false),
@@ -1120,7 +1121,14 @@ impl<'a> Extractor<'a> {
                 )
             })
             .collect();
-        typed::Expr::new(ExprKind::Array(items), Ty::array(pair), span)
+        typed::Expr::new(
+            ExprKind::Array {
+                elem: pair,
+                elems: items,
+            },
+            Ty::array(pair),
+            span,
+        )
     }
 
     fn boolean(&self, value: bool, span: Span) -> typed::Expr {
@@ -1291,7 +1299,14 @@ impl<'a> Extractor<'a> {
                 )
             })
             .collect();
-        let list = typed::Expr::new(ExprKind::Array(items), Ty::array(pair), span);
+        let list = typed::Expr::new(
+            ExprKind::Array {
+                elem: pair,
+                elems: items,
+            },
+            Ty::array(pair),
+            span,
+        );
         // The payload is a `Classes`, whose one field is private to
         // `ui/style`. Writing it here is what a program cannot do.
         let classes = typed::Expr::new(
@@ -1364,7 +1379,7 @@ enum Composed {
 fn carries(e: &typed::Expr) -> bool {
     matches!(
         e.kind,
-        ExprKind::Array(_)
+        ExprKind::Array { .. }
             | ExprKind::Tuple(_)
             | ExprKind::EnumLit { .. }
             | ExprKind::StructLit { .. }
@@ -2060,7 +2075,7 @@ impl<'a> Flow<'a> {
             ExprKind::CallTrait { args, .. }
             | ExprKind::Intrinsic { args, .. }
             | ExprKind::Tuple(args)
-            | ExprKind::Array(args) => all(Pos::Same, args.len()),
+            | ExprKind::Array { elems: args, .. } => all(Pos::Same, args.len()),
             ExprKind::StructLit {
                 con, fields: args, ..
             }
@@ -3626,7 +3641,7 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
                 _ => None,
             };
             if let Some(typed::Expr {
-                kind: ExprKind::Array(items),
+                kind: ExprKind::Array { elems: items, .. },
                 ..
             }) = list
             {

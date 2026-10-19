@@ -760,8 +760,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.resolve_expr(base);
                 updates.iter_mut().for_each(|(_, e)| self.resolve_expr(e));
             }
-            typed::ExprKind::Tuple(args) | typed::ExprKind::Array(args) => {
+            typed::ExprKind::Tuple(args) => {
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
+            }
+            typed::ExprKind::Array { elem, elems } => {
+                self.subst.resolve_in_place(elem);
+                elems.iter_mut().for_each(|a| self.resolve_expr(a));
             }
             typed::ExprKind::Prim { args, .. } => {
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
@@ -831,10 +835,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.subst.resolve_in_place(&mut p.ty);
         match &mut p.kind {
             typed::PatKind::Bind { sub: Some(s), .. } => self.resolve_pattern(s),
-            typed::PatKind::Tuple(ps)
-            | typed::PatKind::Or(ps)
-            | typed::PatKind::Array { elems: ps, .. } => {
+            typed::PatKind::Tuple(ps) | typed::PatKind::Or(ps) => {
                 ps.iter_mut().for_each(|x| self.resolve_pattern(x));
+            }
+            typed::PatKind::Array { elem, elems, .. } => {
+                self.subst.resolve_in_place(elem);
+                elems.iter_mut().for_each(|x| self.resolve_pattern(x));
             }
             typed::PatKind::Struct { fields, .. } | typed::PatKind::Variant { fields, .. } => {
                 fields

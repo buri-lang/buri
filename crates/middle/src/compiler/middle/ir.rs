@@ -668,6 +668,7 @@ pub enum Inst {
     /// A `[T]` of exactly these elements: one allocation (VALUE-MODEL.md §4).
     MakeArray {
         dest: ValueId,
+        ty: ListTy,
         elems: Vec<ValueId>,
     },
     /// `{ code, env }` (VALUE-MODEL.md §7). `env` is `None` for a lambda that
@@ -723,6 +724,7 @@ pub enum Inst {
     ArraySlice {
         dest: ValueId,
         array: ValueId,
+        ty: ListTy,
         from: ValueId,
     },
     /// A fresh `[T]` of `len` elements that nothing has stored yet. A loop
@@ -1328,7 +1330,9 @@ impl Code {
                 Inst::MakeEnum { ty, .. }
                 | Inst::GetPayload { ty, .. }
                 | Inst::GetTag { ty, .. } => *ty = remap.enum_ty(*ty),
-                Inst::ArrayGet { ty, .. }
+                Inst::MakeArray { ty, .. }
+                | Inst::ArrayGet { ty, .. }
+                | Inst::ArraySlice { ty, .. }
                 | Inst::ArrayAlloc { ty, .. }
                 | Inst::ArraySet { ty, .. }
                 | Inst::ArrayPrefix { ty, .. } => *ty = remap.list(*ty),
@@ -2168,7 +2172,7 @@ impl Program {
                 out.push(' ');
                 wrapped(out, fields);
             }
-            Inst::MakeArray { dest: d, elems } => {
+            Inst::MakeArray { dest: d, elems, .. } => {
                 dest(out, d);
                 out.push_str("array ");
                 wrapped(out, elems);
@@ -2234,6 +2238,7 @@ impl Program {
                 dest: d,
                 array,
                 from,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("slice ");

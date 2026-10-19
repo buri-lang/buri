@@ -16,32 +16,16 @@ use super::abi::{Jump, Lit, Word};
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::Ty;
 use crate::diagnostics::Invariant;
 
 impl Jit<'_> {
-    /// A `[T]`'s stride, element width and whether the element is counted.
-    pub(crate) fn array_elem(&mut self, prog: &ir::Program, t: ir::Type) -> (u32, u32, bool) {
-        self.elem_shape(element_of(prog, t))
-    }
-
-    /// [`Jit::array_elem`] of a list the instruction names.
+    /// A `[T]`'s stride, element width and whether the element is counted,
+    /// for a list the instruction names.
     pub(crate) fn list_elem(&mut self, prog: &ir::Program, l: ir::ListTy) -> (u32, u32, bool) {
-        self.elem_shape(prog.types.elem(l))
-    }
-
-    fn elem_shape(&mut self, elem: Ty) -> (u32, u32, bool) {
+        let elem = prog.types.elem(l);
         let l = self.layouts_of(elem);
         let counted = self.rc_counted(&elem);
         (l.stride.max(1), l.size.max(1), counted)
-    }
-}
-
-/// The element type of an array instruction's `[T]` operand.
-pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
-    match t {
-        ir::Type::Agg(ir::Agg::List(l)) => prog.types.elem(l),
-        _ => crate::diagnostics::ice("an array instruction's operand is a `[T]` (middle/ir.rs)"),
     }
 }
 

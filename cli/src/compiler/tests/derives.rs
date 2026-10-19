@@ -147,7 +147,7 @@ fn sexp(p: &Program, e: &Expr) -> String {
         }
         ExprKind::StructLit { fields, .. } => format!("{{{}}}", list(fields)),
         ExprKind::Tuple(xs) => format!("({})", list(xs)),
-        ExprKind::Array(xs) => format!("[{}]", list(xs)),
+        ExprKind::Array { elems: xs, .. } => format!("[{}]", list(xs)),
         ExprKind::Template { parts } => {
             let ps: Vec<String> = parts
                 .iter()

@@ -832,7 +832,7 @@ struct FnLower<'a> {
     /// `..rest` slices a pattern has matched but not yet allocated: the
     /// allocation waits until every test in the pattern has passed, so a test
     /// that fails after one leaves no block behind ([`FnLower::matched`]).
-    slices: Vec<(LocalId, ValueId, usize)>,
+    slices: Vec<(LocalId, ValueId, ListTy, usize)>,
     /// Where `middle::rc` wants an `incref` or a `decref`.
     sites: Sites,
     /// What each node evaluated to, for the sites that name a temporary
@@ -1483,9 +1483,14 @@ impl FnLower<'_> {
                     fields,
                 })
             }
-            ExprKind::Array(xs) => {
-                let elems = self.exprs(xs);
-                self.emit(ty, |dest| Inst::MakeArray { dest, elems })
+            ExprKind::Array { elem, elems } => {
+                let elems = self.exprs(elems);
+                let list = self.list_of(*elem);
+                self.emit(ty, |dest| Inst::MakeArray {
+                    dest,
+                    ty: list,
+                    elems,
+                })
             }
 
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
@@ -2025,14 +2030,20 @@ impl FnLower<'_> {
 
     /// `rendered` into one `[Str]`, joined by the runtime.
     fn join_parts(&mut self, ty: Type, rendered: &[(ValueId, bool)], literal: &[bool]) -> ValueId {
-        let list_t = self.type_of(&Ty::array(self.tables.prim(Prim::Str)));
+        let str_t = self.tables.prim(Prim::Str);
+        let list_t = self.type_of(&Ty::array(str_t));
+        let list_ty = self.list_of(str_t);
         for ((v, mine), literal) in rendered.iter().zip(literal) {
             if !mine && !literal {
                 self.push(Inst::IncRef { value: *v });
             }
         }
         let elems = rendered.iter().map(|(v, _)| *v).collect();
-        let list = self.emit(list_t, |dest| Inst::MakeArray { dest, elems });
+        let list = self.emit(list_t, |dest| Inst::MakeArray {
+            dest,
+            ty: list_ty,
+            elems,
+        });
         // `list.join` takes a context, and the runtime has no use for one
         // (`runtime_table`'s `Arg::Dropped`), so nothing stands in for it.
         let ctx = self.constant(Type::Unit, Const::Unit);
@@ -2316,10 +2327,15 @@ impl FnLower<'_> {
     }
 
     fn slice_pending(&mut self) {
-        for (l, array, at) in std::mem::take(&mut self.slices) {
+        for (l, array, list, at) in std::mem::take(&mut self.slices) {
             let ty = self.local_type(l);
             let from = self.int(Type::I64, at);
-            let tail = self.emit(ty, |dest| Inst::ArraySlice { dest, array, from });
+            let tail = self.emit(ty, |dest| Inst::ArraySlice {
+                dest,
+                array,
+                ty: list,
+                from,
+            });
             self.bind(l, tail);
         }
     }
@@ -2424,7 +2440,7 @@ impl FnLower<'_> {
                     self.pattern(v, &f.pattern, fail);
                 }
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elem, elems, rest } => {
                 let len = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: val });
                 let want = self.int(Type::I64, elems.len());
                 let op = if rest.is_open() { BinOp::Ge } else { BinOp::Eq };
@@ -2455,7 +2471,8 @@ impl FnLower<'_> {
                     self.pattern(v, p, fail);
                 }
                 if let ArrayRest::Bound(l) = rest {
-                    self.slices.push((*l, val, elems.len()));
+                    let list = self.list_of(*elem);
+                    self.slices.push((*l, val, list, elems.len()));
                 }
             }
             // Alternatives bind the same names at the same types, and each

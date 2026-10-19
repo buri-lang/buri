@@ -1599,7 +1599,7 @@ fn collect_consuming<'e>(
         ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
+        | ExprKind::Array { elems: args, .. }
         | ExprKind::Closure { env: args, .. }
         | ExprKind::CallValue { args, .. } => {
             args.iter().for_each(|a| consume(a, out, counted));
@@ -1916,7 +1916,7 @@ fn effects_once(
                 a = true;
             }
         }
-        ExprKind::Array(_) | ExprKind::Template { .. } => {
+        ExprKind::Array { .. } | ExprKind::Template { .. } => {
             p = worse(p, ir::Purity::Allocating);
         }
         _ => {}
@@ -4868,7 +4868,7 @@ fn fresh_leaf(e: &Expr) -> bool {
             | ExprKind::StructUpdate { .. }
             | ExprKind::EnumLit { .. }
             | ExprKind::Tuple(_)
-            | ExprKind::Array(_)
+            | ExprKind::Array { .. }
             | ExprKind::Template { .. }
             | ExprKind::Lambda { .. }
             | ExprKind::Closure { .. }
@@ -4887,7 +4887,7 @@ pub fn child_modes(e: &Expr, n: usize, own: &Own) -> Vec<Mode> {
         ExprKind::StructLit { .. }
         | ExprKind::EnumLit { .. }
         | ExprKind::Tuple(_)
-        | ExprKind::Array(_)
+        | ExprKind::Array { .. }
         | ExprKind::CtxLit { .. }
         | ExprKind::StructUpdate { .. }
         // A closure environment is a construction over what it captured, which
