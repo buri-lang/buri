@@ -1695,9 +1695,8 @@ arrives as a parameter because a lambda may not capture a context
 
 How much actually runs at once is the platform's business, not the signature's.
 JavaScript starts the tasks together and awaits them together. A native
-`--release` build gives each task a thread of its own, so two that wait or
-compute overlap. `buri run` runs them in index order on one thread. All three
-answer the same list.
+build, under `buri run` or `--release`, gives each task a thread of its own, so
+two that wait or compute overlap. Both answer the same list.
 
 `scope` and `spawn` are the other shape: work that runs beside the code that
 started it. A scope returns when its body **and every task spawned into it**
@@ -1732,11 +1731,11 @@ on, because there is no way to unwind a task from outside it.
 Both carry `Allocator` beside `Tasks`: `spawn` copies the task out of whatever arena
 it was written in, and a scope runs its tasks through `parallel`.
 
-In a native `--release` build a spawned task starts at once, on a thread of its
-own, beside the body. Everywhere else — `buri run`, JavaScript, and a test
-that makes a `TestTasks` double — the body runs first and the scope then runs
-what was spawned in rounds. That is why a task that never ends starves the ones behind it under
-`buri run`: the round they wait for never finishes. And a task spawned *after*
+In a native build, under `buri run` and `--release`, a spawned task starts at
+once, on a thread of its own, beside the body. On JavaScript, and in a test
+that makes a `TestTasks` double, the body runs first and the scope then runs
+what was spawned in rounds. That is why a task that never ends starves the ones
+behind it there: the round they wait for never finishes. And a task spawned *after*
 the body returned runs on the task that spawned it, which is what lets a page's
 handler spawn once `main` has gone.
 

@@ -29,10 +29,9 @@
 //! | Backend | Today |
 //! |---|---|
 //! | JavaScript | genuinely concurrent — it starts the tasks together and awaits them together, so two that wait overlap. Two that *compute* do not: the engine has one thread |
-//! | native, `--release` | genuinely **parallel** — each task runs on a thread of its own, on a processor of its own, so two that wait overlap and two that compute overlap |
-//! | native, `buri run` | sequential, in index order, on the calling thread |
+//! | native, `buri run` and `--release` | genuinely **parallel** — each task runs on a thread of its own, on a processor of its own, so two that wait overlap and two that compute overlap |
 //!
-//! All three answer the same list, and that is the whole of what this module
+//! Both answer the same list, and that is the whole of what this module
 //! promises.
 //!
 //! ```buri
@@ -114,22 +113,21 @@
 //!
 //! ### When a spawned task actually runs
 //!
-//! On a native `--release` build a spawned task starts at once, on a thread of
-//! its own, while the body keeps running.
+//! On a native build, under `buri run` and `--release` alike, a spawned task
+//! starts at once, on a thread of its own, while the body keeps running. Spawn
+//! a socket loop and a timer, and both run.
 //!
-//! Everywhere else the body runs first: under `buri run`, on JavaScript, and in
-//! a test block that makes a `TestTasks` double, so the double still decides
-//! the order. A test block that schedules through a `Tasks` of its own runs a
-//! scope as its program would.
-//! Then the scope runs what was spawned in rounds through `parallel`, one round
+//! Two places run the body first: JavaScript, and a test block that makes a
+//! `TestTasks` double, so the double still decides the order. A test block that
+//! schedules through a `Tasks` of its own runs a scope as its program would.
+//! There the scope runs what was spawned in rounds through `parallel`, one round
 //! for whatever the last one spawned, until nothing is waiting. On JavaScript
-//! the tasks of a round overlap. Under `buri run` they run one after another,
-//! in the order they were spawned.
+//! the tasks of a round overlap. Under a `TestTasks` double they run one after
+//! another, in the order the double chooses.
 //!
-//! Under `buri run` a spawned task that never ends starves the ones behind it,
-//! because they wait for a round that never finishes. Spawn a socket loop and a
-//! timer, and both run on JavaScript and under `--release`, while under `buri
-//! run` the timer never starts (`design/native/DECISIONS.md`).
+//! On either, a spawned task that never ends starves the ones behind it,
+//! because they wait for a round that never finishes
+//! (`design/native/DECISIONS.md`).
 //!
 //! A task spawned **after** its scope's body has returned — which on a page is
 //! what a handler does — runs on the task that spawned it, because the scope's
