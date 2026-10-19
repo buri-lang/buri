@@ -2598,7 +2598,7 @@ mod tests {
             checked > 140,
             "only {checked} rows were read against a declaration"
         );
-        assert_eq!(contexts, 57);
+        assert_eq!(contexts, 56);
     }
 
     /// The two places a context sits, by example, so that the indices are
