@@ -2338,7 +2338,6 @@ fn compiled(source: &str) -> buri::compiler::middle::monomorphize::Program {
         .checked
         .started
         .get("main")
-        .copied()
         .expect("the source exports `main`");
     let paths: Vec<String> = analysis
         .loaded

@@ -300,16 +300,21 @@ fn monomorphized_entry(
     diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
 
     let checked = &analysis.checked;
+    let started = checked.started.get(&name);
     let roots = if handed {
         let point = output.entry_point();
-        let entry = checked.entries.get(&name).copied();
+        // A handed entry that takes a host was minted a `Started` too.
+        let entry = match started {
+            Some(entry) => Some(monomorphize::Handed::Hosted(entry)),
+            None => checked
+                .entries
+                .get(&name)
+                .copied()
+                .map(monomorphize::Handed::Bare),
+        };
         entry.map(|entry| monomorphize::Roots::Handed { entry, name: point })
     } else {
-        checked
-            .started
-            .get(&name)
-            .copied()
-            .map(monomorphize::Roots::Main)
+        started.map(monomorphize::Roots::Main)
     };
     let Some(roots) = roots else {
         diagnostics.push(missing_main(session, target, output));

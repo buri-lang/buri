@@ -39,7 +39,6 @@ pub(crate) fn compile(src: &str) -> Program {
         .checked
         .started
         .get("main")
-        .copied()
         .expect("the snippet exports `main`");
     let mut diags = Diagnostics::new();
     let paths: Vec<String> = analysis

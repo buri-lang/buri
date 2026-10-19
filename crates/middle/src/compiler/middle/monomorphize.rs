@@ -25,7 +25,7 @@
 
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::resolve::{Checked, Started, TestCase};
+use crate::compiler::semantics::resolve::{Checked, Host, Started, TestCase};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -931,16 +931,26 @@ fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
 #[derive(Clone, Copy)]
 pub enum Roots<'a> {
     /// An entry the program starts by itself, handing it its host.
-    Main(Started),
+    Main(&'a Started),
     /// An entry a `js` file calls, under `name`, with its own arguments.
     Handed {
-        entry: FnId,
+        entry: Handed<'a>,
         name: &'a str,
     },
     Tests,
     /// The tests declared in these modules only. `buri test` monomorphizes each
     /// binary a batch of suites is divided into from the batch's one type check.
     TestsIn(&'a [String]),
+}
+
+/// An entry a `js` file calls.
+#[derive(Clone, Copy)]
+pub enum Handed<'a> {
+    /// One that takes its platform's host first: a worker's `fetch(host,
+    /// request)`.
+    Hosted(&'a Started),
+    /// One that takes no host, which the file calls as it is.
+    Bare(FnId),
 }
 
 impl<'a> Monomorphizer<'a> {
@@ -965,11 +975,11 @@ impl<'a> Monomorphizer<'a> {
     ///
     /// The wrapper is a [`Root`]: it takes nothing, because a [`Started`] entry
     /// takes its host alone.
-    fn started(&mut self, entry: Started) -> Root {
+    fn started(&mut self, entry: &Started) -> Root {
         let (inner, symbol, debug_name) = self.wrapped(entry.func());
         let info = self.tables().fn_info(entry.func());
         let (span, ret) = (info.span, info.ret);
-        let host = self.host_value(entry.host(), span);
+        let host = Self::host_value(entry.host(), span);
         let call = typed::Expr::new(
             ExprKind::CallFunc {
                 func: inner,
@@ -996,10 +1006,12 @@ impl<'a> Monomorphizer<'a> {
     /// `fetch(host, request)` is entered as `fetch(request)`.
     ///
     /// An entry with no host parameter is the function itself.
-    fn handed(&mut self, f: FnId) -> FuncIdx {
-        let Some(host) = self.host_parameter(f) else {
-            return self.request(Key::Fn(f, Vec::new()));
+    fn handed(&mut self, entry: Handed) -> FuncIdx {
+        let entry = match entry {
+            Handed::Hosted(entry) => entry,
+            Handed::Bare(f) => return self.request(Key::Fn(f, Vec::new())),
         };
+        let (f, host) = (entry.func(), entry.host());
         let (inner, symbol, debug_name) = self.wrapped(f);
         let info = self.tables().fn_info(f).clone();
         let span = info.span;
@@ -1017,7 +1029,7 @@ impl<'a> Monomorphizer<'a> {
             .entries()
             .map(|(i, l)| typed::Expr::new(ExprKind::Local(i), l.ty, span))
             .collect();
-        let mut args = vec![self.host_value(host, span)];
+        let mut args = vec![Self::host_value(host, span)];
         args.extend(forwarded);
         let call = typed::Expr::new(ExprKind::CallFunc { func: inner, args }, info.ret, span);
         self.funcs.push(Func {
@@ -1045,69 +1057,33 @@ impl<'a> Monomorphizer<'a> {
         (self.enqueue(key, entry), symbol, debug_name)
     }
 
-    /// A value of host type `host`: each field a production struct, built
-    /// with no fields.
-    fn host_value(&self, host: TyConId, span: Span) -> typed::Expr {
-        let fields: Vec<typed::Expr> = self
-            .tables()
-            .tycon(host)
+    /// A value of `host`: each field its production struct, built with no
+    /// fields.
+    fn host_value(host: &Host, span: Span) -> typed::Expr {
+        let fields: Vec<typed::Expr> = host
             .fields()
             .iter()
-            .map(|field| match field.ty.kind() {
-                TyKind::Con(con, _) => typed::Expr::new(
+            .map(|&con| {
+                typed::Expr::new(
                     ExprKind::StructLit {
-                        con: *con,
+                        con,
                         targs: Vec::new(),
                         fields: Vec::new(),
                     },
-                    field.ty,
+                    Ty::con(con, []),
                     span,
-                ),
-                // A host's every field is a production struct, checked where
-                // the host was accepted, so there is nothing else to build.
-                _ => typed::Expr::new(ExprKind::Error, field.ty, span),
+                )
             })
             .collect();
         typed::Expr::new(
             ExprKind::StructLit {
-                con: host,
+                con: host.con(),
                 targs: Vec::new(),
                 fields,
             },
-            Ty::con(host, []),
+            Ty::con(host.con(), []),
             span,
         )
-    }
-
-    /// The host type an entry takes, when it takes one: its first parameter is
-    /// a struct a platform's `platform.buri` declares, bundled or the
-    /// repository's own, and every field of that struct is a struct with no
-    /// fields.
-    fn host_parameter(&self, f: FnId) -> Option<TyConId> {
-        let info = self.tables().fn_info(f);
-        let param = info.params.first()?;
-        let TyKind::Con(con, args) = param.ty.kind() else {
-            return None;
-        };
-        if !args.is_empty() {
-            return None;
-        }
-        let tycon = self.tables().tycon(*con);
-        let module = self.module_paths.get(tycon.module.index())?;
-        let repository = module.starts_with("//") && module.ends_with("/platform.buri");
-        if !crate::compiler::standard_library::is_bundled_platform(module) && !repository {
-            return None;
-        }
-        let production = tycon.fields().iter().all(|field| match field.ty.kind() {
-            TyKind::Con(c, a) => {
-                let field = self.tables().tycon(*c);
-                a.is_empty()
-                    && matches!(field.def, TyDef::Struct { .. })
-                    && field.fields().is_empty()
-            }
-            _ => false,
-        });
-        production.then_some(*con)
     }
 
     fn request(&mut self, key: Key) -> FuncIdx {

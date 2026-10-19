@@ -1479,7 +1479,7 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
         return;
     }
 
-    let Some(entry) = checked.started.get("main").copied() else {
+    let Some(entry) = checked.started.get("main") else {
         return;
     };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -2098,7 +2098,6 @@ fn measure(
     let entry = checked
         .started
         .get("main")
-        .copied()
         .expect("the corpus exports `main`");
     let flags = Flags::default();
 
@@ -2224,7 +2223,7 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let checked = &check(&loaded, &mut diagnostics);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let Some(entry) = checked.started.get("main").copied() else {
+    let Some(entry) = checked.started.get("main") else {
         return;
     };
     let flags = Flags::default();
@@ -2355,7 +2354,7 @@ fn validate(program: &Program) -> Result<(), Vec<String>> {
             format!("{file}: {}", d.message)
         })
         .collect();
-    if checked.started.get("main").copied().is_none() {
+    if checked.started.get("main").is_none() {
         problems.push("the corpus exports no `main`".to_string());
     }
     if !problems.is_empty() {
@@ -2379,7 +2378,7 @@ fn reach(program: &Program) -> (usize, usize) {
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let checked = check(&loaded, &mut diagnostics);
-    let Some(entry) = checked.started.get("main").copied() else {
+    let Some(entry) = checked.started.get("main") else {
         return (0, 0);
     };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -2457,7 +2456,7 @@ fn floor_costs() -> Floor {
         platform: Platform::Js,
         arch: None,
     };
-    let lower = match checked.started.get("main").copied() {
+    let lower = match checked.started.get("main") {
         Some(entry) => {
             let (t, ..) = bench(&cfg, || {
                 let mut d = Diagnostics::new();

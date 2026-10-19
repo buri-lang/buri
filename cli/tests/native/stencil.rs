@@ -141,7 +141,6 @@ fn lowered(
         .checked
         .started
         .get("main")
-        .copied()
         .expect("the snippet exports `main`");
     let paths: Vec<String> = analysis
         .loaded
