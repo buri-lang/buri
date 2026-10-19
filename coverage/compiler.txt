@@ -17,14 +17,14 @@ crates/diagnostics                 195/198   98.48%         1591/1669   95.33%
 crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                         996/1022   97.46%         5364/5599   95.80%
-crates/llvm                        534/534  100.00%         7375/7544   97.76%
-crates/middle                    1865/1898   98.26%       15199/15620   97.30%
+crates/llvm                        532/532  100.00%         7371/7539   97.77%
+crates/middle                    1862/1894   98.31%       15209/15629   97.31%
 crates/project                   1346/1360   98.97%         6325/6493   97.41%
 crates/semantics                 2154/2154  100.00%       13406/13703   97.83%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
-crates/stencil                   1069/1078   99.17%         8165/8622   94.70%
+crates/stencil                   1071/1080   99.17%         8162/8619   94.70%
 crates/syntax                    1209/1210   99.92%         6609/6763   97.72%
-total                          14896/15049   98.98%      97418/100413   97.02%
+total                          14893/15045   98.99%      97421/100414   97.02%
 
 cli/src                           branches                      lines         
 build                            1677/1685   99.53%       10747/11030   97.43%
@@ -59,7 +59,7 @@ uncovered          branches           file
        11             49/60   81.67%  cli/src/compiler/driver.rs
        11           237/248   95.56%  crates/project/src/languages/json/schema.rs
         9           169/178   94.94%  crates/middle/src/compiler/middle/monomorphize.rs
-        8           580/588   98.64%  crates/middle/src/compiler/middle/rc.rs
+        8           578/586   98.63%  crates/middle/src/compiler/middle/rc.rs
         6           190/196   96.94%  cli/src/compiler/modules.rs
         6             52/58   89.66%  cli/src/language_server/code_actions.rs
         5           159/164   96.95%  cli/src/build/link.rs
@@ -69,10 +69,10 @@ uncovered          branches           file
         3           157/160   98.12%  cli/src/language_server/mod.rs
         3             27/30   90.00%  crates/diagnostics/src/profile.rs
         3           301/304   99.01%  crates/js/src/compiler/backend/js/generate.rs
-        3             31/34   91.18%  crates/middle/src/compiler/backend/intrinsic_keys.rs
         3             45/48   93.75%  crates/middle/src/compiler/middle/coverage/derived.rs
         3           445/448   99.33%  crates/stencil/src/compiler/backend/stencil/jit.rs
         2             35/37   94.59%  cli/src/build/programs.rs
+        2             30/32   93.75%  crates/middle/src/compiler/backend/intrinsic_keys.rs
         2             38/40   95.00%  crates/stencil/src/compiler/backend/stencil/elf.rs
         2             46/48   95.83%  crates/stencil/src/compiler/backend/stencil/mod.rs
         2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/object.rs
