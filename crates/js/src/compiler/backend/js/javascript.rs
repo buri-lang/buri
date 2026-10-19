@@ -1623,9 +1623,8 @@ fn always_exits(body: &[Stmt]) -> bool {
     match body.last() {
         Some(Stmt::Return(_) | Stmt::Throw(_)) => true,
         Some(Stmt::Block(b)) => always_exits(b),
-        Some(Stmt::If { then, else_, .. }) => {
-            !else_.is_empty() && always_exits(then) && always_exits(else_)
-        }
+        // A missing `else` is an empty one, which leaves on no path.
+        Some(Stmt::If { then, else_, .. }) => always_exits(then) && always_exits(else_),
         _ => false,
     }
 }
@@ -1636,9 +1635,9 @@ impl Fold {
     /// Appends one folded statement to a block. Answers `true` when nothing
     /// after it can run, so the caller stops.
     fn push(out: &mut Vec<Stmt>, s: Stmt) -> bool {
-        // Flatten the empty and singleton blocks folding produces.
+        // Flatten the empty and singleton blocks folding produces. An empty one
+        // adds nothing, and what was last stays last.
         match s {
-            Stmt::Block(inner) if inner.is_empty() => return false,
             Stmt::Block(inner) if !inner.iter().any(is_declaration) => out.extend(inner),
             other => out.push(other),
         }
@@ -1657,8 +1656,8 @@ impl Rewrite for Fold {
                 // A branch whose condition is a known constant is not emitted.
                 match &cond {
                     Expr::Bool(true) => return Stmt::Block(then),
-                    Expr::Bool(false) if !else_.is_empty() => return Stmt::Block(else_),
-                    Expr::Bool(false) => return Stmt::Block(Vec::new()),
+                    // With no `else`, an empty block, which `push` drops.
+                    Expr::Bool(false) => return Stmt::Block(else_),
                     _ => {}
                 }
                 // Two branches that differ only in a value are one expression.
