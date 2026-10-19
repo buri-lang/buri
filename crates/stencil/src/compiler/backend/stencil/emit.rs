@@ -108,9 +108,6 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
     })
 }
 
-/// The runtime hash of an integer or a `Bool` in the frame slot at `v`, and
-/// the words it is handed. Up to 32 bits, `$mix` reads the low word, which a
-/// slot holds zero-extended at its own width; wider, every word goes across.
 // `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables and carry one
 // entry per value of the `ir::Code` being emitted, exactly as `Fn2::slot` —
 // which is why `Fn2::at` reads its own with the same fallback. An index past

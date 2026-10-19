@@ -1295,8 +1295,7 @@ impl Heard {
         let last = block
             .lines()
             .map(str::trim)
-            .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            .last()
+            .rfind(|line| !line.is_empty() && !line.starts_with('#'))
             .and_then(|line| buri::json::parse(line).ok());
         self.last_request = last
             .filter(|message| message.get("method").is_some())
