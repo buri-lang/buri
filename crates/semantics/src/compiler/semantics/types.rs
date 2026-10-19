@@ -55,6 +55,7 @@ id_type!(minted ContextDeclId);
 id_type!(minted CtxTypeId);
 id_type!(minted TyVarId);
 id_type!(minted VariantId);
+id_type!(minted FieldId);
 id_type!(minted MethodId);
 id_type!(minted LocalId);
 
@@ -136,6 +137,11 @@ impl VariantId {
     pub const fn declared(i: usize) -> VariantId {
         VariantId(i as u32)
     }
+}
+
+impl FieldId {
+    /// A declaration's first field: the payload of `Some`, `Ok` and `Err`.
+    pub const FIRST: FieldId = FieldId(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +513,7 @@ pub struct FieldInfo {
 #[derive(Clone, Debug)]
 pub struct VariantInfo {
     pub name: String,
-    pub fields: Vec<FieldInfo>,
+    pub fields: FieldList,
     /// A record-like variant is matched and built by field name; a tuple-like
     /// one by position.
     pub record: bool,
@@ -521,13 +527,8 @@ pub struct VariantInfo {
 #[derive(Clone, Debug)]
 pub enum TyDef {
     Prim(Prim),
-    Struct {
-        fields: Vec<FieldInfo>,
-        form: StructForm,
-    },
-    Enum {
-        variants: Variants,
-    },
+    Struct { fields: FieldList, form: StructForm },
+    Enum { variants: Variants },
 }
 
 /// Which of the two struct declarations a struct has.
@@ -555,8 +556,14 @@ impl StructForm {
 
 pub type Variants = Dense<VariantId, VariantInfo>;
 
+/// A struct's or a variant's fields, in declaration order.
+pub type FieldList = Dense<FieldId, FieldInfo>;
+
 /// What a type that is not an enum has.
 static NO_VARIANTS: Variants = Dense::new();
+
+/// What a type that is not a struct has.
+static NO_FIELDS: FieldList = Dense::new();
 
 #[derive(Clone, Debug)]
 pub struct TyCon {
@@ -586,10 +593,10 @@ impl TyCon {
         self.variants().get(id)
     }
 
-    pub fn fields(&self) -> &[FieldInfo] {
+    pub fn fields(&self) -> &FieldList {
         match &self.def {
             TyDef::Struct { fields, .. } => fields,
-            _ => &[],
+            _ => &NO_FIELDS,
         }
     }
 
@@ -598,7 +605,7 @@ impl TyCon {
     }
 
     pub fn field_index(&self, name: &str) -> Option<usize> {
-        self.fields().iter().position(|f| f.name == name)
+        self.fields().as_slice().iter().position(|f| f.name == name)
     }
 }
 
@@ -1490,7 +1497,7 @@ impl Tables {
             TyDef::Struct {
                 fields,
                 form: StructForm::Tuple(_),
-            } => fields.first().filter(|_| fields.len() == 1)?,
+            } => fields.as_slice().first().filter(|_| fields.len() == 1)?,
             _ => return None,
         };
         self.traits_of_con(con).iter().find(|t| {
@@ -2019,12 +2026,10 @@ pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<St
         .collect()
 }
 
-/// A `Result<T, E>`: where `Ok` and `Err` sit in its variant list, and what
-/// each carries.
+/// A `Result<T, E>`: what `Ok` and `Err` carry. Where they sit is
+/// [`VariantId::OK`] and [`VariantId::ERR`].
 #[derive(Clone, Copy, Debug)]
 pub struct ResultShape {
-    pub ok: usize,
-    pub err: usize,
     /// `T`, which `Ok` carries.
     pub t: Ty,
     /// `E`, which `Err` carries.
@@ -2033,14 +2038,10 @@ pub struct ResultShape {
 
 /// The [`ResultShape`] of `core/result`'s `Result` applied to `args`.
 ///
-/// `Ok` and `Err` are [`VariantId::OK`] and [`VariantId::ERR`], as `Some` and
-/// `None` are constants, and `T` and `E` are the arguments, substituted the
-/// way `middle::layout` substitutes the variants' fields, so the two can't
-/// disagree.
+/// `T` and `E` are the arguments, substituted the way `middle::layout`
+/// substitutes the variants' fields, so the two can't disagree.
 pub fn result_shape(args: &[Ty]) -> ResultShape {
     ResultShape {
-        ok: VariantId::OK.index(),
-        err: VariantId::ERR.index(),
         t: substitute(&Ty::param(0), args, None),
         e: substitute(&Ty::param(1), args, None),
     }

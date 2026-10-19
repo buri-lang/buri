@@ -69,7 +69,9 @@
 //! `MEMORY.md` §7.1.
 
 use crate::compiler::semantics::layered::Dense;
-use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef, TyKind};
+use crate::compiler::semantics::types::{
+    self, FieldId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map, Set};
 use std::fmt::Write as _;
@@ -384,6 +386,14 @@ pub struct EnumHead {
     pub args: &'static [Ty],
 }
 
+impl EnumHead {
+    /// The type of one field of one variant, with the arguments put in.
+    pub fn payload(&self, tables: &Tables, variant: VariantId, field: FieldId) -> Ty {
+        let declared = tables.tycon(self.con).variant(variant).fields.get(field);
+        types::substitute(&declared.ty, self.args, None)
+    }
+}
+
 /// An enum's layout: its [`Layout`]'s numbers, and the discriminant and
 /// variant offsets only an enum has.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -392,8 +402,9 @@ pub struct EnumLayout {
     pub align: u32,
     pub stride: u32,
     pub repr: EnumRepr,
-    /// Each variant's field offsets, absolute, as in [`Repr::Enum`].
-    pub variants: Vec<Vec<At>>,
+    /// Each variant's field offsets, absolute, as in [`Repr::Enum`], under the
+    /// ids the enum's declaration gives its variants and their fields.
+    pub variants: Dense<VariantId, Dense<FieldId, At>>,
 }
 
 /// What shape a [`Layout`]'s numbers describe.
@@ -451,17 +462,6 @@ impl Layout {
             .get(index)
             .or_ice("a field index came from the type this layout is of")
             .bytes()
-    }
-
-    /// The offsets of one variant's fields, absolute.
-    pub fn variant(&self, index: usize) -> &[At] {
-        match &self.repr {
-            Repr::Enum { variants, .. } => variants
-                .get(index)
-                .map(Vec::as_slice)
-                .or_ice("a variant index came from the enum this layout is of"),
-            _ => &[],
-        }
     }
 
     const fn zero() -> Layout {
@@ -842,7 +842,7 @@ impl<'a> Layouts<'a> {
                         fields: Vec::new(),
                         repr: Repr::Enum {
                             repr: e.repr.clone(),
-                            variants: e.variants.clone(),
+                            variants: e.variants.iter().map(|v| v.as_slice().to_vec()).collect(),
                         },
                     }
                 }
@@ -915,7 +915,10 @@ impl<'a> Layouts<'a> {
                         repr: EnumRepr::Niche { null_at, payload },
                         // `.Some`'s payload is the whole value; `.None` has
                         // none.
-                        variants: vec![vec![At::ZERO], Vec::new()],
+                        variants: tables
+                            .tycon(con)
+                            .variants()
+                            .map(|v| v.fields.map(|_| At::ZERO)),
                     };
                 }
             }
@@ -923,14 +926,13 @@ impl<'a> Layouts<'a> {
 
         // An enum with no variants is refused before layout, and would lay out
         // as a bare tag no value has anyway.
-        let variants = tables.tycon(con).variants().as_slice().to_vec();
+        let variants = tables.tycon(con).variants();
 
         // Each variant is laid out independently, from the start of the
-        // payload area (§6).
+        // payload area (§6). `record` answers one offset per field, in order.
         let mut payload_size = 0u32;
         let mut payload_align = 1u32;
-        let mut relative: Vec<Vec<At>> = Vec::with_capacity(variants.len());
-        for variant in &variants {
+        let relative: Dense<VariantId, Dense<FieldId, At>> = variants.map(|variant| {
             let tys: Vec<Ty> = variant
                 .fields
                 .iter()
@@ -939,8 +941,8 @@ impl<'a> Layouts<'a> {
             let (size, align, offsets) = self.record(Some(ty), &tys);
             payload_size = payload_size.max(size);
             payload_align = payload_align.max(align);
-            relative.push(offsets);
-        }
+            offsets.into_iter().collect()
+        });
 
         // A payload area of no bytes is the first niche: the value is the tag,
         // and equality on it is `a == b`. VALUE-MODEL.md §6 says it in fields —
@@ -965,10 +967,7 @@ impl<'a> Layouts<'a> {
         let payload = start.bytes();
         let align = tag.align().max(payload_align);
         let size = align_up(payload.saturating_add(payload_size), align);
-        let absolute = relative
-            .into_iter()
-            .map(|offsets| offsets.into_iter().map(|o| o.shift(start)).collect())
-            .collect();
+        let absolute = relative.map(|offsets| offsets.map(|o| o.shift(start)));
         EnumLayout {
             size,
             align,
@@ -1491,7 +1490,7 @@ mod tests {
     }
 
     use crate::compiler::semantics::types::{
-        CtxType, CtxTypeId, FieldInfo, GenericInfo, ModuleId, TraitId, TraitInfo, TyCon,
+        CtxType, CtxTypeId, FieldInfo, FieldList, GenericInfo, ModuleId, TraitId, TraitInfo, TyCon,
         VariantInfo,
     };
     use crate::diagnostics::Span;
@@ -1535,12 +1534,20 @@ mod tests {
         }
     }
 
-    fn fields(named: &[(&str, Ty)]) -> Vec<FieldInfo> {
+    fn fields(named: &[(&str, Ty)]) -> FieldList {
         named.iter().map(|(n, t)| field(n, t)).collect()
     }
 
     /// A tuple-like variant: fields named by position, the way the checker
     /// names them.
+    /// The offsets of one variant's fields, absolute.
+    fn offsets_of(layout: &Layout, index: usize) -> &[At] {
+        match &layout.repr {
+            Repr::Enum { variants, .. } => &variants[index],
+            other => panic!("expected an enum, got {other:?}"),
+        }
+    }
+
     fn variant(name: &str, tys: &[Ty]) -> VariantInfo {
         VariantInfo {
             name: name.into(),
@@ -1970,7 +1977,7 @@ mod tests {
             }
             other => panic!("expected a tag, got {other:?}"),
         }
-        assert_eq!(layout.variant(2), &[8, 16]);
+        assert_eq!(offsets_of(&layout, 2), &[8, 16]);
     }
 
     /// The payload area is the union at the widest alignment, and a narrow
@@ -1992,9 +1999,9 @@ mod tests {
         let layout = l.of(con(e));
         // `I128` aligns the payload to 16, and `Str` is the widest at 24.
         assert_eq!((layout.size, layout.align), (48, 16));
-        assert_eq!(layout.variant(0), &[16]);
-        assert_eq!(layout.variant(1), &[16]);
-        assert_eq!(layout.variant(2), &[16]);
+        assert_eq!(offsets_of(&layout, 0), &[16]);
+        assert_eq!(offsets_of(&layout, 1), &[16]);
+        assert_eq!(offsets_of(&layout, 2), &[16]);
     }
 
     #[test]
@@ -2168,8 +2175,8 @@ mod tests {
             }
         ));
         // The field is still a field, at an offset that costs nothing.
-        assert_eq!(layout.variant(0), &[0]);
-        assert!(layout.variant(1).is_empty());
+        assert_eq!(offsets_of(&layout, 0), &[0]);
+        assert!(offsets_of(&layout, 1).is_empty());
     }
 
     /// Row 5 of VALUE-MODEL.md §12: `Some(None)` and `None` collide on
@@ -2341,7 +2348,7 @@ mod tests {
         let layout = l.of(ty);
         // tag @0, then a pointer, the payload, and a pointer.
         assert_eq!((layout.size, layout.align), (32, 8));
-        assert_eq!(layout.variant(1), &[8, 16, 24]);
+        assert_eq!(offsets_of(&layout, 1), &[8, 16, 24]);
         assert!(l.boxes(&ty, &ty));
         assert!(!l.boxes(&ty, &p(Prim::I64)));
     }
@@ -2466,7 +2473,7 @@ mod tests {
         // And `B` is a tag plus the pointer that cuts the other edge.
         let lb = l.of(con(b));
         assert_eq!((lb.size, lb.align), (16, 8));
-        assert_eq!(lb.variant(1), &[8]);
+        assert_eq!(offsets_of(&lb, 1), &[8]);
     }
 
     /// A recursive type reached through a generic wrapper: the wrapper is not
@@ -2493,7 +2500,7 @@ mod tests {
         let layout = l.of(con(node));
         // tag, then a pointer to the pair.
         assert_eq!((layout.size, layout.align), (16, 8));
-        assert_eq!(layout.variant(1), &[8]);
+        assert_eq!(offsets_of(&layout, 1), &[8]);
         // The pair itself holds two `Node`s inline, each of them 16 bytes.
         assert_eq!(l.of(at(pair, &[con(node)])).size, 32);
     }

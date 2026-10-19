@@ -164,7 +164,7 @@ use crate::compiler::middle::layout::{EnumRepr, Layouts};
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::middle::{ir, lower};
 use crate::compiler::semantics::layered::Dense;
-use crate::compiler::semantics::types::{FuncIdx, Tables};
+use crate::compiler::semantics::types::{FieldId, FuncIdx, Tables, VariantId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 use std::sync::OnceLock;
 
@@ -1267,10 +1267,7 @@ fn main_result(program: &ir::Program, tables: &Tables, e: ir::EnumTy) -> asm::Ma
     let l = layouts.of_enum(&program.types.enum_head(e));
     let (repr, variants) = (&l.repr, &l.variants);
     // `.Err(msg)`'s payload is a `Str` at the variant's first field.
-    let payload = variants
-        .get(1)
-        .and_then(|v| v.first())
-        .map_or(0, |a| a.bytes());
+    let payload = variants.get(VariantId::ERR).get(FieldId::FIRST).bytes();
     let message = (
         payload,
         payload.saturating_add(8),

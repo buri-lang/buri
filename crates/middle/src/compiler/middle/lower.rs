@@ -93,7 +93,7 @@ use crate::compiler::semantics::typed::{
     Pattern, PrimOp, Stmt, TemplatePart, UnaryOp,
 };
 use crate::compiler::semantics::types::{
-    FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind,
+    FieldId, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
@@ -1477,12 +1477,11 @@ impl FnLower<'_> {
                 con, variant, args, ..
             } => {
                 let fields = self.exprs(args);
-                let variant = variant.index() as u32;
                 let enum_ty = self.enum_of(&e.ty, *con);
                 self.emit(ty, |dest| Inst::MakeEnum {
                     dest,
                     ty: enum_ty,
-                    variant,
+                    variant: *variant,
                     fields,
                 })
             }
@@ -1728,7 +1727,7 @@ impl FnLower<'_> {
         let some = self.emit(ty, |dest| Inst::MakeEnum {
             dest,
             ty: option,
-            variant: 0,
+            variant: VariantId::SOME,
             fields: vec![v],
         });
         self.set_term(Term::Jump(Target::new(join, vec![some])));
@@ -1737,7 +1736,7 @@ impl FnLower<'_> {
         let none = self.emit(ty, |dest| Inst::MakeEnum {
             dest,
             ty: option,
-            variant: 1,
+            variant: VariantId::NONE,
             fields: Vec::new(),
         });
         self.set_term(Term::Jump(Target::new(join, vec![none])));
@@ -1769,7 +1768,7 @@ impl FnLower<'_> {
         node: Option<rc::NodeId>,
     ) -> ValueId {
         let v = self.expr(base);
-        let held = self.held_variant(&base.ty, kind);
+        let held = Self::held_variant(kind);
         let from_ty = self.enum_of(&base.ty, con_of(kind));
         let ok = self.tag_is(v, from_ty, held);
         let held_b = self.block(&[]);
@@ -1787,7 +1786,7 @@ impl FnLower<'_> {
         let ret_ty = self.type_of(&ret);
         let out = match kind {
             OptionOrResult::Option => {
-                let variant = self.variant_of(&ret, "None", 1);
+                let variant = VariantId::NONE;
                 let ret_enum = self.enum_of(&ret, TyConId::OPTION);
                 self.emit(ret_ty, |dest| Inst::MakeEnum {
                     dest,
@@ -1797,16 +1796,15 @@ impl FnLower<'_> {
                 })
             }
             OptionOrResult::Result => {
-                let from = self.variant_of(&base.ty, "Err", 1);
-                let err_ty = self.payload_type(&base.ty, from, 0);
+                let err_ty = self.payload_type(&base.ty, VariantId::ERR, FieldId::FIRST);
                 let e = self.emit(err_ty, |dest| Inst::GetPayload {
                     dest,
                     agg: v,
                     ty: from_ty,
-                    variant: from,
-                    index: 0,
+                    variant: VariantId::ERR,
+                    field: FieldId::FIRST,
                 });
-                let variant = self.variant_of(&ret, "Err", 1);
+                let variant = VariantId::ERR;
                 let ret_enum = self.enum_of(&ret, TyConId::RESULT);
                 self.emit(ret_ty, |dest| Inst::MakeEnum {
                     dest,
@@ -1827,7 +1825,7 @@ impl FnLower<'_> {
             agg: v,
             ty: from_ty,
             variant: held,
-            index: 0,
+            field: FieldId::FIRST,
         })
     }
 
@@ -2190,7 +2188,7 @@ impl FnLower<'_> {
         if variants < 2 {
             return false;
         }
-        let mut cases: Vec<(u32, &[FieldPat], &Expr)> = Vec::new();
+        let mut cases: Vec<(VariantId, &[FieldPat], &Expr)> = Vec::new();
         let mut default: Option<&Arm> = None;
         // The checker refuses an unreachable arm, so no unguarded variant
         // repeats and a catch-all is last.
@@ -2202,7 +2200,7 @@ impl FnLower<'_> {
                 PatKind::Variant {
                     variant, fields, ..
                 } if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) => {
-                    cases.push((variant.index() as u32, fields, &arm.body));
+                    cases.push((*variant, fields, &arm.body));
                 }
                 PatKind::Wild | PatKind::Bind { sub: None, .. } => default = Some(arm),
                 _ => return false,
@@ -2219,10 +2217,10 @@ impl FnLower<'_> {
             ty: enum_ty,
         });
         let mut targets: Vec<(u64, Target)> = Vec::new();
-        let mut bodies: Vec<(BlockId, u32, &[FieldPat], &Expr)> = Vec::new();
+        let mut bodies: Vec<(BlockId, VariantId, &[FieldPat], &Expr)> = Vec::new();
         for (variant, fields, body) in &cases {
             let b = self.block(&[]);
-            targets.push((u64::from(*variant), Target::to(b)));
+            targets.push((variant.index() as u64, Target::to(b)));
             bodies.push((b, *variant, fields, body));
         }
         let default_block = match default {
@@ -2253,7 +2251,7 @@ impl FnLower<'_> {
                     agg: s,
                     ty: enum_ty,
                     variant,
-                    index: f.index as u32,
+                    field: f.index,
                 });
                 let fail = self.unmatched();
                 self.matched(v, &f.pattern, fail);
@@ -2407,14 +2405,14 @@ impl FnLower<'_> {
                 for f in fields {
                     let ty = self.type_of(&f.pattern.ty);
                     let v = match word {
-                        Some(prim) => self.flag(val, prim, *con, f.index),
+                        Some(prim) => self.flag(val, prim, *con, f.index.index()),
                         None => {
                             let rec = self.record_of(&pat.ty);
                             self.emit(ty, |dest| Inst::GetField {
                                 dest,
                                 agg: val,
                                 ty: rec,
-                                index: f.index as u32,
+                                index: f.index.index() as u32,
                             })
                         }
                     };
@@ -2426,7 +2424,7 @@ impl FnLower<'_> {
                 variant,
                 fields,
             } => {
-                let variant = variant.index() as u32;
+                let variant = *variant;
                 let enum_ty = self.enum_of(&pat.ty, *con);
                 // A single-variant enum has nothing to fall through to, so
                 // there is no tag to test — only projections.
@@ -2447,7 +2445,7 @@ impl FnLower<'_> {
                         agg: val,
                         ty: enum_ty,
                         variant,
-                        index: f.index as u32,
+                        field: f.index,
                     });
                     self.pattern(v, &f.pattern, fail);
                 }
@@ -2562,9 +2560,9 @@ impl FnLower<'_> {
     }
 
     /// `tag(v) == variant`.
-    fn tag_is(&mut self, v: ValueId, ty: EnumTy, variant: u32) -> ValueId {
+    fn tag_is(&mut self, v: ValueId, ty: EnumTy, variant: VariantId) -> ValueId {
         let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: v, ty });
-        let want = self.int(Type::I32, variant as usize);
+        let want = self.int(Type::I32, variant.index());
         self.emit(Type::I1, |dest| Inst::Binary {
             dest,
             op: BinOp::Eq,
@@ -2576,21 +2574,11 @@ impl FnLower<'_> {
 
     // -- reading the type tables --------------------------------------------
 
-    /// The variant of `ty` with this name, or `fallback` where the type is not
-    /// the enum it was expected to be — which is what a poisoned tree looks
-    /// like.
-    fn variant_of(&self, ty: &Ty, name: &str, fallback: u32) -> u32 {
-        ty.head()
-            .and_then(|c| self.tables.tycon(c).variant_index(name))
-            .map(|i| i.index() as u32)
-            .unwrap_or(fallback)
-    }
-
     /// Which variant of an `Option` or `Result` holds a value: `Some`, `Ok`.
-    fn held_variant(&self, ty: &Ty, kind: OptionOrResult) -> u32 {
+    fn held_variant(kind: OptionOrResult) -> VariantId {
         match kind {
-            OptionOrResult::Option => self.variant_of(ty, "Some", 0),
-            OptionOrResult::Result => self.variant_of(ty, "Ok", 0),
+            OptionOrResult::Option => VariantId::SOME,
+            OptionOrResult::Result => VariantId::OK,
         }
     }
 
@@ -2599,7 +2587,14 @@ impl FnLower<'_> {
         (0..arity).any(|i| {
             let field = owner
                 .head()
-                .and_then(|c| self.tables.tycon(c).fields().get(i).map(|f| f.ty))
+                .and_then(|c| {
+                    self.tables
+                        .tycon(c)
+                        .fields()
+                        .as_slice()
+                        .get(i)
+                        .map(|f| f.ty)
+                })
                 .unwrap_or(Ty::UNIT);
             self.cycles.boxes(owner, &self.substituted(owner, field))
         })
@@ -2675,24 +2670,23 @@ impl FnLower<'_> {
     fn field_type(&mut self, ty: &Ty, index: usize) -> Type {
         let field = ty
             .head()
-            .and_then(|c| self.tables.tycon(c).fields().get(index).map(|f| f.ty))
+            .and_then(|c| {
+                self.tables
+                    .tycon(c)
+                    .fields()
+                    .as_slice()
+                    .get(index)
+                    .map(|f| f.ty)
+            })
             .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }
 
-    fn payload_type(&mut self, ty: &Ty, variant: u32, index: usize) -> Type {
-        let field = ty
-            .head()
-            .and_then(|c| {
-                self.tables
-                    .tycon(c)
-                    .variants()
-                    .as_slice()
-                    .get(variant as usize)
-            })
-            .and_then(|v| v.fields.get(index).map(|f| f.ty))
-            .unwrap_or(Ty::UNIT);
+    fn payload_type(&mut self, ty: &Ty, variant: VariantId, field: FieldId) -> Type {
+        let field = ty.head().map_or(Ty::UNIT, |c| {
+            self.tables.tycon(c).variant(variant).fields.get(field).ty
+        });
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }

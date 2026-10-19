@@ -16,6 +16,7 @@ use super::abi::{Jump, Lit, Word};
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
+use crate::compiler::semantics::types::VariantId;
 use crate::diagnostics::Invariant;
 
 impl Jit<'_> {
@@ -144,31 +145,13 @@ impl Jit<'_> {
     }
 }
 
-/// Byte offset of variant `v`'s first payload field.
-///
-/// A niche has no payload *area*: `.Some`'s payload is the whole value
-/// (`middle/layout.rs`'s `build_enum`), so the offset is zero.
-pub(crate) fn payload_at(l: &Layout, v: usize) -> u32 {
-    match &l.repr {
-        Repr::Enum {
-            repr: EnumRepr::Niche { .. },
-            ..
-        } => 0,
-        Repr::Enum { variants, .. } => variants
-            .get(v)
-            .and_then(|f| f.first())
-            .map_or(0, |a| a.bytes()),
-        _ => 0,
-    }
-}
-
 impl Jit<'_> {
     /// Store variant `v`'s discriminant at `at`, leaving any payload alone.
     ///
     /// Every caller builds a `Result`, or an `Option` of a number, and
     /// `middle/layout.rs` gives a niche only to an `Option` of a pointer, so
     /// the layout always has a tag.
-    pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: usize) {
+    pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: VariantId) {
         let tag = match &l.repr {
             Repr::Enum {
                 repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. },
@@ -177,6 +160,6 @@ impl Jit<'_> {
             _ => None,
         }
         .or_ice("a `Result` or an `Option` of a number has a tag");
-        self.imm_w(at, tag.size(), v as u64);
+        self.imm_w(at, tag.size(), v.index() as u64);
     }
 }

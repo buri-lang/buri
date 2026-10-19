@@ -2977,7 +2977,7 @@ impl Census {
                 self.builds(*con);
                 for f in fields {
                     if !matches!(f.pattern.kind, typed::PatKind::Wild) {
-                        self.read.insert((*con, f.index));
+                        self.read.insert((*con, f.index.index()));
                     }
                     self.pattern(&f.pattern);
                 }

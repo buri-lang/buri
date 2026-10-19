@@ -487,8 +487,8 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         } => {
             let info = tables.tycon(*con);
             let field = match variant {
-                Some(v) => info.variant(*v).fields.get(*index)?,
-                None => info.fields().get(*index)?,
+                Some(v) => info.variant(*v).fields.as_slice().get(*index)?,
+                None => info.fields().as_slice().get(*index)?,
             };
             let declared = match variant {
                 Some(v) => {

@@ -552,7 +552,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     },
                     // A tuple struct's fields are `.0`, `.1`, ...
                     TyKind::Con(con, args) => {
-                        let fields = self.c.tables.tycon(*con).fields().to_vec();
+                        let fields = self.c.tables.tycon(*con).fields().as_slice().to_vec();
                         match fields.get(index as usize) {
                             Some(f) => {
                                 self.check_field_visible(*con, f, index_span);
@@ -945,7 +945,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
         head_span: Span,
     ) -> typed::Expr {
-        let fields = self.c.tables.tycon(con).fields().to_vec();
+        let fields = self.c.tables.tycon(con).fields().as_slice().to_vec();
         let targs = self.struct_type_args(con, explicit, expected, head_span, span);
         // A struct with any private field cannot be constructed from scratch
         // outside its module.
@@ -1495,6 +1495,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .tables
                     .tycon(*con)
                     .fields()
+                    .as_slice()
                     .get(i)
                     .map(|f| (i, f.clone()))
             });
@@ -2206,6 +2207,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .tables
                         .tycon(*con)
                         .fields()
+                        .as_slice()
                         .get(i)
                         .map(|f| (i, f.clone()))
                 });
@@ -2618,7 +2620,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::Expr {
         let ty = Ty::con(con, targs.clone());
-        let decl_fields = self.c.tables.tycon(con).fields().to_vec();
+        let decl_fields = self.c.tables.tycon(con).fields().as_slice().to_vec();
 
         let mut values: Vec<Option<typed::Expr>> = vec![None; decl_fields.len()];
         let mut seen: Vec<&str> = Vec::new();

@@ -485,7 +485,7 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
             ps.len() == vs.len() && ps.iter().zip(vs).all(|(q, w)| matches_pattern(q, w, env))
         }
         (PatKind::Struct { fields, .. }, Value::Struct(vs)) => fields.iter().all(|f| {
-            vs.get(f.index)
+            vs.get(f.index.index())
                 .is_some_and(|w| matches_pattern(&f.pattern, w, env))
         }),
         (
@@ -496,7 +496,7 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
         ) => {
             *variant == *got
                 && fields.iter().all(|f| {
-                    args.get(f.index)
+                    args.get(f.index.index())
                         .is_some_and(|w| matches_pattern(&f.pattern, w, env))
                 })
         }

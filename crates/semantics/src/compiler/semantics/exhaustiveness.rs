@@ -259,7 +259,7 @@ fn lower(p: &Pattern) -> Pat {
         PatKind::Struct { con, fields } => {
             let n = fields
                 .iter()
-                .map(|f| f.index.saturating_add(1))
+                .map(|f| f.index.index().saturating_add(1))
                 .max()
                 .unwrap_or(0);
             let _ = con;
@@ -272,7 +272,7 @@ fn lower(p: &Pattern) -> Pat {
         } => {
             let total = fields
                 .iter()
-                .map(|f| f.index.saturating_add(1))
+                .map(|f| f.index.index().saturating_add(1))
                 .max()
                 .unwrap_or(0);
             Pat::Ctor(Ctor::Variant(*con, *variant), by_index(fields, total))
@@ -297,7 +297,7 @@ fn by_index(fields: &[typed::FieldPat], total: usize) -> Vec<Pat> {
         .map(|i| {
             fields
                 .iter()
-                .rfind(|f| f.index == i)
+                .rfind(|f| f.index.index() == i)
                 .map_or(Pat::Wild, |f| lower(&f.pattern))
         })
         .collect()

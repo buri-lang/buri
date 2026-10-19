@@ -1984,7 +1984,7 @@ impl<'a> Gen<'a> {
             PatKind::Struct { con, fields } => {
                 let parts: Vec<(&typed::Pattern, Expr)> = fields
                     .iter()
-                    .map(|f| (&f.pattern, self.field_of(*con, subject, f.index)))
+                    .map(|f| (&f.pattern, self.field_of(*con, subject, f.index.index())))
                     .collect();
                 self.all_tests(parts.into_iter())
             }
@@ -2026,14 +2026,14 @@ impl<'a> Gen<'a> {
                     return self.all_tests(fields.iter().map(|f| {
                         (
                             &f.pattern,
-                            Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                            Expr::index(subject.clone(), Expr::Num((f.index.index() + 1) as f64)),
                         )
                     }));
                 }
                 if let Some(inner) = self.all_tests(fields.iter().map(|f| {
                     (
                         &f.pattern,
-                        Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                        Expr::index(subject.clone(), Expr::Num((f.index.index() + 1) as f64)),
                     )
                 })) {
                     cond = Expr::bin(BinOp::And, cond, inner);
@@ -2126,7 +2126,7 @@ impl<'a> Gen<'a> {
             }
             PatKind::Struct { con, fields } => {
                 for f in fields {
-                    let field = self.field_of(*con, subject, f.index);
+                    let field = self.field_of(*con, subject, f.index.index());
                     self.bind(&f.pattern, &field, out);
                 }
             }
@@ -2141,7 +2141,7 @@ impl<'a> Gen<'a> {
                 for f in fields {
                     self.bind(
                         &f.pattern,
-                        &Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                        &Expr::index(subject.clone(), Expr::Num((f.index.index() + 1) as f64)),
                         out,
                     );
                 }
@@ -2255,7 +2255,7 @@ impl<'a> Gen<'a> {
             }
             PatKind::Struct { con, fields } => {
                 for f in fields {
-                    let field = self.field_of(*con, subject, f.index);
+                    let field = self.field_of(*con, subject, f.index.index());
                     self.bind_assignments(&f.pattern, &field, out);
                 }
             }
@@ -2270,7 +2270,7 @@ impl<'a> Gen<'a> {
                 for f in fields {
                     self.bind_assignments(
                         &f.pattern,
-                        &Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                        &Expr::index(subject.clone(), Expr::Num((f.index.index() + 1) as f64)),
                         out,
                     );
                 }

@@ -9,7 +9,8 @@
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{
-    CtxTypeId, FnId, FuncIdx, LocalId, MethodId, Prim, Scalar, TraitId, Ty, TyConId, VariantId,
+    CtxTypeId, FieldId, FnId, FuncIdx, LocalId, MethodId, Prim, Scalar, TraitId, Ty, TyConId,
+    VariantId,
 };
 use crate::diagnostics::Span;
 
@@ -416,7 +417,7 @@ pub struct Pattern {
 
 #[derive(Clone, Debug)]
 pub struct FieldPat {
-    pub index: usize,
+    pub index: FieldId,
     pub pattern: Pattern,
 }
 

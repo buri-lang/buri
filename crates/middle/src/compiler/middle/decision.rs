@@ -68,7 +68,7 @@
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
-use crate::compiler::semantics::types::{Ty, TyConId, VariantId};
+use crate::compiler::semantics::types::{FieldId, Ty, TyConId, VariantId};
 use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
@@ -166,7 +166,7 @@ enum Fate {
 struct Collapse {
     con: TyConId,
     variant: VariantId,
-    column: usize,
+    column: FieldId,
 }
 
 /// The arms of one match, grouped by head — or left as they are where
@@ -298,7 +298,7 @@ fn column(rows: &[&Arm]) -> Option<Collapse> {
     let PatKind::Variant { con, variant, .. } = first.pattern.kind else {
         return None;
     };
-    let mut tested: Option<usize> = None;
+    let mut tested: Option<FieldId> = None;
     for row in rows {
         for f in fields_of(&row.pattern) {
             if always_matches(&f.pattern) {
@@ -460,7 +460,7 @@ mod tests {
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, NumberLit, PatKind, Pattern,
     };
-    use crate::compiler::semantics::types::{Prim, Ty, VariantId};
+    use crate::compiler::semantics::types::{FieldId, Prim, Ty, VariantId};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -490,7 +490,7 @@ mod tests {
             con: Prim::U16.con(),
             variant: v,
             fields: vec![FieldPat {
-                index: 0,
+                index: FieldId::FIRST,
                 pattern: pat(sub),
             }],
         })
