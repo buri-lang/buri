@@ -119,6 +119,43 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 53
+
+## Done
+
+- llvm `tag_of` no longer looks for a niche's pointer slot (`or_ice("a niche is a pointer slot")`). It reads the pointer at `null_at` from the value's place. A value held in registers is spilled to an entry buffer first, and `opt` removes the spill.
+- `Builder::entry_buffer` builds its alloca with its own builder, so the main builder stays where it was. `Unit::read_once` can sit just after a definition in a block that already ends.
+- `emit.rs` gains `addressed` (the value's own place, or a spill) and `spilled`; `rc` shares `spilled`.
+- `piece` is gone. In registers a bare or tagged enum is never a pointer, so a pointer means the value is held in memory.
+- New release e2e test: `wide.buri` "a match tells two wide variants apart by their tag".
+
+- monomorphize's own context canonical pass is gone (`canonical_contexts`, `canonical_ty`, `moving_contexts`, `moves_no_context`, `rebuild_canonical`, `closed`). The checker's `Tables::intern_ctx_type` already gives one type to contexts with the same settled bindings. A context with an inference variable in a binding keeps its variable in the table up to monomorphization, so the pass never merged it. Every context mapped to itself, which a probe confirmed. This removes 3 uncovered middle branches, which pays for the 2 covered llvm branches lost above. A context like `context { Allocator: Pool { spare: [1] } }` over a generic implementor still gets one type per expression, because its binding holds a variable when it's minted.
+
+Guards: repo 80 to 79; llvm `emit.rs` 10 to 9.
+
+Branches:
+
+| Area | Local base | Local new | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| llvm | 533/534 | 531/532 | 580/580 | 578/578, passes |
+| middle | 1842/1878 | 1833/1866 | 1842/1878 (98.08%) | 1833/1866 (98.23%), passes |
+| total | 14796/15046 (estimated) | 14785/15032 | 14877/15045 (98.883%) | 14866/15031 (98.902%), passes |
+
+The llvm local fraction falls only from its one macOS-only uncovered branch. Every other area is unchanged.
+
+## Left
+
+Typed intrinsic results (the `enum_ty`, `list_ty` and `agg` `ice` arms in llvm `emit.rs`, plus `jit::enum_ty` and `jit::agg_of` in stencil) were not started. Each site needs a typed id where the type is known:
+
+- Lowering: `push_enum` and `push_list` return `EnumTy` and `ListTy`. `GetTag`, `MakeEnum`, `GetPayload`, `MakeStruct`, `GetField` and the array instructions carry those typed ids.
+- Intrinsic results and `Arg::Elems` (`generic_element`): typed intrinsic signatures, or a typed route for each site. middle can't consult backend's `runtime_table`, and classifying in route resolution only moves the check.
+- `main`'s return: a typed field.
+- `int`, `int_ty`, `float` and `ptr`: typed value ids, which is the typed `Function::values` table.
+
+This is the typed-intrinsics work from phases 25 to 27. Plan it as several phases: the lowering ids first, then intrinsics, then values.
+
+Uncovered middle branches still open: `rc.rs` `taken == 0` (about line 2720), the runtime memo in `derives.rs` (about line 3176), and the let-elses in `monomorphize`. A release probe did not reach `taken == 0`.
+
 # Guard plan, phase 52
 
 Commit: `llvm, stencil: a niche names the type it keeps, and a thunk asks its callee for an env`.
