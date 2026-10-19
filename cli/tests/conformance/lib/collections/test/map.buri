@@ -5,6 +5,7 @@
 // buckets), collisions (two keys in one bucket), and replacement (which must
 // not change the size).
 
+from "core/bits" import * as bits;
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
@@ -1272,6 +1273,248 @@ test "a map whose keys all share one hash still works and empties cleanly" {
         );
     assert.isTrue(drained.isEmpty());
     assert.equal(drained.length(), 0);
+}
+
+// --- deep tries ----------------------------------------------------------------
+//
+// A hash is read five bits at a time from the bottom, so keys whose hashes
+// agree on many low chunks share a long path, and keys that differ only in
+// the top bits part as far down as a map goes. Built-in hashes are 32 bits;
+// a key of your own can hash to all 64.
+
+/// A key that hashes to whatever `placedHash` says for its id.
+struct Placed {
+    export id: Int,
+}
+
+impl Equal for Placed {
+    fn equal(self, other: Placed): Bool {
+        self.id == other.id
+    }
+}
+
+impl Hash for Placed {
+    fn hash(self): U64 {
+        placedHash(self.id)
+    }
+}
+
+/// `2^n`.
+fn bit(n: Int): U64 {
+    bits.shiftLeftU64(1, n)
+}
+
+/// How many ids the deep-trie tests use; 11 to 14 are only ever looked up or
+/// removed until a test puts one in.
+let PLACED: Int = 15;
+
+/// Id 0 hashes to 0, and so does 6. 1, 2, 3, 10 and 13 agree with 0 on every
+/// chunk but the top one, and 1, 10 and 13 share a hash. 4 and 8 part from 0
+/// one chunk lower, 5 at the second chunk, and 7 and 9 at the first. 11 shares
+/// 1's path until the top chunk, 12 shares 0's hash and 14 shares 4's.
+fn placedHash(id: Int): U64 {
+    match (id) {
+        1 => bit(60),
+        2 => bit(63),
+        3 => bit(60) | bit(63),
+        4 => bit(55),
+        5 => bit(5),
+        7 => ~bit(1),
+        8 => bit(59),
+        9 => bit(60) | bit(0),
+        10 => bit(60),
+        11 => bit(61),
+        13 => bit(60),
+        14 => bit(55),
+        _ => 0,
+    }
+}
+
+/// What `model` holds under `id`.
+fn lookup(model: [(Int, Int)], id: Int, at: Int): Option<Int> {
+    match (model.get(at)) {
+        .None => .None,
+        .Some(e) => if (e.0 == id) { .Some(e.1) } else { lookup(model, id, at + 1) },
+    }
+}
+
+/// `m` answers every id from `id` on as `model` does.
+fn answersFrom(m: Map<Placed, Int>, model: [(Int, Int)], id: Int): () {
+    if (id < PLACED) {
+        assert.equal((id, m.get(Placed { id: id })), (id, lookup(model, id, 0)));
+        answersFrom(m, model, id + 1)
+    } else {
+        ()
+    }
+}
+
+/// Every entry `m` walks is one `model` holds.
+fn walksFrom(entries: [(Placed, Int)], model: [(Int, Int)], at: Int): () {
+    match (entries.get(at)) {
+        .None => (),
+        .Some(e) => {
+            assert.equal(lookup(model, e.0.id, 0), .Some(e.1));
+            walksFrom(entries, model, at + 1)
+        },
+    }
+}
+
+/// `m` holds exactly what `model` does.
+fn agrees<C: Allocator>(ctx: C, m: Map<Placed, Int>, model: [(Int, Int)]): () {
+    assert.equal(m.length(), model.length());
+    let entries = m.entries(ctx);
+    assert.equal(entries.length(), model.length());
+    walksFrom(entries, model, 0);
+    answersFrom(m, model, 0)
+}
+
+enum Step {
+    Put(Int, Int),
+    Drop(Int),
+    Alter(Int, Option<Int>),
+}
+
+/// `steps` from `at` on, applied to `m` and to `model`, the two compared after
+/// each one.
+fn play<C: Allocator>(
+    ctx: C,
+    m: Map<Placed, Int>,
+    model: [(Int, Int)],
+    steps: [Step],
+    at: Int,
+): (Map<Placed, Int>, [(Int, Int)]) {
+    match (steps.get(at)) {
+        .None => (m, model),
+        .Some(step) => {
+            let (next, kept) = match (step) {
+                .Put(id, v) => {
+                    let rest = model.filter(ctx, fn(e) => e.0 != id);
+                    (m.insert(ctx, Placed { id: id }, v), rest.push(ctx, (id, v)))
+                },
+                .Drop(id) => {
+                    (
+                        m.remove(ctx, Placed { id: id }),
+                        model.filter(ctx, fn(e) => e.0 != id),
+                    )
+                },
+                .Alter(id, to) => {
+                    let was = lookup(model, id, 0);
+                    let altered = m.alter(ctx, Placed { id: id }, fn(old) => {
+                        assert.equal(old, was);
+                        to
+                    });
+                    let rest = model.filter(ctx, fn(e) => e.0 != id);
+                    match (to) {
+                        .None => (altered, rest),
+                        .Some(v) => (altered, rest.push(ctx, (id, v))),
+                    }
+                },
+            };
+            agrees(ctx, next, kept);
+            play(ctx, next, kept, steps, at + 1)
+        },
+    }
+}
+
+/// Every id dropped, in order.
+fn dropAll<C: Allocator>(ctx: C): [Step] {
+    list.range(ctx, 0, PLACED).map(ctx, fn(id) => Step.Drop(id))
+}
+
+test "keys that agree on all but the top bits are found, replaced and removed" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A lone key put in and taken out again leaves nothing behind.
+    let (m, model) = play(ctx, map.empty<Placed, Int>(), [], [.Put(5, 5), .Drop(5)], 0);
+    // 1 parts from 0 only at the top chunk, so its path runs to the bottom.
+    // 6 shares 0's hash and 10 shares 1's.
+    let (m, model) = play(
+        ctx,
+        m,
+        model,
+        [
+            .Put(0, 0),
+            .Put(1, 10),
+            .Put(2, 20),
+            .Put(3, 30),
+            .Put(4, 40),
+            .Put(8, 80),
+            .Put(6, 60),
+            .Put(10, 100),
+            .Put(5, 50),
+            .Put(7, 70),
+            .Put(9, 90),
+        ],
+        0,
+    );
+    // Replacing and altering at the bottom, where 13 joins 1 and 10.
+    let (m, model) = play(
+        ctx,
+        m,
+        model,
+        [
+            .Put(1, 11),
+            .Alter(3, .Some(33)),
+            .Alter(12, .None),
+            .Alter(13, .Some(130)),
+            .Put(0, 1),
+        ],
+        0,
+    );
+    // Absent keys on the same paths remove nothing, and a shared hash shrinks
+    // to one key and then to none.
+    let (m, model) = play(
+        ctx,
+        m,
+        model,
+        [
+            .Drop(11),
+            .Drop(12),
+            .Drop(14),
+            .Drop(10),
+            .Drop(13),
+            .Drop(1),
+            .Drop(2),
+            .Drop(3),
+        ],
+        0,
+    );
+    // 0 and 6 have moved up the path, and keys on it part them from it again.
+    let (m, model) = play(
+        ctx,
+        m,
+        model,
+        [
+            .Put(2, 2),
+            .Drop(4),
+            .Drop(8),
+            .Drop(2),
+            .Put(4, 4),
+            .Put(14, 140),
+            .Alter(6, .None),
+            .Alter(0, .None),
+            .Put(11, 110),
+            .Put(12, 120),
+        ],
+        0,
+    );
+    assert.equal(m.length(), 7);
+    let (drained, _) = play(ctx, m, model, dropAll(ctx), 0);
+    assert.isTrue(drained.isEmpty());
+}
+
+test "keys that agree on all but the top bits, put in backwards, empty in order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let puts = list
+        .range(ctx, 0, PLACED)
+        .map(ctx, fn(i) => Step.Put(PLACED - 1 - i, i));
+    let (built, model) = play(ctx, map.empty<Placed, Int>(), [], puts, 0);
+    assert.equal(built.length(), PLACED);
+    let (drained, _) = play(ctx, built, model, dropAll(ctx), 0);
+    assert.isTrue(drained.isEmpty());
 }
 
 // --- built-in keys that share a hash --------------------------------------------
