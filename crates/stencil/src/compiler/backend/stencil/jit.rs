@@ -52,9 +52,10 @@ use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{At, EnumLayout, EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::layered::Dense;
-use crate::compiler::semantics::types::{FuncIdx, Tables, Ty};
+use crate::compiler::semantics::types::{variant_types, FuncIdx, Tables, Ty};
 use crate::diagnostics::{invariant, Invariant};
 use crate::hash::Map as HashMap;
+use std::borrow::Cow;
 
 // ---------------------------------------------------------------------------
 // Hole values
@@ -893,46 +894,6 @@ impl<'a> Jit<'a> {
     /// recursive.
     pub(crate) fn boxes(&self, owner: &Ty, field: &Ty) -> bool {
         self.layouts.boxes(owner, field)
-    }
-
-    /// The type of one field of `owner`, or of one field of its `variant`.
-    ///
-    /// One field's, not `types::field_types`' whole list: a read of each field
-    /// of an `n`-field value would otherwise be `n²` (PERFORMANCE.md §6.37).
-    pub(crate) fn field_ty(&self, owner: &Ty, variant: Option<usize>, index: usize) -> Option<Ty> {
-        use crate::compiler::semantics::types::{substitute, TyDef, TyKind};
-        match (owner.kind(), variant) {
-            (TyKind::Tuple(elements), None) => elements.get(index).copied(),
-            (TyKind::Ctx(id), None) => self
-                .tables
-                .ctx_type(*id)
-                .bindings
-                .get(index)
-                .map(|(_, t)| *t),
-            (TyKind::Con(id, args), None) => match &self.tables.tycon(*id).def {
-                TyDef::Struct { fields, .. } => fields
-                    .as_slice()
-                    .get(index)
-                    .map(|f| substitute(&f.ty, args, None)),
-                TyDef::Prim(_) | TyDef::Enum { .. } => None,
-            },
-            (TyKind::Con(id, args), Some(v)) => match &self.tables.tycon(*id).def {
-                TyDef::Enum { .. } => {
-                    let field = self
-                        .tables
-                        .tycon(*id)
-                        .variants()
-                        .as_slice()
-                        .get(v)?
-                        .fields
-                        .as_slice()
-                        .get(index)?;
-                    Some(substitute(&field.ty, args, None))
-                }
-                TyDef::Prim(_) | TyDef::Struct { .. } => None,
-            },
-            _ => None,
-        }
     }
 
     /// Whether a source type owns a counted block anywhere inside it.
@@ -2225,8 +2186,15 @@ impl<'a> Jit<'a> {
                     }
                     continue;
                 }
-                let (dest, fields, id, variant) = match i {
-                    ir::Inst::MakeStruct { dest, ty, fields } => (*dest, fields, ty.id(), None),
+                // The fields' declared types, which say which of them is boxed.
+                let (dest, fields, id, variant, ftys) = match i {
+                    ir::Inst::MakeStruct { dest, ty, fields } => (
+                        *dest,
+                        fields,
+                        ty.id(),
+                        None,
+                        Cow::Borrowed(prog.types.fields(*ty).as_slice()),
+                    ),
                     ir::Inst::MakeEnum {
                         dest,
                         ty,
@@ -2243,7 +2211,15 @@ impl<'a> Jit<'a> {
                         ) {
                             continue;
                         }
-                        (*dest, fields, ty.id(), Some((*ty, *variant)))
+                        let owner = prog.type_info(ty.id()).ty;
+                        let ftys = variant_types(self.tables, &owner, variant.index());
+                        (
+                            *dest,
+                            fields,
+                            ty.id(),
+                            Some((*ty, *variant)),
+                            Cow::Owned(ftys),
+                        )
                     }
                     _ => continue,
                 };
@@ -2267,15 +2243,13 @@ impl<'a> Jit<'a> {
                 // A field already aliased is a length, which no load below
                 // defines, or a field of an earlier aggregate, which is a
                 // second use.
-                for (fi, (f, off)) in fields.iter().zip(offs).enumerate() {
+                for ((f, off), t) in fields.iter().zip(offs).zip(ftys.iter()) {
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
                         || !w.is_multiple_of(8)
                         || !alone(*f)
                         || ent(uses, f.index(), 0) != 1
-                        || self
-                            .field_ty(&owner, variant.map(|(_, v)| v.index()), fi)
-                            .is_some_and(|t| self.boxes(&owner, &t))
+                        || self.boxes(&owner, t)
                     {
                         continue;
                     }
@@ -2407,9 +2381,7 @@ impl<'a> Jit<'a> {
                 if w == 0
                     || !w.is_multiple_of(8)
                     || !alone(*dest)
-                    || self
-                        .field_ty(&owner, None, field.index())
-                        .is_some_and(|t| self.boxes(&owner, &t))
+                    || self.boxes(&owner, &prog.types.field(*ty, *field))
                 {
                     continue;
                 }

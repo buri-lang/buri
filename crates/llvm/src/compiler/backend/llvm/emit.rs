@@ -1426,8 +1426,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     fn boxed_fields(&mut self, ty: ir::RecTy) -> Dense<FieldId, bool> {
         let owner = self.program.type_info(ty.id()).ty;
-        let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
-        fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
+        let fields = self.program.types.fields(ty);
+        fields.map(|f| self.reprs.boxes(&owner, f))
     }
 
     /// The same question of **one variant's** payload fields, with the size and
@@ -1533,7 +1533,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let r = self.reprs.of(self.program, id);
             (r.slots.clone(), r.field_range(field))
         };
-        let boxed = *self.boxed_fields(ty).get(field);
+        let owner = self.program.type_info(id).ty;
+        let boxed = self
+            .reprs
+            .boxes(&owner, &self.program.types.field(ty, field));
         let whole = self.get(state, agg);
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
             let at = self
@@ -7735,8 +7738,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let value_ty = *fields.get(FieldId::RANGE_ERROR_VALUE);
         let target_ty = *fields.get(FieldId::RANGE_ERROR_TARGET);
         let ok_slots = self.reprs.of_ty(&ok_ty).slots.clone();
-        let ok_slot = *ok_slots.first().or_ice("a number is one slot");
-        let want = repr::slot_type(self.ctx, ok_slot.ty);
+        // A number is one slot, so this is that slot's type.
+        let want = repr::register_type(self.ctx, &ok_slots);
         let result_ty = {
             let slots = self.reprs.of(self.program, id).slots.clone();
             repr::register_type(self.ctx, &slots)
@@ -8911,18 +8914,15 @@ impl<'a> Boxes<'a> {
         match inst {
             ir::Inst::GetField { ty, field, .. } => {
                 let owner = self.program.type_info(ty.id()).ty;
-                let fields: Dense<FieldId, Ty> = types::field_types(self.tables, &owner)
-                    .into_iter()
-                    .collect();
-                self.layouts.boxes(&owner, fields.get(*field))
+                let f = self.program.types.field(*ty, *field);
+                self.layouts.boxes(&owner, &f)
             }
             ir::Inst::GetPayload {
                 ty, variant, field, ..
             } => {
-                let owner = self.program.type_info(ty.id()).ty;
-                types::variant_types(self.tables, &owner, variant.index())
-                    .get(field.index())
-                    .is_some_and(|f| self.layouts.boxes(&owner, f))
+                let head = self.program.types.enum_head(*ty);
+                let f = head.payload(self.tables, *variant, *field);
+                self.layouts.boxes(&head.ty, &f)
             }
             _ => false,
         }

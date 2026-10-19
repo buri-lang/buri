@@ -27,7 +27,7 @@ use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
-    field_types, FieldId, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+    field_types, FieldId, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, VariantId,
 };
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::sync::OnceLock;
@@ -2772,18 +2772,9 @@ impl<'a> Gen<'a> {
                 });
                 Expr::Array(items)
             }
-            ExprKind::CtxGet { base, trait_id } => {
+            ExprKind::CtxGet { base, field, .. } => {
                 let b = self.expr(base, out);
-                let slot = match base.ty.kind() {
-                    TyKind::Ctx(id) => self
-                        .program
-                        .ctx_layouts
-                        .get(id)
-                        .and_then(|l| l.position(|t| t == trait_id))
-                        .map_or(0, FieldId::index),
-                    _ => 0,
-                };
-                Expr::index(b, Expr::Num(slot as f64))
+                Expr::index(b, Expr::Num(field.index() as f64))
             }
             ExprKind::CtxCall { .. } => Expr::Num(0.0),
             // `core/lazy`. The argument is the function the chunk holds and it

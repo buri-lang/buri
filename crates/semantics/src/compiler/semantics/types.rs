@@ -889,8 +889,9 @@ pub struct ConstInfo {
 #[derive(Clone, Debug, Default)]
 pub struct CtxType {
     /// Effect trait -> the type of the value implementing it, in the order the
-    /// bindings were written (a spread's bindings first).
-    pub bindings: Vec<(TraitId, Ty)>,
+    /// bindings were written (a spread's bindings first). Each binding is a
+    /// field of the context's layout, under its id here.
+    pub bindings: Dense<FieldId, (TraitId, Ty)>,
 }
 
 impl CtxType {
@@ -899,6 +900,15 @@ impl CtxType {
             .iter()
             .find(|(id, _)| *id == t)
             .map(|(_, ty)| ty)
+    }
+
+    /// The binding of `t`: its field, and the type of the value implementing
+    /// it.
+    pub fn binding(&self, t: TraitId) -> Option<(FieldId, Ty)> {
+        self.bindings
+            .entries()
+            .find(|(_, (id, _))| *id == t)
+            .map(|(field, (_, ty))| (field, *ty))
     }
 
     pub fn has(&self, t: TraitId) -> bool {

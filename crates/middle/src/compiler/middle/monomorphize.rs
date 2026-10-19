@@ -262,8 +262,6 @@ pub struct Program {
     /// reaches no `derive` call site of its own, so without a descriptor there
     /// would be nothing for the pass to generate from.
     pub cell_equal: HashMap<Ty, FuncIdx>,
-    /// Number of effect slots each context type carries, in binding order.
-    pub ctx_layouts: HashMap<CtxTypeId, Dense<FieldId, TraitId>>,
     /// What every declared type is made of. See [`Shapes`].
     pub shapes: Shapes,
     /// The stylesheet the static `ui/style` literals in this program extracted
@@ -576,7 +574,6 @@ pub struct Monomorphizer<'a> {
     descriptors: std::collections::BTreeMap<usize, Desc>,
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
-    ctx_layouts: HashMap<CtxTypeId, Dense<FieldId, TraitId>>,
     module_paths: Vec<String>,
     /// Every instantiation symbol minted so far, against the type arguments
     /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
@@ -626,7 +623,6 @@ pub fn run(
         descriptors: std::collections::BTreeMap::new(),
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
-        ctx_layouts: HashMap::default(),
         module_paths,
         taken: HashMap::default(),
         locals: typed::Locals::new(),
@@ -779,7 +775,6 @@ pub fn run(
         desc_modules: m.desc_modules,
         desc_index: m.desc_index,
         cell_equal: m.cell_equal,
-        ctx_layouts: m.ctx_layouts,
         shapes,
         // Merged here rather than by each caller, so that `buri build` and
         // `buri test` cannot disagree about what a program's styles are.
@@ -2023,20 +2018,24 @@ impl Monomorphizer<'_> {
                     None => ExprKind::Error,
                 }
             }
-            ExprKind::CtxLit { bindings, ctx } => {
-                let layout: Dense<FieldId, TraitId> = bindings.iter().map(|(t, _)| *t).collect();
-                self.ctx_layouts.insert(ctx, layout);
-                ExprKind::CtxLit {
-                    bindings: bindings
-                        .into_iter()
-                        .map(|(t, v)| (t, self.rewrite(v, targs)))
-                        .collect(),
-                    ctx,
-                }
-            }
-            ExprKind::CtxGet { base, trait_id } => {
+            ExprKind::CtxLit { bindings, ctx } => ExprKind::CtxLit {
+                bindings: bindings
+                    .into_iter()
+                    .map(|(t, v)| (t, self.rewrite(v, targs)))
+                    .collect(),
+                ctx,
+            },
+            ExprKind::CtxGet {
+                base,
+                trait_id,
+                field,
+            } => {
                 let base = Box::new(self.rewrite(*base, targs));
-                ExprKind::CtxGet { base, trait_id }
+                ExprKind::CtxGet {
+                    base,
+                    trait_id,
+                    field,
+                }
             }
             ExprKind::CallValue { callee, args } => ExprKind::CallValue {
                 callee: Box::new(self.rewrite(*callee, targs)),
@@ -2293,8 +2292,8 @@ impl Monomorphizer<'_> {
             // without the effect: directly, through a bounded parameter, and
             // through a conditional `impl` such as `impl<C: Stdout> Stdout
             // for Scoped<C>`, whose bound `Infer::satisfies` checks too.
-            let impl_ty =
-                self.tables().ctx_type(*id).get(trait_id).cloned().or_ice(
+            let (field, impl_ty) =
+                self.tables().ctx_type(*id).binding(trait_id).or_ice(
                     "checking proved every effect call's context binds the effect it calls",
                 );
             if let Some(first) = args.first_mut() {
@@ -2304,6 +2303,7 @@ impl Monomorphizer<'_> {
                     ExprKind::CtxGet {
                         base: Box::new(base),
                         trait_id,
+                        field,
                     },
                     impl_ty,
                     span,
@@ -3943,9 +3943,7 @@ mod tests {
         // And types with no `Self` in them at all.
         assert!(self_positions(&int()).is_empty());
         assert!(self_positions(&Ty::UNIT).is_empty());
-        let ctx = Tables::default().add_ctx_type(CtxType {
-            bindings: Vec::new(),
-        });
+        let ctx = Tables::default().add_ctx_type(CtxType::default());
         assert!(self_positions(&Ty::ctx(ctx)).is_empty());
     }
 

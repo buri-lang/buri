@@ -27,7 +27,7 @@ use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
     checked_kind, json_arm, native_body, CheckedKind, JsonArm, Leaf, Num,
 };
-use crate::compiler::semantics::types::{field_types, variant_types};
+use crate::compiler::semantics::types::variant_types;
 
 /// Where an edge's register half reads from.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -335,8 +335,8 @@ impl<'a> Jit<'a> {
                 let d = st.at(*dest);
                 let l = self.layout_id_shared(prog, ty.id());
                 let owner = &prog.type_info(ty.id()).ty;
-                let ftys = field_types(self.tables, owner);
-                for ((f, at), t) in fields.iter().zip(l.fields.iter()).zip(&ftys) {
+                let ftys = prog.types.fields(*ty);
+                for ((f, at), t) in fields.iter().zip(l.fields.iter()).zip(ftys.iter()) {
                     let w = self.width_of(prog, code.ty_of(*f));
                     if w == 0 {
                         continue;
@@ -360,8 +360,7 @@ impl<'a> Jit<'a> {
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let off = l.fields.get(*field).bytes();
                 let src = st.at(*agg) + off;
-                let fty = self.field_ty(owner, None, field.index());
-                if fty.is_some_and(|t| self.boxes(owner, &t)) {
+                if self.boxes(owner, &prog.types.field(*ty, *field)) {
                     self.unbox_from(st, st.at(*dest), src, w);
                     return;
                 }
@@ -598,9 +597,9 @@ impl<'a> Jit<'a> {
     ) {
         let d = st.at(dest);
         self.put_enum(prog, st, d, e, variant, |s, st, offs, owner, ftys| {
-            for (i, (f, o)) in fields.iter().zip(offs.iter().copied()).enumerate() {
+            for ((f, o), t) in fields.iter().zip(offs.iter().copied()).zip(ftys) {
                 let w = s.width_of(prog, code.ty_of(*f));
-                if ftys.get(i).is_some_and(|t| s.boxes(owner, t)) {
+                if s.boxes(owner, t) {
                     s.box_into(st, d + o.bytes(), st.at(*f), w);
                     continue;
                 }
@@ -2036,7 +2035,7 @@ impl<'a> Jit<'a> {
         fi: FuncIdx,
         st: &mut Fn2,
         prim: Scalar,
-        (op, answer): (route::Number<'_>, ir::Answer),
+        (op, answer): (route::Number, ir::Answer),
     ) {
         let fs = self.frame_sig_of(fi);
         let ret0 = RET;
@@ -2294,21 +2293,10 @@ impl Jit<'_> {
         )
     }
 
-    /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
-    /// for an operation or a width there is no stencil for.
-    fn overflowing(&mut self, st: &Fn2, prim: Scalar, kind: &str, a: u32, b: u32) {
+    /// `chk/<op>/<tag>` — the result and the overflow flag.
+    fn overflowing(&mut self, st: &Fn2, prim: Scalar, op: route::Overflow, a: u32, b: u32) {
         let (tag, _, _) = prim_tag(prim);
-        let name = match kind {
-            "Add" => Some("add"),
-            "Subtract" => Some("sub"),
-            "Multiply" => Some("mul"),
-            "Divide" => Some("div"),
-            "Remainder" => Some("rem"),
-            "Negate" => Some("neg"),
-            "Power" => Some("pow"),
-            _ => None,
-        }
-        .or_ice("`core/number` declares these checked operations and no others");
+        let name = op.stencil();
         let key = key!["chk/", name, "/", tag];
         let (res, flag) = Self::overflow_slots(st);
         self.emit(
@@ -2339,7 +2327,7 @@ impl Jit<'_> {
         prog: &ir::Program,
         st: &mut Fn2,
         (prim, answer): (Scalar, ir::EnumTy),
-        kind: &str,
+        kind: route::Overflow,
         a: u32,
         b: u32,
         dest: u32,
@@ -2634,7 +2622,7 @@ impl Jit<'_> {
         &mut self,
         st: &mut Fn2,
         int: IntPrim,
-        kind: &str,
+        kind: route::Overflow,
         a: u32,
         b: u32,
         dest: u32,
@@ -2660,7 +2648,15 @@ impl Jit<'_> {
         if !signed {
             // Unsigned: an addition or a multiplication can only run off the
             // top, and a subtraction only off the bottom.
-            self.imm_num(dest, prim, if kind == "Subtract" { lo } else { hi });
+            self.imm_num(
+                dest,
+                prim,
+                if kind == route::Overflow::Subtract {
+                    lo
+                } else {
+                    hi
+                },
+            );
         } else {
             // The sum of two operands that overflowed is negative exactly when
             // they were both positive, so the sign of `x` decides — and for
@@ -2671,7 +2667,7 @@ impl Jit<'_> {
             // flag this branch was reached on.
             let scr = st.scratch + (super::rtcall::RAW_WORD + 1) * 8;
             self.lt_zero(scr, a, tag);
-            if kind == "Multiply" {
+            if kind == route::Overflow::Multiply {
                 let other = scr + 8;
                 self.lt_zero(other, b, tag);
                 self.emit(
@@ -2744,15 +2740,8 @@ impl Jit<'_> {
 
     /// `wrappingAdd`, `wrappingSubtract`, `wrappingMultiply` — the machine operation at
     /// the operand's own width, which is what the ordinary stencil already is.
-    fn wrapping(&mut self, prim: Scalar, kind: &str, a: u32, b: u32, dest: u32) {
+    fn wrapping(&mut self, prim: Scalar, name: &str, a: u32, b: u32, dest: u32) {
         let (tag, _, _) = prim_tag(prim);
-        let name = match kind {
-            "Add" => Some("add"),
-            "Subtract" => Some("sub"),
-            "Multiply" => Some("mul"),
-            _ => None,
-        }
-        .or_ice("`core/number` declares these wrapping operations and no others");
         let key = key!["bin/", name, "/", tag, "/ff/f"];
         self.emit(
             &key,

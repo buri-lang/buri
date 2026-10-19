@@ -1639,7 +1639,9 @@ mod tests {
     }
 
     fn add_ctx(t: &mut Tables, bindings: Vec<(TraitId, Ty)>) -> CtxTypeId {
-        t.add_ctx_type(CtxType { bindings })
+        t.add_ctx_type(CtxType {
+            bindings: bindings.into_iter().collect(),
+        })
     }
 
     // -----------------------------------------------------------------------

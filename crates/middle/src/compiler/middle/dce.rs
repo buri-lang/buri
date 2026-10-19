@@ -258,7 +258,6 @@ mod tests {
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
             cell_equal: HashMap::default(),
-            ctx_layouts: HashMap::default(),
             shapes: Default::default(),
             stylesheet: String::new(),
             inline_styles: false,
