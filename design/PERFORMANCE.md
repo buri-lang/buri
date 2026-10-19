@@ -3723,7 +3723,7 @@ build's `emit`. Two loops in the stencil backend were `n²` in a value's fields:
   `types::field_types` or `variant_types` for every field's type, to check
   whether the one being read is boxed. The derives and the matches read each
   of `n` fields, so that was `n` lists of `n` types. They ask for the one field
-  now (`jit.rs`, `Jit::field_ty`).
+  now (`ir::TypeList::field`, `EnumHead::payload`).
 - **Building a value scanned back from each field.** A field computed just
   before the `MakeEnum` or `MakeStruct` that stores it shares the value's slot
   if nothing between the two touches the value. That was a scan of the

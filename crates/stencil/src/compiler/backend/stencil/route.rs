@@ -49,7 +49,7 @@ pub(crate) enum Body<'p> {
     FailExpected,
     FailWith,
     /// `number.<T>.<op>`, open-coded.
-    Number(Num, Number<'p>),
+    Number(Num, Number),
     /// One call to the runtime archive.
     Row(&'static Entry),
     StrLength,
@@ -73,21 +73,63 @@ pub(crate) enum Body<'p> {
 
 /// One `number.<T>.<op>` operation.
 #[derive(Clone, Copy)]
-pub(crate) enum Number<'p> {
+pub(crate) enum Number {
     Show,
     /// `minValue` or `maxValue`: the bound's bit pattern.
     Bound(u128),
     Convert(Scalar),
     Hash,
-    Checked(&'p str),
-    Saturating(IntPrim, &'p str),
-    Wrapping(&'p str),
+    Checked(Overflow),
+    Saturating(IntPrim, Overflow),
+    /// `wrapping<Op>`, by the binary operator's stencil.
+    Wrapping(&'static str),
     /// `abs` when true, `signum` when false.
     AbsSignum(bool),
     Compare,
     /// A binary operator, by its stencil's name.
     Bin(&'static str),
     Negate,
+}
+
+/// The operation a `checked<Op>` or `saturating<Op>` guards.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Overflow {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+    Negate,
+    Power,
+}
+
+impl Overflow {
+    fn of(op: &str) -> Option<Overflow> {
+        Some(match op {
+            "Add" => Overflow::Add,
+            "Subtract" => Overflow::Subtract,
+            "Multiply" => Overflow::Multiply,
+            "Divide" => Overflow::Divide,
+            "Remainder" => Overflow::Remainder,
+            "Negate" => Overflow::Negate,
+            "Power" => Overflow::Power,
+            _ => return None,
+        })
+    }
+
+    /// The `chk/<op>` stencil that answers it: the result and whether it
+    /// overflowed.
+    pub(crate) fn stencil(self) -> &'static str {
+        match self {
+            Overflow::Add => "add",
+            Overflow::Subtract => "sub",
+            Overflow::Multiply => "mul",
+            Overflow::Divide => "div",
+            Overflow::Remainder => "rem",
+            Overflow::Negate => "neg",
+            Overflow::Power => "pow",
+        }
+    }
 }
 
 /// One [`Body::PrimTrait`] operation.
@@ -136,7 +178,7 @@ fn body(key: &str) -> Option<Body<'_>> {
 /// A binary operator is named by its stencil, which is named after the **C
 /// operator** it wraps — `bin/sub/i64/ff/f` is `a - b` — where `core/number`
 /// names its methods after the word.
-fn number(num: Num, op: &str) -> Option<Number<'_>> {
+fn number(num: Num, op: &str) -> Option<Number> {
     Some(match op {
         "show" => Number::Show,
         "minValue" => Number::Bound(bound_pattern(num, true)),
@@ -160,17 +202,36 @@ fn number(num: Num, op: &str) -> Option<Number<'_>> {
 /// The `number.<T>.<op>` operations named by a prefix: a conversion by its
 /// target (`toU8`, `wrapToI32`), and `checked`, `saturating` and `wrapping` by
 /// the operation they guard. `Saturating` is declared on the integers only.
-fn prefixed(prim: Prim, op: &str) -> Option<Number<'_>> {
+fn prefixed(prim: Prim, op: &str) -> Option<Number> {
     conversion_target(op)
         .map(|n| Number::Convert(n.scalar()))
-        .or_else(|| op.strip_prefix("checked").map(Number::Checked))
+        .or_else(|| {
+            op.strip_prefix("checked")
+                .and_then(Overflow::of)
+                .map(Number::Checked)
+        })
         .or_else(|| {
             Some(Number::Saturating(
                 prim.as_int()?,
-                op.strip_prefix("saturating")?,
+                Overflow::of(op.strip_prefix("saturating")?)?,
             ))
         })
-        .or_else(|| op.strip_prefix("wrapping").map(Number::Wrapping))
+        .or_else(|| {
+            op.strip_prefix("wrapping")
+                .and_then(wrapping)
+                .map(Number::Wrapping)
+        })
+}
+
+/// The `bin/<op>` stencil that answers `wrapping<Op>`: the machine operation
+/// at the operand's own width.
+fn wrapping(op: &str) -> Option<&'static str> {
+    Some(match op {
+        "Add" => "add",
+        "Subtract" => "sub",
+        "Multiply" => "mul",
+        _ => return None,
+    })
 }
 
 /// The keys this backend writes as instructions rather than as a call.

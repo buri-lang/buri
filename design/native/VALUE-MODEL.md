@@ -506,10 +506,9 @@ load in front of every drop of every closure in the language.
 A context is "an array of implementations, in binding order" on JavaScript
 (`runtime.js`). Natively it is usually **nothing at all**.
 
-Monomorphization resolves every effect call to a direct call and
-`Program::ctx_layouts` records the exact `Vec<TraitId>` per context type
-(`monomorphize.rs`), so by the time anything is laid out a `CtxGet` has a
-statically known answer and the only question is whether the *implementation
+Monomorphization resolves every effect call to a direct call, and the checker
+gives each `CtxGet` the field of the binding it reads (`CtxType::bindings`), so
+by the time anything is laid out a `CtxGet` has a statically known answer and the only question is whether the *implementation
 value* carries data.
 
 Two `context { … }` expressions with the same bindings in the same order have

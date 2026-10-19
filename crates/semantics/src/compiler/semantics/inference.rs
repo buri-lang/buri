@@ -1018,7 +1018,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         let found_bindings = &self.c.tables.ctx_type(found).bindings;
         let wanted_bindings = &self.c.tables.ctx_type(wanted).bindings;
         let reordered = found_bindings.len() == wanted_bindings.len()
-            && found_bindings.iter().all(|b| wanted_bindings.contains(b));
+            && found_bindings
+                .iter()
+                .all(|b| wanted_bindings.as_slice().contains(b));
         let note = if found_shown == wanted_shown {
             "the two contexts were built separately, and a binding's type was not \
              settled where one of them was built, so they cannot be shown to be the same"

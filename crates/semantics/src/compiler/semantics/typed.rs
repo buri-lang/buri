@@ -382,10 +382,12 @@ pub enum ExprKind {
         /// The context type the literal builds, which is also its `ty`.
         ctx: CtxTypeId,
     },
-    /// Reading one effect implementation out of a context value.
+    /// Reading one effect implementation out of a context value: the
+    /// binding of `trait_id`, which is `field` of the base's context type.
     CtxGet {
         base: Box<Expr>,
         trait_id: TraitId,
+        field: FieldId,
     },
     /// A call to a named context declaration, which builds a fresh one.
     CtxCall {

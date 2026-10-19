@@ -119,6 +119,52 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 62
+
+## What landed
+
+- `ir::RecTy` carries a row in `TypeList`, which holds each record's field types as a `Dense<FieldId, Ty>`. `TypeList::fields` and `TypeList::field` read them with a total `Dense::get`.
+  - Stencil `field_ty` is gone, and so are its `Option` and `make_enum`'s `ftys.get(i).is_some_and`. `MakeStruct`, `MakeEnum` and `GetField` zip or index the field types instead.
+  - llvm `Boxes::unboxes` reads `GetField` through `TypeList::field` and `GetPayload` through `EnumHead::payload`, with no `is_some_and`.
+- The checker gives each `CtxGet` its binding's `FieldId`. `CtxType::bindings` is a `Dense<FieldId, (TraitId, Ty)>`, and `CtxType::binding` returns the field with the type.
+  - `lower.rs` no longer falls back to `FieldId::FIRST`, and JS no longer falls back to `0`.
+  - `ctx_layouts` is gone from the monomorphizer and every pass that carried it.
+- Stencil routes name overflow-checked operations with `route::Overflow`, and wrapping ones with a stencil name. `checked`, `saturating` and `wrapping` no longer match on the operation's name.
+- llvm `convert_checked` takes the number's register type from `repr::register_type`.
+
+## Guards
+
+The plan-rule count in code goes from 62 to 59 (definitions included; 61 to 58 by the prompt's count):
+- llvm `convert_checked`'s "a number is one slot";
+- stencil `checked`'s "`core/number` declares these … operations and no others";
+- stencil `wrapping`'s matching guard.
+
+Five silent defaults went with them.
+
+## Coverage
+
+Branches, measured locally on macOS, base and head with the same tool. The whole `compiler-branches.txt` is equal; only line counts moved.
+
+| Area | Base (staging) | Phase 62 |
+| --- | --- | --- |
+| middle | 1859/1890 | 1859/1890 |
+| stencil | 1045/1085 | 1045/1085 |
+| semantics | 2154/2154 | 2154/2154 |
+| llvm | 531/532 | 531/532 |
+| js | 996/1022 | 996/1022 |
+| total | 14811/15048 | 14811/15048 |
+
+## Left
+
+See `guard-phase-63.md`.
+
+## Validation and landing
+
+- `cargo fmt --all` and CI's clippy commands report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`. The suite caught a stencil saturating-subtraction regression mid-phase, which `route::Overflow` now rules out by type.
+- Both `buri` binaries were built with `--features backend-llvm`. Earlier phases built with `--features buri/backend-llvm`, which leaves the binary without LLVM, so their release comparisons didn't use LLVM.
+- `tests/example` passes 51 suites in `test` and `test --release`, none failing to compile. All 54 objects and 2 executables are byte-identical to base, and the logs match apart from timings.
+
 # Guard phase 61
 
 ## What landed

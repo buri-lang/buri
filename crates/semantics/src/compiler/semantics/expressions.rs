@@ -3628,11 +3628,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // every block there is a build-time claim as much as a
                     // runtime one, and both backends run them.
                     let base_bindings = self.c.tables.ctx_type(*id).bindings.clone();
-                    for (tr, impl_ty) in base_bindings {
+                    for (field, &(tr, impl_ty)) in base_bindings.entries() {
                         let e = typed::Expr::new(
                             typed::ExprKind::CtxGet {
                                 base: Box::new(b.clone()),
                                 trait_id: tr,
+                                field,
                             },
                             impl_ty,
                             base_span,

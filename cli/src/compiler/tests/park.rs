@@ -175,7 +175,6 @@ fn hand_built(funcs: Vec<Func>) -> Program {
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         cell_equal: HashMap::default(),
-        ctx_layouts: HashMap::default(),
         shapes: Default::default(),
         stylesheet: String::new(),
         inline_styles: false,
@@ -321,9 +320,7 @@ fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
 #[test]
 fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
     let plain = fn_ty(vec![Ty::UNIT], Ty::UNIT);
-    let ctx = types::Tables::default().add_ctx_type(types::CtxType {
-        bindings: Vec::new(),
-    });
+    let ctx = types::Tables::default().add_ctx_type(types::CtxType::default());
     let carrying = fn_ty(vec![Ty::ctx(ctx)], Ty::UNIT);
     let program = hand_built(vec![
         body_func("main", calls(&[1, 2])),

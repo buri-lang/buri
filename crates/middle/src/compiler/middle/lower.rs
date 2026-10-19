@@ -612,7 +612,10 @@ impl Types {
         if let Some(r) = self.records.get(&ty) {
             return *r;
         }
-        let r = self.list.push_record(self.name(tables, &ty), ty);
+        let fields = crate::compiler::semantics::types::field_types(tables, &ty)
+            .into_iter()
+            .collect();
+        let r = self.list.push_record(self.name(tables, &ty), ty, fields);
         self.records.insert(ty, r);
         r
     }
@@ -1605,17 +1608,9 @@ impl FnLower<'_> {
                     fields,
                 })
             }
-            ExprKind::CtxGet { base, trait_id } => {
+            ExprKind::CtxGet { base, field, .. } => {
                 let b = self.expr(base);
-                let field = match base.ty.kind() {
-                    TyKind::Ctx(id) => self
-                        .program
-                        .ctx_layouts
-                        .get(id)
-                        .and_then(|l| l.position(|t| t == trait_id))
-                        .unwrap_or(FieldId::FIRST),
-                    _ => FieldId::FIRST,
-                };
+                let field = *field;
                 let rec = self.record_of(&base.ty);
                 self.emit(ty, |dest| Inst::GetField {
                     dest,

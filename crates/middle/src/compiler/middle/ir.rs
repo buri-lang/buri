@@ -150,20 +150,6 @@ impl DenseId for RuntimeId {
     }
 }
 
-/// A struct, tuple, context or `Str`: fields at offsets, and no tag.
-///
-/// Only [`TypeList::ty`] makes one, from the kind the interner recorded for the
-/// type, so the id and its kind always agree.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct RecTy(TypeId);
-
-impl RecTy {
-    /// The interned type.
-    pub fn id(self) -> TypeId {
-        self.0
-    }
-}
-
 macro_rules! kind_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
@@ -187,6 +173,10 @@ macro_rules! kind_id {
     };
 }
 
+kind_id!(
+    RecTy,
+    "A struct, tuple, context or `Str`: fields at offsets, and no tag."
+);
 kind_id!(
     EnumTy,
     "An enum: a tag, or a niche, and each variant's fields."
@@ -288,7 +278,7 @@ impl Agg {
 /// [`TypeList`], which row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
-    Record,
+    Record(u32),
     Enum(u32),
     List(u32),
     Fn,
@@ -335,13 +325,14 @@ pub struct TypeInfo {
 
 /// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
 ///
-/// What only one kind has (an enum's constructor, a list's element) is kept
-/// in a row of its own, read off the source type once, when the type is
+/// What only one kind has (a record's field types, an enum's constructor, a
+/// list's element) is kept in a row of its own, read off the source type once, when the type is
 /// interned. The kind's id carries its row, so a backend holding an
 /// [`EnumTy`] reads its head without asking the source type again what it is.
 #[derive(Default)]
 pub struct TypeList {
     infos: Vec<TypeInfo>,
+    records: Vec<Dense<FieldId, Ty>>,
     enums: Vec<EnumHead>,
     lists: Vec<Ty>,
 }
@@ -362,9 +353,13 @@ impl TypeList {
         id
     }
 
-    /// Interns a struct, tuple, context or `Str` under `name`.
-    pub fn push_record(&mut self, name: String, ty: Ty) -> RecTy {
-        RecTy(self.push(name, ty, Kind::Record))
+    /// Interns a struct, tuple, context or `Str` under `name`, with its
+    /// fields' types.
+    pub fn push_record(&mut self, name: String, ty: Ty, fields: Dense<FieldId, Ty>) -> RecTy {
+        let row = next_row(&self.records);
+        self.records.push(fields);
+        let id = self.push(name, ty, Kind::Record(row));
+        RecTy { id, row }
     }
 
     /// Interns an enum under `name`.
@@ -395,7 +390,7 @@ impl TypeList {
     /// The aggregate an interned type is.
     pub fn agg(&self, id: TypeId) -> Agg {
         match self.get(id).kind {
-            Kind::Record => Agg::Record(RecTy(id)),
+            Kind::Record(row) => Agg::Record(RecTy { id, row }),
             Kind::Enum(row) => Agg::Enum(EnumTy { id, row }),
             Kind::List(row) => Agg::List(ListTy { id, row }),
             Kind::Fn => Agg::Fn(FnTy(id)),
@@ -405,6 +400,16 @@ impl TypeList {
     /// The [`Type`] of an interned type.
     pub fn ty(&self, id: TypeId) -> Type {
         Type::Agg(self.agg(id))
+    }
+
+    /// A record's field types, under its fields' ids.
+    pub fn fields(&self, r: RecTy) -> &Dense<FieldId, Ty> {
+        &self.records[r.row as usize]
+    }
+
+    /// The type of one of a record's fields.
+    pub fn field(&self, r: RecTy, field: FieldId) -> Ty {
+        *self.fields(r).get(field)
     }
 
     /// An enum's constructor and the arguments it is applied to.
@@ -441,12 +446,17 @@ impl TypeList {
     pub fn remap(self, to: &mut impl Adopt) -> Remap {
         let mut remap = Remap {
             aggs: Vec::with_capacity(self.infos.len()),
+            records: Vec::with_capacity(self.records.len()),
             enums: Vec::with_capacity(self.enums.len()),
             lists: Vec::with_capacity(self.lists.len()),
         };
         for info in self.infos {
             let agg = match info.kind {
-                Kind::Record => Agg::Record(to.record(info.ty)),
+                Kind::Record(_) => {
+                    let r = to.record(info.ty);
+                    remap.records.push(r);
+                    Agg::Record(r)
+                }
                 Kind::Enum(row) => {
                     let e = to.enum_(self.enums[row as usize]);
                     remap.enums.push(e);
@@ -478,6 +488,7 @@ pub trait Adopt {
 /// for the kinds with rows, by row.
 pub struct Remap {
     aggs: Vec<Agg>,
+    records: Vec<RecTy>,
     enums: Vec<EnumTy>,
     lists: Vec<ListTy>,
 }
@@ -500,7 +511,7 @@ impl Remap {
     }
 
     pub fn rec(&self, r: RecTy) -> RecTy {
-        RecTy(self.id(r.0))
+        self.records[r.row as usize]
     }
 
     pub fn enum_ty(&self, e: EnumTy) -> EnumTy {
