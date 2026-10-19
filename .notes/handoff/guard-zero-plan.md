@@ -119,6 +119,50 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 63
+
+## What landed
+
+- `lower.rs` reads field types off the interned types, with no `Ty::UNIT` fallback:
+  - `field_type` takes a `RecTy` and reads `TypeList::field`.
+  - `payload_type` takes an `EnumTy` and reads `EnumHead::payload`.
+  - `boxed_update` and `has_boxed_field` take the base's `RecTy`, so `StructUpdate`'s `_ => Ty::UNIT` and `substituted` are gone.
+- `EnumHead::payloads` lists one variant's field types under their ids.
+- llvm `Boxes::boxes` reads `TypeList::fields` and `EnumHead::payloads` instead of building `field_types` and `variant_types` lists.
+- llvm `holds_only` reads a `Member`: a record's `RecTy` and `FieldId`, or an enum's `EnumTy`, `VariantId` and `FieldId`. The `Projection` tuple's `TypeId`, `Option<u32>` and `u32` are gone.
+- The or-pattern invariant in `lower.rs` is gone. The checker starts each alternative from the first one's bindings and refuses any other set of names (`or-pattern-bindings`).
+- `memory/short_circuit.buri` runs `&&` and `||` over a right operand that runs a statement, with more counted locals than the operand has parts. It covers `rc.rs` `collect_names`'s non-`let` statement.
+
+## Guards
+
+The plan-rule count in code goes from 59 to 58 (definitions included; 58 to 57 by the prompt's count): the or-pattern "alternatives bind different locals". Four silent defaults went with it.
+
+## Coverage
+
+Branches, measured locally on macOS, base and head with the same tool. Only `middle` moved.
+
+| Area | Base (staging) | Phase 63 |
+| --- | --- | --- |
+| middle | 1859/1890 (98.36%) | 1858/1888 (98.41%) |
+| llvm | 535/536 | 535/536 |
+| stencil | 1045/1085 | 1045/1085 |
+| semantics | 2154/2154 | 2154/2154 |
+| js | 996/1022 | 996/1022 |
+| total | 14815/15052 (98.43%) | 14814/15050 (98.43%) |
+
+`lower.rs` lost two covered branches (140/140 to 138/138), and the new test covers one more in `rc.rs` (578/586 to 579/586).
+
+## Left
+
+See `guard-phase-64.md`.
+
+## Validation and landing
+
+- `cargo fmt --all` and CI's clippy commands report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`.
+- The new conformance file changes what the checking and formatting samplers choose, so both corpora are re-blessed.
+- `tests/example` passes 51 suites in `test` and `test --release`, none failing to compile. All 27 debug objects and the 27 release objects and executable are byte-identical to base.
+
 # Guard phase 62
 
 ## What landed

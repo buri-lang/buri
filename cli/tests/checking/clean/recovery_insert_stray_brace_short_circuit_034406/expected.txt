@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:19:28
+   |
+19 |     let a = grown(ctx, "a"), ;
+   |                            ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here

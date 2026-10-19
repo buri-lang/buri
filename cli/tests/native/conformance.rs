@@ -411,6 +411,10 @@ const PACKAGES: &[Case] = &[
     // A recursive struct's boxed field, updated and read: what a generated
     // protobuf message with a recursive map does.
     included("memory/boxes.buri"),
+    // What `&&` and `||` keep alive for a right operand that may not run. The
+    // heap check is the side that reads a local released early, twice or
+    // never.
+    included("memory/short_circuit.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what

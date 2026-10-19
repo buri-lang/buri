@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:83:28
+   |
+83 |     assert.equal(ran, false;
+   |                            ^
+   |
+  --> main.buri:83:17
+   |
+83 |     assert.equal(ran, false;
+   |                 ^ opened here
+   |
+   = fix: write `)` here

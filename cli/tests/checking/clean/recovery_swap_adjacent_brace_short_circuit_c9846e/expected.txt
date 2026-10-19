@@ -1,0 +1,9 @@
+error: expected `let`, found `e` [unexpected-token]
+  --> main.buri:71:5
+   |
+71 |     e let = grown(ctx, "e");
+   |     ^
+   |
+   = expected: `let`
+   = actual: `e`
+   = fix: write `let` first: `let e`

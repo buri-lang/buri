@@ -1,0 +1,25 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:19:5
+   |
+19 |     ? let a = grown(ctx, "a");
+   |     ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
+error: there is nothing named `a` in scope [unknown-name]
+  --> main.buri:29:15
+   |
+29 |     let ran = a == "a"
+   |               ^
+   |
+   = did you mean `b`?
+   = fix: if you meant `b`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `a` in scope [unknown-name]
+  --> main.buri:35:19
+   |
+35 |     assert.equal([a, b, c, d, e, f, g, h, i, j].length(), 10);
+   |                   ^
+   |
+   = did you mean `b`?
+   = fix: if you meant `b`, use that; if not, a name is in scope only from this module's own declarations and its imports

@@ -391,6 +391,20 @@ impl EnumHead {
         let declared = tables.tycon(self.con).variant(variant).fields.get(field);
         types::substitute(&declared.ty, self.args, None)
     }
+
+    /// The types of one variant's fields, with the arguments put in, under
+    /// their ids.
+    pub fn payloads<'t>(
+        &self,
+        tables: &'t Tables,
+        variant: VariantId,
+    ) -> impl Iterator<Item = (FieldId, Ty)> + 't {
+        let args = self.args;
+        let fields = &tables.tycon(self.con).variant(variant).fields;
+        fields
+            .entries()
+            .map(move |(id, f)| (id, types::substitute(&f.ty, args, None)))
+    }
 }
 
 /// An enum's layout: its [`Layout`]'s numbers, and the discriminant and

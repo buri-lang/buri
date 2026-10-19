@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:35:35
+   |
+35 |     assert.equal([a, b, c, d, e, f g, h, i, j].length(), 10);
+   |                                   ^
+   |
+   = fix: write `,` here

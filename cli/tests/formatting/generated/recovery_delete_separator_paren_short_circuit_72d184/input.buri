@@ -1,0 +1,84 @@
+// `&&` and `||` keep a local alive past a right operand that may not run.
+// Each block holds more counted locals than the operand has parts, and the
+// operand runs a statement. `native::conformance`'s heap check reports a local
+// released early, twice or never.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+/// A string this program grew, rather than one the compiler interned.
+fn grown<C: Allocator>(ctx: C, s: Str): Str {
+    s.concat(ctx, "")
+}
+
+test "a right operand with a statement runs, and its locals live on" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = grown(ctx, "a");
+    let b = grown(ctx, "b");
+    let c = grown(ctx, "c");
+    let d = grown(ctx, "d");
+    let e = grown(ctx, "e");
+    let f = grown(ctx, "f");
+    let g = grown(ctx, "g");
+    let h = grown(ctx, "h");
+    let i = grown(ctx, "i");
+    let j = grown(ctx, "j");
+    let ran = a == "a"
+        && {
+            assert.equal(b, "b");
+            true
+        };
+    assert.equal(ran, true);
+    assert.equal([a, b, c, d, e, f, g, h, i, j].length(), 10);
+    assert.equal(b, "b");
+}
+
+test "a right operand with a statement is skipped, and its locals live on" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = grown(ctx, "a");
+    let b = grown(ctx, "b");
+    let c = grown(ctx, "c");
+    let d = grown(ctx, "d");
+    let e = grown(ctx, "e");
+    let f = grown(ctx, "f");
+    let g = grown(ctx, "g");
+    let h = grown(ctx, "h");
+    let i = grown(ctx, "i");
+    let j = grown(ctx, "j");
+    let ran = a == "z"
+        && {
+            assert.equal(b, "b");
+            true
+        };
+    assert.equal(ran, false);
+    assert.equal([a, b, c, d, e, f, g, h, i, j].length(), 10);
+    assert.equal(b "b");
+}
+
+test "a right operand whose last read is a statement's" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = grown(ctx, "a");
+    let b = grown(ctx, "b");
+    let c = grown(ctx, "c");
+    let d = grown(ctx, "d");
+    let e = grown(ctx, "e");
+    let f = grown(ctx, "f");
+    let g = grown(ctx, "g");
+    let h = grown(ctx, "h");
+    let i = grown(ctx, "i");
+    let j = grown(ctx, "j");
+    assert.equal([a, c, d, e, f, g, h, i, j].length(), 9);
+    let ran = c == "z"
+        || {
+            assert.equal(b, "b");
+            false
+        };
+    assert.equal(ran, false);
+}

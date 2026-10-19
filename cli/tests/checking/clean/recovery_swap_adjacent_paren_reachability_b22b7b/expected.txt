@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:32:50
-   |
-32 |     assert.equal(length(.Link(1, .Link(2, .End)))2 ,);
-   |                                                  ^
-   |
-   = fix: write `,` here
