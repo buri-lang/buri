@@ -1,0 +1,19 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:61:2
+   |
+61 | }
+   |  ^
+   |
+   = fix: write `;` here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:63:1
+   |
+63 | test "a right operand whose last read is a statement's" {
+   | ^^^^
+   |
+  --> main.buri:39:76
+   |
+39 | test "a right operand with a statement is skipped, and its locals live on" {
+   |                                                                            ^ opened here
+   |
+   = fix: write `}` here

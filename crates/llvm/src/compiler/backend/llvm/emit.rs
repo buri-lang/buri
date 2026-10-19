@@ -3209,20 +3209,36 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         w: ir::ValueId,
         projections: &Map<usize, Projection>,
     ) -> bool {
-        let Some(&(agg, id, variant, index)) = projections.get(&x.index()) else {
+        let Some(&(agg, member)) = projections.get(&x.index()) else {
             return false;
         };
         if agg != w {
             return false;
         }
         // `x` is one of `w`'s fields.
-        let owner = self.program.type_info(id).ty;
-        let fields = match variant {
-            None => types::field_types(self.tables, &owner),
-            Some(v) => types::variant_types(self.tables, &owner, v as usize),
-        };
-        fields.iter().enumerate().all(|(i, f)| {
-            !self.reprs.boxes(&owner, f) && (i == index as usize || !self.reprs.counted_type(f))
+        let program = self.program;
+        match member {
+            Member::Field(rec, index) => {
+                let owner = program.type_info(rec.id()).ty;
+                let fields = program.types.fields(rec).entries();
+                self.only_counted(&owner, fields.map(|(i, f)| (i, *f)), index)
+            }
+            Member::Payload(e, variant, index) => {
+                let head = program.types.enum_head(e);
+                self.only_counted(&head.ty, head.payloads(self.tables, variant), index)
+            }
+        }
+    }
+
+    /// Whether no field of `owner` is boxed and only field `index` is counted.
+    fn only_counted(
+        &mut self,
+        owner: &Ty,
+        mut fields: impl Iterator<Item = (FieldId, Ty)>,
+        index: FieldId,
+    ) -> bool {
+        fields.all(|(i, f)| {
+            !self.reprs.boxes(owner, &f) && (i == index || !self.reprs.counted_type(&f))
         })
     }
 
@@ -8895,15 +8911,16 @@ impl<'a> Boxes<'a> {
         match inst {
             ir::Inst::MakeStruct { ty, .. } => {
                 let owner = self.program.type_info(ty.id()).ty;
-                types::field_types(self.tables, &owner)
+                self.program
+                    .types
+                    .fields(*ty)
                     .iter()
                     .any(|f| self.layouts.boxes(&owner, f))
             }
             ir::Inst::MakeEnum { ty, variant, .. } => {
-                let owner = self.program.type_info(ty.id()).ty;
-                types::variant_types(self.tables, &owner, variant.index())
-                    .iter()
-                    .any(|f| self.layouts.boxes(&owner, f))
+                let head = self.program.types.enum_head(*ty);
+                head.payloads(self.tables, *variant)
+                    .any(|(_, f)| self.layouts.boxes(&head.ty, &f))
             }
             _ => false,
         }
@@ -8929,9 +8946,16 @@ impl<'a> Boxes<'a> {
     }
 }
 
-/// One `GetField` or `GetPayload`: the aggregate, its type, the variant for a
-/// payload, and the field.
-type Projection = (ir::ValueId, ir::TypeId, Option<u32>, u32);
+/// One `GetField` or `GetPayload`: the aggregate, and the member it reads.
+type Projection = (ir::ValueId, Member);
+
+/// The member a projection reads: a record's field, or a field of one
+/// variant of an enum.
+#[derive(Clone, Copy)]
+enum Member {
+    Field(ir::RecTy, FieldId),
+    Payload(ir::EnumTy, VariantId, FieldId),
+}
 
 /// Every `GetField` and `GetPayload` in a body, by the value it defines.
 fn projections(code: &ir::Code) -> Map<usize, Projection> {
@@ -8944,8 +8968,7 @@ fn projections(code: &ir::Code) -> Map<usize, Projection> {
                 ty,
                 field,
             } => {
-                let f = field.index() as u32;
-                out.insert(dest.index(), (*agg, ty.id(), None, f));
+                out.insert(dest.index(), (*agg, Member::Field(*ty, *field)));
             }
             ir::Inst::GetPayload {
                 dest,
@@ -8954,8 +8977,8 @@ fn projections(code: &ir::Code) -> Map<usize, Projection> {
                 variant,
                 field,
             } => {
-                let (v, f) = (variant.index() as u32, field.index() as u32);
-                out.insert(dest.index(), (*agg, ty.id(), Some(v), f));
+                let member = Member::Payload(*ty, *variant, *field);
+                out.insert(dest.index(), (*agg, member));
             }
             _ => {}
         }

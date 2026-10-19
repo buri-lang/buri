@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:71:27
+   |
+71 |     let e = grown(ctx, "e";
+   |                           ^
+   |
+  --> main.buri:71:18
+   |
+71 |     let e = grown(ctx, "e";
+   |                  ^ opened here
+   |
+   = fix: write `)` here

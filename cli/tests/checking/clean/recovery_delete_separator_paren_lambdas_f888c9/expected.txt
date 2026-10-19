@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:61:41
-   |
-61 |     assert.equal(label(fn(_x) => "flat") "flat");
-   |                                         ^
-   |
-   = fix: write `,` here

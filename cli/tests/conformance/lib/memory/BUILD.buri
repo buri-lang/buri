@@ -10,6 +10,7 @@ library {
             "test/discards.buri",
             "test/guards.buri",
             "test/scoped.buri",
+            "test/short_circuit.buri",
             "test/updates.buri",
         ]
 

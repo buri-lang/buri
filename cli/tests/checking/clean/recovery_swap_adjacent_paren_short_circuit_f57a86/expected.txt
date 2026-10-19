@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:43:22
+   |
+43 |     let a = grown(ctx"a" ,);
+   |                      ^
+   |
+   = fix: write `,` here

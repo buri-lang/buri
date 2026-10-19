@@ -1,0 +1,23 @@
+error: `grown` takes 2 arguments, but 3 were given [argument-count]
+  --> main.buri:50:13
+   |
+50 |     let h = grown(ctx, "h"extra );
+   |             ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass `grown` the following arguments: grown<C: Allocator>(ctx: C, s: Str)
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:50:27
+   |
+50 |     let h = grown(ctx, "h"extra );
+   |                           ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:50:27
+   |
+50 |     let h = grown(ctx, "h"extra );
+   |                           ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

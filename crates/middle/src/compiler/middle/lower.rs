@@ -1240,8 +1240,8 @@ impl FnLower<'_> {
             if i.index() < 64 && moved & (1u64 << i.index()) != 0 {
                 continue;
             }
-            let f = self.field_type(&ty, i);
             let rec = self.record_of(&ty);
+            let f = self.field_type(rec, i);
             let value = self.emit(f, |dest| Inst::GetField {
                 dest,
                 agg,
@@ -1400,9 +1400,10 @@ impl FnLower<'_> {
                 // run in field order — which is what the struct literal this
                 // is shorthand for would have done.
                 let b = self.expr(base);
+                let rec = self.record_of(&base.ty);
                 let ids = self.tables.tycon(*con).fields().ids();
-                if self.has_boxed_field(&base.ty) {
-                    return self.boxed_update(e, b, ids, updates, ty);
+                if self.has_boxed_field(&base.ty, rec) {
+                    return self.boxed_update(e, rec, b, ids, updates, ty);
                 }
                 let mut fields = Vec::new();
                 // The old value of every field this update *replaces*.
@@ -1438,8 +1439,7 @@ impl FnLower<'_> {
                     if self.sites.moved(node, *i) {
                         continue;
                     }
-                    let f = self.field_type(&base.ty, *i);
-                    let rec = self.record_of(&base.ty);
+                    let f = self.field_type(rec, *i);
                     replaced.push(self.emit(f, |dest| Inst::GetField {
                         dest,
                         agg: b,
@@ -1454,8 +1454,7 @@ impl FnLower<'_> {
                             fields.push(v);
                         }
                         None => {
-                            let f = self.field_type(&base.ty, i);
-                            let rec = self.record_of(&base.ty);
+                            let f = self.field_type(rec, i);
                             fields.push(self.emit(f, |dest| Inst::GetField {
                                 dest,
                                 agg: b,
@@ -1790,7 +1789,7 @@ impl FnLower<'_> {
                 })
             }
             OptionOrResult::Result => {
-                let err_ty = self.payload_type(&base.ty, VariantId::ERR, FieldId::FIRST);
+                let err_ty = self.payload_type(from_ty, VariantId::ERR, FieldId::FIRST);
                 let e = self.emit(err_ty, |dest| Inst::GetPayload {
                     dest,
                     agg: v,
@@ -2486,26 +2485,11 @@ impl FnLower<'_> {
             // mutable slot in an IR without block arguments, and it is one
             // line of `Target` here.
             PatKind::Or(alts) => {
-                // An or-pattern binds what its first alternative does.
+                // Every alternative binds the first one's locals: the checker
+                // starts each from the first's bindings and refuses any other
+                // set of names (`or-pattern-bindings`).
                 let mut binds: Vec<LocalId> = Vec::new();
                 pat.binds(&mut binds);
-                // The merge takes the first alternative's locals, so one that
-                // bound locals of its own would jump carrying a value defined
-                // in a block that does not dominate the read. The checker
-                // gives every alternative the same locals, in whatever order
-                // each writes them; this says so, where a regression is an
-                // internal error rather than a miscompile the backends find.
-                let mut want = binds.clone();
-                want.sort_unstable();
-                for alt in alts {
-                    let mut theirs: Vec<LocalId> = Vec::new();
-                    alt.binds(&mut theirs);
-                    theirs.sort_unstable();
-                    crate::diagnostics::invariant(
-                        theirs == want,
-                        "an or-pattern's alternatives bind different locals",
-                    );
-                }
                 let types: Vec<Type> = binds.iter().map(|b| self.local_type(*b)).collect();
                 let merge = self.block(&types);
                 for (i, alt) in alts.iter().enumerate() {
@@ -2578,14 +2562,12 @@ impl FnLower<'_> {
     }
 
     /// Whether any field of this struct is behind a box (`Layouts::boxes`).
-    fn has_boxed_field(&self, owner: &Ty) -> bool {
-        owner.head().is_some_and(|c| {
-            self.tables
-                .tycon(c)
-                .fields()
-                .iter()
-                .any(|f| self.cycles.boxes(owner, &self.substituted(owner, f.ty)))
-        })
+    fn has_boxed_field(&self, owner: &Ty, rec: RecTy) -> bool {
+        self.types
+            .list
+            .fields(rec)
+            .iter()
+            .any(|f| self.cycles.boxes(owner, f))
     }
 
     /// `..base` of a struct with a field behind a box.
@@ -2601,20 +2583,16 @@ impl FnLower<'_> {
     fn boxed_update(
         &mut self,
         e: &Expr,
+        rec: RecTy,
         b: ValueId,
         ids: impl Iterator<Item = FieldId>,
         updates: &[(FieldId, Expr)],
         ty: Type,
     ) -> ValueId {
-        let base_ty = match &e.kind {
-            ExprKind::StructUpdate { base, .. } => base.ty,
-            _ => Ty::UNIT,
-        };
         let node = self.sites.id_of(e);
         for (i, _) in updates {
             if self.sites.moved(node, *i) {
-                let f = self.field_type(&base_ty, *i);
-                let rec = self.record_of(&base_ty);
+                let f = self.field_type(rec, *i);
                 let old = self.emit(f, |dest| Inst::GetField {
                     dest,
                     agg: b,
@@ -2632,8 +2610,7 @@ impl FnLower<'_> {
                     fields.push(v);
                 }
                 None => {
-                    let f = self.field_type(&base_ty, i);
-                    let rec = self.record_of(&base_ty);
+                    let f = self.field_type(rec, i);
                     let kept = self.emit(f, |dest| Inst::GetField {
                         dest,
                         agg: b,
@@ -2655,30 +2632,20 @@ impl FnLower<'_> {
         out
     }
 
-    fn field_type(&mut self, ty: &Ty, index: FieldId) -> Type {
-        let field = ty
-            .head()
-            .map_or(Ty::UNIT, |c| self.tables.tycon(c).fields().get(index).ty);
-        let field = self.substituted(ty, field);
+    /// The type of field `index` of the record `rec`.
+    fn field_type(&mut self, rec: RecTy, index: FieldId) -> Type {
+        let field = self.types.list.field(rec, index);
         self.type_of(&field)
     }
 
-    fn payload_type(&mut self, ty: &Ty, variant: VariantId, field: FieldId) -> Type {
-        let field = ty.head().map_or(Ty::UNIT, |c| {
-            self.tables.tycon(c).variant(variant).fields.get(field).ty
-        });
-        let field = self.substituted(ty, field);
+    /// The type of one field of one variant of the enum `e`.
+    fn payload_type(&mut self, e: EnumTy, variant: VariantId, field: FieldId) -> Type {
+        let field = self
+            .types
+            .list
+            .enum_head(e)
+            .payload(self.tables, variant, field);
         self.type_of(&field)
-    }
-
-    /// A declared field type, with the owning type's arguments substituted in.
-    fn substituted(&self, owner: &Ty, field: Ty) -> Ty {
-        match owner.kind() {
-            TyKind::Con(_, args) if !args.is_empty() => {
-                crate::compiler::semantics::types::substitute(&field, args, None)
-            }
-            _ => field,
-        }
     }
 }
 

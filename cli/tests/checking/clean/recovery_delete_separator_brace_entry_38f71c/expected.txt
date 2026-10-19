@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
-  --> main.buri:83:36
-   |
-83 |     assert.isEmpty(out.diagnostics)
-   |                                    ^
-   |
-   = fix: write `;` here

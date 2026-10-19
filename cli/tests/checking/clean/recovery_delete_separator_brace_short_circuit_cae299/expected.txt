@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:44:28
+   |
+44 |     let b = grown(ctx, "b")
+   |                            ^
+   |
+   = fix: write `;` here
