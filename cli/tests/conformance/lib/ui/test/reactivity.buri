@@ -729,6 +729,47 @@ test "a get-then-set append is a change on every write" {
     assert.equal(log.noted(), [2, 3, 4, 5]);
 }
 
+// The other way round: the caller keeps the list it handed the cell, and grows
+// it through that name. The cell still holds the list.
+
+test "growing a list a cell was created with leaves the cell alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    let xs = ["a"].concat(ctx, ["b"]);
+    let cell = signal(ctx, xs);
+    assert.equal(xs.push(ctx, "c"), ["a", "b", "c"]);
+    assert.equal(cell.get(ctx), ["a", "b"]);
+}
+
+test "reversing a list set into a cell leaves the cell alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    let cell = signal(ctx, ["z"]);
+    let xs = ["a"].concat(ctx, ["b"]);
+    let _ = cell.set(ctx, xs);
+    assert.equal(xs.reverse(ctx), ["b", "a"]);
+    assert.equal(cell.get(ctx), ["a", "b"]);
+}
+
+test "growing a list inside a value held by a cell leaves the cell alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Allocator: testAlloc(),
+    };
+    let xs = ["a"].concat(ctx, ["b"]);
+    let cell = signal(ctx, Option.Some(xs));
+    assert.equal(xs.push(ctx, "c"), ["a", "b", "c"]);
+    assert.equal(assert.some(cell.get(ctx)).push(ctx, "d"), ["a", "b", "d"]);
+    assert.equal(cell.get(ctx), .Some(["a", "b"]));
+}
+
 // --- the design's example ------------------------------------------------------------
 
 // design/ui-reactivity.md, "Example". Everything reactive about the counter is

@@ -1144,6 +1144,72 @@ test "a list a callee pushes into another is not written through by its own name
     assert.equal(outer, [[1, 2]]);
 }
 
+// An operation that answers a new list puts the old list's elements in it, so
+// each element is then held by both lists, and growing one read out of the
+// answer may not change the other.
+
+fn grownFirst<C: Allocator>(ctx: C, xs: [[Int]]): [Int] {
+    assert.some(xs.get(0)).push(ctx, 9)
+}
+
+test "an element copied into a new list is not written through from it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let outer = list.empty<[Int]>().push(ctx, [1].concat(ctx, [2]));
+    let nested = list.empty<[[Int]]>().push(ctx, outer);
+    assert.equal(grownFirst(ctx, list.empty<[Int]>().concat(ctx, outer)), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, nested.flatten(ctx)), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, outer.reverse(ctx).take(ctx, 1).drop(ctx, 0)), [
+        1,
+        2,
+        9,
+    ]);
+    assert.equal(grownFirst(ctx, outer.slice(ctx, 0, 1)), [1, 2, 9]);
+    assert.equal(
+        grownFirst(ctx, outer.sortBy(ctx, fn(a, b) => a.length().compare(b.length()))),
+        [1, 2, 9],
+    );
+    assert.equal(grownFirst(ctx, outer.filter(ctx, fn(xs) => true)), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, outer.push(ctx, []).removeAt(ctx, 1)), [1, 2, 9]);
+    let (left, _) = assert.some(outer.zip(ctx, [7]).get(0));
+    assert.equal(left.push(ctx, 9), [1, 2, 9]);
+    assert.equal(outer, [[1, 2]]);
+    assert.equal(nested, [[[1, 2]]]);
+}
+
+test "a list held in two slots of one list is written through by neither" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = list.empty<[Int]>().push(ctx, [1].concat(ctx, [2]));
+    let pushed = one.push(ctx, assert.some(one.get(0)));
+    let doubled = one.concat(ctx, one);
+    let inserted = one.insertAt(ctx, 0, assert.some(one.get(0)));
+    let repeated = list.repeat(ctx, [3].concat(ctx, [4]), 2);
+    assert.equal(grownFirst(ctx, pushed), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, doubled), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, inserted), [1, 2, 9]);
+    assert.equal(grownFirst(ctx, repeated), [3, 4, 9]);
+    assert.equal(pushed, [[1, 2], [1, 2]]);
+    assert.equal(doubled, [[1, 2], [1, 2]]);
+    assert.equal(inserted, [[1, 2], [1, 2]]);
+    assert.equal(repeated, [[3, 4], [3, 4]]);
+    assert.equal(one, [[1, 2]]);
+}
+
+test "an element a fold or a search answers is not written through" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let outer = list.empty<[Int]>().push(ctx, [1].concat(ctx, [2]));
+    let folded = outer.fold(fn(acc, xs) => xs, list.empty<Int>());
+    let found = assert.some(outer.find(fn(xs) => true));
+    assert.equal(folded.push(ctx, 3), [1, 2, 3]);
+    assert.equal(found.reverse(ctx), [2, 1]);
+    assert.equal(outer, [[1, 2]]);
+}
+
 test "a list in a struct survives two functional updates" {
     let ctx = context {
         Allocator: alloc(),

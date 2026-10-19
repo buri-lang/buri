@@ -1471,3 +1471,26 @@ test "overwriting every key changes values but not size" {
     assert.equal(bumped.length(), n);
     assert.isTrue(list.range(ctx, 0, n).all(fn(i) => bumped.get(i) == .Some(i + 1000)));
 }
+
+// --- a list kept in a map -----------------------------------------------------
+
+// The map holds the list it was handed, as a value or as a key, and so does the
+// caller, so a list grown through either is a new list.
+
+test "a list put in a map is not grown through its own name or a lookup" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let value = [1].concat(ctx, [2]);
+    let key = [5].concat(ctx, [6]);
+    let m = map.empty<Int, [Int]>().insert(ctx, 1, value);
+    let keyed = map.empty<[Int], Int>().insert(ctx, key, 7);
+    let s = set.empty<[Int]>().insert(ctx, key);
+    assert.equal(value.push(ctx, 3), [1, 2, 3]);
+    assert.equal(key.push(ctx, 3), [5, 6, 3]);
+    assert.equal(assert.some(m.get(1)).reverse(ctx), [2, 1]);
+    assert.equal(m.get(1), .Some([1, 2]));
+    assert.equal(m.values(ctx), [[1, 2]]);
+    assert.equal(keyed.get([5, 6]), .Some(7));
+    assert.isTrue(s.has([5, 6]));
+}
