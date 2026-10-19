@@ -9,7 +9,7 @@
 use super::emit::bound_pattern;
 use super::runtime::{self, Entry};
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, char_of, conversion_target, derive_key, number_key, Leaf,
+    bits_op, char_of, conversion_target, derive_key, number_key, Leaf, Num,
 };
 use crate::compiler::middle::ir;
 use crate::compiler::semantics::layered::Dense;
@@ -49,7 +49,7 @@ pub(crate) enum Body<'p> {
     FailExpected,
     FailWith,
     /// `number.<T>.<op>`, open-coded.
-    Number(Prim, Number<'p>),
+    Number(Num, Number<'p>),
     /// One call to the runtime archive.
     Row(&'static Entry),
     StrLength,
@@ -122,8 +122,8 @@ fn body(key: &str) -> Option<Body<'_>> {
         _ => None,
     };
     let numeric = || {
-        let (prim, op) = number_key(key)?;
-        Some(Body::Number(prim, number(prim, op)?))
+        let (num, op) = number_key(key)?;
+        Some(Body::Number(num, number(num, op)?))
     };
     fixed
         .or_else(numeric)
@@ -136,11 +136,11 @@ fn body(key: &str) -> Option<Body<'_>> {
 /// A binary operator is named by its stencil, which is named after the **C
 /// operator** it wraps — `bin/sub/i64/ff/f` is `a - b` — where `core/number`
 /// names its methods after the word.
-fn number(prim: Prim, op: &str) -> Option<Number<'_>> {
+fn number(num: Num, op: &str) -> Option<Number<'_>> {
     Some(match op {
         "show" => Number::Show,
-        "minValue" => Number::Bound(bound_pattern(prim, true)?),
-        "maxValue" => Number::Bound(bound_pattern(prim, false)?),
+        "minValue" => Number::Bound(bound_pattern(num, true)),
+        "maxValue" => Number::Bound(bound_pattern(num, false)),
         "toChar" => Number::Convert(Prim::Char),
         "hash" => Number::Hash,
         "abs" => Number::AbsSignum(true),
@@ -153,7 +153,7 @@ fn number(prim: Prim, op: &str) -> Option<Number<'_>> {
         "remainder" => Number::Bin("rem"),
         "equal" => Number::Bin("eq"),
         "negate" => Number::Negate,
-        _ => return prefixed(prim, op),
+        _ => return prefixed(num.prim(), op),
     })
 }
 

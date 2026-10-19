@@ -78,8 +78,8 @@ use inkwell::{FloatPredicate, IntPredicate};
 
 use super::route::{self, Route};
 use crate::compiler::backend::intrinsic_keys::{
-    char_of, checked_kind, conversion_target, json_arm, json_variant, native_body, prim_trait_op,
-    CheckedKind, JsonArm, Leaf,
+    char_of, checked_kind, conversion_target, json_arm, native_body, prim_trait_op, CheckedKind,
+    JsonArm, Leaf, Num,
 };
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
@@ -6253,11 +6253,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// `stencil/emit.rs::json_prim` is the twin, and the two agree because
     /// neither decides anything on its own: [`json_arm`] says which arm a
-    /// primitive encodes to, [`json_variant`] reads that arm's position off
-    /// `core/json`'s declaration, and the payload's **own declared type** —
-    /// `variant_types`, not a shape guessed here — supplies the slots
-    /// `build_variant` fills. `.Num`'s field is `Float`, which is why every
-    /// numeric arm is one `cast` and not a per-width table.
+    /// primitive encodes to, and [`JsonArm::variant`] and [`JsonArm::payload`]
+    /// say where that arm sits in `core/json`'s declaration and what its one
+    /// field is, which supplies the slots `build_variant` fills. `.Num`'s
+    /// field is `Float`, which is why every numeric arm is one `cast` and not
+    /// a per-width table.
     ///
     /// The `Str` arm carries the one count. `middle::rc`'s contract is that a
     /// runtime intrinsic **borrows** its arguments and returns a fresh count
@@ -6274,13 +6274,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         arg: ir::ValueId,
     ) {
         let b = state.b;
-        let owner = self.program.type_info(e.id()).ty;
         let arm = json_arm(prim);
-        let variant = json_variant(self.tables, &owner, arm).or_ice("`core/json` has the arm");
-        let field = types::variant_types(self.tables, &owner, variant)
-            .first()
-            .cloned()
-            .or_ice("a `Json` arm carries its value");
+        let field = self.tables.prim(arm.payload());
         let (slots, size, align) = {
             let r = self.reprs.of_ty(&field);
             (r.slots.clone(), r.layout.size, r.layout.align)
@@ -6317,7 +6312,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.load_slots(b, buf, &slots, align)
             }
         };
-        let value = self.build_variant(b, e, variant, &[(slots, pieces)]);
+        let value = self.build_variant(b, e, arm.variant().index(), &[(slots, pieces)]);
         self.set(state, dest, value);
     }
 
@@ -7120,11 +7115,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        (from, op): (Prim, &str),
+        (num, op): (Num, &str),
         answer: ir::Answer,
         args: &[ir::ValueId],
     ) -> bool {
         let b = state.b;
+        let from = num.prim();
         let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
         let first = args.first().copied();
         let a = first.map(|v| self.get(state, v));
@@ -7175,7 +7171,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // the *return* type is a bare register shape, and `I64` and `U64` are
         // the same one.
         if matches!(op, "minValue" | "maxValue") {
-            let value = self.bounds(from, op == "minValue", want);
+            let value = self.bounds(num, op == "minValue", want);
             self.set(state, dest, value);
             return true;
         }
@@ -7975,20 +7971,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// A float's bounds are the largest finite magnitude at both signs, which
     /// is what `Bounded` is about. Not `MIN_POSITIVE`, which is the smallest
     /// *positive* one and would make `minValue<F64>()` a number above zero.
-    fn bounds(&self, prim: Prim, low: bool, want: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
-        match (want, prim.int_range()) {
-            (BasicTypeEnum::FloatType(t), _) => {
-                let v = match (prim, low) {
-                    (Prim::F32, true) => f64::from(-f32::MAX),
-                    (Prim::F32, false) => f64::from(f32::MAX),
-                    (_, true) => f64::MIN,
-                    (_, false) => f64::MAX,
-                };
-                t.const_float(v).into()
+    fn bounds(&self, num: Num, low: bool, want: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let (f32t, f64t) = (self.ctx.f32_type(), self.ctx.f64_type());
+        match (num, low) {
+            (Num::Int(int), true) => {
+                let (lo, _) = int.range();
+                self.int_constant(want, lo.unsigned_abs(), lo < 0)
             }
-            (_, Some((lo, _))) if low => self.int_constant(want, lo.unsigned_abs(), lo < 0),
-            (_, Some((_, hi))) => self.int_constant(want, hi, false),
-            _ => crate::diagnostics::ice("`Bounded` is a number's"),
+            (Num::Int(int), false) => self.int_constant(want, int.range().1, false),
+            (Num::F32, true) => f32t.const_float(f64::from(-f32::MAX)).into(),
+            (Num::F32, false) => f32t.const_float(f64::from(f32::MAX)).into(),
+            (Num::F64, true) => f64t.const_float(f64::MIN).into(),
+            (Num::F64, false) => f64t.const_float(f64::MAX).into(),
         }
     }
 

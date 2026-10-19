@@ -25,7 +25,7 @@
 use super::abi::{Jump, Lit, Loc, Word};
 use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, json_arm, json_variant, native_body, CheckedKind, JsonArm, Leaf,
+    checked_kind, json_arm, native_body, CheckedKind, JsonArm, Leaf, Num,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
 
@@ -659,8 +659,8 @@ impl<'a> Jit<'a> {
     ///
     /// `llvm/emit.rs::json_prim` is the twin, and the two agree because the
     /// three decisions are made in one place each: [`json_arm`] says which arm
-    /// a primitive encodes to, [`json_variant`] says where that arm sits in
-    /// `core/json`'s declaration, and `middle::layout` says where its payload
+    /// a primitive encodes to, [`JsonArm::variant`] says where that arm sits
+    /// in `core/json`'s declaration, and `middle::layout` says where its payload
     /// sits in the value. Nothing here reads a variant number or an offset it
     /// wrote down itself.
     ///
@@ -680,10 +680,8 @@ impl<'a> Jit<'a> {
         arg: ir::ValueId,
         dest: ir::ValueId,
     ) {
-        let owner = prog.type_info(e.id()).ty;
         let arm = json_arm(prim);
-        let variant = json_variant(self.tables, &owner, arm)
-            .or_ice("a `derive ToJson` answers `core/json`'s `Json`");
+        let variant = arm.variant().index();
         let l = self.layout_id_shared(prog, e.id());
         let tag = match self.enum_layout(prog, e).repr {
             EnumRepr::Tagged { tag, .. } => Some(tag),
@@ -1994,7 +1992,9 @@ impl<'a> Jit<'a> {
                 self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
             }
             // `number.<T>.<op>`, which the native backends open-code.
-            route::Body::Number(prim, op) => self.number_body(prog, fi, st, prim, (op, answer)),
+            route::Body::Number(num, op) => {
+                self.number_body(prog, fi, st, num.prim(), (op, answer))
+            }
             route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, (entry, answer), fs, st),
             // `str.length` is the number of Unicode scalar values
             // (VALUE-MODEL.md §3.1), which `cli/runtime/text.rs` answers for
@@ -3316,19 +3316,17 @@ impl Jit<'_> {
 /// The pattern, not the number: `u64::MAX` is not an `i64`, and a slot holds an
 /// integer zero-extended at its own width. A float's bounds are its largest
 /// finite magnitude, signed, and an `F32` is its own thirty-two bits.
-pub(crate) fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
-    if prim.is_float() {
-        return Some(match (prim, low) {
-            (Prim::F32, true) => u128::from((-f32::MAX).to_bits()),
-            (Prim::F32, false) => u128::from(f32::MAX.to_bits()),
-            (_, true) => u128::from(f64::MIN.to_bits()),
-            (_, false) => u128::from(f64::MAX.to_bits()),
-        });
+pub(crate) fn bound_pattern(num: Num, low: bool) -> u128 {
+    match num {
+        Num::Int(int) => int_pattern(int, low),
+        Num::F32 if low => u128::from((-f32::MAX).to_bits()),
+        Num::F32 => u128::from(f32::MAX.to_bits()),
+        Num::F64 if low => u128::from(f64::MIN.to_bits()),
+        Num::F64 => u128::from(f64::MAX.to_bits()),
     }
-    Some(int_pattern(prim.as_int()?, low))
 }
 
-/// [`bound_pattern`] for an integer, which always has one.
+/// [`bound_pattern`] for an integer.
 fn int_pattern(int: IntPrim, low: bool) -> u128 {
     let (lo, hi) = int.range();
     let bits = int.bits();

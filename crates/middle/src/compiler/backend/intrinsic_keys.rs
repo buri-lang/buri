@@ -14,7 +14,7 @@
 //! instructions. `core/list`'s closure keys are no backend's at all —
 //! `middle::lower` builds them as loops (`lower/lists.rs`).
 
-use crate::compiler::semantics::types::{IntPrim, Prim, Tables, Ty, TyKind};
+use crate::compiler::semantics::types::{IntPrim, Prim, VariantId};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
@@ -83,15 +83,50 @@ fn prim_named(name: &str) -> Option<Prim> {
     Prim::all().iter().copied().find(|p| p.name() == name)
 }
 
-/// `number.<T>.<op>`, split into the primitive and the operation.
-pub fn number_key(key: &str) -> Option<(Prim, &str)> {
+/// A numeric primitive: a `T` that `number.<T>` names, which `core/number`
+/// declares for the integers and the two floats and nothing else.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Num {
+    Int(IntPrim),
+    F32,
+    F64,
+}
+
+impl Num {
+    const ALL: [Num; 12] = [
+        Num::Int(IntPrim::I8),
+        Num::Int(IntPrim::I16),
+        Num::Int(IntPrim::I32),
+        Num::Int(IntPrim::I64),
+        Num::Int(IntPrim::I128),
+        Num::Int(IntPrim::U8),
+        Num::Int(IntPrim::U16),
+        Num::Int(IntPrim::U32),
+        Num::Int(IntPrim::U64),
+        Num::Int(IntPrim::U128),
+        Num::F32,
+        Num::F64,
+    ];
+
+    pub fn prim(self) -> Prim {
+        match self {
+            Num::Int(int) => int.prim(),
+            Num::F32 => Prim::F32,
+            Num::F64 => Prim::F64,
+        }
+    }
+}
+
+/// `number.<T>.<op>`, split into the number and the operation.
+pub fn number_key(key: &str) -> Option<(Num, &str)> {
     let mut parts = key.split('.');
     let (Some("number"), Some(name), Some(op), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())
     else {
         return None;
     };
-    Some((prim_named(name)?, op))
+    let num = Num::ALL.into_iter().find(|n| n.prim().name() == name)?;
+    Some((num, op))
 }
 
 /// `core/lazy`'s one declaration, and the node the split pass leaves where a
@@ -210,34 +245,31 @@ pub fn json_arm(prim: Prim) -> JsonArm {
     }
 }
 
-/// Where that arm sits in `Json`'s variant list.
-///
-/// **By name**: `core/json` declares `Null` first, and a backend that
-/// hard-coded `1`, `2`, `3` would be reading a declaration order out of a table
-/// that records it.
-///
-/// `middle::derives` builds the *compound* arms of the same enum through its
-/// own `Environment::json_variant`, asking the same question of the same declaration;
-/// this is the half a **backend** needs, because a primitive leaf is an
-/// intrinsic and never reaches that pass's builder.
-///
-/// `None` for a type that is not a declared enum with such a variant — a
-/// `derive ToJson` whose result is not `core/json`'s `Json`, which is refused
-/// rather than guessed at.
-pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
-    let TyKind::Con(id, _) = ty.kind() else {
-        return None;
-    };
-    let name = match arm {
-        JsonArm::Bool => "Bool",
-        JsonArm::Num => "Num",
-        JsonArm::Str => "Str",
-    };
-    tables
-        .tycon(*id)
-        .variants()
-        .iter()
-        .position(|v| v.name == name)
+impl JsonArm {
+    /// Where this arm sits in `core/json`'s `Json`, which declares `Null`
+    /// first: [`VariantId::JSON_BOOL`] and its two siblings, which
+    /// `cli/src/compiler/tests/known.rs` checks against that declaration.
+    ///
+    /// `middle::derives` builds the *compound* arms of the same enum through
+    /// its own `Environment::json_variant`; this is the half a **backend**
+    /// needs, because a primitive leaf is an intrinsic and never reaches that
+    /// pass's builder.
+    pub fn variant(self) -> VariantId {
+        match self {
+            JsonArm::Bool => VariantId::JSON_BOOL,
+            JsonArm::Num => VariantId::JSON_NUM,
+            JsonArm::Str => VariantId::JSON_STR,
+        }
+    }
+
+    /// The primitive this arm's one field is: `Bool`, `Float` or `Str`.
+    pub fn payload(self) -> Prim {
+        match self {
+            JsonArm::Bool => Prim::Bool,
+            JsonArm::Num => Prim::F64,
+            JsonArm::Str => Prim::Str,
+        }
+    }
 }
 
 /// The target of a numeric conversion's operation name: `toI64`, `wrapToU8`.
@@ -348,7 +380,7 @@ pub fn numeric_key(key: &str) -> bool {
             | "saturatingSubtract"
             | "saturatingMultiply"
     ) {
-        return prim.is_integer();
+        return prim.prim().is_integer();
     }
     // `U32.toChar` answers a `Result<Char, RangeError>` and `Char` is not a
     // numeric target, so [`conversion_target`] does not name it.
