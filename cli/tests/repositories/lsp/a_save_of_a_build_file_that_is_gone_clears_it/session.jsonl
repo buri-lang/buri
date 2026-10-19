@@ -1,0 +1,11 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# A save of `lib/gone/BUILD.buri`, which no buffer holds and the disk no longer
+# has: deleted after the save, say, by a checkout. There is no text to find a
+# fault in, so the file is published empty rather than with an error about
+# reading it.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didSave", "params": {"textDocument": {"uri": "file://<scratch>/lib/gone/BUILD.buri"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
