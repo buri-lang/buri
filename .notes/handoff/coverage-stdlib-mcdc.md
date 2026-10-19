@@ -906,3 +906,49 @@ core/tasks went from 15/48 to 33/44, measured over the tasks, semantics, collect
 - **314 `_` of `halves.first()`, once per A (8).** Unreachable, because `parallel` answers in order. Pulling an `A` out with no `match` needs a default. A lazy default captures `ctx`, which SPEC 10.6 forbids, and an aborting unwrap only moves the decision into `core/option`.
 - **337 `scopeSpare true`.** It needs a worker parked in `scopeClaim` while another claims. A sequential scheduler deadlocks or never parks, so this needs real threads.
 - **401 `taking .None` and 404 `held.first .None`.** Unreachable, because every index is taken exactly once. If `scopeTaskAt` returned `[Carried<T>]` (empty where taken) instead of `Option`, one of the two would go. That means changing `rt.rs`, `runtime.js` and `runtime_table.rs` for a single decision, so it wasn't done.
+
+## Stdlib MC/DC phase 22
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9814/9998 (98.2%) to 9824/9997 (98.3%).
+
+| Module | Before | After |
+|---|---|---|
+| core/buri/ast | 1105/1111 | 1106/1111 |
+| core/codegen | 25/26 | 26/26 |
+| core/io | 4/5 | 5/5 |
+| core/json | 222/223 | 222/222 |
+| core/list | 281/282 | 282/282 |
+| core/net/server | 335/336 | 336/336 |
+| core/path | 93/94 | 94/94 |
+| core/result | 614/616 | 616/616 |
+| std/codegen/proto | 344/347 | 346/347 |
+
+Every other module is unchanged, core/tasks included (33/44).
+
+### Refactor
+
+- **json.** `grammatical` no longer checks that an exponent has a digit. `toFloat` refuses `1e`, `1e+` and `2.5E-`, so a number like that never gets there.
+
+### Tests
+
+- `generators/test/failure.buri`: a test-written `Stdout` that fails every write. `codegen.run` answers the error.
+- `streams/test/io.buri`: a test-written `Stdin` that answers `.Some([])`. `readAllBytes` treats it as the end.
+- `memory/test/scoped.buri`: a path from the root, read inside `alloc.scoped`.
+- `semantics/test/effects.buri`: a listener that claims 5000 handlers runs 1024. `SerialTasks` runs three items at most, so this case uses the testing `tasks()`.
+- `proto_gen/test/entry.buri`: a schema at the repository root, and `upperFirst("")`.
+- `buri_ast/test/items.buri`: a derive about `[Id]` stays where it was written. `tokens.buri`: windows of size 0.
+- `data/test/optionresult.buri`: `Result<Int, Str>` shown as `.Ok(7)` and `.Err("no")`.
+- `json/test/parsing.buri`: `[2.5E-]` and `0E` are bad numbers.
+
+### What's left
+
+- **tasks: 11.** Unchanged; see phase 21.
+- **ui/web 154 `sheet == ""`.** The stylesheet belongs to the whole test binary, and `web/test/document.buri` styles two nodes. Showing it needs a package of its own that styles nothing.
+- **ui/style/classify 318 `declared`'s `_`.** It would go if `atomsOf` matched each property itself, but that moves about 55 arms for one condition. 234 `.Extracted` and the `.all` built-in at 722 stay.
+- **proto/wrappers 695.** `writeBoolValue`'s `if (value.value)` runs only when the value is true. The file is generated, so the fix belongs in `writeRaw` in `std/codegen/proto`, which would have to tell an implicit-presence field from an optional or packed one.
+- **Reads that can't fail:** `digitAt` in character, str and buri/ast; `alphabetIndex` in bytes; `octetOf` in uuid; str 712; and compression 463.
+- **Unreachable:** random 453 (`exchange`'s `_`) and 467 (`radius == 0.0`); buri/ast 1707 and 2011 (an `if` with an empty else list); buri/ast 6278 `floatOf .None`; std/codegen/proto 3297 (a well-known source that doesn't parse).
+- **Traps:** number 15, simd 8, compression 5, indexset 4, bigint 2, decimal 2, proto 2, time 1.
+- **map 35, orderedmap 33, actor 18, ui/node 11.** Unchanged; see phases 18 to 20.
