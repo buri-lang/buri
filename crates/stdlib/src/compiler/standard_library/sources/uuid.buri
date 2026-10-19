@@ -80,15 +80,19 @@ export fn version7<C: Allocator + Clock + Entropy>(ctx: C): Uuid {
     let milliseconds = time.now(ctx).0;
     // The first six random octets give way to the timestamp, most significant
     // first.
-    let timed = crypto.randomBytes(ctx, 16).mapIndexed(ctx, fn(i, octet) => match (i) {
-        0 => bits.shiftRight(milliseconds, 40).wrapToU8(),
-        1 => bits.shiftRight(milliseconds, 32).wrapToU8(),
-        2 => bits.shiftRight(milliseconds, 24).wrapToU8(),
-        3 => bits.shiftRight(milliseconds, 16).wrapToU8(),
-        4 => bits.shiftRight(milliseconds, 8).wrapToU8(),
-        5 => milliseconds.wrapToU8(),
-        _ => octet,
-    });
+    let timed = crypto
+        .randomBytes(ctx, 16)
+        .mapIndexed(ctx, fn(i, octet) => {
+            match (i) {
+                0 => bits.shiftRight(milliseconds, 40).wrapToU8(),
+                1 => bits.shiftRight(milliseconds, 32).wrapToU8(),
+                2 => bits.shiftRight(milliseconds, 24).wrapToU8(),
+                3 => bits.shiftRight(milliseconds, 16).wrapToU8(),
+                4 => bits.shiftRight(milliseconds, 8).wrapToU8(),
+                5 => milliseconds.wrapToU8(),
+                _ => octet,
+            }
+        });
     stamped(ctx, timed, 7)
 }
 
@@ -98,11 +102,15 @@ export fn version7<C: Allocator + Clock + Entropy>(ctx: C): Uuid {
 /// It walks the octets rather than reading each by position, so there is no
 /// position past the end to make a value up for.
 fn stamped<C: Allocator>(ctx: C, raw: [U8], version: Int): Uuid {
-    Uuid(raw.mapIndexed(ctx, fn(i, octet) => match (i) {
-        6 => (octet.toI64() % 16 + version * 16).wrapToU8(),
-        8 => (octet.toI64() % 64 + 128).wrapToU8(),
-        _ => octet,
-    }))
+    Uuid(
+        raw.mapIndexed(ctx, fn(i, octet) => {
+            match (i) {
+                6 => (octet.toI64() % 16 + version * 16).wrapToU8(),
+                8 => (octet.toI64() % 64 + 128).wrapToU8(),
+                _ => octet,
+            }
+        }),
+    )
 }
 
 /// The all-zero identifier, which RFC 9562 calls nil. It has no version and no
