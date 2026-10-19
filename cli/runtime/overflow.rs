@@ -17,7 +17,10 @@
 //! Besides the flush, the handler calls only `write`, `sigaction`, `raise`,
 //! `pause` and `_exit`. The flush never blocks on a lock: it reads the
 //! published bytes when the faulting thread holds the lock, and waits at most
-//! a second for another thread (`host::flush_in_handler`).
+//! a second for another thread (`host::flush_in_handler`). Under the
+//! `valgrind` feature it first waits, as every exit does, for other threads'
+//! critical sections to end (`sync::close`), and the flush gives back the
+//! locks it took, so helgrind sees no thread holding one at the exit.
 //!
 //! The handler writes no `buri test` record: the runner names the block a
 //! process died in from the blocks that returned, with what it wrote to stderr.
@@ -528,6 +531,7 @@ fn exhausted() -> ! {
         }
     }
     crate::memory::quiet_heap_audit();
+    crate::sync::close();
     crate::host::flush_in_handler();
     write_all(2, MESSAGE);
     write_all(2, b"\n");

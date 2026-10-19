@@ -379,8 +379,8 @@ fn shown_in_handler(stream: &Stream, fd: i32) {
             }
         };
         crate::overflow::write_all(fd, &queued.bytes);
-        // The process ends without unlocking: nothing else may print now.
-        std::mem::forget(queued);
+        // The process ends: nothing else may print now.
+        crate::sync::keep_to_the_exit(queued);
         return;
     }
 }

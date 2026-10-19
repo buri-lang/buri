@@ -16,6 +16,20 @@ pub(crate) use reported::{Condvar, Mutex, MutexGuard, close};
 #[inline]
 pub(crate) fn close() {}
 
+/// Keeps `guard`'s lock from every other thread until the process exits.
+/// Called after [`close`], on the way to an exit.
+#[cfg(not(feature = "valgrind"))]
+pub(crate) fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
+    std::mem::forget(guard);
+}
+
+/// [`close`] already keeps every other thread from taking a lock, so the
+/// guard goes back: helgrind reports a lock held at the exit.
+#[cfg(feature = "valgrind")]
+pub(crate) fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
+    drop(guard);
+}
+
 #[cfg(feature = "valgrind")]
 mod reported {
     use crate::allocator::valgrind;
@@ -357,6 +371,40 @@ pub(crate) mod tests {
         assert!(
             stderr.contains("stopped\nreleased\n"),
             "the abort didn't wait for the lock:\n{stderr}"
+        );
+    }
+
+    /// **Running out of stack waits for a lock another thread holds**, as an
+    /// abort does, and gives back the locks its flush took, so helgrind sees
+    /// no thread holding one at the exit.
+    #[test]
+    fn running_out_of_stack_waits_for_a_lock_another_thread_holds() {
+        if in_the_child() {
+            static HELD: Mutex<()> = Mutex::new(());
+            #[allow(unconditional_recursion)]
+            fn deep(n: u64) -> u64 {
+                std::hint::black_box(deep(std::hint::black_box(n) + 1)) ^ n
+            }
+            crate::overflow::arm();
+            let (ready, wait) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let guard = HELD.lock();
+                ready.send(()).unwrap();
+                while !super::reported::closing() {
+                    std::thread::yield_now();
+                }
+                eprintln!("released");
+                drop(guard);
+            });
+            wait.recv().unwrap();
+            std::process::exit(deep(0) as i32);
+        }
+        let (code, stderr) =
+            exit_of("sync::tests::running_out_of_stack_waits_for_a_lock_another_thread_holds");
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(
+            stderr.contains("released\nMaximum call stack size exceeded.\n"),
+            "running out of stack didn't wait for the lock:\n{stderr}"
         );
     }
 
