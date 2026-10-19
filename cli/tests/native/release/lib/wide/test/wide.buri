@@ -87,6 +87,28 @@ test "a wide variant fills its whole payload" {
     assert.equal(label(.Empty), "empty");
 }
 
+// Two variants that carry fields, so the tag is a word of its own beside them.
+enum Side {
+    Left(Row),
+    Right(Row),
+}
+
+fn side(s: Side): Str {
+    match (s) {
+        .Left(r) => r.a,
+        .Right(r) => r.l,
+    }
+}
+
+test "a match tells two wide variants apart by their tag" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let r = row(ctx, 9);
+    assert.equal(side(.Left(Row { ..r, a: "left" })), "left");
+    assert.equal(side(.Right(Row { ..r, l: "right" })), "right");
+}
+
 fn either<C: Allocator>(ctx: C, first: Bool): Row {
     let r = if (first) { row(ctx, 7) } else { row(ctx, 8) };
     Row { ..r, a: "x" }
