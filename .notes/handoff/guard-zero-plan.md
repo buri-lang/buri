@@ -119,6 +119,62 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 54
+
+## Review of 36e7641eb
+
+The deletion of monomorphize's context canonical pass is sound. Nothing needs restoring.
+
+- The pass merged only contexts whose bindings in the tables were closed. `Tables::intern_ctx_type` already merges exactly those when it mints a context type, and the tables never rewrite a binding after that. So the pass mapped every context to itself.
+- A build with the pass restored and a print on every merge printed nothing on the conformance tests (4760, debug and release), `tests/example` (51) and the tutorial (6). It also printed nothing on a probe of generic implementors, closures taking a context, trait methods and derives, on debug, release and JS.
+- The DECISIONS.md row was out of date. It now says the checker gives contexts with equal settled bindings one type, and a context with an unsettled binding keeps its own type.
+
+## Typed ids from lowering
+
+- `TypeList` interns by kind: `push_record` returns `RecTy`, `push_enum` returns `EnumTy`, `push_list` returns `ListTy` and `push_fn` returns `FnTy`. `TypeList::remap` adopts each entry as its own kind through the `Adopt` trait. `Remap` maps ids and rows.
+- These instructions carry a typed `ty`, and `Code::remap_types` remaps it:
+  - `MakeStruct` and `GetField`: `RecTy`
+  - `MakeEnum`, `GetPayload` and `GetTag`: `EnumTy`
+  - `ArrayGet`, `ArrayAlloc` and `ArrayPrefix`: `ListTy`
+- Lowering gets each id from facts it already holds, with no new check:
+  - the enum's con from the literal, the variant pattern, `TyConId::OPTION`, `RESULT` or `ORDER`
+  - the list from the element type
+  - a record for everything else
+- llvm and stencil read the layout off the instruction. The stencil `MakeStruct`, `GetField` and `GetPayload` "of a non-aggregate" `ice` arms are gone. `Plan::tagsw` carries the enum, so `tag_field` doesn't look it up.
+- Debug and release native output and the JS tools are byte-identical to base on conformance and `tests/example`. JS differs only in `$t.seed`. Cache entries differ only in toolchain id and keys.
+
+## Guards
+
+The plan-rule count is 79 before and 79 after. Every backend helper (llvm `agg`, `enum_ty` and `list_ty`; stencil `jit::enum_ty`, `jit::agg_of` and `lists::element_of`) still has callers:
+
+- intrinsic results (`rtcall.rs`, `json_prim`, the llvm intrinsic emitters)
+- `main`'s return (`stencil/mod.rs`, llvm `emit.rs` near 8480)
+- `MakeArray`, `ArraySlice`, `ArraySet` and `ArrayLen`
+- `emit.rs:85`'s signature return
+
+## Left
+
+- `MakeArray` and `ArraySlice` need an element type on typed `ExprKind::Array` and on the `..rest` pattern. That changes `typed.rs` shapes that crates/js matches, so it needs crates/js's owner. `ArraySet` can take the `ListTy` of its `ArrayAlloc` once lowering keeps it.
+- Typed intrinsic signatures: a `CallIntrinsic` result typed by kind, so `rtcall.rs`, `json_prim` and the llvm intrinsic emitters drop `enum_ty` and `agg`.
+- `main`'s return as a typed field on `Func` or the signature.
+- A typed `Function::values` table, for `int`, `int_ty`, `float` and `ptr`.
+- Still-uncovered middle branches: `rc.rs` `taken == 0`, the runtime memo in `derives.rs`, and the let-elses in `monomorphize`.
+
+## Coverage
+
+Branches, macOS local. The CI estimate applies phase 53's change (middle -9/-12, llvm -2/-2) and this phase's (middle +6/+6) to the staging baseline.
+
+| Area | Local new | CI baseline | CI estimate |
+| --- | --- | --- | --- |
+| middle | 1839/1872 (98.24%) | 1842/1878 (98.08%) | 1839/1872 (98.24%), passes |
+| llvm | 531/532 | 580/580 | 578/578, passes |
+| stencil | 1039/1079 | 1069/1078 | 1069/1078, unchanged: only `match` arms went |
+| backend | 66/66 | 68/68 | 68/68 |
+| semantics | 2154/2154 | 2158/2158 | 2158/2158 |
+| total | 14786/15026 | 14879/15043 (98.910%) | 14874/15035 (98.929%), passes |
+
+The full suite with `--features buri/backend-llvm` passes at c8f65bce5, before the rebase onto staging's 412113072. The landed commits are 2940bf927, 23f8b34b7 and 1dd28ea07.
+
 # Guard plan, phase 53
 
 ## Done

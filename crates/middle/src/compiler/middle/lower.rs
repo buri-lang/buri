@@ -84,7 +84,7 @@ use crate::compiler::middle::ir::{
     TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout::{self, EnumHead};
-use crate::compiler::middle::monomorphize::{FuncKind, Program};
+use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::typed::{
@@ -177,6 +177,13 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
             func
         })
         .collect();
+    let roots = match &program.roots {
+        ProgramRoots::Main(func) => ir::Roots::Main(ir::Main {
+            func: *func,
+            ret: types.enum_of(tables, &returns(program.funcs.get(*func)), TyConId::RESULT),
+        }),
+        ProgramRoots::Tests(tests) => ir::Roots::Tests(tests.iter().map(|t| t.func).collect()),
+    };
 
     ir::Program {
         funcs,
@@ -186,6 +193,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         cell_equal: program.cell_equal.clone(),
         intrinsics: keys.calls.keys,
         runtimes: keys.runtimes.keys,
+        roots,
     }
 }
 
