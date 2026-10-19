@@ -25,6 +25,7 @@
 //! Nothing else is shared. A case's scratch tree is named for the process and a
 //! counter ([`super::Scratch::empty`]), its goldens live in its own directory,
 //! and no case in a corpus that comes through here opens a socket.
+use super::hang::CappedChild;
 use std::any::Any;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -456,7 +457,7 @@ mod pool_tests {
             drop(ends);
             release.send(()).unwrap();
         });
-        assert!(child.wait().unwrap().success());
+        assert!(child.capped_wait().unwrap().success());
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             taken_back, 0,

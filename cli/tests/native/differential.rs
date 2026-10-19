@@ -60,6 +60,7 @@
 //! binary.
 
 use crate::conformance::Built;
+use crate::hang::Capped;
 use crate::shard;
 use buri::build::actions;
 use buri::build::buildfile::Platform;
@@ -201,7 +202,10 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
     text.push_str("\n$write(1,JSON.stringify(await $run(null)));\n");
     std::fs::write(&artifact, &text).unwrap();
     let engine = crate::shared::js_engine().ok_or("no JavaScript engine")?;
-    let out = Command::new(&engine).arg(&artifact).output().unwrap();
+    let out = Command::new(&engine)
+        .arg(&artifact)
+        .capped_output()
+        .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     if !out.status.success() {
         return Err(format!(

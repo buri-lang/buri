@@ -15,6 +15,7 @@
 //! just as good a proof there — so the test is meaningful on a mac and harmless
 //! on Linux.
 
+use crate::hang::Capped;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -45,7 +46,7 @@ fn cross_ready() -> bool {
             "--target",
             "x86_64-unknown-linux-musl",
         ])
-        .output();
+        .capped_output();
     let Ok(out) = out else { return false };
     if !out.status.success() {
         return false;
@@ -118,7 +119,7 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
 
     let out = buri(&repo, home)
         .args(["build", "//cmd/hello", "--output=native/linux-x86_64"])
-        .output()
+        .capped_output()
         .expect("run buri build");
     assert!(
         out.status.success(),
@@ -168,7 +169,7 @@ fn run_in_container(artifact: &Path) -> Option<String> {
             "docker.io/library/rust:1.89",
         ])
         .arg(format!("./{name}"))
-        .output()
+        .capped_output()
         .ok()?;
     // A pull or runtime-setup failure is an environment gap, not a product bug:
     // its message is on stderr and the program never ran, so there is no output

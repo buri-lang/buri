@@ -11,6 +11,7 @@
 //! cargo test -p buri --test build instances::
 //! ```
 
+use crate::harness::hang::Capped;
 use crate::harness::{indent, Run, Scratch};
 
 /// The platform a binary here declares: this machine's own native variant.
@@ -56,7 +57,7 @@ fn build_and_run(scratch: &Scratch, name: &str, source: &str) -> Run {
     scratch.write(&format!("cmd/{name}/main.buri"), source);
     scratch.run(&["build", &format!("//cmd/{name}")]).ok();
     let out = std::process::Command::new(artifact(scratch, name))
-        .output()
+        .capped_output()
         .unwrap_or_else(|e| panic!("cannot run //cmd/{name}: {e}"));
     Run {
         code: out.status.code().unwrap_or(-1),

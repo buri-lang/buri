@@ -5,6 +5,7 @@
 //! templates, regular expressions, every export form, and files cut off in
 //! the middle of each. The walkthrough's `fetch.mjs` stands in for the file;
 //! everything else is `repositories/custom-platforms/cloudflare_kv`.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 fn walkthrough() -> Scratch {
@@ -69,7 +70,7 @@ fn a_file_written_every_way_is_read_and_still_answers() {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("call.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(

@@ -130,6 +130,7 @@ mod product_link;
 #[allow(dead_code)]
 mod generate;
 
+use crate::harness::hang::Capped;
 use buri::build::textproto;
 use buri::compiler::driver;
 use buri::compiler::modules::Role;
@@ -822,12 +823,11 @@ fn run_watched(dir: &Path, args: &[&str], cap: Duration) -> Result<String, Strin
         .stderr(Stdio::from(err_file))
         .spawn()
         .expect("the buri binary runs");
-    let status = match harness::hang::watch(
-        &mut child,
-        "the toolchain",
-        cap,
-        Some(TOOLCHAIN_CPU_CEILING),
-    ) {
+    let bounds = harness::hang::Bounds {
+        work: TOOLCHAIN_CPU_CEILING,
+        ..harness::hang::Bounds::idle(cap)
+    };
+    let status = match harness::hang::watch(&mut child, "the toolchain", bounds) {
         Ok(status) => status,
         Err(killed) => return Err(killed.verdict()),
     };
@@ -1322,8 +1322,12 @@ fn waited_out(
         .spawn()
         .map_err(|e| format!("`{what}` did not start: {e}"))?;
     let (out, err) = harness::hang::drain(&mut child);
-    let status = harness::hang::watch(&mut child, what, cap, Some(ceiling))
-        .map_err(|killed| killed.verdict())?;
+    let bounds = harness::hang::Bounds {
+        work: ceiling,
+        ..harness::hang::Bounds::idle(cap)
+    };
+    let status =
+        harness::hang::watch(&mut child, what, bounds).map_err(|killed| killed.verdict())?;
     Ok(std::process::Output {
         status,
         stdout: out.take(),
@@ -1340,7 +1344,7 @@ fn engine_present() -> bool {
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
+            .capped_status()
             .is_ok_and(|s| s.success())
     })
 }
@@ -2360,7 +2364,7 @@ fn a_new_seed_leaves_every_other_seeds_mutants_alone() {
             .env_remove("BURI_FUZZ_SECONDS")
             .env_remove("BURI_FUZZ_SEED")
             .env_remove("BURI_FUZZ_RECORD")
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             run.status.success(),

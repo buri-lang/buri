@@ -38,6 +38,7 @@
 //! their own terms rather than to make the fast suite slow, and a module is a
 //! name prefix: `cargo test --test native -- --skip float_parity` leaves the
 //! rest of the domain fast, and `--test native float_parity` runs only this.
+use crate::hang::Capped;
 use buri::compiler::backend::runtime_native::AVAILABLE;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -163,7 +164,7 @@ fn engine() -> Option<&'static str> {
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status()
+            .capped_status()
             .is_ok_and(|s| s.success())
     })
 }
@@ -313,7 +314,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
         .arg(&source)
         .arg(archive);
     cc.args(crate::shared::product_link_args());
-    let built = cc.output().unwrap();
+    let built = cc.capped_output().unwrap();
     assert!(
         built.status.success(),
         "the driver did not build:\n{}",
@@ -333,7 +334,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
     let out = Command::new(&binary)
         .arg(&corpus_path)
         .arg(&rendered)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),
@@ -347,7 +348,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
     let checked = Command::new(engine)
         .arg(&checker)
         .arg(&rendered)
-        .output()
+        .capped_output()
         .unwrap();
     let report = String::from_utf8_lossy(&checked.stdout).to_string();
     assert!(
@@ -428,7 +429,7 @@ fn the_runtimes_own_unit_tests_pass() {
         .arg("-o")
         .arg(&binary)
         .arg(&lib)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         built.status.success(),
@@ -436,7 +437,7 @@ fn the_runtimes_own_unit_tests_pass() {
         String::from_utf8_lossy(&built.stderr)
     );
     crate::sweep::kept::settle(&binary);
-    let out = Command::new(&binary).output().unwrap();
+    let out = Command::new(&binary).capped_output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(
         out.status.success(),

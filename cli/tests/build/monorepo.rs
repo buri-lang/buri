@@ -11,6 +11,7 @@
 //! The claims are read off what `buri test --explain` prints and off the report
 //! itself, never off timings. The time a cold run takes is
 //! `repositories::monorepo_test_budget`'s claim.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 /// The suites that pass, as package names under `libs/`.
@@ -424,7 +425,7 @@ fn links_after_the_first_do_not_start_the_c_driver() {
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let banner = std::process::Command::new(&real_cc)
         .arg("--version")
-        .output();
+        .capped_output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
         && crate::harness::ci::skipped("build", "the C driver is not a clang")
     {

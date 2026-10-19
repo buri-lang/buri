@@ -9,6 +9,7 @@
 //! takes; and the language server's sweep of a deeply nested file, a sweep
 //! that lands while the server sits idle, and one that lands on a repository
 //! that no longer opens.
+use crate::harness::hang::CappedChild;
 use crate::harness::*;
 
 const PLATFORM: &str =
@@ -355,7 +356,7 @@ impl Server {
         drop(self.input.take());
         let mut rest = String::new();
         self.output.read_to_string(&mut rest).unwrap();
-        let status = self.child.wait().unwrap();
+        let status = self.child.capped_wait().unwrap();
         Run {
             code: status.code().unwrap_or(-1),
             stdout: format!("{}{rest}", self.read),

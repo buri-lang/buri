@@ -43,6 +43,7 @@
 //! ```text
 //! cargo test -p buri --test language symbols::
 //! ```
+use crate::harness::hang::Capped;
 use buri::build::session;
 use buri::commands::arguments::Flags;
 use buri::compiler::driver;
@@ -192,7 +193,10 @@ fn a_context_constructor_is_named_by_the_module_that_declares_it() {
 /// and release.
 #[test]
 fn every_javascript_module_loads_under_node() {
-    if Command::new("node").arg("--version").output().is_err()
+    if Command::new("node")
+        .arg("--version")
+        .capped_output()
+        .is_err()
         && crate::harness::ci::skipped("language::symbols", "node is not on PATH")
     {
         return;
@@ -275,7 +279,7 @@ export fn main(host: WebHost): Result<(), Str> {
             .ok();
         let binary = Command::new("node")
             .arg(scratch.artifact("cmd/rank"))
-            .output()
+            .capped_output()
             .expect("node runs");
         assert!(
             binary.status.success(),
@@ -290,7 +294,7 @@ export fn main(host: WebHost): Result<(), Str> {
         let page = Command::new("node")
             .arg("--check")
             .arg(scratch.artifact_in("web", "cmd/page"))
-            .output()
+            .capped_output()
             .expect("node runs");
         assert!(
             page.status.success(),

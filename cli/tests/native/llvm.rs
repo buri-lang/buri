@@ -30,6 +30,7 @@
 //! (`runtime_native::AVAILABLE`), `cc` must be on the path, and the target
 //! machine for this host's triple must be constructible. A host that fails any
 //! of those skips with a message rather than failing.
+use crate::hang::Capped;
 use buri::build::buildfile::{Arch, Platform};
 use buri::compiler::backend::runtime_native::AVAILABLE;
 use buri::compiler::backend::{llvm, Backend, Options, Profile, Target};
@@ -199,7 +200,7 @@ pub fn can_execute() -> Option<&'static str> {
     if !AVAILABLE {
         return Some("no runtime archive was built for this host");
     }
-    if Command::new(cc()).arg("--version").output().is_err() {
+    if Command::new(cc()).arg("--version").capped_output().is_err() {
         return Some("`cc` is not on the path");
     }
     let target = host_target();
@@ -269,7 +270,7 @@ fn build_and_run_at(
     profile: Profile,
 ) -> (String, String, Option<i32>) {
     let binary = build_at(name, source, probe, profile);
-    let run = Command::new(&binary).output().unwrap();
+    let run = Command::new(&binary).capped_output().unwrap();
     (
         String::from_utf8_lossy(&run.stdout).to_string(),
         String::from_utf8_lossy(&run.stderr).to_string(),
@@ -311,7 +312,7 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
             .arg(&c)
             .arg("-o")
             .arg(&o)
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             built.status.success(),
@@ -2490,7 +2491,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         let out = Command::new(env!("CARGO_BIN_EXE_buri"))
             .current_dir(&repo)
             .args(["build", "--release", "--explain"])
-            .output()
+            .capped_output()
             .expect("run buri build");
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
         assert!(
@@ -2498,7 +2499,9 @@ export fn main(host: NativeHost): Result<(), Str> {
             "the build failed:\n{stdout}\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let ran = Command::new(&artifact).output().expect("run the artifact");
+        let ran = Command::new(&artifact)
+            .capped_output()
+            .expect("run the artifact");
         assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
         let units: Vec<(String, String)> = stdout
             .lines()
@@ -2616,7 +2619,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
         let out = Command::new(env!("CARGO_BIN_EXE_buri"))
             .current_dir(&repo)
             .args(["build", "--release"])
-            .output()
+            .capped_output()
             .expect("run buri build");
         assert!(
             out.status.success(),
@@ -2624,7 +2627,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        let ran = Command::new(&artifact).output().expect("run the artifact");
+        let ran = Command::new(&artifact)
+            .capped_output()
+            .expect("run the artifact");
         assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
     };
     build(&main("${used()} ${used()}"), "270 270");
@@ -5019,7 +5024,7 @@ fn ignore(value: Int): () {
     let binary = build_tests("graph", source);
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -5139,7 +5144,7 @@ test "a schema declared ahead of a cache of ordered maps survives" {
     let binary = build_tests("ordered-container-signal", source);
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -5213,7 +5218,7 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
         if update {
             cmd.env("BURI_SNAPSHOT_UPDATE", "1");
         }
-        cmd.output().unwrap()
+        cmd.capped_output().unwrap()
     };
 
     // `--update` records, and records the bytes the other backend recorded.
@@ -5265,7 +5270,7 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
             "BURI_SNAPSHOT_SHEET",
             workspace().join("snapshot-changed").join("styles.css"),
         )
-        .output()
+        .capped_output()
         .unwrap();
     assert_ne!(
         out.status.code(),
@@ -5335,7 +5340,7 @@ fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_back
             "BURI_SNAPSHOT_SHEET",
             workspace().join("snapshot-text").join("styles.css"),
         )
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -5416,7 +5421,7 @@ test "the label ahead of a map survives its own paint" {
             workspace().join("snapshot-intact").join("styles.css"),
         )
         .env("BURI_SNAPSHOT_UPDATE", "1")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -5504,7 +5509,7 @@ test "notEmpty on a one-element list" {
     let binary = build_tests("not-empty-204", source);
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),

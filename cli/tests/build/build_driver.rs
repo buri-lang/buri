@@ -3,6 +3,7 @@
 //! artifact where something is in the way, a cache that rotted, the C driver
 //! and linker a link runs through, and the program store macOS runs test
 //! runners from.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 const NATIVE_MAIN: &str = r#"from "core/io" import * as io;
@@ -270,7 +271,7 @@ fn the_link_runs_through_the_c_driver_cc_names() {
     }
     let cc = std::process::Command::new("sh")
         .args(["-c", "command -v cc"])
-        .output()
+        .capped_output()
         .unwrap();
     let cc = String::from_utf8_lossy(&cc.stdout).trim().to_string();
     assert!(cc.starts_with('/'), "no `cc` on PATH: {cc:?}");
@@ -339,7 +340,7 @@ fn buri_linker_picks_the_linker() {
     };
     let has_lld = std::process::Command::new("sh")
         .args(["-c", &format!("command -v {lld}")])
-        .output()
+        .capped_output()
         .unwrap()
         .status
         .success();
@@ -356,7 +357,7 @@ fn buri_linker_picks_the_linker() {
         let out = std::process::Command::new(
             scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")),
         )
-        .output()
+        .capped_output()
         .unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
@@ -385,7 +386,7 @@ fn a_build_with_no_home_directory() {
             .arg("--color=never")
             .env_remove("HOME")
             .env_remove("BURI_HOME")
-            .output()
+            .capped_output()
             .unwrap();
         (
             out.status.code(),
@@ -603,7 +604,7 @@ fn a_test_runner_runs_from_the_program_store() {
         .env_remove("HOME")
         .env_remove("BURI_HOME")
         .env(LINKED.0, LINKED.1)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         String::from_utf8_lossy(&homeless.stdout).contains("1 passed"),
@@ -801,7 +802,7 @@ fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let real = std::process::Command::new("sh")
         .args(["-c", &format!("command -v '{real_cc}'")])
-        .output()
+        .capped_output()
         .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     for mode in [
@@ -829,7 +830,7 @@ fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
             let out = std::process::Command::new(
                 scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")),
             )
-            .output()
+            .capped_output()
             .unwrap();
             assert_eq!(
                 String::from_utf8_lossy(&out.stdout),
@@ -1057,7 +1058,7 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
 fn a_c_driver_that_is_musl_s_own_links_the_program() {
     let musl = std::process::Command::new("sh")
         .args(["-c", "command -v musl-gcc || command -v musl-clang"])
-        .output()
+        .capped_output()
         .unwrap();
     let musl = String::from_utf8_lossy(&musl.stdout).trim().to_string();
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1170,7 +1171,7 @@ fn a_buri_without_a_build_id_still_caches() {
             .current_dir(&scratch.root)
             .args(["build", "--color=never", "//cmd/app"])
             .env("BURI_HOME", scratch.path("home"))
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             out.status.success(),
@@ -1402,7 +1403,7 @@ fn a_stale_link_line_falls_back_to_the_driver() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     let found = std::process::Command::new("sh")
         .args(["-c", "command -v \"${CC:-cc}\""])
-        .output()
+        .capped_output()
         .unwrap();
     let real = String::from_utf8_lossy(&found.stdout).trim().to_string();
     let cc = scratch

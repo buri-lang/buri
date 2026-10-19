@@ -12,6 +12,7 @@
 //! turned away, some of them by the parser, and each one's expectation is
 //! checked exactly by the reject harness in `language/conformance.rs`.
 use crate::harness;
+use crate::harness::hang::Capped;
 
 use std::path::{Path, PathBuf};
 
@@ -483,7 +484,7 @@ fn git_names(root: &Path, args: &[&str]) -> Vec<String> {
     let out = std::process::Command::new("git")
         .current_dir(root)
         .args(args)
-        .output()
+        .capped_output()
         .expect("`git ls-files` runs: this suite runs inside the repository's own checkout");
     assert!(
         out.status.success(),
@@ -644,7 +645,7 @@ fn git(root: &Path, args: &[&str]) {
     let out = std::process::Command::new("git")
         .current_dir(root)
         .args(args)
-        .output()
+        .capped_output()
         .unwrap_or_else(|e| panic!("cannot run `git {}`: {e}", args.join(" ")));
     assert!(
         out.status.success(),

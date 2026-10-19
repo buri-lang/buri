@@ -11,6 +11,7 @@
 //! from a background job has asked for a program that ignores `SIGINT`, and
 //! that is passed through to it.
 
+use super::hang::{Capped, CappedChild};
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 
 unsafe extern "C" {
@@ -63,7 +64,7 @@ mod tests {
                 }
                 if Instant::now() > deadline {
                     child.kill().ok();
-                    child.wait().ok();
+                    child.capped_wait().ok();
                     panic!("the child ignored SIGINT");
                 }
                 std::thread::sleep(Duration::from_millis(20));
@@ -86,7 +87,7 @@ mod tests {
                 Ok(())
             });
         }
-        let out = command.output().expect("this binary runs again");
+        let out = command.capped_output().expect("this binary runs again");
         assert!(
             out.status.success(),
             "{}{}",

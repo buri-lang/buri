@@ -18,6 +18,10 @@
               drives it; a test that unwraps fails on the line that broke"
 )]
 
+#[path = "../../cli/tests/harness/hang.rs"]
+mod hang;
+
+use crate::hang::Capped;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -39,7 +43,7 @@ fn website(arguments: &[&str]) -> Output {
         .arg("--root")
         .arg(repository())
         .args(arguments)
-        .output()
+        .capped_output()
         .expect("the website binary runs")
 }
 

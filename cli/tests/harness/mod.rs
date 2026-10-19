@@ -11,6 +11,7 @@
 // Each test binary gets its own copy of this module and uses a subset of it.
 #![allow(dead_code, unused_imports)]
 
+use self::hang::Capped;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -77,7 +78,7 @@ pub fn js_runtime() -> String {
                     .arg("--version")
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
-                    .status();
+                    .capped_status();
                 if ran.is_ok_and(|s| s.success()) {
                     return candidate.to_string();
                 }
@@ -858,7 +859,7 @@ impl Scratch {
             .arg(&artifact)
             .stdout(std::fs::File::create(&out_path).unwrap())
             .stderr(std::fs::File::create(&err_path).unwrap())
-            .status()
+            .capped_status()
             .expect("the javascript runtime runs");
         Run {
             code: status.code().unwrap_or(-1),
@@ -875,7 +876,7 @@ impl Scratch {
         let artifact = self.artifact_in(dir, package_path);
         let out = Command::new(js_runtime())
             .arg(&artifact)
-            .output()
+            .capped_output()
             .expect("the javascript runtime runs");
         Run {
             code: out.status.code().unwrap_or(-1),
@@ -917,7 +918,7 @@ pub fn write_executable(path: &Path, contents: impl AsRef<[u8]>) {
     let staged = path.with_file_name(format!(".{name}.{}.{n}.staged", std::process::id()));
     std::fs::write(&staged, contents)
         .unwrap_or_else(|e| panic!("cannot write {}: {e}", staged.display()));
-    let copied = Command::new("cp").arg(&staged).arg(path).status();
+    let copied = Command::new("cp").arg(&staged).arg(path).capped_status();
     let _ = std::fs::remove_file(&staged);
     assert!(
         copied.is_ok_and(|s| s.success()),

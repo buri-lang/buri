@@ -58,6 +58,7 @@
               the workflow is not the toolchain."
 )]
 
+use crate::hang::{Capped, CappedChild};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -103,7 +104,7 @@ fn listed_by_git(root: &Path) -> Option<Vec<PathBuf>> {
             "*.rs",
         ])
         .current_dir(root)
-        .output()
+        .capped_output()
         .ok()?;
     if !output.status.success() {
         return None;
@@ -804,9 +805,9 @@ fn the_reading_tells_a_spinning_child_from_a_sleeping_one() {
     let idle = runnable(sleeping, false);
 
     let _ = spinner.kill();
-    let _ = spinner.wait();
+    let _ = spinner.capped_wait();
     let _ = sleeper.kill();
-    let _ = sleeper.wait();
+    let _ = sleeper.capped_wait();
     println!("a spinner reads {busy:?}; a sleeper reads {idle:?}");
 }
 
@@ -885,7 +886,7 @@ fn the_hang_cap_kills_a_tree_that_is_only_sleeping() {
         .args(["-0", &id.to_string()])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
+        .capped_status()
         .expect("`kill` is on PATH");
     assert!(
         !alive.success(),
@@ -897,11 +898,9 @@ fn the_hang_cap_kills_a_tree_that_is_only_sleeping() {
 ///
 /// The rule above cannot reach this one, and says so: a program looping for
 /// ever is runnable at every look, which is precisely what the cap reads as
-/// working. The suites here leave that to the job's `timeout-minutes`, but
-/// `fuzz.rs` cannot — its minimiser deletes a token and writes a program that
-/// loops, and "this input loops" is a finding that suite has to record — so it
-/// passes `watch` a ceiling on processor time. This is that ceiling, fired at a
-/// real spinning process.
+/// working. So every wait carries a ceiling on processor time, and `fuzz.rs`
+/// passes a tighter one, since "this input loops" is a finding it records. This
+/// is that ceiling, fired at a real spinning process.
 ///
 /// **Bounded by construction rather than by hope.** The shell counts to five
 /// million and stops, which is about six seconds of processor time on this
@@ -917,12 +916,11 @@ fn the_hang_cap_kills_a_runaway_that_spins() {
     let started = Instant::now();
     let mut child = silently("i=0; while [ \"$i\" -lt 5000000 ]; do i=$((i+1)); done");
     let id = child.id();
-    let killed = match hang::watch(
-        &mut child,
-        "a runaway",
-        Duration::from_secs(60),
-        Some(Duration::from_millis(200)),
-    ) {
+    let bounds = hang::Bounds {
+        work: Duration::from_millis(200),
+        ..hang::Bounds::idle(Duration::from_secs(60))
+    };
+    let killed = match hang::watch(&mut child, "a runaway", bounds) {
         Err(killed) => killed,
         Ok(status) => panic!(
             "the shell counted to five million and exited {status} in {:?}, so the ceiling never \
@@ -945,13 +943,127 @@ fn the_hang_cap_kills_a_runaway_that_spins() {
         .args(["-0", &id.to_string()])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
+        .capped_status()
         .expect("`kill` is on PATH");
     assert!(
         !alive.success(),
         "the ceiling fired and left process {id} running"
     );
     println!("a runaway was killed after {:?}: {said}", started.elapsed());
+}
+
+/// **A test whose child spins fails by name, and nothing of the child is left.**
+///
+/// The grandchild spins for ever, so a kill that stopped at the child would
+/// leave it burning a core. The child's own loop is bounded, so a ceiling that
+/// never fired is a failed assertion here rather than a hung test.
+#[test]
+fn a_test_whose_child_spins_fails_naming_itself_and_kills_the_tree() {
+    use std::io::BufRead as _;
+    use std::time::Duration;
+
+    let spin = r#"i=0; while [ "$i" -lt 5000000 ]; do i=$((i+1)); done"#;
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("(while :; do :; done) & echo $!; {spin}"))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("`sh` is on PATH");
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().expect("piped"))
+        .read_line(&mut line)
+        .expect("the shell names its grandchild");
+    let grandchild: u32 = line.trim().parse().expect("a pid");
+    let _cleanup = Killing(grandchild);
+    let id = child.id();
+
+    let bounds = hang::Bounds {
+        work: Duration::from_millis(200),
+        ..hang::Bounds::idle(Duration::from_secs(60))
+    };
+    let said = panicked(|| hang::wait_within(&mut child, "sh spinning", bounds));
+
+    for what in [
+        "a_test_whose_child_spins_fails_naming_itself_and_kills_the_tree",
+        "`sh spinning`",
+        "so it was killed after",
+        "processor time",
+    ] {
+        assert!(said.contains(what), "the report lacks {what:?}: {said}");
+    }
+    gone(id);
+    gone(grandchild);
+}
+
+/// **And a test whose child swells fails the same way**, before it takes the
+/// machine with it. The shell doubles a string to 64 MiB and then holds it.
+#[test]
+fn a_test_whose_child_swells_fails_naming_itself() {
+    use std::time::Duration;
+
+    let mut child = silently(
+        // The `:` after `sleep` keeps the shell, and its string, from being
+        // replaced by `sleep`.
+        r#"s=x; i=0; while [ "$i" -lt 26 ]; do s="$s$s"; i=$((i+1)); done; sleep 600; :"#,
+    );
+    let id = child.id();
+    let bounds = hang::Bounds {
+        memory: 32 << 20,
+        ..hang::Bounds::idle(Duration::from_secs(60))
+    };
+    let said = panicked(|| hang::wait_within(&mut child, "sh swelling", bounds));
+
+    for what in [
+        "a_test_whose_child_swells_fails_naming_itself",
+        "`sh swelling`",
+        "so it was killed after",
+        "past a ceiling of 32 MiB",
+    ] {
+        assert!(said.contains(what), "the report lacks {what:?}: {said}");
+    }
+    gone(id);
+}
+
+/// Kills its pid when dropped, so a failed assertion leaves no spinner behind.
+struct Killing(u32);
+
+impl Drop for Killing {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &self.0.to_string()])
+            .stderr(std::process::Stdio::null())
+            .capped_status();
+    }
+}
+
+/// What `run` panicked with. Fails if it returned.
+fn panicked<T: std::fmt::Debug>(run: impl FnOnce() -> T) -> String {
+    let fired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
+    let panic = fired.expect_err("the child finished on its own, so no ceiling fired");
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+/// Asserts `pid` is gone. A killed orphan is reaped by `init` in its own time,
+/// so this asks until it is, for as long as a minute.
+fn gone(pid: u32) {
+    use std::time::{Duration, Instant};
+    let until = Instant::now() + Duration::from_secs(60);
+    let alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .capped_status()
+            .is_ok_and(|s| s.success())
+    };
+    while alive() {
+        assert!(Instant::now() < until, "process {pid} outlived its kill");
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// One shell running `script`, with both pipes closed.
@@ -1206,7 +1318,7 @@ fn every_tool_the_workflow_assumes_is_on_path() {
         .filter(|tool| {
             std::process::Command::new(tool)
                 .arg("--version")
-                .output()
+                .capped_output()
                 .is_ok_and(|out| out.status.success())
                 .eq(&false)
         })
@@ -1302,7 +1414,7 @@ fn archive_symbols() -> String {
     let path = dir.join(buri::compiler::backend::runtime_native::ARCHIVE_NAME);
     std::fs::write(&path, buri::compiler::backend::runtime_native::ARCHIVE).unwrap();
     for tool in ["nm", "llvm-nm"] {
-        let Ok(out) = std::process::Command::new(tool).arg(&path).output() else {
+        let Ok(out) = std::process::Command::new(tool).arg(&path).capped_output() else {
             continue;
         };
         let text = String::from_utf8_lossy(&out.stdout);
@@ -1646,7 +1758,7 @@ fn the_published_crate_ships_the_runtime() {
     let out = std::process::Command::new(cargo)
         .args(["package", "-p", "buri", "--list", "--allow-dirty"])
         .current_dir(repo_root())
-        .output()
+        .capped_output()
         .expect("cargo could not be run");
     assert!(
         out.status.success(),
@@ -1909,7 +2021,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         let driver = if linker == "lld" { "ld.lld" } else { linker };
         if !Command::new(driver)
             .arg("--version")
-            .output()
+            .capped_output()
             .is_ok_and(|o| o.status.success())
         {
             assert!(!ci::on(), "BURI_CI=1 and `{driver}` is not on PATH");
@@ -1922,7 +2034,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
             .args(["build", "//cmd/app", &output])
             .env("BURI_LINKER", linker)
             .current_dir(&dir)
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             out.status.success(),
@@ -2007,7 +2119,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         );
 
         // And it still runs, linked by this linker, on this machine.
-        let ran = Command::new(&artifact).output().unwrap();
+        let ran = Command::new(&artifact).capped_output().unwrap();
         assert_eq!(
             String::from_utf8_lossy(&ran.stdout),
             "reproducible\n",
@@ -2023,7 +2135,7 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     let out = Command::new(buri)
         .args(["build", "//cmd/app", &output, "--check-reproducible"])
         .current_dir(&dir)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),

@@ -34,6 +34,7 @@
 //! rather than fails: `cc` is not a new requirement — `tests/native/runtime.rs`
 //! already needs it, and the link step is driven through it — but a suite that
 //! cannot run is not a suite that failed.
+use crate::hang::Capped;
 use buri::build::actions;
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::cache::{ActionKey, Cache};
@@ -102,7 +103,7 @@ fn linkable() -> Option<Target> {
         platform,
         arch: link::host_arch(),
     };
-    if Command::new(cc()).arg("--version").output().is_err() {
+    if Command::new(cc()).arg("--version").capped_output().is_err() {
         return None;
     }
     Some(target)
@@ -123,7 +124,7 @@ fn emit(dir: &Path, unit: &str, source: &str) -> Emitted {
         .arg("-o")
         .arg(&obj)
         .arg(&src)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),
@@ -359,7 +360,7 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
             ["-S"]
         })
         .arg(path)
-        .output()
+        .capped_output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default()
     };

@@ -11,6 +11,7 @@
 //! The test runs a loop of them with `BigInt` taken away, so a regression to
 //! the slow route is a failure and not a slower run. The values are what
 //! `numbers/test/integers.buri` also asserts, from a longer chain.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 const PROGRAM: &str = r#"
@@ -63,7 +64,7 @@ fn a_chain_of_narrow_wrapping_operations_builds_no_bigint() {
     let out = std::process::Command::new(js_runtime())
         .arg(&preload)
         .arg(&artifact)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     assert!(
         out.status.success(),

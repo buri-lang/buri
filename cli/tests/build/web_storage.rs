@@ -6,6 +6,7 @@
 //! import the built `main.mjs`, which runs `main` as a page load does. Importing
 //! it again under another query string is a reload: a fresh module over the
 //! same database.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 fn page() -> Scratch {
@@ -100,7 +101,7 @@ fn load(scratch: &Scratch, options: &str, loads: usize) -> String {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("load.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -144,7 +145,7 @@ fn refused_storage_is_an_error_the_page_handles() {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("bare.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),

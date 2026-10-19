@@ -102,6 +102,7 @@
 //! with the scratch path: the golden holds `<scratch>`, and what is compared
 //! against it is the printed text with the real path put back. A golden here
 //! holds `{{CROSS_VARIANT}}` for the same reason and by the same mechanism.
+use super::hang::CappedChild;
 use std::path::{Path, PathBuf};
 
 use super::{indent, run_in, run_in_merged, Golden, Scratch};
@@ -1261,7 +1262,7 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
     output
         .read_to_end(&mut rest)
         .expect("reading the rest of the session");
-    let status = child.wait().expect("the buri binary finishes");
+    let status = child.capped_wait().expect("the buri binary finishes");
     let mut stderr = String::new();
     if let Some(mut e) = child.stderr.take() {
         let _ = e.read_to_string(&mut stderr);

@@ -1,6 +1,7 @@
 //! What `buri build` itself answers: `--check-reproducible` with nowhere to
 //! write its rounds, beside a broken build file, on a library alone and over a
 //! linker that writes something new each time, and two pages built in one run.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 const NATIVE_MAIN: &str = r#"from "core/io" import * as io;
@@ -139,7 +140,7 @@ fn an_executable_that_differs_between_two_links_is_not_reproducible() {
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let real = std::process::Command::new("sh")
         .args(["-c", &format!("command -v '{real_cc}'")])
-        .output()
+        .capped_output()
         .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     let count = scratch.path("count").display().to_string();
@@ -180,7 +181,7 @@ fn an_executable_the_machine_s_linker_made_differ_names_that_linker() {
         .to_string();
     let real = std::process::Command::new("sh")
         .args(["-c", "command -v cc"])
-        .output()
+        .capped_output()
         .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     let path = format!(

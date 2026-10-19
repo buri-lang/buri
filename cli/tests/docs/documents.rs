@@ -4,6 +4,7 @@
 //! checks what the documents *are*: that every fence is scannable and tagged,
 //! that every link resolves, and that the checked-in `crates/docs/src/docs/SPEC.md`
 //! still matches what `buri docs assemble` produces.
+use crate::hang::{Capped, CappedChild};
 use crate::{pool, scanning, shard};
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ pub fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
     let out = buri()
         .args(args)
         .current_dir(dir)
-        .output()
+        .capped_output()
         .expect("the buri binary runs");
     heap_ok(&format!("buri {}", args.join(" ")), &out);
     out
@@ -1099,7 +1100,7 @@ fn a_closed_pipe_is_not_an_error() {
         let _ = out.read(&mut head);
         drop(out);
 
-        let finished = child.wait_with_output().expect("the child exits");
+        let finished = child.capped_wait_with_output().expect("the child exits");
         let err = String::from_utf8_lossy(&finished.stderr);
         assert!(
             !err.contains("panicked"),

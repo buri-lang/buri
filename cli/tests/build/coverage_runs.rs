@@ -2,6 +2,7 @@
 //! test runners with it, and a run's report holds only its own run's counts
 //! (buri-lang/buri#302).
 
+use crate::harness::hang::CappedChild;
 use crate::harness::{buri_command, ci, indent, tests_dir, Scratch};
 use crate::held::Held;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
@@ -83,7 +84,7 @@ fn killed_with(sig: i32, name: &str) {
     };
     let mut buri = command.spawn().expect("`buri` starts");
     drop(writer);
-    let status: ExitStatus = buri.wait().unwrap();
+    let status: ExitStatus = buri.capped_wait().unwrap();
     assert_eq!(
         status.signal(),
         Some(sig),
@@ -153,7 +154,7 @@ fn two_coverage_runs_at_once_each_report_their_own_counts() {
     let mut two = second.start(&scratch, &SHAPES);
     let merging = second.reached("merging", 1);
     waiting.go();
-    assert!(one.wait().unwrap().success(), "{}", first.printed());
+    assert!(one.capped_wait().unwrap().success(), "{}", first.printed());
     assert_eq!(
         scratch.read(".buri/coverage/lcov.info"),
         want,
@@ -161,7 +162,7 @@ fn two_coverage_runs_at_once_each_report_their_own_counts() {
         first.printed()
     );
     merging.go();
-    assert!(two.wait().unwrap().success(), "{}", second.printed());
+    assert!(two.capped_wait().unwrap().success(), "{}", second.printed());
     assert_eq!(
         scratch.read(".buri/coverage/lcov.info"),
         want,
@@ -177,7 +178,7 @@ fn a_killed_runs_counts_are_gone_after_the_next_run() {
     let scratch = shapes("coverage-runs-leftover");
     let held = Held::new("coverage-runs-leftover");
     held.raise("merging", 1, &[u8::try_from(SIGKILL).unwrap()]);
-    let status = held.start(&scratch, &SHAPES).wait().unwrap();
+    let status = held.start(&scratch, &SHAPES).capped_wait().unwrap();
     assert_eq!(
         status.signal(),
         Some(SIGKILL),

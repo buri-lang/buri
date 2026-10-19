@@ -27,6 +27,7 @@
 //! cargo test -p buri --test language sharing::
 //! ```
 
+use crate::harness::hang::{Capped, CappedChild};
 use std::process::{Command, Stdio};
 
 use crate::harness::{js_runtime, Scratch, JS_BINARY};
@@ -139,7 +140,7 @@ fn a_host_array_is_never_written_through() {
     );
     let out = Command::new(js_runtime())
         .arg(&probe)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -650,7 +651,7 @@ await import(pathToFileURL(artifact).href);
         .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
     let instructions = buri::profile::exited_instructions(child.id());
     let out = child
-        .wait_with_output()
+        .capped_wait_with_output()
         .unwrap_or_else(|e| panic!("`{what}` did not finish: {e}"));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
