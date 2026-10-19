@@ -79,10 +79,11 @@
 //!   every structural operation.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, IntrinsicId, Ownership, Remap,
-    RuntimeId, Signature, Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
+    self, Adopt, Agg, BinOp, BlockId, Body, Code, Const, EnumTy, Facts, FnTy, Func, Inst,
+    IntrinsicId, ListTy, Ownership, RecTy, Remap, RuntimeId, Signature, Target, Term, Type,
+    TypeList, UnOp, ValueId,
 };
-use crate::compiler::middle::layout;
+use crate::compiler::middle::layout::{self, EnumHead};
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::{Dense, DenseId};
@@ -90,7 +91,9 @@ use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, NumberLit, OptionOrResult, PatKind,
     Pattern, PrimOp, Stmt, TemplatePart, UnaryOp,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyKind};
+use crate::compiler::semantics::types::{
+    FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind,
+};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 
@@ -163,15 +166,12 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // order a single shared interner met them in, so the emitted type table and
     // every id in it are byte-for-byte the serial ones. The intrinsic keys
     // fold the same way, for the same reason.
-    let mut types = Types::default();
+    let mut types = Types::named();
     let mut keys = Keys::default();
     let funcs: Dense<FuncIdx, Func> = lowered
         .into_iter()
         .map(|(mut func, local, local_keys)| {
-            let remap = local.remap(|info| {
-                let id = types.adopt(tables, info.ty);
-                types.list.agg(id)
-            });
+            let remap = types.adopt(tables, local);
             remap_func_types(&mut func, &remap);
             keys.adopt(&mut func, &local_keys);
             func
@@ -459,37 +459,122 @@ impl<I: DenseId> Interner<I> {
 // The type interner
 // ---------------------------------------------------------------------------
 
+/// One table of types, each once, by kind. A type's kind is read off it once,
+/// in [`Types::agg`]; a caller that already knows the kind asks for it by
+/// kind ([`Types::enum_of`], [`Types::list_of`], [`Types::record_of`]) and
+/// gets that kind's id back.
 #[derive(Default)]
 struct Types {
     list: TypeList,
-    index: HashMap<Ty, TypeId>,
+    records: HashMap<Ty, RecTy>,
+    enums: HashMap<Ty, EnumTy>,
+    lists: HashMap<Ty, ListTy>,
+    fns: HashMap<Ty, FnTy>,
+    /// Whether an entry is named. Each function's own table is not: nothing
+    /// reads a function's own names, so [`Types::adopt`] names each type once
+    /// per program rather than once per function that meets it.
+    named: bool,
 }
 
 impl Types {
-    fn intern(&mut self, tables: &Tables, ty: &Ty) -> TypeId {
-        let ty = &Types::runtime_ty(tables, ty);
-        if let Some(id) = self.index.get(ty) {
-            return *id;
+    /// The program's table, which names what it interns.
+    fn named() -> Types {
+        Types {
+            named: true,
+            ..Types::default()
         }
-        // Named in [`Types::adopt`], once per program rather than once per
-        // function that meets the type: nothing reads a function's own names.
-        let id = self.list.push(tables, String::new(), *ty);
-        self.index.insert(*ty, id);
-        id
     }
 
-    /// Folds one already-interned type, a runtime `ty`, into this interner,
-    /// for merging the per-function interners `run_with` builds. The `ty` is
-    /// already `runtime_ty`-normalized, so a merged table is byte-for-byte a
-    /// serial one.
-    fn adopt(&mut self, tables: &Tables, ty: Ty) -> TypeId {
-        if let Some(id) = self.index.get(&ty) {
-            return *id;
+    fn name(&self, tables: &Tables, ty: &Ty) -> String {
+        if self.named {
+            crate::compiler::semantics::types::show(tables, None, &[], ty)
+        } else {
+            String::new()
         }
-        let name = crate::compiler::semantics::types::show(tables, None, &[], &ty);
-        let id = self.list.push(tables, name, ty);
-        self.index.insert(ty, id);
-        id
+    }
+
+    /// The aggregate `ty` is, interned.
+    fn agg(&mut self, tables: &Tables, ty: &Ty) -> Agg {
+        let ty = Types::runtime_ty(tables, ty);
+        match ty.kind() {
+            TyKind::Array(elem) => Agg::List(self.list_of(tables, *elem)),
+            TyKind::Fn(..) => Agg::Fn(self.closure(tables, ty)),
+            TyKind::Con(con, args) if matches!(tables.tycon(*con).def, TyDef::Enum { .. }) => {
+                Agg::Enum(self.enum_head(
+                    tables,
+                    EnumHead {
+                        ty,
+                        con: *con,
+                        args,
+                    },
+                ))
+            }
+            _ => Agg::Record(self.record(tables, ty)),
+        }
+    }
+
+    /// `ty`, an instance of the enum `con`.
+    fn enum_of(&mut self, tables: &Tables, ty: &Ty, con: TyConId) -> EnumTy {
+        let args = match ty.kind() {
+            TyKind::Con(_, args) => *args,
+            _ => &[],
+        };
+        self.enum_head(tables, EnumHead { ty: *ty, con, args })
+    }
+
+    /// `[elem]`.
+    fn list_of(&mut self, tables: &Tables, elem: Ty) -> ListTy {
+        let ty = Ty::array(elem);
+        if let Some(l) = self.lists.get(&ty) {
+            return *l;
+        }
+        let l = self.list.push_list(self.name(tables, &ty), ty, elem);
+        self.lists.insert(ty, l);
+        l
+    }
+
+    /// `ty`, a struct, tuple, context or `Str`.
+    fn record_of(&mut self, tables: &Tables, ty: &Ty) -> RecTy {
+        let ty = Types::runtime_ty(tables, ty);
+        self.record(tables, ty)
+    }
+
+    fn record(&mut self, tables: &Tables, ty: Ty) -> RecTy {
+        if let Some(r) = self.records.get(&ty) {
+            return *r;
+        }
+        let r = self.list.push_record(self.name(tables, &ty), ty);
+        self.records.insert(ty, r);
+        r
+    }
+
+    fn enum_head(&mut self, tables: &Tables, head: EnumHead) -> EnumTy {
+        if let Some(e) = self.enums.get(&head.ty) {
+            return *e;
+        }
+        let e = self.list.push_enum(self.name(tables, &head.ty), head);
+        self.enums.insert(head.ty, e);
+        e
+    }
+
+    fn closure(&mut self, tables: &Tables, ty: Ty) -> FnTy {
+        if let Some(f) = self.fns.get(&ty) {
+            return *f;
+        }
+        let f = self.list.push_fn(self.name(tables, &ty), ty);
+        self.fns.insert(ty, f);
+        f
+    }
+
+    /// Folds a function's own table into this one, the program's, and maps
+    /// the function's ids onto it. The types are already
+    /// [`Types::runtime_ty`]-normalized, so a merged table is byte-for-byte a
+    /// serial one.
+    fn adopt(&mut self, tables: &Tables, local: TypeList) -> Remap {
+        local.remap(&mut Adopting {
+            types: self,
+            tables,
+        })
     }
 
     /// `Template` is `Str` — VALUE-MODEL.md §3.3, "there is no `Template`
@@ -537,11 +622,33 @@ impl Types {
             .and_then(Type::of_prim)
         {
             Some(t) => t,
-            None => {
-                let id = self.intern(tables, ty);
-                self.list.ty(id)
-            }
+            None => Type::Agg(self.agg(tables, ty)),
         }
+    }
+}
+
+/// The program's [`Types`], as the table [`TypeList::remap`] adopts a
+/// function's entries into.
+struct Adopting<'a> {
+    types: &'a mut Types,
+    tables: &'a Tables,
+}
+
+impl Adopt for Adopting<'_> {
+    fn record(&mut self, ty: Ty) -> RecTy {
+        self.types.record(self.tables, ty)
+    }
+
+    fn enum_(&mut self, head: EnumHead) -> EnumTy {
+        self.types.enum_head(self.tables, head)
+    }
+
+    fn list(&mut self, _ty: Ty, elem: Ty) -> ListTy {
+        self.types.list_of(self.tables, elem)
+    }
+
+    fn closure(&mut self, ty: Ty) -> FnTy {
+        self.types.closure(self.tables, ty)
     }
 }
 
@@ -808,6 +915,21 @@ impl FnLower<'_> {
         self.types.of(self.tables, ty)
     }
 
+    /// `ty`, a struct, tuple, context or `Str`, as the record it is.
+    fn record_of(&mut self, ty: &Ty) -> RecTy {
+        self.types.record_of(self.tables, ty)
+    }
+
+    /// `ty`, an instance of the enum `con`, as the enum it is.
+    fn enum_of(&mut self, ty: &Ty, con: TyConId) -> EnumTy {
+        self.types.enum_of(self.tables, ty, con)
+    }
+
+    /// The list of `elem`.
+    fn list_of(&mut self, elem: Ty) -> ListTy {
+        self.types.list_of(self.tables, elem)
+    }
+
     /// Whether field `index` of a `derive Flags` value is set: its bit, which
     /// `middle::flags` places at `n - 1 - index`.
     fn flag(&mut self, val: ValueId, prim: Prim, con: TyConId, index: usize) -> ValueId {
@@ -1047,9 +1169,11 @@ impl FnLower<'_> {
                 continue;
             }
             let f = self.field_type(&ty, i);
+            let rec = self.record_of(&ty);
             let value = self.emit(f, |dest| Inst::GetField {
                 dest,
                 agg,
+                ty: rec,
                 index: i as u32,
             });
             self.push(Inst::DecRef { value });
@@ -1192,7 +1316,12 @@ impl FnLower<'_> {
 
             ExprKind::StructLit { fields, .. } => {
                 let fields = self.exprs(fields);
-                self.emit(ty, |dest| Inst::MakeStruct { dest, fields })
+                let rec = self.record_of(&e.ty);
+                self.emit(ty, |dest| Inst::MakeStruct {
+                    dest,
+                    ty: rec,
+                    fields,
+                })
             }
             ExprKind::StructUpdate { con, base, updates } => {
                 // `..base` is evaluated first and once, and the replacements
@@ -1238,9 +1367,11 @@ impl FnLower<'_> {
                         continue;
                     }
                     let f = self.field_type(&base.ty, *i);
+                    let rec = self.record_of(&base.ty);
                     replaced.push(self.emit(f, |dest| Inst::GetField {
                         dest,
                         agg: b,
+                        ty: rec,
                         index: *i as u32,
                     }));
                 }
@@ -1252,32 +1383,48 @@ impl FnLower<'_> {
                         }
                         None => {
                             let f = self.field_type(&base.ty, i);
+                            let rec = self.record_of(&base.ty);
                             fields.push(self.emit(f, |dest| Inst::GetField {
                                 dest,
                                 agg: b,
+                                ty: rec,
                                 index: i as u32,
                             }));
                         }
                     }
                 }
-                let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
+                let rec = self.record_of(&e.ty);
+                let out = self.emit(ty, |dest| Inst::MakeStruct {
+                    dest,
+                    ty: rec,
+                    fields,
+                });
                 for old in replaced {
                     self.push(Inst::DecRef { value: old });
                 }
                 out
             }
-            ExprKind::EnumLit { variant, args, .. } => {
+            ExprKind::EnumLit {
+                con, variant, args, ..
+            } => {
                 let fields = self.exprs(args);
                 let variant = variant.index() as u32;
+                let enum_ty = self.enum_of(&e.ty, *con);
                 self.emit(ty, |dest| Inst::MakeEnum {
                     dest,
+                    ty: enum_ty,
                     variant,
                     fields,
                 })
             }
             ExprKind::Tuple(xs) => {
                 let fields = self.exprs(xs);
-                self.emit(ty, |dest| Inst::MakeStruct { dest, fields })
+                let rec = self.record_of(&e.ty);
+                self.emit(ty, |dest| Inst::MakeStruct {
+                    dest,
+                    ty: rec,
+                    fields,
+                })
             }
             ExprKind::Array(xs) => {
                 let elems = self.exprs(xs);
@@ -1287,13 +1434,15 @@ impl FnLower<'_> {
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
                 let b = self.expr(base);
                 let index = *index as u32;
+                let rec = self.record_of(&base.ty);
                 self.emit(ty, |dest| Inst::GetField {
                     dest,
                     agg: b,
+                    ty: rec,
                     index,
                 })
             }
-            ExprKind::Index { base, index, elem } => self.index(ty, base, index, elem),
+            ExprKind::Index { base, index, elem } => self.index(ty, &e.ty, base, index, elem),
 
             ExprKind::Block { stmts, tail } => {
                 for s in stmts {
@@ -1376,7 +1525,12 @@ impl FnLower<'_> {
 
             ExprKind::CtxLit { bindings, .. } => {
                 let fields = bindings.iter().map(|(_, v)| self.expr(v)).collect();
-                self.emit(ty, |dest| Inst::MakeStruct { dest, fields })
+                let rec = self.record_of(&e.ty);
+                self.emit(ty, |dest| Inst::MakeStruct {
+                    dest,
+                    ty: rec,
+                    fields,
+                })
             }
             ExprKind::CtxGet { base, trait_id } => {
                 let b = self.expr(base);
@@ -1390,9 +1544,11 @@ impl FnLower<'_> {
                     _ => 0,
                 };
                 let index = slot as u32;
+                let rec = self.record_of(&base.ty);
                 self.emit(ty, |dest| Inst::GetField {
                     dest,
                     agg: b,
+                    ty: rec,
                     index,
                 })
             }
@@ -1410,7 +1566,12 @@ impl FnLower<'_> {
                 // `middle::closures` makes a lambda that captured nothing a
                 // reference instead, so a closure always carries something.
                 let record = self.type_of(&env_ty);
-                let env = self.emit(record, |dest| Inst::MakeStruct { dest, fields });
+                let rec = self.record_of(&env_ty);
+                let env = self.emit(record, |dest| Inst::MakeStruct {
+                    dest,
+                    ty: rec,
+                    fields,
+                });
                 self.emit(ty, |dest| Inst::MakeClosure {
                     dest,
                     func,
@@ -1441,7 +1602,7 @@ impl FnLower<'_> {
     /// (`list.buri:24-27`). The check is two comparisons and a branch here
     /// rather than a runtime call, so that the optimizer can see it: a bound
     /// it can prove is a bound it can delete.
-    fn index(&mut self, ty: Type, base: &Expr, index: &Expr, elem: &Ty) -> ValueId {
+    fn index(&mut self, ty: Type, opt: &Ty, base: &Expr, index: &Expr, elem: &Ty) -> ValueId {
         let xs = self.expr(base);
         let i = self.expr(index);
         let len = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
@@ -1479,13 +1640,17 @@ impl FnLower<'_> {
 
         self.cur = some_b;
         let elem_ty = self.type_of(elem);
+        let list = self.list_of(*elem);
         let v = self.emit(elem_ty, |dest| Inst::ArrayGet {
             dest,
             array: xs,
+            ty: list,
             index: i,
         });
+        let option = self.enum_of(opt, TyConId::OPTION);
         let some = self.emit(ty, |dest| Inst::MakeEnum {
             dest,
+            ty: option,
             variant: 0,
             fields: vec![v],
         });
@@ -1494,6 +1659,7 @@ impl FnLower<'_> {
         self.cur = none_b;
         let none = self.emit(ty, |dest| Inst::MakeEnum {
             dest,
+            ty: option,
             variant: 1,
             fields: Vec::new(),
         });
@@ -1527,7 +1693,8 @@ impl FnLower<'_> {
     ) -> ValueId {
         let v = self.expr(base);
         let held = self.held_variant(&base.ty, kind);
-        let ok = self.tag_is(v, held);
+        let from_ty = self.enum_of(&base.ty, con_of(kind));
+        let ok = self.tag_is(v, from_ty, held);
         let held_b = self.block(&[]);
         let fail_b = self.block(&[]);
         self.set_term(Term::Branch {
@@ -1544,8 +1711,10 @@ impl FnLower<'_> {
         let out = match kind {
             OptionOrResult::Option => {
                 let variant = self.variant_of(&ret, "None", 1);
+                let ret_enum = self.enum_of(&ret, TyConId::OPTION);
                 self.emit(ret_ty, |dest| Inst::MakeEnum {
                     dest,
+                    ty: ret_enum,
                     variant,
                     fields: Vec::new(),
                 })
@@ -1556,12 +1725,15 @@ impl FnLower<'_> {
                 let e = self.emit(err_ty, |dest| Inst::GetPayload {
                     dest,
                     agg: v,
+                    ty: from_ty,
                     variant: from,
                     index: 0,
                 });
                 let variant = self.variant_of(&ret, "Err", 1);
+                let ret_enum = self.enum_of(&ret, TyConId::RESULT);
                 self.emit(ret_ty, |dest| Inst::MakeEnum {
                     dest,
+                    ty: ret_enum,
                     variant,
                     fields: vec![e],
                 })
@@ -1576,6 +1748,7 @@ impl FnLower<'_> {
         self.emit(ty, |dest| Inst::GetPayload {
             dest,
             agg: v,
+            ty: from_ty,
             variant: held,
             index: 0,
         })
@@ -1941,7 +2114,12 @@ impl FnLower<'_> {
             return false;
         }
 
-        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: s });
+        let enum_ty = self.enum_of(ty, con);
+        let tag = self.emit(Type::I32, |dest| Inst::GetTag {
+            dest,
+            agg: s,
+            ty: enum_ty,
+        });
         let mut targets: Vec<(u64, Target)> = Vec::new();
         let mut bodies: Vec<(BlockId, u32, &[FieldPat], &Expr)> = Vec::new();
         for (variant, fields, body) in &cases {
@@ -1975,6 +2153,7 @@ impl FnLower<'_> {
                 let v = self.emit(ty, |dest| Inst::GetPayload {
                     dest,
                     agg: s,
+                    ty: enum_ty,
                     variant,
                     index: f.index as u32,
                 });
@@ -2110,9 +2289,11 @@ impl FnLower<'_> {
             PatKind::Tuple(ps) => {
                 for (i, p) in ps.iter().enumerate() {
                     let ty = self.type_of(&p.ty);
+                    let rec = self.record_of(&pat.ty);
                     let f = self.emit(ty, |dest| Inst::GetField {
                         dest,
                         agg: val,
+                        ty: rec,
                         index: i as u32,
                     });
                     self.pattern(f, p, fail);
@@ -2124,11 +2305,15 @@ impl FnLower<'_> {
                     let ty = self.type_of(&f.pattern.ty);
                     let v = match word {
                         Some(prim) => self.flag(val, prim, *con, f.index),
-                        None => self.emit(ty, |dest| Inst::GetField {
-                            dest,
-                            agg: val,
-                            index: f.index as u32,
-                        }),
+                        None => {
+                            let rec = self.record_of(&pat.ty);
+                            self.emit(ty, |dest| Inst::GetField {
+                                dest,
+                                agg: val,
+                                ty: rec,
+                                index: f.index as u32,
+                            })
+                        }
                     };
                     self.pattern(v, &f.pattern, fail);
                 }
@@ -2139,10 +2324,11 @@ impl FnLower<'_> {
                 fields,
             } => {
                 let variant = variant.index() as u32;
+                let enum_ty = self.enum_of(&pat.ty, *con);
                 // A single-variant enum has nothing to fall through to, so
                 // there is no tag to test — only projections.
                 if self.tables.tycon(*con).variants().len() > 1 {
-                    let ok = self.tag_is(val, variant);
+                    let ok = self.tag_is(val, enum_ty, variant);
                     let next = self.block(&[]);
                     self.set_term(Term::Branch {
                         cond: ok,
@@ -2156,6 +2342,7 @@ impl FnLower<'_> {
                     let v = self.emit(ty, |dest| Inst::GetPayload {
                         dest,
                         agg: val,
+                        ty: enum_ty,
                         variant,
                         index: f.index as u32,
                     });
@@ -2182,10 +2369,12 @@ impl FnLower<'_> {
                 self.cur = next;
                 for (i, p) in elems.iter().enumerate() {
                     let ty = self.type_of(&p.ty);
+                    let list = self.list_of(p.ty);
                     let idx = self.int(Type::I64, i);
                     let v = self.emit(ty, |dest| Inst::ArrayGet {
                         dest,
                         array: val,
+                        ty: list,
                         index: idx,
                     });
                     self.pattern(v, p, fail);
@@ -2269,8 +2458,8 @@ impl FnLower<'_> {
     }
 
     /// `tag(v) == variant`.
-    fn tag_is(&mut self, v: ValueId, variant: u32) -> ValueId {
-        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: v });
+    fn tag_is(&mut self, v: ValueId, ty: EnumTy, variant: u32) -> ValueId {
+        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: v, ty });
         let want = self.int(Type::I32, variant as usize);
         self.emit(Type::I1, |dest| Inst::Binary {
             dest,
@@ -2338,9 +2527,11 @@ impl FnLower<'_> {
         for (i, _) in updates {
             if self.sites.moved(node, *i) {
                 let f = self.field_type(&base_ty, *i);
+                let rec = self.record_of(&base_ty);
                 let old = self.emit(f, |dest| Inst::GetField {
                     dest,
                     agg: b,
+                    ty: rec,
                     index: *i as u32,
                 });
                 self.push(Inst::IncRef { value: old });
@@ -2355,9 +2546,11 @@ impl FnLower<'_> {
                 }
                 None => {
                     let f = self.field_type(&base_ty, i);
+                    let rec = self.record_of(&base_ty);
                     let kept = self.emit(f, |dest| Inst::GetField {
                         dest,
                         agg: b,
+                        ty: rec,
                         index: i as u32,
                     });
                     self.push(Inst::IncRef { value: kept });
@@ -2365,7 +2558,12 @@ impl FnLower<'_> {
                 }
             }
         }
-        let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
+        let rec = self.record_of(&e.ty);
+        let out = self.emit(ty, |dest| Inst::MakeStruct {
+            dest,
+            ty: rec,
+            fields,
+        });
         self.push(Inst::DecRef { value: b });
         out
     }
@@ -2403,6 +2601,14 @@ impl FnLower<'_> {
             }
             _ => field,
         }
+    }
+}
+
+/// The enum a `?` takes apart.
+fn con_of(kind: OptionOrResult) -> TyConId {
+    match kind {
+        OptionOrResult::Option => TyConId::OPTION,
+        OptionOrResult::Result => TyConId::RESULT,
     }
 }
 

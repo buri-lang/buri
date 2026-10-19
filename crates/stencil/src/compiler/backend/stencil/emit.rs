@@ -337,15 +337,10 @@ impl<'a> Jit<'a> {
                 let dest = (st.at(h.dest), code.ty_of(h.dest));
                 self.rt_call(prog, st, entry, dest, &list, tail);
             }
-            Inst::MakeStruct { dest, fields } => {
+            Inst::MakeStruct { dest, ty, fields } => {
                 let d = st.at(*dest);
-                let (l, owner) = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => (
-                        self.layout_id_shared(prog, id.id()),
-                        &prog.type_info(id.id()).ty,
-                    ),
-                    _ => crate::diagnostics::ice("stencil: MakeStruct of a non-aggregate"),
-                };
+                let l = self.layout_id_shared(prog, ty.id());
+                let owner = &prog.type_info(ty.id()).ty;
                 let ftys = field_types(self.tables, owner);
                 for (i, f) in fields.iter().enumerate() {
                     let w = self.width_of(prog, code.ty_of(*f));
@@ -360,14 +355,14 @@ impl<'a> Jit<'a> {
                     self.store_w(d + off, st.at(*f), w);
                 }
             }
-            Inst::GetField { dest, agg, index } => {
-                let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => (
-                        self.layout_id_shared(prog, id.id()),
-                        &prog.type_info(id.id()).ty,
-                    ),
-                    _ => crate::diagnostics::ice("stencil: GetField of a non-aggregate"),
-                };
+            Inst::GetField {
+                dest,
+                agg,
+                ty,
+                index,
+            } => {
+                let l = self.layout_id_shared(prog, ty.id());
+                let owner = &prog.type_info(ty.id()).ty;
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let off = l.field(*index as usize);
                 let src = st.at(*agg) + off;
@@ -380,22 +375,19 @@ impl<'a> Jit<'a> {
             }
             Inst::MakeEnum {
                 dest,
+                ty,
                 variant,
                 fields,
-            } => self.make_enum(prog, code, st, *dest, *variant, fields),
+            } => self.make_enum(prog, code, st, *dest, *ty, *variant, fields),
             Inst::GetPayload {
                 dest,
                 agg,
+                ty,
                 variant,
                 index,
             } => {
-                let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => (
-                        self.layout_id_shared(prog, id.id()),
-                        &prog.type_info(id.id()).ty,
-                    ),
-                    _ => crate::diagnostics::ice("stencil: GetPayload of a non-aggregate"),
-                };
+                let l = self.layout_id_shared(prog, ty.id());
+                let owner = &prog.type_info(ty.id()).ty;
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let off = l.variant(*variant as usize).get(*index as usize).copied();
                 match off {
@@ -411,7 +403,7 @@ impl<'a> Jit<'a> {
                     None => crate::diagnostics::ice("stencil: GetPayload of an absent field"),
                 }
             }
-            Inst::GetTag { dest, agg } => self.get_tag(prog, code, st, *dest, *agg),
+            Inst::GetTag { dest, agg, ty } => self.get_tag(prog, st, *dest, *agg, *ty),
             Inst::MakeClosure { dest, func, env } => {
                 // `{ code, env }` has one shape whatever the target is, and a
                 // **thunk** is what makes that true: a lambda lifted by
@@ -505,8 +497,13 @@ impl<'a> Jit<'a> {
             // dominating block (`middle/ir.rs`), so this is one indexed copy
             // and nothing else. A register-machine backend spells the same
             // three pieces; `eload` is the three of them as one stencil.
-            Inst::ArrayGet { dest, array, index } => {
-                let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
+            Inst::ArrayGet {
+                dest,
+                array,
+                ty,
+                index,
+            } => {
+                let (stride, w, _) = self.list_elem(prog, *ty);
                 self.elem_load(st.at(*dest), st.at(*array), st.at(*index), stride, w);
             }
             Inst::ArrayLen { dest, array } => {
@@ -515,8 +512,8 @@ impl<'a> Jit<'a> {
             }
             // The count goes through scratch first, because the destination's
             // slot may be the one the count dies in.
-            Inst::ArrayAlloc { dest, len } => {
-                let stride = self.array_stride(prog, code.ty_of(*dest));
+            Inst::ArrayAlloc { dest, ty, len } => {
+                let stride = u64::from(self.list_elem(prog, *ty).0);
                 let (d, n) = (st.at(*dest), st.scratch);
                 self.mv(n, st.at(*len), 8);
                 self.emit(
@@ -540,7 +537,9 @@ impl<'a> Jit<'a> {
             }
             // `elemalloc` zeroes the block, so the elements past `len` are the
             // spare slots the drop glue skips, and the block is kept.
-            Inst::ArrayPrefix { dest, array, len } => {
+            Inst::ArrayPrefix {
+                dest, array, len, ..
+            } => {
                 let (d, n) = (st.at(*dest), st.scratch);
                 self.mv(n, st.at(*len), 8);
                 self.mv(d, st.at(*array), 8);
@@ -585,16 +584,20 @@ impl<'a> Jit<'a> {
         }
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the `MakeEnum` instruction's operands, its enum among them"
+    )]
     fn make_enum(
         &mut self,
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         variant: u32,
         fields: &[ir::ValueId],
     ) {
-        let e = enum_ty(code.ty_of(dest));
         let owner = &prog.type_info(e.id()).ty;
         let l = self.enum_layout(prog, e);
         let ftys = variant_types(self.tables, owner, variant as usize);
@@ -771,12 +774,12 @@ impl<'a> Jit<'a> {
     fn get_tag(
         &mut self,
         prog: &ir::Program,
-        code: &ir::Code,
         st: &mut Fn2,
         dest: ir::ValueId,
         agg: ir::ValueId,
+        e: ir::EnumTy,
     ) {
-        let l = self.enum_layout(prog, enum_ty(code.ty_of(agg)));
+        let l = self.enum_layout(prog, e);
         let d = st.at(dest);
         let a = st.at(agg);
         let (repr, variants) = (&l.repr, &l.variants);
@@ -1508,8 +1511,8 @@ impl<'a> Jit<'a> {
                 // into scratch and the fusion does not apply.
                 let mut src = st.at(*on);
                 let mut fusedw: Option<&'static str> = None;
-                if let Some(agg) = plan.tagsw {
-                    let (off, w, niche) = self.tag_field(prog, code, st, agg);
+                if let Some((agg, e)) = plan.tagsw {
+                    let (off, w, niche) = self.tag_field(prog, st, agg, e);
                     let s0 = st.scratch + 24;
                     if niche {
                         self.emit(
@@ -1679,12 +1682,12 @@ impl<'a> Jit<'a> {
     fn tag_field(
         &mut self,
         prog: &ir::Program,
-        code: &ir::Code,
         st: &Fn2,
         agg: ir::ValueId,
+        e: ir::EnumTy,
     ) -> (u32, u32, bool) {
         let base = st.at(agg);
-        let l = self.enum_layout(prog, enum_ty(code.ty_of(agg)));
+        let l = self.enum_layout(prog, e);
         let (repr, variants) = (&l.repr, &l.variants);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),

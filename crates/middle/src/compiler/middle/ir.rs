@@ -73,7 +73,7 @@ use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Ta
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
-use crate::compiler::semantics::types::{FuncIdx, Prim, Tables, Ty, TyDef, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
 use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
@@ -326,32 +326,39 @@ fn next_row<T>(rows: &[T]) -> u32 {
 
 #[expect(
     clippy::indexing_slicing,
-    reason = "only `push` mints an id or a row, at the length its table then grows past"
+    reason = "only a `push_*` mints an id or a row, at the length its table then grows past"
 )]
 impl TypeList {
-    /// Interns `ty`, a type with no register shape, under `name`.
-    pub fn push(&mut self, tables: &Tables, name: String, ty: Ty) -> TypeId {
-        let kind = match ty.kind() {
-            TyKind::Array(elem) => {
-                let row = next_row(&self.lists);
-                self.lists.push(*elem);
-                Kind::List(row)
-            }
-            TyKind::Fn(..) => Kind::Fn,
-            TyKind::Con(con, args) if matches!(tables.tycon(*con).def, TyDef::Enum { .. }) => {
-                let row = next_row(&self.enums);
-                self.enums.push(EnumHead {
-                    ty,
-                    con: *con,
-                    args,
-                });
-                Kind::Enum(row)
-            }
-            _ => Kind::Record,
-        };
+    fn push(&mut self, name: String, ty: Ty, kind: Kind) -> TypeId {
         let id = TypeId::at(self.infos.len());
         self.infos.push(TypeInfo { name, ty, kind });
         id
+    }
+
+    /// Interns a struct, tuple, context or `Str` under `name`.
+    pub fn push_record(&mut self, name: String, ty: Ty) -> RecTy {
+        RecTy(self.push(name, ty, Kind::Record))
+    }
+
+    /// Interns an enum under `name`.
+    pub fn push_enum(&mut self, name: String, head: EnumHead) -> EnumTy {
+        let row = next_row(&self.enums);
+        self.enums.push(head);
+        let id = self.push(name, head.ty, Kind::Enum(row));
+        EnumTy { id, row }
+    }
+
+    /// Interns `ty`, the list of `elem`, under `name`.
+    pub fn push_list(&mut self, name: String, ty: Ty, elem: Ty) -> ListTy {
+        let row = next_row(&self.lists);
+        self.lists.push(elem);
+        let id = self.push(name, ty, Kind::List(row));
+        ListTy { id, row }
+    }
+
+    /// Interns a closure type under `name`.
+    pub fn push_fn(&mut self, name: String, ty: Ty) -> FnTy {
+        FnTy(self.push(name, ty, Kind::Fn))
     }
 
     pub fn get(&self, id: TypeId) -> &TypeInfo {
@@ -398,30 +405,78 @@ impl TypeList {
             .map(|(i, t)| (TypeId::at(i), t))
     }
 
-    /// Each entry's aggregate in another list, by `adopt`.
-    pub fn remap(self, adopt: impl FnMut(TypeInfo) -> Agg) -> Remap {
-        Remap(self.infos.into_iter().map(adopt).collect())
+    /// Each entry interned again in another list, by kind, in id order.
+    pub fn remap(self, to: &mut impl Adopt) -> Remap {
+        let mut remap = Remap {
+            aggs: Vec::with_capacity(self.infos.len()),
+            enums: Vec::with_capacity(self.enums.len()),
+            lists: Vec::with_capacity(self.lists.len()),
+        };
+        for info in self.infos {
+            let agg = match info.kind {
+                Kind::Record => Agg::Record(to.record(info.ty)),
+                Kind::Enum(row) => {
+                    let e = to.enum_(self.enums[row as usize]);
+                    remap.enums.push(e);
+                    Agg::Enum(e)
+                }
+                Kind::List(row) => {
+                    let l = to.list(info.ty, self.lists[row as usize]);
+                    remap.lists.push(l);
+                    Agg::List(l)
+                }
+                Kind::Fn => Agg::Fn(to.closure(info.ty)),
+            };
+            remap.aggs.push(agg);
+        }
+        remap
     }
 }
 
-/// The aggregates one [`TypeList`] minted, mapped to another's.
-pub struct Remap(Vec<Agg>);
+/// Where [`TypeList::remap`] interns each entry again, one call per kind, so
+/// the entry keeps its kind.
+pub trait Adopt {
+    fn record(&mut self, ty: Ty) -> RecTy;
+    fn enum_(&mut self, head: EnumHead) -> EnumTy;
+    fn list(&mut self, ty: Ty, elem: Ty) -> ListTy;
+    fn closure(&mut self, ty: Ty) -> FnTy;
+}
+
+/// The aggregates one [`TypeList`] minted, mapped to another's: by id, and
+/// for the kinds with rows, by row.
+pub struct Remap {
+    aggs: Vec<Agg>,
+    enums: Vec<EnumTy>,
+    lists: Vec<ListTy>,
+}
 
 #[expect(
     clippy::indexing_slicing,
-    reason = "a function's ids come from the list the remap was made from, one row per id"
+    reason = "a function's ids and rows come from the list the remap was made from, one entry each"
 )]
 impl Remap {
     pub fn id(&self, id: TypeId) -> TypeId {
-        self.0[id.index()].id()
+        self.aggs[id.index()].id()
     }
 
-    /// A type in the list this remap maps to: the same kind, since both
-    /// lists interned the same source type.
+    /// A type in the list this remap maps to: the same kind, since
+    /// [`TypeList::remap`] adopts each entry as its own kind.
     pub fn ty(&self, ty: &mut Type) {
         if let Type::Agg(agg) = ty {
-            *agg = self.0[agg.id().index()];
+            *agg = self.aggs[agg.id().index()];
         }
+    }
+
+    pub fn rec(&self, r: RecTy) -> RecTy {
+        RecTy(self.id(r.0))
+    }
+
+    pub fn enum_ty(&self, e: EnumTy) -> EnumTy {
+        self.enums[e.row as usize]
+    }
+
+    pub fn list(&self, l: ListTy) -> ListTy {
+        self.lists[l.row as usize]
     }
 }
 
@@ -554,11 +609,13 @@ pub enum Inst {
     /// A struct, tuple or context value, from its fields in declaration order.
     MakeStruct {
         dest: ValueId,
+        ty: RecTy,
         fields: Vec<ValueId>,
     },
     /// One variant of an enum, from the variant's fields in declaration order.
     MakeEnum {
         dest: ValueId,
+        ty: EnumTy,
         variant: u32,
         fields: Vec<ValueId>,
     },
@@ -579,6 +636,7 @@ pub enum Inst {
     GetField {
         dest: ValueId,
         agg: ValueId,
+        ty: RecTy,
         index: u32,
     },
     /// A field of the payload of a *known* variant. Reaching one whose tag is
@@ -588,6 +646,7 @@ pub enum Inst {
     GetPayload {
         dest: ValueId,
         agg: ValueId,
+        ty: EnumTy,
         variant: u32,
         index: u32,
     },
@@ -598,6 +657,7 @@ pub enum Inst {
     GetTag {
         dest: ValueId,
         agg: ValueId,
+        ty: EnumTy,
     },
     /// The element count of a `[T]`. Always O(1) (VALUE-MODEL.md §4).
     ArrayLen {
@@ -610,6 +670,7 @@ pub enum Inst {
     ArrayGet {
         dest: ValueId,
         array: ValueId,
+        ty: ListTy,
         index: ValueId,
     },
     /// `xs[from..]`, for the `..rest` of an array pattern.
@@ -627,6 +688,7 @@ pub enum Inst {
     /// No elements is no allocation, as for [`Inst::MakeArray`].
     ArrayAlloc {
         dest: ValueId,
+        ty: ListTy,
         len: ValueId,
     },
     /// Stores `value` as element `index` of a block an [`Inst::ArrayAlloc`]
@@ -643,6 +705,7 @@ pub enum Inst {
     ArrayPrefix {
         dest: ValueId,
         array: ValueId,
+        ty: ListTy,
         len: ValueId,
     },
 
@@ -1147,10 +1210,23 @@ impl Code {
     /// local interner's ids to a whole-program one's. `lower` builds each
     /// function against a private interner, across the cores, and folds the
     /// interners together afterwards; this is how a function's ids follow. The
-    /// one place a `TypeId` reaches is a value's [`Type`].
+    /// places a `TypeId` reaches are a value's [`Type`] and the kind-typed id an
+    /// instruction carries.
     pub fn remap_types(&mut self, remap: &Remap) {
         for ty in &mut self.values {
             remap.ty(ty);
+        }
+        for inst in self.blocks.iter_mut().flat_map(|b| b.insts.iter_mut()) {
+            match inst {
+                Inst::MakeStruct { ty, .. } | Inst::GetField { ty, .. } => *ty = remap.rec(*ty),
+                Inst::MakeEnum { ty, .. }
+                | Inst::GetPayload { ty, .. }
+                | Inst::GetTag { ty, .. } => *ty = remap.enum_ty(*ty),
+                Inst::ArrayGet { ty, .. }
+                | Inst::ArrayAlloc { ty, .. }
+                | Inst::ArrayPrefix { ty, .. } => *ty = remap.list(*ty),
+                _ => {}
+            }
         }
     }
 
@@ -1946,7 +2022,9 @@ impl Program {
                 out.push(' ');
                 pair(out, *lhs, *rhs);
             }
-            Inst::MakeStruct { dest: d, fields } => {
+            Inst::MakeStruct {
+                dest: d, fields, ..
+            } => {
                 dest(out, d);
                 out.push_str("make ");
                 wrapped(out, fields);
@@ -1955,6 +2033,7 @@ impl Program {
                 dest: d,
                 variant,
                 fields,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("make #");
@@ -1981,6 +2060,7 @@ impl Program {
                 dest: d,
                 agg,
                 index,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("field.");
@@ -1993,6 +2073,7 @@ impl Program {
                 agg,
                 variant,
                 index,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("payload.#");
@@ -2002,7 +2083,7 @@ impl Program {
                 out.push(' ');
                 value(out, *agg);
             }
-            Inst::GetTag { dest: d, agg } => {
+            Inst::GetTag { dest: d, agg, .. } => {
                 dest(out, d);
                 out.push_str("tag ");
                 value(out, *agg);
@@ -2016,6 +2097,7 @@ impl Program {
                 dest: d,
                 array,
                 index,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("elem ");
@@ -2030,7 +2112,7 @@ impl Program {
                 out.push_str("slice ");
                 pair(out, *array, *from);
             }
-            Inst::ArrayAlloc { dest: d, len } => {
+            Inst::ArrayAlloc { dest: d, len, .. } => {
                 dest(out, d);
                 out.push_str("alloc ");
                 value(out, *len);
@@ -2049,6 +2131,7 @@ impl Program {
                 dest: d,
                 array,
                 len,
+                ..
             } => {
                 dest(out, d);
                 out.push_str("prefix ");

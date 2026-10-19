@@ -22,7 +22,15 @@ use crate::diagnostics::Invariant;
 impl Jit<'_> {
     /// A `[T]`'s stride, element width and whether the element is counted.
     pub(crate) fn array_elem(&mut self, prog: &ir::Program, t: ir::Type) -> (u32, u32, bool) {
-        let elem = element_of(prog, t);
+        self.elem_shape(element_of(prog, t))
+    }
+
+    /// [`Jit::array_elem`] of a list the instruction names.
+    pub(crate) fn list_elem(&mut self, prog: &ir::Program, l: ir::ListTy) -> (u32, u32, bool) {
+        self.elem_shape(prog.types.elem(l))
+    }
+
+    fn elem_shape(&mut self, elem: Ty) -> (u32, u32, bool) {
         let l = self.layouts_of(elem);
         let counted = self.rc_counted(&elem);
         (l.stride.max(1), l.size.max(1), counted)

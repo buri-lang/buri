@@ -2010,9 +2010,8 @@ pub(crate) struct Plan {
         ir::ValueId,
         ir::ValueId,
     )>,
-    /// A `GetTag` the switch will do itself: `(aggregate value, byte offset,
-    /// tag width)`.
-    pub tagsw: Option<ir::ValueId>,
+    /// A `GetTag` the switch will do itself: the aggregate and its enum.
+    pub tagsw: Option<(ir::ValueId, ir::EnumTy)>,
     /// The increment a jump into a loop's test does itself.
     pub incbr: Option<Incbr>,
 }
@@ -2243,19 +2242,15 @@ impl<'a> Jit<'a> {
                     }
                     continue;
                 }
-                let (dest, fields, l, variant) = match i {
-                    ir::Inst::MakeStruct { dest, fields } => (
-                        *dest,
-                        fields,
-                        self.layout_of(prog, agg_of(code.ty_of(*dest))),
-                        None,
-                    ),
+                let (dest, fields, id, variant) = match i {
+                    ir::Inst::MakeStruct { dest, ty, fields } => (*dest, fields, ty.id(), None),
                     ir::Inst::MakeEnum {
                         dest,
+                        ty,
                         variant,
                         fields,
                     } => {
-                        let l = self.layout_of(prog, agg_of(code.ty_of(*dest)));
+                        let l = self.layout_of(prog, ty.id());
                         if matches!(
                             &l.repr,
                             Repr::Enum {
@@ -2265,11 +2260,12 @@ impl<'a> Jit<'a> {
                         ) {
                             continue;
                         }
-                        (*dest, fields, l, Some(*variant as usize))
+                        (*dest, fields, ty.id(), Some(*variant as usize))
                     }
                     _ => continue,
                 };
-                let owner = prog.type_info(agg_of(code.ty_of(dest))).ty;
+                let l = self.layout_of(prog, id);
+                let owner = prog.type_info(id).ty;
                 let offs: &[At] = match variant {
                     None => &l.fields,
                     Some(v) => l.variant(v),
@@ -2405,10 +2401,16 @@ impl<'a> Jit<'a> {
         }
         for (bi, b) in code.blocks().iter().enumerate() {
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::GetField { dest, agg, index } = i else {
+                let ir::Inst::GetField {
+                    dest,
+                    agg,
+                    ty,
+                    index,
+                } = i
+                else {
                     continue;
                 };
-                let id = agg_of(code.ty_of(*agg));
+                let id = ty.id();
                 let l = self.layout_of(prog, id);
                 let off = l.field(*index as usize);
                 let w = self.width(prog, code.ty_of(*dest));
@@ -3383,7 +3385,7 @@ impl<'a> Jit<'a> {
         if let ir::Term::Switch { .. } = &block.term {
             let k = n - 1;
             p.tagsw = match block.insts.get(k) {
-                Some(ir::Inst::GetTag { agg, .. }) => Some(*agg),
+                Some(ir::Inst::GetTag { agg, ty, .. }) => Some((*agg, *ty)),
                 _ => None,
             };
             *ent_mut(&mut p.skip, k) |= p.tagsw.is_some();
