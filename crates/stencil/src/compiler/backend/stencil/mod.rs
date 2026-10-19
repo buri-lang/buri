@@ -236,8 +236,8 @@ pub fn available_for(t: abi::StencilTarget) -> bool {
 /// The host's stencil library has to be non-empty. Answering that here is what
 /// lets `tests/native/stencil.rs` ask one question instead of spelling out which
 /// hosts are which, and it is why that suite's guard is not a `cfg!(target_os =
-/// "macos")`. [`unavailable_reason`] is the same question with the reason
-/// attached, which is what a skipping suite prints.
+/// "macos")`. `cli/tests/harness/stencil_host.rs` asks the same question with
+/// the reason attached, which is what a skipping suite prints.
 pub const AVAILABLE: bool = !MACOS_ARM64_BYTES.is_empty()
     && cfg!(all(target_os = "macos", target_arch = "aarch64"))
     || !LINUX_ARM64_BYTES.is_empty() && cfg!(all(target_os = "linux", target_arch = "aarch64"))
@@ -252,29 +252,6 @@ pub fn host_stencil_target() -> Option<abi::StencilTarget> {
         (false, true) => Some(abi::StencilTarget::LinuxArm64),
         (false, false) => Some(abi::StencilTarget::LinuxX86_64),
     }
-}
-
-/// Why this host cannot build a runnable stencil program, or `None` where it
-/// can.
-///
-/// [`AVAILABLE`] as a sentence, and the one a test suite prints when it skips.
-/// A suite that asked `cfg!(target_arch)` for itself would have to be edited
-/// the day the missing half lands; one that asks here lights up instead.
-pub fn unavailable_reason() -> Option<String> {
-    if AVAILABLE {
-        return None;
-    }
-    let Some(host) = host_stencil_target() else {
-        return Some(String::from(
-            "stencil has no x86_64-apple-darwin backend yet",
-        ));
-    };
-    // `AVAILABLE` is false and the host has a target, so its library is empty.
-    Some(format!(
-        "this toolchain was built without {} stencils, so there is no stencil library \
-         for the host to run",
-        host.slug()
-    ))
 }
 
 /// The decoded library for one target, once per process.
@@ -1472,16 +1449,6 @@ mod tests {
                 "{} is available with no library",
                 host.slug()
             );
-        }
-    }
-
-    /// The sentence and the flag are one question, and a skip that printed
-    /// nothing would be the silent pass the test suites are guarding against.
-    #[test]
-    fn the_unavailable_reason_is_present_exactly_when_the_backend_is_not() {
-        assert_eq!(AVAILABLE, unavailable_reason().is_none());
-        if let Some(why) = unavailable_reason() {
-            assert!(!why.is_empty());
         }
     }
 

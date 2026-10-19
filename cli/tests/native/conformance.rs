@@ -185,10 +185,11 @@
 //! refused file and asserts the backend still refuses it. A package that
 //! quietly becomes compilable is a failing test rather than a stale comment.
 use crate::shard;
+use crate::stencil_host::unavailable_reason as stencil_unavailable_reason;
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
 use buri::compiler::backend::runtime_native::AVAILABLE;
-use buri::compiler::backend::stencil::{unavailable_reason as stencil_unavailable_reason, Stencil};
+use buri::compiler::backend::stencil::Stencil;
 use buri::compiler::backend::{Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
@@ -891,7 +892,7 @@ const PACKAGES: &[Case] = &[
 
 /// Why this host cannot build and run a native artifact, or `None`.
 ///
-/// The host question belongs to `stencil::unavailable_reason`, which is "this
+/// The host question belongs to `stencil_host::unavailable_reason`, which is "this
 /// host has a stencil library and an entry point to put in front of it"
 /// answered as a sentence — so this suite runs unchanged wherever the backend
 /// does, and says which half is missing where it does not.

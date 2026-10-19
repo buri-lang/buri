@@ -104,7 +104,7 @@
 //! `cc` built no stencil library, or one no library is built for at all (macOS
 //! on x86-64), is left out by [`natives`] with a printed reason rather than
 //! asked and failed. The question is the backend's own —
-//! `stencil::unavailable_reason` — so these rows lit up with no edit here the
+//! `stencil_host::unavailable_reason` — so these rows lit up with no edit here the
 //! day x86-64 Linux got its entry point, and would again for a fourth target.
 //!
 //! With `--no-default-features` there is no native backend, and `main.rs`
@@ -256,7 +256,7 @@ fn engine() -> Option<String> {
 fn backend_unavailable(native: Native) -> Option<String> {
     #[cfg(feature = "backend-stencil")]
     if native.name == "stencil" {
-        return backend::stencil::unavailable_reason();
+        return crate::stencil_host::unavailable_reason();
     }
     let _ = native;
     None

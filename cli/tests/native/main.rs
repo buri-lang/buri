@@ -168,6 +168,12 @@ mod product_link;
 #[path = "../harness/hang.rs"]
 mod hang;
 
+// Why this host can't run a stencil program, which `stencil` and `agreement`
+// skip on.
+#[cfg(feature = "backend-stencil")]
+#[path = "../harness/stencil_host.rs"]
+mod stencil_host;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, the conformance corpus as a repository, and the product's own
 // link line. One copy, because what those suites assert is that the backends

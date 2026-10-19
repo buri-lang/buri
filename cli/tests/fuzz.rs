@@ -121,6 +121,9 @@
 mod harness;
 #[path = "harness/product_link.rs"]
 mod product_link;
+#[cfg(feature = "backend-stencil")]
+#[path = "harness/stencil_host.rs"]
+mod stencil_host;
 
 // The benchmark's generator, as a module rather than a copy. It is the
 // repository's Csmith: seeded, parameterised over twenty-seven dimensions, and
@@ -1401,7 +1404,7 @@ mod native {
     fn unavailable(name: &str) -> Option<String> {
         #[cfg(feature = "backend-stencil")]
         if name == "stencil" {
-            return buri::compiler::backend::stencil::unavailable_reason();
+            return crate::stencil_host::unavailable_reason();
         }
         let _ = name;
         None
