@@ -1,0 +1,10 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `vendor/` holds a `REPO.buri` of its own, so it is a repository the client
+# did not open. The outer report walks past its files and names none of them,
+# not even the unused source a report on it would lead with.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

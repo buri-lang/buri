@@ -1,0 +1,4 @@
+/// What the clock says.
+export fn now(): I64 {
+    0
+}

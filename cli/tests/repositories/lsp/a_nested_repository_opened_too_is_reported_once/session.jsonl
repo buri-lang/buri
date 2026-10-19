@@ -1,0 +1,11 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `vendor/` holds a `REPO.buri` of its own, and this client opens it as a
+# folder beside the repository around it. Each of its files is reported once,
+# by its own repository: the outer walk passes over them rather than naming
+# them a second time.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspaceFolders": [{"uri": "file://<scratch>", "name": "outer"}, {"uri": "file://<scratch>/vendor", "name": "inner"}]}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
