@@ -119,6 +119,40 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 66
+
+## What landed
+
+- `Ret::Int(Narrow)` is gone. A row answers `Ret::Bool` (a C `u8`) or `Ret::Order` (a C `i32`, the variant index of `core/order`'s `Order`). `ir::Answer::Order` carries the `Order` enum, the way sum rows carry theirs, so `rtcall.rs` reads the tag's size from that enum's layout.
+- The row tests read a `module.Type.name` row's declarations only from that type's `impl` blocks. `every_declared_argument_has_its_shape` checks a row against its single declaration of the same arity, so `TestStdin.bytes` and `TestEntropy.bytes` no longer share one check. Giving `TestStdin.bytes` the other method's shape fails the test.
+- `every_declared_scalar_is_typed` checks that `Bool` rows declare `Bool`, that `Order` rows declare `Order`, and that `Order` has no payload. That check is what keeps the tag size equal to the enum's size.
+- `library::Known` holds the indices of the seven stencils the emitter writes unasked (`br/f`, `brcmp/eq/u64/fi`, `brcmp/lt/u64/ff`, `incbr/lt`, `tagbr/eq8`, `tagbr/eq32`, `tagbr/eq`). `sources::assemble` refuses a library without one, and so does `Library::decode`. A new unit test, `a_library_has_every_known_stencil`, covers both.
+
+## Guards
+
+The plan-rule count goes from 46 to 45 (definitions included):
+
+- `emit.rs` "an arm key names a stencil" (`arm_key_of`): arm keys are `Known` indices now.
+
+`rtcall.rs` "a tag destination is an enum" was an `ice`, so the rule doesn't count it, but it's gone too.
+
+## Branches
+
+No counted branch was removed. Every decision this phase changed is a `match` arm or an iterator filter. The stencil, middle and llvm totals match phase 65's local head.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| stencil | 1037/1076 | 1037/1076 | 1075/1084 (99.170%) | 1075/1084 |
+| llvm | 535/536 | 535/536 | 580/580 | 580/580 |
+| middle | 1858/1888 | 1858/1888 | 1859/1890 | 1859/1890 |
+| cli/build | 1625/1683 | 1625/1683 | 1677/1685 | 1677/1685 |
+
+## Output
+
+The debug and release objects for `cli/tests/example`, and the stencil objects for the conformance corpus, are byte-identical between base and head. Conformance passes with `BURI_CONFORMANCE_BUILD=llvm-release`.
+
 # Guard phase 65
 
 ## What landed
