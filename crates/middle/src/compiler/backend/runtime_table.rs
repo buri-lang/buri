@@ -1341,7 +1341,11 @@ pub const ENTRIES: &[Entry] = &[
     e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar(U8)),
     e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar(U64)),
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar(U8)),
-    e("tasks.scopeRan", &[Dropped, Scalar, Scalar], Ret::Scalar(U8)),
+    e(
+        "tasks.scopeRan",
+        &[Dropped, Scalar, Scalar],
+        Ret::Scalar(U8),
+    ),
     // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
     // runtime's to call, so it crosses as a kept handler ([`Arg::Press`]):
     // `fn(C, Int) => ()`, with the context written into the record beside the
