@@ -1,0 +1,5 @@
+// No package of the nested repository lists this file, and none of the outer
+// one may: it sits in //lib/rate's directory, but it is not //lib/rate's.
+export fn later(): Int {
+    0
+}

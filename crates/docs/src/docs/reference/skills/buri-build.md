@@ -50,7 +50,8 @@ means every target in it. Patterns like `//lib/...` and `//...` are CLI-only.
 
 ## `REPO.buri`
 
-A directory with a `REPO.buri` is a repository root. The file parses as
+A directory with a `REPO.buri` is a repository root, and a repository around
+it never descends into it. The file parses as
 `buri.build.v1.RepoConfig` and has **three fields**:
 
 ```textproto schema=repo

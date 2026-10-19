@@ -545,7 +545,9 @@ pub fn files_under(
             continue;
         }
         if p.is_dir() {
-            files_under(&p, keep, out);
+            if !crate::build::workspace::is_root(&p) {
+                files_under(&p, keep, out);
+            }
         } else if keep(&p) {
             out.push(p);
         }

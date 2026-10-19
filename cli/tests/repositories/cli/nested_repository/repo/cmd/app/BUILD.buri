@@ -1,0 +1,7 @@
+binary {
+    dependencies: ["//lib/rate"]
+
+    outputs: [
+        { platform: "node" },
+    ]
+}

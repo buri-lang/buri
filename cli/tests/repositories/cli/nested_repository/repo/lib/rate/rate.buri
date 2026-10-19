@@ -1,0 +1,7 @@
+export struct Rate {
+    export value: Int,
+}
+
+export fn perHour(n: Int): Rate {
+    Rate { value: n }
+}

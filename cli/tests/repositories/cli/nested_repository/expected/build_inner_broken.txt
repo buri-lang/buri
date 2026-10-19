@@ -1,0 +1,7 @@
+error: expected a field name, found `{` [build-file-syntax]
+ --> lib/tick/BUILD.buri:1:10
+  |
+1 | library {{
+  |          ^
+  |
+  = fix: name a field the schema declares

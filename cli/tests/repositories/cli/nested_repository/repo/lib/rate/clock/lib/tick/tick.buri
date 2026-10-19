@@ -1,0 +1,8 @@
+// Laid out as `buri format` would not leave it, so a format run over the outer
+// repository that reached in here would have something to say.
+export struct Tick {
+    export at: Int,
+}
+
+export fn tick(n: Int): Tick {   Tick { at: n }
+}

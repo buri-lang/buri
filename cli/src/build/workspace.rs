@@ -142,8 +142,15 @@ fn is_platform_directory(package_path: &str) -> bool {
 // Loading
 // ---------------------------------------------------------------------------
 
-/// Walks up from `start` looking for the `REPO.buri` whose presence makes a
-/// directory a repository root.
+/// Whether `dir` is a repository root: a `REPO.buri` there makes it one. A
+/// root is also a boundary, so no walk over a repository around it crosses
+/// into it — its packages, sources and documents are its own, as `find_root`
+/// decides for a command run inside it.
+pub fn is_root(dir: &Path) -> bool {
+    dir.join("REPO.buri").is_file()
+}
+
+/// Walks up from `start` to the nearest directory [`is_root`] says is one.
 pub fn find_root(start: &Path) -> Option<PathBuf> {
     let mut dir = if start.is_dir() {
         start.to_path_buf()
@@ -151,7 +158,7 @@ pub fn find_root(start: &Path) -> Option<PathBuf> {
         start.parent()?.to_path_buf()
     };
     loop {
-        if dir.join("REPO.buri").is_file() {
+        if is_root(&dir) {
             return Some(dir);
         }
         if !dir.pop() {
@@ -1626,7 +1633,7 @@ fn check_platform_reach(workspace: &Workspace) -> Vec<Diagnostic> {
 
 /// Walks the tree collecting every directory that holds a `BUILD.buri`, each
 /// named by its path under the root: `prefix` is `dir`'s, with a `/` after it
-/// unless `dir` is the root.
+/// unless `dir` is the root. A repository nested below is not walked into.
 fn collect_packages(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     let entries = std::fs::read_dir(dir)
         .ok()
@@ -1669,6 +1676,7 @@ fn collect_packages(dir: &Path, prefix: &str, out: &mut Vec<String>) {
         })
         .filter(|(e, _)| is(e, true))
         .map(|(e, name)| (e.path(), name))
+        .filter(|(sub, _)| !is_root(sub))
         .collect();
     subdirs.sort();
     for (sub, name) in subdirs {

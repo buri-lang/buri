@@ -1,0 +1,112 @@
+# A directory with a `REPO.buri` of its own is a repository of its own, even
+# inside another one. `lib/rate/clock` is one, sitting in //lib/rate's
+# directory: its own packages, a sketch no package of it lists, a source
+# `buri format` would rewrite, and a page whose example neither compiles nor is
+# laid out. Every command run over the outer repository has to leave all of it
+# alone, and every command run inside it has to treat it as the whole
+# repository.
+#
+# Its labels are written against its own root, so `//lib/tick` names nothing in
+# the outer repository: an outer run that walked in would refuse it, which is
+# what makes the outer runs below evidence.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a directory with its own REPO.buri is its own repository, and the one around it never walks in"
+
+# `cmd/app` is the outer repository's one binary; `clock` is the nested one's.
+run {
+  args: ["build", "//..."]
+  exit: 0
+  golden: "build_outer.txt"
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test_outer.txt"
+}
+
+# No `unused-source` for the sketch in //lib/rate's directory, and no `sources`
+# entry `gen` wants for it: it is the nested repository's file, not one
+# //lib/rate forgot to list.
+run {
+  args: ["lint"]
+  exit: 0
+  golden: "lint_outer.txt"
+}
+
+run {
+  args: ["gen", "--check"]
+  exit: 0
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 0
+}
+
+run {
+  args: ["docs", "test"]
+  exit: 0
+  golden: "docs_outer.txt"
+}
+
+# The nested repository's packages are no targets of the outer one.
+run {
+  args: ["query", "sources(//lib/rate/clock/lib/tick)"]
+  exit: 2
+  golden: "query_outer.txt"
+}
+
+# Inside, the nested directory is the whole repository: its labels resolve
+# against it and its no-argument runs cover it.
+run {
+  args: ["build"]
+  cwd: "lib/rate/clock"
+  exit: 0
+  golden: "build_inner.txt"
+}
+
+run {
+  args: ["test"]
+  cwd: "lib/rate/clock/lib/tick"
+  exit: 0
+  golden: "test_inner.txt"
+}
+
+run {
+  args: ["format", "--check"]
+  cwd: "lib/rate/clock"
+  exit: 1
+  golden: "format_inner.txt"
+}
+
+run {
+  args: ["docs", "test"]
+  cwd: "lib/rate/clock"
+  exit: 1
+  golden: "docs_inner.txt"
+}
+
+# A build file in the nested repository that no longer parses is the nested
+# repository's error. The outer repository still loads and builds.
+edit {
+  file: "lib/rate/clock/lib/tick/BUILD.buri"
+  replace: "library {"
+  with: "library {{"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+  golden: "build_outer_again.txt"
+}
+
+run {
+  args: ["build"]
+  cwd: "lib/rate/clock"
+  exit: 2
+  golden: "build_inner_broken.txt"
+}

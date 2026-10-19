@@ -822,8 +822,8 @@ pub(crate) fn is_configuration(name: &str) -> bool {
 /// Every source a package owns: the `.buri` files in `out` and the `.proto`
 /// schemas in `schemas`, each named by its path under `dir` after `prefix`.
 ///
-/// A directory with a `BUILD.buri` of its own is another package and is not
-/// descended into. Public to the crate because this is the one walk that
+/// A directory with a `BUILD.buri` of its own is another package, and one with
+/// a `REPO.buri` another repository; neither is descended into. Public to the crate because this is the one walk that
 /// decides what a package's sources *are*, and the editor offers exactly this
 /// list when a `sources` entry is being typed — one walk, so what `gen` writes
 /// and what completion offers cannot disagree.
@@ -843,7 +843,7 @@ pub(crate) fn collect(dir: &Path, prefix: &str, out: &mut Vec<String>, schemas: 
         }
         let rel = || format!("{prefix}{name}");
         if p.is_dir() {
-            if p.join("BUILD.buri").is_file() {
+            if p.join("BUILD.buri").is_file() || crate::build::workspace::is_root(&p) {
                 continue;
             }
             collect(&p, &format!("{prefix}{name}/"), out, schemas);

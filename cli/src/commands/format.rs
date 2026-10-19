@@ -526,7 +526,7 @@ fn report(unread: &[String], refused: &[String], unreadable: &[String]) {
 }
 
 /// Every `.buri` file under `dir`, skipping the directories nothing in a
-/// repository is written by hand into.
+/// repository is written by hand into and the repositories nested in it.
 pub fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
     walk(dir, out, false);
 }
@@ -565,7 +565,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, schemas: bool) {
             continue;
         }
         if p.is_dir() {
-            walk(&p, out, schemas);
+            if !crate::build::workspace::is_root(&p) {
+                walk(&p, out, schemas);
+            }
         } else if p
             .extension()
             .is_some_and(|x| x == "buri" || (schemas && x == "proto"))
