@@ -151,6 +151,78 @@ test "base64 refuses a bad length or a character outside the alphabet" {
     assert.equal(assert.err(bytes.fromBase64(ctx, "Z=g=")), DecodeError(1));
 }
 
+/// Each decode as hex, or as `E` and the index its error names.
+fn decoded<C: Allocator>(ctx: C, r: Result<[U8], DecodeError>): Str {
+    match (r) {
+        .Ok(octets) => bytes.toHex(ctx, octets),
+        .Err(e) => str.format(ctx, "E${e.0}"),
+    }
+}
+
+test "a base64 error names the first character that is out of place, in either alphabet" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A character outside the alphabet at each position, then a `=` at each
+    // position, which is only padding in the last two.
+    let misplaced = [
+        "$m9vYmFy",
+        "Z$9vYmFy",
+        "Zm$vYmFy",
+        "Zm9$YmFy",
+        "Zm9v$mFy",
+        "Zm9vY$Fy",
+        "Zm9vYm$y",
+        "Zm9vYmF$",
+        "=m9vYmFy",
+        "Z=9vYmFy",
+        "Zm=vYmFy",
+        "Zm9=YmFy",
+        "Zm9v=mFy",
+        "Zm9vY=Fy",
+        "Zm9vYm=y",
+        "Zm9vYmF=",
+    ];
+    let wanted = "E0 E1 E2 E3 E4 E5 E6 E7 E0 E1 E2 E3 E4 E5 666f6f626032 666f6f6261";
+    let standard = misplaced.mapCtx(ctx, fn(c, t) => {
+        decoded(c, bytes.fromBase64(c, t))
+    });
+    let url = misplaced.mapCtx(ctx, fn(c, t) => decoded(c, bytes.fromBase64Url(c, t)));
+    assert.equal(standard.join(ctx, " "), wanted);
+    assert.equal(url.join(ctx, " "), wanted);
+    // Each alphabet's own two characters, padding, and lengths: the standard
+    // decoder wants whole groups of four, and the URL one pads a group of two
+    // or three itself.
+    let rest = [
+        "Zm9-",
+        "Zm9_",
+        "Zm9+",
+        "Zm9/",
+        "Zg==",
+        "Zm8=",
+        "Z===",
+        "====",
+        "Zg=A",
+        "Zg=",
+        "Zm9vY",
+        "Zg",
+        "Zm8",
+        "",
+        "-_-_",
+        "+/+/",
+    ];
+    let standardRest = rest.mapCtx(ctx, fn(c, t) => decoded(c, bytes.fromBase64(c, t)));
+    let urlRest = rest.mapCtx(ctx, fn(c, t) => decoded(c, bytes.fromBase64Url(c, t)));
+    assert.equal(
+        standardRest.join(ctx, " "),
+        "E3 E3 666f7e 666f7f 66 666f E1 E0 660000 E3 E5 E2 E3  E0 fbffbf",
+    );
+    assert.equal(
+        urlRest.join(ctx, " "),
+        "666f7e 666f7f E3 E3 66 666f E1 E0 660000 66 E5 66 666f  fbffbf E0",
+    );
+}
+
 // --- IEEE 754 byte patterns -----------------------------------------------------
 
 test "a float round-trips through its eight bytes" {

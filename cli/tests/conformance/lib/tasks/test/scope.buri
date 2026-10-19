@@ -16,6 +16,7 @@ from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
 from "core/alloc" import * as arenas;
 from "core/io" import * as io;
+from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
 from "core/testing/assert" import * as assert;
@@ -250,6 +251,64 @@ test "a task spawned after its scope returned runs on the test's own scheduler t
     let click = handler;
     let _ = click(ctx);
     assert.equal(out.captured(), "later\n");
+}
+
+/// Says `name`, then spawns a task that does the same with `letter` added,
+/// until `depth` runs out.
+fn chain<C: Allocator + Stdout + Tasks>(
+    ctx: C,
+    here: Scope,
+    name: Str,
+    letter: Str,
+    depth: Int,
+): () {
+    let _ = say(ctx, name);
+    if (depth > 0) {
+        tasks.spawn(ctx, here, fn(c) => {
+            chain(c, here, name.concat(c, letter), letter, depth - 1)
+        })
+    } else {
+        ()
+    }
+}
+
+// Three chains keep each round to the three steps `InOrder` runs.
+test "tasks that spawn tasks under the test's own scheduler each run once, in order" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: InOrder {},
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => chain(c2, here, "a", "a", 2));
+        let _ = tasks.spawn(c, here, fn(c2) => chain(c2, here, "b", "b", 2));
+        tasks.spawn(c, here, fn(c2) => chain(c2, here, "c", "c", 2))
+    });
+    assert.equal(out.captured(), "a\nb\nc\naa\nbb\ncc\naaa\nbbb\nccc\n");
+}
+
+test "a scope inside a task under the test's own scheduler waits for its own tasks" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: InOrder {},
+    };
+    let outer = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let empty = tasks.scope(c2, fn(c3, inside) => 0);
+            let inner = tasks.scope(c2, fn(c3, inside) => {
+                let _ = spawnThree(c3, inside);
+                3
+            });
+            say(c2, str.format(c2, "inner ${empty} ${inner}"))
+        });
+        let _ = tasks.spawn(c, here, fn(c2) => say(c2, "beside"));
+        1
+    });
+    assert.equal(outer, 1);
+    assert.equal(out.captured(), "a\nb\nc\ninner 0 3\nbeside\n");
 }
 
 /// A scheduler of the test's own that breaks `parallel`'s promise: it runs no
