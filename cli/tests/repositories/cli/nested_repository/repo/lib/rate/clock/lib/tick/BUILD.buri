@@ -1,0 +1,8 @@
+library {
+    sources: ["tick.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/tick.buri"]
+    }
+}

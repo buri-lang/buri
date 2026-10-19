@@ -145,11 +145,6 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
         let mut files = Vec::new();
         crate::commands::format::collect_with_schemas(&root, &mut files);
         for file in files {
-            // A repository nested in this one is its own: its files are in its
-            // report when a folder opens it, and in none when nothing does.
-            if state.root_of(&file).as_ref() != Some(&root) {
-                continue;
-            }
             let uri = convert::uri_of(&file);
             // A build file's own syntax, which no analysis reports: the report
             // walks every `BUILD.buri` in the repository, so this is the one
@@ -163,12 +158,6 @@ pub fn workspace(state: &mut State, params: &Value) -> Value {
         // see `State::workspace_findings`.
         if let Some(reported) = state.workspace_findings(&root) {
             for (uri, items) in reported {
-                // The loader reads a nested repository's build files as this
-                // one's packages; those findings are the nested one's to give.
-                let path = convert::path_of(&uri);
-                if path.and_then(|path| state.root_of(&path)).as_ref() != Some(&root) {
-                    continue;
-                }
                 found.entry(uri).or_default().extend(items);
             }
         }

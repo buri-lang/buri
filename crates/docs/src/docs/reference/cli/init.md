@@ -59,9 +59,9 @@ A `REPO.buri` at the target stops the command with exit 2. A scaffold is a
 starting point, not something to refresh; re-running `buri add skills` is how
 you upgrade skills.
 
-A `REPO.buri` *above* the target stops it too. The repository root is the
-outermost `REPO.buri`, so an inner one would be a stray build file that breaks
-the outer repository's `buri build //...`.
+A `REPO.buri` *above* the target stops it too. A new `REPO.buri` would cut its
+directory out of the repository around it, whose `buri build //...` would then
+skip everything there.
 
 Any other existing file stops it before it writes anything, so a refusal never
 leaves half a repository behind.

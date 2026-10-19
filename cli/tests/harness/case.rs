@@ -19,11 +19,10 @@
 //! ```
 //!
 //! `repo2/` is copied to a scratch tree of its own, named `<scratch2>` in a
-//! session the way `repo/` is named `<scratch>`. A sibling rather than a
-//! subdirectory, because a `REPO.buri` inside another repository is not a
-//! second root: the outer one's package walk descends into it and claims what
-//! is there. Only the language-server cases need it, and only because an editor
-//! can hold two repositories open at once.
+//! session the way `repo/` is named `<scratch>`: two repositories side by side
+//! rather than one inside the other, which `cli/nested_repository` covers.
+//! Only the language-server cases need it, and only because an editor can hold
+//! two repositories open at once.
 //!
 //! The manifest is textproto, read by the toolchain's own parser — every
 //! declarative file in this repository already is one, and a second config

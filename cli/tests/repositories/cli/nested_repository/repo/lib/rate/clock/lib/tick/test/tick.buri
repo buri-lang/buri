@@ -1,0 +1,10 @@
+from "core/testing/assert" import * as assert;
+from "//lib/tick" import { tick };
+
+test "a tick keeps its time" {
+    assert.equal(tick(2).at, 2);
+}
+
+test "a tick is not another tick" {
+    assert.notEqual(tick(2).at, 3);
+}

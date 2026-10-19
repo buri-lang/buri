@@ -1,0 +1,1 @@
+from "//lib/tick/tick.buri" export { Tick, tick };

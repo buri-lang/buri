@@ -266,6 +266,11 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
          a label; it is indented wrongly on purpose so both forms have something to find",
     ),
     (
+        "cli/tests/repositories/cli/nested_repository/repo/lib/rate/clock/lib/tick",
+        "a nested repository's source laid out wrongly on purpose: `build::repositories::cli` \
+         checks that `buri format --check` finds it from inside and not from the repository around it",
+    ),
+    (
         "cli/tests/repositories/syntax/a_late_module_doc_leaves_the_file_as_written/repo/lib/notes",
         "a `//!` below a declaration, which `build::repositories::syntax` asks `buri format` about",
     ),

@@ -1,0 +1,6 @@
+from "core/testing/assert" import * as assert;
+from "//lib/rate" import { perHour };
+
+test "a rate keeps the value it was made with" {
+    assert.equal(perHour(5).value, 5);
+}

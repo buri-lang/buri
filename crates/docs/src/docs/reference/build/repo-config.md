@@ -2,7 +2,9 @@
 
 `REPO.buri` marks the repository root. Every `//` label and `//` module path
 resolves against its directory, and the CLI walks up from your working
-directory to find it. It parses as `buri.build.v1.RepoConfig`
+directory to the nearest one. A directory below with a `REPO.buri` of its own
+is a separate repository: `//...`, `buri format`, `buri lint` and the rest
+never descend into it. It parses as `buri.build.v1.RepoConfig`
 ([`schema/repo.proto`](../schema/repo.proto)), a separate schema from
 `BUILD.buri`'s.
 

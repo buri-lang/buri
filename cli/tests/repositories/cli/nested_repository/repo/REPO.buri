@@ -1,0 +1,2 @@
+# The outer repository. `lib/rate/clock` holds a REPO.buri of its own, so it is
+# a second repository, and nothing below it is this one's.

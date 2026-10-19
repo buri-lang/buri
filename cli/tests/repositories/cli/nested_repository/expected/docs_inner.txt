@@ -1,0 +1,14 @@
+README.md:7: this example is not laid out the way `buri format` lays out source
+    what a reader copies out of a page is the house style, so it is the house style that is printed there.
+    Run `buri format` over the documentation, which rewrites the fence and nothing else around it.
+    expected:
+      | export fn broken(): Int {
+      |     "not a number"
+      | }
+      actual:
+      | export fn broken(): Int {   "not a number"
+      | }
+
+README.md:7: this example does not compile
+    README.md:7:25: expected `I64`, found `Str`
+2 example(s) do not do what the documentation says

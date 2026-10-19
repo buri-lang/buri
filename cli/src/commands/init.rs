@@ -28,11 +28,10 @@
 //!
 //! A `REPO.buri` *above* the target is refused for a different reason, and it
 //! is the one that bites hardest. Nesting one is not a collision — no file is
-//! written over — but `find_root` stops at the outermost marker it walks up
-//! to, so the inner one is not a root at all: it is a stray build file inside
-//! somebody else's repository, and it breaks their `buri build //...` on the
-//! next run. A generator that leaves a working directory worse than it found
-//! it has to refuse.
+//! written over — but a `REPO.buri` is a repository boundary, so the scaffold
+//! would cut its directory out of somebody else's repository: their
+//! `buri build //...` would stop seeing everything there. A generator that
+//! leaves a working directory worse than it found it has to refuse.
 #![allow(
     clippy::print_stdout,
     reason = "what was written is this command's output; diagnostics still leave \
@@ -476,9 +475,8 @@ mod tests {
         std::fs::remove_dir_all(&root).unwrap();
     }
 
-    /// A repository cannot hold another. The nested `REPO.buri` would not be a
-    /// root — `find_root` stops at the outer one — so it would be a stray build
-    /// file breaking somebody else's `buri build //...`.
+    /// A repository cannot hold another. The nested `REPO.buri` would cut its
+    /// directory out of somebody else's repository and their `buri build //...`.
     #[test]
     fn a_directory_inside_a_repository_is_refused() {
         let outer = scratch("nested");

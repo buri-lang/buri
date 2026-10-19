@@ -1279,8 +1279,9 @@ fn collect_package_sources(
             continue;
         }
         if p.is_dir() {
-            // A subdirectory with its own BUILD.buri is a different package.
-            if p.join("BUILD.buri").is_file() {
+            // A subdirectory with its own BUILD.buri is a different package,
+            // and one with its own REPO.buri a different repository.
+            if p.join("BUILD.buri").is_file() || crate::build::workspace::is_root(&p) {
                 continue;
             }
             collect_package_sources(&p, &format!("{prefix}{name}/"), extensions, out);
