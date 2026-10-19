@@ -2460,7 +2460,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let sig = self.machine_of(&f.sig);
         let ret = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let argv = self.flatten_args(state, code, args);
-        let result = self.machine_call(state.b, Callee::Direct(callee), &sig, &ret, argv);
+        let callee = if self.observed.get(func).recurses {
+            Callee::Recursive(callee)
+        } else {
+            Callee::Direct(callee)
+        };
+        let result = self.machine_call(state.b, callee, &sig, &ret, argv);
         if f.facts.can_abort {
             state.observed.aborts = true;
         }
@@ -3856,6 +3861,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 #[derive(Clone, Copy)]
 enum Callee<'ctx> {
     Direct(FunctionValue<'ctx>),
+    /// A direct call that stays a call: `notail`, because the callee
+    /// recurses ([`Observed::recurses`]).
+    Recursive(FunctionValue<'ctx>),
     /// A closure's `code`, at the type the call site writes.
     Indirect(FunctionType<'ctx>, PointerValue<'ctx>),
 }
@@ -5345,6 +5353,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         all.extend(argv);
         let call = match callee {
             Callee::Direct(f) => b.call(f, &all),
+            Callee::Recursive(f) => {
+                let call = b.call(f, &all);
+                attrs::no_tail(call);
+                call
+            }
             Callee::Indirect(ty, target) => b.indirect_call(ty, target, &all),
         };
         attrs::set_call_convention(call, attrs::FAST);
@@ -8633,9 +8646,10 @@ pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Dense<FuncIdx, Obser
         })
         .collect();
 
-    // The one bit whose seed is a property of the graph rather than of a body.
+    // The two bits whose seed is a property of the graph rather than of a body.
     for (o, cycles) in out.iter_mut().zip(reaches_a_cycle(program)) {
         o.may_diverge |= cycles;
+        o.recurses = cycles;
     }
 
     let mut changed = true;
@@ -8661,9 +8675,9 @@ pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Dense<FuncIdx, Obser
     out
 }
 
-/// The seven bits, as a tuple, so the fixpoint's "did anything change" is one
+/// The eight bits, as a tuple, so the fixpoint's "did anything change" is one
 /// comparison that a new bit cannot be left out of by accident.
-fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
+fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool, bool) {
     (
         o.allocates,
         o.aborts,
@@ -8672,6 +8686,7 @@ fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
         o.reads_far,
         o.writes_far,
         o.may_diverge,
+        o.recurses,
     )
 }
 

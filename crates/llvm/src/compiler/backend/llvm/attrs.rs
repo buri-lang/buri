@@ -415,6 +415,18 @@ pub struct Observed {
     /// function optimistic converges on "proven" for a function whose only
     /// unproven callee is itself. `emit::reaches_a_cycle` seeds it.
     pub may_diverge: bool,
+    /// The function can reach a cycle in the **call graph** — it recurses, or
+    /// calls something that does. `may_diverge` without its loops.
+    ///
+    /// Every call to such a function is `notail`, which is what keeps a
+    /// recursion a recursion. LLVM's `tailcallelim` otherwise turns
+    /// `1 + deep(n + 1)` into a loop with an accumulator, and that loop is not
+    /// the program: the recursion runs out of stack and aborts (SPEC 8.3,
+    /// 6.9), while the loop runs forever, or, with an exit only wrapping
+    /// arithmetic reaches, is solved in closed form and answers `-1`. A tail
+    /// call that recurses never gets here, because `middle::tail_calls` has
+    /// already made it a loop of its own.
+    pub recurses: bool,
 }
 
 impl Observed {
@@ -427,6 +439,7 @@ impl Observed {
             reads_far: false,
             writes_far: false,
             may_diverge: false,
+            recurses: false,
         }
     }
 
@@ -447,6 +460,9 @@ impl Observed {
             reads_far: true,
             writes_far: true,
             may_diverge: true,
+            // A runtime import is not defined in the module, so LLVM can
+            // neither inline it nor turn a call to it into a loop.
+            recurses: false,
         }
     }
 
@@ -460,6 +476,7 @@ impl Observed {
         self.reads_far |= other.reads_far;
         self.writes_far |= other.writes_far;
         self.may_diverge |= other.may_diverge;
+        self.recurses |= other.recurses;
     }
 }
 
@@ -743,6 +760,12 @@ pub fn cold_call(ctx: &Context, call: CallSiteValue<'_>) {
 pub fn noreturn_call(ctx: &Context, call: CallSiteValue<'_>) {
     cold_call(ctx, call);
     call_attr(ctx, call, AttributeLoc::Function, "noreturn", 0);
+}
+
+/// `notail` on a call to a function that recurses: see
+/// [`Observed::recurses`].
+pub fn no_tail(call: CallSiteValue<'_>) {
+    call.set_tail_call_kind(inkwell::values::LLVMTailCallKind::LLVMTailCallKindNoTail);
 }
 
 pub fn mark_noreturn(ctx: &Context, f: FunctionValue<'_>) {
