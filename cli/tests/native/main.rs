@@ -182,6 +182,8 @@ mod valgrind;
 
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod endless;
 // The end-to-end tier: whole programs, a real process, a real socket. Gated
 // like `agreement` — it needs *a* native backend and does not care which — and
 // its module doc is `cli/tests/README.md`'s "The trust ordering" applied.
