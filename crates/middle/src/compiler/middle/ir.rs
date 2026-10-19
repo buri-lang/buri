@@ -630,7 +630,7 @@ pub enum Inst {
     MakeClosure {
         dest: ValueId,
         func: FuncIdx,
-        env: Option<ValueId>,
+        env: Option<Env>,
     },
     /// A field of a struct, tuple or context, by declaration index.
     GetField {
@@ -773,6 +773,14 @@ pub enum Inst {
     },
 }
 
+/// A closure's environment: the record of what it captured, and that
+/// record's type, which is the lifted lambda's first parameter.
+#[derive(Clone, Copy, Debug)]
+pub struct Env {
+    pub value: ValueId,
+    pub ty: RecTy,
+}
+
 /// One [`Inst::Parallel`]: `tasks.parallel(sched, ctx, items, step)`.
 ///
 /// The step is a `fn(C, Int, A) => B` and the answer a `[B]`. Its operands are
@@ -895,7 +903,7 @@ impl Inst {
                 out.extend_from_slice(fields)
             }
             Inst::MakeArray { elems, .. } => out.extend_from_slice(elems),
-            Inst::MakeClosure { env, .. } => out.extend(env.iter().copied()),
+            Inst::MakeClosure { env, .. } => out.extend(env.iter().map(|e| e.value)),
             Inst::GetField { agg, .. }
             | Inst::GetPayload { agg, .. }
             | Inst::GetTag { agg, .. } => out.push(*agg),
@@ -1220,7 +1228,12 @@ impl Code {
         }
         for inst in self.blocks.iter_mut().flat_map(|b| b.insts.iter_mut()) {
             match inst {
-                Inst::MakeStruct { ty, .. } | Inst::GetField { ty, .. } => *ty = remap.rec(*ty),
+                Inst::MakeStruct { ty, .. }
+                | Inst::GetField { ty, .. }
+                | Inst::MakeClosure {
+                    env: Some(Env { ty, .. }),
+                    ..
+                } => *ty = remap.rec(*ty),
                 Inst::MakeEnum { ty, .. }
                 | Inst::GetPayload { ty, .. }
                 | Inst::GetTag { ty, .. } => *ty = remap.enum_ty(*ty),
@@ -2072,7 +2085,7 @@ impl Program {
                 self.sym_into(*func, out);
                 out.push_str(", ");
                 match env {
-                    Some(e) => value(out, *e),
+                    Some(e) => value(out, e.value),
                     None => out.push_str("null"),
                 }
             }

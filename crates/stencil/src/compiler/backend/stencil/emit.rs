@@ -425,7 +425,7 @@ impl<'a> Jit<'a> {
                     ],
                 );
                 match env {
-                    Some(e) => self.build_env(prog, code, st, d + super::glue::ENV_WORD, *e),
+                    Some(e) => self.build_env(prog, code, st, d + super::glue::ENV_WORD, e.value),
                     None => self.imm_to(d + super::glue::ENV_WORD, 0),
                 }
             }
