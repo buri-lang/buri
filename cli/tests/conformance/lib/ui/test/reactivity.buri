@@ -674,33 +674,33 @@ test "a scope charges the bytes it was asked for" {
     assert.equal(log.noted(), [24]);
 }
 
-// --- a value read out of a cell ------------------------------------------------------
+// --- a value read out of a signal ------------------------------------------------------
 
-// buri-lang/buri#143. `get` hands back what the cell holds, and the cell goes
+// buri-lang/buri#143. `get` hands back what the signal holds, and the signal goes
 // on holding it, so the reader has the second reference to it — not the only
 // one. A list grown through the caller's reference must therefore build a new
 // list rather than write through, or `xs.set(ctx, xs.get(ctx).concat(…))` hands
 // `set` the value it is replacing and the equality cutoff drops the write.
 
-test "growing a list read out of a cell leaves the cell alone" {
+test "growing a list read out of a signal leaves the signal alone" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
         Allocator: testAlloc(),
     };
-    // Built rather than written as a literal, so the cell is handed a list
+    // Built rather than written as a literal, so the signal is handed a list
     // this program allocated — the case where a backend is entitled to think
     // nobody else holds it.
     let xs = signal(ctx, ["a"].concat(ctx, ["b"]));
     let held = xs.get(ctx);
-    // No `set` anywhere: the only way the cell can move is by being written
+    // No `set` anywhere: the only way the signal can move is by being written
     // through the list `get` answered.
     let grown = held.concat(ctx, ["c"]);
     assert.equal(grown, ["a", "b", "c"]);
     assert.equal(xs.get(ctx), ["a", "b"]);
 }
 
-test "pushing onto a list read out of a cell leaves the cell alone" {
+test "pushing onto a list read out of a signal leaves the signal alone" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
@@ -729,45 +729,45 @@ test "a get-then-set append is a change on every write" {
     assert.equal(log.noted(), [2, 3, 4, 5]);
 }
 
-// The other way round: the caller keeps the list it handed the cell, and grows
-// it through that name. The cell still holds the list.
+// The other way round: the caller keeps the list it handed the signal, and grows
+// it through that name. The signal still holds the list.
 
-test "growing a list a cell was created with leaves the cell alone" {
+test "growing a list a signal was created with leaves the signal alone" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
         Allocator: testAlloc(),
     };
     let xs = ["a"].concat(ctx, ["b"]);
-    let cell = signal(ctx, xs);
+    let sig = signal(ctx, xs);
     assert.equal(xs.push(ctx, "c"), ["a", "b", "c"]);
-    assert.equal(cell.get(ctx), ["a", "b"]);
+    assert.equal(sig.get(ctx), ["a", "b"]);
 }
 
-test "reversing a list set into a cell leaves the cell alone" {
+test "reversing a list set into a signal leaves the signal alone" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
         Allocator: testAlloc(),
     };
-    let cell = signal(ctx, ["z"]);
+    let sig = signal(ctx, ["z"]);
     let xs = ["a"].concat(ctx, ["b"]);
-    let _ = cell.set(ctx, xs);
+    let _ = sig.set(ctx, xs);
     assert.equal(xs.reverse(ctx), ["b", "a"]);
-    assert.equal(cell.get(ctx), ["a", "b"]);
+    assert.equal(sig.get(ctx), ["a", "b"]);
 }
 
-test "growing a list inside a value held by a cell leaves the cell alone" {
+test "growing a list inside a value held by a signal leaves the signal alone" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
         Allocator: testAlloc(),
     };
     let xs = ["a"].concat(ctx, ["b"]);
-    let cell = signal(ctx, Option.Some(xs));
+    let sig = signal(ctx, Option.Some(xs));
     assert.equal(xs.push(ctx, "c"), ["a", "b", "c"]);
-    assert.equal(assert.some(cell.get(ctx)).push(ctx, "d"), ["a", "b", "d"]);
-    assert.equal(cell.get(ctx), .Some(["a", "b"]));
+    assert.equal(assert.some(sig.get(ctx)).push(ctx, "d"), ["a", "b", "d"]);
+    assert.equal(sig.get(ctx), .Some(["a", "b"]));
 }
 
 // --- the design's example ------------------------------------------------------------
