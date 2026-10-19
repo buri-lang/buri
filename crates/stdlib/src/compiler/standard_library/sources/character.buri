@@ -131,9 +131,14 @@ fn codeAt(table: Str, at: Int): Int {
         + digitAt(table, at + 3)
 }
 
+/// A table is written in `0` to `9` and then `a` to `z`, so a digit's value is
+/// how far its character is past the start of whichever run it is in.
 fn digitAt(table: Str, at: Int): Int {
     match (table.charAt(at)) {
-        .Some(c) => c.toDigit(36).withDefault(0),
+        .Some(c) => {
+            let code = c.toU32().toI64();
+            if (code < 97) { code - 48 } else { code - 87 }
+        },
         .None => 0,
     }
 }

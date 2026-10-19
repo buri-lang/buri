@@ -404,14 +404,9 @@ fn decode64<C: Allocator>(ctx: C, text: Str, alphabet: Str): Result<[U8], Decode
             .Err(DecodeError(cs.length()))
         }
     } else {
-        match (firstNonBase64(cs, alphabet, 0, cs.length())) {
-            .Some(i) => .Err(DecodeError(i)),
-            .None => {
-                let pad = padding(cs);
-                let bytes = decodeFrom(ctx, cs, alphabet, 0, list.empty<U8>());
-                .Ok(bytes.take(ctx, bytes.length() - pad))
-            },
-        }
+        let places = sextetsFrom(ctx, cs, alphabet, 0, list.empty<Int>())?;
+        let bytes = decodeFrom(ctx, places, 0, list.empty<U8>());
+        .Ok(bytes.take(ctx, bytes.length() - padding(cs)))
     }
 }
 
@@ -425,69 +420,53 @@ fn padding(cs: [Char]): Int {
     }
 }
 
-/// The octets of each group of four from `at` on. Every character is already
-/// known to be in the alphabet or padding, and the length a multiple of four.
-fn decodeFrom<C: Allocator>(
-    ctx: C,
-    cs: [Char],
-    alphabet: Str,
-    at: Int,
-    acc: [U8],
-): [U8] {
-    match ((cs.get(at), cs.get(at + 1), cs.get(at + 2), cs.get(at + 3))) {
-        (.Some(w), .Some(x), .Some(y), .Some(z)) => {
-            let a = sextet(w, alphabet);
-            let b = sextet(x, alphabet);
-            let c = sextet(y, alphabet);
-            let d = sextet(z, alphabet);
+/// The octets of each group of four sextets from `at` on. The length is already
+/// a multiple of four.
+fn decodeFrom<C: Allocator>(ctx: C, places: [Int], at: Int, acc: [U8]): [U8] {
+    match ((places.get(at), places.get(at + 1), places.get(at + 2), places.get(at + 3))) {
+        (.Some(a), .Some(b), .Some(c), .Some(d)) => {
             let grown = acc
                 .push(ctx, (a * 4 + b / 16).wrapToU8())
                 .push(ctx, (b % 16 * 16 + c / 4).wrapToU8())
                 .push(ctx, (c % 4 * 64 + d).wrapToU8());
-            decodeFrom(ctx, cs, alphabet, at + 4, grown)
+            decodeFrom(ctx, places, at + 4, grown)
         },
         _ => acc,
     }
 }
 
-/// The alphabet position of a character, or 0 for padding — the caller has
-/// already checked that every character is in the alphabet.
-fn sextet(ch: Char, alphabet: Str): Int {
-    if (ch == '=') { 0 } else { alphabetIndex(ch, alphabet, 0) }
-}
-
-fn alphabetIndex(ch: Char, alphabet: Str, i: Int): Int {
-    match (alphabet.charAt(i)) {
-        .None => 0,
-        .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, alphabet, i + 1) },
-    }
-}
-
-/// Pure validation: every character is in the alphabet, and `=` appears only in
-/// the last one or two positions.
-fn firstNonBase64(cs: [Char], alphabet: Str, i: Int, n: Int): Option<Int> {
+/// Each character's place in the alphabet from `i` on, with padding as 0. The
+/// error is the first character that is neither, or a `=` before the last two.
+///
+/// Reading and checking are one walk, so a character is looked up once and no
+/// later step has to make up a place for one it was told is there.
+fn sextetsFrom<C: Allocator>(
+    ctx: C,
+    cs: [Char],
+    alphabet: Str,
+    i: Int,
+    acc: [Int],
+): Result<[Int], DecodeError> {
     match (cs.get(i)) {
-        .None => .None,
+        .None => .Ok(acc),
         .Some(c) => {
-            if (c == '=') {
-                if (i >= n - 2) {
-                    firstNonBase64(cs, alphabet, i + 1, n)
-                } else {
-                    .Some(i)
-                }
-            } else if (inAlphabet(c, alphabet, 0)) {
-                firstNonBase64(cs, alphabet, i + 1, n)
+            let place: Option<Int> = if (c == '=') {
+                if (i >= cs.length() - 2) { .Some(0) } else { .None }
             } else {
-                .Some(i)
+                alphabetIndex(c, alphabet, 0)
+            };
+            match (place) {
+                .Some(p) => sextetsFrom(ctx, cs, alphabet, i + 1, acc.push(ctx, p)),
+                .None => .Err(DecodeError(i)),
             }
         },
     }
 }
 
-fn inAlphabet(ch: Char, alphabet: Str, i: Int): Bool {
+fn alphabetIndex(ch: Char, alphabet: Str, i: Int): Option<Int> {
     match (alphabet.charAt(i)) {
-        .None => false,
-        .Some(b) => b == ch || inAlphabet(ch, alphabet, i + 1),
+        .None => .None,
+        .Some(b) => if (b == ch) { .Some(i) } else { alphabetIndex(ch, alphabet, i + 1) },
     }
 }
 

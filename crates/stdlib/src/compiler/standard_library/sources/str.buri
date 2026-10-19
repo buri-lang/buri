@@ -709,7 +709,7 @@ fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
     };
     let exponent = match (marker) {
         .None => 0,
-        .Some(at) => text.slice(at + 1, text.length()).toInt().withDefault(0),
+        .Some(at) => exponentOf(ctx, text.slice(at + 1, text.length())),
     };
     let dot = mantissa.indexOf(".");
     let whole = match (dot) {
@@ -721,6 +721,16 @@ fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
         .Some(at) => mantissa.slice(at + 1, mantissa.length()),
     };
     (whole.concat(ctx, fraction), whole.length() + exponent)
+}
+
+/// The exponent `fromFloat` writes after its `e`: always a sign, `+` or `-`,
+/// then decimal digits, so each digit's value is its distance past `0`.
+fn exponentOf<C: Allocator>(ctx: C, text: Str): Int {
+    let size: Int = text
+        .slice(1, text.length())
+        .chars(ctx)
+        .fold(fn(acc, c) => acc * 10 + c.toU32().toI64() - 48, 0);
+    if (text.startsWith("-")) { -size } else { size }
 }
 
 /// `digits` cut to `keep` of them, rounded half up on the first one dropped.
@@ -1220,9 +1230,14 @@ fn codeAt(table: Str, at: Int): Int {
         + digitAt(table, at + 3)
 }
 
+/// A table is written in `0` to `9` and then `a` to `z`, so a digit's value is
+/// how far its character is past the start of whichever run it is in.
 fn digitAt(table: Str, at: Int): Int {
     match (table.charAt(at)) {
-        .Some(c) => c.toDigit(36).withDefault(0),
+        .Some(c) => {
+            let code = c.toU32().toI64();
+            if (code < 97) { code - 48 } else { code - 87 }
+        },
         .None => 0,
     }
 }
