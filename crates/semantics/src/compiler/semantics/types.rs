@@ -142,6 +142,15 @@ impl VariantId {
 impl FieldId {
     /// A declaration's first field: the payload of `Some`, `Ok` and `Err`.
     pub const FIRST: FieldId = FieldId(0);
+    /// `core/number`'s `RangeError`: the value, then its target.
+    pub const RANGE_ERROR_VALUE: FieldId = FieldId(0);
+    pub const RANGE_ERROR_TARGET: FieldId = FieldId(1);
+
+    /// The field at `i` in a standard library declaration that fixes its
+    /// order, as `ui/node`'s `Stack` does.
+    pub const fn declared(i: usize) -> FieldId {
+        FieldId(i as u32)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -604,8 +613,8 @@ impl TyCon {
         self.variants().position(|v| v.name == name)
     }
 
-    pub fn field_index(&self, name: &str) -> Option<usize> {
-        self.fields().as_slice().iter().position(|f| f.name == name)
+    pub fn field_index(&self, name: &str) -> Option<FieldId> {
+        self.fields().position(|f| f.name == name)
     }
 }
 
@@ -906,7 +915,7 @@ impl CtxType {
 #[derive(Clone)]
 enum Members {
     Variants(HashMap<String, VariantId>),
-    Fields(HashMap<String, usize>),
+    Fields(HashMap<String, FieldId>),
 }
 
 /// First wins, so that a duplicate name resolves to the same member the scan
@@ -1183,9 +1192,9 @@ impl Tables {
             TyDef::Enum { variants } if variants.len() >= THRESHOLD => {
                 Members::Variants(first_wins(variants.entries().map(|(i, v)| (&v.name, i))))
             }
-            TyDef::Struct { fields, .. } if fields.len() >= THRESHOLD => Members::Fields(
-                first_wins(fields.iter().enumerate().map(|(i, f)| (&f.name, i))),
-            ),
+            TyDef::Struct { fields, .. } if fields.len() >= THRESHOLD => {
+                Members::Fields(first_wins(fields.entries().map(|(i, f)| (&f.name, i))))
+            }
             _ => return,
         };
         self.member_index.insert(id, Box::new(members));
@@ -1200,7 +1209,7 @@ impl Tables {
     }
 
     /// The position of a field in `id`'s field list.
-    pub fn field_index(&self, id: TyConId, name: &str) -> Option<usize> {
+    pub fn field_index(&self, id: TyConId, name: &str) -> Option<FieldId> {
         match self.member_index.get(&id).map(Box::as_ref) {
             Some(Members::Fields(map)) => map.get(name).copied(),
             _ => self.tycon(id).field_index(name),
@@ -1993,6 +2002,12 @@ pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
         },
         _ => Vec::new(),
     }
+}
+
+/// A tuple's elements, under field ids of their own, the way a struct's
+/// fields have theirs: `t.1` reads the second.
+pub fn tuple_fields(elements: &[Ty]) -> Dense<FieldId, Ty> {
+    elements.iter().copied().collect()
 }
 
 /// One variant's fields, as types, in declaration order.

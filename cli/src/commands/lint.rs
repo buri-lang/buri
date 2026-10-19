@@ -2944,7 +2944,8 @@ impl Census {
                 }
                 typed::ExprKind::Field { base, index } => {
                     // A field is read off a struct, which has a head.
-                    self.read.extend(base.ty.head().map(|con| (con, *index)));
+                    self.read
+                        .extend(base.ty.head().map(|con| (con, index.index())));
                 }
                 typed::ExprKind::Intrinsic { args, .. } => {
                     for a in args {

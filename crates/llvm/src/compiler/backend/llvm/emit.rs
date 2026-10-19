@@ -584,7 +584,7 @@ impl<'ctx> Function<'ctx> {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Read {
     Tag(ir::TypeId),
-    Field(ir::TypeId, usize),
+    Field(ir::TypeId, FieldId),
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -985,8 +985,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 dest,
                 agg,
                 ty,
-                index,
-            } => self.get_field(state, code, *dest, *agg, *ty, *index as usize),
+                field,
+            } => self.get_field(state, code, *dest, *agg, *ty, *field),
             ir::Inst::GetPayload {
                 dest,
                 agg,
@@ -1352,18 +1352,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return;
         }
         let mut pieces = Vec::with_capacity(slots.len());
-        for (i, f) in fields.iter().enumerate() {
+        for (f, &boxed) in fields.iter().zip(boxed.iter()) {
             let fs = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*f));
             let value = self.get(state, *f);
             // A boxed field held in memory goes into its block by one copy.
-            if boxed.get(i).copied().unwrap_or(false) && repr::in_memory(&fs) {
+            if boxed && repr::in_memory(&fs) {
                 state.observed.allocates = true;
                 let (_, size, align) = self.dest_shape(code, *f);
                 pieces.push(self.block_with(state.b, size, align, &fs, value).into());
                 continue;
             }
             let taken = self.pieces(state.b, &fs, value);
-            if boxed.get(i).copied().unwrap_or(false) {
+            if boxed {
                 state.observed.allocates = true;
                 pieces.push(self.box_value(state.b, code, *f, &fs, &taken).into());
                 continue;
@@ -1388,22 +1388,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ty: ir::RecTy,
         fields: &[ir::ValueId],
         slots: &[Slot],
-        boxed: &[bool],
+        boxed: &Dense<FieldId, bool>,
     ) {
         let b = state.b;
         let id = ty.id();
-        let offsets: Vec<u32> = {
-            let layout = &self.reprs.of(self.program, id).layout;
-            (0..fields.len()).map(|i| layout.field(i)).collect()
-        };
+        let offsets = self.reprs.of(self.program, id).layout.fields.clone();
         let buf = self.value_buffer(b, slots);
-        for (i, f) in fields.iter().enumerate() {
-            let at = offsets.get(i).copied().unwrap_or(0);
+        let members = fields.iter().zip(offsets.iter()).zip(boxed.iter());
+        for ((f, at), &boxed) in members {
+            let at = at.bytes();
             let fs = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*f));
             let value = self.get(state, *f);
             let into = b.byte_offset(buf, i64::from(at), "rec.f");
             let align = within(HEAP_ALIGN, at);
-            if boxed.get(i).copied().unwrap_or(false) {
+            if boxed {
                 state.observed.allocates = true;
                 let (_, size, falign) = self.dest_shape(code, *f);
                 let block = self.block_with(state.b, size, falign, &fs, value);
@@ -1426,7 +1424,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Which of an aggregate's fields `middle::layout` keeps behind an
     /// indirection, in declaration order.
     ///
-    fn boxed_fields(&mut self, ty: ir::RecTy) -> Vec<bool> {
+    fn boxed_fields(&mut self, ty: ir::RecTy) -> Dense<FieldId, bool> {
         let owner = self.program.type_info(ty.id()).ty;
         let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
         fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
@@ -1527,18 +1525,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dest: ir::ValueId,
         of: ir::ValueId,
         ty: ir::RecTy,
-        index: usize,
+        field: FieldId,
     ) {
         let id = ty.id();
         let agg = of;
         let (slots, range) = {
             let r = self.reprs.of(self.program, id);
-            (r.slots.clone(), r.field_range(index))
+            (r.slots.clone(), r.field_range(field))
         };
+        let boxed = *self.boxed_fields(ty).get(field);
         let whole = self.get(state, agg);
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
-            let at = self.reprs.of(self.program, id).layout.field(index);
-            let boxed = self.boxed_fields(ty).get(index).copied().unwrap_or(false);
+            let at = self
+                .reprs
+                .of(self.program, id)
+                .layout
+                .fields
+                .get(field)
+                .bytes();
             let value = self.field_in_memory(state.b, code, dest, base, at, boxed);
             self.set(state, dest, value);
             return;
@@ -1547,7 +1551,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
-        if self.boxed_fields(ty).get(index).copied().unwrap_or(false) {
+        if boxed {
             let block = ptr(repr::slot_at(state.b, whole, start as u32));
             let (_, _, align) = self.dest_shape(code, dest);
             let value = self.load_value(state.b, block, &want, align);
@@ -1556,7 +1560,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         // Only the field's own slots: the rest of a wide struct is not read.
         let b = state.b;
-        let value = self.read_once(state, whole, Read::Field(id, index), |this| {
+        let value = self.read_once(state, whole, Read::Field(id, field), |this| {
             let taken = this.pieces_range(b, &slots, whole, start..end);
             this.assemble(b, &want, &taken)
         });
@@ -7725,10 +7729,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             e: err_ty,
         } = self.program.types.result_shape(r);
         let e = r.enum_ty();
-        let [value_ty, target_ty]: [Ty; 2] = types::field_types(self.tables, &err_ty)
-            .as_slice()
-            .try_into()
-            .or_ice("a `RangeError` has two fields");
+        let fields: Dense<FieldId, Ty> = types::field_types(self.tables, &err_ty)
+            .into_iter()
+            .collect();
+        let value_ty = *fields.get(FieldId::RANGE_ERROR_VALUE);
+        let target_ty = *fields.get(FieldId::RANGE_ERROR_TARGET);
         let ok_slots = self.reprs.of_ty(&ok_ty).slots.clone();
         let ok_slot = *ok_slots.first().or_ice("a number is one slot");
         let want = repr::slot_type(self.ctx, ok_slot.ty);
@@ -8903,21 +8908,24 @@ impl<'a> Boxes<'a> {
 
     /// Whether a `GetField` or `GetPayload` reads a member out of its box.
     fn unboxes(&self, inst: &ir::Inst) -> bool {
-        let (id, variant, index) = match inst {
-            ir::Inst::GetField { ty, index, .. } => (ty.id(), None, *index),
+        match inst {
+            ir::Inst::GetField { ty, field, .. } => {
+                let owner = self.program.type_info(ty.id()).ty;
+                let fields: Dense<FieldId, Ty> = types::field_types(self.tables, &owner)
+                    .into_iter()
+                    .collect();
+                self.layouts.boxes(&owner, fields.get(*field))
+            }
             ir::Inst::GetPayload {
                 ty, variant, field, ..
-            } => (ty.id(), Some(variant.index() as u32), field.index() as u32),
-            _ => return false,
-        };
-        let owner = self.program.type_info(id).ty;
-        let fields = match variant {
-            None => types::field_types(self.tables, &owner),
-            Some(v) => types::variant_types(self.tables, &owner, v as usize),
-        };
-        fields
-            .get(index as usize)
-            .is_some_and(|f| self.layouts.boxes(&owner, f))
+            } => {
+                let owner = self.program.type_info(ty.id()).ty;
+                types::variant_types(self.tables, &owner, variant.index())
+                    .get(field.index())
+                    .is_some_and(|f| self.layouts.boxes(&owner, f))
+            }
+            _ => false,
+        }
     }
 }
 
@@ -8934,9 +8942,10 @@ fn projections(code: &ir::Code) -> Map<usize, Projection> {
                 dest,
                 agg,
                 ty,
-                index,
+                field,
             } => {
-                out.insert(dest.index(), (*agg, ty.id(), None, *index));
+                let f = field.index() as u32;
+                out.insert(dest.index(), (*agg, ty.id(), None, f));
             }
             ir::Inst::GetPayload {
                 dest,

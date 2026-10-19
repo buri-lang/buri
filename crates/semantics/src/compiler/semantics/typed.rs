@@ -80,9 +80,9 @@ impl Expr {
 
     /// What a struct literal or update wrote for one field, through an
     /// update's base when the update leaves it alone.
-    pub fn written_field(&self, index: usize) -> Option<&Expr> {
+    pub fn written_field(&self, index: FieldId) -> Option<&Expr> {
         match &self.kind {
-            ExprKind::StructLit { fields, .. } => fields.get(index),
+            ExprKind::StructLit { fields, .. } => fields.get(index.index()),
             ExprKind::StructUpdate { base, updates, .. } => updates
                 .iter()
                 .find(|(i, _)| *i == index)
@@ -242,7 +242,7 @@ pub enum ExprKind {
     StructUpdate {
         con: TyConId,
         base: Box<Expr>,
-        updates: Vec<(usize, Expr)>,
+        updates: Vec<(FieldId, Expr)>,
     },
     EnumLit {
         con: TyConId,
@@ -259,11 +259,11 @@ pub enum ExprKind {
 
     Field {
         base: Box<Expr>,
-        index: usize,
+        index: FieldId,
     },
     TupleIndex {
         base: Box<Expr>,
-        index: usize,
+        index: FieldId,
     },
     /// Indexing yields `Option<T>`. There is no way to index out of bounds.
     Index {

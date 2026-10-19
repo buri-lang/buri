@@ -14,13 +14,13 @@ use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{Tables, TyConId};
+use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics};
 
 /// `Stack<C>`'s fields, in declaration order — which is the order a struct
 /// literal stores them in, whatever order the call site wrote them.
-const STACK_ROLE: usize = 2;
-const STACK_DECORATIVE: usize = 4;
+const STACK_ROLE: FieldId = FieldId::declared(2);
+const STACK_DECORATIVE: FieldId = FieldId::declared(4);
 
 /// `Option::None`'s variant.
 const OPTION_NONE: usize = 1;

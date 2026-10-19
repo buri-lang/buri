@@ -262,7 +262,7 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt,
 };
-use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{self, FieldId, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeMap;
@@ -386,7 +386,7 @@ pub struct FuncPlan {
     /// value of every replaced field after the struct is built, except these,
     /// which whoever read them now releases. Sorted. Empty under
     /// [`Options::sharing`]. See [`Scan::update_dying`] and MEMORY.md §5.3.
-    pub moved: Vec<(NodeId, usize)>,
+    pub moved: Vec<(NodeId, FieldId)>,
 }
 
 impl Default for FuncPlan {
@@ -2234,16 +2234,16 @@ struct Scan<'a> {
     jumps_before: Vec<u32>,
     /// The fields of a dying base each functional update being scanned hands
     /// on whole — see [`handed_on_fields`]. Innermost last. `sharing` only.
-    handed_on: Vec<(LocalId, Vec<usize>)>,
+    handed_on: Vec<(LocalId, Vec<FieldId>)>,
     /// The fields of a dying base each functional update being scanned may
     /// move out of it ([`moved_fields`]), with the update's node. Innermost
     /// last. Native only.
-    moving: Vec<(LocalId, NodeId, Vec<usize>)>,
+    moving: Vec<(LocalId, NodeId, Vec<FieldId>)>,
     /// Dying update bases whose `?` escapes release them without the fields
     /// the update moved out, as a mask ([`Target::LocalExcept`]).
     escape_except: Vec<(LocalId, u64)>,
     /// [`FuncPlan::moved`], as it is found.
-    moved: Vec<(NodeId, usize)>,
+    moved: Vec<(NodeId, FieldId)>,
     /// The function's parameters and every local a `let` binds: the locals
     /// [`Scan::inline_read`] may read without using.
     plain: HashSet<LocalId>,
@@ -2622,7 +2622,7 @@ impl Scan<'_> {
     }
 
     /// The update and field index [`Scan::moves_out`] would record for `e`.
-    fn movable(&mut self, e: &Expr, base: &Expr) -> Option<(NodeId, usize)> {
+    fn movable(&mut self, e: &Expr, base: &Expr) -> Option<(NodeId, FieldId)> {
         let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
             return None;
         };
@@ -2701,13 +2701,13 @@ impl Scan<'_> {
         &mut self,
         root: LocalId,
         base: &Expr,
-        updates: &[(usize, Expr)],
+        updates: &[(FieldId, Expr)],
         id: NodeId,
         live: &mut Live,
     ) {
         self.enliven(live, root);
         let moved = moved_fields(root, updates);
-        let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f));
+        let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f.index()));
         self.moving.push((root, id, moved));
         self.escape_except.push((root, mask));
         let first = self.sites.len();
@@ -2725,7 +2725,7 @@ impl Scan<'_> {
             .moved
             .iter()
             .filter(|(u, _)| *u == id)
-            .fold(0u64, |m, (_, f)| m | (1u64 << f));
+            .fold(0u64, |m, (_, f)| m | (1u64 << f.index()));
         for site in self.sites.iter_mut().skip(first) {
             if site.target == Target::LocalExcept(root, mask) {
                 site.target = if taken == 0 {
@@ -4555,8 +4555,8 @@ fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
 /// acc.tokens.push(c, t), docs: acc.docs.push(c, acc.pending), pending: [] }`
 /// once per token, where every push copied its whole list because the scan
 /// reaching one field saw `acc` still read by the next.
-fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usize>> {
-    fn reads(root: LocalId, e: &Expr, out: &mut Vec<usize>) -> bool {
+fn handed_on_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Option<Vec<FieldId>> {
+    fn reads(root: LocalId, e: &Expr, out: &mut Vec<FieldId>) -> bool {
         match &e.kind {
             ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
@@ -4574,7 +4574,7 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
             return None;
         }
     }
-    let once = |f: &usize| read.iter().filter(|r| *r == f).count() == 1;
+    let once = |f: &FieldId| read.iter().filter(|r| *r == f).count() == 1;
     Some(
         updates
             .iter()
@@ -4605,10 +4605,10 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
 ///    escape releases the base ([`Scan::update_dying`]) without the moved
 ///    fields, which whoever took them now holds, so a `?` that could run
 ///    before a field was taken would leave that field unreleased.
-fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
+fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
     /// How many times `e` reads `root.f` on every path through it, or `None`
     /// where two paths read it a different number of times.
-    fn on_every_path(root: LocalId, f: usize, e: &Expr) -> Option<usize> {
+    fn on_every_path(root: LocalId, f: FieldId, e: &Expr) -> Option<usize> {
         let sum = |es: &[&Expr]| {
             es.iter()
                 .try_fold(0, |n, k| on_every_path(root, f, k).map(|m| n + m))
@@ -4649,7 +4649,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     }
     /// Walks `e` in evaluation order with `seen`, the fields read on every
     /// path so far, and narrows `before` to the fields seen at each `?`.
-    fn taken(root: LocalId, e: &Expr, seen: &mut Vec<usize>, before: &mut Option<Vec<usize>>) {
+    fn taken(root: LocalId, e: &Expr, seen: &mut Vec<FieldId>, before: &mut Option<Vec<FieldId>>) {
         match &e.kind {
             ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
@@ -4665,7 +4665,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
             ExprKind::Match { scrutinee, arms } => {
                 taken(root, scrutinee, seen, before);
                 let start = seen.clone();
-                let mut all: Option<Vec<usize>> = None;
+                let mut all: Option<Vec<FieldId>> = None;
                 for arm in arms {
                     let mut path = start.clone();
                     if let Some(g) = &arm.guard {
@@ -4712,7 +4712,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     if handed_on_fields(root, updates).is_none() {
         return Vec::new();
     }
-    let mut ordered: Vec<&(usize, Expr)> = updates.iter().collect();
+    let mut ordered: Vec<&(FieldId, Expr)> = updates.iter().collect();
     ordered.sort_by_key(|(f, _)| *f);
     let mut seen = Vec::new();
     let mut before = None;
@@ -4723,7 +4723,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     updates
         .iter()
         .map(|(f, _)| *f)
-        .filter(|f| *f < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
+        .filter(|f| f.index() < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
         .filter(|f| {
             values
                 .iter()

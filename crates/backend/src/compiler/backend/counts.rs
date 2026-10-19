@@ -198,7 +198,13 @@ impl Counts {
                 }]
             }
             Repr::Aggregate => self
-                .fields(tables, layouts, ty, &field_types(tables, ty), &l.fields)
+                .fields(
+                    tables,
+                    layouts,
+                    ty,
+                    &field_types(tables, ty),
+                    l.fields.as_slice(),
+                )
                 .into_iter()
                 .map(Site::Field)
                 .collect(),

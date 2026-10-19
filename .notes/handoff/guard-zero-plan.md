@@ -119,6 +119,52 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 61
+
+## What landed
+
+- `ir::Inst::GetField` names a `FieldId`. A tuple's elements and a context's bindings get field ids of their own, in order, from `types::tuple_fields` and from collecting into a `Dense`.
+  - `typed::ExprKind::Field`, `TupleIndex` and `StructUpdate` carry `FieldId`s, and so do `rc.rs`'s moved-field sets and `ctx_layouts`.
+  - `Desc::Struct`, `Desc::Flags` and `Desc::Tuple` hold `Dense<FieldId, _>`. `derives.rs` names `Json.Object`'s pair as `MEMBER_NAME` and `MEMBER_VALUE`.
+- `Layout::fields` is a `Dense<FieldId, At>`, and `Layout::field` is gone. Every reader zips or indexes it with a total `Dense::get`:
+  - llvm `boxed_fields` and `repr::Repr::fields` are `Dense`s too. `get_field`, `make_record` and `make_record_in_memory` lose their `unwrap_or(false)`, `unwrap_or(0)` and `unwrap_or((0, 0))`.
+  - A zero-sized struct, tuple or context still gets a field range per field, each with no slots. Two release e2e tests caught the gap.
+  - Stencil `MakeStruct` zips offsets with field types and drops `get(i).is_some_and`. JS `StructUpdate` drops `unwrap_or(true)`.
+- Stencil `store_disc` is gone. `put_tag` writes a tag through `put_enum`, which already handles all three enum shapes. Its callers pass the `EnumTy` they hold.
+- `FieldId::RANGE_ERROR_VALUE` and `RANGE_ERROR_TARGET` name `core/number`'s `RangeError` fields for both native backends.
+
+## Guards
+
+The plan-rule count in code goes from 65 to 62 (definitions included; 64 to 61 by the prompt's count):
+- `Layout::field`'s `or_ice`;
+- stencil `store_disc`'s "has a tag";
+- llvm `convert_checked`'s "a `RangeError` has two fields".
+
+Six silent defaults went with them.
+
+## Coverage
+
+Branches, measured locally on macOS, base and head with the same tool. Every area and the total are equal.
+
+| Area | Base (staging) | Phase 61 |
+| --- | --- | --- |
+| middle | 1858/1890 (98.31%) | 1858/1890 (98.31%) |
+| stencil | 1045/1085 (96.31%) | 1045/1085 (96.31%) |
+| semantics | 2154/2154 | 2154/2154 |
+| llvm | 531/532 | 531/532 |
+| js | 996/1022 | 996/1022 |
+| total | 14810/15048 | 14810/15048 |
+
+## Left
+
+See `guard-phase-62.md`.
+
+## Validation and landing
+
+- `cargo fmt --all` and CI's clippy commands, plus `--features buri/backend-llvm`, report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`.
+- All 27 native objects that `tests/example` builds in `test` and `test --release` are byte-identical to base. The test logs match apart from timings.
+
 # Guard phase 60
 
 ## What landed

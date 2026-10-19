@@ -21,7 +21,7 @@
 //!     pub size: u32,      // bytes the value occupies
 //!     pub align: u32,     // power of two
 //!     pub stride: u32,    // size rounded up to align; what `[T]` indexes by
-//!     pub fields: Vec<At>,   // byte offset per field, declaration order
+//!     pub fields: Dense<FieldId, At>, // byte offset per field
 //! }
 //!
 //! pub struct Layouts { .. }   // the memo table, one per compilation
@@ -72,7 +72,6 @@ use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{
     self, FieldId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
-use crate::diagnostics::Invariant as _;
 use crate::hash::{Map, Set};
 use std::fmt::Write as _;
 use std::rc::Rc;
@@ -441,9 +440,11 @@ pub struct Layout {
     pub align: u32,
     /// `size` rounded up to `align`; what `[T]` indexes by.
     pub stride: u32,
-    /// Byte offset per field, in declaration order. Empty for a scalar and for
-    /// an enum, whose offsets are per variant and live in [`Repr::Enum`].
-    pub fields: Vec<At>,
+    /// Byte offset per field, under the ids the type's declaration gives its
+    /// fields: [`types::tuple_fields`]' for a tuple, and a word's position
+    /// for `Str`, `[T]` and a closure. Empty for a scalar and for an enum,
+    /// whose offsets are per variant and live in [`Repr::Enum`].
+    pub fields: Dense<FieldId, At>,
     pub repr: Repr,
 }
 
@@ -454,22 +455,12 @@ impl Layout {
         self.size == 0
     }
 
-    /// The offset of one field. Out of range is an internal error rather than
-    /// a panic: a backend asking for field 3 of a two-field struct has already
-    /// gone wrong somewhere the index would not explain.
-    pub fn field(&self, index: usize) -> u32 {
-        self.fields
-            .get(index)
-            .or_ice("a field index came from the type this layout is of")
-            .bytes()
-    }
-
     const fn zero() -> Layout {
         Layout {
             size: 0,
             align: 1,
             stride: 0,
-            fields: Vec::new(),
+            fields: Dense::new(),
             repr: Repr::Zero,
         }
     }
@@ -479,7 +470,7 @@ impl Layout {
             size: s.size(),
             align: s.align(),
             stride: s.size(),
-            fields: Vec::new(),
+            fields: Dense::new(),
             repr: Repr::Scalar(s),
         }
     }
@@ -839,7 +830,7 @@ impl<'a> Layouts<'a> {
                         size: e.size,
                         align: e.align,
                         stride: e.stride,
-                        fields: Vec::new(),
+                        fields: Dense::new(),
                         repr: Repr::Enum {
                             repr: e.repr.clone(),
                             variants: e.variants.iter().map(|v| v.as_slice().to_vec()).collect(),
@@ -875,10 +866,10 @@ impl<'a> Layouts<'a> {
     /// nominal type and so neither of which can be the head of a recursion
     /// group. A tuple inside a recursive type is boxed whole, by the field
     /// that holds it.
-    fn record(&mut self, owner: Option<&Ty>, fields: &[Ty]) -> (u32, u32, Vec<At>) {
+    fn record(&mut self, owner: Option<&Ty>, fields: &[Ty]) -> (u32, u32, Dense<FieldId, At>) {
         let mut end = 0u32;
         let mut align = 1u32;
-        let mut offsets = Vec::with_capacity(fields.len());
+        let mut offsets = Dense::new();
         for field in fields {
             let (size, field_align) = if owner.is_some_and(|o| self.boxes(o, field)) {
                 (POINTER, POINTER)
@@ -941,7 +932,7 @@ impl<'a> Layouts<'a> {
             let (size, align, offsets) = self.record(Some(ty), &tys);
             payload_size = payload_size.max(size);
             payload_align = payload_align.max(align);
-            offsets.into_iter().collect()
+            offsets
         });
 
         // A payload area of no bytes is the first niche: the value is the tag,
@@ -1042,7 +1033,7 @@ impl<'a> Layouts<'a> {
     /// words.
     fn niche_in(&mut self, owner: &Ty, fields: &[Ty]) -> Option<Words> {
         let offsets = self.compute(owner).fields.clone();
-        for (field, offset) in fields.iter().zip(offsets) {
+        for (field, offset) in fields.iter().zip(offsets.iter()) {
             if self.boxes(owner, field) {
                 return offset.words();
             }
@@ -1723,11 +1714,11 @@ mod tests {
         let layout = l.of(p(Prim::Str));
         assert_eq!(layout.size, 24);
         assert_eq!(layout.align, 8);
-        assert_eq!(layout.fields, vec![0, 8, 16]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 8, 16]);
         assert_eq!(layout.repr, Repr::Str);
-        assert_eq!(layout.field(STR_BASE), 0);
-        assert_eq!(layout.field(STR_PTR), 8);
-        assert_eq!(layout.field(STR_LEN), 16);
+        assert_eq!(layout.fields.as_slice()[STR_BASE], 0);
+        assert_eq!(layout.fields.as_slice()[STR_PTR], 8);
+        assert_eq!(layout.fields.as_slice()[STR_LEN], 16);
     }
 
     /// `Template` is `Str`; there is no `Template` value at run time on either
@@ -1784,9 +1775,9 @@ mod tests {
             let layout = l.of(Ty::array(element));
             assert_eq!(layout.size, 16);
             assert_eq!(layout.align, 8);
-            assert_eq!(layout.fields, vec![0, 8]);
-            assert_eq!(layout.field(LIST_PTR), 0);
-            assert_eq!(layout.field(LIST_LEN), 8);
+            assert_eq!(layout.fields.as_slice(), vec![0, 8]);
+            assert_eq!(layout.fields.as_slice()[LIST_PTR], 0);
+            assert_eq!(layout.fields.as_slice()[LIST_LEN], 8);
             assert_eq!(layout.repr, Repr::List);
         }
     }
@@ -1821,7 +1812,7 @@ mod tests {
         let mut l = Layouts::new(&t);
         let layout = l.of(con(s));
         // Nothing is reordered, so the two booleans do not share a word.
-        assert_eq!(layout.fields, vec![0, 8, 16]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 8, 16]);
         assert_eq!(layout.size, 24);
         assert_eq!(layout.align, 8);
         assert_eq!(layout.stride, 24);
@@ -1844,10 +1835,10 @@ mod tests {
         );
         let mut l = Layouts::new(&t);
         let i = l.of(con(inner));
-        assert_eq!(i.fields, vec![0, 2]);
+        assert_eq!(i.fields.as_slice(), vec![0, 2]);
         assert_eq!((i.size, i.align), (4, 2));
         let o = l.of(con(outer));
-        assert_eq!(o.fields, vec![0, 2, 8]);
+        assert_eq!(o.fields.as_slice(), vec![0, 2, 8]);
         assert_eq!((o.size, o.align), (12, 4));
     }
 
@@ -1872,7 +1863,7 @@ mod tests {
         );
         let mut l = Layouts::new(&t);
         let layout = l.of(con(s));
-        assert_eq!(layout.fields, vec![0, 4, 4]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 4, 4]);
         assert_eq!(layout.size, 8);
     }
 
@@ -1881,7 +1872,7 @@ mod tests {
         let t = tables();
         let mut l = Layouts::new(&t);
         let layout = l.of(Ty::tuple([p(Prim::Str), p(Prim::Bool)]));
-        assert_eq!(layout.fields, vec![0, 24]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 24]);
         assert_eq!((layout.size, layout.align), (32, 8));
     }
 
@@ -2245,9 +2236,9 @@ mod tests {
         let mut l = Layouts::new(&t);
         let layout = l.of(Ty::func([p(Prim::I64)], p(Prim::Str)));
         assert_eq!((layout.size, layout.align), (16, 8));
-        assert_eq!(layout.fields, vec![0, 8]);
-        assert_eq!(layout.field(CLOSURE_CODE), 0);
-        assert_eq!(layout.field(CLOSURE_ENV), 8);
+        assert_eq!(layout.fields.as_slice(), vec![0, 8]);
+        assert_eq!(layout.fields.as_slice()[CLOSURE_CODE], 0);
+        assert_eq!(layout.fields.as_slice()[CLOSURE_ENV], 8);
         assert_eq!(layout.repr, Repr::Closure);
     }
 
@@ -2270,7 +2261,7 @@ mod tests {
         let mut l = Layouts::new(&t);
         let env = Ty::tuple([p(Prim::Bool), p(Prim::Str)]);
         let layout = l.of(env);
-        assert_eq!(layout.fields, vec![0, 8]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 8]);
         assert_eq!(layout.size, 32);
     }
 
@@ -2320,7 +2311,7 @@ mod tests {
         assert_eq!((layout.size, layout.align), (16, 8));
         // One offset per binding, in binding order, including the one that
         // occupies nothing.
-        assert_eq!(layout.fields, vec![0, 16]);
+        assert_eq!(layout.fields.as_slice(), vec![0, 16]);
         assert!(!l.zero_sized(&Ty::ctx(ctx)));
     }
 
@@ -2445,7 +2436,7 @@ mod tests {
         // And the element of that list is an ordinary `Json`, inline inside
         // the array's one allocation.
         assert_eq!(
-            l.of(Ty::tuple([p(Prim::Str), con(json)])).fields,
+            l.of(Ty::tuple([p(Prim::Str), con(json)])).fields.as_slice(),
             vec![0, 24]
         );
     }
@@ -2466,7 +2457,7 @@ mod tests {
         };
         let mut l = Layouts::new(&t);
         let la = l.of(con(a));
-        assert_eq!(la.fields, vec![0, 8]);
+        assert_eq!(la.fields.as_slice(), vec![0, 8]);
         assert_eq!((la.size, la.align), (16, 8));
         assert!(l.boxes(&con(a), &con(b)));
         assert!(l.boxes(&con(b), &con(a)));
@@ -2524,7 +2515,10 @@ mod tests {
         assert_eq!((layout.size, layout.align), (16, 8));
         assert!(l.boxes(&con(e), &Ty::tuple([p(Prim::I64), con(e)])));
         // The tuple behind that pointer holds the `E` inline.
-        assert_eq!(l.of(Ty::tuple([p(Prim::I64), con(e)])).fields, vec![0, 8]);
+        assert_eq!(
+            l.of(Ty::tuple([p(Prim::I64), con(e)])).fields.as_slice(),
+            vec![0, 8]
+        );
     }
 
     /// One constructor inside itself at smaller arguments is not a cycle, and
@@ -2542,7 +2536,7 @@ mod tests {
         let inner = at(pair, &[p(Prim::I64)]);
         let outer = at(pair, std::slice::from_ref(&inner));
         assert!(!l.boxes(&outer, &inner));
-        assert_eq!(l.of(outer).fields, vec![0, 16]);
+        assert_eq!(l.of(outer).fields.as_slice(), vec![0, 16]);
     }
 
     /// A boxed field is a pointer that is never null, so an `Option` of a
@@ -2557,7 +2551,7 @@ mod tests {
             form: types::StructForm::Record,
         };
         let mut l = Layouts::new(&t);
-        assert_eq!(l.of(con(node)).fields, vec![0, 8]);
+        assert_eq!(l.of(con(node)).fields.as_slice(), vec![0, 8]);
         let layout = l.of(at(option, &[con(node)]));
         assert_eq!(layout.size, 16);
         assert!(matches!(

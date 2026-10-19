@@ -126,7 +126,7 @@ mod tests {
     use super::forward_body;
     use crate::compiler::middle::local_id;
     use crate::compiler::semantics::typed::{Expr, ExprKind, PatKind, Pattern, Stmt};
-    use crate::compiler::semantics::types::{Prim, Ty};
+    use crate::compiler::semantics::types::{FieldId, Prim, Ty};
     use crate::diagnostics::Span;
 
     fn e(kind: ExprKind) -> Expr {
@@ -140,7 +140,7 @@ mod tests {
     fn field(base: Expr, index: usize) -> Expr {
         e(ExprKind::Field {
             base: Box::new(base),
-            index,
+            index: FieldId::declared(index),
         })
     }
 
@@ -171,7 +171,7 @@ mod tests {
         e(ExprKind::StructUpdate {
             con: Prim::Bool.con(),
             base: Box::new(base),
-            updates: vec![(0, value)],
+            updates: vec![(FieldId::FIRST, value)],
         })
     }
 

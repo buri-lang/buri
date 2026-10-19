@@ -47,7 +47,7 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+use crate::compiler::semantics::types::{FieldId, FuncIdx, LocalId, Ty};
 use crate::hash::Map as HashMap;
 
 /// Lifts every lambda to a top-level function over an explicit environment.
@@ -134,7 +134,9 @@ fn convert(e: &mut Expr, parent: &Parent, funcs: &mut Dense<FuncIdx, Func>) {
     // what it always read.
     let prologue: Vec<Stmt> = inner_captures
         .iter()
-        .enumerate()
+        .copied()
+        .collect::<Dense<FieldId, LocalId>>()
+        .entries()
         .map(|(i, c)| {
             let ty = locals.get(*c).ty;
             Stmt::Let {

@@ -336,13 +336,13 @@ impl<'a> Jit<'a> {
                 let l = self.layout_id_shared(prog, ty.id());
                 let owner = &prog.type_info(ty.id()).ty;
                 let ftys = field_types(self.tables, owner);
-                for (i, f) in fields.iter().enumerate() {
+                for ((f, at), t) in fields.iter().zip(l.fields.iter()).zip(&ftys) {
                     let w = self.width_of(prog, code.ty_of(*f));
                     if w == 0 {
                         continue;
                     }
-                    let off = l.field(i);
-                    if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
+                    let off = at.bytes();
+                    if self.boxes(owner, t) {
                         self.box_into(st, d + off, st.at(*f), w);
                         continue;
                     }
@@ -353,14 +353,14 @@ impl<'a> Jit<'a> {
                 dest,
                 agg,
                 ty,
-                index,
+                field,
             } => {
                 let l = self.layout_id_shared(prog, ty.id());
                 let owner = &prog.type_info(ty.id()).ty;
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let off = l.field(*index as usize);
+                let off = l.fields.get(*field).bytes();
                 let src = st.at(*agg) + off;
-                let fty = self.field_ty(owner, None, *index as usize);
+                let fty = self.field_ty(owner, None, field.index());
                 if fty.is_some_and(|t| self.boxes(owner, &t)) {
                     self.unbox_from(st, st.at(*dest), src, w);
                     return;
@@ -640,6 +640,19 @@ impl<'a> Jit<'a> {
                 }
             }
         }
+    }
+
+    /// Variant `variant` of `e` at frame offset `d`, around a payload already
+    /// in place: [`Self::put_enum`] with nothing to store.
+    pub(crate) fn put_tag(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        d: u32,
+        e: ir::EnumTy,
+        variant: VariantId,
+    ) {
+        self.put_enum(prog, st, d, e, variant, |_, _, _, _, _| {});
     }
 
     /// `derivePrimJson.<T>` — one primitive as a `Json`, which is
@@ -2332,7 +2345,6 @@ impl Jit<'_> {
         dest: u32,
     ) -> bool {
         let (_, bits, _) = prim_tag(prim);
-        let l = self.layout_id_shared(prog, answer.id());
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
         let pay = self
@@ -2353,12 +2365,12 @@ impl Jit<'_> {
                 Jump::F.to(V::Fall),
             ],
         );
-        self.store_disc(&l, dest, VariantId::NONE);
+        self.put_tag(prog, st, dest, answer, VariantId::NONE);
         self.emit("jump", &[Jump::T.to(V::Blk(done))]);
         let here = self.region.code_addr();
         st.place(some, here);
         self.store_w(dest + pay, res, bits / 8);
-        self.store_disc(&l, dest, VariantId::SOME);
+        self.put_tag(prog, st, dest, answer, VariantId::SOME);
         let here = self.region.code_addr();
         st.place(done, here);
         true
@@ -2400,12 +2412,10 @@ impl Jit<'_> {
         dest: u32,
     ) {
         let kind = checked_kind(from.prim(), to.prim());
-        let ty = prog.type_info(answer.id()).ty;
         let shape = prog.types.result_shape(answer);
         // `middle::layout` gives a niche only to an `Option`, so the result
         // keeps a tag and each payload at its own offset. The error is
         // `core/number`'s `RangeError`: its value, then its target.
-        let result = self.layout_of_type(ty);
         let error = self.layout_of_type(shape.e);
         let variants = &self.enum_layout(prog, answer.enum_ty()).variants;
         let ok_at = variants.get(VariantId::OK).get(FieldId::FIRST).bytes();
@@ -2522,7 +2532,7 @@ impl Jit<'_> {
                 }
             }
         }
-        self.store_disc(&result, dest, VariantId::OK);
+        self.put_tag(prog, st, dest, answer.enum_ty(), VariantId::OK);
         self.emit("jump", &[Jump::T.to(V::Blk(done))]);
 
         let here = self.region.code_addr();
@@ -2531,11 +2541,12 @@ impl Jit<'_> {
             st,
             from.prim(),
             src,
-            dest + err_at.bytes() + error.field(0),
+            dest + err_at.bytes() + error.fields.get(FieldId::RANGE_ERROR_VALUE).bytes(),
             false,
         );
-        self.str_literal(dest + err_at.bytes() + error.field(1), to.name().as_bytes());
-        self.store_disc(&result, dest, VariantId::ERR);
+        let target = error.fields.get(FieldId::RANGE_ERROR_TARGET).bytes();
+        self.str_literal(dest + err_at.bytes() + target, to.name().as_bytes());
+        self.put_tag(prog, st, dest, answer.enum_ty(), VariantId::ERR);
         let here = self.region.code_addr();
         st.place(done, here);
     }

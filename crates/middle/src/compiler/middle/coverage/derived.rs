@@ -27,7 +27,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
 use crate::compiler::semantics::types::{
-    self, FieldList, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+    self, FieldId, FieldList, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Span;
 use std::collections::HashMap;
@@ -358,9 +358,9 @@ impl Shadows<'_> {
                     .iter()
                     .map(|f| types::substitute(&f.ty, &targs, None))
                     .collect();
-                let pairs: Vec<(Expr, Expr)> = types
-                    .iter()
-                    .enumerate()
+                let pairs: Vec<(Expr, Expr)> = fields
+                    .ids()
+                    .zip(&types)
                     .map(|(i, t)| {
                         (
                             field(local(a, ty, span), i, *t, span),
@@ -372,7 +372,7 @@ impl Shadows<'_> {
             }
             (TyDef::Struct { fields, .. }, None) => {
                 let mut stmts = Vec::new();
-                for (i, f) in fields.iter().enumerate() {
+                for (i, f) in fields.entries() {
                     let t = types::substitute(&f.ty, &targs, None);
                     if let Some(call) =
                         self.walk(op, t, vec![field(local(a, ty, span), i, t, span)], span)
@@ -712,7 +712,7 @@ fn local(id: LocalId, ty: Ty, span: Span) -> Expr {
     Expr::new(ExprKind::Local(id), ty, span)
 }
 
-fn field(base: Expr, index: usize, ty: Ty, span: Span) -> Expr {
+fn field(base: Expr, index: FieldId, ty: Ty, span: Span) -> Expr {
     Expr::new(
         ExprKind::Field {
             base: Box::new(base),

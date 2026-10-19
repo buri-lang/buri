@@ -1618,7 +1618,7 @@ fn expression_symbols(
                 tables,
                 *con,
                 None,
-                updates.iter().map(|(index, _)| *index),
+                updates.iter().map(|(index, _)| index.index()),
                 out,
             );
         }
@@ -1647,14 +1647,14 @@ fn expression_symbols(
             let field = base
                 .ty
                 .head()
-                .and_then(|con| Some((con, field_info(tables, con, None, *index)?)));
+                .and_then(|con| Some((con, field_info(tables, con, None, index.index())?)));
             field.into_iter().for_each(|(con, info)| {
                 out(
                     info.name.clone(),
                     Symbol::Field {
                         con,
                         variant: None,
-                        index: *index,
+                        index: index.index(),
                     },
                 )
             });
