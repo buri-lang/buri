@@ -1,0 +1,6 @@
+library {
+    test {
+        sources: ["test/b.buri"]
+        dependencies: ["//lib/testing"]
+    }
+}

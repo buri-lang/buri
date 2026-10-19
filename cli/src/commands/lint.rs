@@ -4464,12 +4464,7 @@ pub(crate) fn reached_by_resolution(
             if package == own {
                 return;
             }
-            let label = session.workspace.package(package).label();
-            out.insert(if crate::build::workspace::is_test_only_path(&m.path) {
-                format!("{label}/testing")
-            } else {
-                label
-            });
+            out.insert(session.workspace.module_label(package, &m.path));
         });
     }
     out

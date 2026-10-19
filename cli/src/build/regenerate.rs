@@ -536,12 +536,7 @@ fn resolved_by_role(
             if package == own {
                 return;
             }
-            let label = session.workspace.package(package).label();
-            reached.push(if crate::build::workspace::is_test_only_path(&m.path) {
-                format!("{label}/testing")
-            } else {
-                label
-            });
+            reached.push(session.workspace.module_label(package, &m.path));
         });
         let into = match role {
             Role::TestSource => &mut *test,

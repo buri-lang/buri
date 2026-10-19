@@ -732,12 +732,25 @@ impl Workspace {
         if loc.kind == ModuleKind::PlatformSurface {
             return None;
         }
-        let label = self.package(loc.package).label();
-        Some(if is_test_only_path(path) {
+        Some(self.module_label(loc.package, &loc.path))
+    }
+
+    /// The dependency label that reaches `path`, a module of `package`: the
+    /// library's, or its testing surface's for a file in the package's own
+    /// `testing/` directory.
+    ///
+    /// By where the file is in its package rather than by a `testing` segment
+    /// anywhere in its path: a library at `lib/testing` is `//lib/testing`.
+    pub fn module_label(&self, package: PackageId, path: &str) -> String {
+        let label = self.package(package).label();
+        let testing = self
+            .package_relative(package, path)
+            .is_some_and(|rel| rel.starts_with("testing/"));
+        if testing {
             format!("{label}/testing")
         } else {
             label
-        })
+        }
     }
 
     /// Resolves a module path written in an import.

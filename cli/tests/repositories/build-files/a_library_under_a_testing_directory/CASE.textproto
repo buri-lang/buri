@@ -1,0 +1,31 @@
+# A library whose package is `lib/testing` is `//lib/testing`, which is
+# what a suite that imports it lists. Its path has a `testing` segment,
+# which makes it something only test code may import, but it's a library
+# and not some library's testing surface, so nothing adds `/testing` to
+# its label.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a library under a testing directory is depended on by its own label"
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "lint.txt"
+}
+
+run {
+  args: ["gen", "//lib/b"]
+  exit: 0
+  golden: "gen.txt"
+}
+
+file {
+  path: "lib/b/BUILD.buri"
+  golden: "BUILD.buri"
+}
+
+run {
+  args: ["test", "//lib/b"]
+  exit: 0
+}
