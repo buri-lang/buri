@@ -2626,23 +2626,26 @@ fn not_ready(
     chosen: Chosen,
     span: Span,
 ) -> Diagnostic {
+    // The *reason*, from the one function `buri build` asks
+    // (`actions::native_gap`), rather than "this toolchain emits JavaScript" —
+    // which was false on a host that runs its other suites natively, and is the
+    // same wrong sentence buri-lang/buri#25 and buri-lang/buri#26 were about on
+    // the build side. A suite runs on this host's own variant, so what is
+    // missing is the toolchain's half.
+    //
+    // Both branches name it. The default once listed every piece a native run
+    // needs and left the reader to guess which one this toolchain lacked, so a
+    // `--release` run on a binary built without `backend-llvm` read the same as
+    // one on a machine with no C compiler.
+    let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    let target = actions::target_of(&output);
+    let why = actions::native_gap(target, actions::profile_of(flags))
+        .map(|gap| gap.reason)
+        .unwrap_or_else(|| "this host has no C toolchain to link one with".to_string());
+    let slug = platform.slug();
     match chosen {
         Chosen::Asked => {
-            // The *reason*, from the one function `buri build` asks
-            // (`actions::native_gap`), rather than "this toolchain emits
-            // JavaScript" — which was false on a host that runs its other
-            // suites natively, and is the same wrong sentence
-            // buri-lang/buri#25 and buri-lang/buri#26 were about on the
-            // build side.
-            // A suite asking for `NATIVE` runs on this host's own variant, so
-            // what is missing is the toolchain's half.
-            let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-            let target = actions::target_of(&output);
-            let why = actions::native_gap(target, actions::profile_of(flags))
-                .map(|gap| gap.reason)
-                .unwrap_or_else(|| "this host has no C toolchain to link one with".to_string());
             let backend = platform.backend().proto();
-            let slug = platform.slug();
             Diagnostic::templated("test-run-unavailable", span)
                 .with_bind("platform", slug)
                 .with_note(format!(
@@ -2654,10 +2657,9 @@ fn not_ready(
                 ))
         }
         Chosen::Default => Diagnostic::templated("test-run-unavailable", span)
-            .with_bind("platform", platform.slug())
+            .with_bind("platform", slug)
             .with_note(format!(
-                "a native run in the {} profile needs a code generator for it compiled into this \
-                 toolchain, a runtime archive for this host, and a C toolchain to link them with",
+                "a suite that names no backend runs natively in the {} profile, but {why}",
                 flags.mode.name()
             ))
             .with_fix(

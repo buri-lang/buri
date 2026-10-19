@@ -151,8 +151,9 @@ fn suites_with_no_test_blocks_run_nothing() {
         .says("0 passed, 0 failed, 0 skipped");
 }
 
-/// With no C compiler to link with, a native suite is refused by name, and the
-/// fix says how to run it on JavaScript instead.
+/// With no C compiler to link with, a native suite is refused by name, the note
+/// says that the C compiler is what is missing, and the fix says how to run it
+/// on JavaScript instead.
 #[test]
 fn a_missing_c_compiler_refuses_native_suites() {
     let scratch = Scratch::repo("corners-no-cc");
@@ -166,6 +167,9 @@ fn a_missing_c_compiler_refuses_native_suites() {
         .run_with_env(&["test", "//lib/a"], &[("CC", "/nonexistent/cc")])
         .exits(1)
         .says("error: this toolchain cannot build a native test binary [test-run-unavailable]")
+        .says(
+            "runs natively in the debug profile, but this host has no C toolchain to link one with",
+        )
         .says("fix: run the suite on JavaScript with `buri test --output=js`")
         .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
     scratch
