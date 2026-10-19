@@ -1493,6 +1493,16 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     } else {
         paths.iter().map(|p| root.join(p)).collect()
     };
+    for (path, file) in paths.iter().zip(&files) {
+        if let Some(nested) = crate::build::workspace::nested_root(&root, file) {
+            let at = nested.strip_prefix(&root).unwrap_or(&nested).display();
+            eprintln!(
+                "error: `{path}` is in the repository at `{at}`, not this one; run `buri docs \
+                 test` from there"
+            );
+            return 2;
+        }
+    }
     if files.is_empty() {
         eprintln!("error: no markdown files to check");
         eprintln!("  = name some, or run this where the repository's documentation is");

@@ -90,6 +90,33 @@ run {
   golden: "docs_inner.txt"
 }
 
+# Named from the outer repository, a path into the nested one is refused the
+# way a label into it is: it is the nested repository's file, laid out and
+# checked by its own runs. A directory, a file in it and a page are all
+# refused, and nothing is written.
+run {
+  args: ["format", "lib/rate/clock"]
+  exit: 2
+  golden: "format_path_outer.txt"
+}
+
+run {
+  args: ["format", "--check", "lib/rate/clock/lib/tick/tick.buri"]
+  exit: 2
+  golden: "format_file_outer.txt"
+}
+
+file {
+  path: "lib/rate/clock/lib/tick/tick.buri"
+  contains: "Tick {   Tick { at: n }"
+}
+
+run {
+  args: ["docs", "test", "lib/rate/clock/README.md"]
+  exit: 2
+  golden: "docs_path_outer.txt"
+}
+
 # A build file in the nested repository that no longer parses is the nested
 # repository's error. The outer repository still loads and builds.
 edit {

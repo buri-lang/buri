@@ -145,6 +145,13 @@ fn select(
                  file or a directory, or a label such as `//lib/money/...`"
             ));
         }
+        if let Some(nested) = crate::build::workspace::nested_root(&session.root, &path) {
+            return Err(format!(
+                "`{argument}` is in the repository at `{}`, not this one; run `buri format` \
+                 from there",
+                session.workspace.rel_of(&nested)
+            ));
+        }
         collect(&path, &mut files);
         files.extend(referenced.iter().filter(|f| f.starts_with(&path)).cloned());
         crate::documentation::layout::documents_under(&path, &mut documents);
