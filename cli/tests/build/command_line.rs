@@ -333,3 +333,16 @@ fn a_documented_program_needs_a_temporary_directory() {
         .says("this example does not run")
         .says("cannot create /dev/null/nowhere/");
 }
+
+/// A JavaScript runtime that isn't there is why an example didn't run.
+#[test]
+fn a_documented_program_needs_a_javascript_runtime() {
+    let scratch = Scratch::repo("command-line-doc-runtime");
+    scratch.write("page.md", RUNS);
+    let missing = scratch.path("no-such-runtime").display().to_string();
+    scratch
+        .run_with_env(&["docs", "test", "page.md"], &[("BURI_JS", &missing)])
+        .exits(1)
+        .says("this example does not run")
+        .says(&format!("cannot run {missing}: "));
+}
