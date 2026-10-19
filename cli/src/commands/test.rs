@@ -443,6 +443,7 @@ fn one_pass(
     let shared = Shared {
         root: session.root.clone(),
         flags: args.flags.clone(),
+        sharing: sharing(&slots),
         painting: std::sync::Mutex::new(Vec::new()),
         workspace: std::sync::Arc::clone(&session.workspace),
         coverage,
@@ -1313,9 +1314,32 @@ struct Shared {
     workspace: std::sync::Arc<crate::build::workspace::Workspace>,
     /// The coverage run, under `--coverage`.
     coverage: Option<crate::build::coverage::Run>,
+    /// The suites whose binaries may take the shared runner file ([`sharing`]).
+    sharing: Vec<SlotId>,
+}
+
+/// Each platform's first suite to build, in the pass's order: the one binary
+/// that may take that platform's shared runner file
+/// ([`actions::link_test_binary`]). Chosen before anything builds, so where a
+/// binary lands is the repository's choice and not the schedule's.
+fn sharing(slots: &Slots) -> Vec<SlotId> {
+    let mut first: Vec<(Platform, SlotId)> = Vec::new();
+    for (i, slot) in slots.entries() {
+        let builds = slot.answer.is_none() && slot.served.is_none();
+        if builds && first.iter().all(|(p, _)| *p != slot.platform) {
+            first.push((slot.platform, i));
+        }
+    }
+    first.into_iter().map(|(_, i)| i).collect()
 }
 
 impl Shared {
+    /// Whether a binary holding the suite in `slot` may take the shared runner
+    /// file.
+    fn shares(&self, slot: SlotId) -> bool {
+        self.sharing.contains(&slot)
+    }
+
     /// Takes `dir` for the suite in `slot`, unless another suite has it.
     fn claim(&self, dir: &str, slot: SlotId) -> bool {
         let mut painters = self
@@ -1823,6 +1847,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
             &shared.root,
             &label,
             private,
+            shared.shares(slot),
             &output,
             &shared.flags,
             &mut program,
@@ -4941,6 +4966,7 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
             &shared.root,
             &label,
             private,
+            members.iter().any(|m| shared.shares(m.slot)),
             &output,
             &shared.flags,
             &mut program,

@@ -3154,6 +3154,11 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// two `buri test` processes in one repository do not share a file, they take
 /// turns at one and the loser is merely slower.
 ///
+/// Within one run, only one link asks for it: the binary holding the run's
+/// first suite to build ([`link_test_binary`]'s `shares`). Taken first come,
+/// first served, which binary landed there, and which per-package files a run
+/// left behind, changed with the schedule from run to run.
+///
 /// A failing suite's binary there is kept ([`TestBinary::keep`]): its verdict
 /// isn't cached, so the next run starts it again, and rewritten it would be a
 /// new file. Only that run takes the file back ([`kept_test_binary`]).
@@ -3163,14 +3168,19 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 /// to derive it from (see [`native_test_batch`]).
 fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
     if dir.join(KEPT).exists() {
-        crate::build::create_parent(&private);
-        return TestBinary {
-            path: private,
-            claim: None,
-            loaded: None,
-        };
+        return private_runner(private);
     }
     claim_runner_after(dir, private, CLAIM_STALE)
+}
+
+/// A binary at `private`, which no other binary of this run is using.
+fn private_runner(private: PathBuf) -> TestBinary {
+    crate::build::create_parent(&private);
+    TestBinary {
+        path: private,
+        claim: None,
+        loaded: None,
+    }
 }
 
 /// Beside the shared runner file while it holds a kept binary.
@@ -3215,22 +3225,15 @@ fn claim_runner_after(
                 loaded: None,
             }
         }
-        Err(_) => {
-            crate::build::create_parent(&private);
-            TestBinary {
-                path: private,
-                claim: None,
-                loaded: None,
-            }
-        }
+        Err(_) => private_runner(private),
     }
 }
 
 /// A native **test** binary: the same codegen and the same link, over a program
 /// rooted at tests rather than at a `main`. One suite's or a batch's, alike.
 ///
-/// Written to the file [`claim_runner`] names, or to `private` when another
-/// binary holds that file. The link is cached on the ordered `codegen` keys, so
+/// Written to the file [`claim_runner`] names when `shares`, or to `private`
+/// when it doesn't or another binary holds that file. The link is cached on the ordered `codegen` keys, so
 /// an edit the front end erases relinks nothing.
 ///
 /// The unit prefix is always empty. A batch spans packages, and a suite run alone
@@ -3241,13 +3244,15 @@ fn claim_runner_after(
 /// same binary again without compiling it ([`place_test_binary`]).
 #[allow(
     clippy::too_many_arguments,
-    reason = "where the cache is, the label, the fallback file, the output, the flags, \
-              the program, its tables and the diagnostics: none derivable from another"
+    reason = "where the cache is, the label, the fallback file, whether it may take the \
+              shared one, the output, the flags, the program, its tables and the \
+              diagnostics: none derivable from another"
 )]
 pub fn link_test_binary(
     root: &std::path::Path,
     label: &str,
     private: PathBuf,
+    shares: bool,
     output: &Output,
     flags: &Flags,
     program: &mut monomorphize::Program,
@@ -3290,9 +3295,25 @@ pub fn link_test_binary(
             Err(why) => super::test_host::fall_back(&why),
         }
     }
+    // Each link names itself by its package, so a test can decide which one
+    // reaches the shared file first.
+    #[cfg(feature = "test-hooks")]
+    let who = private
+        .parent()
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    #[cfg(feature = "test-hooks")]
+    CLAIMING.held_as(&who);
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
-    let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
+    let binary = if shares {
+        claim_runner(&root.join(".buri/out").join(output.dir()), private)
+    } else {
+        private_runner(private)
+    };
+    #[cfg(feature = "test-hooks")]
+    CLAIMED.held_as(&who);
     match link_cached(
         root,
         label,
@@ -3322,6 +3343,13 @@ pub fn link_test_binary(
         }
     }
 }
+
+/// Where a test link stands just before it asks for the shared runner file, and
+/// just after, held by its package's name ([`crate::hold::Point::held_as`]).
+#[cfg(feature = "test-hooks")]
+static CLAIMING: crate::hold::Point = crate::hold::Point::new("runner-claim");
+#[cfg(feature = "test-hooks")]
+static CLAIMED: crate::hold::Point = crate::hold::Point::new("runner-claimed");
 
 /// Where the test binary a run before this one linked under `link` will run
 /// from when it isn't kept ([`kept_test_binary`]): the shared runner file where
