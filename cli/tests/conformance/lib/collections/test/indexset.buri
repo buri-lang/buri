@@ -773,6 +773,25 @@ test "answered by a scope under the test's own scheduler" {
     assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
 }
 
+/// A scheduler of the test's own that runs no step and answers no result,
+/// which breaks `parallel`'s promise. Natively a scope gets nothing back for
+/// its body and runs the body itself, so it still answers what the body did.
+struct Idle {}
+
+impl Tasks for Idle {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        []
+    }
+}
+
+test "answered by a scope under a scheduler that runs nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: Idle {},
+    };
+    assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
+}
+
 test "a member, in an option, equals itself and not None" {
     assert.isTrue(variants.optionsCompare(Octet(1)));
     assert.isTrue(variants.optionsCompare(Row(1)));

@@ -252,6 +252,49 @@ test "a task spawned after its scope returned runs on the test's own scheduler t
     assert.equal(out.captured(), "later\n");
 }
 
+/// A scheduler of the test's own that breaks `parallel`'s promise: it runs no
+/// step and answers no result. Natively a scope hands it the body and its
+/// worker as a pair, gets nothing back, and runs the body itself.
+struct Idle {}
+
+impl Tasks for Idle {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        []
+    }
+}
+
+test "a scope under a scheduler that runs nothing still runs its body once" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: Idle {},
+    };
+    let answer = tasks.scope(ctx, fn(c, here) => {
+        let _ = say(c, "body");
+        41 + 1
+    });
+    assert.equal(answer, 42);
+    assert.equal(out.captured(), "body\n");
+}
+
+test "a scope under a scheduler that runs nothing still answers a handler" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: Idle {},
+    };
+    let handler = tasks.scope(ctx, fn(c, here) => {
+        let _ = say(c, "mounted");
+        fn(c2) => say(c2, "clicked")
+    });
+    assert.equal(out.captured(), "mounted\n");
+    let click = handler;
+    let _ = click(ctx);
+    assert.equal(out.captured(), "mounted\nclicked\n");
+}
+
 // -- a scope a handler holds --------------------------------------------------
 
 test "a scope is inert, so a lambda may capture it" {

@@ -299,7 +299,7 @@ fn beside<C: Allocator + Tasks, A>(ctx: C, here: Scope, body: fn(C, Scope) => A)
         fn(c) => {
             let run = body;
             let answer = run(c, here);
-            let _ = scopeRan(c, here.0);
+            let _ = scopeRan(c, here.0, false);
             .Some(answer)
         },
         fn(c) => {
@@ -313,9 +313,9 @@ fn beside<C: Allocator + Tasks, A>(ctx: C, here: Scope, body: fn(C, Scope) => A)
     });
     match (halves.first()) {
         .Some(.Some(answer)) => answer,
-        // Unreachable: `parallel` answers in the items' order, so the first
-        // answer is the body's. Running it here keeps a toolchain bug from
-        // stopping the program.
+        // A scheduler that kept its promise answers the body's half first. One
+        // of the program's own that answered nothing, or answered out of order,
+        // gets the body run here instead.
         _ => {
             let run = body;
             run(ctx, here)
@@ -363,7 +363,7 @@ fn working<C: Allocator + Tasks>(ctx: C, scope: Scope): Bool {
 /// The claimed task at `at`, run, and counted as finished.
 fn ran<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
     let _ = running(ctx, scope, at);
-    scopeRan(ctx, scope.0)
+    scopeRan(ctx, scope.0, true)
 }
 
 // --- The drain ----------------------------------------------------------------
@@ -397,20 +397,15 @@ fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
 ///
 /// `false` where the slot is already empty. Answering a `Bool` rather than `()`
 /// keeps `parallel`'s result element above zero bytes.
+///
+/// The slot comes back as a list of none or one, so running what is in it is a
+/// fold and asks nothing.
 fn running<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
-    match (taking(ctx, scope, at)) {
-        .None => false,
-        .Some(held) => {
-            match (held.first()) {
-                .None => false,
-                .Some(wrapped) => {
-                    let task = wrapped.value;
-                    let _ = task(ctx);
-                    true
-                },
-            }
-        },
-    }
+    taking(ctx, scope, at).foldCtx(ctx, fn(c, _ran, wrapped) => {
+        let task = wrapped.value;
+        let _ = task(c);
+        true
+    }, false)
 }
 
 /// The round's task at `at`, **at the type it was spawned at**.
@@ -419,7 +414,7 @@ fn running<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
 /// call is the only thing that says what the block holds, and the compiler
 /// generates the release from it. A bare `scopeTaskAt` here would leave `T`
 /// determined by nothing and release a block that lets go of nothing.
-fn taking<C: Tasks>(ctx: C, scope: Scope, at: Int): Option<[Carried<fn(C) => ()>]> {
+fn taking<C: Tasks>(ctx: C, scope: Scope, at: Int): [Carried<fn(C) => ()>] {
     scopeTaskAt(ctx, scope.0, at)
 }
 
@@ -429,7 +424,7 @@ fn taking<C: Tasks>(ctx: C, scope: Scope, at: Int): Option<[Carried<fn(C) => ()>
 /// the element crosses and the runtime needs no stride, no glue and no
 /// descriptor to hold a task, queue it and give it back. The `Int` is there to
 /// be *some* bytes: a `[T]` whose element occupies none has no block at all,
-/// and `first` would answer `.None` at any index.
+/// and the runtime would be holding nothing.
 struct Carried<T> {
     /// Zero, always.
     pad: Int,
@@ -465,8 +460,9 @@ fn scopePush<C: Tasks, T>(ctx: C, handle: Int, task: [Carried<T>]): Option<Int>;
 /// up.
 fn scopeRound<C: Tasks>(ctx: C, handle: Int): [Int];
 
-/// Takes the round's task at `index`, once. `.None` where it is already taken.
-fn scopeTaskAt<C: Tasks, T>(ctx: C, handle: Int, index: Int): Option<[Carried<T>]>;
+/// Takes the round's task at `index`, once: a one-element block, or an empty
+/// one where it is already taken.
+fn scopeTaskAt<C: Tasks, T>(ctx: C, handle: Int, index: Int): [Carried<T>];
 
 /// Becomes the scope's drain, where it has none. `false` where somebody else
 /// already is, and that somebody will pick up what this caller queued.
@@ -481,11 +477,14 @@ fn scopeBeside<C: Tasks>(ctx: C, handle: Int): Bool;
 /// nothing is waiting and nothing is running. **Waits** in between.
 fn scopeClaim<C: Tasks>(ctx: C, handle: Int): Int;
 
-/// Whether another worker is waiting for the next spawn.
+/// Whether another worker is free for the next spawn: parked in `scopeClaim`,
+/// on its way there, or started and not yet claiming. Where none is, the
+/// caller is about to start one, and it counts as free from here.
 fn scopeSpare<C: Tasks>(ctx: C, handle: Int): Bool;
 
-/// The body, or a claimed task, has finished.
-fn scopeRan<C: Tasks>(ctx: C, handle: Int): Bool;
+/// The body, or a claimed task where `task` is true, has finished. A worker
+/// that finished a task is free again.
+fn scopeRan<C: Tasks>(ctx: C, handle: Int, task: Bool): Bool;
 
 // The timers' two. Unlike a spawned task, a timer's body is the runtime's to
 // call: it is kept as a handler is, with the context beside it, and the runtime

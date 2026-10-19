@@ -99,6 +99,29 @@ test "under the test's own scheduler, a body that answers an error still waits" 
     assert.equal(out.captured(), "the task still ran\n");
 }
 
+/// A scheduler of the test's own that runs no step and answers no result,
+/// which breaks `parallel`'s promise. Natively a scope gets nothing back for
+/// its body and runs the body itself, so it still answers what the body did.
+struct Idle {}
+
+impl Tasks for Idle {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        []
+    }
+}
+
+test "under a scheduler that runs nothing, a scope answers a value of any shape" {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: stdout(),
+        Tasks: Idle {},
+    };
+    assert.equal(tasks.scope(ctx, fn(c, here) => ()), ());
+    assert.equal(tasks.scope(ctx, fn(c, here) => [1, 2, 3]), [1, 2, 3]);
+    let ok: Result<Int, Str> = tasks.scope(ctx, fn(c, here) => .Ok(7));
+    assert.equal(ok, .Ok(7));
+}
+
 // -- a scope inside a scope ---------------------------------------------------
 
 test "a scope opened inside a scope closes first" {

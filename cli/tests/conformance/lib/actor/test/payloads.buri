@@ -532,6 +532,31 @@ test "a step spawns into a scope under the test's own scheduler" {
     assert.equal(out.captured(), "the job ran\nthe job ran\n");
 }
 
+/// A scheduler of the test's own that runs no step and answers no result,
+/// which breaks `parallel`'s promise. Natively a scope gets nothing back for
+/// its body and runs the body itself, so it still answers what the body did.
+struct Idle {}
+
+impl Tasks for Idle {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        []
+    }
+}
+
+test "a send's results are what a scope answers under a scheduler that runs nothing" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: Idle {},
+    };
+    let boss = actor.start(ctx, foreman());
+    assert.equal(boss.stop(ctx), .Ok(()));
+    let sent = tasks.scope(ctx, fn(c, here) => [boss.sendMessage(c, .Run(here))]);
+    assert.equal(sent, [.Err(.Stopped)]);
+    assert.equal(out.captured(), "");
+}
+
 test "each answer here, in a send's result, equals itself and not a failure" {
     let stopped = SendError.Stopped;
     assert.isTrue(variants.resultsCompare((), stopped));
