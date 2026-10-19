@@ -881,3 +881,28 @@ Every other module is unchanged. The gate compares shares, not counts. buri/ast 
   - Exchange `_` at 453.
   - `radius == 0.0` at 467.
 - **str: 3.** 712 `withDefault`, and `digitAt` at 1224 and 1225.
+
+## Stdlib MC/DC phase 21: core/tasks
+
+### MC/DC
+
+core/tasks went from 15/48 to 33/44, measured over the tasks, semantics, collections and actor packages, merged across stencil, JS and LLVM `--release`.
+
+### Runtime changes
+
+- **An empty round gives the drain up.** `scopeRound` clears `draining` under the same lock when it finds nothing waiting, in `rt.rs` and in `runtime.js`. So a spawn can no longer race the drain's end, and `scopeLeave` and `resting` are gone.
+- **Only a `TestTasks` block runs body-first.** `scopeBeside` used to answer false anywhere in a test binary. Now it answers false only while the current test block has made a `TestTasks` double (`testing::a_double_schedules`). A block that binds its own `Tasks` runs scopes as its program does.
+
+### Tests
+
+- `cli/tests/native/own_scheduler.rs` uses a scheduler that runs three items in reverse. It checks that `buri run` and `buri test` print the same order. It failed before the gate change.
+- Conformance siblings under a local `InOrder` scheduler, one per answer type:
+  - `tasks/test/scope.buri` and `background.buri`
+  - `collections/test/flags.buri` and `indexset.buri`
+  - `actor/test/payloads.buri`
+
+### What's left (11)
+
+- **314 `_` of `halves.first()`, once per A (8).** Unreachable, because `parallel` answers in order. Pulling an `A` out with no `match` needs a default. A lazy default captures `ctx`, which SPEC 10.6 forbids, and an aborting unwrap only moves the decision into `core/option`.
+- **337 `scopeSpare true`.** It needs a worker parked in `scopeClaim` while another claims. A sequential scheduler deadlocks or never parks, so this needs real threads.
+- **401 `taking .None` and 404 `held.first .None`.** Unreachable, because every index is taken exactly once. If `scopeTaskAt` returned `[Carried<T>]` (empty where taken) instead of `Option`, one of the two would go. That means changing `rt.rs`, `runtime.js` and `runtime_table.rs` for a single decision, so it wasn't done.
