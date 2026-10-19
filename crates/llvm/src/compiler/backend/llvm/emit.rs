@@ -2912,12 +2912,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // has no parameter for it and shift every argument after it into
                 // the wrong register — which links, runs, and answers garbage.
                 runtime::Arg::Dropped => {}
-                runtime::Arg::Bytes => {
-                    // `ptr`, `len` — the byte range without the owning block.
-                    for piece in pieces.into_iter().skip(1) {
-                        argv.push(piece.into());
-                    }
-                }
                 // The element crosses as a pointer to a stack copy (§2 rule 4):
                 // the runtime cannot name `T`'s leaves, so there is nothing to
                 // flatten it into. The copy is at `T`'s *memory* layout, which
@@ -3019,13 +3013,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | ir::Answer::ResMsg(_)
             | ir::Answer::Inline(_)
             | ir::Answer::InlineRes(_) => None,
-            ir::Answer::Scalar => Some(repr::ir_type(
+            ir::Answer::Scalar(_) => Some(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,
                 self.program,
                 code.ty_of(dest),
             )),
-            ir::Answer::Int(bits) => Some(self.int_of_width(bits).as_basic_type_enum()),
+            ir::Answer::Int(n) => Some(self.int_of_width(n.bits()).as_basic_type_enum()),
         };
         let f = self.declare_rt(&entry.symbol(), &param_types, ret_type);
         if matches!(answer, ir::Answer::NoReturn) {
@@ -6076,7 +6070,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return value;
                 }
                 // `ptr`, `len` and no `base`: the renderer reads the bytes and
-                // keeps nothing, which is `Arg::Bytes`'s shape.
+                // keeps nothing.
                 let [_, ptr, raw] = repr::disassemble_n(b, value);
                 let raw = int(raw);
                 // **Masked**, unlike every `Arg::Str` argument. `text.rs`'s

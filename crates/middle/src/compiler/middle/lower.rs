@@ -567,9 +567,9 @@ impl Types {
         let ret = Types::runtime_ty(tables, ret);
         match shape {
             Ret::Void => Answer::Void,
-            Ret::Scalar => Answer::Scalar,
+            Ret::Scalar(c) => Answer::Scalar(c),
             Ret::NoReturn => Answer::NoReturn,
-            Ret::Int(bits) => Answer::Int(bits),
+            Ret::Int(n) => Answer::Int(n),
             Ret::Out => Answer::Out,
             Ret::Sum => Answer::Sum(self.enum_of(tables, &ret, TyConId::OPTION)),
             Ret::Res => Answer::Res(self.result_of(tables, &ret)),

@@ -50,12 +50,11 @@
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{Bind, Fn2, Jit, V};
-use super::runtime::{self, Entry, Extra, OptRepr, BURI_OK};
+use super::runtime::{self, Arg, CScalar, Entry, Extra, Narrow, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir::{self, Answer};
 use crate::compiler::middle::layout::{EnumRepr, Repr, Words};
 use crate::compiler::semantics::types::{self as types, FieldId, Ty, TyKind, VariantId};
-use crate::diagnostics::{invariant_with, Invariant};
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
@@ -97,14 +96,6 @@ fn round8(n: u32) -> u32 {
     (n + 7) & !7
 }
 
-/// One scalar of a flattened Buri value: where it is in the frame and how wide.
-#[derive(Clone, Copy)]
-pub(crate) struct Leaf {
-    offset: u32,
-    width: u32,
-    float: bool,
-}
-
 /// What goes into one C argument register.
 #[derive(Clone)]
 pub(crate) enum Src {
@@ -122,6 +113,47 @@ pub(crate) enum Src {
 /// the ASCII flag rather than part of the count.
 const STR_PTR: u32 = 8;
 const STR_LEN: u32 = 16;
+
+/// Every runtime row fits a `crt` stencil, checked as this crate builds: the
+/// words its shapes flatten to and its answer's out-pointers are at most
+/// `MAX_INT` integers and `MAX_FLOAT` floats. A wide value crosses `Spilled`.
+///
+/// A bound rather than the exact count: a `Ret::Res` row is given both of its
+/// pointers whether or not `T` and `E` have the bytes to need them.
+const _: () = {
+    let mut rows = runtime::ENTRIES;
+    while let [row, rest @ ..] = rows {
+        let (mut ints, mut floats) = (0, 0);
+        let (mut drops, mut walks) = (false, false);
+        let mut args = row.args;
+        while let [arg, rest @ ..] = args {
+            match *arg {
+                Arg::Float => floats += 1,
+                Arg::Dropped => drops = true,
+                Arg::Walk => {
+                    walks = true;
+                    ints += Arg::Walk.leaves();
+                }
+                arg => ints += arg.leaves(),
+            }
+            args = rest;
+        }
+        // A walk that keeps the context it drops: four more (`Arg::Walk`).
+        if drops && walks {
+            ints += 4;
+        }
+        ints += match row.ret {
+            Ret::Sum | Ret::Out => 1,
+            Ret::Res | Ret::ResMsg => 2,
+            Ret::Void | Ret::Scalar(_) | Ret::NoReturn | Ret::Int(_) => 0,
+        };
+        assert!(
+            ints <= MAX_INT && floats <= MAX_FLOAT,
+            "past what a `crt` stencil holds"
+        );
+        rows = rest;
+    }
+};
 
 impl Jit<'_> {
     /// Emits a call to `entry`, with `tail` after the words its arguments
@@ -142,53 +174,45 @@ impl Jit<'_> {
         let extra = entry.extra();
         let by_ref = entry.by_ref();
 
-        for (i, (slot, t)) in args.iter().copied().enumerate() {
-            // A **context argument is dropped**, whatever it weighs and
-            // whatever type it turned out to be. The runtime allocates through
-            // `buri_rt_alloc` and has no use for one, so the C signature has no
-            // parameter for it.
-            //
-            // Which argument that is comes from the row ([`Arg::Dropped`](super::runtime::Arg::Dropped)) rather
-            // than from the value's type, and the difference is not academic.
-            // Asking "is this a `Ty::Ctx`?" was the rule here, and it is the
-            // right answer only while every `C: Allocator` is instantiated at a
-            // `context { … }`. `C` is an ordinary type parameter with an
-            // ordinary bound (SPEC 10.1), so a value that *implements* `Allocator`
-            // satisfies it without being a context — SPEC 10.8's attenuating
-            // `ReadOnly<C>`, and `platform/effect/testing`'s `alloc()`, which is a
-            // `struct TestAllocator(I64)` carrying a handle. One of those slipped
-            // past the type test, spread to a leaf, and shifted every argument
-            // after it one register down: `push` reached `buri_rt_list_push`
-            // with the handle where the pointer belongs and died in `memmove`
-            // before the first test block.
-            if entry.dropped(i) {
-                continue;
-            }
-            // A context the row does *not* name is this table being wrong, not
-            // this call being unusual, and every context in the corpus reaches
-            // here — so a missing annotation stops the build rather than
-            // shifting the argument list at run time.
-            invariant_with(
-                !matches!(source_ty(prog, t).map(Ty::kind), Some(TyKind::Ctx(_))),
-                || {
-                    format!(
-                        "{}: the runtime table names every context argument, not {i}",
-                        entry.key
-                    )
-                },
-            );
-            if by_ref == Some(i) {
-                ints.push(Src::Addr(slot));
-                continue;
-            }
-            // An integer leaf is a whole word (`leaves`).
-            for leaf in self.leaves(prog, t) {
-                let at = slot + leaf.offset;
-                if leaf.float {
-                    floats.push(Src::Word(at));
-                } else {
-                    ints.push(Src::Word(at));
-                }
+        // Each Buri argument flattens as **its row says**, not as its type
+        // does: the row is the C signature, so it is what decides which words
+        // cross and in which register file.
+        //
+        // A **context argument is dropped** ([`Arg::Dropped`]), whatever it
+        // weighs and whatever type it turned out to be. The runtime allocates
+        // through `buri_rt_alloc` and has no use for one, so the C signature
+        // has no parameter for it. Asking "is this a `Ty::Ctx`?" was the rule
+        // here once, and it is the right answer only while every
+        // `C: Allocator` is instantiated at a `context { … }`. `C` is an
+        // ordinary type parameter with an ordinary bound (SPEC 10.1), so a
+        // value that *implements* `Allocator` satisfies it without being a
+        // context — SPEC 10.8's attenuating `ReadOnly<C>`, and
+        // `platform/effect/testing`'s `alloc()`, which is a
+        // `struct TestAllocator(I64)` carrying a handle. One of those slipped
+        // past the type test, spread to a leaf, and shifted every argument
+        // after it one register down: `push` reached `buri_rt_list_push` with
+        // the handle where the pointer belongs and died in `memmove` before
+        // the first test block.
+        //
+        // A closure's words are not its argument's: they are `tail`, and the
+        // shapes that consume no argument are the extras below.
+        let shapes = entry.args.iter().copied().filter(|a| a.consumes());
+        for (shape, (slot, _)) in shapes.zip(args.iter().copied()) {
+            match shape {
+                Arg::Scalar => ints.push(Src::Word(slot)),
+                Arg::Float => floats.push(Src::Word(slot)),
+                Arg::Spilled => ints.push(Src::Addr(slot)),
+                Arg::List | Arg::Elems => ints.extend([Src::Word(slot), Src::Word(slot + 8)]),
+                Arg::Str => ints.extend([0, STR_PTR, STR_LEN].map(|at| Src::Word(slot + at))),
+                Arg::Dropped
+                | Arg::Step
+                | Arg::Compute
+                | Arg::Walk
+                | Arg::Press
+                | Arg::Stride
+                | Arg::Retain
+                | Arg::Release
+                | Arg::Equal => {}
             }
         }
 
@@ -288,7 +312,7 @@ impl Jit<'_> {
             }
             Answer::Void
             | Answer::NoReturn
-            | Answer::Scalar
+            | Answer::Scalar(_)
             | Answer::Int(_)
             | Answer::Res(_)
             | Answer::ResMsg(_)
@@ -349,11 +373,6 @@ impl Jit<'_> {
                 };
                 let err_at = variants.get(VariantId::ERR).get(FieldId::FIRST).bytes();
                 if tag_w.is_none() {
-                    // Every row's non-enum error is a `Str` or has fields.
-                    crate::diagnostics::invariant(
-                        err_l.size > 0,
-                        "stencil: a runtime row's error has bytes",
-                    );
                     ints.push(Src::Addr(dslot + err_at));
                 }
                 // The message shape: the entry writes `E`'s one `Str` where the
@@ -403,19 +422,24 @@ impl Jit<'_> {
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Answer::Sum(_) | Answer::Int(32) | Answer::Res(_) | Answer::ResMsg(_) => "w",
-            Answer::Scalar | Answer::Int(_) => {
-                let mut leaves = self.leaves(prog, dty);
-                let one = leaves.pop().filter(|_| leaves.is_empty());
-                scalar_kind(one.or_ice("a scalar row answers one scalar"), dty)
-            }
+            Answer::Sum(_) | Answer::Int(Narrow::I32) | Answer::Res(_) | Answer::ResMsg(_) => "w",
+            // The C return type's own width (`abi::RETURN_SHAPES`), which the
+            // row names. Both psABIs leave the upper bits of a narrower integer
+            // return **unspecified**, so a stencil that declared `uint64_t`
+            // for a `u8` reads whatever was in the register — which AAPCS64
+            // hid, because Rust's arm64 codegen zeroes it on the way out, and
+            // SysV did not. A frame slot holds the result zero-extended.
+            Answer::Int(Narrow::U8) | Answer::Scalar(CScalar::U8) => "b",
+            Answer::Scalar(CScalar::U32) => "u",
+            Answer::Scalar(CScalar::U64) => "i",
+            Answer::Scalar(CScalar::F64) => "d",
         };
 
         // A `Tag` whose destination is an aggregate has to land at the tag's
         // own offset and width; one whose destination is a scalar already
         // occupies the whole slot, which is what the `w` shape wrote.
         let narrow = match (answer, dty) {
-            (Answer::Int(32), ir::Type::Agg(agg)) => {
+            (Answer::Int(Narrow::I32), ir::Type::Agg(agg)) => {
                 let id = agg.id();
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
@@ -440,7 +464,8 @@ impl Jit<'_> {
         } else {
             dslot
         };
-        self.c_call_flat(entry.symbol(), st, (&ints, &floats), into, kind);
+        // Every row fits a `crt` stencil, which this crate checks as it builds.
+        self.c_call_to(V::Sym(entry.symbol()), st, &ints, &floats, into, kind);
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -559,26 +584,6 @@ impl Jit<'_> {
     pub(crate) fn c_call_sym<const I: usize>(&mut self, symbol: String, st: &Fn2, ints: &[Src; I]) {
         const { assert!(I <= MAX_INT, "past what a `crt` stencil holds") };
         self.c_call_to(V::Sym(symbol), st, ints, &[], 0, "v");
-    }
-
-    /// [`Jit::c_call`] with the arguments a runtime row's signature flattens
-    /// to. Every row fits a `crt` stencil: a wide value crosses `Spilled`.
-    fn c_call_flat(
-        &mut self,
-        symbol: String,
-        st: &Fn2,
-        (ints, floats): (&[Src], &[Src]),
-        dslot: u32,
-        kind: &'static str,
-    ) {
-        let fits = |n: usize, max: usize, what: &str| {
-            crate::diagnostics::invariant_with(n <= max, || {
-                format!("stencil: {symbol}: {n} {what} arguments, past what a `crt` stencil holds")
-            });
-        };
-        fits(ints.len(), MAX_INT, "integer");
-        fits(floats.len(), MAX_FLOAT, "float");
-        self.c_call_to(V::Sym(symbol), st, ints, floats, dslot, kind);
     }
 
     /// The call itself, for at most `MAX_INT` and `MAX_FLOAT` arguments.
@@ -1175,104 +1180,6 @@ impl Jit<'_> {
             ir::Type::I64 | ir::Type::Ptr | ir::Type::F64 => (8, None),
             ir::Type::I128 => (16, None),
         }
-    }
-
-    /// A value's flattened form: the scalars a C signature would carry it as.
-    ///
-    /// `llvm/repr.rs`'s slot cover is the same one, and the two must agree leaf
-    /// for leaf because they describe the same C function. No `buri_rt_*`
-    /// entry takes an aggregate whose width is not a multiple of eight, so one
-    /// here is a signature this table has got wrong.
-    fn leaves(&mut self, prog: &ir::Program, t: ir::Type) -> Vec<Leaf> {
-        match t {
-            ir::Type::Unit => Vec::new(),
-            ir::Type::I1 | ir::Type::I8 => vec![Leaf {
-                offset: 0,
-                width: 8,
-                float: false,
-            }],
-            ir::Type::I16 | ir::Type::I32 | ir::Type::I64 | ir::Type::Ptr => {
-                vec![Leaf {
-                    offset: 0,
-                    width: 8,
-                    float: false,
-                }]
-            }
-            ir::Type::F32 => vec![Leaf {
-                offset: 0,
-                width: 4,
-                float: true,
-            }],
-            ir::Type::F64 => vec![Leaf {
-                offset: 0,
-                width: 8,
-                float: true,
-            }],
-            ir::Type::I128 => vec![
-                Leaf {
-                    offset: 0,
-                    width: 8,
-                    float: false,
-                },
-                Leaf {
-                    offset: 8,
-                    width: 8,
-                    float: false,
-                },
-            ],
-            ir::Type::Agg(agg) => {
-                let id = agg.id();
-                let size = self.layout_id_shared(prog, id).size;
-                crate::diagnostics::invariant_with(size.is_multiple_of(8), || {
-                    format!("stencil: an aggregate of {size} bytes at a runtime boundary")
-                });
-                (0..size / 8)
-                    .map(|i| Leaf {
-                        offset: i * 8,
-                        width: 8,
-                        float: false,
-                    })
-                    .collect()
-            }
-        }
-    }
-}
-
-/// A scalar result's `crt` shape letter.
-///
-/// A frame slot always holds a whole 64-bit word, so a narrow integer result is
-/// zero-extended into it and an `F32` is stored as its own 32 bits in the low
-/// half — which is `sources.rs::write`'s convention, stated once and obeyed
-/// here.
-///
-/// **The letter is the C return type's width, and `Leaf` is not where that
-/// lives.** [`Jit::leaves`] answers a *slot*, which is eight bytes for every
-/// integer; what the callee returns is the destination's own IR type, and a
-/// `Bool` comes back from `buri_rt_str_equal` as a `u8` where an `Int` comes back
-/// from `buri_rt_str_hash` as a `u64`. Both psABIs leave the upper bits of a
-/// narrower integer return **unspecified**, so a stencil that declared
-/// `uint64_t` for the first reads whatever was in the register — which AAPCS64
-/// hid, because Rust's arm64 codegen zeroes it on the way out, and SysV did
-/// not. `sources.rs::RETURN_SHAPES` has a shape per width for exactly that,
-/// and the LLVM backend builds its call signature from the same fact.
-fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
-    if leaf.float {
-        // `core/math` and the random sources answer `Float`; no row answers an `F32`.
-        return (leaf.width == 8)
-            .then_some("d")
-            .or_ice("a runtime row's float result is an F64");
-    }
-    c_int_shape(t)
-}
-
-/// The `crt` letter for an integer result of IR type `t`, by the width C gives
-/// it. `Ptr` and everything at least a word wide is the plain `uint64_t` shape.
-fn c_int_shape(t: ir::Type) -> &'static str {
-    match t {
-        ir::Type::I1 | ir::Type::I8 => "b",
-        ir::Type::I16 => "h",
-        ir::Type::I32 => "u",
-        _ => "i",
     }
 }
 
