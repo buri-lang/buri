@@ -229,6 +229,59 @@ const SWAP_SUFFIX: &str = "+swap";
 /// [`SWAP_SUFFIX`] one.
 const TWINS: usize = FOLD_SUFFIXES_LEN + 1;
 
+/// The two-target stencils the emitter names without asking whether the
+/// library has them, by their index in it.
+///
+/// [`Known::KEYS`] is the list: the build script refuses a library that lacks
+/// one ([`Builder::missing_known`]), and [`Library::decode`] finds each once,
+/// so a branch the emitter writes is an index rather than a lookup that could
+/// come back empty.
+#[derive(Clone, Copy, Debug)]
+pub struct Known {
+    /// `br/f`: a branch on a boolean in the frame.
+    pub br_f: usize,
+    /// `brcmp/eq/u64/fi`: a frame word against a literal.
+    pub eq_u64_fi: usize,
+    /// `brcmp/lt/u64/ff`: two frame words, unsigned.
+    pub lt_u64_ff: usize,
+    /// `incbr/lt`: a counted loop's increment and test.
+    pub inc_lt: usize,
+    /// `tagbr/eq8`, `tagbr/eq32` and `tagbr/eq`: an enum's tag of one, four
+    /// or eight bytes against a variant.
+    pub tag_eq8: usize,
+    pub tag_eq32: usize,
+    pub tag_eq: usize,
+}
+
+impl Known {
+    /// Every key a [`Known`] holds, in its fields' order.
+    pub const KEYS: [&'static str; 7] = [
+        "br/f",
+        "brcmp/eq/u64/fi",
+        "brcmp/lt/u64/ff",
+        "incbr/lt",
+        "tagbr/eq8",
+        "tagbr/eq32",
+        "tagbr/eq",
+    ];
+
+    /// Each key's index in `index`, or the first key it lacks.
+    fn find(index: &HashMap<&str, u32>) -> Result<Known, String> {
+        let [br_f, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq] =
+            Known::KEYS.map(|key| index.get(key).map(|i| *i as usize).ok_or(key));
+        let missing = |key: &str| format!("the library has no `{key}` stencil");
+        Ok(Known {
+            br_f: br_f.map_err(missing)?,
+            eq_u64_fi: eq_u64_fi.map_err(missing)?,
+            lt_u64_ff: lt_u64_ff.map_err(missing)?,
+            inc_lt: inc_lt.map_err(missing)?,
+            tag_eq8: tag_eq8.map_err(missing)?,
+            tag_eq32: tag_eq32.map_err(missing)?,
+            tag_eq: tag_eq.map_err(missing)?,
+        })
+    }
+}
+
 /// A library the build script is filling: the stencils in key order, and each
 /// key's index. [`Builder::encode`] writes it out; [`Library::decode`] reads it
 /// back.
@@ -251,6 +304,14 @@ impl Builder {
         self.index.insert(key, self.stencils.len() as u32);
         self.stencils.push(s);
     }
+
+    /// The first of [`Known::KEYS`] this library lacks, which the build script
+    /// refuses: the emitter writes each without asking.
+    pub fn missing_known(&self) -> Option<&'static str> {
+        Known::KEYS
+            .into_iter()
+            .find(|key| !self.index.contains_key(*key))
+    }
 }
 
 /// A library read out of the bytes [`Builder::encode`] wrote, a stencil at a
@@ -264,6 +325,8 @@ impl Builder {
 /// first time the emitter asks for that stencil. So are its folded twins.
 pub struct Library {
     pub config: String,
+    /// The stencils the emitter names without asking.
+    pub known: Known,
     bytes: &'static [u8],
     index: HashMap<&'static str, u32>,
     /// Where each stencil's record and its code start, as the table in the
@@ -617,6 +680,7 @@ impl Library {
         }
         Ok(Library {
             config,
+            known: Known::find(&index)?,
             bytes,
             index,
             starts,
@@ -656,7 +720,13 @@ mod tests {
             tail: Some(0),
         };
         let mut lib = Builder::new(String::from("r3"));
-        lib.push(s.name.clone(), s);
+        lib.push(s.name.clone(), s.clone());
+        // The stencils every library has, after the one the tests read.
+        for key in Known::KEYS {
+            let mut known = s.clone();
+            known.name = key.to_string();
+            lib.push(known.name.clone(), known);
+        }
         lib
     }
 
@@ -721,7 +791,7 @@ mod tests {
     fn a_library_survives_a_round_trip() {
         let back = read(&sample());
         assert_eq!(back.config, "r3");
-        assert_eq!(back.len(), 1);
+        assert_eq!(back.len(), 1 + Known::KEYS.len());
         let s = back.get("bin/add/i64/ff/f").unwrap();
         assert_eq!(s.code, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(s.tail, Some(0));
@@ -743,6 +813,42 @@ mod tests {
         // The relocation records are the build script's working notes and are
         // deliberately not carried.
         assert!(h.sites.is_empty());
+    }
+
+    /// A library without a stencil the emitter writes unasked is refused, by
+    /// the build and by the decode, and one with them all answers each key's
+    /// own index.
+    #[test]
+    fn a_library_has_every_known_stencil() {
+        let lib = sample();
+        assert_eq!(lib.missing_known(), None);
+        let back = read(&lib);
+        let k = back.known;
+        let found = [
+            k.br_f,
+            k.eq_u64_fi,
+            k.lt_u64_ff,
+            k.inc_lt,
+            k.tag_eq8,
+            k.tag_eq32,
+            k.tag_eq,
+        ];
+        for (key, at) in Known::KEYS.iter().zip(found) {
+            assert_eq!(back.at(key).map(|(i, _)| i), Some(at), "{key}");
+        }
+
+        let mut short = Builder::new(String::from("r3"));
+        for key in Known::KEYS.iter().filter(|k| **k != "incbr/lt") {
+            let mut s = Stencil::unspilled();
+            s.name = key.to_string();
+            short.push(s.name.clone(), s);
+        }
+        assert_eq!(short.missing_known(), Some("incbr/lt"));
+        let refused = Library::decode(short.encode().leak()).err();
+        assert_eq!(
+            refused.as_deref(),
+            Some("the library has no `incbr/lt` stencil")
+        );
     }
 
     /// Bytes that end before the table does are refused, never read past.

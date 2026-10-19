@@ -2038,6 +2038,11 @@ fn assemble(
             }
         }
     }
+    // The emitter writes these without asking, so a library without one is
+    // a generator that stopped producing it.
+    if let Some(key) = lib.missing_known() {
+        return Err(format!("{} has no `{key}` stencil", target.slug()));
+    }
     Ok(lib)
 }
 

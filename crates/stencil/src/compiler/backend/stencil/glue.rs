@@ -525,7 +525,7 @@ impl Jit<'_> {
                     let done = st.label();
                     for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
-                        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+                        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
                         self.emit(
                             key,
                             &[
@@ -551,7 +551,7 @@ impl Jit<'_> {
                 Site::Guarded { null_at, ty } => {
                     self.load_through(G_SPARE, at.plus(*null_at), 8);
                     let skip = st.label();
-                    let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+                    let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
                     self.emit(
                         key,
                         &[
@@ -703,7 +703,7 @@ impl Jit<'_> {
                     let done = st.label();
                     for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
-                        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+                        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
                         self.emit(
                             key,
                             &[
@@ -729,7 +729,7 @@ impl Jit<'_> {
                 Site::Guarded { null_at, ty } => {
                     self.load_at(G_SPARE, null_at.bytes(), 8);
                     let skip = st.label();
-                    let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+                    let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
                     self.emit(
                         key,
                         &[
@@ -924,7 +924,7 @@ impl Jit<'_> {
         } else {
             G_VALUE
         };
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
@@ -963,7 +963,7 @@ impl Jit<'_> {
             ],
         );
         self.first_nonzero_word_at(stride / 8);
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
@@ -1064,7 +1064,7 @@ impl Jit<'_> {
     }
 
     fn glue_loop_test(&mut self, i: u32, n: u32, tv: V, fv: V, fall: Jump) {
-        let key = self.arm_key("brcmp/lt/u64/ff", fall);
+        let key = self.arm_key(self.lib.known.lt_u64_ff, fall);
         self.emit(
             key,
             &[
