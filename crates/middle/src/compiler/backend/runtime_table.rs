@@ -1277,7 +1277,6 @@ pub const ENTRIES: &[Entry] = &[
     e("tasks.scopeRound", &[Dropped, Scalar], Ret::Out),
     e("tasks.scopeTaskAt", &[Dropped, Scalar, Scalar], Ret::Sum),
     e("tasks.scopeEnter", &[Dropped, Scalar], Ret::Scalar),
-    e("tasks.scopeLeave", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),

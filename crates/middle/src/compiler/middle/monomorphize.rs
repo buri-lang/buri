@@ -3339,7 +3339,6 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "tasks.scopeBeside",
     "tasks.scopeClaim",
     "tasks.scopeEnter",
-    "tasks.scopeLeave",
     "tasks.scopeOpen",
     "tasks.scopePush",
     "tasks.scopeRan",
@@ -3778,7 +3777,7 @@ mod tests {
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
-        tasks.scopeBeside tasks.scopeClaim tasks.scopeEnter tasks.scopeLeave \
+        tasks.scopeBeside tasks.scopeClaim tasks.scopeEnter \
         tasks.scopeOpen tasks.scopePush tasks.scopeRan tasks.scopeRound \
         tasks.scopeSpare tasks.scopeTaskAt tasks.timerStart tasks.timerStop \
         testing_assert.failExpected testing_assert.report \

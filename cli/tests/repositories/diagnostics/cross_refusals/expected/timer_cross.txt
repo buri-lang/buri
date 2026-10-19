@@ -1,4 +1,4 @@
-error: this toolchain was built without networking, so `host.HostTasks.parallel`, `tasks.scopeBeside`, `tasks.scopeClaim`, `tasks.scopeEnter`, `tasks.scopeLeave`, `tasks.scopeOpen`, `tasks.scopePush`, `tasks.scopeRan`, `tasks.scopeRound`, `tasks.scopeSpare`, `tasks.scopeTaskAt`, `tasks.timerStart` and `tasks.timerStop` cannot be compiled [networking-unavailable]
+error: this toolchain was built without networking, so `host.HostTasks.parallel`, `tasks.scopeBeside`, `tasks.scopeClaim`, `tasks.scopeEnter`, `tasks.scopeOpen`, `tasks.scopePush`, `tasks.scopeRan`, `tasks.scopeRound`, `tasks.scopeSpare`, `tasks.scopeTaskAt`, `tasks.timerStart` and `tasks.timerStop` cannot be compiled [networking-unavailable]
   = the native runtime carries the networking crates behind a `net` feature that is on by default, and this toolchain's copy of it was built without them
   = fix: install a toolchain built with the runtime's `net` feature, or build one with `cargo build -p buri` and `BURI_RUNTIME_NET` unset
 
