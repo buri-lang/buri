@@ -359,6 +359,26 @@ pub fn set_call_convention(call: CallSiteValue<'_>, conv: u32) {
     call.set_call_convention(conv);
 }
 
+/// `uwtable(async)` on every function `module` defines, so the object
+/// describes each frame at every instruction, as the x86-64 psABI asks and as
+/// clang and rustc do by default. `nounwind` alone drops the description, and
+/// a debugger, a profiler or Valgrind then guesses at the frames. Valgrind's
+/// guess reads the word at the stack pointer, and after a stack overflow that
+/// word is unmapped, which kills Valgrind before the program's handler runs.
+pub fn unwind_tables(module: &inkwell::module::Module<'_>) {
+    const ASYNC: u64 = 2;
+    let attr = module
+        .get_context()
+        .create_enum_attribute(kind("uwtable"), ASYNC);
+    let mut next = module.get_first_function();
+    while let Some(f) = next {
+        if f.count_basic_blocks() > 0 {
+            f.add_attribute(AttributeLoc::Function, attr);
+        }
+        next = f.get_next_function();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Emission
 // ---------------------------------------------------------------------------
