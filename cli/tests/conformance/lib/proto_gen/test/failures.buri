@@ -4,6 +4,8 @@
 
 from "core/buri/ast" import * as ast;
 from "core/codegen" import { Diagnostic, Request };
+from "core/list" import * as list;
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -67,6 +69,64 @@ test "the same name written in full is one answer, and no complaint" {
         ctx,
         "",
     );
+    let out = generatedWith(ctx, here, "//other.proto", there);
+    assert.isEmpty(out.diagnostics);
+}
+
+/// `count` messages, `T0` on, each with one field.
+fn declared<C: Allocator>(ctx: C, count: Int): [Str] {
+    list.range(ctx, 0, count).mapCtx(
+        ctx,
+        fn(c, n) => str.format(c, "message T${n} { int32 a = 1; }\n"),
+    )
+}
+
+/// One message that reaches each of `count` types, written `${prefix}T0` on.
+fn reaching<C: Allocator>(ctx: C, prefix: Str, count: Int): Str {
+    let fields = list.range(ctx, 0, count).mapCtx(
+        ctx,
+        fn(c, n) => {
+            let number = n + 1;
+            str.format(c, "  ${prefix}T${n} f${n} = ${number};\n")
+        },
+    );
+    ["message Use {\n"].concat(ctx, fields).push(ctx, "}\n").join(ctx, "")
+}
+
+test "every short name of many that two packages claim is ambiguous, in field order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let count = 60;
+    let here = [HEAD, "package a;\n"]
+        .concat(ctx, declared(ctx, count))
+        .push(ctx, reaching(ctx, "", count))
+        .join(ctx, "");
+    let there = [HEAD, "package b;\n"].concat(ctx, declared(ctx, count)).join(ctx, "");
+    let out = generatedWith(ctx, here, "//other.proto", there);
+    assert.equal(
+        codes(ctx, out.diagnostics),
+        list.repeat(ctx, "proto-ambiguous-type", count),
+    );
+    assert.equal(
+        out.diagnostics.map(ctx, fn(d) => d.message),
+        list.range(ctx, 0, count).mapCtx(
+            ctx,
+            fn(c, n) => str.format(c, "`T${n}` is ambiguous"),
+        ),
+    );
+}
+
+test "many types of another package written in full are each one answer, and no complaint" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let count = 60;
+    let here = [HEAD, "package a;\n"]
+        .concat(ctx, declared(ctx, count))
+        .push(ctx, reaching(ctx, "b.", count))
+        .join(ctx, "");
+    let there = [HEAD, "package b;\n"].concat(ctx, declared(ctx, count)).join(ctx, "");
     let out = generatedWith(ctx, here, "//other.proto", there);
     assert.isEmpty(out.diagnostics);
 }
