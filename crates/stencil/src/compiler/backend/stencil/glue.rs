@@ -1143,6 +1143,7 @@ impl Jit<'_> {
             },
             scratch,
             reg: Vec::new(),
+            imm: Vec::new(),
             wt: Vec::new(),
             cross: Vec::new(),
             region: Vec::new(),

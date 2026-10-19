@@ -19,26 +19,50 @@ pub enum Loc {
     Frame,
     /// A literal, patched into the instruction stream.
     Imm,
-    /// CPS register `k`.
-    Reg(u8),
+    /// A CPS register.
+    Reg(Reg),
 }
 
 impl Loc {
     /// The letter this location contributes to a stencil key. The key is the
     /// whole of the lookup, so this spelling is part of the library's format.
-    ///
-    /// Borrowed for every register a library has, because the emitter spells
-    /// one or more of these per instruction.
-    pub fn tag(self) -> std::borrow::Cow<'static, str> {
-        const REGS: [&str; 8] = ["r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7"];
+    pub fn tag(self) -> &'static str {
         match self {
-            Loc::Frame => "f".into(),
-            Loc::Imm => "i".into(),
-            Loc::Reg(k) => match REGS.get(usize::from(k)) {
-                Some(r) => (*r).into(),
-                None => format!("r{k}").into(),
-            },
+            Loc::Frame => "f",
+            Loc::Imm => "i",
+            Loc::Reg(r) => r.tag(),
         }
+    }
+}
+
+/// One of the [`CPS_REGISTER_COUNT`] CPS registers. Integers and floats each
+/// number theirs from zero, so a register is its number in either file.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Reg {
+    R0,
+    R1,
+    R2,
+}
+
+impl Reg {
+    /// Every register, in order. Its type has [`CPS_REGISTER_COUNT`] in it, so
+    /// the two can't disagree.
+    pub const ALL: [Reg; CPS_REGISTER_COUNT] = [Reg::R0, Reg::R1, Reg::R2];
+
+    /// How a stencil key spells the register.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Reg::R0 => "r0",
+            Reg::R1 => "r1",
+            Reg::R2 => "r2",
+        }
+    }
+}
+
+/// The register's number, as the generated C and the stencil keys spell it.
+impl std::fmt::Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", *self as u8)
     }
 }
 

@@ -43,7 +43,7 @@
               and the five of a `jmp rel32` on x86-64"
 )]
 
-use super::abi::{HoleName, Jump, Lit, Loc, Slot, StencilTarget, Word};
+use super::abi::{HoleName, Jump, Lit, Loc, Reg, Slot, StencilTarget, Word};
 use super::library::{Hole, Library, Stencil};
 use super::object::RelKind;
 use super::region::{Region, Target};
@@ -53,7 +53,7 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{At, EnumLayout, EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{variant_types, FuncIdx, Tables, Ty};
-use crate::diagnostics::{invariant, Invariant};
+use crate::diagnostics::Invariant;
 use crate::hash::Map as HashMap;
 use std::borrow::Cow;
 
@@ -264,6 +264,13 @@ impl KeyPart for usize {
 impl KeyPart for u8 {
     fn spell(self, key: &mut Key) {
         key.push_number(u64::from(self));
+    }
+}
+
+/// A register spells its number.
+impl KeyPart for Reg {
+    fn spell(self, key: &mut Key) {
+        key.push_number(self as u64);
     }
 }
 
@@ -1054,10 +1061,11 @@ pub(crate) struct Fn2 {
     pub blk: Vec<u64>,
     pub frame: FrameSig,
     pub scratch: u32,
-    /// Where a value lives other than its frame slot: the CPS register the
-    /// level assigned it, or [`Loc::Imm`] for a `Const` whose every use is an
-    /// immediate operand, so that it is never materialised at all.
-    pub reg: Vec<Option<Loc>>,
+    /// The CPS register the level assigned a value, if any.
+    pub reg: Vec<Option<Reg>>,
+    /// Whether a value is a `Const` whose every use is an immediate operand,
+    /// so that it is never materialised at all: it lives at [`Loc::Imm`].
+    pub imm: Vec<bool>,
     /// For a value promoted across block boundaries: whether its frame slot has
     /// to be kept in step with its register, because something that cannot read
     /// a register reads it.
@@ -1102,14 +1110,24 @@ impl Fn2 {
     /// it is the same answer everywhere in the function. Where a *read* takes
     /// the value from is [`Fn2::loc`], which is not.
     pub fn home(&self, v: ir::ValueId) -> Loc {
-        self.reg
-            .get(v.index())
-            .copied()
-            .flatten()
-            .unwrap_or(Loc::Frame)
+        if self.is_imm(v) {
+            return Loc::Imm;
+        }
+        self.reg_of(v).map_or(Loc::Frame, Loc::Reg)
     }
 
     /// Where a read in the block being emitted takes a value from.
+    pub fn loc(&self, v: ir::ValueId) -> Loc {
+        if self.is_imm(v) {
+            return Loc::Imm;
+        }
+        self.read_reg(v).map_or(Loc::Frame, Loc::Reg)
+    }
+
+    /// The register a read in the block being emitted takes a value from, or
+    /// `None` for its frame slot. A read that has no immediate form, such as a
+    /// branch's condition, asks this: [`Jit::constants`] makes a value an
+    /// immediate only when every read of it has one.
     ///
     /// [`Jit::promote`]'s register is only the value inside its region: the
     /// region is barrier-free and enterable only at its header, and neither
@@ -1119,13 +1137,21 @@ impl Fn2 {
     /// comparison one block past the loop read a register a call had already
     /// overwritten, and a `Bool` walk that recursed from two places answered
     /// `true` for every input (buri-lang/buri#47).
-    pub fn loc(&self, v: ir::ValueId) -> Loc {
+    pub fn read_reg(&self, v: ir::ValueId) -> Option<Reg> {
         if self.cross.get(v.index()).copied().unwrap_or(false)
             && !self.region.get(self.cur).copied().unwrap_or(false)
         {
-            return Loc::Frame;
+            return None;
         }
-        self.home(v)
+        self.reg_of(v)
+    }
+
+    fn reg_of(&self, v: ir::ValueId) -> Option<Reg> {
+        self.reg.get(v.index()).copied().flatten()
+    }
+
+    fn is_imm(&self, v: ir::ValueId) -> bool {
+        self.imm.get(v.index()).copied().unwrap_or(false)
     }
 }
 
@@ -1354,7 +1380,7 @@ impl<'a> Jit<'a> {
                     self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
-                self.constants(code, &st.uses, &mut st.constants, &mut st.reg);
+                self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
                 st.blk = table(&mut st.blk, code.blocks().len(), 0);
                 st.cur = 0;
                 let base = self.fixups.len();
@@ -1399,6 +1425,7 @@ impl<'a> Jit<'a> {
                     frame: frame.clone(),
                     scratch: frame.param_end,
                     reg: Vec::new(),
+                    imm: Vec::new(),
                     wt: Vec::new(),
                     cross: Vec::new(),
                     region: Vec::new(),
@@ -1952,13 +1979,9 @@ impl<'a> Jit<'a> {
 /// What a block's terminator may absorb from the block's tail.
 pub(crate) struct Plan {
     pub skip: Vec<bool>,
-    /// The comparison the branch will do itself: `(op, scalar, lhs, rhs)`.
-    pub cmpbr: Option<(
-        ir::BinOp,
-        crate::compiler::semantics::types::Scalar,
-        ir::ValueId,
-        ir::ValueId,
-    )>,
+    /// The comparison the branch will do itself: `(lhs, rhs, stencil)`, the
+    /// stencil by its index in the library.
+    pub cmpbr: Option<(ir::ValueId, ir::ValueId, usize)>,
     /// A `GetTag` the switch will do itself: the aggregate and its enum.
     pub tagsw: Option<(ir::ValueId, ir::EnumTy)>,
     /// The increment a jump into a loop's test does itself.
@@ -2181,10 +2204,11 @@ impl<'a> Jit<'a> {
             }
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::ArrayLen { dest, array } = i {
-                    // `middle::lower` reads a length only in a comparison, an
-                    // allocation, an intrinsic or a block argument it also
-                    // compares, so no pass merges or pins it.
-                    invariant(alone(*dest), "stencil: a length is a class of its own");
+                    // The length is read where it is whatever its class: a
+                    // read of it is a read of its own slot (`Fn2::at`), and a
+                    // copy into a merged parameter's slot or a pinned one is a
+                    // move from that slot like any other. `still` keeps the
+                    // list's word where it is for as long as the length lives.
                     if still(*array) {
                         put(slot, dest.index(), ent(slot, array.index(), 0) + 8);
                         put(&mut aliased, dest.index(), true);
@@ -2863,15 +2887,16 @@ impl<'a> Jit<'a> {
     fn promote(
         &mut self,
         code: &ir::Code,
-        out: &mut [Option<Loc>],
+        out: &mut [Option<Reg>],
         wt: &mut [bool],
         cross: &mut [bool],
         region: &mut Vec<bool>,
     ) -> (usize, usize) {
-        // A promoted loop keeps at least two values in registers.
-        const _: () = assert!(super::abi::CPS_REGISTER_COUNT >= 2);
+        // Every register but the last: one has to be left for the expression
+        // temporaries the paper's own allocator keeps there, or the arithmetic
+        // inside the loop loses more than the loop variable gains.
+        const PROMOTABLE: [Reg; super::abi::CPS_REGISTER_COUNT - 1] = [Reg::R0, Reg::R1];
         let nb = code.blocks().len();
-        let register_count = super::abi::CPS_REGISTER_COUNT;
         // Only a back edge into a block with parameters can make a candidate
         // below, and most functions have none: they skip the tables.
         let back_edge = code.blocks().iter().enumerate().any(|(p, b)| {
@@ -2950,9 +2975,6 @@ impl<'a> Jit<'a> {
 
         let (mut ri, mut rf) = (0usize, 0usize);
         for p in &params {
-            // One register has to be left for the expression temporaries the
-            // paper's own allocator keeps there, or the arithmetic inside the
-            // loop loses more than the loop variable gains.
             let ty = code.ty_of(*p);
             let float = ty == ir::Type::F64;
             let scalar = matches!(
@@ -2969,10 +2991,10 @@ impl<'a> Jit<'a> {
                 continue;
             }
             let k = if float { &mut rf } else { &mut ri };
-            if *k + 1 >= register_count {
+            let Some(r) = PROMOTABLE.get(*k) else {
                 continue;
-            }
-            put(out, p.index(), Some(Loc::Reg(*k as u8)));
+            };
+            put(out, p.index(), Some(*r));
             put(cross, p.index(), true);
             // A value no `reg_ok` entry covers is one nothing in this function
             // reads, so writing its slot through is the conservative answer.
@@ -2996,7 +3018,7 @@ impl<'a> Jit<'a> {
                 }
                 let ps = code.get(t.block).params.clone();
                 for (p, a) in ps.iter().zip(t.args.iter()) {
-                    let Some(Loc::Reg(k)) = ent(out, p.index(), None) else {
+                    let Some(k) = ent(out, p.index(), None) else {
                         continue;
                     };
                     if p == a
@@ -3030,9 +3052,7 @@ impl<'a> Jit<'a> {
                     for i in b.insts.iter().skip(di + 1) {
                         ops.clear();
                         i.operands(&mut ops);
-                        clash |= ops
-                            .iter()
-                            .any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
+                        clash |= ops.iter().any(|o| ent(out, o.index(), None) == Some(k));
                     }
                     ops.clear();
                     b.term.operands(&mut ops);
@@ -3041,13 +3061,11 @@ impl<'a> Jit<'a> {
                         // register: `a` has none yet.
                         ops.extend_from_slice(&tt.args);
                     }
-                    clash |= ops
-                        .iter()
-                        .any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
+                    clash |= ops.iter().any(|o| ent(out, o.index(), None) == Some(k));
                     if clash {
                         continue;
                     }
-                    put(out, a.index(), Some(Loc::Reg(k)));
+                    put(out, a.index(), Some(k));
                     put(cross, a.index(), true);
                     put(wt, a.index(), false);
                 }
@@ -3070,7 +3088,7 @@ impl<'a> Jit<'a> {
     fn regalloc(
         &mut self,
         code: &ir::Code,
-        out: &mut [Option<Loc>],
+        out: &mut [Option<Reg>],
         taken: (usize, usize),
         total: &[u32],
         opnd: &Operands,
@@ -3215,10 +3233,14 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 let file = if float { &mut busyf } else { &mut busy };
-                if let Some(r) = file.iter().position(|b| b.is_none()) {
-                    let _ = (base, basef);
-                    put(file, r, Some(dest.index() as u32));
-                    put(out, dest.index(), Some(Loc::Reg(r as u8)));
+                let _ = (base, basef);
+                if let Some((r, b)) = Reg::ALL
+                    .iter()
+                    .zip(file.iter_mut())
+                    .find(|(_, b)| b.is_none())
+                {
+                    *b = Some(dest.index() as u32);
+                    put(out, dest.index(), Some(*r));
                 }
             }
         }
@@ -3228,9 +3250,7 @@ impl<'a> Jit<'a> {
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
     /// is an immediate operand of a stencil that has an immediate variant.
-    /// Each lives at [`Loc::Imm`] in `reg`. The register passes give a
-    /// register only to a value an instruction computes, so none of these
-    /// has one already.
+    /// Each is marked in `immediate`, and lives at [`Loc::Imm`].
     ///
     /// [`zero_divisor`] is the one use that is *not* eligible however good the
     /// stencil is.
@@ -3239,7 +3259,7 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         total: &[u32],
         constants: &mut Vec<Option<u64>>,
-        reg: &mut [Option<Loc>],
+        immediate: &mut Vec<bool>,
     ) {
         *constants = table(constants, code.values(), None);
         for block in code.blocks() {
@@ -3270,10 +3290,11 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        for (v, r) in reg.iter_mut().enumerate() {
+        *immediate = table(immediate, code.values(), false);
+        for (v, i) in immediate.iter_mut().enumerate() {
             let seen = ent(total, v, 0);
             if ent(constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0) {
-                *r = Some(Loc::Imm);
+                *i = true;
             }
         }
         self.bufs.imm = imm;
@@ -3322,13 +3343,13 @@ impl<'a> Jit<'a> {
                         // builds one for every operand shape of every
                         // comparison of every scalar type, and none for an
                         // operator that is not a comparison or for a `Str`.
-                        let fused = prim.scalar().filter(|s| {
-                            let (tag, _, _) = super::emit::prim_tag(*s);
-                            self.has(&key!["brcmp/", op.name(), "/", tag, "/", a, b])
+                        let fused = prim.scalar().and_then(|s| {
+                            let (tag, _, _) = super::emit::prim_tag(s);
+                            self.at(&key!["brcmp/", op.name(), "/", tag, "/", a, b])
                         });
-                        if let Some(scalar) = fused {
+                        if let Some(at) = fused {
                             put(&mut p.skip, k, true);
-                            p.cmpbr = Some((*op, scalar, *lhs, *rhs));
+                            p.cmpbr = Some((*lhs, *rhs, at));
                         }
                     }
                 }

@@ -22,7 +22,7 @@
               bounded by a program already in memory"
 )]
 
-use super::abi::{Jump, Lit, Loc, Word};
+use super::abi::{Jump, Lit, Loc, Reg, Word};
 use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
     checked_kind, json_arm, native_body, CheckedKind, JsonArm, Leaf, Num,
@@ -32,7 +32,7 @@ use crate::compiler::semantics::types::variant_types;
 /// Where an edge's register half reads from.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RSrc {
-    Reg(u8),
+    Reg(Reg),
     Slot(u32),
 }
 use super::glue::Helper;
@@ -44,7 +44,6 @@ use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{At, EnumRepr, Repr};
 use crate::compiler::semantics::types::{FieldId, FuncIdx, IntPrim, Prim, Scalar, Ty, VariantId};
-use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
 ///
@@ -1606,14 +1605,11 @@ impl<'a> Jit<'a> {
     /// boolean, or — from [`Level::CmpBr`] — the comparison and the branch as
     /// one stencil, which is the paper's Figure 11b supernode.
     /// The stencil this terminator's test wants, by its index.
-    fn cond_key(&self, st: &Fn2, cond: ir::ValueId, plan: &Plan) -> Option<usize> {
-        if let Some((op, prim, lhs, rhs)) = plan.cmpbr {
-            let (tag, _, _) = prim_tag(prim);
-            let la = st.loc(lhs).tag();
-            let lb = st.loc(rhs).tag();
-            return self.at(&key!["brcmp/", op.name(), "/", tag, "/", la, lb]);
+    fn cond_key(&self, st: &Fn2, cond: ir::ValueId, plan: &Plan) -> usize {
+        if let Some((_, _, at)) = plan.cmpbr {
+            return at;
         }
-        self.at(&key!["br/", st.loc(cond).tag()])
+        self.lib.known.br(st.read_reg(cond))
     }
 
     /// The twin of a two-target stencil whose **last** branch is the arm named
@@ -1638,14 +1634,8 @@ impl<'a> Jit<'a> {
     }
 
     fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Jump) {
-        // `rtcall.rs` names `br/f` without asking. A library without
-        // a branch stencil is broken, so this stops here rather than emitting
-        // a fall-through that would run the wrong arm.
-        let key = self
-            .cond_key(st, cond, plan)
-            .or_ice("stencil: the level has a branch stencil");
-        let key = self.arm_key(key, fall);
-        if let Some((_, _, lhs, rhs)) = plan.cmpbr {
+        let key = self.arm_key(self.cond_key(st, cond, plan), fall);
+        if let Some((lhs, rhs, _)) = plan.cmpbr {
             let k = constant(st, rhs);
             self.emit(
                 key,
@@ -1704,7 +1694,7 @@ impl<'a> Jit<'a> {
         };
         let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
         let plan = self.plan_block(code, st, header);
-        let Some((_, _, lhs, rhs)) = plan.cmpbr else {
+        let Some((lhs, rhs, _)) = plan.cmpbr else {
             return false;
         };
         if !frame(lhs) || !frame(rhs) {
@@ -1780,7 +1770,7 @@ impl<'a> Jit<'a> {
     /// when something that cannot read a register reads it.
     fn edge(&mut self, prog: &ir::Program, code: &ir::Code, st: &mut Fn2, t: &Target) {
         let params = code.get(t.block).params.clone();
-        let mut pend: Vec<(u8, bool, RSrc)> = Vec::new();
+        let mut pend: Vec<(Reg, bool, RSrc)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
             // The *home* of the target's parameter: the edge lands where the
             // parameter lives, and the block it lives in is the region's
@@ -1814,42 +1804,36 @@ impl<'a> Jit<'a> {
         // Integers and floats each number their registers from zero, so a
         // register is its number and its class.
         let mut tmp = st.scratch + 56;
-        while let Some(&(_, f, src)) = pend.first() {
+        loop {
             let ready = pend
                 .iter()
                 .position(|(k, f, _)| !pend.iter().any(|(_, g, s)| g == f && *s == RSrc::Reg(*k)));
-            match ready {
-                Some(i) => {
-                    let (k, f, src) = pend.remove(i);
-                    self.reg_move(k, f, src);
-                }
-                None => {
-                    // A permutation of the register file: break it through a
-                    // scratch slot, exactly as the frame half does.
-                    //
-                    // `ready` is `None` only when every entry's register is
-                    // some entry's source; the registers are distinct, so covering all of
-                    // them takes as many register sources as there are entries
-                    // and no entry's source can be a slot. A slot here would
-                    // mean the search above missed a move that was ready, and
-                    // emitting the permutation anyway would drop it.
-                    let j = match src {
-                        RSrc::Reg(j) => Some(j),
-                        RSrc::Slot(_) => None,
-                    }
-                    .or_ice("stencil: an edge's register copies deadlock only on register sources");
-                    self.emit(
-                        &key![if f { "stwg" } else { "stw" }, "/r", j],
-                        &[Lit::D.of(tmp as u64), Jump::Cont.to(V::Fall)],
-                    );
-                    for p in pend.iter_mut() {
-                        if p.1 == f && p.2 == RSrc::Reg(j) {
-                            p.2 = RSrc::Slot(tmp);
-                        }
-                    }
-                    tmp += 8;
+            if let Some(i) = ready {
+                let (k, f, src) = pend.remove(i);
+                self.reg_move(k, f, src);
+                continue;
+            }
+            // Only an entry that reads a register keeps another from being
+            // ready. So with none left the edge is done, and otherwise the
+            // entries are a permutation of the register file: break it
+            // through a scratch slot at the first one, as the frame half does.
+            let reads = |(_, f, s): &(Reg, bool, RSrc)| match s {
+                RSrc::Reg(j) => Some((*f, *j)),
+                RSrc::Slot(_) => None,
+            };
+            let Some((f, j)) = pend.iter().find_map(reads) else {
+                break;
+            };
+            self.emit(
+                &key![if f { "stwg" } else { "stw" }, "/r", j],
+                &[Lit::D.of(tmp as u64), Jump::Cont.to(V::Fall)],
+            );
+            for p in pend.iter_mut() {
+                if p.1 == f && p.2 == RSrc::Reg(j) {
+                    p.2 = RSrc::Slot(tmp);
                 }
             }
+            tmp += 8;
         }
         let mut pending: Vec<(u32, u32, u32)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
@@ -1890,7 +1874,7 @@ impl<'a> Jit<'a> {
         }
     }
 
-    fn reg_move(&mut self, k: u8, float: bool, src: RSrc) {
+    fn reg_move(&mut self, k: Reg, float: bool, src: RSrc) {
         match src {
             RSrc::Reg(j) => self.emit(
                 &key![if float { "mvg" } else { "mvr" }, "/r", k, "/r", j],
