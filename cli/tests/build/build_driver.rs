@@ -3,7 +3,7 @@
 //! artifact where something is in the way, a cache that rotted, the C driver
 //! and linker a link runs through, and the program store macOS runs test
 //! runners from.
-use crate::harness::hang::Capped;
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 
 const NATIVE_MAIN: &str = r#"from "core/io" import * as io;
@@ -675,6 +675,98 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
     std::fs::write(&lock, "").unwrap();
     suite(3);
     assert!(lock.exists(), "a live run's claim was taken");
+}
+
+/// Two suites whose test binaries link side by side leave the same outputs
+/// whichever link finishes first.
+///
+/// Each suite has a timeout, so each links a binary of its own. `buri` is held
+/// as each link reaches the shared runner file, and the test lets one through
+/// before the other: `//lib/a` on one run, `//lib/b` on the next. Each run
+/// starts from `buri clean`.
+#[cfg(unix)]
+#[test]
+fn test_outputs_do_not_depend_on_which_link_finishes_first() {
+    let scratch = Scratch::repo("build-driver-link-order");
+    for name in ["a", "b"] {
+        scratch.write(
+            &format!("lib/{name}/BUILD.buri"),
+            "library {\n    test {\n        sources: [\"test/t.buri\"]\n        timeout_seconds: 600\n    }\n}\n",
+        );
+        scratch.write(
+            &format!("lib/{name}/lib.buri"),
+            "export fn one(): Int {\n    1\n}\n",
+        );
+        scratch.write(
+            &format!("lib/{name}/test/t.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/{name}\" import {{ one }};\n\n\
+                 test \"{name} is one\" {{\n    assert.equal(one(), 1);\n}}\n"
+            ),
+        );
+    }
+    // Every file under `.buri/out`, by path, with the bytes it reads as.
+    let outputs = || {
+        let mut found = Vec::new();
+        let mut dirs = vec![scratch.path(".buri/out")];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap_or_default();
+                    let at = path.strip_prefix(&scratch.root).unwrap().to_path_buf();
+                    found.push((at, bytes));
+                }
+            }
+        }
+        found.sort();
+        found
+    };
+    let run = |first: &str, second: &str| {
+        scratch.run(&["clean"]).ok();
+        let held = crate::held::Held::new("build-driver-link-order");
+        for name in [first, second] {
+            held.hold("runner-claim", name);
+            held.hold("runner-claimed", name);
+        }
+        let mut child = held.start_with_env(
+            &scratch,
+            &["test", "//...", "--jobs=2"],
+            &[LINKED, ("BURI_TEST_MEMORY_BYTES", "1099511627776")],
+        );
+        // Both links stand at the shared file; `first` asks for it, and
+        // `second` only once `first` has its answer.
+        let waiting = held.reached("runner-claim", second);
+        held.at("runner-claim", first, || {});
+        let asked = held.reached("runner-claimed", first);
+        waiting.go();
+        let answered = held.reached("runner-claimed", second);
+        asked.go();
+        answered.go();
+        assert!(child.capped_wait().unwrap().success(), "{}", held.printed());
+        assert!(held.printed().contains("2 passed"), "{}", held.printed());
+        outputs()
+    };
+    let a_first = run("a", "b");
+    let b_first = run("b", "a");
+    let names = |found: &[(std::path::PathBuf, Vec<u8>)]| {
+        found
+            .iter()
+            .map(|(at, _)| at.display().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&a_first),
+        names(&b_first),
+        "the outputs differ by which link finished first"
+    );
+    assert!(
+        a_first == b_first,
+        "an output's bytes differ by which link finished first: {:?}",
+        names(&a_first)
+    );
 }
 
 /// A suite linked again beside a failing suite's kept binary runs its own

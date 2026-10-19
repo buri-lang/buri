@@ -24,8 +24,9 @@ impl Held {
         &self.scratch.root
     }
 
-    /// Makes `buri`'s `n`th visit to `point` wait for [`Held::at`].
-    pub fn hold(&self, point: &str, n: usize) {
+    /// Makes `buri`'s `n`th visit to `point` wait for [`Held::at`]. `n` is a
+    /// name instead at a point whose reacher names itself (`Point::held_as`).
+    pub fn hold(&self, point: &str, n: impl std::fmt::Display) {
         unsafe extern "C" {
             fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
         }
@@ -48,7 +49,7 @@ impl Held {
 
     /// Waits until `buri` is held at `point`'s `n`th visit, runs `between`, and
     /// lets it go on.
-    pub fn at(&self, point: &str, n: usize, between: impl FnOnce()) {
+    pub fn at(&self, point: &str, n: impl std::fmt::Display, between: impl FnOnce()) {
         let holding = self.reached(point, n);
         between();
         holding.go();
@@ -56,7 +57,7 @@ impl Held {
 
     /// Waits until `buri` is held at `point`'s `n`th visit, and keeps it there
     /// until [`Holding::go`].
-    pub fn reached(&self, point: &str, n: usize) -> Holding {
+    pub fn reached(&self, point: &str, n: impl std::fmt::Display) -> Holding {
         use std::os::unix::fs::OpenOptionsExt as _;
         const O_NONBLOCK: i32 = if cfg!(target_os = "macos") {
             0x4
@@ -64,7 +65,7 @@ impl Held {
             0o4000
         };
         const DEADLINE: Duration = Duration::from_secs(240);
-        let path = self.file(point, n);
+        let path = self.file(point, &n);
         // A writer that won't wait is refused until `buri` has the FIFO open.
         let started = std::time::Instant::now();
         loop {
@@ -108,7 +109,7 @@ impl Held {
         indent(&format!("{}{}", read("stdout"), read("stderr")))
     }
 
-    fn file(&self, point: &str, n: usize) -> PathBuf {
+    fn file(&self, point: &str, n: impl std::fmt::Display) -> PathBuf {
         self.scratch.path(&format!("{point}-{n}"))
     }
 }

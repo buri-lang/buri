@@ -5,9 +5,10 @@
 //! BURI_HOLD=/tmp/held buri test --watch   # the 3rd sweep reads /tmp/held/sweep-3
 //! ```
 //!
-//! The `n`th time a process reaches a point it reads `<dir>/<point>-<n>`. A
-//! FIFO there holds it until the test writes a byte to it, a file hands its
-//! contents back to the point, and a missing file holds nothing.
+//! The `n`th time a process reaches a point it reads `<dir>/<point>-<n>`, or,
+//! at a point whose reacher names itself, `<dir>/<point>-<name>`. A FIFO there
+//! holds it until the test writes a byte to it, a file hands its contents back
+//! to the point, and a missing file holds nothing.
 //!
 //! The byte, not the writer closing, lets it go: on macOS a writer that opens
 //! and closes while the reader is still opening can leave the read with no end.
@@ -38,15 +39,22 @@ impl Point {
 
     /// Waits for the test, and answers what it wrote: nothing without one.
     pub fn held(&self) -> Vec<u8> {
-        let Some(dir) = std::env::var_os(VARIABLE) else {
-            return Vec::new();
-        };
         let n = self
             .reached
             .fetch_add(1, Ordering::Relaxed)
             .saturating_add(1);
+        self.held_as(&n.to_string())
+    }
+
+    /// The same, at `<dir>/<point>-<who>` whenever it is reached, for a point
+    /// several threads reach in an order the test can't know: each names
+    /// itself, and the test holds the one it means.
+    pub fn held_as(&self, who: &str) -> Vec<u8> {
+        let Some(dir) = std::env::var_os(VARIABLE) else {
+            return Vec::new();
+        };
         let Ok(mut file) =
-            std::fs::File::open(std::path::Path::new(&dir).join(format!("{}-{n}", self.name)))
+            std::fs::File::open(std::path::Path::new(&dir).join(format!("{}-{who}", self.name)))
         else {
             return Vec::new();
         };
