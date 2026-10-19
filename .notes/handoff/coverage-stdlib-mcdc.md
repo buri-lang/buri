@@ -1022,3 +1022,31 @@ Both new tests pass on the old code too:
 - **actor 343 and 452** for the dialler (S = I64, M = Str, R = Bool). Its step can't reach its own address. Changing the types would only avoid the instantiation.
 - **map, 35.** These are collisions for keys that can't collide: Access, I64/[(I64, I64, Item)], IndexSet<Slot> and AllOne. AllOne's hash is constant, so its branch paths can't run. 318 `.None` can't run either, because `remove` asks `has` first with the same pure hash. Folding it would break the in-place `removeAt`. 91 and 96 are shift traps.
 - **orderedmap, 24.** All of them are K = Bool, V = Mood. A map with two keys never splits.
+
+## Stdlib MC/DC phase 25
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9828/9959 to 9833/9959 (98.7%). No module fell below `coverage/stdlib-mcdc.txt`.
+
+- core/map: 581/616 to 585/616
+- core/orderedmap: 1191/1215 to 1192/1215
+
+### Decision removed
+
+- **map 91, `chunkAt`'s shift by `depth * BITS`.** `depth` is at most 12, so the count never reaches 64. A descent now carries the hash already shifted past the levels above, and each level shifts it by the constant `BITS`, which isn't a decision. Only a leaf that makes room asks `shiftedAt(h, depth)` for its own hash, and its `depth == 0` runs both ways. The `maps` bench program retires about 0.6% fewer instructions natively.
+
+### Covered
+
+- **map, (IndexSet<Slot>, Str) and (IndexSet<Slot>, ()).** `collections/test/indexset.buri` looks `beside` up and stores it in a map holding only `a`, so it meets a lone entry with a different hash. `set.of(ctx, [a, beside])` does the same for a set.
+- **orderedmap 999 `walkLeaf .Some` (Bool, Mood, C = Scope).** The watcher in `proto/test/maps.buri` shows a non-empty `moods`.
+
+### What's left
+
+- **map, 31.**
+  - 112 `bitOf`'s shift: the chunk is masked to 0..31, but the count is a variable. A shift-free `2^chunk` would cost every lookup, so it stays.
+  - Access (15 conditions): all sixteen values have distinct low five bits, so two keys never share a slot, and none share a hash.
+  - (I64, [(I64, I64, Item)]) in buri/ast's `printDecls`: an `I64` that fits 32 bits hashes one-to-one, and the keys are declaration indexes.
+  - AllOne: its hash is constant, so `h == hash` never fails and the root never holds two slots.
+  - 338 `removeNode`'s `.None` (6): `remove` asks `has` first with the same hash.
+- **orderedmap, 23.** All K = Bool, V = Mood. A map with two keys never splits or branches.
