@@ -9,8 +9,6 @@ pub mod compiler {
 
     use buri_middle::compiler::middle;
     use buri_semantics::compiler::semantics;
-    #[cfg(test)]
-    use buri_semantics::compiler::standard_library;
 }
 
 use buri_diagnostics::diagnostics;

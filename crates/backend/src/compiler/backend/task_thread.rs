@@ -112,6 +112,7 @@ pub fn test_entry(i: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::backend::runtime_table;
 
     /// Every symbol this ABI names is one no Buri path can spell.
     #[test]
@@ -125,5 +126,32 @@ mod tests {
         // symbol has (`DECISIONS.md`).
         assert!(STACK_ACQUIRE.starts_with("buri_rt_"));
         assert!(STACK_RELEASE.starts_with("buri_rt_"));
+    }
+
+    /// **The thread-stack entries are symbols with no row, and that is the
+    /// answer rather than an omission.**
+    ///
+    /// The frame-threaded backend's thread door and step thunks call them by
+    /// name, out of hand-written shims (`stencil/asm.rs`, `stencil/glue.rs`),
+    /// and the LLVM backend, whose frames are machine frames, never does.
+    /// `runtime_table`'s `ENTRIES` is keyed by *intrinsic key*, and these have none — no Buri
+    /// expression names them and none should.
+    #[test]
+    fn the_thread_stack_entries_have_symbols_and_no_row() {
+        for symbol in [
+            STACK_ACQUIRE,
+            STACK_RELEASE,
+            STEP_STACK_ACQUIRE,
+            STEP_STACK_RELEASE,
+        ] {
+            assert!(
+                symbol.starts_with("buri_rt_"),
+                "{symbol} is not a runtime symbol"
+            );
+            assert!(
+                !runtime_table::ENTRIES.iter().any(|e| e.symbol() == symbol),
+                "{symbol} gained a row: neither backend's door reaches it through the table"
+            );
+        }
     }
 }
