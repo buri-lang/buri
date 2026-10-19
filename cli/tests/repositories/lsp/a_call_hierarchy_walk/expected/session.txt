@@ -13,4 +13,5 @@
 {"id":13,"jsonrpc":"2.0","result":[{"from":{"data":{"position":{"character":11,"line":45},"uri":"file://<scratch>/lib/shop/catalog.buri"},"detail":"//lib/shop/catalog.buri","kind":14,"name":"twoPlain","range":{"end":{"character":47,"line":45},"start":{"character":0,"line":45}},"selectionRange":{"end":{"character":19,"line":45},"start":{"character":11,"line":45}},"uri":"file://<scratch>/lib/shop/catalog.buri"},"fromRanges":[{"end":{"character":32,"line":45},"start":{"character":27,"line":45}}]}]}
 {"id":14,"jsonrpc":"2.0","result":[{"fromRanges":[{"end":{"character":32,"line":45},"start":{"character":27,"line":45}}],"to":{"data":{"position":{"character":10,"line":40},"uri":"file://<scratch>/lib/shop/catalog.buri"},"detail":"//lib/shop/catalog.buri","kind":12,"name":"twice","range":{"end":{"character":1,"line":42},"start":{"character":0,"line":40}},"selectionRange":{"end":{"character":15,"line":40},"start":{"character":10,"line":40}},"uri":"file://<scratch>/lib/shop/catalog.buri"}}]}
 {"id":15,"jsonrpc":"2.0","result":null}
-{"id":16,"jsonrpc":"2.0","result":null}
+{"id":16,"jsonrpc":"2.0","result":[]}
+{"id":17,"jsonrpc":"2.0","result":null}

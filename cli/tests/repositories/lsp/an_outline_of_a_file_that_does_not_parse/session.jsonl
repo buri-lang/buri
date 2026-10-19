@@ -21,5 +21,12 @@
 # do — the word, the file, and whatever fits between.
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "export enum Stock {\n    /// None left at all.\n    O)ut,\n    /// The number still on the shelf.\n    OnHand { count: I64 },\n}\n"}]}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 2, "character": 5}, {"line": 4, "character": 6}]}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# The other way to cross: a span that starts inside the one around it and
+# runs past its end. `c.1` is the field access the recovery kept, and the word
+# under the cursor is `1b`, which starts inside it and ends after it — so the
+# chain goes from `c.1` through the function to the file, and the word is left
+# out.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 3}, "contentChanges": [{"text": "fn first(c: Cents): I64 {\n    let n = c.1b;\n    n\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 1, "character": 14}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
