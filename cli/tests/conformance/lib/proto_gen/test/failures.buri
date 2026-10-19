@@ -75,21 +75,19 @@ test "the same name written in full is one answer, and no complaint" {
 
 /// `count` messages, `T0` on, each with one field.
 fn declared<C: Allocator>(ctx: C, count: Int): [Str] {
-    list.range(ctx, 0, count).mapCtx(
-        ctx,
-        fn(c, n) => str.format(c, "message T${n} { int32 a = 1; }\n"),
-    )
+    list
+        .range(ctx, 0, count)
+        .mapCtx(ctx, fn(c, n) => str.format(c, "message T${n} { int32 a = 1; }\n"))
 }
 
 /// One message that reaches each of `count` types, written `${prefix}T0` on.
 fn reaching<C: Allocator>(ctx: C, prefix: Str, count: Int): Str {
-    let fields = list.range(ctx, 0, count).mapCtx(
-        ctx,
-        fn(c, n) => {
+    let fields = list
+        .range(ctx, 0, count)
+        .mapCtx(ctx, fn(c, n) => {
             let number = n + 1;
             str.format(c, "  ${prefix}T${n} f${n} = ${number};\n")
-        },
-    );
+        });
     ["message Use {\n"].concat(ctx, fields).push(ctx, "}\n").join(ctx, "")
 }
 
@@ -110,10 +108,9 @@ test "every short name of many that two packages claim is ambiguous, in field or
     );
     assert.equal(
         out.diagnostics.map(ctx, fn(d) => d.message),
-        list.range(ctx, 0, count).mapCtx(
-            ctx,
-            fn(c, n) => str.format(c, "`T${n}` is ambiguous"),
-        ),
+        list
+            .range(ctx, 0, count)
+            .mapCtx(ctx, fn(c, n) => str.format(c, "`T${n}` is ambiguous")),
     );
 }
 
