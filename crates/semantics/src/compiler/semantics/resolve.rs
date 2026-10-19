@@ -173,8 +173,6 @@ pub struct Checked {
     pub consts: ConstMap,
     /// See [`ConstLocals`].
     pub const_locals: ConstLocals,
-    /// `main`, when this compilation has one.
-    pub entry: Option<FnId>,
     /// Every exported free function of the entry module, by name.
     ///
     /// A build looks its output's `entry` up here and monomorphizes from what
@@ -285,28 +283,53 @@ fn compiler_trait_home(name: &str) -> Option<&'static str> {
 /// An entry the backend starts with nothing but its host: `main(host:
 /// NativeHost)`, or a repository platform's entry with no `js` file.
 ///
-/// Minted wherever an entry's first parameter is accepted as its host, so the
-/// host's type is the one the check read. The rest of the signature is held by
-/// the same check: an entry that takes anything else, or answers anything but
-/// `Result<(), Str>`, is an error, and a program with an error is never
-/// monomorphized. So a program built from one calls its entry with the host
-/// alone. An entry a `js` file calls is minted too, and its build never asks:
-/// it looks the entry up in [`Checked::entries`] instead.
-#[derive(Clone, Copy, Debug)]
+/// Minted wherever an entry's first parameter is accepted as its host and
+/// every field of that host as a production struct, so the [`Host`] is the one
+/// the check read. The rest of the signature is held by the same check: an
+/// entry that takes anything else, or answers anything but `Result<(), Str>`,
+/// is an error, and a program with an error is never monomorphized. So a
+/// program built from one calls its entry with the host alone.
+///
+/// An entry a `js` file calls is minted too when it takes a host, and its
+/// build reads only the host from it: the file passes the rest.
+#[derive(Clone, Debug)]
 pub struct Started {
     func: FnId,
-    host: TyConId,
+    host: Host,
 }
 
 impl Started {
     /// The entry itself.
-    pub fn func(self) -> FnId {
+    pub fn func(&self) -> FnId {
         self.func
     }
 
     /// The host the entry takes.
-    pub fn host(self) -> TyConId {
-        self.host
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+}
+
+/// A host type the backend builds, and the struct each of its fields holds, in
+/// order.
+///
+/// Minted only where every field was accepted as a production struct, with no
+/// fields of its own. So building a host is building each of these empty.
+#[derive(Clone, Debug)]
+pub struct Host {
+    con: TyConId,
+    fields: Box<[TyConId]>,
+}
+
+impl Host {
+    /// The host type itself.
+    pub fn con(&self) -> TyConId {
+        self.con
+    }
+
+    /// The struct each field holds.
+    pub fn fields(&self) -> &[TyConId] {
+        &self.fields
     }
 }
 
@@ -328,7 +351,6 @@ pub struct Checker<'a> {
     pub bodies: BodyMap,
     pub const_values: ConstMap,
     pub const_locals: ConstLocals,
-    pub entry: Option<FnId>,
     /// See [`Checked::entries`].
     pub entries: HashMap<String, FnId>,
     /// See [`Checked::started`].
@@ -552,7 +574,6 @@ impl<'a> Checker<'a> {
             bodies: IdMap::default(),
             const_values: IdMap::default(),
             const_locals: IdMap::default(),
-            entry: None,
             entries: HashMap::default(),
             started: HashMap::default(),
             entry_points: HashSet::default(),
@@ -767,7 +788,6 @@ impl<'a> Checker<'a> {
             bodies: self.bodies,
             consts: self.const_values,
             const_locals: self.const_locals,
-            entry: self.entry,
             entries: self.entries,
             started: self.started,
             tests: self.tests,
@@ -1779,9 +1799,6 @@ impl<'a> Checker<'a> {
             .entry(module)
             .or_default()
             .insert(name.clone(), fid);
-        if name == "main" {
-            self.entry = Some(fid);
-        }
         let d = match self.module(module).ast.items.get(item as usize) {
             Some(tree::Item::Fn(d)) => d.clone(),
             _ => crate::ice!("a free function's rule is recorded with its own `fn` item"),
@@ -2145,8 +2162,7 @@ impl<'a> Checker<'a> {
                             ));
                     }
                     (Some((host, _)), _) => {
-                        self.started
-                            .insert(name.to_string(), Started { func: fid, host });
+                        self.start(name, fid, host);
                     }
                     (None, _) => {
                         self.templated("entry-signature-mismatch", param.span)

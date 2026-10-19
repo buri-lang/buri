@@ -58,7 +58,6 @@ fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
         .checked
         .started
         .get("main")
-        .copied()
         .expect("the snippet exports `main`");
     let module_paths: Vec<String> = analysis
         .loaded

@@ -308,8 +308,6 @@ impl<'a> Checker<'a> {
                         ));
                     return;
                 }
-                self.started
-                    .insert(name.to_string(), Started { func: fid, host });
             }
             _ => {}
         }
@@ -358,7 +356,8 @@ impl<'a> Checker<'a> {
             self.check_crossing_of(&want, skip, &format!("`{}`", custom.point));
         }
         if let Some(host) = host {
-            self.check_host_fields(custom, platform, host);
+            let production = self.start(name, fid, host);
+            self.check_host_fields(custom, production);
             if custom.backend == Backend::Js {
                 self.check_js_methods(platform);
             }
@@ -385,18 +384,29 @@ impl<'a> Checker<'a> {
             if *id == TyConId::RESULT && *ok == Ty::UNIT && *err == str_ty)
     }
 
-    /// Every field of a host type is a production struct its backend has: the
-    /// backend's own from `platform/host`, or the platform's own, which only a
-    /// `js` file can implement.
-    fn check_host_fields(&mut self, custom: &CustomPlatform, platform: ModuleId, host: TyConId) {
-        let label = custom.label.value.clone();
+    /// Mints the entry's [`Started`] when every field of its host is a
+    /// production struct, and refuses each field that isn't. Answers the fields
+    /// that are, each with its struct and whether that is `platform/host`'s.
+    ///
+    /// A production struct is one of `platform/host`'s, or one the host's own
+    /// `platform.buri` declares, with no fields of its own: the CLI builds the
+    /// host, and has nothing to fill a field with.
+    pub(super) fn start(
+        &mut self,
+        name: &str,
+        func: FnId,
+        host: TyConId,
+    ) -> Vec<(FieldInfo, TyConId, bool)> {
+        let platform = self.tables.tycon(host).module;
         let fields = self.tables.tycon(host).fields().as_slice().to_vec();
+        let mut production = Vec::new();
+        let mut whole = true;
         for field in fields {
             if field.ty.is_error() {
+                whole = false;
                 continue;
             }
-            // A production struct: one of the platform's own or `platform/host`'s.
-            let production = match field.ty.kind() {
+            let found = match field.ty.kind() {
                 TyKind::Con(con, args) => {
                     let tycon = self.tables.tycon(*con);
                     // A built-in type, `Int` say, has no module.
@@ -412,10 +422,32 @@ impl<'a> Checker<'a> {
                 }
                 _ => None,
             };
-            let Some((con, from_host, true)) = production else {
-                self.refuse_host_field(&field, production.is_some());
+            let Some((con, from_host, true)) = found else {
+                self.refuse_host_field(&field, found.is_some());
+                whole = false;
                 continue;
             };
+            production.push((field, con, from_host));
+        }
+        if whole {
+            let fields = production.iter().map(|(_, con, _)| *con).collect();
+            let host = Host { con: host, fields };
+            self.started
+                .insert(name.to_string(), Started { func, host });
+        }
+        production
+    }
+
+    /// Every production field of a custom platform's host is one its backend
+    /// has: the backend's own from `platform/host`, or the platform's own,
+    /// which only a `js` file can implement.
+    fn check_host_fields(
+        &mut self,
+        custom: &CustomPlatform,
+        production: Vec<(FieldInfo, TyConId, bool)>,
+    ) {
+        let label = custom.label.value.clone();
+        for (field, con, from_host) in production {
             let struct_name = self.tables.tycon(con).name.clone();
             if from_host {
                 if lacking(custom.backend).contains(&struct_name.as_str()) {
