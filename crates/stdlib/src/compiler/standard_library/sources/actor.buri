@@ -132,7 +132,7 @@
 //! In the runtime, as whole blocks. A message is posted as a one-element
 //! `[Carried<Posted<M>>]` and handed back as one. The runtime takes a reference
 //! on the block, keeps the pointer, and gives every one of them back — to the
-//! step, or to `stop`'s discard loop.
+//! step, or to `stop`, which takes whatever is left in one list and drops it.
 //!
 //! Four crossings hand a value over: `start`'s initial state, `sendMessage`'s
 //! message, the state a step leaves behind, and the answer a step gives. All
@@ -351,7 +351,7 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                             .Err(.Stopped),
                         )
                     },
-                    .None => .Err(unanswered(driven)),
+                    .None => .Err(driven),
                 }
             },
         }
@@ -366,7 +366,8 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
         match (closing(ctx, self)) {
             .None => .Err(.Stopped),
             .Some(held) => {
-                let _ = discarding(ctx, self);
+                // Dropping the list lets every message still waiting go.
+                let _ = leftover(ctx, self);
                 let hook = self.onStop;
                 held.foldCtx(
                     ctx,
@@ -377,18 +378,6 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                 )
             },
         }
-    }
-}
-
-/// Why a posted message came back unanswered: what kept its drive from
-/// running, or `.Stopped` where the drive ran and a `stop` discarded it.
-///
-/// Its own function rather than a match in `sendMessage`, because nothing in
-/// it depends on the actor's types: one copy serves every actor.
-fn unanswered(driven: Result<(), SendError>): SendError {
-    match (driven) {
-        .Ok(()) => .Stopped,
-        .Err(why) => why,
     }
 }
 
@@ -436,11 +425,13 @@ fn stepping<C: Allocator + Tasks, S, M, R>(
     (address, stepped.state)
 }
 
-/// Takes the state, runs the mailbox down, puts the state back.
+/// Takes the state, runs the mailbox down, puts the state back, and answers
+/// what a send whose answer isn't there reports.
 ///
-/// `.Err` where there was no state to take, saying why: a stopped actor, one
-/// this caller's own step is holding, or a wait for another task's step that
-/// ran out.
+/// Where there was no state to take, that's why: a stopped actor, one this
+/// caller's own step is holding, or a wait for another task's step that ran
+/// out. Where the drive ran, it stepped every message posted before it, so
+/// the caller's answer is there and this is never read; it's `.Stopped`.
 ///
 /// The state going back crosses through `across`, for `start`'s reason: a step
 /// that ran inside an `alloc.scoped` body built the next state *there*, and the
@@ -448,12 +439,12 @@ fn stepping<C: Allocator + Tasks, S, M, R>(
 fn drive<C: Allocator + Tasks, S, M, R>(
     ctx: C,
     address: Address<C, S, M, R>,
-): Result<(), SendError> {
+): SendError {
     match (taking(ctx, address)) {
-        .Err(why) => .Err(why),
+        .Err(why) => why,
         .Ok(held) => {
             // The address rides in the accumulator, as in `draining`.
-            let unput: Result<(), SendError> = .Err(.Stopped);
+            let unput: SendError = .Stopped;
             let (_, put) = held.foldCtx(
                 ctx,
                 fn(c, before, state) => putting(c, before, state.value),
@@ -467,31 +458,13 @@ fn drive<C: Allocator + Tasks, S, M, R>(
 /// Runs the mailbox down from `state` and puts what that leaves back.
 fn putting<C: Allocator + Tasks, S, M, R>(
     ctx: C,
-    before: (Address<C, S, M, R>, Result<(), SendError>),
+    before: (Address<C, S, M, R>, SendError),
     state: S,
-): (Address<C, S, M, R>, Result<(), SendError>) {
-    let (address, _unput) = before;
+): (Address<C, S, M, R>, SendError) {
+    let (address, unput) = before;
     let ended = draining(ctx, address, state);
     let _ = statePut(ctx, address.handle, across([carried(ended)]));
-    (address, .Ok(()))
-}
-
-/// Pops what is left of a closed mailbox and lets it go.
-///
-/// Binding and dropping the popped block releases the message and everything
-/// under it: the runtime gives its reference back and ordinary reference
-/// counting does the rest. The slot a discarded message carries is already back
-/// — the `sendMessage` that opened it took it when its own drive answered
-/// nothing.
-///
-/// **`popped` and not `mailboxPop`.** Nothing here ever looks *inside* the
-/// block, so a direct call would leave the intrinsic's `M` determined by
-/// nothing at all. See "Taking a block back".
-fn discarding<C: Allocator + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): () {
-    match (popped(ctx, address)) {
-        .None => (),
-        .Some(_dropped) => discarding(ctx, address),
-    }
+    (address, unput)
 }
 
 /// `onStop`, where there is one.
@@ -515,7 +488,7 @@ fn ending<C: Allocator + Tasks, S>(
 // **Every block the runtime hands back is asked for through the handle's own
 // value, so it comes back at the type it went in at.**
 //
-// The nine entries in the next section are *generic intrinsics*: their key
+// The ten entries in the next section are *generic intrinsics*: their key
 // carries no type arguments, so the runtime frees one only at exit. It takes a
 // reference, keeps the pointer, and gives that reference back. The release is
 // the program's, and the compiler generates it from the block's *type*. So the
@@ -539,6 +512,25 @@ fn taking<C: Tasks, S, M, R>(
     address: Address<C, S, M, R>,
 ): Result<[Carried<S>], SendError> {
     stateTake(ctx, address.handle)
+}
+
+/// Every message still in `address`'s mailbox, oldest first, at the type it was
+/// posted at.
+///
+/// Dropping the list releases each message and everything under it: the
+/// runtime gives its references away in the list, and ordinary reference
+/// counting does the rest. The slot a discarded message carries is already
+/// back, because the `sendMessage` that opened it took it when its own drive
+/// answered nothing.
+///
+/// **A wrapper and not `mailboxRest` itself.** `stop` never looks inside the
+/// list, so a direct call would leave the intrinsic's `M` determined by nothing
+/// at all.
+fn leftover<C: Tasks, S, M, R>(
+    ctx: C,
+    address: Address<C, S, M, R>,
+): [[Carried<Posted<M>>]] {
+    mailboxRest(ctx, address.handle)
 }
 
 /// Closes `address`'s mailbox and answers its final state, at that same type.
@@ -570,7 +562,7 @@ fn filling<C: Allocator + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<I
 
 // --- The runtime's half -------------------------------------------------------
 //
-// Nine operations, and every one of them moves a **whole block** rather than a
+// Ten operations, and every one of them moves a **whole block** rather than a
 // value: a message crosses as a one-element `[Posted<M>]`, the state as a `[S]`,
 // an answer as an `[R]`. That is what makes them implementable against a runtime
 // compiled once that knows no Buri type — a `[T]` is two words whatever `T` is
@@ -598,8 +590,15 @@ fn mailboxPush<C: Tasks, M>(
 ): Result<Int, SendError>;
 
 /// Takes the oldest message, or `.None` for an empty mailbox. A closed mailbox
-/// still hands back what was in it, which is what `stop`'s discard loop reads.
+/// still hands back what was in it, so a drive that was running when `stop`
+/// closed it steps every message it can reach.
 fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
+
+/// Takes every message still waiting, oldest first, as one list of the blocks
+/// `mailboxPush` took. Empty for an empty mailbox. `stop` asks once the state
+/// is back, and a message is left only where a send posted it and a `stop`
+/// came before that send's drive.
+fn mailboxRest<C: Tasks, M>(ctx: C, handle: Int): [[Carried<M>]];
 
 /// Closes the mailbox and answers the final state, once. `.None` for a mailbox
 /// that was already closed.

@@ -2029,6 +2029,7 @@ fn an_actor_is_a_place_a_value_waits_for_another_task() {
         "actor.mailboxOpen",
         "actor.mailboxPush",
         "actor.mailboxPop",
+        "actor.mailboxRest",
         "actor.mailboxClose",
         "actor.stateTake",
         "actor.statePut",

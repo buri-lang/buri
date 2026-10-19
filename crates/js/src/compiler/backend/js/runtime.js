@@ -4041,7 +4041,7 @@ async function $host_HostWebSocketClient_connectReceive(self, socket) {
 
 // --- core/actor -------------------------------------------------------------
 //
-// The mailbox, the state and the reply slots. Nine functions, and between them
+// The mailbox, the state and the reply slots. Ten functions, and between them
 // they are the same table `cli/runtime/rt.rs` holds — one queue per actor, one
 // state beside it, one baton that says who may step it, and a slot per message.
 //
@@ -4175,6 +4175,16 @@ function $actor_mailboxPop(c, handle) {
   const wake = a.room.shift();
   if (wake !== undefined) wake(true);
   return $some(held);
+}
+
+// Every message still waiting, oldest first, in one list, and the room each
+// one held given back.
+function $actor_mailboxRest(c, handle) {
+  const a = $actorAt(handle);
+  if (a === undefined) return $own([]);
+  const rest = a.queue.splice(0);
+  for (const wake of a.room.splice(0, rest.length)) wake(true);
+  return $own(rest);
 }
 
 async function $actor_mailboxClose(c, handle) {
