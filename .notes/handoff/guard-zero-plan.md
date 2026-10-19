@@ -119,6 +119,54 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 65
+
+## What landed
+
+- `runtime_table::Ret::Scalar` names its C type (`CScalar`: `U8`, `U32`, `U64`, `F64`) and `Ret::Int` its width (`Narrow`). `ir::Answer` carries both.
+- A `Float` argument is `Arg::Float`. `Arg::Bytes` had no row, so it's gone.
+- `rtcall::rt_call` flattens each argument by its row's shape and picks the result's `crt` shape from the row. `leaves`, `scalar_kind` and `c_int_shape` are gone. A non-enum error always gets its out-pointer, as in llvm.
+- A `const` block in `rtcall.rs` checks every row against the `crt` stencil's arity when the crate builds.
+- A new unit test, `every_declared_scalar_is_typed`, pins each row's `Float` parameters and scalar results to the standard library's declarations. `every_declared_context_is_dropped` already pins the contexts.
+- `stencil::unavailable_reason` moves to `cli/tests/harness/stencil_host.rs`, because only the suites called it.
+
+## Guards
+
+The plan-rule count goes from 52 to 46 on staging (definitions included). All six are in `rtcall.rs`:
+
+- "the runtime table names every context argument";
+- "a runtime row's error has bytes";
+- the `crt` arity check;
+- "an aggregate at a runtime boundary";
+- "a scalar row answers one scalar";
+- "a runtime row's float result is an F64".
+
+## Branches
+
+- `rtcall.rs` loses 8 covered branches: the dropped, by-reference and float tests in the argument loop, and the float test in `scalar_kind`. The row's shape decides each one now.
+- `mod.rs` loses 1 uncovered branch, `unavailable_reason`'s `if AVAILABLE`.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| stencil | 1045/1085 | 1037/1076 | 1075/1084 (99.170%) | 1067/1075 (99.256%) |
+| llvm | 535/536 | 535/536 | 580/580 | 580/580 |
+| middle | 1858/1888 | 1858/1888 | 1859/1890 | 1859/1890 |
+| cli/build | 1626/1683 | 1625/1683 | 1677/1685 | 1677/1685 |
+
+`cli/build`'s one branch is `programs.rs:147`, a race that the head run didn't hit. Nothing in this phase touches it.
+
+## Output
+
+The debug and release objects for `cli/tests/example` and for the conformance corpus run natively are byte-identical between base and head.
+
+The full suite with `--features buri/backend-llvm` passes, and so does conformance with `BURI_CONFORMANCE_BUILD=llvm-release`.
+
+## Left
+
+See `guard-phase-66.md`. The stencil library lookups need key indices that the library build checks.
+
 # Guard phase 64
 
 ## What landed
