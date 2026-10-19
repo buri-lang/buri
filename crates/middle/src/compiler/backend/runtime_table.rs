@@ -1325,20 +1325,23 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `scopeRound` answers a `[Int]` and carries no [`Extra::Element`], which
     // is `list.range`'s row exactly: the element type is fixed, so there is no
-    // `T` for a stride to describe. The `Bool`s are [`Ret::Scalar`] and
-    // cross as a `u8`, which is `str.startsWith`'s shape.
+    // `T` for a stride to describe. `scopeTaskAt` answers its
+    // `[Carried<T>]` through the same out-pointer, empty where the task is
+    // already taken, and nothing about `T` crosses there either. The `Bool`s
+    // are [`Ret::Scalar`] and cross as a `u8`, which is `str.startsWith`'s
+    // shape, `scopeRan`'s argument included.
     //
     // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
     // `runtime_native::net_intrinsic` names this family too.
     e("tasks.scopeOpen", &[Dropped], Ret::Scalar(U64)),
     e("tasks.scopePush", &[Dropped, Scalar, List], Ret::Sum),
     e("tasks.scopeRound", &[Dropped, Scalar], Ret::Out),
-    e("tasks.scopeTaskAt", &[Dropped, Scalar, Scalar], Ret::Sum),
+    e("tasks.scopeTaskAt", &[Dropped, Scalar, Scalar], Ret::Out),
     e("tasks.scopeEnter", &[Dropped, Scalar], Ret::Scalar(U8)),
     e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar(U8)),
     e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar(U64)),
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar(U8)),
-    e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar(U8)),
+    e("tasks.scopeRan", &[Dropped, Scalar, Scalar], Ret::Scalar(U8)),
     // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
     // runtime's to call, so it crosses as a kept handler ([`Arg::Press`]):
     // `fn(C, Int) => ()`, with the context written into the record beside the

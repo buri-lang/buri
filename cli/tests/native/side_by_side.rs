@@ -312,6 +312,59 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(r.stdout, "body 0\n");
 }
 
+/// Two tasks that finish at once leave free workers behind, and three more
+/// spawned after them each still run beside the body. The body and the three
+/// wait for each other, so a worker counted free while it held a task would
+/// leave one of them waiting.
+#[test]
+fn a_scope_with_free_workers_runs_each_task_beside_its_body() {
+    let dir = scratch("free");
+    let source = at(
+        r#"
+from "core/io" import * as io;
+from "core/process" import * as process;
+from "core/process" import { Spawn };
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+
+fn barrier<C: Allocator + Spawn>(ctx: C, name: Str): Int {
+    match (process.run(ctx, process.command("sh", ["DIR/barrier.sh", "DIR", name, "4"]))) {
+        .Ok(out) => out.code,
+        .Err(_e) => -1,
+    }
+}
+
+fn meeting<C: Allocator + Spawn + Tasks>(ctx: C, s: Scope, name: Str): () {
+    tasks.spawn(ctx, s, fn(t) => {
+        let _ = barrier(t, name);
+        ()
+    })
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Spawn: host.spawn, Stdout: host.stdout, Tasks: host.tasks };
+    let body = tasks.scope(ctx, fn(c, s) => {
+        let _ = tasks.spawn(c, s, fn(t) => ());
+        let _ = tasks.spawn(c, s, fn(t) => ());
+        let _ = meeting(c, s, "one");
+        let _ = meeting(c, s, "two");
+        let _ = meeting(c, s, "three");
+        barrier(c, "body")
+    });
+    let _ = io.println(ctx, "body ${body}").ignore();
+    .Ok(())
+}
+"#,
+        &dir,
+    );
+    let Some(r) = ran_within("side-free", &source) else {
+        return;
+    };
+    assert_eq!(r.stdout, "body 0\n");
+}
+
 /// Steps on several threads at once share a list and its strings, made before
 /// the fan-out, and take and drop references to them over and over. Every
 /// count has to come back to zero: the heap check fails the run otherwise.

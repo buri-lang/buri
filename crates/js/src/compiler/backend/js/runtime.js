@@ -3720,15 +3720,16 @@ function $tasks_scopeRound(c, handle) {
   return $own(s.round.map((_, i) => BigInt(i)));
 }
 
+// The round's task, once, and an empty list on every other call.
 function $tasks_scopeTaskAt(c, handle, index) {
   const s = $scopeAt(handle);
-  if (s === undefined) return undefined;
+  if (s === undefined) return $own([]);
   const at = Number(index);
-  if (at < 0 || at >= s.round.length) return undefined;
+  if (at < 0 || at >= s.round.length) return $own([]);
   const held = s.round[at];
-  if (held === undefined) return undefined;
+  if (held === undefined) return $own([]);
   s.round[at] = undefined;
-  return $some(held);
+  return held;
 }
 
 function $tasks_scopeEnter(c, handle) {
@@ -3752,7 +3753,7 @@ function $tasks_scopeSpare(c, handle) {
   return false;
 }
 
-function $tasks_scopeRan(c, handle) {
+function $tasks_scopeRan(c, handle, task) {
   return true;
 }
 

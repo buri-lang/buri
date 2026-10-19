@@ -2576,8 +2576,16 @@ struct Beside {
     /// The body and the tasks still running. The workers are done when this is
     /// zero and nothing is waiting.
     busy: usize,
-    /// Workers parked in `scopeClaim`, ready for the next spawn.
-    idle: usize,
+    /// Workers holding no task, ready for the next spawn: parked in
+    /// `scopeClaim`, on their way back to it from a task, or started and not
+    /// yet there. One at first, the worker beside the body. A claim takes one
+    /// and a finished task gives it back; a worker that is done takes one, and
+    /// `scopeSpare` gives one for the worker its caller is about to start.
+    ///
+    /// Every change is made under the table's lock by the call that causes it,
+    /// so a worker waking from its park changes nothing here and a claim never
+    /// sees a free worker as busy.
+    free: usize,
     /// Who opened the scope. A worker running *as* the opener was handed its
     /// half by a scheduler that runs steps one after another, and waiting there
     /// would be waiting for a body that runs after it.
@@ -2704,8 +2712,8 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_round(handle: i64, out: *mut BuriLi
     unsafe { out.write(list) }
 }
 
-/// `tasks.scopeTaskAt(ctx, handle, index) -> Option<[Carried<T>]>` — the round's
-/// task, once.
+/// `tasks.scopeTaskAt(ctx, handle, index) -> [Carried<T>]` — the round's
+/// task, once, and the empty block on every other call.
 ///
 /// The reference `scopePush` took is given away here, which is what balances the
 /// count: every task queued reaches exactly one `running`.
@@ -2713,25 +2721,17 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_round(handle: i64, out: *mut BuriLi
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_tasks_scope_task_at(
-    handle: i64,
-    index: i64,
-    out: *mut BuriList,
-) -> i32 {
-    let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else {
-        return 0;
+pub unsafe extern "C" fn buri_rt_tasks_scope_task_at(handle: i64, index: i64, out: *mut BuriList) {
+    let held = {
+        let mut table = scopes();
+        scope_at(&mut table, handle).and_then(|place| {
+            let at = usize::try_from(index).ok()?;
+            place.round.get_mut(at)?.take()
+        })
     };
-    let Ok(at) = usize::try_from(index) else {
-        return 0;
-    };
-    let Some(slot) = place.round.get_mut(at) else {
-        return 0;
-    };
-    let Some(held) = slot.take() else { return 0 };
+    let list = held.map_or_else(|| crate::list::block(0, 0), Held::give);
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(held.give()) };
-    crate::BURI_OK
+    unsafe { out.write(list) }
 }
 
 /// `tasks.scopeEnter(ctx, handle) -> Bool` — become the drain, where it has
@@ -2775,7 +2775,7 @@ pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
     crate::memory::begin_sharing();
     place.beside = Some(Beside {
         busy: 1,
-        idle: 0,
+        free: 1,
         opener: who(),
         wake: Arc::new(tokio::sync::Notify::new()),
     });
@@ -2803,6 +2803,7 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
         };
         if let Some(task) = place.waiting.pop_front() {
             beside.busy += 1;
+            beside.free = beside.free.saturating_sub(1);
             let at = place
                 .round
                 .iter()
@@ -2815,9 +2816,9 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
             return at as i64;
         }
         if beside.busy == 0 || beside.opener == who() {
+            beside.free = beside.free.saturating_sub(1);
             return -1;
         }
-        beside.idle += 1;
         let wake = Arc::clone(&beside.wake);
         // Armed before the lock is let go, so a spawn or an ending that lands
         // between here and the park still wakes this worker.
@@ -2826,32 +2827,37 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
         notified.as_mut().enable();
         drop(table);
         park_on(notified.as_mut());
-        let mut table = scopes();
-        if let Some(beside) = scope_at(&mut table, handle).and_then(|p| p.beside.as_mut()) {
-            beside.idle = beside.idle.saturating_sub(1);
-        }
     }
 }
 
-/// `tasks.scopeSpare(ctx, handle) -> Bool` — whether a worker is parked, ready
-/// for the next spawn.
+/// `tasks.scopeSpare(ctx, handle) -> Bool` — whether another worker is free
+/// for the next spawn ([`Beside::free`]).
 ///
 /// A worker that has just claimed a task asks. Where nobody is, it splits in
 /// two before it runs the task, so a task that never ends never holds up one
-/// spawned after it.
+/// spawned after it, and the worker it is about to start counts as free from
+/// this answer on.
+///
+/// A scheduler that runs its steps one after another starts that worker after
+/// the task, so a second task waiting by then finds it free.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_spare(handle: i64) -> u8 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else {
+    let Some(beside) = scope_at(&mut table, handle).and_then(|p| p.beside.as_mut()) else {
         return 0;
     };
-    u8::from(place.beside.as_ref().is_some_and(|b| b.idle > 0))
+    if beside.free > 0 {
+        return 1;
+    }
+    beside.free = 1;
+    0
 }
 
-/// `tasks.scopeRan(ctx, handle) -> Bool` — the body, or a claimed task, has
-/// finished. Answers whether nothing is running any more.
+/// `tasks.scopeRan(ctx, handle, task) -> Bool` — the body, or a claimed task
+/// where `task` is true, has finished. Answers whether nothing is running any
+/// more.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
+pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64, task: u8) -> u8 {
     let mut table = scopes();
     let Some(place) = scope_at(&mut table, handle) else {
         return 0;
@@ -2860,6 +2866,9 @@ pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
         return 0;
     };
     beside.busy = beside.busy.saturating_sub(1);
+    if task != 0 {
+        beside.free += 1;
+    }
     beside.wake.notify_waiters();
     u8::from(beside.busy == 0)
 }
@@ -6666,9 +6675,13 @@ mod tests {
                     buri_rt_tasks_scope_push(handle, held.ptr, held.len, &raw mut number),
                     0
                 );
-                assert_eq!(buri_rt_tasks_scope_task_at(handle, 0, &raw mut list), 0);
                 assert_eq!(buri_rt_tasks_scope_enter(handle), 0);
             }
+            // The task a scope that is not there holds is none: an empty block.
+            let mut task = nothing();
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_tasks_scope_task_at(handle, 0, &raw mut task) };
+            assert_eq!(task.len, 0, "a scope that is not there held a task");
             // The round is the one entry that answers a block on every path, so
             // it is asked for on its own and released here.
             let mut round = nothing();
@@ -6716,8 +6729,8 @@ mod tests {
             let mut out = nothing();
             let at = (mark - 1) as i64;
             // SAFETY: a writable, aligned destination.
-            let ok = unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut out) };
-            assert_eq!(ok, crate::BURI_OK);
+            unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut out) };
+            assert_eq!(out.len, 1);
             // SAFETY: the block the runtime handed back, still counted here.
             assert_eq!(unsafe { mark_of(&out) }, mark, "out of order");
             drop_ref(&out);
@@ -6725,24 +6738,17 @@ mod tests {
             // a second take answering the block would be a task run twice.
             let mut twice = nothing();
             // SAFETY: a writable, aligned destination.
-            assert_eq!(
-                unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut twice) },
-                0
-            );
+            unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut twice) };
+            assert_eq!(twice.len, 0, "a task was handed back twice");
         }
 
         // An index past the round is nothing, not a fault.
-        let mut past = nothing();
-        // SAFETY: a writable, aligned destination.
-        assert_eq!(
-            unsafe { buri_rt_tasks_scope_task_at(scope, 3, &raw mut past) },
-            0
-        );
-        // SAFETY: a writable, aligned destination.
-        assert_eq!(
-            unsafe { buri_rt_tasks_scope_task_at(scope, -1, &raw mut past) },
-            0
-        );
+        for at in [3, -1] {
+            let mut past = nothing();
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut past) };
+            assert_eq!(past.len, 0, "a task outside the round was handed back");
+        }
 
         // Everything waiting went into the round, so the next one ends the
         // drain.
@@ -6795,10 +6801,8 @@ mod tests {
 
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(
-            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) },
-            crate::BURI_OK
-        );
+        unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) };
+        assert_eq!(held.len, 1);
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&held) }, 11, "the round kept its own task");
         drop_ref(&held);
@@ -6813,10 +6817,8 @@ mod tests {
         drop_ref(&next);
         let mut late = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(
-            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut late) },
-            crate::BURI_OK
-        );
+        unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut late) };
+        assert_eq!(late.len, 1);
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&late) }, 22);
         drop_ref(&late);
@@ -6849,10 +6851,8 @@ mod tests {
         assert_eq!(buri_rt_tasks_scope_enter(scope), 0);
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(
-            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) },
-            crate::BURI_OK
-        );
+        unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) };
+        assert_eq!(held.len, 1);
         drop_ref(&held);
 
         let mut empty = nothing();

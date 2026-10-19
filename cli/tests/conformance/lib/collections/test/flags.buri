@@ -540,6 +540,25 @@ test "as what a scope answers under the test's own scheduler" {
     assert.equal(tasks.scope(ctx, fn(c, here) => editor()), editor());
 }
 
+/// A scheduler of the test's own that runs no step and answers no result,
+/// which breaks `parallel`'s promise. Natively a scope gets nothing back for
+/// its body and runs the body itself, so it still answers what the body did.
+struct Idle {}
+
+impl Tasks for Idle {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        []
+    }
+}
+
+test "as what a scope answers under a scheduler that runs nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: Idle {},
+    };
+    assert.equal(tasks.scope(ctx, fn(c, here) => editor()), editor());
+}
+
 /// Recursion keeps a flags value on the stack, one per frame.
 fn grow(a: Access, steps: Int): Access {
     if (steps == 0) {
