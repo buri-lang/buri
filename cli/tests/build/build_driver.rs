@@ -537,6 +537,26 @@ fn a_test_runner_runs_from_the_program_store() {
     test(&home);
     drop(starting);
     assert_eq!(inode(), made, "a sweep took an entry under its lock");
+    // A sweep takes a partial entry from a process that died building it, and
+    // leaves one a process is building.
+    let died = scratch.path("home/programs/.entry.died.partial");
+    let building = scratch.path("home/programs/.entry.building.partial");
+    for partial in [&died, &building] {
+        std::fs::create_dir_all(partial).unwrap();
+    }
+    for old in [died.clone(), scratch.path("home/programs/.swept")] {
+        std::fs::File::open(&old)
+            .unwrap()
+            .set_modified(hours_ago)
+            .unwrap();
+    }
+    clean(&home);
+    test(&home);
+    assert!(
+        !died.exists(),
+        "a sweep left a partial entry nothing is building"
+    );
+    assert!(building.exists(), "a sweep took an entry being built");
     // One whose time can't be kept is still handed out.
     let entry = program.parent().unwrap();
     std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o300)).unwrap();
