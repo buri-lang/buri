@@ -162,6 +162,29 @@ test "onStop runs once, with the final state" {
     assert.equal(sink.captured(), "final 45\n");
 }
 
+test "a step that stops its own actor stops it at once, and onStop runs after the step" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, logged());
+    let _ = counted.sendMessage(ctx, .Add(7)).ignore();
+    let ran = counted.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(counted.stop(c), .Ok(()));
+            assert.equal(counted.stop(c), .Err(.Stopped));
+            let _ = io.println(c, "step goes on").ignore();
+        }),
+    );
+    assert.equal(ran, .Ok(.Done));
+    assert.equal(sink.captured(), "step goes on\nfinal 7\n");
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
+}
+
 /// The same counter with a hook that prints the state it ends on.
 fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage<C>, CounterAnswer> {
     Actor {

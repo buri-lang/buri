@@ -4145,6 +4145,8 @@ function $actor_mailboxOpen(c, state, bound) {
     room: [],
     baton: true,
     holder: undefined,
+    // Stopped from inside the step holding the state: nothing takes it back.
+    orphaned: false,
     free: [],
     takers: [],
   });
@@ -4195,6 +4197,14 @@ async function $actor_mailboxClose(c, handle) {
   // A `stateTake` still waiting is answered now rather than at its deadline:
   // there is no state left to wait for.
   for (const wake of a.takers.splice(0)) wake(true);
+  if (!a.baton && $actorWithin(a.holder, c)) {
+    // The caller's own step holds the state, so waiting for it would be
+    // waiting for itself. No state, which `stop` answers `.Ok(())` to without
+    // running `onStop`, and the `statePut` that ends the step leaves the state
+    // with its caller, who runs `onStop`.
+    a.orphaned = true;
+    return $some($own([]));
+  }
   while (!a.baton) {
     $aboutToBlock();
     await new Promise((resolve) => a.free.push(resolve));
@@ -4242,13 +4252,14 @@ function $actorHanded(a, c) {
 
 function $actor_statePut(c, handle, state) {
   const a = $actorAt(handle);
-  if (a === undefined) return undefined;
+  if (a === undefined) return $own([]);
+  a.holder = undefined;
+  if (a.orphaned) return $share(state);
   a.state = $share(state);
   a.baton = true;
-  a.holder = undefined;
   for (const wake of a.free.splice(0)) wake();
   for (const wake of a.takers.splice(0)) wake(true);
-  return $some(BigInt(a.queue.length));
+  return $own([]);
 }
 
 // The reply slots, reused behind a generation, exactly as the native table
