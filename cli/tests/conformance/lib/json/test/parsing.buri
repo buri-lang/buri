@@ -102,6 +102,38 @@ test "an exponent needs a digit after its e" {
     assert.equal(json.parse(ctx, "0E"), .Err(JsonError.BadNumber(0)));
 }
 
+test "an exponent with no digit is a bad number wherever it ends" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "-1e"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1E"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "0e+"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "-0E-"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1e-x"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1.5e "), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, " 1e"), .Err(JsonError.BadNumber(1)));
+    assert.equal(json.parse(ctx, "[1e,2]"), .Err(JsonError.BadNumber(1)));
+    assert.equal(json.parse(ctx, "[0, 1e+ ]"), .Err(JsonError.BadNumber(4)));
+    assert.equal(json.parse(ctx, "{\"a\":1E}"), .Err(JsonError.BadNumber(5)));
+    assert.equal(
+        json.parse(ctx, "{\"a\": -2.0e-, \"b\": 1}"),
+        .Err(JsonError.BadNumber(6)),
+    );
+    assert.equal(
+        json.parse(ctx, "123456789012345678901234567890e"),
+        .Err(JsonError.BadNumber(0)),
+    );
+    assert.equal(json.parse(ctx, "1ee5"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1e5e"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1e+-5"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1e5.0"), .Err(JsonError.BadNumber(0)));
+    assert.equal(
+        json.parse(ctx, "[-1E+0, 2e9]"),
+        .Ok(Json.Array([Json.Num(-1.0), Json.Num(2e9)])),
+    );
+}
+
 test "a carriage return and a tab are written as their escapes" {
     let ctx = context {
         Allocator: alloc(),
