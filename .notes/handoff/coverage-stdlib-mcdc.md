@@ -952,3 +952,42 @@ Every other module is unchanged, core/tasks included (33/44).
 - **Unreachable:** random 453 (`exchange`'s `_`) and 467 (`radius == 0.0`); buri/ast 1707 and 2011 (an `if` with an empty else list); buri/ast 6278 `floatOf .None`; std/codegen/proto 3297 (a well-known source that doesn't parse).
 - **Traps:** number 15, simd 8, compression 5, indexset 4, bigint 2, decimal 2, proto 2, time 1.
 - **map 35, orderedmap 33, actor 18, ui/node 11.** Unchanged; see phases 18 to 20.
+
+## Stdlib MC/DC phase 23
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9824/9997 to 9844/10000 (98.4%). No module fell.
+
+- core/tasks: 33/44 to 40/40
+- core/uuid: 16/17 to 26/26
+- core/bytes: 110/111 to 107/107
+- core/str: 245/248 to 247/248
+- core/character: 20/22 to 21/22
+- core/buri/ast: 1106/1111 to 1107/1111
+- core/list: 282/282 to 284/284, from new instances that are covered
+
+### Decisions removed
+
+- **tasks `taking .None` and `held.first .None`.** `scopeTaskAt` now writes a one-element block, or an empty one where the task is taken, so `running` is a `foldCtx`. Every index is taken exactly once, so neither arm could run. Changed in `rt.rs`, `runtime.js` and `runtime_table.rs`.
+- **uuid `octetOf`'s `withDefault`.** `stamped` and `version7` walk the sixteen octets with `mapIndexed`. `randomBytes(ctx, 16)` always answers sixteen. The output is byte-for-byte the same, and the pinned texts in `uuid/test/uuid.buri` still pass.
+- **bytes `alphabetIndex .None`.** `sextetsFrom` checks and looks up each character in one walk, so decoding never looks up a character it was told is there. `inAlphabet` is gone.
+- **`digitAt`'s `toDigit(36).withDefault(0)` in character, str and buri/ast.** The tables hold only `0`-`9` and `a`-`z`, so a digit is its code minus 48 or 87. The `code < 97` split replaces it, and both sides run.
+- **str 712's `toInt().withDefault(0)`.** `fromFloat` always writes the exponent as a sign and digits, so `exponentOf` folds the digits by code. Both signs run (`6e-7` and `1e21` in `data/test/strings.buri`).
+
+### Covered
+
+- **tasks `_` of `halves.first()`, once per A (8).** It's reachable: a program's own scheduler can break `parallel`'s promise and answer nothing. An `Idle` scheduler that answers `[]` covers each answer type in `scope.buri`, `background.buri`, `flags.buri`, `indexset.buri` and `payloads.buri`. The `_` arm runs the body on the scope's own thread.
+- **tasks `scopeSpare true`.** The runtime counts a worker as free from when it's forked until it claims a task, and again after it finishes one. So a sequential scheduler with two spawns reaches it. `cli/tests/native/side_by_side.rs` checks that every task runs beside the body when workers are free.
+
+### What's left
+
+There's no indexed read in Buri that can't answer `.None`, so these need a language change or a different AST shape:
+
+- **`digitAt`'s `charAt .None`** in character, str and buri/ast.
+- **compression 463 `at`.** 23 call sites index fixed tables and sort keys.
+- **random 453 `exchange`'s `_`** (I64 and Str). A shuffle swaps two keys of an `OrderedMap`, and both reads answer `Option`.
+- **buri/ast 1707 and 2011 `otherwise.first() .None`.** The else branch is a one-element list. A `fold` would cost a stack frame per `else if` link.
+- **buri/ast 6278 `floatOf .None`** and **std/codegen/proto 3297** (`ast.parse` of a fixed source). Both parse text that always parses.
+
+**random 467 `radius == 0.0`** is a real guard against `ln(0)`. It needs two draws of exactly 0.5, and there's no public way to build that generator.
