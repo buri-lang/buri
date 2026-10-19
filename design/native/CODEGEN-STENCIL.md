@@ -1017,15 +1017,14 @@ number in §8.2 true of the program a user actually runs.
 
 ### 8.2 What a program does when it runs out
 
-The process dies on the fault, with no message, and the shell reports the
-signal. Measured on the same non-tail recursion through `buri build`,
-Cranelift **exited 139** (`SIGSEGV`, the OS guard under the machine stack) and
-stencil **exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack).
-SPEC §6.9 asks for "a message on stderr and a non-zero exit status" and
-neither printed the message. That gap is the *runtime's* — it has no fault
-handler. What this section closed is the difference that was stencil's own: **a
-deep recursion used to corrupt whatever the linker placed after the stack and
-keep running.**
+The program aborts as SPEC §6.9 asks: it flushes what it printed, writes
+`Maximum call stack size exceeded.` (bun's words) to stderr and exits 1. The
+fault handler is `cli/runtime/overflow.rs`. It runs on a per-thread alternate
+stack and tells a stack's end from any other fault, which still kills the
+process.
+
+Before the guard, stencil faulted only by luck: **a deep recursion corrupted
+whatever the linker placed after the stack and kept running.**
 
 **Where the fault lands was measured rather than assumed.** A `SIGBUS` handler
 injected into the artifact prints `si_addr` beside the runtime address of
@@ -1044,7 +1043,7 @@ usable stack is unmapped.
 
 Two tests in `cli/tests/native/stencil.rs` hold the two halves.
 `a_runaway_recursion_faults_at_the_guard` links a non-tail recursion with the
-product's own flags and asserts the process is **killed by a signal**.
+product's own flags and asserts the abort's message and exit status.
 `a_deep_recursion_inside_the_stack_still_answers` asserts that a recursion
 that fits is unaffected, which is what says the guard is *above* the usable
 stack rather than carved out of it.

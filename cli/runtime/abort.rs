@@ -18,6 +18,10 @@
 //! | `shift out of range` | `runtime.js:925` | `shift_*`, six files |
 //! | `random range is empty` | `runtime.js:1418` | `random_range_empty`, `random_range_inverted` |
 //!
+//! A program that runs out of stack says `Maximum call stack size exceeded.`,
+//! which is what bun says, from the fault handler in `overflow.rs`. The
+//! agreement tests in `cli/tests/native/agreement.rs` pin it.
+//!
 //! The others below are *not* pinned by the corpus, because the JavaScript
 //! backend has no counterpart: a list index out of bounds is unrepresentable
 //! there (`list.get` answers `Option`), and an unreachable default arm exists

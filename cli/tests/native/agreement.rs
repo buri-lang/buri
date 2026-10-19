@@ -4719,6 +4719,99 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// What bun says when JavaScript runs out of stack, and so what every backend says.
+const STACK_EXHAUSTED: &str = "Maximum call stack size exceeded.";
+
+/// A recursion with no end. `* 2 + n` keeps LLVM from turning it into a loop.
+const RUNAWAY: &str = r#"
+fn deep(n: Int): Int {
+  if (n == 0) { 0 } else { deep(n + 1) * 2 + n }
+}
+"#;
+
+/// **Running out of stack aborts (SPEC 6.9)**, after flushing what was printed.
+#[test]
+fn a_recursion_that_exhausts_the_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion",
+        &format!(
+            r#"{RUNAWAY}
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let _ = io.println(host.stdout, "before").ignore();
+  let _ = io.println(host.stdout, "${{deep(1)}}").ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same inside a spawned task, which runs on a stack of its own.
+#[test]
+fn a_spawned_task_that_exhausts_its_stack_aborts_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in tasks.spawn",
+        &format!(
+            r#"{RUNAWAY}
+from "platform/effect" import {{ Allocator, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let _ = tasks.scope(ctx, fn(c, here) => {{
+    let _ = io.println(c, "before").ignore();
+    let _ = tasks.spawn(c, here, fn(c2) => {{
+      let _ = io.println(c2, "${{deep(1)}}").ignore();
+      ()
+    }});
+    ()
+  }});
+  let _ = io.println(ctx, "after").ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
+/// The same when several `parallel` steps run out at once, on worker threads.
+#[test]
+fn parallel_steps_that_exhaust_their_stacks_abort_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "stack exhaustion in tasks.parallel",
+        &format!(
+            r#"{RUNAWAY}
+from "platform/effect" import {{ Allocator, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks }};
+  let _ = io.println(ctx, "before").ignore();
+  let answers = tasks.parallel(ctx, [1, 2, 3, 4], fn(c, i, n) => deep(n));
+  let _ = io.println(ctx, "${{answers.length()}}").ignore();
+  .Ok(())
+}}
+"#
+        ),
+        "before\n",
+        STACK_EXHAUSTED,
+    );
+}
+
 // -------------------------------------------------------------------
 // The table itself
 // -------------------------------------------------------------------

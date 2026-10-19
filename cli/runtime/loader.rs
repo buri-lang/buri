@@ -285,6 +285,9 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
         Ok(())
     })?;
     image.seal_constants(l.consts)?;
+    // The zero-fill after the data holds the image's stack, and so its guard.
+    let zero = base as usize + l.data_at + l.data;
+    crate::overflow::zerofill(zero, base as usize + l.total);
     let main = (base + l.entry as u64) as usize;
     // SAFETY: the address of the image's entry shim, now executable.
     Ok(unsafe { std::mem::transmute::<usize, Main>(main) })
