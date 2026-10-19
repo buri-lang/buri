@@ -3,9 +3,9 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 14893 15045 98.99%
+total 14898 15049 99.00%
 area cli/build 1677 1685 99.53%
-area cli/documentation 481 482 99.79%
+area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1245 1258 98.97%
 area cli/lint 560 566 98.94%
@@ -19,11 +19,11 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 996 1022 97.46%
 area crates/llvm 580 580 100.00%
-area crates/middle 1862 1894 98.31%
+area crates/middle 1859 1890 98.36%
 area crates/project 1346 1360 98.97%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1071 1080 99.17%
+area crates/stencil 1075 1084 99.17%
 area crates/syntax 1209 1210 99.92%
 260 261 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -51,7 +51,7 @@ area crates/syntax 1209 1210 99.92%
 43 44 cli/src/commands/arguments.rs
 90 90 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
-96 96 cli/src/commands/format.rs
+98 98 cli/src/commands/format.rs
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
@@ -72,7 +72,7 @@ area crates/syntax 1209 1210 99.92%
 4 4 cli/src/documentation/assemble.rs
 169 170 cli/src/documentation/examples.rs
 86 86 cli/src/documentation/layout.rs
-146 146 cli/src/documentation/mod.rs
+148 148 cli/src/documentation/mod.rs
 76 76 cli/src/documentation/reference.rs
 6 6 cli/src/hold.rs
 60 60 cli/src/language_server/build_files.rs
@@ -132,7 +132,7 @@ area crates/syntax 1209 1210 99.92%
 44 44 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/route.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
-30 32 crates/middle/src/compiler/backend/intrinsic_keys.rs
+27 28 crates/middle/src/compiler/backend/intrinsic_keys.rs
 12 12 crates/middle/src/compiler/backend/runtime_symbol.rs
 10 10 crates/middle/src/compiler/backend/runtime_table.rs
 30 30 crates/middle/src/compiler/middle/chunks.rs
@@ -195,9 +195,9 @@ area crates/syntax 1209 1210 99.92%
 2 2 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
-268 268 crates/stencil/src/compiler/backend/stencil/emit.rs
+270 270 crates/stencil/src/compiler/backend/stencil/emit.rs
 86 86 crates/stencil/src/compiler/backend/stencil/glue.rs
-445 448 crates/stencil/src/compiler/backend/stencil/jit.rs
+447 450 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 18 18 crates/stencil/src/compiler/backend/stencil/lists.rs
 46 48 crates/stencil/src/compiler/backend/stencil/mod.rs
