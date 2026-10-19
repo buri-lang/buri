@@ -14,6 +14,8 @@
 // way — that is what makes the long spelling a spelling rather than a second
 // construct.
 
+from "core/order" import { Order };
+from "core/order/lib.buri" import * as spelled;
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import * as semantics;
 
@@ -80,4 +82,13 @@ test "a namespaced pattern sits beside a dotted one and an alternation" {
 test "a derived `Ordered` ranks the variants the same through the alias" {
     assert.isTrue(semantics.Level.Low < semantics.Level.High);
     assert.equal(semantics.Level.Medium, .Medium);
+}
+
+// -----------------------------------------------------------------------------
+// 4. A standard library module written out to its `lib.buri`
+// -----------------------------------------------------------------------------
+
+test "a standard library module written out to its lib.buri is the same module" {
+    let o: Order = spelled.Order.Less;
+    assert.equal(o, .Less);
 }
