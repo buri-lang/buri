@@ -2,6 +2,7 @@
 //! timeout whose blocks fail or die, suites with no test blocks, a missing C
 //! compiler, a JavaScript runtime that is missing or misbehaves, a coverage
 //! run with nowhere to write, and a watch loop over a broken build file.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 use std::io::Read as _;
 use std::time::{Duration, Instant};
@@ -110,7 +111,7 @@ fn a_test_binary_a_signal_kills_fails_with_the_signal() {
         .env_remove("HOME")
         .env_remove("BURI_HOME")
         .env("CC", &driver)
-        .output()
+        .capped_output()
         .unwrap();
     let said = format!(
         "{}{}",

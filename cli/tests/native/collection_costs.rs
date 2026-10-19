@@ -8,6 +8,7 @@
 //! blocks through the allocation probe everywhere. The counted runs are the
 //! program as it ships, and one more of each runs under the heap check.
 
+use crate::hang::CappedChild;
 use crate::shared::{exited_instructions, heap_checked, probed, ran_command, Ran};
 use std::path::Path;
 
@@ -22,7 +23,7 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
             .stderr(std::process::Stdio::piped());
         let child = cmd.spawn().unwrap();
         let instructions = exited_instructions(child.id());
-        let out = child.wait_with_output().unwrap();
+        let out = child.capped_wait_with_output().unwrap();
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),

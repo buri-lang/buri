@@ -33,6 +33,9 @@ mod sweep;
 #[path = "../harness/pool.rs"]
 mod pool;
 
+#[path = "../harness/hang.rs"]
+mod hang;
+
 #[macro_use]
 #[path = "../harness/shard.rs"]
 mod shard;

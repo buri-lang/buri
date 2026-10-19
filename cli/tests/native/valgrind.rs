@@ -20,6 +20,7 @@
 // The example uses `report`, `run` and `Tool`, and the test binary the rest.
 #![allow(dead_code)]
 
+use crate::hang::Capped;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -172,7 +173,7 @@ pub fn output(cmd: &Command, build: &str) -> Option<Output> {
     let mut under = wrapped(tool, &dir, cmd, build, &again_for(tool), &[]);
     Some(
         under
-            .output()
+            .capped_output()
             .unwrap_or_else(|e| panic!("cannot start valgrind: {e}")),
     )
 }
@@ -205,7 +206,7 @@ pub fn run(
     extra: &[&str],
 ) -> Output {
     wrapped(tool, dir, cmd, build, again, extra)
-        .output()
+        .capped_output()
         .unwrap_or_else(|e| panic!("cannot start valgrind: {e}"))
 }
 

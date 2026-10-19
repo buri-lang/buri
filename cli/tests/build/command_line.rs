@@ -2,6 +2,7 @@
 //! flag given a value it can't take, two spellings of a mode, a command or
 //! subcommand misspelled, a query that names nothing, and the skills a
 //! release stopped shipping.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 fn empty(name: &str) -> Scratch {
@@ -35,7 +36,7 @@ fn no_command_prints_the_usage_and_exits_2() {
     // Run bare: the harness adds a flag to every command it runs.
     let bare = buri_command()
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .expect("buri runs");
     let stdout = String::from_utf8_lossy(&bare.stdout);
     assert_eq!(bare.status.code(), Some(2), "{stdout}");

@@ -19,6 +19,7 @@
 //! of them at once. Each task's answer must be the old list and its own
 //! element, and the old list must read as it did.
 
+use crate::hang::CappedChild;
 use crate::shared::{exited_instructions, probed, ran_checked, Ran};
 
 /// One program on every backend, under the heap check.
@@ -457,7 +458,7 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
             .spawn()
             .unwrap();
         let instructions = exited_instructions(child.id());
-        let out = child.wait_with_output().unwrap();
+        let out = child.capped_wait_with_output().unwrap();
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),

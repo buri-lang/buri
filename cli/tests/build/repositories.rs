@@ -13,6 +13,7 @@
 //! BURI_BLESS=1 cargo test -p buri --test build repositories::    # record the goldens
 //! BURI_KEEP=1  cargo test -p buri --test build repositories::    # keep the scratch trees
 //! ```
+use crate::harness::hang::CappedChild;
 use crate::harness::*;
 use std::path::{Path, PathBuf};
 
@@ -734,7 +735,7 @@ fn the_protocol_surface_is_covered() {
     editor.notify("exit", &params);
     let stopped = editor
         .process
-        .wait()
+        .capped_wait()
         .expect("the language server did not stop");
     assert!(
         stopped.success(),
@@ -1685,7 +1686,7 @@ impl Editor {
     fn close(&mut self) {
         self.timed("shutdown", "null");
         self.notify("exit", "null");
-        let _ = self.process.wait();
+        let _ = self.process.capped_wait();
     }
 
     fn write(&mut self, body: &str) {
@@ -1788,7 +1789,7 @@ fn a_server_whose_directory_is_gone_serves_nothing_and_still_answers() {
         .unwrap()
         .read_to_string(&mut out)
         .unwrap();
-    let status = process.wait().unwrap();
+    let status = process.capped_wait().unwrap();
     assert!(status.success(), "the server exited {status}:\n{out}");
     assert!(
         out.contains(r#"{"id":2,"jsonrpc":"2.0","result":{"items":[]}}"#),

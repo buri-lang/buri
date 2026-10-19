@@ -8,6 +8,7 @@
 //!
 //! Every program here runs under a deadline, so a build that turns an abort
 //! into an endless loop fails rather than hangs.
+use crate::hang::CappedChild;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -117,7 +118,7 @@ fn ended(line: &[PathBuf], deadline: Duration) -> Option<Ended> {
         }
         if start.elapsed() >= deadline {
             child.kill().unwrap();
-            child.wait().unwrap();
+            child.capped_wait().unwrap();
             break None;
         }
         std::thread::sleep(Duration::from_millis(20));

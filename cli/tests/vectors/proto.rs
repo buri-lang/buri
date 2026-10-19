@@ -16,6 +16,7 @@
 //! ```text
 //! BURI_KEEP=1 cargo test -p buri --test vectors proto::    # keep the scratch tree
 //! ```
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 
 use std::io::Write;
@@ -161,7 +162,9 @@ fn replay(scratch: &Scratch) {
         .unwrap()
         .write_all(&stdin)
         .expect("writing the requests");
-    let out = child.wait_with_output().expect("the testee did not finish");
+    let out = child
+        .capped_wait_with_output()
+        .expect("the testee did not finish");
     let got = unframe(&out.stdout);
 
     assert_eq!(
@@ -239,7 +242,7 @@ fn the_conformance_runner_passes() {
         .arg(&runtime)
         .arg(&artifact);
     let out = command
-        .output()
+        .capped_output()
         .unwrap_or_else(|e| panic!("cannot start the conformance runner: {e}\n  {command:?}"));
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);

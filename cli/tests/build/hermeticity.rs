@@ -27,6 +27,7 @@
 //! ```text
 //! BURI_BLESS=1 cargo test -p buri --test build hermeticity::    # record the goldens
 //! ```
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 
 use std::path::Path;
@@ -82,7 +83,7 @@ fn an_action_is_spawned_with_an_explicit_environment() {
     .expect("writing the probe");
     let out = cmd
         .arg(&script)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let seen = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(
@@ -381,7 +382,7 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     let racing: Vec<_> = (0..4).map(|_| spawn()).collect();
     for (n, child) in racing.into_iter().enumerate() {
         let out = child
-            .wait_with_output()
+            .capped_wait_with_output()
             .expect("a concurrent build finishes");
         assert!(
             out.status.success(),
@@ -477,7 +478,7 @@ fn concurrent_native_builds_each_link_from_the_cache_and_run() {
         .join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
     let answer = || {
         let out = std::process::Command::new(&exe)
-            .output()
+            .capped_output()
             .expect("the artifact runs");
         String::from_utf8_lossy(&out.stdout).to_string()
     };
@@ -494,7 +495,7 @@ fn concurrent_native_builds_each_link_from_the_cache_and_run() {
     let racing: Vec<_> = (0..4).map(|_| spawn()).collect();
     for (n, child) in racing.into_iter().enumerate() {
         let out = child
-            .wait_with_output()
+            .capped_wait_with_output()
             .expect("a concurrent build finishes");
         assert!(
             out.status.success(),
@@ -808,7 +809,7 @@ fn a_run_that_never_links_still_remembers_the_drivers_version() {
 fn a_second_repository_links_without_starting_the_c_driver() {
     let banner = std::process::Command::new(real_c_driver())
         .arg("--version")
-        .output();
+        .capped_output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
         && crate::harness::ci::skipped("build", "the C driver is not a clang")
     {

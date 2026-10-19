@@ -12,6 +12,7 @@
 //! that come with it. Everything else a page could ask of a browser, it
 //! doesn't have.
 
+use crate::harness::hang::Capped;
 use crate::harness::{js_runtime, Scratch};
 use std::process::Command;
 
@@ -236,7 +237,7 @@ fn drive(name: &str, source: &str, driver: &str) -> String {
     let path = scratch.write("drive.mjs", &script);
     let out = Command::new(js_runtime())
         .arg(&path)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert_eq!(

@@ -9,6 +9,7 @@
 //! which nothing could observe from outside the toolchain until `--explain`. These read that transcript. Keys are
 //! compared between two states of one tree and never recorded, because a key
 //! includes the toolchain version and would move on every release.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 use std::collections::BTreeMap;
@@ -168,7 +169,7 @@ fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
         .join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
     let answer = || {
         let out = std::process::Command::new(&exe)
-            .output()
+            .capped_output()
             .expect("the artifact runs");
         String::from_utf8_lossy(&out.stdout).to_string()
     };

@@ -12,6 +12,7 @@
 //! `agreement::wide_integers_hash_every_bit` and
 //! `agreement::floats_hash_every_bit` pin.
 
+use crate::hang::CappedChild;
 use crate::shared::{exited_instructions, heap_checked, ran_command, Ran};
 use std::path::Path;
 
@@ -111,7 +112,7 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
             .spawn()
             .unwrap();
         let instructions = exited_instructions(child.id());
-        let out = child.wait_with_output().unwrap();
+        let out = child.capped_wait_with_output().unwrap();
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),

@@ -31,6 +31,7 @@
 //! cargo test -p buri --test build generators::
 //! ```
 
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::{ci, indent, tests_dir, Run, Scratch};
 
 /// The platform a binary here declares.
@@ -546,7 +547,7 @@ fn js_path() -> String {
     let found = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("command -v {}", crate::harness::js_runtime()))
-        .output()
+        .capped_output()
         .expect("sh runs");
     String::from_utf8_lossy(&found.stdout).trim().to_string()
 }
@@ -687,7 +688,9 @@ fn a_tool_process_inherits_no_other_process_pipe() {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .output()
+        .spawn()
+        .expect("the stand-in runs")
+        .capped_wait_with_output()
         .expect("the stand-in runs");
     let alone: Vec<String> = String::from_utf8_lossy(&alone.stdout)
         .split_whitespace()

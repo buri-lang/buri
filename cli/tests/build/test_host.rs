@@ -7,6 +7,7 @@
 //! after linking stands for each way a host can be unusable.
 #![cfg(all(target_os = "macos", target_arch = "aarch64"))]
 
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 use crate::held::Held;
 
@@ -116,7 +117,7 @@ fn a_run_with_no_home_links_runners() {
         .args(["test", "--color=never", "--verbose", "//lib/a"])
         .env_remove("HOME")
         .env_remove("BURI_HOME")
-        .output()
+        .capped_output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -166,7 +167,7 @@ fn two_runs_linking_the_test_host_at_once_both_load() {
     let placing = held.reached("test-host", 1);
     passes(&second, &["--verbose"], &[("BURI_HOME", &home)]).silent_about(LINKED_LINE);
     placing.go();
-    assert!(one.wait().unwrap().success(), "{}", held.printed());
+    assert!(one.capped_wait().unwrap().success(), "{}", held.printed());
     let said = held.printed();
     assert!(
         said.contains("2 passed") && !said.contains(LINKED_LINE),

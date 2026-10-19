@@ -7,6 +7,7 @@
 //! A CI runner's 80 GB filled in seconds (run 38117702498). What the kernel will
 //! dump is read off `/proc/<pid>/smaps`: every mapping not flagged `dd`.
 
+use crate::hang::Capped;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -63,7 +64,7 @@ fn built() -> Vec<(&'static str, PathBuf)> {
             .current_dir(&root)
             .args(["build", "//cmd/waits"])
             .args(mode)
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             ran.status.success(),

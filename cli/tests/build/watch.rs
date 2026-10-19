@@ -14,6 +14,7 @@
 //! there, because the claim in both loop cases is about which side of that
 //! stamp an edit fell on — and a test that guesses at it with a sleep is a test
 //! that gets a different answer on a machine that is busy.
+use crate::harness::hang::CappedChild;
 use crate::harness::*;
 
 use buri::build::session::{Rendering, Session};
@@ -696,7 +697,7 @@ impl Looping {
 impl Drop for Looping {
     fn drop(&mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.child.capped_wait();
     }
 }
 

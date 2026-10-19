@@ -5,6 +5,7 @@
 //! at random, and half the modules release `Doc` first while the rest release
 //! `Entry` first, so any helper name that depends on a worker's history moves.
 
+use crate::hang::Capped;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -110,7 +111,7 @@ fn built(round: &Path, mode: &[&str]) -> Vec<u8> {
         .current_dir(round)
         .arg("build")
         .args(mode)
-        .output()
+        .capped_output()
         .expect("run buri build");
     assert!(
         out.status.success(),
@@ -122,7 +123,9 @@ fn built(round: &Path, mode: &[&str]) -> Vec<u8> {
         .join(".buri/out/native")
         .join(host_variant())
         .join("cmd/app/app");
-    let ran = Command::new(&artifact).output().expect("run the artifact");
+    let ran = Command::new(&artifact)
+        .capped_output()
+        .expect("run the artifact");
     // `run(2)` is two calls: an even module counts one entry in each, an odd
     // one two items, so a pair of modules adds six.
     assert_eq!(

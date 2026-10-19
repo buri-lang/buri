@@ -1,5 +1,6 @@
 //! How `buri test` schedules suites: side by side, reported in suite order, and
 //! reused when an edit cannot change what they do.
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 
 /// A package `lib/<name>` with one suite asserting `answer() == want`.
@@ -27,7 +28,7 @@ fn js_path() -> String {
     let found = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("command -v {}", js_runtime()))
-        .output()
+        .capped_output()
         .expect("sh runs");
     String::from_utf8_lossy(&found.stdout).trim().to_string()
 }
@@ -324,7 +325,7 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
     let second = held.reached("handed", 2);
     first.go();
     second.go();
-    assert!(run.wait().unwrap().success(), "{}", held.printed());
+    assert!(run.capped_wait().unwrap().success(), "{}", held.printed());
     assert!(
         !held.printed().contains(HEAP_CHECK_LINE),
         "{}",
@@ -654,7 +655,7 @@ fn a_runner_killed_with_no_test_in_hand_is_run_again() {
     let runners = || -> Vec<i32> {
         let found = std::process::Command::new("pgrep")
             .args(["-P", &run.id().to_string(), "-x", "test-library"])
-            .output()
+            .capped_output()
             .expect("pgrep runs");
         String::from_utf8_lossy(&found.stdout)
             .split_whitespace()
@@ -680,6 +681,6 @@ fn a_runner_killed_with_no_test_in_hand_is_run_again() {
         unsafe { kill(pid, SIGKILL) };
     }
     draining.go();
-    assert!(run.wait().unwrap().success(), "{}", held.printed());
+    assert!(run.capped_wait().unwrap().success(), "{}", held.printed());
     assert!(held.printed().contains("2 passed"), "{}", held.printed());
 }

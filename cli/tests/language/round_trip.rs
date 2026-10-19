@@ -19,6 +19,7 @@
 //! `cli/tests/ast_round_trip/` is the driver: an ordinary Buri binary that
 //! reads a manifest of paths and rewrites each one. It is Buri because `parse`
 //! is Buri, and there is no way to ask this question from Rust.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 use std::path::{Path, PathBuf};
 
@@ -58,7 +59,7 @@ fn drive(driver: &Scratch, artifact: &Path, manifest: &Path) -> Run {
         .arg(artifact)
         .arg(manifest)
         .current_dir(&driver.root)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     Run {
         code: out.status.code().unwrap_or(-1),

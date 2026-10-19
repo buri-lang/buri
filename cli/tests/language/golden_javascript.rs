@@ -22,6 +22,7 @@
 //!
 //! `BURI_BLESS=1 cargo test -p buri --test language golden_javascript::` records. Read the diff:
 //! blessing without reading it is the one way this suite proves nothing.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 /// The generated half of an artifact.
@@ -509,7 +510,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let probe = scratch.path(".buri/out/node/cmd/x/probe.mjs");
     let out = std::process::Command::new(js_runtime())
         .arg(&probe)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(text.contains("slept"), "the program ran:\n{text}");

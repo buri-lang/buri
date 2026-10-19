@@ -27,6 +27,9 @@
 #[path = "../tests/native/valgrind.rs"]
 mod valgrind;
 
+#[path = "../tests/harness/hang.rs"]
+mod hang;
+
 use std::path::Path;
 use std::process::{Command, ExitCode};
 

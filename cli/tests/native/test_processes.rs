@@ -5,6 +5,7 @@
 //! process. Under a tool its errors reach `report`, which fails the workflow,
 //! and without one the suite still runs through it.
 
+use crate::hang::Capped;
 use std::path::Path;
 use std::process::Command;
 
@@ -48,7 +49,7 @@ fn a_test_process_error_under_the_tool_is_reported() {
             env!("CARGO_MANIFEST_DIR"),
             "/tests/native/test_processes/shim.c"
         ))
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         compiled.status.success(),

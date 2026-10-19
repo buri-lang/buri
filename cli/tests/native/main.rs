@@ -163,6 +163,11 @@ mod shard;
 #[path = "../harness/product_link.rs"]
 mod product_link;
 
+// The cap every child waits under: a program that spins or swells is killed
+// and its test fails by name, rather than outliving the job.
+#[path = "../harness/hang.rs"]
+mod hang;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, the conformance corpus as a repository, and the product's own
 // link line. One copy, because what those suites assert is that the backends

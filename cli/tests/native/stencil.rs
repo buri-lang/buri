@@ -24,6 +24,7 @@
 //! printing which of the two it was, one line per test. That is the "degrades
 //! rather than breaks" clause of the dependency bar applied to the suite,
 //! without the silence that would make a skipped suite look like a passing one.
+use crate::hang::Capped;
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
@@ -228,7 +229,7 @@ fn build_linked_by(
             .arg(&c)
             .arg("-o")
             .arg(&o)
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             built.status.success(),
@@ -963,7 +964,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         .arg("stencil::emission_is_deterministic")
         .args(["--exact", "--nocapture"])
         .env(DIGEST, "1")
-        .output()
+        .capped_output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     // The marker is looked for *anywhere* in the line rather than at its
@@ -1177,7 +1178,7 @@ fn ignore(value: Int): () {
     let binary = build_tests("graph", source);
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -1263,7 +1264,7 @@ test "a Bool signal read inside a memo" {
     let binary = build_tests("narrow-cell", source);
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),
@@ -1335,7 +1336,7 @@ test "a cell written many times" {{
         let binary = build_tests_with(name, &source(writes), Some(ALLOC_PROBE));
         let out = Command::new(&binary)
             .env("BURI_TEST_FROM", "0")
-            .output()
+            .capped_output()
             .unwrap();
         assert_eq!(
             out.status.code(),
@@ -2546,7 +2547,7 @@ fn ask(files: &[String], depth: Depth, fault: &str) -> Report {
     } else {
         command.env(FAULT, fault);
     }
-    let out = command.output().unwrap();
+    let out = command.capped_output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     let mut verdict = Vec::new();
     let mut ran = Vec::new();
@@ -2802,7 +2803,7 @@ fn link_and_run(path: &str, units: &[Emitted], sheet: &str) -> Ran {
         String::from_utf8_lossy(&out.stderr)
     );
     crate::sweep::kept::settle(&binary);
-    let out = Command::new(&binary).output().unwrap();
+    let out = Command::new(&binary).capped_output().unwrap();
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -3099,7 +3100,7 @@ test "third" { assert.equal(3, 3); }
     // From the top: the second block aborts, and the third never runs.
     let whole = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_ne!(
         whole.status.code(),
@@ -3117,7 +3118,7 @@ test "third" { assert.equal(3, 3); }
     // rather than once.
     let after = Command::new(&binary)
         .env("BURI_TEST_FROM", "2")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         after.status.code(),
@@ -3129,7 +3130,7 @@ test "third" { assert.equal(3, 3); }
     // the resume point were skipped rather than the whole suite.
     let middle = Command::new(&binary)
         .env("BURI_TEST_FROM", "1")
-        .output()
+        .capped_output()
         .unwrap();
     assert_ne!(middle.status.code(), Some(0));
 }
@@ -3545,7 +3546,11 @@ fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
     // `output` runs the child to completion and reaps it, so `strip` has exited
     // and let go of `to` before its size is read — let alone before the caller
     // executes anything.
-    let ran = Command::new("strip").arg("-S").arg(to).output().ok()?;
+    let ran = Command::new("strip")
+        .arg("-S")
+        .arg(to)
+        .capped_output()
+        .ok()?;
     if !ran.status.success() {
         eprintln!(
             "`strip -S` refused {}: {}",
@@ -3566,7 +3571,7 @@ fn thread_local_initialiser_size(artifact: &Path) -> Option<u64> {
     } else {
         ("readelf", &["-SW"], ".tdata")
     };
-    let Ok(ran) = Command::new(tool).args(args).arg(artifact).output() else {
+    let Ok(ran) = Command::new(tool).args(args).arg(artifact).capped_output() else {
         eprintln!("no `{tool}` on this host, so the thread-local initialiser goes unmeasured");
         return None;
     };
@@ -3651,7 +3656,7 @@ fn a_runaway_recursion_faults_at_the_guard() {
         return;
     }
     let binary = build_with("guard-runaway", &recursion(5_000_000), None);
-    let out = Command::new(&binary).output().unwrap();
+    let out = Command::new(&binary).capped_output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -3853,7 +3858,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     let binary = build_with("thread-runaway", source, Some(THREAD_PROBE));
-    let out = Command::new(&binary).output().unwrap();
+    let out = Command::new(&binary).capped_output().unwrap();
     assert!(
         out.status.signal().is_some(),
         "a five-million-deep recursion on a thread exited {:?} instead of faulting: {}",
@@ -3950,7 +3955,7 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
 
     // And what the link does with it, which is the half that is per-target.
     let binary = build_linked_by("thread-door-link", source, None, shared::driver_link);
-    let nm = Command::new("nm").arg(&binary).output().unwrap();
+    let nm = Command::new("nm").arg(&binary).capped_output().unwrap();
     if !nm.status.success() {
         eprintln!("no `nm` on this host: the linked half was not checked");
         return;
@@ -4099,7 +4104,7 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
             .arg(&c)
             .arg("-o")
             .arg(&o)
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             built.status.success(),
@@ -4161,7 +4166,7 @@ fn cross_tools() -> Option<()> {
     for t in ["ld.lld", "llvm-nm", "llvm-objdump", "llvm-readelf"] {
         Command::new(t)
             .arg("--version")
-            .output()
+            .capped_output()
             .ok()
             .filter(|o| o.status.success())?;
     }
@@ -4587,7 +4592,7 @@ fn write_objects(dir: &Path, units: &[buri::compiler::backend::Emitted]) -> Vec<
 
 /// Runs a tool that must succeed, and answers its standard output.
 fn tool(name: &str, args: &[&str]) -> String {
-    let out = Command::new(name).args(args).output().unwrap();
+    let out = Command::new(name).args(args).capped_output().unwrap();
     assert!(
         out.status.success(),
         "{name} {args:?} failed:\n{}",
@@ -4651,7 +4656,7 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
         .arg(&stub_c)
         .arg("-o")
         .arg(&stub_o)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         res.status.success(),
@@ -4673,7 +4678,7 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
         ld.arg(o);
     }
     ld.arg(&stub_o);
-    let res = ld.output().unwrap();
+    let res = ld.capped_output().unwrap();
     assert!(
         res.status.success(),
         "ld.lld refused the cross objects:\n{}",
@@ -5487,7 +5492,7 @@ fn a_loaded_program_runs_as_its_linked_executable() {
     }
     let run = |binary: &Path, args: &[&str]| {
         let out = shared::heap_checked(Command::new(binary).args(args))
-            .output()
+            .capped_output()
             .unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
         (
@@ -5534,7 +5539,7 @@ fn a_debug_program_and_suite_are_no_new_executables() {
     );
     let out = Command::new(&suite)
         .env("BURI_TEST_FROM", "0")
-        .output()
+        .capped_output()
         .unwrap();
     assert_eq!(
         out.status.code(),

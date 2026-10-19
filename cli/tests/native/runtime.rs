@@ -26,6 +26,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
+use crate::hang::{Capped, CappedChild};
 use buri::compiler::backend::runtime_native::{h3, net, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -87,7 +88,7 @@ fn driver() -> &'static Path {
             .arg(&source)
             .arg(archive);
         cc.args(crate::shared::product_link_args());
-        let out = cc.output().unwrap();
+        let out = cc.capped_output().unwrap();
         assert!(
             out.status.success(),
             "cc failed to link the driver against {ARCHIVE_NAME}:\n{}",
@@ -151,7 +152,7 @@ fn run_command(mut cmd: Command, args: &[&str], env: &[(&str, &str)], stdin: &st
         let mut pipe = child.stdin.take().unwrap();
         pipe.write_all(stdin.as_bytes()).unwrap();
     }
-    child.wait_with_output().unwrap()
+    child.capped_wait_with_output().unwrap()
 }
 
 fn stdout(out: &Output) -> String {
@@ -1185,7 +1186,7 @@ fn the_three_switch_blocks_assemble_for_their_targets() {
             .arg("-o")
             .arg(&obj)
             .arg(&src)
-            .output()
+            .capped_output()
             .unwrap_or_else(|e| panic!("could not run {cc}: {e}"));
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();

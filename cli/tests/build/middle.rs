@@ -8,6 +8,7 @@
 //! ```text
 //! BURI_BLESS=1 cargo test -p buri --test build middle::   # record the goldens
 //! ```
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 #[test]
@@ -48,7 +49,7 @@ fn an_entry_without_a_host_answers_its_caller() {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("drive.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),

@@ -9,6 +9,7 @@
 // Which backends are built decides which of these are read.
 #![allow(dead_code)]
 
+use crate::hang::{Capped, CappedChild};
 use buri::build::workspace::Workspace;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -95,7 +96,7 @@ fn ran_as(cmd: &mut Command, build: &str) -> Ran {
             .collect();
         crate::valgrind::hosts(cmd, &format!("buri {}", line.join(" ")));
     }
-    let out = crate::valgrind::output(cmd, build).unwrap_or_else(|| cmd.output().unwrap());
+    let out = crate::valgrind::output(cmd, build).unwrap_or_else(|| cmd.capped_output().unwrap());
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -138,7 +139,7 @@ pub fn js_engine() -> Option<String> {
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status()
+            .capped_status()
             .is_ok_and(|s| s.success())
     })
 }
@@ -380,7 +381,7 @@ pub fn driver_link(objects: &[PathBuf], binary: &Path) -> std::process::Output {
     }
     cc.arg(runtime_archive());
     cc.args(product_link_args());
-    cc.output().unwrap()
+    cc.capped_output().unwrap()
 }
 
 /// The runtime archive, written once and shared by every run.
@@ -514,7 +515,7 @@ pub fn admitted(binary: &Path) {
             .stderr(std::process::Stdio::null()),
     );
     let _ = child.kill();
-    let _ = child.wait();
+    let _ = child.capped_wait();
 }
 
 #[cfg(target_os = "macos")]
@@ -1045,7 +1046,7 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     let mut reply = Vec::new();
     let _ = socket.read_to_end(&mut reply);
 
-    let status = child.wait().expect("the server exited");
+    let status = child.capped_wait().expect("the server exited");
     let (first, rest) = reader.join().expect("the reader thread finished");
     let mut stderr = String::new();
     if let Some(mut err) = child.stderr.take() {
@@ -1142,7 +1143,7 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
         .map(|c| c.join().expect("a client finished"))
         .collect();
 
-    let status = child.wait().expect("the server exited");
+    let status = child.capped_wait().expect("the server exited");
     let (first, rest) = reader.join().expect("the reader thread finished");
     let mut stderr = String::new();
     if let Some(mut err) = child.stderr.take() {
@@ -1597,7 +1598,7 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
         }
         if std::time::Instant::now() >= until {
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.capped_wait();
             panic!(
                 "the server was still running {:?} after being signalled with \
                  {signal} over and over, so this runtime cannot be stopped",
@@ -1673,7 +1674,7 @@ pub fn waited(
         }
         if std::time::Instant::now() >= until {
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.capped_wait();
             panic!("the server did not stop within {within:?} of being signalled");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -2543,7 +2544,7 @@ pub fn run_artifact(path: &Path) -> std::process::Output {
 
     let mut last = String::new();
     for _ in 0..TRIES {
-        match Command::new(path).output() {
+        match Command::new(path).capped_output() {
             Ok(out) => return out,
             Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
                 last = e.to_string();

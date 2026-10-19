@@ -11,6 +11,7 @@
 //! cargo test -p buri --test build generator_failures::
 //! ```
 
+use crate::harness::hang::Capped;
 use crate::harness::{indent, js_runtime, Run, Scratch};
 
 /// Each input's first word becomes an exported `Int`, a hundred over its
@@ -130,7 +131,7 @@ fn js_path() -> String {
     let found = std::process::Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("command -v {}", js_runtime()))
-        .output()
+        .capped_output()
         .expect("sh runs");
     String::from_utf8_lossy(&found.stdout).trim().to_string()
 }

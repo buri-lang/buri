@@ -9,6 +9,7 @@
 //! ```text
 //! BURI_BLESS=1 cargo test -p buri --test build javascript::   # record the goldens
 //! ```
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 #[test]
@@ -49,7 +50,7 @@ fn an_entry_reads_its_arguments_across_the_boundary() {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("drive.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),

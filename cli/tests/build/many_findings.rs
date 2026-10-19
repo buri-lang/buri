@@ -5,6 +5,7 @@
 //! the answers are: every finding once, where it is, after edits, and a fix
 //! that leaves the program printing what it printed.
 
+use crate::harness::hang::CappedChild;
 use crate::harness::*;
 
 /// One `buri lsp` on a pipe, answering each message completely before reading
@@ -153,7 +154,7 @@ impl Server {
     fn close(mut self) {
         self.ask("shutdown", "null");
         self.notify("exit", "null");
-        let status = self.process.wait().unwrap();
+        let status = self.process.capped_wait().unwrap();
         assert!(status.success(), "the language server exited {status}");
     }
 }

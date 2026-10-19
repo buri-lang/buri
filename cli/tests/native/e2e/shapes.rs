@@ -6,6 +6,7 @@
 //! `llvm.rs` and `build/profile.rs`. These rows hold what a user sees.
 
 use super::{heap_checked, ready};
+use crate::hang::Capped;
 
 const HEAD: &str = r#"from "platform/effect" import { Allocator, Stdout };
 from "native" import { NativeHost };
@@ -655,7 +656,7 @@ fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
             .current_dir(&root)
             .args(["run", &format!("//cmd/{platform}")])
             .env("BURI_RT_HEAP_CHECK", "1")
-            .output()
+            .capped_output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&ran.stdout);
         assert!(
@@ -695,7 +696,7 @@ fn a_type_that_grows_its_own_argument_stops_the_run_with_an_error() {
     let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
         .current_dir(&root)
         .args(["run", "//cmd/grow"])
-        .output()
+        .capped_output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&ran.stderr);
     assert!(
@@ -739,7 +740,7 @@ fn a_function_that_grows_its_own_type_argument_stops_the_run_with_an_error() {
     let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
         .current_dir(&root)
         .args(["run", "//cmd/nest"])
-        .output()
+        .capped_output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&ran.stderr);
     assert!(

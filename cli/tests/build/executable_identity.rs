@@ -1,6 +1,7 @@
 //! A `buri` knows which build of itself is running from its own executable's
 //! header, and its cache is keyed by that. Copies of `buri` whose header is
 //! unusual, but which still run, still cache.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 use std::path::Path;
 
@@ -35,7 +36,7 @@ fn caches(scratch: &Scratch, exe: &Path) {
             .args(["build", "--color=never", "//cmd/app"])
             .env("BURI_HOME", scratch.path("home"))
             .env("XDG_CACHE_HOME", scratch.path("xdg"))
-            .output()
+            .capped_output()
             .unwrap();
         assert!(
             out.status.success(),
@@ -69,7 +70,7 @@ fn a_universal_buri_still_caches() {
         .arg(buri())
         .arg("-output")
         .arg(&fat)
-        .status()
+        .capped_status()
         .unwrap();
     assert!(made.success(), "lipo couldn't wrap buri");
     caches(&scratch, &fat);

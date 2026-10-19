@@ -6,6 +6,7 @@
 //! these tests import the `fetch.mjs` the build wrote into a JavaScript
 //! runtime, hand its default export a request and the bindings a worker gets,
 //! and read the response.
+use crate::harness::hang::Capped;
 use crate::harness::*;
 
 fn walkthrough() -> Scratch {
@@ -35,7 +36,7 @@ fn call(scratch: &Scratch) -> String {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("call.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "the worker failed:\n{stderr}");
@@ -85,7 +86,7 @@ fn drive(scratch: &Scratch, target: &str, driver: &str) -> String {
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("drive.mjs"))
         .current_dir(&scratch.root)
-        .output()
+        .capped_output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -227,7 +228,7 @@ fn a_chunk_is_fetched_only_where_the_worker_asks_for_it() {
         let out = std::process::Command::new(js_runtime())
             .arg(scratch.path("drive.mjs"))
             .current_dir(&scratch.root)
-            .output()
+            .capped_output()
             .expect("the javascript runtime runs");
         String::from_utf8_lossy(&out.stdout).to_string()
     };

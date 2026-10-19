@@ -24,15 +24,14 @@
 //! stencil program that passes alone in under a second as a hang, on a machine
 //! that was merely busy.
 //!
-//! **Not** an in-process deadlock, and not, on its own, a `Command` a suite
-//! spawns for itself: `native/` builds and links its own artifacts, and
-//! `build/hermeticity.rs` shells its own tools. Nothing in libtest tells a
-//! watchdog which test is on which thread — the name is only knowable *inside*
-//! the test, which is why the cap lives at the call and not in a thread above
-//! it — so a cap over those would either name nothing or be one wrapper per
-//! spawn site. A suite that wants the rule over its own spawns asks for it, as
-//! `fuzz.rs` does. The outer bound for everything nothing covers is the job's
-//! `timeout-minutes`, which `cli/tests/ci.rs` now requires of every job.
+//! **Every other child a suite starts, too**, through [`Capped`] and
+//! [`CappedChild`]: `cmd.capped_output()` where it said `cmd.output()`, and
+//! `child.capped_wait()` where it said `child.wait()`. The name is only
+//! knowable *inside* the test, which is why the cap lives at the call and not
+//! in a watchdog thread above it.
+//!
+//! **Not** an in-process deadlock. The outer bound for that is the job's
+//! `timeout-minutes`, which `cli/tests/ci.rs` requires of every job.
 //!
 //! ## Stuck, not slow: what the cap actually measures
 //!
@@ -74,25 +73,19 @@
 //! it always was.
 //!
 //! What this rule gives up is the runaway that *spins*: a child looping for
-//! ever while burning a core is working by every reading, so nothing above
-//! kills it. The job's `timeout-minutes` ends that one for the suites here, as
-//! it already had to for an in-process deadlock, which this never covered
-//! either.
+//! ever while burning a core is working by every reading. So every wait also
+//! carries [`Bounds`] on the work and the memory the tree may use.
 //!
-//! ## The ceiling, for a caller that must catch one anyway
+//! ## The ceilings: a runaway that spins or swells
 //!
-//! A caller that cannot leave the spinner to the job passes a **ceiling on
-//! processor time** as [`watch`]'s last argument, and `fuzz.rs` is the caller
-//! that does: its minimiser deletes a token and writes a program that loops for
-//! ever, and "this input loops for ever" is a finding that suite has to record
-//! rather than a job for GitHub to kill. A ceiling on the *work* is the right
-//! bound there and a wall clock is not — what a loaded machine changes is how
-//! long the work takes, never how much of it there is, so a busy tree crosses a
-//! ceiling at the same reading on an idle host and a hammered one.
+//! A tree past either ceiling is killed, whole, and the test fails naming
+//! itself, the argv and how long it ran. Both are readings of the work rather
+//! than a wall clock, so a loaded machine reaches them at the same point an
+//! idle one does. A child looping for ever used to run until the job's runner
+//! died, and that leaves no log naming anything.
 //!
-//! The number is the caller's, because an honest one is a function of the work:
-//! a build's ceiling and a generated program's are three orders of magnitude
-//! apart. `fuzz.rs` states its three and what they were measured against.
+//! `fuzz.rs` passes tighter ceilings of its own, because "this input loops for
+//! ever" is a finding that suite records rather than a failed test.
 //!
 //! ## The numbers
 //!
@@ -129,6 +122,70 @@ pub fn cap() -> Duration {
             Ok(secs) => Duration::from_secs(secs),
             Err(e) => panic!("BURI_HANG_SECS={text:?} is not a number of seconds: {e}"),
         },
+    }
+}
+
+/// The processor time a healthy tree never reaches: twenty minutes. The most
+/// any child used in a full local run was 135 s, an LLVM `--release` build.
+const WORK: Duration = Duration::from_secs(20 * 60);
+
+/// The memory a healthy tree never holds at once: 4 GiB, or 512 MiB a core
+/// where that is more. The most any child held in a full local run was
+/// 1.3 GiB, the same build, on twelve cores; a build's memory grows with its
+/// parallelism.
+fn memory() -> u64 {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    u64::try_from(cores)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(512 << 20)
+        .max(4 << 30)
+}
+
+/// How much more work and memory a tree under Valgrind may use: it runs a
+/// program tens of times slower, and keeps a shadow of its memory.
+const VALGRIND: (u32, u64) = (20, 4);
+
+/// What one wait allows a child's whole process tree before it is killed.
+#[derive(Clone, Copy, Debug)]
+pub struct Bounds {
+    /// How long the tree may be asleep and spending nothing.
+    pub idle: Duration,
+    /// The processor time the tree may use in all.
+    pub work: Duration,
+    /// The memory the tree may hold at once, in bytes.
+    pub memory: u64,
+}
+
+impl Bounds {
+    /// The standard ceilings, with `idle` as the cap.
+    pub fn idle(idle: Duration) -> Self {
+        let valgrind = ["BURI_MEMCHECK", "BURI_HELGRIND"]
+            .iter()
+            .any(|v| std::env::var_os(v).is_some_and(|d| !d.is_empty()));
+        let (more_work, more_memory) = if valgrind { VALGRIND } else { (1, 1) };
+        Self {
+            idle,
+            work: WORK.saturating_mul(more_work),
+            memory: memory().saturating_mul(more_memory),
+        }
+    }
+
+    /// Which ceiling a reading is past, if any. Work first, since a tree that
+    /// swells while it spins is a runaway first.
+    fn passed(self, seen: Look) -> Option<Why> {
+        if seen.spent >= self.work {
+            Some(Why::Burned {
+                spent: seen.spent,
+                ceiling: self.work,
+            })
+        } else if seen.memory >= self.memory {
+            Some(Why::Swelled {
+                held: seen.memory,
+                ceiling: self.memory,
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -197,19 +254,21 @@ impl Progress {
 }
 
 /// Wait for a child, killing it and panicking once it has gone a whole `cap`
-/// asleep and spending nothing.
-///
+/// asleep and spending nothing, or has passed a standard ceiling.
+pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
+    wait_within(child, what, Bounds::idle(cap))
+}
+
 /// [`watch`] with the suite's own answer to a killed child on the end of it: a
 /// panic in the test's own thread, so libtest names the test.
-pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
-    match watch(child, what, cap, None) {
+pub fn wait_within(child: &mut Child, what: &str, bounds: Bounds) -> ExitStatus {
+    match watch(child, what, bounds) {
         Ok(status) => status,
         Err(killed) => panic!("{}", report(&killed)),
     }
 }
 
-/// Wait for a child, killing it once it is stuck — or, where a caller names a
-/// `ceiling`, once its tree has spent more processor time than that.
+/// Wait for a child, killing its tree once it is stuck or past a ceiling.
 ///
 /// `Ok` is a child that stopped on its own, whatever it exited with. `Err` is a
 /// child this function killed, carrying the evidence for why; the caller
@@ -224,16 +283,12 @@ pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
 /// every invocation in the suite: the `failing` corpus runs within a percent of
 /// what it did before the cap went in.
 ///
-/// The ceiling is asked at each reading and before the idle rule, so a tree
+/// The ceilings are asked at each reading and before the idle rule, so a tree
 /// that is over both is reported as the runaway it is rather than as a
 /// deadlock. Nothing is asked of a host that will not answer, so a ceiling
 /// there is simply never reached.
-pub fn watch(
-    child: &mut Child,
-    what: &str,
-    cap: Duration,
-    ceiling: Option<Duration>,
-) -> Result<ExitStatus, Killed> {
+pub fn watch(child: &mut Child, what: &str, bounds: Bounds) -> Result<ExitStatus, Killed> {
+    let cap = bounds.idle;
     let pid = child.id();
     launched(child);
     // A zero period is over the moment the clock starts. Asking `try_wait`
@@ -265,18 +320,13 @@ pub fn watch(
         if now >= progress.next {
             progress.next = now + every;
             let reading = look(pid);
-            if let (Some(seen), Some(ceiling)) = (reading, ceiling) {
-                if seen.spent >= ceiling {
-                    stop(child);
-                    return Err(Killed {
-                        what: what.to_string(),
-                        ran: start.elapsed(),
-                        why: Why::Burned {
-                            spent: seen.spent,
-                            ceiling,
-                        },
-                    });
-                }
+            if let Some(why) = reading.and_then(|seen| bounds.passed(seen)) {
+                stop(child);
+                return Err(Killed {
+                    what: what.to_string(),
+                    ran: start.elapsed(),
+                    why,
+                });
             }
             progress.note(now, reading, busy);
         }
@@ -325,10 +375,46 @@ fn has_run(_pid: u32) -> bool {
     true
 }
 
-/// Kill a child and reap it, so a verdict leaves nothing behind.
+/// Kill a child and every process under it, and reap it, so a verdict leaves
+/// nothing behind.
+///
+/// The tree is stopped before it is killed: a killed parent's children move to
+/// `init` and drop out of the walk, and a stopped one cannot fork.
 fn stop(child: &mut Child) {
+    let mut seen: Vec<u32> = Vec::new();
+    for _ in 0..TREE_LIMIT {
+        let found = tree(child.id());
+        if found.iter().all(|pid| seen.contains(pid)) {
+            break;
+        }
+        for &pid in &found {
+            signal(pid, SIGSTOP);
+        }
+        seen.extend(found);
+        seen.sort_unstable();
+        seen.dedup();
+    }
+    for &pid in &seen {
+        signal(pid, SIGKILL);
+    }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+const SIGKILL: i32 = 9;
+#[cfg(target_os = "macos")]
+const SIGSTOP: i32 = 17;
+#[cfg(not(target_os = "macos"))]
+const SIGSTOP: i32 = 19;
+
+fn signal(pid: u32, sig: i32) {
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    if let Ok(pid) = i32::try_from(pid) {
+        // SAFETY: `kill` takes two integers; a pid that is gone is an error.
+        unsafe { kill(pid, sig) };
+    }
 }
 
 /// Spawn, drain both pipes, and wait under the cap — `Command::output` with a
@@ -353,6 +439,112 @@ pub fn capped_output(mut cmd: std::process::Command, what: &str, cap: Duration) 
         stdout: out.take(),
         stderr: err.take(),
     }
+}
+
+/// `Command`'s own waits, under the cap and the ceilings: a drop-in for every
+/// child a test starts, so none of them can outlive the job.
+pub trait Capped {
+    /// [`Command::output`], capped. Standard input is closed and both pipes
+    /// are read, whatever the command had set.
+    fn capped_output(&mut self) -> std::io::Result<Output>;
+    /// [`Command::status`], capped.
+    fn capped_status(&mut self) -> std::io::Result<ExitStatus>;
+}
+
+impl Capped for std::process::Command {
+    fn capped_output(&mut self) -> std::io::Result<Output> {
+        let what = argv(self);
+        let mut child = self
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        Ok(waited_with_output(&mut child, &what))
+    }
+
+    fn capped_status(&mut self) -> std::io::Result<ExitStatus> {
+        let what = argv(self);
+        let mut child = self.spawn()?;
+        Ok(wait_capped(&mut child, &what, cap()))
+    }
+}
+
+/// `Child`'s own waits, capped, for a child a test started and talked to.
+pub trait CappedChild {
+    /// [`Child::wait`], capped.
+    fn capped_wait(&mut self) -> std::io::Result<ExitStatus>;
+    /// [`Child::wait_with_output`], capped.
+    fn capped_wait_with_output(self) -> std::io::Result<Output>;
+}
+
+impl CappedChild for Child {
+    fn capped_wait(&mut self) -> std::io::Result<ExitStatus> {
+        if let Some(status) = self.try_wait()? {
+            return Ok(status);
+        }
+        let what = named(self.id());
+        Ok(wait_capped(self, &what, cap()))
+    }
+
+    fn capped_wait_with_output(mut self) -> std::io::Result<Output> {
+        // Closed first, as `Child::wait_with_output` does, so a child reading
+        // to the end of its input gets there.
+        drop(self.stdin.take());
+        let what = named(self.id());
+        Ok(waited_with_output(&mut self, &what))
+    }
+}
+
+/// Wait for `child` under the cap, reading both of its pipes as it runs.
+fn waited_with_output(child: &mut Child, what: &str) -> Output {
+    let (out, err) = drain(child);
+    let status = wait_capped(child, what, cap());
+    Output {
+        status,
+        stdout: out.take(),
+        stderr: err.take(),
+    }
+}
+
+/// A command as a shell would spell it, for the report.
+pub fn argv(cmd: &std::process::Command) -> String {
+    std::iter::once(cmd.get_program())
+        .chain(cmd.get_args())
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// A running process's command line, or its pid where the host won't say.
+fn named(pid: u32) -> String {
+    #[cfg(target_os = "linux")]
+    if let Ok(line) = std::fs::read(format!("/proc/{pid}/cmdline")) {
+        let words: Vec<String> = line
+            .split(|b| *b == 0)
+            .filter(|w| !w.is_empty())
+            .map(|w| String::from_utf8_lossy(w).into_owned())
+            .collect();
+        if !words.is_empty() {
+            return words.join(" ");
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn proc_pidpath(pid: i32, buffer: *mut u8, size: u32) -> i32;
+        }
+        let mut path = [0u8; 4096];
+        if let Ok(id) = i32::try_from(pid) {
+            // SAFETY: the buffer is the size passed.
+            let wrote = unsafe { proc_pidpath(id, path.as_mut_ptr(), 4096) };
+            if let Some(path) = usize::try_from(wrote).ok().and_then(|n| path.get(..n)) {
+                if !path.is_empty() {
+                    return String::from_utf8_lossy(path).into_owned();
+                }
+            }
+        }
+    }
+    format!("process {pid}")
 }
 
 /// Both of a child's pipes, being read on threads of their own.
@@ -409,9 +601,11 @@ enum Why {
         idle: Duration,
         spent: Option<Duration>,
     },
-    /// Past a caller's ceiling on processor time: what the tree had spent, and
-    /// the ceiling it went past.
+    /// Past the ceiling on processor time: what the tree had spent, and the
+    /// ceiling it went past.
     Burned { spent: Duration, ceiling: Duration },
+    /// Past the ceiling on memory, in bytes.
+    Swelled { held: u64, ceiling: u64 },
     /// A cap of zero, which leaves no time at all.
     NoTime,
 }
@@ -452,6 +646,13 @@ impl Killed {
                  machine reaches this at the same reading an idle one does.",
                 spent.as_secs_f64(),
                 ceiling.as_secs_f64()
+            ),
+            Why::Swelled { held, ceiling } => format!(
+                "`{what}` held {} MiB of memory, past a ceiling of {} MiB, so it was killed after \
+                 {ran:.1}s of running. A tree growing without bound takes the machine with it, \
+                 and a runner that dies of that leaves no log naming the test.",
+                held >> 20,
+                ceiling >> 20
             ),
             Why::NoTime => format!(
                 "`{what}` had a cap of zero, so it was killed as soon as it started, whether or \
@@ -497,6 +698,8 @@ pub struct Look {
     pub runnable: bool,
     /// The processor time the whole tree has used.
     pub spent: Duration,
+    /// The memory the whole tree holds, in bytes.
+    pub memory: u64,
 }
 
 /// One look at `pid` and its living descendants, where the host will say.
@@ -560,10 +763,31 @@ fn reading(pid: u32) -> Option<Look> {
     unsafe extern "C" {
         fn sysconf(name: i32) -> i64;
     }
+    // `_SC_PAGESIZE`: `rss` is a count of pages.
+    const SC_PAGESIZE: i32 = 30;
     let hz = u64::try_from(unsafe { sysconf(SC_CLK_TCK) })
         .ok()
         .filter(|hz| *hz > 0)?;
+    let page = u64::try_from(unsafe { sysconf(SC_PAGESIZE) }).ok()?;
 
+    let rows = rows()?;
+    let members = walk(&rows, pid);
+    let (mut total, mut pages, mut runnable) = (0u64, 0u64, false);
+    for row in rows.iter().filter(|r| members.contains(&r.id)) {
+        total = total.saturating_add(row.spent);
+        pages = pages.saturating_add(row.pages);
+        runnable |= row.runnable;
+    }
+    Some(Look {
+        runnable,
+        spent: scaled(total, 1_000_000_000, hz)?,
+        memory: pages.saturating_mul(page),
+    })
+}
+
+/// Every process `/proc` lists, in one pass.
+#[cfg(target_os = "linux")]
+fn rows() -> Option<Vec<Row>> {
     let mut rows: Vec<Row> = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
         let name = entry.file_name();
@@ -579,32 +803,34 @@ fn reading(pid: u32) -> Option<Look> {
         };
         rows.push(row);
     }
+    Some(rows)
+}
 
-    let mut total: u64 = 0;
-    let mut runnable = false;
+/// `pid` and its living descendants, as one `/proc` pass saw them.
+#[cfg(target_os = "linux")]
+fn walk(rows: &[Row], pid: u32) -> Vec<u32> {
+    let mut found = Vec::new();
     let mut wanted = vec![pid];
-    let mut walked = 0usize;
     while let Some(this) = wanted.pop() {
-        walked = walked.saturating_add(1);
-        if walked > TREE_LIMIT {
+        if found.len() >= TREE_LIMIT {
             break;
         }
-        for row in &rows {
-            if row.id == this {
-                total = total.saturating_add(row.spent);
-                runnable |= row.runnable;
-            }
-            // `!= this` so that a process reported as its own parent — pid 1
-            // under some sandboxes — is a leaf rather than a loop.
-            if row.parent == this && row.id != this {
-                wanted.push(row.id);
-            }
-        }
+        found.push(this);
+        // `!= this` so that a process reported as its own parent — pid 1
+        // under some sandboxes — is a leaf rather than a loop.
+        wanted.extend(
+            rows.iter()
+                .filter(|r| r.parent == this && r.id != this)
+                .map(|r| r.id),
+        );
     }
-    Some(Look {
-        runnable,
-        spent: scaled(total, 1_000_000_000, hz)?,
-    })
+    found
+}
+
+/// `pid` and its living descendants.
+#[cfg(target_os = "linux")]
+fn tree(pid: u32) -> Vec<u32> {
+    rows().map_or_else(|| vec![pid], |rows| walk(&rows, pid))
 }
 
 /// One process, as `/proc` describes it.
@@ -614,6 +840,7 @@ struct Row {
     parent: u32,
     runnable: bool,
     spent: u64,
+    pages: u64,
 }
 
 /// One line of `/proc/<pid>/stat`, as a [`Row`].
@@ -622,13 +849,13 @@ struct Row {
 /// left: the second field is the executable's name, in parentheses, and a
 /// process is free to have a space or a bracket in it. Everything after that
 /// bracket is fixed-width and positional, and the offsets here are the ones
-/// `proc(5)` numbers 3, 4, 14, 15, 16 and 17.
+/// `proc(5)` numbers 3, 4, 14, 15, 16, 17 and 24.
 #[cfg(target_os = "linux")]
 fn stat_row(id: u32, text: &str) -> Option<Row> {
     let after = text.rsplit_once(')')?.1;
-    // The state, the parent, and everything up to `cstime`. Index 0 here is
+    // The state, the parent, and everything up to `rss`. Index 0 here is
     // `proc(5)`'s field 3.
-    let fields: Vec<&str> = after.split_whitespace().take(15).collect();
+    let fields: Vec<&str> = after.split_whitespace().take(22).collect();
     // A negative count is not a thing a clock produces; it is a field this
     // reading has no use for, and zero is the honest answer for it.
     let number = |i: usize| {
@@ -648,6 +875,7 @@ fn stat_row(id: u32, text: &str) -> Option<Row> {
         parent,
         runnable,
         spent,
+        pages: number(21)?,
     })
 }
 
@@ -676,26 +904,55 @@ fn stat_row(id: u32, text: &str) -> Option<Row> {
 /// which is what it is.
 #[cfg(target_os = "macos")]
 fn reading(pid: u32) -> Option<Look> {
-    let mut total: u64 = 0;
-    let mut runnable = false;
-    let mut wanted = vec![pid];
-    let mut walked = 0usize;
-    while let Some(this) = wanted.pop() {
-        walked = walked.saturating_add(1);
-        if walked > TREE_LIMIT {
-            break;
-        }
+    let (mut total, mut memory, mut runnable) = (0u64, 0u64, false);
+    for this in tree(pid) {
         if let Some((spent, running)) = task_info(this) {
             total = total.saturating_add(spent);
             runnable |= running;
         }
-        wanted.extend(children_of(this));
+        memory = memory.saturating_add(footprint(this));
     }
     let (numer, denom) = timebase()?;
     Some(Look {
         runnable,
         spent: scaled(total, u64::from(numer), u64::from(denom))?,
+        memory,
     })
+}
+
+/// `pid` and its living descendants.
+#[cfg(target_os = "macos")]
+fn tree(pid: u32) -> Vec<u32> {
+    let mut found = Vec::new();
+    let mut wanted = vec![pid];
+    while let Some(this) = wanted.pop() {
+        if found.len() >= TREE_LIMIT {
+            break;
+        }
+        found.push(this);
+        wanted.extend(children_of(this));
+    }
+    found
+}
+
+/// A process's physical footprint, in bytes: what Activity Monitor calls its
+/// memory, compressed pages included. Zero for a process that is gone.
+#[cfg(target_os = "macos")]
+fn footprint(pid: u32) -> u64 {
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut u64) -> i32;
+    }
+    let Ok(pid) = i32::try_from(pid) else {
+        return 0;
+    };
+    // `rusage_info_v0`: a 16-byte UUID, then ten `u64`s.
+    let mut usage = [0u64; 12];
+    // SAFETY: flavor 0 fills exactly the 96 bytes of `usage`.
+    if unsafe { proc_pid_rusage(pid, 0, usage.as_mut_ptr()) } != 0 {
+        return 0;
+    }
+    // `ri_phys_footprint`.
+    usage.get(9).copied().unwrap_or(0)
 }
 
 /// `PROC_PIDTASKINFO`'s buffer, in the order `<sys/proc_info.h>` declares it.
@@ -811,6 +1068,11 @@ fn reading(_pid: u32) -> Option<Look> {
     None
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn tree(pid: u32) -> Vec<u32> {
+    vec![pid]
+}
+
 /// The cap, proved to fire on a child that will certainly not answer, and
 /// proved not to on one that is working.
 ///
@@ -878,7 +1140,7 @@ mod hang_tests {
             .spawn()
             .expect("`true` is on PATH");
         exited_unreaped(child.id());
-        let verdict = watch(&mut child, "true", Duration::ZERO, None)
+        let verdict = watch(&mut child, "true", Bounds::idle(Duration::ZERO))
             .expect_err("a zero cap let a child through");
         assert!(
             verdict.verdict().contains("was killed"),
@@ -891,14 +1153,14 @@ mod hang_tests {
     fn exited_unreaped(pid: u32) {
         // `waitid(P_PID, pid, &info, WEXITED | WNOWAIT)`.
         unsafe extern "C" {
-            fn waitid(idtype: i32, id: u32, info: *mut u8, options: i32) -> i32;
+            fn waitid(idtype: i32, id: u32, info: *mut u64, options: i32) -> i32;
         }
         const P_PID: i32 = 1;
         #[cfg(target_os = "macos")]
         const OPTIONS: i32 = 0x04 | 0x20;
         #[cfg(not(target_os = "macos"))]
         const OPTIONS: i32 = 0x04 | 0x0100_0000;
-        let mut info = [0u8; 256];
+        let mut info = [0u64; 32];
         assert_eq!(
             unsafe { waitid(P_PID, pid, info.as_mut_ptr(), OPTIONS) },
             0,
@@ -938,6 +1200,7 @@ mod hang_tests {
             Some(Look {
                 runnable: false,
                 spent: Duration::from_secs(spent),
+                memory: 0,
             })
         };
         let start = Instant::now();
@@ -1007,6 +1270,7 @@ mod hang_tests {
             Some(Look {
                 runnable: false,
                 spent: Duration::ZERO,
+                memory: 0,
             }),
             busy,
         );
@@ -1017,6 +1281,7 @@ mod hang_tests {
                 Some(Look {
                     runnable: true,
                     spent: Duration::ZERO,
+                    memory: 0,
                 }),
                 busy,
             );
@@ -1034,6 +1299,7 @@ mod hang_tests {
             Some(Look {
                 runnable: false,
                 spent: Duration::ZERO,
+                memory: 0,
             }),
             busy,
         );

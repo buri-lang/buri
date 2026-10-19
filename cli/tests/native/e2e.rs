@@ -54,6 +54,7 @@
 //! and pins the page a user reads. That is as far as one toolchain reaches,
 //! and the module doc of `backend::networking_gap_when` is the seam it uses.
 
+use crate::hang::Capped;
 use std::path::PathBuf;
 
 #[cfg(feature = "backend-llvm")]
@@ -2707,7 +2708,7 @@ fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
         .expect("the program is in a workspace of its own");
     let out = crate::shared::program(&binary, "e2e")
         .current_dir(dir)
-        .output()
+        .capped_output()
         .expect("the program did not start");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -2942,7 +2943,7 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
         .current_dir(dir)
         .args(["alpha", "beta"])
         .env("BURI_E2E_VARIABLE", "seen")
-        .output()
+        .capped_output()
         .expect("the program did not start");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -3289,7 +3290,7 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
         if scrubbed {
             command.env_remove("HOME").env_remove("TMPDIR");
         }
-        let out = command.output().expect("the program did not start");
+        let out = command.capped_output().expect("the program did not start");
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         assert_eq!(
@@ -3977,7 +3978,7 @@ fn heap_checked(name: &str, source: &str) -> (Vec<String>, String) {
     let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
-        .output()
+        .capped_output()
         .expect("the program did not start");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -4840,7 +4841,7 @@ fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
     let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
-        .output()
+        .capped_output()
         .expect("the program did not start");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -4898,7 +4899,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         let out = crate::shared::program(&binary, "e2e")
             .env("BURI_RT_HEAP_CHECK", "1")
             .env("BURI_RT_HEAP_REPORT", "1")
-            .output()
+            .capped_output()
             .expect("the program did not start");
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -5664,7 +5665,7 @@ fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
     let out = crate::shared::program(&binary, "e2e")
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
-        .output()
+        .capped_output()
         .expect("the program did not start");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();

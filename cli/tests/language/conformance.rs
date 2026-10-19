@@ -18,6 +18,7 @@
 //!
 //! Every test here works on a copy under `CARGO_TARGET_TMPDIR`. Nothing writes
 //! into a checked-in tree, so the suites hold no lock and run in parallel.
+use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::*;
 
 use std::process::Command;
@@ -411,7 +412,11 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
 /// tail calls, which is the whole reason the compiler eliminates them itself.
 #[test]
 fn tail_calls_run_in_constant_stack_on_v8() {
-    if Command::new("node").arg("--version").output().is_err() {
+    if Command::new("node")
+        .arg("--version")
+        .capped_output()
+        .is_err()
+    {
         eprintln!("node is not installed; skipping the V8 tail-call check");
         return;
     }
@@ -464,7 +469,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 
     let artifact = scratch.artifact("cmd/deep");
     for engine in ["node", "bun"] {
-        let Ok(out) = Command::new(engine).arg(&artifact).output() else {
+        let Ok(out) = Command::new(engine).arg(&artifact).capped_output() else {
             continue;
         };
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -492,7 +497,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// `//lib/text` under node, debug and release.
 #[test]
 fn float_suites_pass_under_node() {
-    if Command::new("node").arg("--version").output().is_err()
+    if Command::new("node")
+        .arg("--version")
+        .capped_output()
+        .is_err()
         && crate::harness::ci::skipped("language::conformance", "node is not on PATH")
     {
         return;
@@ -1050,7 +1058,7 @@ fn said<C: Allocator>(ctx: C, answer: Result<Response, NetError>): Str {{
             Ok(Some(status)) => break Some(status),
             Ok(None) if std::time::Instant::now() >= until => {
                 let _killed = child.kill();
-                let _reaped = child.wait();
+                let _reaped = child.capped_wait();
                 break None;
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
@@ -1113,7 +1121,7 @@ fn what_a_program_prints_reaches_a_pipe_before_it_blocks() {
     impl Drop for Blocked {
         fn drop(&mut self) {
             let _killed = self.child.kill();
-            let _reaped = self.child.wait();
+            let _reaped = self.child.capped_wait();
             if let Some(reader) = self.reader.take() {
                 let _joined = reader.join();
             }
@@ -1353,7 +1361,7 @@ console.log(log.join("\n"));
 
     let out = Command::new(js_runtime())
         .arg(&driver)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -1537,7 +1545,7 @@ fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C
         .arg(scratch.path(".buri/out/node/cmd/dial/dial.mjs"))
         .arg(nobody.to_string())
         .arg(not_101.to_string())
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     for server in [answering].into_iter().flatten() {
         server.join().expect("the one-shot server finished");
@@ -1762,7 +1770,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .arg(scratch.path(".buri/out/node/cmd/dial/dial.mjs"))
         .arg(port.to_string())
         .arg(LARGE.to_string())
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let heard = serving.heard();
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -1874,7 +1882,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
             .arg(&driver)
             .arg(at)
             .arg(asked)
-            .output()
+            .capped_output()
             .expect("the javascript runtime runs");
         (
             out.status.code().unwrap_or(-1),
@@ -2379,7 +2387,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
             .arg(&driver)
             .arg(how)
             .arg(at)
-            .output()
+            .capped_output()
             .expect("the javascript runtime runs");
         (
             out.status.code().unwrap_or(-1),
@@ -3094,7 +3102,7 @@ console.log(`the timer waited: ${Date.now() - started >= 20}`);
 
     let out = Command::new(js_runtime())
         .arg(&driver)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -3295,7 +3303,7 @@ console.log(text_(document.body));
 
     let out = Command::new(js_runtime())
         .arg(&driver)
-        .output()
+        .capped_output()
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();

@@ -9,6 +9,7 @@
 //! Each row builds one program per native backend this toolchain has, and once
 //! for JavaScript, through `buri build`.
 
+use crate::hang::Capped;
 use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -46,7 +47,7 @@ fn build(root: &Path, args: &[&str]) {
         .current_dir(root)
         .arg("build")
         .args(args)
-        .output()
+        .capped_output()
         .unwrap();
     assert!(
         out.status.success(),

@@ -6,6 +6,7 @@
 //! gives up after its bound and the row fails on what the program printed. No
 //! row reads a clock.
 
+use crate::hang::{Capped, CappedChild};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -58,12 +59,12 @@ fn ran_within(row: &str, source: &str) -> Option<Ran> {
     while child.try_wait().unwrap().is_none() {
         if Instant::now() >= until {
             let _ = child.kill();
-            let _ = child.wait();
+            let _ = child.capped_wait();
             panic!("{row}: still running after 120 s, so its steps never met");
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    let out = child.wait_with_output().unwrap();
+    let out = child.capped_wait_with_output().unwrap();
     let ran = Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -220,7 +221,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn a_step_reading_a_fifo_meets_the_step_writing_it() {
     let dir = scratch("fifo");
     let fifo = dir.join("pipe");
-    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+    let made = Command::new("mkfifo").arg(&fifo).capped_status().unwrap();
     assert!(made.success(), "mkfifo failed");
     let source = at(
         r#"
