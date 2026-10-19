@@ -119,6 +119,46 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 52
+
+Commit: `llvm, stencil: a niche names the type it keeps, and a thunk asks its callee for an env`.
+
+## What changed
+
+- `EnumRepr::Niche` carries `payload: Ty`. llvm `repr.rs` lays out the niche from it, and `option_payload` and its guard are gone.
+- llvm `tag_of` takes the `EnumTy` and looks up its own slots, representation and variants.
+- `ir::Func::env`, and `monomorphize::Func::env` behind it, say whether the first parameter is an environment. `closures` sets it on every lifted lambda. The stencil thunk reads it, so `Helper::Thunk` lost `args` and `jit::fn_ty` is gone. The leading unit parameter stays.
+- Nothing read a closure's signature after that, so `ir::TypeList` no longer keeps one: `FnSig`, `TypeList::sig` and the `fns` row are gone, and `FnTy` is a plain id like `RecTy`.
+
+## Counts
+
+- llvm repr.rs: 1 → 0 by the plan rule.
+- llvm emit.rs: 10 → 10. Its 8 `ice` arms are unchanged.
+- stencil jit.rs: 3 → 3 by the plan rule. `ice` arms 4 → 3.
+- Repo plan-rule count: 81 → 80.
+
+## Output
+
+- Native output is byte-identical to staging, debug and release, for `build` and `test` on `cli/tests/conformance` and `cli/tests/example`. JS differs only in `$t.seed`.
+
+## The niche guard in `tag_of` stays
+
+Reading the niche pointer through a `Place` removes `or_ice("a niche is a pointer slot")`, but the guard can't go yet:
+
+- `piece`'s in-memory arm loses its only tested caller. An `Option` over 256 bytes held in memory reached it; nothing tests a tagged enum that large. Reading every tag through a `Place` keeps it reached, but spills register tags, and `a_hot_function_has_no_allocas` and `a_matchs_tests_of_one_value_read_its_tag_once` in `cli/tests/native/llvm.rs` refuse that.
+- So it needs an end-to-end test in `cli/tests` first: a release build that matches on an enum over 256 bytes (`repr::WIDEST_IN_REGISTERS`), held in memory. With that test in, the niche can be read with `addressed` (`Unit::rc`'s spill, factored out) and `place_pointer`.
+- Factoring `addressed` out of `rc` drops two covered `rc_weight` branches, and the total's fraction falls with them. That has to land with the new test, which adds covered branches.
+- `At::entry_buffer` moves the builder to the end of its block afterwards. That's wrong inside `Unit::read_once`, which builds just after a definition. A niche read inside `read_once` needs the alloca built by a builder of its own.
+
+## Left
+
+- The 7 type-shape `ice` arms in llvm emit.rs. None can go wholesale until intrinsic results are typed:
+  - `enum_ty` has 10 sites. 3 are instructions (`GetTag`, `MakeEnum`, `GetPayload`). 6 are `CallIntrinsic` results (`call_sum`, `call_result`, `json_prim`, `option_value`, `convert_checked`) or `main`'s result.
+  - `list_ty` has 4. `list.empty` needs no type, because a list's slots are always `repr::LIST`. `generic_element` reads the type of an intrinsic's `Arg::Elems` argument.
+  - `agg` has 6, plus `agg_ty` and `Boxes::owner`. `call_result` reads an intrinsic's result type.
+  - `int`, `int_ty`, `float` and `ptr` read `Function::values`, which holds `BasicValueEnum` for every IR value. Typed wrappers would only move the match. Removing them needs a value table keyed by kind, or IR value ids that carry their kind.
+- stencil `jit::enum_ty` and `jit::agg_of` (1 plan-rule guard) have the same blockers.
+
 # Guard plan, phase 51
 
 Commit: `llvm: a value's counts are always read at an address`.
