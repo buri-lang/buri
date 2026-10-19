@@ -2354,7 +2354,7 @@ fn validate(program: &Program) -> Result<(), Vec<String>> {
             format!("{file}: {}", d.message)
         })
         .collect();
-    if checked.started.get("main").is_none() {
+    if !checked.started.contains_key("main") {
         problems.push("the corpus exports no `main`".to_string());
     }
     if !problems.is_empty() {
