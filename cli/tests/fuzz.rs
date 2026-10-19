@@ -1061,7 +1061,7 @@ fn compiles_fires(input: &str) -> Option<String> {
             indent(&errors.join(""))
         ));
     }
-    if analysis.checked.started.get("main").is_none() {
+    if !analysis.checked.started.contains_key("main") {
         return Some(String::from("the source exports no `main`"));
     }
     None
@@ -2796,7 +2796,7 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
             indent(&errors.join("\n"))
         ));
     }
-    if checked.started.get("main").is_none() {
+    if !checked.started.contains_key("main") {
         return Some(String::from("the program exports no `main`"));
     }
     None
