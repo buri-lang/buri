@@ -55,13 +55,13 @@ use std::sync::{Mutex, OnceLock};
 use super::FnLower;
 use crate::compiler::backend::intrinsic_keys::{self, Handoff, Step, Tasks};
 use crate::compiler::middle::ir::{
-    BinOp, BlockId, Code, Const, Handover, Inst, Kept, Ownership, Parallel, Target, Term, Type,
-    UnOp, ValueId,
+    BinOp, BlockId, Code, Const, EnumTy, Handover, Inst, Kept, Ownership, Parallel, Target, Term,
+    Type, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind};
 
 /// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] or
 /// [`Inst::Handover`] a runtime-driven key is.
@@ -156,6 +156,7 @@ struct Order<'a> {
     callee: &'a Via,
     elem: Ty,
     order_t: Type,
+    order: EnumTy,
     greater: ValueId,
 }
 
@@ -335,9 +336,11 @@ impl FnLower<'_> {
         let elem_t = self.type_of(&elem);
         let step_t = self.type_of(&step_ret);
         let ret_t = self.type_of(ret);
+        let xs_l = self.list_of(elem);
         let element = |l: &mut Self, i: ValueId| {
             let value = l.emit(elem_t, |dest| Inst::ArrayGet {
                 dest,
+                ty: xs_l,
                 array: xs,
                 index: i,
             });
@@ -362,7 +365,12 @@ impl FnLower<'_> {
 
         Some(match call.kind {
             Step::Map => {
-                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+                let out_l = self.list_of(elem_of(ret)?);
+                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
+                    dest,
+                    ty: out_l,
+                    len: n,
+                });
                 let w = self.walk(n, &[]);
                 let e = element(self, w.i);
                 let r = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
@@ -376,7 +384,12 @@ impl FnLower<'_> {
                 out
             }
             Step::Filter => {
-                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+                let out_l = self.list_of(elem_of(ret)?);
+                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
+                    dest,
+                    ty: out_l,
+                    len: n,
+                });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
                 let k = *w.vars.first()?;
@@ -409,6 +422,7 @@ impl FnLower<'_> {
                 self.end(&w);
                 self.emit(ret_t, |dest| Inst::ArrayPrefix {
                     dest,
+                    ty: out_l,
                     array: out,
                     len: k,
                 })
@@ -417,16 +431,26 @@ impl FnLower<'_> {
             // so a `.Some` payload moves into the block with the count it already
             // holds, and a `.None` holds nothing to give back.
             Step::FilterMap => {
+                let out_l = self.list_of(elem_of(ret)?);
                 let some = self.variant_of(&step_ret, "Some", 0);
                 let some_tag = self.int(Type::I32, some as usize);
                 let b_t = self.type_of(&elem_of(ret)?);
-                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+                let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
+                    dest,
+                    ty: out_l,
+                    len: n,
+                });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
                 let k = *w.vars.first()?;
                 let e = element(self, w.i);
                 let r = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
-                let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: r });
+                let t = self.enum_of(&step_ret, TyConId::OPTION);
+                let tag = self.emit(Type::I32, |dest| Inst::GetTag {
+                    dest,
+                    ty: t,
+                    agg: r,
+                });
                 let held = self.emit(Type::I1, |dest| Inst::Binary {
                     dest,
                     op: BinOp::Eq,
@@ -436,8 +460,10 @@ impl FnLower<'_> {
                 });
                 let (kept, skip) = self.fork(held);
                 self.cur = kept;
+                let t = self.enum_of(&step_ret, TyConId::OPTION);
                 let x = self.emit(b_t, |dest| Inst::GetPayload {
                     dest,
+                    ty: t,
                     agg: r,
                     variant: some,
                     index: 0,
@@ -458,6 +484,7 @@ impl FnLower<'_> {
                 self.end(&w);
                 self.emit(ret_t, |dest| Inst::ArrayPrefix {
                     dest,
+                    ty: out_l,
                     array: out,
                     len: k,
                 })
@@ -559,8 +586,10 @@ impl FnLower<'_> {
                 } else {
                     w.i
                 };
+                let t = self.enum_of(ret, TyConId::OPTION);
                 let found = self.emit(ret_t, |dest| Inst::MakeEnum {
                     dest,
+                    ty: t,
                     variant: some,
                     fields: vec![payload],
                 });
@@ -568,8 +597,10 @@ impl FnLower<'_> {
                 self.cur = more;
                 self.again(&w, Vec::new());
                 self.end(&w);
+                let t = self.enum_of(ret, TyConId::OPTION);
                 let missing = self.emit(ret_t, |dest| Inst::MakeEnum {
                     dest,
+                    ty: t,
                     variant: none,
                     fields: Vec::new(),
                 });
@@ -596,7 +627,12 @@ impl FnLower<'_> {
                     owned: true,
                 };
                 let r = self.step(&callee, with_ctx(&ctx, vec![a, e]), step_t);
-                let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: r });
+                let t = self.enum_of(&step_ret, TyConId::RESULT);
+                let tag = self.emit(Type::I32, |dest| Inst::GetTag {
+                    dest,
+                    ty: t,
+                    agg: r,
+                });
                 let failed = self.emit(Type::I1, |dest| Inst::Binary {
                     dest,
                     op: BinOp::Ne,
@@ -612,16 +648,20 @@ impl FnLower<'_> {
                     else_: Target::to(carry),
                 });
                 self.cur = carry;
+                let t = self.enum_of(&step_ret, TyConId::RESULT);
                 let next = self.emit(acc_t, |dest| Inst::GetPayload {
                     dest,
+                    ty: t,
                     agg: r,
                     variant: ok,
                     index: 0,
                 });
                 self.again(&w, vec![next]);
                 self.end(&w);
+                let t = self.enum_of(ret, TyConId::RESULT);
                 let done = self.emit(ret_t, |dest| Inst::MakeEnum {
                     dest,
+                    ty: t,
                     variant: ok,
                     fields: vec![acc],
                 });
@@ -648,15 +688,24 @@ impl FnLower<'_> {
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let n = self.shorter(la, lb);
-        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let t = self.list_of(pair);
+        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
+            dest,
+            ty: t,
+            len: n,
+        });
         let w = self.walk(n, &[]);
+        let t = self.list_of(a);
         let x = self.emit(a_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: w.i,
         });
+        let t = self.list_of(b);
         let y = self.emit(b_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: ys,
             index: w.i,
         });
@@ -665,8 +714,10 @@ impl FnLower<'_> {
                 self.push(Inst::IncRef { value: v });
             }
         }
+        let t = self.record_of(&pair);
         let p = self.emit(pair_t, |dest| Inst::MakeStruct {
             dest,
+            ty: t,
             fields: vec![x, y],
         });
         self.push(Inst::ArraySet {
@@ -693,8 +744,10 @@ impl FnLower<'_> {
         let zero = self.int(Type::I64, 0);
         let sizing = self.walk(n, &[zero]);
         let total = *sizing.vars.first()?;
+        let t = self.list_of(inner);
         let ys = self.emit(inner_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: sizing.i,
         });
@@ -703,19 +756,28 @@ impl FnLower<'_> {
         self.again(&sizing, vec![grown]);
         self.end(&sizing);
 
-        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: total });
+        let t = self.list_of(elem);
+        let out = self.emit(ret_t, |dest| Inst::ArrayAlloc {
+            dest,
+            ty: t,
+            len: total,
+        });
         let zero = self.int(Type::I64, 0);
         let outer = self.walk(n, &[zero]);
         let k = *outer.vars.first()?;
+        let t = self.list_of(inner);
         let ys = self.emit(inner_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: outer.i,
         });
         let l = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let one = self.walk(l, &[]);
+        let t = self.list_of(elem);
         let e = self.emit(elem_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: ys,
             index: one.i,
         });
@@ -753,6 +815,7 @@ impl FnLower<'_> {
         let elem = elem_of(tys.first()?)?;
         let elem_t = self.type_of(&elem);
         let ret_t = self.type_of(ret);
+        let xs_l = self.list_of(elem);
         let callee = self.callee(f, step, 2);
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
@@ -760,11 +823,13 @@ impl FnLower<'_> {
         let pair = |l: &mut Self, i: ValueId| {
             let x = l.emit(elem_t, |dest| Inst::ArrayGet {
                 dest,
+                ty: xs_l,
                 array: xs,
                 index: i,
             });
             let y = l.emit(elem_t, |dest| Inst::ArrayGet {
                 dest,
+                ty: xs_l,
                 array: ys,
                 index: i,
             });
@@ -827,7 +892,12 @@ impl FnLower<'_> {
             let w = self.walk(n, &[]);
             let args = pair(self, w.i);
             let order = self.step(&callee, args, ret_t);
-            let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: order });
+            let t = self.enum_of(ret, TyConId::ORDER);
+            let tag = self.emit(Type::I32, |dest| Inst::GetTag {
+                dest,
+                ty: t,
+                agg: order,
+            });
             let decided = self.emit(Type::I1, |dest| Inst::Binary {
                 dest,
                 op: BinOp::Ne,
@@ -855,16 +925,20 @@ impl FnLower<'_> {
                 });
                 let (decides, next) = self.fork(c);
                 self.cur = decides;
+                let t = self.enum_of(ret, TyConId::ORDER);
                 let o = self.emit(ret_t, |dest| Inst::MakeEnum {
                     dest,
+                    ty: t,
                     variant: v,
                     fields: Vec::new(),
                 });
                 self.set_term(Term::Jump(Target::new(exit, vec![o])));
                 self.cur = next;
             }
+            let t = self.enum_of(ret, TyConId::ORDER);
             let o = self.emit(ret_t, |dest| Inst::MakeEnum {
                 dest,
+                ty: t,
                 variant: same,
                 fields: Vec::new(),
             });
@@ -892,8 +966,10 @@ impl FnLower<'_> {
         let sized = self.call_intrinsic(ret_t, "derivePrimHash.I64", Box::new([h, n]));
         let w = self.walk(n, &[sized]);
         let acc = *w.vars.first()?;
+        let t = self.list_of(elem);
         let e = self.emit(elem_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: w.i,
         });
@@ -933,10 +1009,17 @@ impl FnLower<'_> {
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
         let callee = self.callee(f, step, 1);
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
-        let strs = self.emit(shown_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let t = self.list_of(*ret);
+        let strs = self.emit(shown_t, |dest| Inst::ArrayAlloc {
+            dest,
+            ty: t,
+            len: n,
+        });
         let w = self.walk(n, &[]);
+        let t = self.list_of(elem);
         let e = self.emit(elem_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: w.i,
         });
@@ -989,6 +1072,7 @@ impl FnLower<'_> {
         order_ty: &Ty,
     ) -> Option<ValueId> {
         let elem_t = self.type_of(elem);
+        let list = self.list_of(*elem);
         let order_t = self.type_of(order_ty);
         let greater = self.variant_of(order_ty, "Greater", 2);
         let greater = self.int(Type::I32, greater as usize);
@@ -996,6 +1080,7 @@ impl FnLower<'_> {
             callee,
             elem: *elem,
             order_t,
+            order: self.enum_of(order_ty, TyConId::ORDER),
             greater,
         };
         let counted = self.counts.counted(elem);
@@ -1003,7 +1088,12 @@ impl FnLower<'_> {
         let one = self.int(Type::I64, 1);
         let two = self.int(Type::I64, 2);
         let get = |l: &mut Self, array: ValueId, index: ValueId| {
-            l.emit(elem_t, |dest| Inst::ArrayGet { dest, array, index })
+            l.emit(elem_t, |dest| Inst::ArrayGet {
+                dest,
+                ty: list,
+                array,
+                index,
+            })
         };
 
         // The scan answers `1` for a list in order, `2` for one strictly
@@ -1056,8 +1146,16 @@ impl FnLower<'_> {
         self.cur = scanned;
         let shape = *self.code.get(scanned).params.first()?;
 
-        let a0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
-        let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc { dest, len: n });
+        let a0 = self.emit(list_t, |dest| Inst::ArrayAlloc {
+            dest,
+            ty: list,
+            len: n,
+        });
+        let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc {
+            dest,
+            ty: list,
+            len: n,
+        });
         // A descending list is copied from its end.
         let descending = self.bin(BinOp::Eq, Prim::I64, shape, two);
         let last = self.bin(BinOp::Sub, Prim::I64, n, one);
@@ -1339,7 +1437,11 @@ impl FnLower<'_> {
             },
         ];
         let o = self.step(order.callee, args, order.order_t);
-        let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: o });
+        let tag = self.emit(Type::I32, |dest| Inst::GetTag {
+            dest,
+            ty: order.order,
+            agg: o,
+        });
         self.bin(op, Prim::I32, tag, order.greater)
     }
 
@@ -1411,23 +1513,29 @@ impl FnLower<'_> {
         let exit = self.block(&[ret_t]);
         let (missing, found) = self.fork(outside);
         self.cur = found;
+        let t = self.list_of(elem);
         let e = self.emit(elem_t, |dest| Inst::ArrayGet {
             dest,
+            ty: t,
             array: xs,
             index: i,
         });
         if self.counts.counted(&elem) {
             self.push(Inst::IncRef { value: e });
         }
+        let t = self.enum_of(ret, TyConId::OPTION);
         let v = self.emit(ret_t, |dest| Inst::MakeEnum {
             dest,
+            ty: t,
             variant: some,
             fields: vec![e],
         });
         self.set_term(Term::Jump(Target::new(exit, vec![v])));
         self.cur = missing;
+        let t = self.enum_of(ret, TyConId::OPTION);
         let v = self.emit(ret_t, |dest| Inst::MakeEnum {
             dest,
+            ty: t,
             variant: none,
             fields: Vec::new(),
         });
@@ -1455,8 +1563,10 @@ impl FnLower<'_> {
             None
         } else {
             let env_t = self.type_of(&Ty::tuple([]));
+            let t = self.record_of(&Ty::tuple([]));
             Some(self.emit(env_t, |dest| Inst::MakeStruct {
                 dest,
+                ty: t,
                 fields: Vec::new(),
             }))
         };

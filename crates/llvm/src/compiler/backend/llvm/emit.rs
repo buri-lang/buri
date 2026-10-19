@@ -966,46 +966,67 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let v = self.binary(state, *op, *prim, operand, l, r);
                 self.set(state, *dest, v);
             }
-            ir::Inst::MakeStruct { dest, fields } => self.make_record(state, code, *dest, fields),
+            ir::Inst::MakeStruct { dest, ty, fields } => {
+                self.make_record(state, code, *dest, *ty, fields)
+            }
             ir::Inst::MakeEnum {
                 dest,
+                ty,
                 variant,
                 fields,
-            } => self.make_enum(state, code, *dest, *variant, fields),
+            } => self.make_enum(state, code, *dest, *ty, *variant, fields),
             ir::Inst::MakeArray { dest, elems } => self.make_array(state, code, *dest, elems),
             ir::Inst::MakeClosure { dest, func, env } => {
                 self.make_closure(state, code, *dest, *func, *env)
             }
-            ir::Inst::GetField { dest, agg, index } => {
-                self.get_field(state, code, *dest, *agg, *index as usize)
-            }
+            ir::Inst::GetField {
+                dest,
+                agg,
+                ty,
+                index,
+            } => self.get_field(state, code, *dest, *agg, *ty, *index as usize),
             ir::Inst::GetPayload {
                 dest,
                 agg,
+                ty,
                 variant,
                 index,
-            } => self.get_payload(state, code, *dest, *agg, *variant as usize, *index as usize),
-            ir::Inst::GetTag { dest, agg } => self.get_tag(state, code, *dest, *agg),
+            } => self.get_payload(
+                state,
+                code,
+                *dest,
+                *agg,
+                *ty,
+                *variant as usize,
+                *index as usize,
+            ),
+            ir::Inst::GetTag { dest, agg, ty } => self.get_tag(state, *dest, *agg, *ty),
             ir::Inst::ArrayLen { dest, array } => {
                 let list = self.get(state, *array);
                 let [_, len] = repr::disassemble_n(state.b, list);
                 self.set(state, *dest, len);
             }
-            ir::Inst::ArrayGet { dest, array, index } => {
-                self.array_get(state, code, *dest, *array, *index)
-            }
+            ir::Inst::ArrayGet {
+                dest,
+                array,
+                ty,
+                index,
+            } => self.array_get(state, *dest, *array, *ty, *index),
             ir::Inst::ArraySlice { dest, array, from } => {
                 self.array_slice(state, code, *dest, *array, *from)
             }
-            ir::Inst::ArrayAlloc { dest, len } => self.array_alloc(state, code, *dest, *len),
+            ir::Inst::ArrayAlloc { dest, ty, len } => self.array_alloc(state, *dest, *ty, *len),
             ir::Inst::ArraySet {
                 array,
                 index,
                 value,
             } => self.array_set(state, code, *array, *index, *value),
-            ir::Inst::ArrayPrefix { dest, array, len } => {
-                self.array_prefix(state, code, *dest, *array, *len)
-            }
+            ir::Inst::ArrayPrefix {
+                dest,
+                array,
+                ty,
+                len,
+            } => self.array_prefix(state, *dest, *array, *ty, *len),
             ir::Inst::Call { dest, func, args } => self.call(state, code, *dest, *func, args),
             ir::Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(state, code, *dest, *callee, args)
@@ -1318,12 +1339,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
+        ty: ir::RecTy,
         fields: &[ir::ValueId],
     ) {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let boxed = self.boxed_fields(code.ty_of(dest));
         if repr::in_memory(&slots) {
-            self.make_record_in_memory(state, code, dest, fields, &slots, &boxed);
+            self.make_record_in_memory(state, code, dest, ty, fields, &slots, &boxed);
             return;
         }
         let mut pieces = Vec::with_capacity(slots.len());
@@ -1351,17 +1373,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// A struct held in memory, built in its own buffer: each field is stored
     /// at its offset, and a field held in memory itself is one `memcpy`.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the instruction's operands and the record's slots, worked out once by `make_record`"
+    )]
     fn make_record_in_memory(
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
+        ty: ir::RecTy,
         fields: &[ir::ValueId],
         slots: &[Slot],
         boxed: &[bool],
     ) {
         let b = state.b;
-        let id = agg(code.ty_of(dest));
+        let id = ty.id();
         let offsets: Vec<u32> = {
             let layout = &self.reprs.of(self.program, id).layout;
             (0..fields.len()).map(|i| layout.field(i)).collect()
@@ -1498,9 +1525,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         of: ir::ValueId,
+        ty: ir::RecTy,
         index: usize,
     ) {
-        let id = agg(code.ty_of(of));
+        let id = ty.id();
         let agg = of;
         let (slots, range) = {
             let r = self.reprs.of(self.program, id);
@@ -1612,11 +1640,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn get_tag(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
         of: ir::ValueId,
+        e: ir::EnumTy,
     ) {
-        let e = enum_ty(code.ty_of(of));
         let id = e.id();
         let whole = self.get(state, of);
         let b = state.b;
@@ -1699,10 +1726,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
+        e: ir::EnumTy,
         variant: u32,
         fields: &[ir::ValueId],
     ) {
-        let e = enum_ty(code.ty_of(dest));
         let parts: Vec<(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> = fields
             .iter()
             .map(|f| {
@@ -1897,16 +1924,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         buf.into()
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the `GetPayload` instruction's operands, its enum among them"
+    )]
     fn get_payload(
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
         of: ir::ValueId,
+        e: ir::EnumTy,
         variant: usize,
         index: usize,
     ) {
-        let e = enum_ty(code.ty_of(of));
         let id = e.id();
         let (slots, offsets) = {
             let r = self.reprs.of(self.program, id);
@@ -2142,12 +2173,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn array_get(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
         array: ir::ValueId,
+        list: ir::ListTy,
         index: ir::ValueId,
     ) {
-        let read = self.element_at(state, code, array, index);
+        let read = self.element_at(state, array, list, index);
         let (stride, slots, align) = {
             let r = self.reprs.of_ty(&read.element);
             (r.layout.stride, r.slots.clone(), r.layout.align)
@@ -2172,12 +2203,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn array_alloc(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        list: ir::ListTy,
         len: ir::ValueId,
     ) {
-        let ir_ty = code.ty_of(dest);
-        let element = self.element_of(ir_ty);
+        let ir_ty = ir::Type::Agg(ir::Agg::List(list));
+        let element = self.program.types.elem(list);
         let stride = self.reprs.of_ty(&element).layout.stride;
         let n = int(self.get(state, len));
         let word = self.ctx.i64_type();
@@ -2199,7 +2230,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         index: ir::ValueId,
         value: ir::ValueId,
     ) {
-        let read = self.element_at(state, code, array, index);
+        let list = list_ty(code.ty_of(array));
+        let read = self.element_at(state, array, list, index);
         let (stride, slots, align) = {
             let r = self.reprs.of_ty(&read.element);
             (r.layout.stride, r.slots.clone(), r.layout.align)
@@ -2219,13 +2251,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn array_prefix(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
         array: ir::ValueId,
+        list: ir::ListTy,
         len: ir::ValueId,
     ) {
-        let ir_ty = code.ty_of(dest);
-        let element = self.element_of(ir_ty);
+        let ir_ty = ir::Type::Agg(ir::Agg::List(list));
+        let element = self.program.types.elem(list);
         let (stride, align) = {
             let r = self.reprs.of_ty(&element);
             (r.layout.stride, r.layout.align.max(1))
@@ -2252,12 +2284,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn element_at(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         array: ir::ValueId,
+        list_ty: ir::ListTy,
         index: ir::ValueId,
     ) -> ElementRead<'ctx> {
-        let list_ty = code.ty_of(array);
-        let element = self.element_of(list_ty);
+        let element = self.program.types.elem(list_ty);
         let list = self.get(state, array);
         let [base, _] = repr::disassemble_n(state.b, list);
         let base = ptr(base);
@@ -8964,7 +8995,9 @@ fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
     let mut out = Map::default();
     for inst in code.blocks().iter().flat_map(|b| &b.insts) {
         match inst {
-            ir::Inst::GetField { dest, agg, index } => {
+            ir::Inst::GetField {
+                dest, agg, index, ..
+            } => {
                 out.insert(dest.index(), (*agg, None, *index));
             }
             ir::Inst::GetPayload {
@@ -8972,6 +9005,7 @@ fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
                 agg,
                 variant,
                 index,
+                ..
             } => {
                 out.insert(dest.index(), (*agg, Some(*variant), *index));
             }
