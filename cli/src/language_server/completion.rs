@@ -29,7 +29,7 @@ use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId, VariantId};
 use crate::compiler::standard_library;
-use crate::diagnostics::Span;
+use crate::diagnostics::{FileId, Span};
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
@@ -189,7 +189,7 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
         return or_lexical(items, text, prefix, replacing, &uri);
     }
 
-    let mut candidates = locals_at(analyzed, path, cursor);
+    let mut candidates = locals_at(analyzed, module.file, cursor);
     candidates.extend(
         scope
             .visible()
@@ -251,16 +251,16 @@ fn receiver_symbol(
     if name.is_empty() {
         return None;
     }
-    // The innermost binding of the name wins, which for a shadowed one is the
-    // last the body recorded.
-    if let Some((_, symbol)) = locals_at(analyzed, path, dot)
-        .into_iter()
-        .rev()
-        .find(|(n, _)| n == name)
-    {
-        return Some(symbol);
-    }
-    if let Some((_, scope)) = module_scope(analyzed, path) {
+    if let Some((module, scope)) = module_scope(analyzed, path) {
+        // The innermost binding of the name wins, which for a shadowed one is
+        // the last the body recorded.
+        if let Some((_, symbol)) = locals_at(analyzed, module.file, dot)
+            .into_iter()
+            .rev()
+            .find(|(n, _)| n == name)
+        {
+            return Some(symbol);
+        }
         if let Some(symbol) = scope.name(name).and_then(symbols::symbol_of) {
             return Some(symbol);
         }
@@ -358,14 +358,7 @@ fn in_a_type(module: &ModuleData, cursor: u32) -> bool {
 /// the checker already flattened. A name from a sibling block is a row a
 /// reader ignores; leaving out the one they are about to type is the failure
 /// this request has.
-fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symbol)> {
-    let Some(file) = analyzed
-        .session
-        .map
-        .find(&analyzed.session.workspace.rel_of(path))
-    else {
-        return Vec::new();
-    };
+fn locals_at(analyzed: &Analyzed, file: FileId, cursor: u32) -> Vec<(String, Symbol)> {
     let mut out = Vec::new();
     for body in analyzed.analysis.checked.bodies.values() {
         if body.expr.span.file != file || !covers(body.expr.span, cursor) {
