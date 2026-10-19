@@ -226,11 +226,9 @@ export effect Process {
 ///
 /// How much of it runs at once belongs to the platform and not to this
 /// signature. JavaScript starts the tasks together and awaits them together, on
-/// one thread. The native runtime fans them out onto its thread pool, and they
-/// run at the same time on as many processors. The development backend has a
-/// single Buri stack to hold their frames in and runs the tasks in index order
-/// on the calling thread. All three answer the same list. `core/tasks` has the
-/// table.
+/// one thread. The native runtime, under `buri run` and `--release`, fans them
+/// out onto its thread pool, and they run at the same time on as many
+/// processors. Both answer the same list. `core/tasks` has the table.
 export effect Tasks {
     /// Runs `step` over every item and answers the results in the items' order,
     /// handing every step `ctx` — the caller's whole context.

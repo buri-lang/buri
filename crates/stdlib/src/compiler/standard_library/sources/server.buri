@@ -321,9 +321,8 @@
 //! `onClose` — runs on the one worker that accepted it, so the hooks on one
 //! socket run in order by construction rather than by a lock. The bill: a
 //! server holding `listener.handlers` sockets has no worker left to accept
-//! with. A native `--release` server has 1024 workers per listener, and a
-//! worker waiting on an idle socket holds no thread. The development backend
-//! runs the workers one after another, so it serves one socket at a time.
+//! with. A native server has 1024 workers per listener, and a worker
+//! waiting on an idle socket holds no thread.
 //!
 //! A shutdown closes any open socket with `.GoingAway` — the WebSocket half of
 //! the GOAWAY an HTTP/2 connection gets — so a drain does not wait out its
