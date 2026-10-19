@@ -848,3 +848,105 @@ test "every payload crosses the same while a scope holds pages" {
         ),
     );
 }
+
+// -----------------------------------------------------------------------------
+// A step that stops its own actor
+// -----------------------------------------------------------------------------
+//
+// Every shape above, stopped from inside its own step. The stop answers at
+// once, and the hook runs once that step is done, with the state it left.
+
+/// The desk's hook: the tally behind it, still running, was never bumped.
+fn untouched<C: Allocator + Stdout + Tasks>(
+    ctx: C,
+    behind: Address<C, Int, Tally<C>, Tallied>,
+): () {
+    assert.equal(behind.sendMessage(ctx, .Get), .Ok(.Count(0)));
+    let _ = io.println(ctx, "desk").ignore();
+}
+
+test "every payload's actor stops itself from inside a step, and its hook runs after" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let quiet = actor.start(ctx, silent());
+    let held = actor.start(ctx, Actor {
+        ..bagOf([1, 2]),
+        onStop: .Some(fn(c, last: [Int]) => {
+            io.println(c, "list ${last.length()}").ignore()
+        }),
+    });
+    let told = actor.start(ctx, Actor {
+        ..scribe("kept"),
+        onStop: .Some(fn(c, last) => io.println(c, "text ${last}").ignore()),
+    });
+    let filed = actor.start(ctx, Actor {
+        ..cabinet(record("filed", .None)),
+        onStop: .Some(fn(c, last: Record) => {
+            io.println(c, "record ${last.label.name}").ignore()
+        }),
+    });
+    let counted = actor.start(ctx, Actor {
+        ..tally(),
+        onStop: .Some(fn(c, last) => io.println(c, "count ${last}").ignore()),
+    });
+    let front = actor.start(ctx, Actor { ..desk(counted), onStop: .Some(untouched) });
+    let boss = actor.start(ctx, Actor {
+        ..foreman(),
+        onStop: .Some(fn(c, last) => io.println(c, "jobs ${last}").ignore()),
+    });
+
+    let answers = (
+        quiet.sendMessage(
+            ctx,
+            .Within(fn(c) => {
+                assert.equal(quiet.stop(c), .Ok(()));
+                let _ = io.println(c, "step goes on").ignore();
+            }),
+        ),
+        held.sendMessage(ctx, .Within(fn(c) => assert.equal(held.stop(c), .Ok(())))),
+        told.sendMessage(ctx, .Within(fn(c) => assert.equal(told.stop(c), .Ok(())))),
+        filed.sendMessage(ctx, .Within(fn(c) => assert.equal(filed.stop(c), .Ok(())))),
+        front.sendMessage(ctx, .Within(fn(c) => assert.equal(front.stop(c), .Ok(())))),
+        counted.sendMessage(
+            ctx,
+            .Within(fn(c) => assert.equal(counted.stop(c), .Ok(()))),
+        ),
+        boss.sendMessage(ctx, .Within(fn(c) => assert.equal(boss.stop(c), .Ok(())))),
+    );
+    assert.equal(
+        answers,
+        (
+            .Ok(()),
+            .Ok(.Kept(2)),
+            .Ok(.Text("kept")),
+            .Ok(.Was(record("filed", .None))),
+            .Ok(.Noted),
+            .Ok(.Done),
+            .Ok(.Started(0)),
+        ),
+    );
+    assert.equal(
+        sink.captured(),
+        "step goes on\nquiet\nlist 2\ntext kept\nrecord filed\ndesk\ncount 0\njobs 0\n",
+    );
+    // Each one is stopped now, exactly as a `stop` from outside leaves it.
+    assert.equal([quiet.stop(ctx), held.stop(ctx), told.stop(ctx), filed.stop(ctx)], [
+        .Err(.Stopped),
+        .Err(.Stopped),
+        .Err(.Stopped),
+        .Err(.Stopped),
+    ]);
+    assert.equal([front.stop(ctx), counted.stop(ctx), boss.stop(ctx)], [
+        .Err(.Stopped),
+        .Err(.Stopped),
+        .Err(.Stopped),
+    ]);
+    assert.equal(assert.err(quiet.sendMessage(ctx, .Ping)), SendError.Stopped);
+    assert.equal(assert.err(held.sendMessage(ctx, .Look)), SendError.Stopped);
+    assert.equal(assert.err(front.sendMessage(ctx, .Total)), SendError.Stopped);
+    assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
+}

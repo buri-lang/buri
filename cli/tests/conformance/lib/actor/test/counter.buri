@@ -632,6 +632,59 @@ test "each answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Reentered.Ticked, stopped));
 }
 
+test "a reentering step that stops its own actor gets its answer, and the hook the state" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, Actor {
+        ..reentrant(),
+        onStop: .Some(fn(c, last: Int) => io.println(c, "ticks ${last}").ignore()),
+    });
+    assert.equal(counted.sendMessage(ctx, .Tick), .Ok(.Ticked));
+    let ran = counted.sendMessage(
+        ctx,
+        .Reenter(fn(c) => {
+            match (counted.stop(c)) {
+                .Ok(()) => 1,
+                .Err(.Stopped) => 0,
+            }
+        }),
+    );
+    assert.equal(ran, .Ok(.Reentered(1)));
+    assert.equal(sink.captured(), "ticks 1\n");
+    assert.equal(assert.err(counted.sendMessage(ctx, .Tick)), SendError.Stopped);
+}
+
+test "a step that sends to its own actor and then stops it drops what it sent" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, Actor {
+        ..carrier(),
+        onStop: .Some(fn(c, last: Int) => io.println(c, "seen ${last}").ignore()),
+    });
+    let ran = counted.sendMessage(
+        ctx,
+        .Reenter(fn(c) => {
+            let refused = counted.sendMessage(c, .Say(grown(c, "late")));
+            assert.equal(assert.err(refused), SendError.WouldDeadlock);
+            assert.equal(counted.stop(c), .Ok(()));
+            5
+        }),
+    );
+    assert.equal(ran, .Ok(.Total(0)));
+    // The `Say` would have counted one. The stop dropped it, so the hook sees
+    // only the 5 the step folded in.
+    assert.equal(sink.captured(), "seen 5\n");
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
+}
+
 // -----------------------------------------------------------------------------
 // While a scope holds pages
 // -----------------------------------------------------------------------------

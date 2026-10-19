@@ -283,6 +283,29 @@ test "an actor stopped inside its scope runs its hook with the state it ends on"
     assert.equal(out, .Ok(()));
 }
 
+/// A step that stops its own actor inside the scope: the hook runs once that
+/// step is done, with the state it left, and that state is still whole.
+test "an actor that stops itself inside its scope runs its hook with the state it ends on" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, Actor {
+            ..keeper(""),
+            onStop: .Some(fn(k, last: Str) => assert.equal(last, big(k, "o"))),
+        });
+        let _ = address.sendMessage(c, .Put(big(c, "o"))).ignore();
+        let ran = address.sendMessage(
+            c,
+            .Within(fn(k) => assert.equal(address.stop(k), .Ok(()))),
+        );
+        (ran, address.stop(c), address.sendMessage(c, .Get))
+    });
+    let _ = churn(ctx);
+    assert.equal(out, (.Ok(.Stored), .Err(.Stopped), .Err(.Stopped)));
+}
+
 test "an answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Kept.Stored, SendError.Stopped));
 }

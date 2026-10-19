@@ -120,8 +120,9 @@
 //! it before it puts the state back.
 //!
 //! A step that stops the actor running it gets `.Ok(())` at once, and so does
-//! a task that step fanned out. The mailbox closes then, and `onStop` runs
-//! with the state the step leaves behind once the step is done.
+//! a task that step fanned out. The mailbox closes right away, dropping
+//! anything the step sent itself, and `onStop` runs once the step is done,
+//! with the state it leaves behind.
 //!
 //! That is also the only way to fill the mailbox, which holds sixty-four:
 //! nothing drains while a step holds the state. A step that posts a
@@ -232,6 +233,16 @@ export enum SendError {
     /// never end. The message still gets stepped, by the loop that holds the
     /// state.
     WouldDeadlock,
+}
+
+/// Why `mailboxClose` answered no state, by index (`lib.rs` §2.1).
+enum Unclosed {
+    /// The mailbox was closed already, or the step holding the state outlasted
+    /// the deadline.
+    Stopped,
+    /// The caller's own step holds the state, or the step that started the
+    /// caller's task does.
+    Held,
 }
 
 /// One value on its way through the runtime.
@@ -365,11 +376,19 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
     /// once with the final state.
     ///
     /// A second `stop` answers `.Err(.Stopped)`, and so does every
-    /// `sendMessage` after this one, with `SendError`'s `.Stopped`.
+    /// `sendMessage` after this one, with `SendError`'s `.Stopped`. From
+    /// inside the actor's own step it answers at once, and `onStop` runs once
+    /// that step is done.
     export fn stop(self, ctx: C): Result<(), Stopped> {
         match (closing(ctx, self)) {
-            .None => .Err(.Stopped),
-            .Some(held) => {
+            .Err(.Stopped) => .Err(.Stopped),
+            // The caller's own step holds the state, and `putting` runs
+            // `onStop` with it once that step is done.
+            .Err(.Held) => {
+                let _ = leftover(ctx, self);
+                .Ok(())
+            },
+            .Ok(held) => {
                 // Dropping the list lets every message still waiting go.
                 let _ = leftover(ctx, self);
                 let hook = self.onStop;
@@ -470,15 +489,22 @@ fn putting<C: Allocator + Tasks, S, M, R>(
 ): (Address<C, S, M, R>, SendError) {
     let (address, unput) = before;
     let ended = draining(ctx, address, state);
-    let hook = address.onStop;
-    let _ = statePut(ctx, address.handle, across([carried(ended)]))
-        .foldCtx(
-            ctx,
-            fn(c, _none: Result<(), Stopped>, last) => ending(c, hook, last.value),
-            .Ok(()),
-        )
-        .ignore();
-    (address, unput)
+    match (statePut(ctx, address.handle, across([carried(ended)]))) {
+        .None => (address, unput),
+        .Some(orphaned) => {
+            let hook = address.onStop;
+            let _ = orphaned
+                .foldCtx(
+                    ctx,
+                    fn(c, _none: Result<(), Stopped>, last) => {
+                        ending(c, hook, last.value)
+                    },
+                    .Ok(()),
+                )
+                .ignore();
+            (address, unput)
+        },
+    }
 }
 
 /// `onStop`, where there is one.
@@ -551,7 +577,7 @@ fn leftover<C: Tasks, S, M, R>(
 fn closing<C: Tasks, S, M, R>(
     ctx: C,
     address: Address<C, S, M, R>,
-): Option<[Carried<S>]> {
+): Result<[Carried<S>], Unclosed> {
     mailboxClose(ctx, address.handle)
 }
 
@@ -614,13 +640,13 @@ fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
 /// came before that send's drive.
 fn mailboxRest<C: Tasks, M>(ctx: C, handle: Int): [[Carried<M>]];
 
-/// Closes the mailbox and answers the final state, once. `.None` for a mailbox
-/// that was already closed.
+/// Closes the mailbox and answers the final state, once. `.Stopped` for a
+/// mailbox that was already closed.
 ///
 /// **Waits for the state**, so a `stop` racing a step lets that step finish.
-/// Never for itself: where the caller's own step holds the state, it answers
-/// an empty list at once, and that step's `statePut` leaves the state with it.
-fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
+/// Never for itself: `.Held` at once where the caller's own step holds the
+/// state, and that step's `statePut` hands the state back to it.
+fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Result<[Carried<S>], Unclosed>;
 
 /// Takes the state out. `.Stopped` for a closed actor, `.WouldDeadlock` for one
 /// the caller's own step is holding, and `.TimedOut` past the deadline.
@@ -629,10 +655,14 @@ fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 /// mid-step gets its answer once that step is done.
 fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Result<[Carried<S>], SendError>;
 
-/// Puts a state back, and answers an empty list. Where the actor was stopped
-/// while this caller held the state, nothing will take it back, so it comes
-/// straight back instead.
-fn statePut<C: Tasks, S>(ctx: C, handle: Int, state: [Carried<S>]): [Carried<S>];
+/// Puts a state back, and answers `.None`. Where the actor was stopped while
+/// this caller held the state, nothing will take it back, so it comes straight
+/// back as `.Some`.
+fn statePut<C: Tasks, S>(
+    ctx: C,
+    handle: Int,
+    state: [Carried<S>],
+): Option<[Carried<S>]>;
 
 /// A fresh reply slot, and its handle.
 fn replyOpen<C: Tasks>(ctx: C): Int;

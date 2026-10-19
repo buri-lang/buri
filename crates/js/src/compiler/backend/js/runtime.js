@@ -4072,6 +4072,10 @@ const $SEND_STOPPED = 0;
 const $SEND_TIMED_OUT = 1;
 const $SEND_WOULD_DEADLOCK = 2;
 
+// `core/actor`'s `Unclosed`, by variant: what `mailboxClose` answers in `.Err`.
+const $CLOSE_STOPPED = 0;
+const $CLOSE_HELD = 1;
+
 // Waits on `list` until something calls the resolver it pushed there with
 // `true`, or until `deadline`. Answers which it was, and a wait that ran out
 // takes its resolver back off the list.
@@ -4191,7 +4195,7 @@ function $actor_mailboxRest(c, handle) {
 
 async function $actor_mailboxClose(c, handle) {
   const a = $actorAt(handle);
-  if (a === undefined || a.closed) return undefined;
+  if (a === undefined || a.closed) return $err($CLOSE_STOPPED);
   a.closed = true;
   for (const wake of a.room.splice(0)) wake(true);
   // A `stateTake` still waiting is answered now rather than at its deadline:
@@ -4199,11 +4203,10 @@ async function $actor_mailboxClose(c, handle) {
   for (const wake of a.takers.splice(0)) wake(true);
   if (!a.baton && $actorWithin(a.holder, c)) {
     // The caller's own step holds the state, so waiting for it would be
-    // waiting for itself. No state, which `stop` answers `.Ok(())` to without
-    // running `onStop`, and the `statePut` that ends the step leaves the state
-    // with its caller, who runs `onStop`.
+    // waiting for itself. The `statePut` that ends the step hands the state
+    // back to its caller, who runs `onStop`.
     a.orphaned = true;
-    return $some($own([]));
+    return $err($CLOSE_HELD);
   }
   while (!a.baton) {
     $aboutToBlock();
@@ -4214,7 +4217,7 @@ async function $actor_mailboxClose(c, handle) {
   a.baton = false;
   const held = a.state;
   a.state = undefined;
-  return held === undefined ? undefined : $some(held);
+  return held === undefined ? $err($CLOSE_STOPPED) : $ok(held);
 }
 
 // **Waits while another task is stepping the actor**, so a sender that arrives
@@ -4252,14 +4255,14 @@ function $actorHanded(a, c) {
 
 function $actor_statePut(c, handle, state) {
   const a = $actorAt(handle);
-  if (a === undefined) return $own([]);
+  if (a === undefined) return undefined;
   a.holder = undefined;
-  if (a.orphaned) return $share(state);
+  if (a.orphaned) return $some($share(state));
   a.state = $share(state);
   a.baton = true;
   for (const wake of a.free.splice(0)) wake();
   for (const wake of a.takers.splice(0)) wake(true);
-  return $own([]);
+  return undefined;
 }
 
 // The reply slots, reused behind a generation, exactly as the native table
