@@ -119,6 +119,45 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 67
+
+## What landed
+
+- A register is `abi::Reg` (`R0`, `R1`, `R2`), not a `u8`. `Loc::Reg(Reg)`, `Fn2.reg`, `promote`, `regalloc` and the edge copies all carry it, so a register's tag can't miss the table.
+- `Fn2.imm` marks immediates in place of a separate location. `Fn2::read_reg` answers `Option<Reg>`, and a branch condition is read through it, so it has no immediate case.
+- `library::Known` holds `br/r0`, `br/r1` and `br/r2` beside `br/f`, and `Known::br` picks one from `Option<Reg>`. The planner finds a fused compare's stencil and keeps its index in `Plan.cmpbr`. `cond_key` is total.
+- An edge's register copies break a permutation at the first entry that reads a register, and stop when no entry does. Objects are unchanged: under a deadlock every entry reads a register, so the first reader is the first entry.
+- `alias_parts` drops "a length is a class of its own". Reads go through the slot map, and copies into a merged or pinned slot are moves.
+
+## Guards
+
+The plan-rule count goes from 45 to 42 (definitions included):
+
+- `emit.rs` "the level has a branch stencil" (`cond_key`);
+- `emit.rs` "an edge's register copies deadlock only on register sources";
+- `jit.rs` "a length is a class of its own".
+
+The `ice(`, `unreachable!`, `.expect(` and `panic!` count in non-test compiler code stays at 19.
+
+## Branches
+
+No counted branch was removed. `promote`'s register test became `PROMOTABLE.get` and `regalloc`'s pick a `Reg::ALL` search, one decision each as before. Six covered branches are new: `Fn2::home` and `Fn2::loc` test `is_imm` (jit.rs, 4) and `cond_key` tests for a fused compare (emit.rs, 2).
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| stencil | 1037/1076 | 1043/1082 | 1075/1084 (99.170%) |
+| llvm | 535/536 | 535/536 | 580/580 |
+| middle | 1858/1888 | 1858/1888 | 1859/1890 |
+| cli/build | 1628/1685 | 1628/1685 | 1677/1685 |
+
+Every other area is unchanged. The new branches are all covered, so CI's stencil fraction can only rise.
+
+## Output
+
+The debug and release objects for `cli/tests/example`, and the stencil objects for the conformance corpus, are byte-identical between base and head.
+
 # Guard phase 66
 
 ## What landed
