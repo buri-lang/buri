@@ -1048,10 +1048,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Const::Unit => llvm.const_zero(),
             ir::Const::Bool(b) => self.ctx.bool_type().const_int(u64::from(*b), false).into(),
             ir::Const::Int { bits, negative } => self.int_constant(llvm, bits.get(), *negative),
-            ir::Const::Float(f) => match llvm {
-                BasicTypeEnum::FloatType(t) => t.const_float(*f).into(),
-                _ => crate::diagnostics::ice("the verified IR types a float constant as a float"),
-            },
+            // A float constant is one of the two float types, as `jit.rs`
+            // reads it too.
+            ir::Const::Float(f) => {
+                let t = if ty == ir::Type::F32 {
+                    self.ctx.f32_type()
+                } else {
+                    self.ctx.f64_type()
+                };
+                t.const_float(*f).into()
+            }
             ir::Const::Str(s) => self.str_literal(b, s),
             ir::Const::Char(c) => self
                 .ctx
@@ -3138,11 +3144,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// field's pointee. A slot-driven walk silently skipped every count inside
     /// a `Result<Str, E>`.
     fn incref(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
-        self.rc(state, code, v, Op::Retain);
+        self.rc(state, code, v, Count::Retain);
     }
 
     fn decref(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
-        self.rc(state, code, v, Op::Release);
+        self.rc(state, code, v, Count::Release);
     }
 
     /// Which `incref`s and `decref`s in a block cancel, by instruction.
@@ -3221,8 +3227,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// so that they come out as they would have with the pair in place.
     fn observe_cancelled(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
         let (v, op) = match inst {
-            ir::Inst::IncRef { value } => (*value, Op::Retain),
-            ir::Inst::DecRef { value, .. } => (*value, Op::Release),
+            ir::Inst::IncRef { value } => (*value, Count::Retain),
+            ir::Inst::DecRef { value, .. } => (*value, Count::Release),
             _ => return,
         };
         // A pair cancels only over a counted value.
@@ -3230,7 +3236,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.rc_observed(state, v, op);
     }
 
-    fn rc(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId, op: Op) {
+    fn rc(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId, op: Count) {
         let Some(ty) = self.type_of(code.ty_of(v)) else {
             return;
         };
@@ -3243,7 +3249,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // block its type's glue wants.
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), value) {
             if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
-                self.call_glue(state.b, op, &ty, base);
+                self.call_glue(state.b, op.op(), &ty, base);
             } else {
                 let place = Place::Memory {
                     base,
@@ -3261,7 +3267,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let (size, align) = self.spill_shape(code.ty_of(v));
             let buf = self.scratch(state, size, align);
             self.store_slots(state.b, buf, &slots, align, &pieces);
-            self.call_glue(state.b, op, &ty, buf);
+            self.call_glue(state.b, op.op(), &ty, buf);
         } else {
             let place = Place::Registers { slots, pieces };
             self.walk_rc(state, &ty, &place, 0, op);
@@ -3270,7 +3276,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// What an `incref` or `decref` of `v` tells the attributes.
-    fn rc_observed(&mut self, state: &mut Function<'ctx>, v: ir::ValueId, op: Op) {
+    fn rc_observed(&mut self, state: &mut Function<'ctx>, v: ir::ValueId, op: Count) {
         // The same split `observe::local` makes from the IR, made again here
         // through the same function so that the two cannot answer it
         // differently: a count in a parameter's block is `argmem`, and a count
@@ -3281,9 +3287,40 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             state.observed.reads_far = true;
             state.observed.writes_far = true;
         }
-        if op == Op::Release {
+        if op == Count::Release {
             state.observed.opaque = true;
         }
+    }
+
+    /// A retain or release of the value at `place`, `base` bytes in.
+    fn walk_rc(
+        &mut self,
+        state: &mut Function<'ctx>,
+        ty: &Ty,
+        place: &Place<'ctx>,
+        base: u32,
+        count: Count,
+    ) {
+        self.walk(state, ty, &Walk::Count(count, place), base);
+    }
+
+    /// The walk `op` makes over a value of type `ty` in memory at `base`:
+    /// what a glue function does with the block it is handed.
+    fn walk_memory(
+        &mut self,
+        state: &mut Function<'ctx>,
+        ty: &Ty,
+        base: PointerValue<'ctx>,
+        align: u32,
+        op: Op,
+    ) {
+        let place = Place::Memory { base, align };
+        let walk = match op {
+            Op::Retain => Walk::Count(Count::Retain, &place),
+            Op::Release => Walk::Count(Count::Release, &place),
+            Op::Copy => Walk::Copy { base, align },
+        };
+        self.walk(state, ty, &walk, 0);
     }
 
     /// The walk itself, over a value wherever it is.
@@ -3293,46 +3330,53 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// no address to rebase (CODEGEN-LLVM.md §2.2), so the offset travels
     /// instead of the pointer.
     ///
-    /// [`Op::Copy`] writes its answers back where it found the pointers, so it
-    /// needs a [`Place::Memory`]: the glue functions are handed a block, and
-    /// [`Unit::copy_out`] spills into an `alloca`. Nothing in a copy increments
-    /// a count: *a copy is not a share*.
-    fn walk_rc(
-        &mut self,
-        state: &mut Function<'ctx>,
-        ty: &Ty,
-        place: &Place<'ctx>,
-        base: u32,
-        op: Op,
-    ) {
+    /// [`Walk::Copy`] writes its answers back where it found the pointers, so it
+    /// is a block's address and not a [`Place`]: the glue functions are handed
+    /// a block, and [`Unit::copy_out`] spills into an `alloca`. Nothing in a
+    /// copy increments a count: *a copy is not a share*.
+    fn walk(&mut self, state: &mut Function<'ctx>, ty: &Ty, walk: &Walk<'_, 'ctx>, base: u32) {
         let b = state.b;
+        let held;
+        let place = match walk {
+            Walk::Count(_, place) => *place,
+            Walk::Copy { base, align } => {
+                held = Place::Memory {
+                    base: *base,
+                    align: *align,
+                };
+                &held
+            }
+        };
         for site in self.reprs.sites(ty).iter() {
             match site {
                 Site::Block { offset, glue } => {
                     let at = base.saturating_add(offset.bytes());
-                    if op == Op::Copy {
+                    match walk {
                         // A copy is glue's, which walks memory.
-                        let p = Self::place_address(b, place, at)
-                            .or_ice("a copy walks a value in memory");
-                        if *glue == Glue::Str {
-                            self.call_copy_str(b, p);
-                        } else {
-                            let g = self.glue_pointer(op, glue);
-                            self.replace_with_copy(b, p, g);
+                        Walk::Copy { base, .. } => {
+                            let p = b.byte_offset(*base, i64::from(at), "rc.at");
+                            if *glue == Glue::Str {
+                                self.call_copy_str(b, p);
+                            } else {
+                                let g = self.glue_pointer(Op::Copy, glue);
+                                self.replace_with_copy(b, p, g);
+                            }
                         }
-                        continue;
-                    }
-                    let p = self
-                        .place_pointer(state.b, place, at)
-                        .or_ice("a count is a pointer slot");
-                    if op == Op::Retain {
-                        self.incref_pointer(state, p, Counted::Nullable);
-                    } else {
-                        let g = self.glue_pointer(op, glue);
-                        self.decref_pointer(state, p, Counted::Nullable, g);
+                        Walk::Count(count, _) => {
+                            let p = self
+                                .place_pointer(state.b, place, at)
+                                .or_ice("a count is a pointer slot");
+                            match count {
+                                Count::Retain => self.incref_pointer(state, p, Counted::Nullable),
+                                Count::Release => {
+                                    let g = self.glue_pointer(Op::Release, glue);
+                                    self.decref_pointer(state, p, Counted::Nullable, g);
+                                }
+                            }
+                        }
                     }
                 }
-                Site::Field(f) => self.walk_field(state, place, base, f, op),
+                Site::Field(f) => self.walk_field(state, walk, place, base, f),
                 // One `switch` on the discriminant and one arm per variant with
                 // anything counted in it. The default is the join, not an
                 // `unreachable`: a variant with nothing counted has no arm.
@@ -3357,7 +3401,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     for (arm, bb) in arms.iter().zip(blocks) {
                         b.to_end(bb);
                         for f in arm.fields.iter() {
-                            self.walk_field(state, place, base, f, op);
+                            self.walk_field(state, walk, place, base, f);
                         }
                         b.br(done);
                     }
@@ -3378,7 +3422,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
                     b.cond_br(is_null, done, live);
                     b.to_end(live);
-                    self.walk_rc(state, ty, place, base, op);
+                    self.walk(state, ty, walk, base);
                     b.br(done);
                     b.to_end(done);
                 }
@@ -3391,10 +3435,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn walk_field(
         &mut self,
         state: &mut Function<'ctx>,
+        walk: &Walk<'_, 'ctx>,
         place: &Place<'ctx>,
         base: u32,
         f: &Field,
-        op: Op,
     ) {
         let b = state.b;
         let at = base.saturating_add(f.offset.bytes());
@@ -3403,27 +3447,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // glue body stays one level of its type deep.
             if self.reprs.rc_weight(&f.ty) > OPEN_CODED_RC {
                 if let Some(p) = Self::place_address(b, place, at) {
-                    self.call_glue(state.b, op, &f.ty, p);
+                    self.call_glue(state.b, walk.op(), &f.ty, p);
                     return;
                 }
             }
-            self.walk_rc(state, &f.ty, place, at, op);
+            self.walk(state, &f.ty, walk, at);
             return;
         }
         const BOX: &str = "a box is a pointer slot";
-        match op {
-            Op::Retain => {
+        match walk {
+            Walk::Count(Count::Retain, _) => {
                 let p = self.place_pointer(state.b, place, at).or_ice(BOX);
                 self.incref_pointer(state, p, Counted::NonNull);
             }
-            Op::Release => {
+            Walk::Count(Count::Release, _) => {
                 let p = self.place_pointer(state.b, place, at).or_ice(BOX);
-                let g = self.glue(op, &f.ty).map(function_pointer);
+                let g = self.glue(Op::Release, &f.ty).map(function_pointer);
                 self.decref_pointer(state, p, Counted::NonNull, g);
             }
-            Op::Copy => {
-                let p = Self::place_address(b, place, at).or_ice("a copy walks a value in memory");
-                let g = self.glue(op, &f.ty).map(function_pointer);
+            Walk::Copy { base, .. } => {
+                let p = b.byte_offset(*base, i64::from(at), "rc.at");
+                let g = self.glue(Op::Copy, &f.ty).map(function_pointer);
                 self.replace_with_copy(b, p, g);
             }
         }
@@ -3828,6 +3872,43 @@ enum Callee<'ctx> {
     Direct(FunctionValue<'ctx>),
     /// A closure's `code`, at the type the call site writes.
     Indirect(FunctionType<'ctx>, PointerValue<'ctx>),
+}
+
+/// The two reference operations an `incref` or `decref` is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Count {
+    Retain,
+    Release,
+}
+
+impl Count {
+    fn op(self) -> Op {
+        match self {
+            Count::Retain => Op::Retain,
+            Count::Release => Op::Release,
+        }
+    }
+}
+
+/// What a walk over a value's counts does, and where the value is.
+///
+/// A copy writes each new pointer back where it found the old one, so it walks
+/// a value in memory and never one in registers.
+enum Walk<'p, 'ctx> {
+    Count(Count, &'p Place<'ctx>),
+    Copy {
+        base: PointerValue<'ctx>,
+        align: u32,
+    },
+}
+
+impl Walk<'_, '_> {
+    fn op(&self) -> Op {
+        match self {
+            Walk::Count(count, _) => count.op(),
+            Walk::Copy { .. } => Op::Copy,
+        }
+    }
 }
 
 /// Where a value's bytes are, for the purpose of finding the counts in them.
@@ -4357,7 +4438,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         base,
                         align: repr::memory_align(&slots),
                     };
-                    self.walk_rc(state, ty, &place, 0, Op::Retain);
+                    self.walk_rc(state, ty, &place, 0, Count::Retain);
                 }
                 argv.push(value.into());
                 continue;
@@ -4368,7 +4449,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     slots: slots.clone(),
                     pieces: pieces.clone(),
                 };
-                self.walk_rc(state, ty, &place, 0, Op::Retain);
+                self.walk_rc(state, ty, &place, 0, Count::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -4538,7 +4619,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     base,
                     align: repr::memory_align(&slots),
                 };
-                self.walk_rc(state, ty, &place, 0, Op::Retain);
+                self.walk_rc(state, ty, &place, 0, Count::Retain);
             }
             argv.push(value.into());
         } else {
@@ -4548,7 +4629,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     slots,
                     pieces: pieces.clone(),
                 };
-                self.walk_rc(state, ty, &place, 0, Op::Retain);
+                self.walk_rc(state, ty, &place, 0, Count::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
@@ -4741,8 +4822,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 ..
             } => {
                 let align = self.reprs.of_ty(&ty).layout.align;
-                let place = Place::Memory { base: first, align };
-                self.walk_rc(&mut state, &ty, &place, 0, op);
+                self.walk_memory(&mut state, &ty, first, align, op);
             }
             // The count is `cap / stride`, and `cap` is the second header word
             // (VALUE-MODEL.md §2) — which is what makes a glue taking only a
@@ -4825,7 +4905,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         base: record,
                         align,
                     };
-                    self.walk_rc(state, &ty, &place, 0, Op::Retain);
+                    self.walk_rc(state, &ty, &place, 0, Count::Retain);
                 }
             }
             if repr::in_memory(&slots) {
@@ -4892,7 +4972,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // element, and so does any ordinary call through a lambda that only
         // reads its parameter.
         for (ty, place) in borrowed {
-            self.walk_rc(state, &ty, &place, 0, Op::Release);
+            self.walk_rc(state, &ty, &place, 0, Count::Release);
         }
         match answer {
             Some(v) => b.ret(v),
@@ -5042,9 +5122,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // block this pointer names.
         let at = b.offset(base, scaled, "elem.at");
         let align = self.reprs.of_ty(elem).layout.align;
-        let place = Place::Memory { base: at, align };
         let skip = self.unless_spare(state, at, stride);
-        self.walk_rc(state, elem, &place, 0, op);
+        self.walk_memory(state, elem, at, align, op);
         self.join_spare(b, skip);
         let next = b.add(index, word.const_int(1, false), "elem.next");
         // The back edge names the block the walk *ended* in, not `body`: a
