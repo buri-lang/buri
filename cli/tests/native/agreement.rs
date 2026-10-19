@@ -5222,6 +5222,162 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// One program whose `parallel` items are `sends` sends with a `stop` among
+/// them, at index `stop_at`, each message holding a list and a map. Every send
+/// is answered or stopped, the stop and the hook run once, and a send after
+/// the `parallel` is stopped.
+fn stop_among_sends(sends: usize, stop_at: usize) -> String {
+    let mut items: Vec<String> = (1..=sends).map(|n| format!("Item.Send({n})")).collect();
+    items.insert(stop_at, String::from("Item.Stop"));
+    format!(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import {{ Actor, SendError, Stepped, Stopped }};
+from "core/map" import * as map;
+from "core/map" import {{ Map }};
+from "core/tasks" import * as tasks;
+from "platform/effect" import {{ Allocator, Stdout, Tasks }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+enum Note {{
+  Note([Str], Map<Int, [Str]>),
+}}
+
+enum Item {{
+  Send(Int),
+  Stop,
+}}
+
+fn noted<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Note, Int> {{
+  Actor {{
+    state: 0,
+    step: fn(c, total, message) => {{
+      match (message) {{
+        .Note(words, held) => Stepped {{
+          state: total + words.length() + held.length(),
+          answer: words.length(),
+        }},
+      }}
+    }},
+    onStop: .Some(fn(c, last) => io.println(c, "hook ran").ignore()),
+  }}
+}}
+
+fn note<C: Allocator>(ctx: C, n: Int): Note {{
+  let words = ["w".repeat(ctx, n), "v".repeat(ctx, n + 1)];
+  .Note(words, map.empty().insert(ctx, n, words).insert(ctx, n + 1, ["u".repeat(ctx, n)]))
+}}
+
+fn sent(r: Result<Int, SendError>): Str {{
+  match (r) {{
+    .Ok(2) => "answered or stopped",
+    .Ok(_n) => "answered wrongly",
+    .Err(.Stopped) => "answered or stopped",
+    .Err(.TimedOut) => "timed out",
+    .Err(.WouldDeadlock) => "would deadlock",
+  }}
+}}
+
+fn stopped(r: Result<(), Stopped>): Str {{
+  match (r) {{
+    .Ok(()) => "stopped",
+    .Err(_e) => "stopped twice",
+  }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{
+    Allocator: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let noting = actor.start(ctx, noted());
+  let items: [Item] = [{items}];
+  let said = tasks.parallel(ctx, items, fn(c, i, item) => {{
+    match (item) {{
+      .Send(n) => sent(noting.sendMessage(c, note(c, n))),
+      .Stop => stopped(noting.stop(c)),
+    }}
+  }});
+  let _ = io.println(ctx, said.join(ctx, "\n")).ignore();
+  let late = match (noting.sendMessage(ctx, note(ctx, 9))) {{
+    .Err(.Stopped) => "late send stopped",
+    _ => "late send not stopped",
+  }};
+  let _ = io.println(ctx, late).ignore();
+  let again = stopped(noting.stop(ctx));
+  let _ = io.println(ctx, again).ignore();
+  .Ok(())
+}}
+"#,
+        items = items.join(", ")
+    )
+}
+
+/// What [`stop_among_sends`] prints, whatever order the items ran in.
+fn stop_among_sends_prints(sends: usize, stop_at: usize) -> String {
+    let mut lines = vec!["hook ran"];
+    for i in 0..=sends {
+        lines.push(if i == stop_at {
+            "stopped"
+        } else {
+            "answered or stopped"
+        });
+    }
+    lines.extend(["late send stopped", "stopped twice", ""]);
+    lines.join("\n")
+}
+
+/// **A stop with nothing waiting**: it is the only item.
+#[test]
+fn a_stop_with_nothing_waiting_lets_go_of_nothing() {
+    rows_or_skip!();
+    agree(
+        "actor stop with nothing waiting",
+        &stop_among_sends(0, 0),
+        &stop_among_sends_prints(0, 0),
+    );
+}
+
+/// **A stop racing one send**, whose message holds a list and a map. On
+/// JavaScript the message is always still waiting when the stop takes the
+/// rest.
+#[test]
+fn a_stop_racing_one_send_lets_go_of_its_list_and_map() {
+    rows_or_skip!();
+    agree(
+        "actor stop racing one send",
+        &stop_among_sends(1, 1),
+        &stop_among_sends_prints(1, 1),
+    );
+}
+
+/// **A stop racing many sends**, before and after it, each holding a list
+/// and a map.
+#[test]
+fn a_stop_racing_many_sends_lets_go_of_each_list_and_map() {
+    rows_or_skip!();
+    agree(
+        "actor stop racing many sends",
+        &stop_among_sends(12, 6),
+        &stop_among_sends_prints(12, 6),
+    );
+}
+
+/// **A stop racing more sends than a mailbox holds.** Some senders wait for
+/// room, and the stop answers each of them once rather than leaving any
+/// waiting.
+#[test]
+fn a_stop_racing_a_full_mailbox_answers_every_waiting_sender_once() {
+    rows_or_skip!();
+    agree(
+        "actor stop racing a full mailbox",
+        &stop_among_sends(80, 80),
+        &stop_among_sends_prints(80, 80),
+    );
+}
+
 /// **A step that sends to the actor running it, on every backend.**
 ///
 /// Taking the state is non-blocking, so a send made from inside a step finds
