@@ -2,7 +2,7 @@ const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const text_3=$str(__cmd_x_main_buri$isEven(1000n))+' '+$str(__cmd_x_main_buri$isOdd(1001n))+' '+$str(__cmd_x_main_buri$isEven(7n));
-  const self_4=$host_HostStdout_println([$k0[0],$k0[1]][1],text_3);
+  const self_4=$host_HostStdout_println($k0[1],text_3);
   let $t1;
   if(self_4[0]===0){
     $t1=0;

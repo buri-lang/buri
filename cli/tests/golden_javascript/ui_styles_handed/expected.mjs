@@ -118,17 +118,18 @@ function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,s
       }
     case 1:
       {
+        const on_8=style_1[1];
         const items_9=style_1[2];
         $share(items_9);
-        return [0,ui_style_classify$classifyList$nc9115(ctx_0,items_9,known_2,strict_3,make_4,ui_style_classify$stateIndex(style_1[1]),screen_6)];
+        return [0,ui_style_classify$classifyList$nc9115(ctx_0,items_9,known_2,strict_3,make_4,ui_style_classify$stateIndex(on_8),screen_6)];
       }
     case 2:
       {
+        const at_10=style_1[1];
         const items_11=style_1[2];
         $share(items_11);
         let $t2;
-        const $t3=style_1[1];
-        switch($t3){
+        switch(at_10){
           case 0:
             {
               $t2=0n;
@@ -159,11 +160,12 @@ function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,s
       }
     case 3:
       {
+        const condition_12=style_1[1];
         const then_13=style_1[2];
         const otherwise_14=style_1[3];
         $share(then_13);
         $share(otherwise_14);
-        return [3,style_1[1],ui_style_classify$classifyList$nc9115(ctx_0,then_13,$share(known_2),strict_3,make_4,state_5,screen_6),ui_style_classify$classifyList$nc9115(ctx_0,otherwise_14,known_2,strict_3,make_4,state_5,screen_6)];
+        return [3,condition_12,ui_style_classify$classifyList$nc9115(ctx_0,then_13,$share(known_2),strict_3,make_4,state_5,screen_6),ui_style_classify$classifyList$nc9115(ctx_0,otherwise_14,known_2,strict_3,make_4,state_5,screen_6)];
       }
     case 4:
       {
@@ -291,17 +293,18 @@ function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
       }
     case 1:
       {
+        const on_6=style_1[1];
         const items_7=style_1[2];
         $share(items_7);
-        return ui_style_classify$atomsIn$nc9115(ctx_0,items_7,ui_style_classify$stateIndex(style_1[1]),screen_3,acc_4);
+        return ui_style_classify$atomsIn$nc9115(ctx_0,items_7,ui_style_classify$stateIndex(on_6),screen_3,acc_4);
       }
     case 2:
       {
+        const at_8=style_1[1];
         const items_9=style_1[2];
         $share(items_9);
         let $t2;
-        const $t3=style_1[1];
-        switch($t3){
+        switch(at_8){
           case 0:
             {
               $t2=0n;
@@ -341,8 +344,11 @@ function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
         $share(style_1);
         const $t4=ui_style_classify$declared$nc9115(ctx_0,style_1);
         const variant_11=$t4[0];
+        const sub_12=$t4[1];
+        const abbreviation_13=$t4[2];
+        const key_14=$t4[3];
         const $t5=variant_11===15n?$list_push(acc_4,ctx_0,ui_style_classify$atom$nc9115(ctx_0,15n,4n,state_2,screen_3,'pin','out')):acc_4;
-        return $list_push($t5,ctx_0,ui_style_classify$atom$nc9115(ctx_0,variant_11,$t4[1],state_2,screen_3,$t4[2],$t4[3]));
+        return $list_push($t5,ctx_0,ui_style_classify$atom$nc9115(ctx_0,variant_11,sub_12,state_2,screen_3,abbreviation_13,key_14));
       }
   }
 }
@@ -479,6 +485,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
     case 15:
       {
         const edge_11=style_1[1];
+        const length_12=style_1[2];
         let $t13;
         switch(edge_11){
           case 0:
@@ -507,7 +514,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
             }
             break;
         }
-        return [15n,$t13,'pin',ui_style_classify$edgeKey$nc9115(ctx_0,edge_11,style_1[2])];
+        return [15n,$t13,'pin',ui_style_classify$edgeKey$nc9115(ctx_0,edge_11,length_12)];
       }
     case 16:
       {
@@ -569,6 +576,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
     case 23:
       {
         const edge_20=style_1[1];
+        const length_21=style_1[2];
         let $t17;
         switch(edge_20){
           case 0:
@@ -597,7 +605,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
             }
             break;
         }
-        return [23n,$t17,'pe',ui_style_classify$edgeKey$nc9115(ctx_0,edge_20,style_1[2])];
+        return [23n,$t17,'pe',ui_style_classify$edgeKey$nc9115(ctx_0,edge_20,length_21)];
       }
     case 24:
       {
@@ -642,6 +650,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
     case 34:
       {
         const edge_32=style_1[1];
+        const length_33=style_1[2];
         let $t19;
         switch(edge_32){
           case 0:
@@ -670,7 +679,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
             }
             break;
         }
-        return [34n,$t19,'be',ui_style_classify$edgeKey$nc9115(ctx_0,edge_32,style_1[2])];
+        return [34n,$t19,'be',ui_style_classify$edgeKey$nc9115(ctx_0,edge_32,length_33)];
       }
     case 35:
       {
@@ -710,6 +719,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
       }
     case 38:
       {
+        const length_38=style_1[2];
         let $t23;
         const $t24=style_1[1];
         switch($t24){
@@ -741,7 +751,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
         }
         const index_39=$t23[0];
         const name_40=$t23[1];
-        return [38n,index_39,'rc',$str_format(ctx_0,name_40+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,style_1[2]))];
+        return [38n,index_39,'rc',$str_format(ctx_0,name_40+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,length_38))];
       }
     case 39:
       {
@@ -1022,6 +1032,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
     case 55:
       {
         const edge_60=style_1[1];
+        const length_61=style_1[2];
         let $t43;
         switch(edge_60){
           case 0:
@@ -1050,11 +1061,12 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1){
             }
             break;
         }
-        return [55n,$t43,'bleed',ui_style_classify$edgeKey$nc9115(ctx_0,edge_60,style_1[2])];
+        return [55n,$t43,'bleed',ui_style_classify$edgeKey$nc9115(ctx_0,edge_60,length_61)];
       }
     case 56:
       {
-        return [56n,0n,'tr',$str_format(ctx_0,ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,style_1[2]))];
+        const y_63=style_1[2];
+        return [56n,0n,'tr',$str_format(ctx_0,ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,y_63))];
       }
     case 57:
       {
@@ -1235,11 +1247,16 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
   switch(color_1[0]){
     case 0:
       {
-        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,color_1[2])+ui_style_classify$hex$nc9115(ctx_0,color_1[3]));
+        const g_3=color_1[2];
+        const b_4=color_1[3];
+        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_3)+ui_style_classify$hex$nc9115(ctx_0,b_4));
       }
     case 1:
       {
-        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,color_1[2])+ui_style_classify$hex$nc9115(ctx_0,color_1[3])+'a'+ui_style_classify$numberKey$nc9115(ctx_0,color_1[4]));
+        const g_6=color_1[2];
+        const b_7=color_1[3];
+        const a_8=color_1[4];
+        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_6)+ui_style_classify$hex$nc9115(ctx_0,b_7)+'a'+ui_style_classify$numberKey$nc9115(ctx_0,a_8));
       }
     case 2:
       {
@@ -1255,7 +1272,8 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
       }
     case 5:
       {
-        return $str_format(ctx_0,ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$nc9115(ctx_0,color_1[2]));
+        const a_11=color_1[2];
+        return $str_format(ctx_0,ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$nc9115(ctx_0,a_11));
       }
     default:
       {
@@ -1277,7 +1295,8 @@ function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
       break;
     case 1:
       {
-        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$nc9115(ctx_0,$t2[4])+')');
+        const a_12=$t2[4];
+        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$nc9115(ctx_0,a_12)+')');
       }
       break;
     case 2:

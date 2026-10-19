@@ -2,7 +2,7 @@ const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const text_3=String(__cmd_x_main_buri$code('get'))+' '+String(__cmd_x_main_buri$code('delete'))+' '+String(__cmd_x_main_buri$code('nope'));
-  const self_4=$host_HostStdout_println([$k0[0],$k0[1]][1],text_3);
+  const self_4=$host_HostStdout_println($k0[1],text_3);
   let $t1;
   if(self_4[0]===0){
     $t1=0;

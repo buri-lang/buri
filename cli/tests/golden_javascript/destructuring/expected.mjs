@@ -5,7 +5,8 @@ const $k3=[3n,4n];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
   const $t1=__cmd_x_main_buri$readTuple$rh6hzk(ctx_1,2n);
-  const text_8=String($t1[0])+' '+String($t1[1]);
+  const b_3=$t1[1];
+  const text_8=String($t1[0])+' '+String(b_3);
   const self_9=$host_HostStdout_println(ctx_1[1],text_8);
   let $t2;
   if(self_9[0]===0){
@@ -16,7 +17,8 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const $t4=__cmd_x_main_buri$readPair$rh6hzk(ctx_1,2n);
-  const text_13=String($t4[0])+' '+String($t4[1]);
+  const right_5=$t4[1];
+  const text_13=String($t4[0])+' '+String(right_5);
   const self_14=$host_HostStdout_println(ctx_1[1],text_13);
   let $t5;
   if(self_14[0]===0){

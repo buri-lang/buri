@@ -88,7 +88,7 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const text_9=$t1;
-  const self_10=$host_HostStdout_println([$k0[0],$k0[1]][1],text_9);
+  const self_10=$host_HostStdout_println($k0[1],text_9);
   let $t9;
   if(self_10[0]===0){
     $t9=0;
@@ -115,42 +115,49 @@ function __cmd_x_main_buri$eval(e_0){
       }
     case 1:
       {
+        const b_3=e_0[2];
         const $t2=__cmd_x_main_buri$eval(e_0[1]);
         if($t2[0]!==0){
           return $t2;
         }
-        const $t3=__cmd_x_main_buri$eval(e_0[2]);
+        const $t4=$t2[1];
+        const $t3=__cmd_x_main_buri$eval(b_3);
         if($t3[0]!==0){
           return $t3;
         }
-        return [0,$t2[1]+$t3[1]];
+        return [0,$t4+$t3[1]];
       }
     case 2:
       {
+        const b_5=e_0[2];
         const $t5=__cmd_x_main_buri$eval(e_0[1]);
         if($t5[0]!==0){
           return $t5;
         }
-        const $t6=__cmd_x_main_buri$eval(e_0[2]);
+        const $t7=$t5[1];
+        const $t6=__cmd_x_main_buri$eval(b_5);
         if($t6[0]!==0){
           return $t6;
         }
-        return [0,$t5[1]-$t6[1]];
+        return [0,$t7-$t6[1]];
       }
     case 3:
       {
+        const b_7=e_0[2];
         const $t8=__cmd_x_main_buri$eval(e_0[1]);
         if($t8[0]!==0){
           return $t8;
         }
-        const $t9=__cmd_x_main_buri$eval(e_0[2]);
+        const $t10=$t8[1];
+        const $t9=__cmd_x_main_buri$eval(b_7);
         if($t9[0]!==0){
           return $t9;
         }
-        return [0,$t8[1]*$t9[1]];
+        return [0,$t10*$t9[1]];
       }
     case 4:
       {
+        const a_8=e_0[1];
         const $t11=__cmd_x_main_buri$eval(e_0[2]);
         if($t11[0]!==0){
           return $t11;
@@ -159,7 +166,7 @@ function __cmd_x_main_buri$eval(e_0){
         if(d_10===0n){
           return $k14;
         }else{
-          const $t12=__cmd_x_main_buri$eval(e_0[1]);
+          const $t12=__cmd_x_main_buri$eval(a_8);
           if($t12[0]!==0){
             return $t12;
           }
@@ -182,26 +189,30 @@ function __cmd_x_main_buri$depth(e_0){
       }
     case 1:
       {
+        const b_2=e_0[2];
         const a_9=__cmd_x_main_buri$depth(e_0[1]);
-        const b_10=__cmd_x_main_buri$depth(e_0[2]);
+        const b_10=__cmd_x_main_buri$depth(b_2);
         return 1n+(a_9>b_10?a_9:b_10);
       }
     case 2:
       {
+        const b_4=e_0[2];
         const a_11=__cmd_x_main_buri$depth(e_0[1]);
-        const b_12=__cmd_x_main_buri$depth(e_0[2]);
+        const b_12=__cmd_x_main_buri$depth(b_4);
         return 1n+(a_11>b_12?a_11:b_12);
       }
     case 3:
       {
+        const b_6=e_0[2];
         const a_13=__cmd_x_main_buri$depth(e_0[1]);
-        const b_14=__cmd_x_main_buri$depth(e_0[2]);
+        const b_14=__cmd_x_main_buri$depth(b_6);
         return 1n+(a_13>b_14?a_13:b_14);
       }
     case 4:
       {
+        const b_8=e_0[2];
         const a_15=__cmd_x_main_buri$depth(e_0[1]);
-        const b_16=__cmd_x_main_buri$depth(e_0[2]);
+        const b_16=__cmd_x_main_buri$depth(b_8);
         return 1n+(a_15>b_16?a_15:b_16);
       }
     default:
@@ -273,8 +284,9 @@ function __cmd_x_main_buri$parsePrimary(c_0){
         const inner_2=$t5[1];
         const $t6=__cmd_x_main_buri$peek(inner_2[1]);
         if($t6[0]===6){
+          const $t8=inner_2[0];
           const c_6=$fromShared(inner_2,inner_2[1]);
-          return [0,[inner_2[0],[$fromShared(c_6,c_6[0]),c_6[1]+1n]]];
+          return [0,[$t8,[$fromShared(c_6,c_6[0]),c_6[1]+1n]]];
         }else{
           return $k17;
         }

@@ -53,10 +53,12 @@ function __cmd_x_main_buri$describe(xs_0){
   }else if(xs_0.length===1){
     return 'one: '+String(xs_0[0]);
   }else if(xs_0.length===2){
-    return 'two: '+String(xs_0[0])+','+String(xs_0[1]);
+    const b_3=xs_0[1];
+    return 'two: '+String(xs_0[0])+','+String(b_3);
   }else if(xs_0.length>=1){
+    const head_4=xs_0[0];
     const rest_5=xs_0.slice(1);
-    return 'head '+String(xs_0[0])+' and '+String($list_length(rest_5))+' more';
+    return 'head '+String(head_4)+' and '+String($list_length(rest_5))+' more';
   }else{
     $abort('no arm matched');
   }
