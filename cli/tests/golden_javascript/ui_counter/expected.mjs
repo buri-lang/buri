@@ -41,6 +41,7 @@ function ui_node$button$podn4b(config_0){
   const focus_2=[config_0[8],config_0[9]];
   const $t1=config_0[4];
   if($t1!==void 0&&$t1===1){
+    const $t4=config_0[0];
     const $t5=$share(config_0[1]);
     let $t2;
     const $t3=config_0[5];
@@ -51,8 +52,9 @@ function ui_node$button$podn4b(config_0){
     }else{
       $abort('no arm matched');
     }
-    return [[14,config_0[0],$t5,$t2,focus_2,events_1]];
+    return [[14,$t4,$t5,$t2,focus_2,events_1]];
   }else{
+    const $t8=config_0[0];
     const $t9=$share(config_0[1]);
     const children_5=$share(config_0[2]);
     let $t6;
@@ -99,7 +101,7 @@ function ui_node$button$podn4b(config_0){
     }else{
       $abort('no arm matched');
     }
-    return [[5,config_0[0],$t9,$t6,$t10,$t12,$t14,$t16,focus_2,events_1]];
+    return [[5,$t8,$t9,$t6,$t10,$t12,$t14,$t16,focus_2,events_1]];
   }
 }
 function __cmd_x_main_buri$badge$podn4b(title_0,count_1){

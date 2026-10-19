@@ -2177,6 +2177,12 @@ struct LocalFacts {
     names: HashMap<String, NameFacts>,
     /// How many loops and closures enclose the point being walked.
     depth: u32,
+    /// A count of the events below, in the order the body runs them.
+    clock: u32,
+    /// When each call, `await` and write into an object happens. Any of them
+    /// may change what a read of an object's storage answers: the runtime
+    /// writes into a list nothing else holds rather than copying it.
+    barriers: Vec<u32>,
 }
 
 /// What [`LocalFacts`] knows about one name. A count of zero is a name that
@@ -2205,6 +2211,10 @@ struct NameFacts {
     /// use, be computed once per iteration or once per call instead of once.
     decl_depth: u32,
     use_depth: u32,
+    /// When the name was last bound, and when it was last read, by
+    /// [`LocalFacts::clock`].
+    bound_at: u32,
+    read_at: u32,
 }
 
 impl LocalFacts {
@@ -2225,10 +2235,25 @@ impl LocalFacts {
 
     fn read(&mut self, name: &str) {
         let d = self.depth;
+        self.clock += 1;
+        let at = self.clock;
         self.note(name, |n| {
             n.uses += 1;
             n.use_depth = n.use_depth.max(d);
+            n.read_at = at;
         });
+    }
+
+    /// The name's value has been computed and stored.
+    fn bound(&mut self, name: &str) {
+        self.clock += 1;
+        let at = self.clock;
+        self.note(name, |n| n.bound_at = at);
+    }
+
+    fn barrier(&mut self) {
+        self.clock += 1;
+        self.barriers.push(self.clock);
     }
 
     fn declare(&mut self, name: &str) {
@@ -2272,6 +2297,49 @@ impl LocalFacts {
     fn is_assigned(&self, name: &str) -> bool {
         self.assigns(name) > 0
     }
+
+    /// Whether a call, an `await` or a write into an object runs between
+    /// where `name` is bound and where it is last read.
+    fn barrier_before_read(&self, name: &str) -> bool {
+        let n = self.get(name);
+        let next = self.barriers.partition_point(|&b| b <= n.bound_at);
+        self.barriers.get(next).is_some_and(|&b| b < n.read_at)
+    }
+}
+
+/// Whether an expression reads out of an object: an index or a member. What
+/// such a read answers can change while the object lives, because a list
+/// nothing else holds is written into in place — so it moves only to a use
+/// that no barrier (see [`LocalFacts::barriers`]) runs before. A closure's
+/// body is not entered: moving a closure moves no read. Nor is a read out of
+/// one of the shared `constants`, which no one ever holds alone.
+fn reads_storage(e: &Expr, constants: &HashMap<String, Vec<Expr>>) -> bool {
+    let mut found = ReadsStorage(false, constants);
+    found.expr(e);
+    found.0
+}
+
+struct ReadsStorage<'c>(bool, &'c HashMap<String, Vec<Expr>>);
+
+/// The object at the bottom of a chain of indexes and members.
+fn storage_root(e: &Expr) -> &Expr {
+    match e {
+        Expr::Index { obj, .. } | Expr::Member { obj, .. } => storage_root(obj),
+        _ => e,
+    }
+}
+
+impl<'a> Visit<'a> for ReadsStorage<'_> {
+    fn expr(&mut self, e: &'a Expr) {
+        match e {
+            Expr::Index { .. } | Expr::Member { .. } => match storage_root(e) {
+                Expr::Ident(name) if self.1.contains_key(name) => e.visit_children(self),
+                _ => self.0 = true,
+            },
+            Expr::Arrow { .. } | Expr::ArrowBlock { .. } => {}
+            _ => e.visit_children(self),
+        }
+    }
 }
 
 /// The identifiers an expression reads: every name in it but the target of a
@@ -2310,6 +2378,9 @@ impl<'a> Visit<'a> for LocalFacts {
                     place => self.expr(place),
                 }
                 self.expr(value);
+                if !matches!(&**target, Expr::Ident(_)) {
+                    self.barrier();
+                }
             }
             // A closure body runs an unknown number of times, so anything read
             // inside it counts as read deeper than the enclosing code.
@@ -2319,13 +2390,23 @@ impl<'a> Visit<'a> for LocalFacts {
                 e.visit_children(self);
                 self.depth -= 1;
             }
+            // After the operands, which run first.
+            Expr::Call { .. } | Expr::Await(_) => {
+                e.visit_children(self);
+                self.barrier();
+            }
             _ => e.visit_children(self),
         }
     }
 
     fn stmt(&mut self, s: &'a Stmt) {
         match s {
-            Stmt::Var { name, .. } => self.declare(name),
+            Stmt::Var { name, .. } => {
+                self.declare(name);
+                s.visit_children(self);
+                self.bound(name);
+                return;
+            }
             Stmt::Func { name, params, .. } => {
                 self.declare(name);
                 params.iter().for_each(|p| self.declare(p));
@@ -2440,10 +2521,17 @@ impl Rewrite for DropBindings<'_> {
 fn collect_cleanup(
     body: &[Stmt],
     facts: &LocalFacts,
+    constants: &HashMap<String, Vec<Expr>>,
     map: &mut HashMap<String, Expr>,
     dead: &mut HashSet<String>,
 ) {
-    let mut c = Cleanup { facts, map, dead };
+    let mut c = Cleanup {
+        facts,
+        constants,
+        map,
+        dead,
+        storage: HashSet::default(),
+    };
     body.iter().for_each(|s| c.stmt(s));
 }
 
@@ -2457,8 +2545,13 @@ fn collect_cleanup(
 /// everything decided here is decided on the same information.
 struct Cleanup<'a> {
     facts: &'a LocalFacts,
+    /// The module's shared constant aggregates, by name.
+    constants: &'a HashMap<String, Vec<Expr>>,
     map: &'a mut HashMap<String, Expr>,
     dead: &'a mut HashSet<String>,
+    /// The values moved so far that read out of an object, so that a value
+    /// one of them moves into is known to read out of one too.
+    storage: HashSet<String>,
 }
 
 impl<'a> Visit<'a> for Cleanup<'_> {
@@ -2471,7 +2564,14 @@ impl<'a> Visit<'a> for Cleanup<'_> {
                 return;
             }
             let uses = facts.uses(name);
+            // A value moved to its use is computed there, so a read out of an
+            // object — its own, or one a value already moved into it holds —
+            // must not have a barrier to cross on the way.
+            let storage = init
+                .as_ref()
+                .is_some_and(|e| reads_storage(e, self.constants) || reads_any(e, &self.storage));
             match init {
+                _ if storage && facts.barrier_before_read(name) => {}
                 // Never read: the binding goes, and the value with it when
                 // it has nothing to do.
                 _ if uses == 0 => {
@@ -2509,6 +2609,11 @@ impl<'a> Visit<'a> for Cleanup<'_> {
                 }
                 _ => {}
             }
+            // Only a value that moves carries its reads to where it is read;
+            // one that stays was read where it is bound.
+            if storage && self.map.contains_key(name) {
+                self.storage.insert(name.clone());
+            }
         }
         s.visit_children(self);
     }
@@ -2523,6 +2628,13 @@ fn depends_on_assigned(e: &Expr, facts: &LocalFacts) -> bool {
     let mut names = HashSet::default();
     reads_of(e, &mut names);
     names.iter().any(|n| facts.is_assigned(n))
+}
+
+/// Whether this expression reads any of `names`.
+fn reads_any(e: &Expr, names: &HashSet<String>) -> bool {
+    let mut read = HashSet::default();
+    reads_of(e, &mut read);
+    read.iter().any(|n| names.contains(*n))
 }
 
 /// Substitutes the map into its own values, so one pass over the body
@@ -2849,7 +2961,7 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
 /// One pass of local cleanup over a function body. Returns `true` when
 /// anything changed, so the caller can run it again. A function holds no
 /// verbatim source, so the facts see every name it mentions.
-fn clean_body(body: &mut Vec<Stmt>) -> bool {
+fn clean_body(body: &mut Vec<Stmt>, constants: &HashMap<String, Vec<Expr>>) -> bool {
     let mut facts = LocalFacts::default();
     body.iter().for_each(|s| facts.stmt(s));
     if merge_declarations(body, &facts) {
@@ -2858,13 +2970,13 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
     if coalesce_copies(body, &facts) {
         return true;
     }
-    if read_through_locals(body, &facts) {
+    if read_through_locals(body, &facts, constants) {
         return true;
     }
 
     let mut map: HashMap<String, Expr> = HashMap::default();
     let mut dead: HashSet<String> = HashSet::default();
-    collect_cleanup(body, &facts, &mut map, &mut dead);
+    collect_cleanup(body, &facts, constants, &mut map, &mut dead);
     if map.is_empty() && dead.is_empty() {
         return false;
     }
@@ -2989,7 +3101,11 @@ impl AggregateUse {
     }
 }
 
-fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
+fn read_through_locals(
+    body: &mut Vec<Stmt>,
+    facts: &LocalFacts,
+    constants: &HashMap<String, Vec<Expr>>,
+) -> bool {
     let mut cands: HashMap<String, Vec<Expr>> = HashMap::default();
     collect_aggregates(body, facts, &mut cands);
     if cands.is_empty() {
@@ -3018,10 +3134,14 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             }
             // A slot pasted to its read is computed there, so nothing it
             // reads may be reassigned: a tail-call loop rebinds its
-            // parameters before the call that loops reads the slot.
+            // parameters before the call that loops reads the slot. Nor may
+            // a read out of an object have a barrier to cross on the way.
+            let pinned = facts.barrier_before_read(name);
             reads.iter().all(|(k, n)| {
                 items.get(*k).is_some_and(|e| {
-                    (e.is_pure_literal() || *n == 1) && !depends_on_assigned(e, facts)
+                    (e.is_pure_literal() || *n == 1)
+                        && !depends_on_assigned(e, facts)
+                        && !(pinned && reads_storage(e, constants))
                 })
             })
         })
@@ -3178,7 +3298,7 @@ fn clean_function(
             body = ReadThrough(table).block(body);
         }
         body = fold_block(body);
-        if !clean_body(&mut body) {
+        if !clean_body(&mut body, table) {
             break;
         }
     }

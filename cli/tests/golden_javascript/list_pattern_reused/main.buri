@@ -1,0 +1,58 @@
+// An element an array pattern binds, read after the list is given up to a
+// function that reuses its storage. The element is the one the pattern saw: a
+// binding that read the list again at its use would see what the reversal,
+// the drop or the take left there.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn upTo<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
+    if (n == 0) { acc.reverse(ctx) } else { upTo(ctx, n - 1, acc.push(ctx, n)) }
+}
+
+fn headThenReversed<C: Allocator + Stdout>(ctx: C, xs: [Int]): Int {
+    match (xs) {
+        [head, ..] => {
+            let turned = xs.reverse(ctx);
+            let _ = io.println(ctx, "${turned.length()}").ignore();
+            head
+        },
+        [] => 0,
+    }
+}
+
+fn pairThenDropped<C: Allocator + Stdout>(ctx: C, xs: [Int]): Int {
+    match (xs) {
+        [a, b, ..] => {
+            let rest = xs.drop(ctx, 1);
+            let _ = io.println(ctx, "${rest.length()}").ignore();
+            a * 10 + b
+        },
+        _ => 0,
+    }
+}
+
+fn lastThenTaken<C: Allocator + Stdout>(ctx: C, xs: [Int]): Int {
+    match (xs) {
+        [_, _, c] => {
+            let kept = xs.take(ctx, 1);
+            let _ = io.println(ctx, "${kept.length()}").ignore();
+            c
+        },
+        _ => 0,
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let head = headThenReversed(ctx, upTo(ctx, 3, []));
+    let pair = pairThenDropped(ctx, upTo(ctx, 3, []));
+    let last = lastThenTaken(ctx, upTo(ctx, 3, []));
+    // `1`, `12` and `3`: what the patterns matched in `[1, 2, 3]`.
+    let _ = io.println(ctx, "${head} ${pair} ${last}").ignore();
+    .Ok(())
+}

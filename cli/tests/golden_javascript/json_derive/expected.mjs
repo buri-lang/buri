@@ -131,9 +131,10 @@ function core_json$stringify$3qb9ap(ctx_0,value_1){
         const entries_9=value_1[1];
         $share(entries_9);
         const parts_14=$list_mapCtx(entries_9,ctx_0,(c_10,e_11)=>{
+          const k_12=e_11[0];
           const item_13=e_11[1];
           $fromShared(e_11,item_13);
-          return $str_format(c_10,core_json$quote$3qb9ap(c_10,e_11[0])+':'+core_json$stringify$3qb9ap(c_10,item_13));
+          return $str_format(c_10,core_json$quote$3qb9ap(c_10,k_12)+':'+core_json$stringify$3qb9ap(c_10,item_13));
         });
         return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
       }
