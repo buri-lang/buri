@@ -1,19 +1,17 @@
-# A native test binary that a signal kills, and the report a reader gets.
+# A native test binary that dies mid-suite, and the report a reader gets.
 #
 # **A block that passed may never be reported as failing.** A failed assertion
 # is an abort and the process names the block it was in on the way out (SPEC
-# 6.9, `cli/runtime/testing.rs`), but a process a signal kills says nothing at
-# all — and the runner used to blame the block it had asked that process to
-# start at. So one block walking off the end of the Buri stack cost the block
-# *before* it its verdict, and then cost every block after it one too: the
-# runner re-ran from the block it had just blamed, the new process died the same
-# way, and the whole file came back as `the run exited -1`.
+# 6.9, `cli/runtime/testing.rs`). A process that runs out of stack names no
+# block: it says why on stderr and exits from its fault handler. The runner
+# used to blame the block it had asked that process to start at, so one block
+# walking off the end of the Buri stack cost every block from there on its
+# verdict.
 #
 # What makes the attribution a fact rather than a guess is that every block
 # writes a line when it returns, so the block a dead process was in is the first
 # one that did not. Two of the three here pass and are reported as passing; the
-# one that died is named, and named as killed rather than as having exited a
-# number no process ever exits with.
+# one that died is named, with what the process said.
 #
 # The negative twin is the base case: with it the recursion returns, and the
 # same three blocks all pass.
@@ -21,22 +19,12 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a block that kills the test process is the block the report names, and the blocks around it keep their verdicts"
+doc: "a block that ends the test process is the block the report names, and the blocks around it keep their verdicts"
 
-# The report names the signal, and a stack overflow is a different one on each
-# host: SIGBUS on macOS, SIGSEGV on Linux.
 run {
   args: ["test", "//lib/deep", "--force"]
   exit: 1
   golden: "died.txt"
-  host: MACOS
-}
-
-run {
-  args: ["test", "//lib/deep", "--force"]
-  exit: 1
-  golden: "died-linux.txt"
-  host: LINUX
 }
 
 # The negative twin: a base case, and the same three blocks pass.

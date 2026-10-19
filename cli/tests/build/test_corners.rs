@@ -71,8 +71,57 @@ fn a_suite_with_a_timeout_reports_each_failing_block() {
     scratch
         .run(&["test", "//lib/a"])
         .exits(1)
-        .says("FAIL //lib/a  test/t.buri  \"second\"\n  the run was killed by ")
+        .says("FAIL //lib/a  test/t.buri  \"second\"\n  Maximum call stack size exceeded.")
         .says("3 passed, 1 failed, 0 skipped");
+}
+
+/// A test binary a signal kills, as an out-of-memory killer does, fails its
+/// suite with the signal's name. The C driver swaps the runner for a script
+/// that runs it, then kills itself.
+#[test]
+fn a_test_binary_a_signal_kills_fails_with_the_signal() {
+    let scratch = Scratch::repo("corners-killed-runner");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 2),
+    );
+    let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    let real_runner = scratch.path("runner");
+    let driver = scratch.write_executable(
+        "killing-cc",
+        &format!(
+            "#!/bin/sh\n\
+             case \" $* \" in *\" -### \"*) exit 1 ;; esac\n\
+             '{real_cc}' \"$@\" || exit $?\n\
+             case \" $* \" in *\" -o artifact \"*)\n\
+             mv artifact '{runner}'\n\
+             printf '#!/bin/sh\\n\"%s\" \"$@\" 2>/dev/null\\nkill -KILL $$\\n' '{runner}' > artifact\n\
+             chmod +x artifact ;;\n\
+             esac\n",
+            runner = real_runner.display()
+        ),
+    );
+    // With no home there is no test host, so the suite links a runner.
+    let out = buri_command()
+        .current_dir(&scratch.root)
+        .args(["test", "--color=never", "//lib/a"])
+        .env_remove("HOME")
+        .env_remove("BURI_HOME")
+        .env("CC", &driver)
+        .output()
+        .unwrap();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("ran every block and then died: the run was killed by SIGKILL (signal 9)"),
+        "{said}"
+    );
 }
 
 /// Suites whose test files hold no `test` block pass with nothing run, alone,

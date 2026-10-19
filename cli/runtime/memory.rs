@@ -4209,6 +4209,7 @@ unsafe fn retire_stack(base: *mut u8) {
         return;
     }
     drop(pool);
+    crate::overflow::unguarded(base as usize + BURI_RT_STACK_USABLE);
     // SAFETY: `base` came from `map_stack`, was trimmed to exactly this
     // length, and is on no list.
     unsafe {
@@ -4333,6 +4334,7 @@ fn map_stack() -> *mut u8 {
         )
     };
     assert!(rc == 0, "a thread stack could not be given its guard");
+    crate::overflow::guarded(p as usize + BURI_RT_STACK_USABLE);
     let base: *mut u8 = p.cast();
     // SAFETY: `base + WARM` is inside the usable range and 8-byte aligned.
     unsafe { arm_watermark(base) };
@@ -4561,6 +4563,7 @@ fn decommit_stack(base: *mut u8) -> bool {
         // than hand a caller a stack that may be missing its middle: the next
         // `acquire` maps a fresh one, and the only cost is the reservation.
         //
+        crate::overflow::unguarded(base as usize + BURI_RT_STACK_USABLE);
         // SAFETY: `base` came from `map_stack` and was trimmed to exactly
         // this length; it is on no free list, so no entry thunk is inside it.
         unsafe {

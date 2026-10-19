@@ -3643,25 +3643,23 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// there*. The guard makes the first byte past the usable stack unmapped, so
 /// the fault is at the boundary and there is no "on the way".
 ///
-/// What is asserted is that the process is **killed by a signal**, which is the
-/// same thing a program on the machine stack does when it exhausts it
-/// (measured: `SIGSEGV` there, `SIGBUS` here, neither with a message).
-/// It is not asserted that a particular signal arrives: which one the kernel
-/// raises for a `PROT_NONE` page inside a mapping is the kernel's business.
+/// What is asserted is the abort SPEC 6.9 asks for: the fault at the guard
+/// ends the program with bun's message and exit status 1, as JavaScript does.
 #[test]
 fn a_runaway_recursion_faults_at_the_guard() {
     if !supported() {
         return;
     }
-    use std::os::unix::process::ExitStatusExt;
     let binary = build_with("guard-runaway", &recursion(5_000_000), None);
     let out = Command::new(&binary).output().unwrap();
-    assert!(
-        out.status.signal().is_some(),
-        "a five-million-deep recursion exited {:?} instead of faulting: {}",
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
         out.status.code(),
-        String::from_utf8_lossy(&out.stderr)
+        Some(1),
+        "a five-million-deep recursion ended {:?}: {stderr}",
+        out.status
     );
+    assert_eq!(stderr, "Maximum call stack size exceeded.\n");
 }
 
 /// The guard is **above** the stack a program may use, not carved out of it.
@@ -3836,9 +3834,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// the static one would fault at the old guard — which the test above rules
 /// out on the same door, on the same machine, in the same file.
 ///
-/// The process is killed rather than exiting, which is what the machine stack
-/// does when it is exhausted and what `asm::install_guard`'s counterpart
-/// asserts. Which signal is the kernel's business.
+/// The process is killed rather than aborting with a message: the probe's
+/// thread runs from a constructor, before `main` installs the fault handler.
+/// Which signal is the kernel's business.
 #[test]
 fn a_runaway_recursion_on_a_thread_faults_at_its_own_guard() {
     if !supported() {

@@ -1004,6 +1004,7 @@ fn set_task_arena(task: &Task, slot: crate::memory::ArenaSlot) {
 fn thread_loop() {
     valgrind::happens_after(&raw const SCHED);
     crate::host::no_pointer_prefetch();
+    crate::overflow::arm_thread();
     let mut armed = false;
     let mut fresh = true;
     loop {

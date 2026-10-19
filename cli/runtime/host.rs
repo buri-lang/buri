@@ -57,6 +57,7 @@ use crate::rng;
 use crate::sync::{Condvar, Mutex};
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
 use std::io::{Read, Seek, Write};
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering::Relaxed};
 
 /// Bytes buffered before a flush happens on its own. `$host` flushes after 64
 /// pushed strings; a byte count is the same idea against a runtime that has
@@ -75,6 +76,12 @@ static ERR: Stream = Stream::new();
 struct Stream {
     queued: Mutex<Queued>,
     turn: Condvar,
+    /// The thread holding `queued`, or zero. A fault inside a critical
+    /// section reads the bytes through `shown` instead (`flush_in_handler`).
+    holder: AtomicUsize,
+    /// `queued.bytes` as of its last change, which never names freed memory.
+    shown: AtomicPtr<u8>,
+    shown_len: AtomicUsize,
 }
 
 struct Queued {
@@ -94,7 +101,29 @@ impl Stream {
                 written: 0,
             }),
             turn: Condvar::new(),
+            holder: AtomicUsize::new(0),
+            shown: AtomicPtr::new(std::ptr::null_mut()),
+            shown_len: AtomicUsize::new(0),
         }
+    }
+
+    /// Lock `queued`, noting this thread as its holder.
+    fn hold(&self) -> crate::sync::MutexGuard<'_, Queued> {
+        let queued = lock(&self.queued);
+        self.holder.store(crate::overflow::thread_id(), Relaxed);
+        queued
+    }
+
+    /// Unlock what [`Stream::hold`] locked.
+    fn release(&self, queued: crate::sync::MutexGuard<'_, Queued>) {
+        self.holder.store(0, Relaxed);
+        drop(queued);
+    }
+
+    /// Note `bytes` as what `queued` holds now.
+    fn publish(&self, bytes: &[u8]) {
+        self.shown.store(bytes.as_ptr().cast_mut(), Relaxed);
+        self.shown_len.store(bytes.len(), Relaxed);
     }
 }
 static ARGS: Mutex<Option<Vec<String>>> = Mutex::new(None);
@@ -147,12 +176,10 @@ fn lock<T>(m: &Mutex<T>) -> crate::sync::MutexGuard<'_, T> {
 pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
     no_pointer_prefetch();
     ignore_sigpipe();
+    crate::overflow::arm();
     std::panic::set_hook(Box::new(|info| {
-        let mut err = lock(&ERR.queued);
-        err.bytes.extend_from_slice(b"internal runtime error: ");
-        err.bytes.extend_from_slice(info.to_string().as_bytes());
-        err.bytes.push(b'\n');
-        drop(err);
+        push(&ERR, b"internal runtime error: ", false);
+        push(&ERR, info.to_string().as_bytes(), true);
         buri_rt_flush();
     }));
 
@@ -283,13 +310,16 @@ pub extern "C" fn buri_rt_flush() {
 
 /// Write `stream`'s bytes through, after every flush before this one.
 fn write_out(stream: &Stream, write: impl FnOnce(&[u8]) -> std::io::Result<()>) {
-    let mut queued = lock(&stream.queued);
+    let mut queued = stream.hold();
     if queued.bytes.is_empty() && queued.taken == queued.written {
+        stream.release(queued);
         return;
     }
+    stream.publish(&[]);
     let mut bytes = std::mem::take(&mut queued.bytes);
     let turn = queued.taken;
     queued.taken = turn.wrapping_add(1);
+    stream.holder.store(0, Relaxed);
     while queued.written != turn {
         queued = match stream.turn.wait(queued) {
             Ok(g) => g,
@@ -303,14 +333,56 @@ fn write_out(stream: &Stream, write: impl FnOnce(&[u8]) -> std::io::Result<()>) 
         note(write(&bytes));
         bytes.clear();
     }
-    let mut queued = lock(&stream.queued);
+    let mut queued = stream.hold();
     queued.written = turn.wrapping_add(1);
     // Hands the allocation back, unless a print has since made another.
     if queued.bytes.is_empty() {
         queued.bytes = bytes;
+        stream.publish(&queued.bytes);
     }
-    drop(queued);
+    stream.release(queued);
     stream.turn.notify_all();
+}
+
+/// Write what both streams hold, from the stack-exhaustion handler.
+///
+/// It must not wait on a lock the faulting thread holds, so it takes each
+/// lock without blocking. When the faulting thread is its holder, it writes
+/// the published bytes. When another thread holds it briefly, it waits up to
+/// a second for it, then gives up on that stream.
+pub(crate) fn flush_in_handler() {
+    shown_in_handler(&OUT, 1);
+    shown_in_handler(&ERR, 2);
+}
+
+fn shown_in_handler(stream: &Stream, fd: i32) {
+    use std::sync::TryLockError;
+    for _ in 0..1000 {
+        let queued = match stream.queued.try_lock() {
+            Ok(g) => g,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => {
+                if stream.holder.load(Relaxed) == crate::overflow::thread_id() {
+                    let at = stream.shown.load(Relaxed);
+                    let len = stream.shown_len.load(Relaxed);
+                    if !at.is_null() {
+                        // SAFETY: `publish` names live bytes at every call this
+                        // thread can have faulted in.
+                        crate::overflow::write_all(fd, unsafe {
+                            std::slice::from_raw_parts(at, len)
+                        });
+                    }
+                    return;
+                }
+                crate::overflow::nap();
+                continue;
+            }
+        };
+        crate::overflow::write_all(fd, &queued.bytes);
+        // The process ends without unlocking: nothing else may print now.
+        std::mem::forget(queued);
+        return;
+    }
 }
 
 /// `main` answered `.Ok(())`, or answered nothing: the timers it left pending
@@ -382,14 +454,24 @@ fn reported() -> i32 {
 }
 
 fn push(stream: &Stream, bytes: &[u8], newline: bool) {
-    let mut queued = lock(&stream.queued);
+    let mut queued = stream.hold();
     let buf = &mut queued.bytes;
+    let need = bytes.len().saturating_add(usize::from(newline));
+    // Grown by hand, so the published bytes stay valid until the copy is.
+    if buf.capacity().wrapping_sub(buf.len()) < need {
+        let wanted = buf.len().saturating_add(need);
+        let mut grown = Vec::with_capacity(wanted.max(buf.capacity().saturating_mul(2)));
+        grown.extend_from_slice(buf);
+        stream.publish(&grown);
+        drop(std::mem::replace(buf, grown));
+    }
     buf.extend_from_slice(bytes);
     if newline {
         buf.push(b'\n');
     }
     let full = buf.len() >= FLUSH_AT;
-    drop(queued);
+    stream.publish(buf);
+    stream.release(queued);
     if full {
         buri_rt_flush();
     }

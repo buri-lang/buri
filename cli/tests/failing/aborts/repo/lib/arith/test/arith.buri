@@ -31,6 +31,15 @@ test "an allocation past a fixed budget" {
     assert.equal(1, 1);
 }
 
-test "the test after four aborts still runs" {
+// `* 2 + n` keeps the recursion from becoming a loop.
+fn deep(n: Int): Int {
+    if (n == 0) { 0 } else { deep(n + 1) * 2 + n }
+}
+
+test "a recursion with no end" {
+    assert.equal(deep(1), 0);
+}
+
+test "the test after five aborts still runs" {
     assert.equal(1, 1);
 }
