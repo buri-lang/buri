@@ -2783,7 +2783,9 @@ test "rejects a port above 65535" {
 ```
 
 So a file may declare one context for all of its tests, a test may build its
-own, and either may start from another and change one line.
+own, and either may start from another and change one line. A declaration
+that reaches itself, directly or through other declarations, is
+`circular-context`.
 
 **Where a context may be built:**
 

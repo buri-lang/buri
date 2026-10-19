@@ -176,6 +176,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A constant never refers back to itself"
     ),
     e!(
+        "circular-context",
+        "A context is never built from itself",
+        &["language/programs"]
+    ),
+    e!(
         "circular-type-alias",
         "A type alias never expands to itself",
         &["language/types"]

@@ -392,6 +392,9 @@ pub enum ExprKind {
     /// A call to a named context declaration, which builds a fresh one.
     CtxCall {
         decl: crate::compiler::semantics::types::ContextDeclId,
+        /// The declaration's constructor, which checking made before this
+        /// call was typed.
+        ctor: crate::compiler::semantics::types::FnId,
     },
 
     /// An operation the runtime supplies. Only the embedded standard library

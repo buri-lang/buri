@@ -465,7 +465,7 @@ fn main(): () {}
 /// *through* it — so the base was minted second and eleven tests started
 /// failing on a file nothing had edited.
 ///
-/// [`Checker::ctx_decls_reached`] is the fix: a use checks its declaration
+/// `inference::context_checked` is the fix: a use checks its declaration
 /// if checking has not reached it yet.
 const SPREAD_BEFORE_ITS_BASE: &str = r#"
 from "platform/effect" import { Clock };

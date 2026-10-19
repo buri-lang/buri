@@ -1048,21 +1048,18 @@ impl<'a, 'b> Infer<'a, 'b> {
                 if !self.may_build_context() {
                     self.templated("misplaced-context", span);
                 }
-                // Checked here if checking has not reached it yet. A
-                // declaration built from another reads the base's *recorded*
-                // type, and the order the declarations are checked in is the
-                // order their ids were minted — the order the modules were
-                // discovered in, which says nothing about which spreads which.
-                // So the use asks for it, and `ctx_decls_reached` makes that
-                // happen once.
-                if self.c.tables.ctx_decl(cid).checked.is_none() {
-                    super::inference::check_context_decl(self.c, cid);
+                // `None` is a use that closes a cycle, already reported.
+                match super::inference::context_checked(self.c, cid, span) {
+                    Some(c) => typed::Expr::new(
+                        typed::ExprKind::CtxCall {
+                            decl: cid,
+                            ctor: c.ctor,
+                        },
+                        Ty::ctx(c.ty),
+                        span,
+                    ),
+                    None => typed::Expr::new(typed::ExprKind::Error, Ty::ERROR, span),
                 }
-                let ty = match self.c.tables.ctx_decl(cid).checked {
-                    Some(c) => Ty::ctx(c.ty),
-                    None => Ty::ERROR,
-                };
-                typed::Expr::new(typed::ExprKind::CtxCall { decl: cid }, ty, span)
             }
             _ => {
                 // A call through a value of function type.

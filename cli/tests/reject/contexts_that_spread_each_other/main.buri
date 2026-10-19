@@ -1,0 +1,34 @@
+// EXPECT: circular context: `Base` -> `Program` -> `Base`
+from "platform/effect" import { Clock };
+from "node" import { NodeHost };
+
+struct Fixed(I64);
+
+impl Clock for Fixed {
+  fn nowMilliseconds(self): I64 {
+    self.0
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {
+    ()
+  }
+
+  fn monotonicNanoseconds(self): I64 {
+    self.0
+  }
+}
+
+context Program {
+  ..Base(),
+  Clock: Fixed(5),
+}
+
+context Base {
+  ..Program(),
+  Clock: Fixed(1),
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ctx = Program();
+  .Ok(())
+}
