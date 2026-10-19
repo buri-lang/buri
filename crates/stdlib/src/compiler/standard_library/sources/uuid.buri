@@ -64,7 +64,7 @@ export struct Uuid(export [U8]);
 ///
 /// That leaves 122 random bits. Use it where nothing needs ordering.
 export fn version4<C: Allocator + Entropy>(ctx: C): Uuid {
-    stamped(ctx, crypto.randomBytes(ctx, 16), 4)
+    stamped(crypto.randomBytes(ctx, 16), 4)
 }
 
 /// A version 7 identifier: forty-eight bits of Unix milliseconds, then the
@@ -78,39 +78,58 @@ export fn version4<C: Allocator + Entropy>(ctx: C): Uuid {
 /// where when it was made is a secret.
 export fn version7<C: Allocator + Clock + Entropy>(ctx: C): Uuid {
     let milliseconds = time.now(ctx).0;
-    // The first six random octets give way to the timestamp, most significant
-    // first.
-    let timed = crypto
-        .randomBytes(ctx, 16)
-        .mapIndexed(ctx, fn(i, octet) => {
-            match (i) {
-                0 => bits.shiftRight(milliseconds, 40).wrapToU8(),
-                1 => bits.shiftRight(milliseconds, 32).wrapToU8(),
-                2 => bits.shiftRight(milliseconds, 24).wrapToU8(),
-                3 => bits.shiftRight(milliseconds, 16).wrapToU8(),
-                4 => bits.shiftRight(milliseconds, 8).wrapToU8(),
-                5 => milliseconds.wrapToU8(),
-                _ => octet,
-            }
-        });
-    stamped(ctx, timed, 7)
+    let raw = crypto.randomBytes(ctx, 16);
+    stamped(
+        [
+            bits.shiftRight(milliseconds, 40).wrapToU8(),
+            bits.shiftRight(milliseconds, 32).wrapToU8(),
+            bits.shiftRight(milliseconds, 24).wrapToU8(),
+            bits.shiftRight(milliseconds, 16).wrapToU8(),
+            bits.shiftRight(milliseconds, 8).wrapToU8(),
+            milliseconds.wrapToU8(),
+            octetOf(raw, 6),
+            octetOf(raw, 7),
+            octetOf(raw, 8),
+            octetOf(raw, 9),
+            octetOf(raw, 10),
+            octetOf(raw, 11),
+            octetOf(raw, 12),
+            octetOf(raw, 13),
+            octetOf(raw, 14),
+            octetOf(raw, 15),
+        ],
+        7,
+    )
 }
 
 /// The two fields RFC 9562 fixes, written over whatever was there: the version
 /// in the high nibble of octet 6, and `10` in the top two bits of octet 8.
 ///
-/// It walks the octets rather than reading each by position, so there is no
-/// position past the end to make a value up for.
-fn stamped<C: Allocator>(ctx: C, raw: [U8], version: Int): Uuid {
-    Uuid(
-        raw.mapIndexed(ctx, fn(i, octet) => {
-            match (i) {
-                6 => (octet.toI64() % 16 + version * 16).wrapToU8(),
-                8 => (octet.toI64() % 64 + 128).wrapToU8(),
-                _ => octet,
-            }
-        }),
-    )
+/// Pure: a sixteen-element array literal allocates nothing a context has to
+/// grant, which is why nothing here takes one.
+fn stamped(raw: [U8], version: Int): Uuid {
+    Uuid([
+        octetOf(raw, 0),
+        octetOf(raw, 1),
+        octetOf(raw, 2),
+        octetOf(raw, 3),
+        octetOf(raw, 4),
+        octetOf(raw, 5),
+        (octetOf(raw, 6).toI64() % 16 + version * 16).wrapToU8(),
+        octetOf(raw, 7),
+        (octetOf(raw, 8).toI64() % 64 + 128).wrapToU8(),
+        octetOf(raw, 9),
+        octetOf(raw, 10),
+        octetOf(raw, 11),
+        octetOf(raw, 12),
+        octetOf(raw, 13),
+        octetOf(raw, 14),
+        octetOf(raw, 15),
+    ])
+}
+
+fn octetOf(raw: [U8], i: Int): U8 {
+    raw.get(i).withDefault(0)
 }
 
 /// The all-zero identifier, which RFC 9562 calls nil. It has no version and no

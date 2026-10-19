@@ -1435,6 +1435,36 @@ test "fromFloatFixed expands what fromFloat writes with an exponent" {
     assert.equal(str.fromFloatFixed(ctx, 1e21, 0), "1000000000000000000000");
 }
 
+test "fromFloatFixed reads an exponent of every width and either sign" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The largest double, and a three-digit exponent with a plus.
+    assert.equal(
+        str.fromFloatFixed(ctx, 1.7976931348623157e308, 0),
+        "17976931348623157".concat(ctx, "0".repeat(ctx, 292)),
+    );
+    assert.equal(
+        str.fromFloatFixed(ctx, -1.2345e300, 1),
+        "-12345".concat(ctx, "0".repeat(ctx, 296)).concat(ctx, ".0"),
+    );
+    assert.equal(str.fromFloatFixed(ctx, -1e21, 0), "-1000000000000000000000");
+    // A one-digit exponent with a minus, and the smallest subnormal's three.
+    assert.equal(str.fromFloatFixed(ctx, 1.2345e-7, 11), "0.00000012345");
+    assert.equal(str.fromFloatFixed(ctx, -1.2345e-7, 3), "-0.000");
+    assert.equal(
+        str.fromFloatFixed(ctx, 5e-324, 330),
+        "0.".concat(ctx, "0".repeat(ctx, 323)).concat(ctx, "5000000"),
+    );
+    assert.equal(
+        str.fromFloatFixed(ctx, 2.2250738585072014e-308, 330),
+        "0.".concat(ctx, "0".repeat(ctx, 307)).concat(ctx, "22250738585072014000000"),
+    );
+    // No exponent at all for a zero of either sign.
+    assert.equal(str.fromFloatFixed(ctx, 0.0, 2), "0.00");
+    assert.equal(str.fromFloatFixed(ctx, -0.0, 2), "-0.00");
+}
+
 test "fromFloatFixed treats a negative count of decimals as none" {
     let ctx = context {
         Allocator: alloc(),

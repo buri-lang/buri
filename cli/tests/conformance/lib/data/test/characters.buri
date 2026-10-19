@@ -6,6 +6,7 @@
 // symbol that is not punctuation, a format character that is not a control, an
 // unassigned code point that is neither.
 
+from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -295,4 +296,32 @@ test "a classifier reads the same off a string as off a literal" {
     assert.equal(cs.count(fn(c) => c.isPunctuation()), 1);
     assert.equal(cs.sumOf(fn(c) => c.utf8Length()), 10);
     assert.equal("a1 !é😀".utf8Length(), 10);
+}
+
+/// How many scalars from `lo` up to `hi` the classifier keeps.
+fn counted<C: Allocator>(ctx: C, lo: Int, hi: Int, keep: fn(Char) => Bool): Int {
+    list
+        .range(ctx, lo, hi)
+        .foldCtx(
+            ctx,
+            fn(c, n, code) => {
+                match (code.wrapToU32().toChar()) {
+                    .Ok(ch) => if (keep(ch)) { n + 1 } else { n },
+                    .Err(_e) => n,
+                }
+            },
+            0,
+        )
+}
+
+// Every range of the table counts, so a range read one off at either end, or
+// any digit of the table read as the wrong value, shows here.
+test "the classifiers count the whole of the General Category" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPunctuation()), 855);
+    assert.equal(counted(ctx, 0xe0000, 0x110000, fn(c) => c.isPunctuation()), 0);
+    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPrintable()), 145439);
+    assert.equal(counted(ctx, 0xe0000, 0x110000, fn(c) => c.isPrintable()), 240);
 }

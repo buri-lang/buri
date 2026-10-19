@@ -6,6 +6,7 @@
 // cases below are the two things worth asserting: the rules, named one at a
 // time, and the UCD's own vectors, sliced.
 
+from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/str" import { Normalization };
 from "core/testing/assert" import * as assert;
@@ -2679,4 +2680,66 @@ test "a normalization form is equal only to itself" {
     assert.isFalse(Normalization.Nfd == Normalization.Nfkc);
     assert.isFalse(Normalization.Nfkc == Normalization.Nfkd);
     assert.isFalse(Normalization.Nfkd == Normalization.Nfc);
+}
+
+// --- the tables as a whole ------------------------------------------------------
+
+/// How many scalars below U+30000, each on its own, `differs` is true of.
+fn countedBelow<C: Allocator>(ctx: C, differs: fn(C, Str) => Bool): Int {
+    list
+        .range(ctx, 0, 0x30000)
+        .foldCtx(
+            ctx,
+            fn(c, n, code) => {
+                match (code.wrapToU32().toChar()) {
+                    .Ok(ch) => {
+                        if (differs(c, str.fromChars(c, [ch]))) { n + 1 } else { n }
+                    },
+                    .Err(_e) => n,
+                }
+            },
+            0,
+        )
+}
+
+// Every entry of a table changes one scalar, so a table that reads a key, an
+// offset or a length wrong changes how many scalars change.
+test "every scalar the decomposition tables name is one that decomposes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(countedBelow(ctx, fn(c, one) => one.normalize(c, .Nfd) != one), 13253);
+    assert.equal(
+        countedBelow(ctx, fn(c, one) => one.normalize(c, .Nfkd) != one),
+        17085,
+    );
+}
+
+test "every scalar the folding table names is one that folds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(countedBelow(ctx, fn(c, one) => one.caseFold(c) != one), 1557);
+}
+
+test "every decomposition the composition table names composes back" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        countedBelow(ctx, fn(c, one) => {
+            one.normalize(c, .Nfd).normalize(c, .Nfc) != one.normalize(c, .Nfd)
+        }),
+        12151,
+    );
+}
+
+test "a scalar written twice is one cluster only where its class joins it to itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        countedBelow(ctx, fn(c, one) => one.concat(c, one).graphemeCount() == 1),
+        2657,
+    );
 }

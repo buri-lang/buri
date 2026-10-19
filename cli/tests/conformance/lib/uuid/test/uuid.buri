@@ -10,6 +10,7 @@
 // come out of the runtime on every backend.
 
 from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
@@ -148,6 +149,84 @@ test "every version 4 identifier has the version and variant RFC 9562 fixes" {
         ids.concat(ctx, ids).uniqueBy(ctx, fn(a, b) => a.compare(b)).length(),
         8,
     );
+}
+
+test "version 4 keeps every octet the entropy gave except the two fields" {
+    let drawn = context {
+        Allocator: alloc(),
+        Entropy: entropy().seed(12345),
+    };
+    let minted = context {
+        Allocator: alloc(),
+        Entropy: entropy().seed(12345),
+    };
+    // Sixty-four identifiers off one generator, against the same generator's
+    // octets drawn in one go.
+    let raw = crypto.randomBytes(drawn, 16 * 64);
+    let ids = list.range(minted, 0, 64).mapCtx(minted, fn(c, _i) => uuid.version4(c));
+    let octets = ids.flatMap(minted, fn(id) => id.0);
+    let expected = raw.mapIndexed(drawn, fn(i, o) => stampedAt(i % 16, o.toI64(), 4));
+    assert.equal(octets.map(minted, fn(o) => o.toI64()), expected);
+}
+
+/// What RFC 9562 makes of octet `at` of a version `version` identifier, from
+/// the octet `o` the generator gave.
+fn stampedAt(at: Int, o: Int, version: Int): Int {
+    if (at == 6) { o % 16 + version * 16 } else if (at == 8) { o % 64 + 128 } else { o }
+}
+
+/// An entropy source of a program's own that answers four octets whatever it
+/// is asked for, which breaks `Entropy`'s promise.
+struct Short {}
+
+impl Entropy for Short {
+    fn bytes(self, count: Int): [U8] {
+        [1, 2, 3, 4]
+    }
+}
+
+/// One that answers twenty.
+struct Long {}
+
+impl Entropy for Long {
+    fn bytes(self, count: Int): [U8] {
+        [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    }
+}
+
+test "an identifier is sixteen octets whatever the entropy source answers" {
+    let short = context {
+        Allocator: alloc(),
+        Clock: clock().at(5),
+        Entropy: Short {},
+    };
+    let long = context {
+        Allocator: alloc(),
+        Clock: clock().at(5),
+        Entropy: Long {},
+    };
+    // Too few octets are made up with zeros, and too many are cut at sixteen.
+    // The version and the variant are stamped either way.
+    assert.equal(
+        uuid.version4(short).text(short),
+        "01020304-0000-4000-8000-000000000000",
+    );
+    assert.equal(
+        uuid.version7(short).text(short),
+        "00000000-0005-7000-8000-000000000000",
+    );
+    assert.equal(
+        uuid.version4(long).text(long),
+        "01020304-0506-4708-890a-0b0c0d0e0f10",
+    );
+    assert.equal(
+        uuid.version7(long).text(long),
+        "00000000-0005-7708-890a-0b0c0d0e0f10",
+    );
+    assert.length(uuid.version4(short).0, 16);
+    assert.length(uuid.version7(short).0, 16);
+    assert.length(uuid.version4(long).0, 16);
+    assert.length(uuid.version7(long).0, 16);
 }
 
 /// The variant nibble is `8`, `9`, `a` or `b` — the top two bits of octet 8 set
