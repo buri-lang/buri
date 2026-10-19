@@ -119,6 +119,42 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 69
+
+## What landed
+
+- `semantics::resolve::Host` holds the host's constructor and each field's constructor. `Started` carries one, and `platforms.rs`'s `start` mints it only when the host and every field are accepted. `monomorphize::host_value` builds from it, so its `_ => ExprKind::Error` arm is gone. Phase 68 had moved that arm, and no program reached it.
+- `monomorphize::Handed` is `Hosted(&Started)` or `Bare(FnId)`. `host_parameter` is gone: a handed entry no longer looks up its host again.
+- `Checked.entry` is gone. `Checked.started` replaced it in phase 68.
+
+## Guards
+
+Both counts are unchanged: 41 by the plan rule, 19 by `ice(`/`unreachable!`/`.expect(`/`panic!`. One silent default is gone: `host_value`'s `ExprKind::Error`.
+
+## Branches
+
+These refactors removed counted branches:
+
+- `host_parameter`'s let-else and its `if`s, 14 covered branches in `crates/middle`.
+- `handed`'s let-else, now a `match` on `Handed`.
+- `resolve.rs`'s `if name == "main"`, which set `Checked.entry`.
+
+`start` adds one `if whole`, covered on both sides. Middle was below 100%, so `record_updates` gains a test that covers `rc.rs`'s `taken == 0` (an update of a field with no count that leaves early).
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| middle | 1860/1890 (98.41%) | 1847/1876 (98.45%) | 1859/1890 (98.36%) |
+| semantics | 2154/2154 | 2154/2154 | 2158/2158 |
+| total | 14825/15059 (98.45%) | 14812/15045 (98.45%) | |
+
+Every other area is unchanged.
+
+## Output
+
+The debug (27) and release (54) objects for `cli/tests/example`, and the stencil objects for the conformance corpus (651), are byte-identical between base and head.
+
 # Guard phase 68
 
 ## What landed
