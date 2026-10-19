@@ -1,0 +1,14 @@
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:99:39
+   |
+99 |         Stdin: stdin().bytes([97, 10, extra 98]),
+   |                                       ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:99:44
+   |
+99 |         Stdin: stdin().bytes([97, 10, extra 98]),
+   |                                            ^
+   |
+   = fix: write `,` here

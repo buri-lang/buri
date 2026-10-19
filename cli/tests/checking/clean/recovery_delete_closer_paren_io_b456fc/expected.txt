@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:83:40
+   |
+83 |     assert.isEmpty(io.readAllBytes(ctx);
+   |                                        ^
+   |
+  --> main.buri:83:19
+   |
+83 |     assert.isEmpty(io.readAllBytes(ctx);
+   |                   ^ opened here
+   |
+   = fix: write `)` here

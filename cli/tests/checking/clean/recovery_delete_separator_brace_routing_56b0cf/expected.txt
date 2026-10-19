@@ -1,7 +1,0 @@
-error: an import name ends with `,` [missing-comma]
-  --> main.buri:17:58
-   |
-17 | from "platform/effect/testing" import { address, headless observer, recorder };
-   |                                                          ^
-   |
-   = fix: write `,` here

@@ -1,0 +1,23 @@
+error: this function takes 1 argument, but 2 were given [argument-count]
+  --> main.buri:57:18
+   |
+57 |     assert.equal(hooks.label(extra 9), "n=9");
+   |                  ^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass this function the following arguments: fn(I64) => Str
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:57:30
+   |
+57 |     assert.equal(hooks.label(extra 9), "n=9");
+   |                              ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:57:35
+   |
+57 |     assert.equal(hooks.label(extra 9), "n=9");
+   |                                   ^
+   |
+   = fix: write `,` here
