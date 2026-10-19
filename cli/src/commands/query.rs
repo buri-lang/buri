@@ -119,7 +119,20 @@ pub fn command_query(args: &arguments::Args) -> i32 {
         }
         "platforms" => {
             let Some(t) = operand(first) else { return 2 };
-            let allowed = session.workspace.platforms(t);
+            // A platform is admitted exactly when nothing blocks it, so one
+            // pass sorts them and gathers each reason once.
+            let mut allowed = Vec::new();
+            let mut why = Vec::new();
+            for p in session.workspace.every_platform() {
+                match session.workspace.platform_blocker(t, &p) {
+                    None => allowed.push(p),
+                    Some(blocker) => {
+                        if !why.contains(&blocker.why) {
+                            why.push(blocker.why);
+                        }
+                    }
+                }
+            }
             // An empty answer printed as nothing is indistinguishable from a
             // command that did nothing, and "this target can be built nowhere"
             // is the one answer here a reader most needs said out loud. It
@@ -131,14 +144,6 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                     "no platform: {}'s dependency closure admits none",
                     session.workspace.label(t)
                 );
-                let mut why = Vec::new();
-                for p in session.workspace.every_platform() {
-                    if let Some(blocker) = session.workspace.platform_blocker(t, &p) {
-                        if !why.contains(&blocker.why) {
-                            why.push(blocker.why);
-                        }
-                    }
-                }
                 for reason in why {
                     println!("  {reason}");
                 }
