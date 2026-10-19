@@ -200,10 +200,6 @@ pub struct Parking {
     resolved: Dense<FuncIdx, LocalSet>,
     /// The types of the parking function values this program builds.
     pub parking_types: HashSet<Ty>,
-    /// Whether the program builds one at all — the answer where there is not
-    /// even a function type to ask under, which a well-typed program does not
-    /// reach.
-    any_parking_value: bool,
     /// [`monomorphize::Program::shapes`]'s effect table, so rule 1 above can be
     /// asked without a `Tables`.
     pub effects: monomorphize::Effects,
@@ -252,13 +248,11 @@ impl Parking {
     }
 
     /// The answer for a function value this pass could not follow: whether the
-    /// program builds a parking one of the same type.
+    /// program builds a parking one of the same type. Every position asked
+    /// about is a callee, an argument or a `let` of function type, so the type
+    /// is always one to ask under.
     fn unfollowed(&self, ty: &Ty) -> bool {
-        if is_fn_ty(ty) {
-            self.parking_types.contains(ty)
-        } else {
-            self.any_parking_value
-        }
+        self.parking_types.contains(ty)
     }
 
     /// Whether running this body reaches something that waits.
@@ -385,7 +379,6 @@ pub fn parkability(program: &Program) -> Parking {
         parking: program.funcs.map(|_| LocalSet::default()),
         resolved: program.funcs.map(|_| LocalSet::default()),
         parking_types: HashSet::default(),
-        any_parking_value: false,
         effects: program.shapes.effects.clone(),
     };
 
@@ -483,10 +476,6 @@ pub fn parkability(program: &Program) -> Parking {
         }
         for ty in found {
             if w.parking_types.insert(*ty) {
-                changed = true;
-            }
-            if !w.any_parking_value {
-                w.any_parking_value = true;
                 changed = true;
             }
         }
