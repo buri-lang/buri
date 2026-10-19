@@ -119,6 +119,42 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 50
+
+- **`glue.rs` `load_through` unaligned offset**: removed structurally.
+  - `layout::Words` is a byte offset that is a whole number of words. `layout::At` is a field's offset, `Word(Words)` or `Byte(u32)`; every type holding a pointer is word-aligned, so a field at a `Byte` offset holds no count.
+  - `counts::Field.offset`, `Site::Block.offset`, `Site::Guarded.null_at` and `EnumRepr::Niche.null_at` are `Words`. `counts::fields` skips a `Byte` field with a `let-else`.
+  - `load_through` takes `Words`, so its arm64 condition is only the 12-bit range.
+- **llvm `emit.rs` walk**: `Walk::Count(Count, &Place)` or `Walk::Copy { base, align }`. A copy carries its block, so the two `place_address(...).or_ice("a copy walks a value in memory")` are gone. `walk_memory` turns a glue job's `Op` into a `Walk`.
+- **llvm `emit.rs` float constant**: takes `f32`/`f64` from `ty == ir::Type::F32`, like `jit.rs`. The `ice` arm is gone.
+- Native output (debug, release and test hosts of `cli/tests/conformance` and `cli/tests/example`) is byte-identical: 178 of 178 artifacts.
+
+Landed on `staging` as 2378098ee and 0884385dd. The repo count (plan rule) went from 90 to 88. With every guard form, `llvm/emit.rs` went from 28 to 25; no other file changed.
+
+## Coverage (local, then CI)
+
+| Area | Local base | Local new | CI baseline (staging) | CI estimate |
+| --- | --- | --- | --- | --- |
+| total | 14796/15068 | 14797/15068 | 14883/15071 | 14884/15071 |
+| backend | 64/64 | 66/66 | 68/68 | 70/70 |
+| llvm | 547/548 | 545/546 | 580/580 | 578/578 |
+| middle | 1840/1876 | 1842/1878 | 1840/1876 | 1842/1878 |
+| stencil | 1040/1081 | 1039/1079 | 1069/1080 | 1068/1078 |
+
+Every new branch is covered locally. llvm's one uncovered branch locally is macOS-only, as before.
+
+## Not done, and why
+
+- **`object.rs` addend check (2 uncovered branches)**: `object::Reloc` is shared by the Mach-O and ELF writers. ELF needs signed addends (x86-64 `-4` and per-site `Pc32` distances), and Mach-O `Abs64` needs wide ones. A Mach-O-only 24-bit type needs one of these:
+  - the x86-64 correction moved into `RelKind` (`Pc32 { back: u8 }`), touching `asm.rs` `ShimReloc`, `region.rs`, `jit.rs` and `elf.rs`; or
+  - an addend enum whose instruction and word forms the Mach-O writer still has to tell apart, which leaves an impossible pairing representable.
+  - Anchoring on fixed 16 MiB boundaries would make the addend `slot & 0xff_ffff` with no check, but a literal could straddle an anchor and be split by `-dead_strip`.
+- **`jit::fn_ty`**: the thunk needs only whether the function takes an environment parameter. That's not derivable from `env.is_some()`: a capture-free lambda becomes `ExprKind::FuncRef` with a leading unit parameter (`middle::closures`). Recording it needs `closures.rs` to mark it, which means a `crates/semantics` `ExprKind` change, or lowering to match the source `Ty` (a new guard). Gains 1 guard and no coverage.
+
+## Next
+
+- llvm `emit.rs` 25 left. The `place_pointer(...).or_ice` group (5) is a slot list against layout offsets; `agg_ty`/`enum_ty`/`list_ty` and friends (7 `ice` arms near line 4090) are the `Type::Agg` shape class; `result_shape` (3) wants `types::result_shape` (semantics) to return `T` too.
+
 # Guard plan, phase 49
 
 ## Branches
