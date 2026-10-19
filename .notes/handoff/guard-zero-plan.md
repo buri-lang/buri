@@ -119,6 +119,64 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 57
+
+## What landed
+
+- A `Result` answer is a `ResTy`, a `Result` `EnumTy`. `types::result_shape` is total, with `VariantId::OK` and `VariantId::ERR` as known variants beside `SOME` and `NONE`.
+  - `ir::Answer` gains `InlineRes(ResTy)`. `Res` and `ResMsg` hold a `ResTy`.
+  - `TypeList::result_shape` and `Remap::result` read and remap it.
+  - Stencil's `OptRepr::of` is total.
+- `MakeArray` and `ArraySlice` carry a `ListTy`.
+  - Typed `ExprKind::Array` and `PatKind::Array` record their element `Ty`. Inference resolves it and monomorphize substitutes it.
+  - llvm `generic_element` reads an `Elems` argument through `list_element`. `empty_list` takes an `ir::Type`.
+  - Stencil `list_elem` replaces `array_elem` and `array_stride`.
+- `ir::Facts::params` holds a `Passing` per parameter. `Passing::Borrow(Agg)` names the aggregate the caller keeps a count for.
+  - `lower::facts` builds it from the plan's `Ownership` and the signature. `Remap::passing` keeps it right when tables are adopted.
+  - `rc` still plans with `ir::Ownership`, because it runs before there are IR types. The unused `FuncPlan::facts` is gone.
+
+These are removed:
+- llvm `list_ty`, `element_of`, `agg` and `agg_ty`;
+- stencil `lists::element_of`, `array_elem` and `array_stride`;
+- derives' `json_object_ty`.
+
+Debug and release native output is byte-identical to base on conformance and `tests/example`, for build, test and test `--release`. JS differs only in the hashed `.mjs` filenames, and their contents match apart from `$t.seed`.
+
+## Guards
+
+The plan-rule count goes from 78 to 73:
+- stencil `OptRepr::of(..).or_ice`;
+- both backends' `types::result_shape(..).or_ice`;
+- stencil `convert_checked`'s `error_ty` `.or_ice`;
+- llvm `convert_checked`'s `variant_types` `.or_ice`.
+
+Three uncounted `ice` arms went too: llvm `list_ty`, llvm `agg` and stencil `lists::element_of`.
+
+## Coverage
+
+Branches, measured locally on macOS.
+
+| Area | Local base | Local new | CI baseline (staging) | CI estimate |
+| --- | --- | --- | --- | --- |
+| middle | 1863/1896 (98.26%) | 1865/1898 (98.26%) | 1839/1872 (98.24%) | 1859/1892 (98.26%) |
+| js | 996/1022 | 996/1022 | 996/1022 | unchanged |
+| llvm | 531/532 | 531/532 | 580/580 | unchanged |
+| stencil | 1039/1079 | 1039/1079 | 1069/1078 | unchanged |
+| semantics | 2154/2154 | 2154/2154 | 2158/2158 | unchanged |
+| backend | 44/44 | 44/44 | 68/68 | 46/46 (phase 56) |
+
+## Left
+
+- llvm still has `ice` arms for integer, float and pointer slots (`emit.rs` near line 4100) and for `Bounded` (near line 7978).
+- Stencil still has `GetPayload of an absent field` and `prim_tag(..).or_ice`.
+- The `Json` lookups in both backends (`json_variant(..).or_ice`) remain.
+
+## Validation and landing
+
+- `cargo fmt --all --check` and CI's clippy commands, plus `-p buri --features backend-llvm --all-targets`, report 0 warnings. This also fixed two empty-line-after-doc-comment warnings that phase 57's first commit had added.
+- The full suite with `--features buri/backend-llvm` passes. The final rebase changed only the coverage baseline files.
+- Landed on staging as 5b4c6c419, d89c2ca3f and 6e443ed31, on top of 68aac3047.
+
 # Guard phase 56
 
 ## What landed

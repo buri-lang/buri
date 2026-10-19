@@ -2,8 +2,10 @@
 //! (`TyConId::OPTION` and the rest) are the ones it says, in every way a
 //! compilation opens.
 
+use crate::compiler::backend::intrinsic_keys::JsonArm;
 use crate::compiler::driver::{self, Analysis};
 use crate::compiler::modules::Role;
+use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::types::{MethodId, TraitId, TyConId};
 use crate::compiler::standard_library;
 use crate::diagnostics::SourceMap;
@@ -99,6 +101,37 @@ fn a_program_opens_with_the_known_ids() {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_std_module(&mut map, "core/json");
     holds_the_known_ids("a program", &analysis);
+}
+
+/// Each [`JsonArm`] a primitive encodes to is the `core/json` `Json` variant
+/// its `variant` says, and carries the one field its `payload` says.
+#[test]
+fn each_json_arm_is_the_variant_it_names() {
+    let mut map = SourceMap::new();
+    let analysis = driver::analyze_std_module(&mut map, "core/json");
+    let tables = &analysis.checked.tables;
+    let m = analysis
+        .loaded
+        .find("core/json")
+        .expect("`core/json` is loaded");
+    let Some(&Sym::Ty(json)) = analysis.checked.scopes.get(m).exports.get("Json") else {
+        panic!("`core/json` exports the type `Json`");
+    };
+    let variants = tables.tycon(json).variants();
+    for (arm, name) in [
+        (JsonArm::Bool, "Bool"),
+        (JsonArm::Num, "Num"),
+        (JsonArm::Str, "Str"),
+    ] {
+        let v = variants.get(arm.variant());
+        assert_eq!(v.name, name, "`VariantId::JSON_*` are `Json`'s order");
+        let fields: Vec<_> = v.fields.iter().map(|f| f.ty).collect();
+        assert_eq!(
+            fields,
+            [tables.prim(arm.payload())],
+            "`Json.{name}`'s field"
+        );
+    }
 }
 
 #[test]

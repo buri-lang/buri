@@ -109,7 +109,7 @@ impl TraitId {
     pub const SATURATING: TraitId = TraitId(31);
 }
 
-/// The variants `core/option`, `core/result` and `core/order` declare, in their
+/// The variants `core/option`, `core/result`, `core/order` and `core/json` declare, in their
 /// order, which the backends already depend on.
 impl MethodId {
     /// A trait's first method, which is a derivable trait's only one.
@@ -126,6 +126,10 @@ impl VariantId {
     pub const LESS: VariantId = VariantId(0);
     pub const EQUAL: VariantId = VariantId(1);
     pub const GREATER: VariantId = VariantId(2);
+    /// `core/json`'s `Json`, which declares `Null` first.
+    pub const JSON_BOOL: VariantId = VariantId(1);
+    pub const JSON_NUM: VariantId = VariantId(2);
+    pub const JSON_STR: VariantId = VariantId(3);
 
     /// The variant at `i` in a standard library declaration that fixes its
     /// order, as `ui/style`'s does.

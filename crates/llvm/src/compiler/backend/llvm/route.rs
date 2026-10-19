@@ -7,7 +7,7 @@
 
 use super::emit::{open_coded_key, prim_leaf};
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, derive_key, number_key, numeric_key, Leaf,
+    bits_op, derive_key, number_key, numeric_key, Leaf, Num,
 };
 use crate::compiler::backend::runtime_table::{self as runtime, Entry};
 use crate::compiler::middle::ir;
@@ -34,8 +34,8 @@ impl<'p> Routes<'p> {
 /// generated, and an operation the archive has a body for is called.
 #[derive(Clone, Copy)]
 pub(crate) enum Route<'p> {
-    /// `number.<T>.<op>`: the primitive and the operation.
-    Numeric(Prim, &'p str),
+    /// `number.<T>.<op>`: the number and the operation.
+    Numeric(Num, &'p str),
     CopyOut,
     /// A [`prim_leaf`]: the primitive and the operation.
     Leaf(Prim, &'p str),
