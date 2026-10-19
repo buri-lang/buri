@@ -3016,10 +3016,13 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             if facts.uses(name) as usize != reads.values().sum::<usize>() {
                 return false;
             }
+            // A slot pasted to its read is computed there, so nothing it
+            // reads may be reassigned: a tail-call loop rebinds its
+            // parameters before the call that loops reads the slot.
             reads.iter().all(|(k, n)| {
-                items
-                    .get(*k)
-                    .is_some_and(|e| e.is_pure_literal() || *n == 1)
+                items.get(*k).is_some_and(|e| {
+                    (e.is_pure_literal() || *n == 1) && !depends_on_assigned(e, facts)
+                })
             })
         })
         .collect();
