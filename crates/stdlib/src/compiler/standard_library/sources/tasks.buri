@@ -225,7 +225,6 @@ export fn scope<C: Allocator + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
         },
     };
     let _ = draining(ctx, here);
-    let _ = resting(ctx, here);
     answer
 }
 
@@ -247,10 +246,7 @@ export fn spawn<C: Allocator + Tasks>(ctx: C, scope: Scope, step: fn(C) => ()): 
     let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(step)]));
     match (scopeEnter(ctx, scope.0)) {
         false => (),
-        true => {
-            let _ = draining(ctx, scope);
-            resting(ctx, scope)
-        },
+        true => draining(ctx, scope),
     }
 }
 
@@ -382,6 +378,10 @@ fn ran<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
 /// and answers that round's indices, `parallel` runs them, and whatever they
 /// spawned is the next round. So a task spawned by a task is waited for, and
 /// the overlap inside a round is `parallel`'s.
+///
+/// The empty round that ends this also gives the drain up, in the same call
+/// that found nothing waiting. So a task spawned as the drain ends was either
+/// in that round or finds no drain, and runs on the task that spawned it.
 fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
     let round = scopeRound(ctx, scope.0);
     match (round.isEmpty()) {
@@ -389,28 +389,6 @@ fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
         false => {
             let _ = parallel(ctx, round, fn(c, i, at) => running(c, scope, at));
             draining(ctx, scope)
-        },
-    }
-}
-
-/// Gives the drain up, and takes it back where something arrived while it was
-/// being given up.
-///
-/// The one race this module has: a task that spawns just as the drain is
-/// ending would otherwise wait for a drain that has already stopped. So
-/// `scopeLeave` answers whether anything is waiting, and this takes the drain
-/// back when it is.
-fn resting<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
-    match (scopeLeave(ctx, scope.0)) {
-        false => (),
-        true => {
-            match (scopeEnter(ctx, scope.0)) {
-                false => (),
-                true => {
-                    let _ = draining(ctx, scope);
-                    resting(ctx, scope)
-                },
-            }
         },
     }
 }
@@ -466,7 +444,7 @@ fn carried<T>(value: T): Carried<T> {
 
 // --- The runtime's half -------------------------------------------------------
 //
-// Ten operations for scopes, and two for timers at the end. The two that move a task move a **whole block** — a
+// Nine operations for scopes, and two for timers at the end. The two that move a task move a **whole block** — a
 // one-element `[Carried<fn(C) => ()>]` — which is what makes them
 // implementable against a runtime compiled once that knows no Buri type.
 // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` records the argument, and
@@ -483,7 +461,8 @@ fn scopeOpen<C: Tasks>(ctx: C): Int;
 fn scopePush<C: Tasks, T>(ctx: C, handle: Int, task: [Carried<T>]): Option<Int>;
 
 /// Moves everything waiting into a round and answers that round's indices.
-/// An empty list where nothing is waiting, which is what ends the drain.
+/// An empty list where nothing is waiting, which ends the drain and gives it
+/// up.
 fn scopeRound<C: Tasks>(ctx: C, handle: Int): [Int];
 
 /// Takes the round's task at `index`, once. `.None` where it is already taken.
@@ -492,10 +471,6 @@ fn scopeTaskAt<C: Tasks, T>(ctx: C, handle: Int, index: Int): Option<[Carried<T>
 /// Becomes the scope's drain, where it has none. `false` where somebody else
 /// already is, and that somebody will pick up what this caller queued.
 fn scopeEnter<C: Tasks>(ctx: C, handle: Int): Bool;
-
-/// Gives the drain up, and answers whether anything is waiting — which is a
-/// task that arrived while the drain was ending, and has to be taken back up.
-fn scopeLeave<C: Tasks>(ctx: C, handle: Int): Bool;
 
 /// Whether this scope's tasks run beside its body. `true` only in a native
 /// `--release` program, and then the body counts as running until `scopeRan`.

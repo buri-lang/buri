@@ -3716,6 +3716,7 @@ function $tasks_scopeRound(c, handle) {
   const s = $scopeAt(handle);
   if (s === undefined) return $own([]);
   s.round = s.waiting.splice(0);
+  s.draining = s.round.length > 0;
   return $own(s.round.map((_, i) => BigInt(i)));
 }
 
@@ -3735,13 +3736,6 @@ function $tasks_scopeEnter(c, handle) {
   if (s === undefined || s.draining) return false;
   s.draining = true;
   return true;
-}
-
-function $tasks_scopeLeave(c, handle) {
-  const s = $scopeAt(handle);
-  if (s === undefined) return false;
-  s.draining = false;
-  return s.waiting.length > 0;
 }
 
 // A page's tasks wait for the scope's body, so a scope here never runs them
