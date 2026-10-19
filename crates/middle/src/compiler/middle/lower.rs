@@ -1583,7 +1583,10 @@ impl FnLower<'_> {
                 self.emit(ty, |dest| Inst::MakeClosure {
                     dest,
                     func,
-                    env: Some(env),
+                    env: Some(ir::Env {
+                        value: env,
+                        ty: rec,
+                    }),
                 })
             }
             // A lambda `middle::closures` did not lift. Lifting it here would

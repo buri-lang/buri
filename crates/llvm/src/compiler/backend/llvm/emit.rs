@@ -164,7 +164,7 @@ pub struct Unit<'ctx, 'a> {
     /// A helper is inserted here **before** its body is built, which is what
     /// makes the walk over a recursive type terminate: `Release` for a `Tree`
     /// asks for `Release` for a `Tree`, and the second ask finds the first.
-    thunks: Map<(u32, bool), FunctionValue<'ctx>>,
+    thunks: Map<(u32, Option<ir::RecTy>), FunctionValue<'ctx>>,
     /// [`Unit::made_glue`]'s functions, by type, `op` and whether they walk a
     /// `[T]` block's elements.
     glues: Map<(Ty, Op, bool), FunctionValue<'ctx>>,
@@ -1535,11 +1535,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let whole = self.get(state, agg);
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
             let at = self.reprs.of(self.program, id).layout.field(index);
-            let boxed = self
-                .boxed_fields(ty)
-                .get(index)
-                .copied()
-                .unwrap_or(false);
+            let boxed = self.boxed_fields(ty).get(index).copied().unwrap_or(false);
             let value = self.field_in_memory(state.b, code, dest, base, at, boxed);
             self.set(state, dest, value);
             return;
@@ -1548,12 +1544,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
-        if self
-            .boxed_fields(ty)
-            .get(index)
-            .copied()
-            .unwrap_or(false)
-        {
+        if self.boxed_fields(ty).get(index).copied().unwrap_or(false) {
             let block = ptr(repr::slot_at(state.b, whole, start as u32));
             let (_, _, align) = self.dest_shape(code, dest);
             let value = self.load_value(state.b, block, &want, align);
@@ -2355,12 +2346,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         dest: ir::ValueId,
         func: FuncIdx,
-        env: Option<ir::ValueId>,
+        env: Option<ir::Env>,
     ) {
-        let thunk = self.thunk(func, env.is_some());
+        let thunk = self.thunk(func, env.map(|e| e.ty));
         let env_ptr = match env {
             None => self.ptr_ty().const_null(),
-            Some(e) => self.build_env(state, code, e),
+            Some(e) => self.build_env(state, code, e.value),
         };
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let values = [function_pointer(thunk).into(), env_ptr.into()];
@@ -3946,7 +3937,7 @@ enum Job<'ctx> {
     Thunk {
         value: FunctionValue<'ctx>,
         func: FuncIdx,
-        env: bool,
+        env: Option<ir::RecTy>,
     },
     /// Run `op` over one value of `ty`, or over every element of a `[T]`
     /// block of them.
@@ -4701,7 +4692,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// A closure's `code` pointer: the thunk over `func`.
-    fn thunk(&mut self, func: FuncIdx, env: bool) -> FunctionValue<'ctx> {
+    fn thunk(&mut self, func: FuncIdx, env: Option<ir::RecTy>) -> FunctionValue<'ctx> {
         let key = (func.index() as u32, env);
         if let Some(f) = self.thunks.get(&key) {
             return *f;
@@ -4712,7 +4703,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .sig
                 .params
                 .iter()
-                .skip(usize::from(env))
+                .skip(usize::from(env.is_some()))
                 .copied()
                 .collect(),
             ret: f.sig.ret,
@@ -4833,7 +4824,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         func: FuncIdx,
-        env: bool,
+        env: Option<ir::RecTy>,
         env_ptr: PointerValue<'ctx>,
     ) {
         let b = state.b;
@@ -4856,10 +4847,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(out) = out {
             argv.push(out.into());
         }
-        // The environment record, an aggregate: the callee's first parameter.
-        if let Some(&first) = full.params.first().filter(|_| env) {
+        // The environment record: the callee's first parameter.
+        if let Some(rec) = env {
+            let first = ir::Type::Agg(ir::Agg::Record(rec));
             let slots = repr::ir_slots(&mut self.reprs, self.program, first);
-            let align = self.reprs.of(self.program, agg(first)).layout.align;
+            let align = self.reprs.of(self.program, rec.id()).layout.align;
             let record = b.byte_offset(env_ptr, i64::from(ENV_FIELDS), "env.rec");
             // The callee *owns* its environment record, so it drops what
             // the record holds — and the block still holds it too, because
@@ -4868,7 +4860,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // closure that captured a `Str` and is called once frees it
             // twice.
             if own.first() == Some(&ir::Ownership::Own) {
-                let ty = self.agg_ty(first);
+                let ty = self.program.type_info(rec.id()).ty;
                 if self.rc_counted(&ty) {
                     let place = Place {
                         base: record,
@@ -4889,7 +4881,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // An argument the callee only borrows, kept until after the call.
         let mut borrowed: Vec<(Ty, Place<'ctx>)> = Vec::new();
         // After the `sret` pointer and the environment.
-        for (j, p) in sig.iter().enumerate().skip(usize::from(env)) {
+        for (j, p) in sig.iter().enumerate().skip(usize::from(env.is_some())) {
             let slots = repr::ir_slots(&mut self.reprs, self.program, *p);
             // A value held in memory is the caller's address, passed on.
             if repr::in_memory(&slots) {
