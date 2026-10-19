@@ -1156,6 +1156,23 @@ const TAKEN_NATIVELY: &[(&str, usize)] = &[
     ("list.removeAt", 0),
 ];
 
+/// The intrinsic parameters a JavaScript list **keeps**: the element `push`,
+/// `insertAt`, `replaceAt` and `repeat` put in the list they answer, and the
+/// one `core/map`'s splices put in a node's children.
+///
+/// Under [`Options::sharing`] only. A caller that keeps the element then holds
+/// a second reference to it, and the duplication is the mark that stops a
+/// later push onto the element, through the caller's own name, from writing
+/// into the list that holds it. Natively the runtime retains what it stores.
+const STORED_BY: &[(&str, usize)] = &[
+    ("list.push", 2),
+    ("list.insertAt", 3),
+    ("list.replaceAt", 3),
+    ("list.repeat", 1),
+    ("map.insertAt", 3),
+    ("map.replaceAt", 3),
+];
+
 /// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
 /// handed over on the native branch too.
 ///
@@ -1220,27 +1237,29 @@ fn infer_ownership(
     // An intrinsic borrows what it is given (see the module docs), so its row
     // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
     // before the fixpoint so that callers are promoted against it. Under
-    // `sharing`, all eleven. Natively, the four folds' seed and `str.show`'s
-    // receiver alone: both native backends hand the seed to the first step,
-    // and answer the shown `Str`, without a retain of their own.
+    // `sharing`, all eleven, and the six elements [`STORED_BY`] names.
+    // Natively, the four folds' seed and `str.show`'s receiver alone: both
+    // native backends hand the seed to the first step, and answer the shown
+    // `Str`, without a retain of their own.
     for (i, f) in program.funcs.entries() {
         let FuncKind::Intrinsic(key) = &f.kind else {
-            continue;
-        };
-        let native = TAKEN_NATIVELY.iter().filter(|_| !opts.sharing);
-        let Some((_, at)) = TAKEN_BY
-            .iter()
-            .chain(native)
-            .find(|(k, _)| *k == key.as_str())
-        else {
             continue;
         };
         if !opts.sharing && !taken_natively(key) {
             continue;
         }
-        *own.get_mut(i)
-            .get_mut(*at)
-            .or_ice("`TAKEN_BY` names a parameter the intrinsic has") = ir::Ownership::Own;
+        let native = TAKEN_NATIVELY.iter().filter(|_| !opts.sharing);
+        let stored = STORED_BY.iter().filter(|_| opts.sharing);
+        let row = own.get_mut(i);
+        for (_, at) in TAKEN_BY
+            .iter()
+            .chain(native)
+            .chain(stored)
+            .filter(|(k, _)| *k == key.as_str())
+        {
+            *row.get_mut(*at)
+                .or_ice("`TAKEN_BY` names a parameter the intrinsic has") = ir::Ownership::Own;
+        }
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
     // and never back — so its answer is the same whatever order the rules are
