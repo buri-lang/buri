@@ -538,6 +538,47 @@ test "a gate that asks itself from its own step is refused, and the ask spends a
     assert.equal(keeper.stop(ctx), .Ok(()));
 }
 
+test "a task the gate's own step spawned may stop the gate, and the loop then stops" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let keeper = actor.start(ctx, Actor {
+        ..gate(3),
+        onStop: .Some(fn(c, left: Int) => {
+            io.println(c, "closed with ${left} left").ignore()
+        }),
+    });
+    // The task runs inside the step, which holds the gate, so the stop doesn't
+    // wait for it. It answers at once, and the hook runs once the step is done.
+    let inside = keeper.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let _ = tasks.scope(c, fn(c2, here) => {
+                let _ = tasks.spawn(c2, here, fn(c3) => {
+                    say(c3, match (keeper.stop(c3)) {
+                        .Ok(()) => "stopped",
+                        .Err(.Stopped) => "already stopped",
+                    })
+                });
+                ()
+            });
+            say(c, "step goes on")
+        }),
+    );
+    assert.isTrue(match (inside) {
+        .Ok(.Carry) => true,
+        _other => false,
+    });
+    frames(ctx, keeper, 0);
+    assert.equal(
+        out.captured(),
+        "stopped\nstep goes on\nclosed with 3 left\nthe loop stopped\n",
+    );
+}
+
 /// The gated loop's whole life, through a context of its own: what it printed.
 fn gatedApart(): Str {
     let out = stdout();

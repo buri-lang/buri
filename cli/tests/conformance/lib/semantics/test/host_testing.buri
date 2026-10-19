@@ -2659,6 +2659,31 @@ test "a join sent from inside the room's own step is refused, and still joins" {
     let _stopped = members.stop(ctx);
 }
 
+test "a room that stops itself from its own step publishes nothing more" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+    };
+    let only = s.open();
+    let members = actor.start(ctx, Actor {
+        ..room(),
+        onStop: .Some(fn(c, last: [Socket]) => assert.equal(last, [only])),
+    });
+    let _joined = members.sendMessage(ctx, .Joined(only));
+    let inside = members.sendMessage(
+        ctx,
+        .Within(fn(c) => assert.equal(members.stop(c), .Ok(()))),
+    );
+    assert.equal(assert.ok(inside), 1);
+    assert.isTrue(
+        assert.err(members.sendMessage(ctx, .Publish(.Text("late")))) == .Stopped,
+    );
+    assert.equal(s.sent(), []);
+    assert.equal(members.stop(ctx), .Err(.Stopped));
+}
+
 test "a socket the room closed is one a later broadcast does not reach" {
     let s = sockets();
     let ctx = context {

@@ -502,6 +502,29 @@ test "a mapCtx inside the recorder's own step waits for each refused send" {
     let _ = heard.stop(ctx).ignore();
 }
 
+test "a mapCtx inside the recorder's own step may stop it, once" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, Actor {
+        ..recorder(),
+        onStop: .Some(fn(c, seen: Int) => assert.equal(seen, 12)),
+    });
+    let _ = [1, 2].mapCtx(ctx, fn(c, x) => noted(heard.sendMessage(c, .Saw(x))));
+    // Each stop is made from inside the recorder's own step. The first stops it
+    // at once, and the second finds it stopped.
+    let inside = heard.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let stops = [1, 2].mapCtx(c, fn(d, _x) => heard.stop(d));
+            assert.equal(stops, [.Ok(()), .Err(.Stopped)])
+        }),
+    );
+    assert.equal(heardSoFar(inside), 12);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), -1);
+}
+
 // --- while a scope holds pages ------------------------------------------------
 
 /// The recorder's whole life, through a context of its own: what it heard.

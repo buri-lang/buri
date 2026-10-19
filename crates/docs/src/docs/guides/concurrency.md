@@ -300,8 +300,9 @@ would be waiting for itself, so the send doesn't wait. The message is posted all
 the same, and the loop already running steps it before it puts the state back.
 
 A step that stops the actor running it gets `.Ok(())` at once, and so does a
-task that step started. The mailbox closes then, and `onStop` runs with the
-state the step leaves behind once the step is done.
+task that step started. The mailbox closes right away, dropping anything the
+step sent itself, and `onStop` runs once the step is done, with the state it
+leaves behind.
 
 ## Why the state goes behind a mailbox
 

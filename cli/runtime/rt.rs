@@ -2115,6 +2115,10 @@ const TIMED_OUT: i32 = 1;
 /// started from, so waiting for it would never end.
 const WOULD_DEADLOCK: i32 = 2;
 
+/// `core/actor`'s `Unclosed.Held`: what `mailboxClose` answers where the
+/// caller's own step holds the state. Its `.Stopped` is [`STOPPED`].
+const HELD: i32 = 1;
+
 /// Take a permit from `sem`, or give up at `deadline`.
 ///
 /// `None` is both endings, because both callers answer them the same way: the
@@ -2273,12 +2277,13 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_rest(handle: i64, out: *mut BuriL
     unsafe { out.write(list) }
 }
 
-/// `actor.mailboxClose(ctx, handle) -> Option<[Carried<S>]>` — closes, once,
-/// and answers the final state.
+/// `actor.mailboxClose(ctx, handle) -> Result<[Carried<S>], Unclosed>` —
+/// closes, once, and answers the final state.
 ///
 /// **Waits for the baton**, so a `stop` that races a step lets that step
-/// finish. A second close answers `.None` without waiting, which is what makes
-/// `core/actor`'s `onStop` run exactly once.
+/// finish. A second close answers [`STOPPED`] without waiting, which is what
+/// makes `core/actor`'s `onStop` run exactly once. [`HELD`] where the caller's
+/// own step holds the state.
 ///
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
@@ -2305,16 +2310,12 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
                 if matches!(mailbox.holder, Some(holder) if within(holder)) {
                     // **The caller's own step holds the state**, directly or
                     // through a task it started, so waiting for it would be
-                    // waiting for itself. Answer at once with no state, which
-                    // makes `stop` answer `.Ok(())` without running `onStop`,
-                    // and close the baton: every `stateTake` waiting is
-                    // answered now, and the `statePut` that ends the step
-                    // leaves the state with its caller, who runs `onStop`.
+                    // waiting for itself. Close the baton instead: every
+                    // `stateTake` waiting is answered now, and the `statePut`
+                    // that ends the step hands the state back to its caller,
+                    // who runs `onStop`.
                     mailbox.baton.close();
-                    // SAFETY: the caller promises a writable, aligned
-                    // destination.
-                    unsafe { out.write(crate::list::block(0, 0)) };
-                    return crate::BURI_OK;
+                    return HELD;
                 }
                 Arc::clone(&mailbox.baton)
             }
@@ -2329,8 +2330,8 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
     // does. Giving up costs nothing the close was going to get — the mailbox is
     // already marked closed above, so the actor takes no more messages and
     // `stateTake` refuses it whatever happens next — and the state below is
-    // then `None` for exactly as long as the step still holds it, which is the
-    // `.None` a *second* close already answers. The closed baton below makes
+    // then gone for exactly as long as the step still holds it, which is the
+    // [`STOPPED`] a *second* close already answers. The closed baton below makes
     // the `statePut` that ends that step leave the state with its caller, who
     // runs `onStop` then, if the step ever finishes.
     if let Ok(permit) = permit_within(&baton, deadline) {
@@ -2443,15 +2444,15 @@ unsafe fn handed(mailbox: &mut Mailbox, out: *mut BuriList) -> i32 {
     crate::BURI_OK
 }
 
-/// `actor.statePut(ctx, handle, state) -> [Carried<S>]` — the state back, and
-/// an empty list.
+/// `actor.statePut(ctx, handle, state) -> Option<[Carried<S>]>` — the state
+/// back, and `.None`.
 ///
 /// The block is kept wherever the actor exists, **including a closed one**: a
 /// close is waiting on the baton this call gives back, and the state it is
 /// waiting for is this one. The one exception is a closed baton, which means
 /// no close is waiting: a `stop` made from inside this step, or one that gave
 /// up waiting for it. Nothing will take the state then, so it comes straight
-/// back, and `core/actor` runs `onStop` with it.
+/// back as `.Some`, and `core/actor` runs `onStop` with it.
 ///
 /// # Safety
 /// `ptr` is null or a live `[Carried<S>]` block the caller owns; `out` is
@@ -2462,26 +2463,24 @@ pub unsafe extern "C" fn buri_rt_actor_state_put(
     ptr: *mut u8,
     len: u64,
     out: *mut BuriList,
-) {
+) -> i32 {
     let state = BuriList { ptr, len };
-    let unput = {
+    let orphaned = {
         let mut table = actors();
-        match at(&mut table, handle) {
-            None => crate::list::block(0, 0),
-            Some(mailbox) => {
-                mailbox.holder = None;
-                if mailbox.baton.is_closed() {
-                    Held::keep(state).give()
-                } else {
-                    mailbox.state = Some(Held::keep(state));
-                    mailbox.baton.add_permits(1);
-                    crate::list::block(0, 0)
-                }
-            }
+        let Some(mailbox) = at(&mut table, handle) else {
+            return 0;
+        };
+        mailbox.holder = None;
+        if !mailbox.baton.is_closed() {
+            mailbox.state = Some(Held::keep(state));
+            mailbox.baton.add_permits(1);
+            return 0;
         }
+        Held::keep(state).give()
     };
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(unput) }
+    unsafe { out.write(orphaned) };
+    crate::BURI_OK
 }
 
 /// `actor.scopesLive() -> Bool` — whether any `alloc.scoped` arena holds pages
@@ -6329,9 +6328,13 @@ mod tests {
         );
         // The step finishes after all, and nothing takes its state back.
         let mut unput = nothing();
-        // SAFETY: a live one-element block, and a writable, aligned destination.
-        unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) };
-        assert_eq!(unput.len, 1, "a state nothing waits for was kept");
+        assert_eq!(
+            // SAFETY: a live one-element block, and a writable, aligned destination.
+            unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) },
+            crate::BURI_OK,
+            "a state nothing waits for was kept"
+        );
+        assert_eq!(unput.len, 1);
         drop_ref(&unput);
         drop_ref(&held);
     }
@@ -6386,9 +6389,12 @@ mod tests {
         assert!(waited < SOON, "the take waited {waited:?}");
 
         let mut unput = nothing();
-        // SAFETY: a live one-element block, and a writable, aligned destination.
-        unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) };
-        assert_eq!(unput.len, 0, "a state the actor keeps was handed back");
+        assert_eq!(
+            // SAFETY: a live one-element block, and a writable, aligned destination.
+            unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) },
+            0,
+            "a state the actor keeps was handed back"
+        );
         drop_ref(&held);
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
@@ -6443,9 +6449,12 @@ mod tests {
             "a take answered while another thread held the state"
         );
         let mut unput = nothing();
-        // SAFETY: a live one-element block, and a writable, aligned destination.
-        unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) };
-        assert_eq!(unput.len, 0, "a state the actor keeps was handed back");
+        assert_eq!(
+            // SAFETY: a live one-element block, and a writable, aligned destination.
+            unsafe { buri_rt_actor_state_put(actor, held.ptr, held.len, &raw mut unput) },
+            0,
+            "a state the actor keeps was handed back"
+        );
         drop_ref(&held);
         assert_eq!(
             first.join().unwrap(),
@@ -6568,9 +6577,12 @@ mod tests {
 
         let next = carried(8);
         let mut unput = nothing();
-        // SAFETY: a live one-element block, and a writable, aligned destination.
-        unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut unput) };
-        assert_eq!(unput.len, 0, "a state the actor keeps was handed back");
+        assert_eq!(
+            // SAFETY: a live one-element block, and a writable, aligned destination.
+            unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut unput) },
+            0,
+            "a state the actor keeps was handed back"
+        );
         drop_ref(&next);
         drop_ref(&held);
 
@@ -6645,9 +6657,12 @@ mod tests {
 
         let next = carried(2);
         let mut unput = nothing();
-        // SAFETY: a live one-element block, and a writable, aligned destination.
-        unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut unput) };
-        assert_eq!(unput.len, 0, "a state a close waits for was handed back");
+        assert_eq!(
+            // SAFETY: a live one-element block, and a writable, aligned destination.
+            unsafe { buri_rt_actor_state_put(actor, next.ptr, next.len, &raw mut unput) },
+            0,
+            "a state a close waits for was handed back"
+        );
         drop_ref(&next);
         drop_ref(&held);
 
@@ -6793,8 +6808,10 @@ mod tests {
                 assert_eq!(buri_rt_actor_mailbox_pop(handle, &raw mut list), 0);
                 assert_eq!(buri_rt_actor_mailbox_close(handle, &raw mut list), 0);
                 assert_eq!(buri_rt_actor_state_take(handle, &raw mut list), 0);
-                buri_rt_actor_state_put(handle, held.ptr, held.len, &raw mut list);
-                assert_eq!(list.len, 0);
+                assert_eq!(
+                    buri_rt_actor_state_put(handle, held.ptr, held.len, &raw mut list),
+                    0
+                );
                 assert_eq!(
                     buri_rt_actor_mailbox_push(handle, held.ptr, held.len, &raw mut number),
                     0
