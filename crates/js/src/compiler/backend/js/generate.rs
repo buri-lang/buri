@@ -498,43 +498,43 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     stmts.splice(runtime_end..runtime_end, consts);
 
     let mut roots = Vec::new();
-    if let ProgramRoots::Main(entry) = &program.roots {
-        let entry = *entry;
-        // `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-        let f = program.funcs.get(entry);
+    // **What an entry *is* is decided by its platform.** An entry with a `js`
+    // file is called by that file; everything else runs itself and reports how
+    // it went. The two epilogues are the whole of that difference in the
+    // artifact.
+    if let Some(export) = &program.hosted.export {
+        // A repository platform's entry with a `js` file: the file calls it,
+        // so the artifact hands it over rather than starting it.
+        let f = program.funcs.get(export.func);
         let sym = f.symbol.clone();
         roots.push(sym.clone());
-        // **What an entry *is* is decided by its platform.** An entry with a
-        // `js` file is called by that file; everything else runs itself and
-        // reports how it went. The two epilogues are the whole of that
-        // difference in the artifact.
-        if let Some(name) = &program.hosted.export {
-            // A repository platform's entry with a `js` file: the file calls
-            // it, so the artifact hands it over rather than starting it.
-            stmts.push(g.hosted_export(name, &sym, f));
-            roots.push(String::from(HOSTED_PROGRAM));
-            if program.hosted.ui {
-                stmts.push(Stmt::Raw(String::from(
-                    super::crossing::HOSTED_UI_DEFINITION,
-                )));
-                roots.push(String::from(super::crossing::HOSTED_UI));
-            }
-        } else {
-            // Awaited only when the entry itself parks, so an artifact whose
-            // `main` never waits is the same bytes it was before this
-            // transform. The epilogue is module top level, where `await` is
-            // available because every artifact this backend writes is an ES
-            // module.
-            let wait = if g.parks(entry) { "await " } else { "" };
-            // What the two arms *do* is `runtime.js`'s `$done` and `$failed`,
-            // because both have to flush what the program printed before they
-            // say anything of their own — and a flush before a `process.exit`
-            // is a claim only the runtime's synchronous writer can keep
-            // (buri-lang/buri#42).
-            stmts.push(Stmt::Raw(format!(
-                "try{{const r={wait}{sym}();$done(r)}}catch(e){{$failed(e)}}"
+        stmts.push(g.hosted_export(&export.name, &sym, f));
+        roots.push(String::from(HOSTED_PROGRAM));
+        if program.hosted.ui {
+            stmts.push(Stmt::Raw(String::from(
+                super::crossing::HOSTED_UI_DEFINITION,
             )));
+            roots.push(String::from(super::crossing::HOSTED_UI));
         }
+    }
+    if let ProgramRoots::Main(root) = &program.roots {
+        let entry = root.func();
+        // `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
+        let sym = program.funcs.get(entry).symbol.clone();
+        roots.push(sym.clone());
+        // Awaited only when the entry itself parks, so an artifact whose
+        // `main` never waits is the same bytes it was before this transform.
+        // The epilogue is module top level, where `await` is available because
+        // every artifact this backend writes is an ES module.
+        let wait = if g.parks(entry) { "await " } else { "" };
+        // What the two arms *do* is `runtime.js`'s `$done` and `$failed`,
+        // because both have to flush what the program printed before they say
+        // anything of their own — and a flush before a `process.exit` is a
+        // claim only the runtime's synchronous writer can keep
+        // (buri-lang/buri#42).
+        stmts.push(Stmt::Raw(format!(
+            "try{{const r={wait}{sym}();$done(r)}}catch(e){{$failed(e)}}"
+        )));
     }
 
     if !program.roots.tests().is_empty() {
@@ -3446,7 +3446,7 @@ impl<'a> Gen<'a> {
                 Expr::Array(vec![
                     Expr::Str(t.name.clone()),
                     Expr::Str(t.module.clone()),
-                    Expr::ident(self.symbol(t.func)),
+                    Expr::ident(self.symbol(t.func.func())),
                 ])
             })
             .collect();

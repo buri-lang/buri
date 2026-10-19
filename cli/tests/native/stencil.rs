@@ -137,7 +137,12 @@ fn lowered(
             .map(|d| d.message.clone())
             .collect::<Vec<_>>()
     );
-    let entry = analysis.checked.entry.expect("the snippet exports `main`");
+    let entry = analysis
+        .checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the snippet exports `main`");
     let paths: Vec<String> = analysis
         .loaded
         .modules

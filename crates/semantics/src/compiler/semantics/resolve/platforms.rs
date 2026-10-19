@@ -308,6 +308,8 @@ impl<'a> Checker<'a> {
                         ));
                     return;
                 }
+                self.started
+                    .insert(name.to_string(), Started { func: fid, host });
             }
             _ => {}
         }

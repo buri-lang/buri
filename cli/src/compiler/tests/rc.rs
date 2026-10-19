@@ -35,7 +35,12 @@ pub(crate) fn compile(src: &str) -> Program {
         .map(|d| d.message.clone())
         .collect();
     assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
-    let entry = analysis.checked.entry.expect("the snippet exports `main`");
+    let entry = analysis
+        .checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the snippet exports `main`");
     let mut diags = Diagnostics::new();
     let paths: Vec<String> = analysis
         .loaded

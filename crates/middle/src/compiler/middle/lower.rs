@@ -179,9 +179,13 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         })
         .collect();
     let roots = match &program.roots {
-        ProgramRoots::Main(func) => ir::Roots::Main(ir::Main {
-            func: *func,
-            ret: types.enum_of(tables, &returns(program.funcs.get(*func)), TyConId::RESULT),
+        ProgramRoots::Main(root) => ir::Roots::Main(ir::Main {
+            root: *root,
+            ret: types.enum_of(
+                tables,
+                &returns(program.funcs.get(root.func())),
+                TyConId::RESULT,
+            ),
         }),
         ProgramRoots::Tests(tests) => ir::Roots::Tests(tests.iter().map(|t| t.func).collect()),
     };

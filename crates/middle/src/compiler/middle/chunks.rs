@@ -38,7 +38,7 @@
 
 use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::dce;
-use crate::compiler::middle::monomorphize::{Chunk, Program, ProgramRoots};
+use crate::compiler::middle::monomorphize::{Chunk, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind};
 use crate::compiler::semantics::types::FuncIdx;
 
@@ -54,7 +54,8 @@ pub fn run(program: &mut Program, split: bool) {
     if loads.is_empty() {
         return;
     }
-    if !split || !matches!(program.roots, ProgramRoots::Main(_)) {
+    // A program a `js` file calls runs no tests, and splits as a `main` does.
+    if !split || !program.roots.tests().is_empty() {
         for f in program.funcs.ids() {
             with_body(program, f, &mut |e| unwrap_load(e, &loads));
         }
@@ -232,7 +233,7 @@ fn walk_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
 mod tests {
     use super::*;
     use crate::compiler::middle::func_id;
-    use crate::compiler::middle::monomorphize::{Func, FuncKind};
+    use crate::compiler::middle::monomorphize::{Func, FuncKind, ProgramRoots, Root};
     use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
@@ -286,7 +287,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
-            roots: ProgramRoots::Main(func_id(0)),
+            roots: ProgramRoots::Main(Root::assumed(func_id(0))),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),

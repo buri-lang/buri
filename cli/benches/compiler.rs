@@ -1479,7 +1479,9 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
         return;
     }
 
-    let Some(entry) = checked.entry else { return };
+    let Some(entry) = checked.started.get("main").copied() else {
+        return;
+    };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let flags = Flags::default();
     for &(target, profile) in targets {
@@ -2093,7 +2095,11 @@ fn measure(
     let mut d = Diagnostics::new();
     let checked = check(&loaded, &mut d);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let entry = checked.entry.expect("the corpus exports `main`");
+    let entry = checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the corpus exports `main`");
     let flags = Flags::default();
 
     for &(target, profile) in targets {
@@ -2218,7 +2224,9 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let checked = &check(&loaded, &mut diagnostics);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
-    let Some(entry) = checked.entry else { return };
+    let Some(entry) = checked.started.get("main").copied() else {
+        return;
+    };
     let flags = Flags::default();
 
     let build = || {
@@ -2347,7 +2355,7 @@ fn validate(program: &Program) -> Result<(), Vec<String>> {
             format!("{file}: {}", d.message)
         })
         .collect();
-    if checked.entry.is_none() {
+    if checked.started.get("main").copied().is_none() {
         problems.push("the corpus exports no `main`".to_string());
     }
     if !problems.is_empty() {
@@ -2371,7 +2379,7 @@ fn reach(program: &Program) -> (usize, usize) {
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let checked = check(&loaded, &mut diagnostics);
-    let Some(entry) = checked.entry else {
+    let Some(entry) = checked.started.get("main").copied() else {
         return (0, 0);
     };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
@@ -2449,7 +2457,7 @@ fn floor_costs() -> Floor {
         platform: Platform::Js,
         arch: None,
     };
-    let lower = match checked.entry {
+    let lower = match checked.started.get("main").copied() {
         Some(entry) => {
             let (t, ..) = bench(&cfg, || {
                 let mut d = Diagnostics::new();

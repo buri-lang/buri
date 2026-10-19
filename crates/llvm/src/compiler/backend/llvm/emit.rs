@@ -8400,17 +8400,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// bytes for the stencil emitter rather than assuming either way.
     ///
     /// `state` is passed and not read — `task_thread.rs` says why the parameter is
-    /// fixed before the caller that fills it exists — and a root with
-    /// parameters gets no door at all, for the reason `stencil/mod.rs`'s
-    /// `thread_door` gives: the record's layout is the *call site's*
-    /// decision, and there is no call site yet to make it.
-    pub fn thread_door(&mut self, root: FuncIdx, symbol: &str) {
-        let func = self.func(root);
-        let sig = ir::Signature {
-            params: Vec::new(),
-            ret: func.sig.ret,
-        };
-        let callee = self.declare(root);
+    /// fixed before the caller that fills it exists. A root takes nothing
+    /// ([`ir::Root`]), so the door passes it nothing.
+    pub fn thread_door(&mut self, root: ir::Root, symbol: &str) {
+        let sig = self.func(root.func()).sig.clone();
+        let callee = self.declare(root.func());
         let ctx = self.ctx;
         let door = build::Declared::add(
             &self.module,
@@ -8452,7 +8446,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     pub fn entry_point(&mut self, main: ir::Main) {
-        let callee = self.declare(main.func);
+        let callee = self.declare(main.root.func());
         let i32t = self.ctx.i32_type();
         let (shim, b) = self.main_shim();
         self.declare_values_may_cross_tasks(b);
@@ -8538,14 +8532,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// A `test` body answers `()`, so there is nothing to inspect between calls;
     /// `cli/runtime/testing.rs` states the protocol and
     /// `commands/test.rs::run_native` drives it.
-    pub fn test_entry_point(&mut self, tests: &[FuncIdx]) {
+    pub fn test_entry_point(&mut self, tests: &[ir::Root]) {
         let i32t = self.ctx.i32_type();
         let (shim, b) = self.main_shim();
         self.declare_values_may_cross_tasks(b);
         self.declare_frames_are_per_thread(b);
         let word = self.ctx.i64_type();
         for (i, test) in tests.iter().enumerate() {
-            let callee = self.declare(*test);
+            let callee = self.declare(test.func());
             let enter = self.declare_rt(runtime::TEST_ENTER, &[word.into()], Some(i32t.into()));
             let index = word.const_int(i as u64, false);
             let answer = self.call_c(b, enter, &[index.into()]);

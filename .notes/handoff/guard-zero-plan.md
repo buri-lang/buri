@@ -119,6 +119,40 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 68
+
+## What landed
+
+- `monomorphize::Root` is a function that takes nothing. Only `Root::push`, from a `Nullary` (no parameters, environment or descriptor), and test requests mint one. A test's build no longer copies the body's parameters.
+- `ProgramRoots::Main`, `ProgramRoots::Tests`, `ir::Roots` and `ir::Main` carry `Root`. Stencil's `thread_door` reads the root's frame with no check, and llvm's reads the root's signature knowing it's nullary.
+- `semantics::resolve::Started` is an entry whose host was accepted. `check_entry_signature` and `check_custom_entry` mint it, and `Checked.started` holds it by name.
+- `monomorphize::Roots::Main(Started)` builds a nullary wrapper that calls the entry with its host. `Roots::Handed` is an entry a `js` file calls: it keeps the forwarding wrapper, and its export is `Hosted.export` (an `Export` naming the function), set by monomorphization rather than by `cli/build/actions.rs`. A handed program's roots are `Tests(Vec::new())`.
+
+## Guards
+
+The plan-rule count goes from 42 to 41 (definitions included):
+
+- stencil `mod.rs` "a root has a frame and takes no arguments" (`thread_door`).
+
+The `ice(`, `unreachable!`, `.expect(` and `panic!` count in non-test compiler code stays at 19.
+
+## Branches
+
+No counted branch was removed. Four covered branches are new: `dce.rs` adds a handed program's export to the roots (2), and `actions.rs` picks `Roots::Handed` or `Roots::Main` (2). `monomorphize::entry` split into `started`, `handed`, `wrapped` and `host_value` with the same decisions.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| middle | 1858/1888 | 1860/1890 | 1859/1890 |
+| cli/build | 1628/1685 | 1630/1687 | 1677/1685 |
+
+Every other area is unchanged. The new branches are all covered, so no fraction can fall on CI.
+
+## Output
+
+The debug and release objects for `cli/tests/example` (54), and the stencil objects for the conformance corpus (651), are byte-identical between base and head.
+
 # Guard phase 67
 
 ## What landed

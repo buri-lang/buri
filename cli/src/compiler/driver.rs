@@ -828,7 +828,7 @@ pub fn compile_snippet_js_as(
         return Err(analysis.diagnostics);
     }
     let mut diags = Diagnostics::new();
-    let Some(entry) = analysis.checked.entry else {
+    let Some(entry) = analysis.checked.started.get("main").copied() else {
         diags.push(Diagnostic::templated("example-missing-main", Span::NONE));
         return Err(diags);
     };
