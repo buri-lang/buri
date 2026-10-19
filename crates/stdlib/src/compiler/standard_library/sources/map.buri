@@ -74,10 +74,10 @@ export struct Map<K, V> {
     export size: Int,
 }
 
-/// The five-bit chunk of `hash` that a node at `depth` branches on. The top
-/// chunk (`depth` 12) is the hash's four highest bits; nothing branches deeper,
-/// because two keys that agree on every chunk agree on the whole hash and so
-/// share a `Collision` rather than a branch.
+/// How many bits of the hash each level reads. The top chunk (depth 12) is the
+/// hash's four highest bits; nothing branches deeper, because two keys that
+/// agree on every chunk agree on the whole hash and so share a `Collision`
+/// rather than a branch.
 let BITS: Int = 5;
 
 /// The low five bits, as a mask over the hash.
@@ -86,9 +86,25 @@ let MASK: U64 = 31;
 /// A single set bit, for building slot masks.
 let ONE: U64 = 1;
 
-/// The chunk of `hash` a node at `depth` branches on, as an index in 0..31.
-fn chunkAt(hash: U64, depth: Int): Int {
-    (bits.shiftRightU64(hash, depth * BITS) & MASK).wrapToI64()
+// A descent carries `shifted`, the hash with the chunks of the levels above
+// already shifted out, so each level reads the low five bits and shifts by a
+// constant on the way down.
+
+/// The chunk a node branches on, as an index in 0..31: the low bits of
+/// `shifted`.
+fn chunkOf(shifted: U64): Int {
+    (shifted & MASK).wrapToI64()
+}
+
+/// What the level below reads of the hash.
+fn below(shifted: U64): U64 {
+    bits.shiftRightU64(shifted, BITS)
+}
+
+/// `hash` as a node at `depth` reads it. Only a leaf that has to make room
+/// asks, for the hash it keeps.
+fn shiftedAt(hash: U64, depth: Int): U64 {
+    if (depth == 0) { hash } else { shiftedAt(below(hash), depth - 1) }
 }
 
 /// The one-bit mask for slot `chunk`.
@@ -145,11 +161,11 @@ fn positionOf<K: Equal>(ks: [K], key: K, at: Int): Int {
 // Nodes
 // -----------------------------------------------------------------------------
 
-/// A one-slot branch holding `node` at the slot `hash` picks for `depth`. It is
-/// what a leaf becomes when a differently-hashed key has to join it: the branch
-/// separates them, and the caller re-inserts into it.
+/// A one-slot branch holding `node` at the slot its hash `h` picks for `depth`.
+/// It is what a leaf becomes when a differently-hashed key has to join it: the
+/// branch separates them, and the caller re-inserts into it.
 fn branchWith<K, V>(h: U64, node: Node<K, V>, depth: Int): Node<K, V> {
-    .Branch(bitOf(chunkAt(h, depth)), [node])
+    .Branch(bitOf(chunkOf(shiftedAt(h, depth))), [node])
 }
 
 /// A branch's node after a removal, collapsed if it has shrunk too far: an empty
@@ -174,13 +190,13 @@ fn compact<K, V>(bitmap: U64, children: [Node<K, V>]): Option<Node<K, V>> {
 }
 
 /// The value under `key` in the subtree `n`, whose keys' hashes agree with
-/// `hash` down to `depth`.
-fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
+/// `key`'s on every chunk above it. `shifted` is `key`'s hash as `n` reads it.
+fn find<K: Equal, V>(n: Node<K, V>, shifted: U64, key: K): Option<V> {
     match (n) {
         .Entry(_h, k, v) => if (k == key) { .Some(v) } else { .None },
         .Collision(_h, ks, vs) => vs.get(positionOf(ks, key, 0)),
         .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
+            let bit = bitOf(chunkOf(shifted));
             let found = if (hasSlot(bitmap, bit)) {
                 children.get(indexOf(bitmap, bit))
             } else {
@@ -188,25 +204,27 @@ fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
             };
             match (found) {
                 .None => .None,
-                .Some(child) => find(child, hash, key, depth + 1),
+                .Some(child) => find(child, below(shifted), key),
             }
         },
     }
 }
 
 /// The subtree after storing `(key, value)`, and whether the key was a new one
-/// — the `Bool` keeps `size` right without a second descent.
+/// — the `Bool` keeps `size` right without a second descent. `hash` is the
+/// key's, and `shifted` is it as `n`, at `depth`, reads it.
 fn insertNode<K: Equal, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
     hash: U64,
+    shifted: U64,
     key: K,
     value: V,
     depth: Int,
 ): (Node<K, V>, Bool) {
     match (n) {
         .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
+            let bit = bitOf(chunkOf(shifted));
             let idx = indexOf(bitmap, bit);
             // A name rather than a scrutinee, so the option lets go of the
             // child where the match takes it apart rather than after it.
@@ -230,6 +248,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                         ctx,
                         child,
                         hash,
+                        below(shifted),
                         key,
                         value,
                         depth + 1,
@@ -251,6 +270,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                     ctx,
                     branchWith(h, .Entry(h, k, v), depth),
                     hash,
+                    shifted,
                     key,
                     value,
                     depth,
@@ -277,6 +297,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                     ctx,
                     branchWith(h, .Collision(h, ks, vs), depth),
                     hash,
+                    shifted,
                     key,
                     value,
                     depth,
@@ -289,13 +310,12 @@ fn insertNode<K: Equal, V, C: Allocator>(
 /// The subtree after removing `key`, or `.None` when that emptied it.
 ///
 /// `key` is in the subtree: `remove` asks first, so a removal never descends
-/// for a key that is not there.
+/// for a key that is not there. `shifted` is the key's hash as `n` reads it.
 fn removeNode<K: Equal, V, C: Allocator>(
     ctx: C,
     n: Node<K, V>,
-    hash: U64,
+    shifted: U64,
     key: K,
-    depth: Int,
 ): Option<Node<K, V>> {
     match (n) {
         // The key is here, so this is its entry.
@@ -310,7 +330,7 @@ fn removeNode<K: Equal, V, C: Allocator>(
             }
         },
         .Branch(bitmap, children) => {
-            let bit = bitOf(chunkAt(hash, depth));
+            let bit = bitOf(chunkOf(shifted));
             let idx = indexOf(bitmap, bit);
             // Taken out of the list before the descent and put back after, for
             // the reason `insertNode` does it.
@@ -319,7 +339,7 @@ fn removeNode<K: Equal, V, C: Allocator>(
                 .None => .Some(n),
                 .Some(child) => {
                     let rest = removeAt(ctx, children, idx);
-                    match (removeNode(ctx, child, hash, key, depth + 1)) {
+                    match (removeNode(ctx, child, below(shifted), key)) {
                         .None => compact(bitmap & ~bit, rest),
                         .Some(c) => compact(bitmap, insertAt(ctx, rest, idx, c)),
                     }
@@ -378,7 +398,7 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// The value stored under `key`, if there is one.
     export fn get(self, key: K): Option<V> {
-        find(self.root, key.hash(), key, 0)
+        find(self.root, key.hash(), key)
     }
 
     export fn has(self, key: K): Bool {
@@ -387,7 +407,8 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// Stores `value` under `key`, replacing whatever was there.
     export fn insert<C: Allocator>(self, ctx: C, key: K, value: V): Map<K, V> {
-        let (root, added) = insertNode(ctx, self.root, key.hash(), key, value, 0);
+        let hash = key.hash();
+        let (root, added) = insertNode(ctx, self.root, hash, hash, key, value, 0);
         Map { root: root, size: if (added) { self.size + 1 } else { self.size } }
     }
 
@@ -399,7 +420,7 @@ impl<K: Hash + Equal, V> Map<K, V> {
             self
         } else {
             let size = self.size;
-            match (removeNode(ctx, self.root, key.hash(), key, 0)) {
+            match (removeNode(ctx, self.root, key.hash(), key)) {
                 .None => empty<K, V>(),
                 .Some(r) => Map { root: r, size: size - 1 },
             }

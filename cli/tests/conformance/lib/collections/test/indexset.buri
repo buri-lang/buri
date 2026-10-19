@@ -731,6 +731,15 @@ test "sets that share a hash are told apart as keys" {
     assert.equal(names.get(beside), .Some("d"));
     assert.isTrue(names.get(never).isNone());
     assert.equal(set.of(ctx, [a, b, c, a, beside]).length(), 4);
+    // With `a` alone in the map, `beside` is looked up and stored where `a`
+    // is, and the two are still told apart.
+    let alone = map.empty<IndexSet<Slot>, Str>().insert(ctx, a, "a");
+    assert.isTrue(alone.get(beside).isNone());
+    let both = alone.insert(ctx, beside, "d");
+    assert.equal(both.length(), 2);
+    assert.equal(both.get(a), .Some("a"));
+    assert.equal(both.get(beside), .Some("d"));
+    assert.equal(set.of(ctx, [a, beside]).length(), 2);
 }
 
 test "captured by a closure and answered by a task" {
