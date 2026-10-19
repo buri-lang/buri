@@ -248,7 +248,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `list.map`. The same mistake in the debug backend of the day leaked 199
     /// of them over a 200-element `[Str]`.
     ///
-    /// The **thunk's** release does not ask this at all: `ir::Ownership::Borrow`
+    /// The **thunk's** release does not ask this at all: `ir::Passing::Borrow`
     /// is set only where rc's classifier answered `Yes` (`middle/rc.rs`'s
     /// `infer_ownership`, whose other arm is `Own` "by convention" for anything
     /// uncounted), so the ownership column already carries rc's answer exactly.
@@ -4068,17 +4068,6 @@ fn function_pointer<'ctx>(f: FunctionValue<'ctx>) -> PointerValue<'ctx> {
     f.as_global_value().as_pointer_value()
 }
 
-// The shapes the verified IR and the slot table promise. Each is an internal
-// error where the promise breaks, rather than a branch no input reaches.
-
-/// The aggregate a value's type names.
-fn agg(ty: ir::Type) -> ir::TypeId {
-    match ty {
-        ir::Type::Agg(id) => id.id(),
-        _ => crate::diagnostics::ice("the verified IR types this value as an aggregate"),
-    }
-}
-
 /// One parameter of a runtime entry's C list: a Buri argument it takes, or
 /// one of §2 rule 4's stride and glue words, which take none.
 #[derive(Clone, Copy)]
@@ -4395,7 +4384,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if repr::in_memory(&slots) {
                 let value = self.load_value(b, at, &slots, align);
                 if let (true, BasicValueEnum::PointerValue(base)) = (
-                    own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty),
+                    own.get(i) == Some(&ir::Passing::Own) && self.rc_counted(ty),
                     value,
                 ) {
                     let place = Place {
@@ -4408,7 +4397,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 continue;
             }
             let pieces = self.load_slots(b, at, &slots, align);
-            if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
+            if own.get(i) == Some(&ir::Passing::Own) && self.rc_counted(ty) {
                 self.walk_rc(state, ty, &Place { base: at, align }, 0, Count::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
@@ -4855,7 +4844,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // dies. One of the two counts has to be taken here, or a
             // closure that captured a `Str` and is called once frees it
             // twice.
-            if own.first() == Some(&ir::Ownership::Own) {
+            if own.first() == Some(&ir::Passing::Own) {
                 let ty = self.program.type_info(rec.id()).ty;
                 if self.rc_counted(&ty) {
                     let place = Place {
@@ -4883,14 +4872,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if repr::in_memory(&slots) {
                 let arg = args.next();
                 argv.extend(arg.map(BasicMetadataValueEnum::from));
-                if let (
-                    Some(&ir::Ownership::Borrow),
-                    Some(ty),
-                    Some(BasicValueEnum::PointerValue(base)),
-                ) = (own.get(j), self.type_of(*p), arg)
+                if let (Some(&ir::Passing::Borrow(agg)), Some(BasicValueEnum::PointerValue(base))) =
+                    (own.get(j), arg)
                 {
                     borrowed.push((
-                        ty,
+                        self.program.type_info(agg.id()).ty,
                         Place {
                             base,
                             align: repr::memory_align(&slots),
@@ -4901,12 +4887,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             let taken: Vec<_> = args.by_ref().take(slots.len()).collect();
             argv.extend(taken.iter().map(|v| BasicMetadataValueEnum::from(*v)));
-            if own.get(j) != Some(&ir::Ownership::Borrow) {
+            let Some(&ir::Passing::Borrow(agg)) = own.get(j) else {
                 continue;
-            }
-            // Only a counted value is borrowed, and only an aggregate is
-            // counted. It is released from a stack copy, as `Unit::rc` does.
-            let ty = self.agg_ty(*p);
+            };
+            // A borrowed value is released from a stack copy, as `Unit::rc`
+            // does.
+            let ty = self.program.type_info(agg.id()).ty;
             let (size, align) = self.spill_shape(*p);
             let base = self.scratch(state, size, align);
             self.store_slots(b, base, &slots, align, &taken);
@@ -5937,11 +5923,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             at.saturating_add(until),
             align,
         );
-    }
-
-    /// The source type of an aggregate.
-    fn agg_ty(&self, ty: ir::Type) -> Ty {
-        self.program.type_info(agg(ty)).ty
     }
 
     /// One of the program's functions.

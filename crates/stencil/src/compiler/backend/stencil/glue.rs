@@ -1409,7 +1409,7 @@ impl Jit<'_> {
             if size > 0 {
                 self.elem_load(at, from, Q_ZERO, 8, size);
             }
-            if counted && facts.get(i) == Some(&ir::Ownership::Own) {
+            if counted && facts.get(i) == Some(&ir::Passing::Own) {
                 self.walk_rc(&mut st, &ty, at, Op::Retain, 0);
             }
             self.mv(cbase + to, at, slot);
@@ -1530,7 +1530,7 @@ impl Jit<'_> {
                 self.elem_load(to, env_at, scratch, ENV_FIELDS, w);
             }
             // An environment of no bytes is no record, and holds no count.
-            let owns = boxed && facts.first() == Some(&ir::Ownership::Own);
+            let owns = boxed && facts.first() == Some(&ir::Passing::Own);
             let record = sig_params.first().and_then(|t| source_ty(prog, *t));
             if let (true, Some(ty)) = (owns, record) {
                 self.walk_rc(&mut st, &ty, to, Op::Retain, 0);
@@ -1545,9 +1545,8 @@ impl Jit<'_> {
             let n = self.slot_bytes_of(prog, *t);
             self.mv(cbase + to, from, n);
             // Only a counted value, an aggregate, has an ownership to borrow.
-            let borrows = facts.get(j) == Some(&ir::Ownership::Borrow);
-            if let (true, Some(ty)) = (borrows, source_ty(prog, *t)) {
-                borrowed.push((from, ty));
+            if let Some(&ir::Passing::Borrow(agg)) = facts.get(j) {
+                borrowed.push((from, prog.type_info(agg.id()).ty));
             }
         }
 
