@@ -204,7 +204,7 @@ impl<'a> Folder<'a> {
             ExprKind::Const(id) => self.eval_const(*id),
 
             ExprKind::Tuple(xs) => Some(Value::Tuple(self.eval_all(xs, env)?)),
-            ExprKind::Array(xs) => Some(Value::Array(self.eval_all(xs, env)?)),
+            ExprKind::Array { elems: xs, .. } => Some(Value::Array(self.eval_all(xs, env)?)),
             ExprKind::StructLit { fields, .. } => Some(Value::Struct(self.eval_all(fields, env)?)),
             ExprKind::EnumLit { variant, args, .. } => Some(Value::Variant {
                 variant: *variant,
@@ -500,7 +500,7 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
                         .is_some_and(|w| matches_pattern(&f.pattern, w, env))
                 })
         }
-        (PatKind::Array { elems, rest }, Value::Array(vs)) => {
+        (PatKind::Array { elems, rest, .. }, Value::Array(vs)) => {
             let long_enough = if rest.is_open() {
                 vs.len() >= elems.len()
             } else {

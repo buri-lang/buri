@@ -2538,7 +2538,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             .collect();
         // An array literal has a statically known length and is not, by
         // itself, an allocation the programmer must account for.
-        typed::Expr::new(typed::ExprKind::Array(checked), Ty::array(elem_ty), span)
+        typed::Expr::new(
+            typed::ExprKind::Array {
+                elem: elem_ty,
+                elems: checked,
+            },
+            Ty::array(elem_ty),
+            span,
+        )
     }
 
     fn check_struct_lit(

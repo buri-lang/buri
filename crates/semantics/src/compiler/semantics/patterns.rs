@@ -149,6 +149,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 };
                 typed::PatKind::Array {
+                    elem: elem_ty,
                     elems: checked,
                     rest: rest_local,
                 }

@@ -250,7 +250,11 @@ pub enum ExprKind {
         args: Vec<Expr>,
     },
     Tuple(Vec<Expr>),
-    Array(Vec<Expr>),
+    /// `[a, b]`, whose elements are `elem`s.
+    Array {
+        elem: Ty,
+        elems: Vec<Expr>,
+    },
 
     Field {
         base: Box<Expr>,
@@ -464,8 +468,9 @@ pub enum PatKind {
         variant: VariantId,
         fields: Vec<FieldPat>,
     },
-    /// `[a, b, ..rest]`. Rest patterns bind only at the end.
+    /// `[a, b, ..rest]`, of `elem`s. Rest patterns bind only at the end.
     Array {
+        elem: Ty,
         elems: Vec<Pattern>,
         rest: ArrayRest,
     },
@@ -500,7 +505,7 @@ impl Pattern {
             PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
                 fields.iter().for_each(|p| p.pattern.each_bind(f))
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elems, rest, .. } => {
                 elems.iter().for_each(|p| p.each_bind(f));
                 if let ArrayRest::Bound(l) = rest {
                     f(*l);
@@ -527,7 +532,7 @@ impl Pattern {
             PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
                 fields.iter().for_each(|f| f.pattern.fresh_binds(out))
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elems, rest, .. } => {
                 elems.iter().for_each(|p| p.fresh_binds(out));
                 if let ArrayRest::Bound(l) = rest {
                     out.push(*l);
@@ -555,7 +560,7 @@ impl Pattern {
                 tables.tycon(*con).variants().len() == 1
                     && fields.iter().all(|f| f.pattern.is_irrefutable(tables))
             }
-            PatKind::Array { elems, rest } => elems.is_empty() && rest.is_open(),
+            PatKind::Array { elems, rest, .. } => elems.is_empty() && rest.is_open(),
             PatKind::Or(alts) => alts.iter().any(|p| p.is_irrefutable(tables)),
             _ => false,
         }
@@ -591,7 +596,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
+        | ExprKind::Array { elems: args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
@@ -686,7 +691,7 @@ pub fn children_mut<'a>(e: &'a mut Expr, f: &mut impl FnMut(&'a mut Expr)) {
         | ExprKind::StructLit { fields: args, .. }
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
-        | ExprKind::Array(args)
+        | ExprKind::Array { elems: args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,

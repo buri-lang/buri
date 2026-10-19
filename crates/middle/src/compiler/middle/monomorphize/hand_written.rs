@@ -155,10 +155,10 @@ fn project(base: Expr, index: usize, tuple: bool, ty: Ty) -> Expr {
     Expr::new(kind, ty, Span::NONE)
 }
 
-fn array_pattern(ty: Ty, elems: Vec<Pattern>, rest: ArrayRest) -> Pattern {
+fn array_pattern(elem: Ty, elems: Vec<Pattern>, rest: ArrayRest) -> Pattern {
     Pattern {
-        kind: PatKind::Array { elems, rest },
-        ty,
+        kind: PatKind::Array { elem, elems, rest },
+        ty: Ty::array(elem),
         span: Span::NONE,
     }
 }
@@ -628,11 +628,11 @@ impl Monomorphizer<'_> {
             local(xs, list),
             vec![
                 arm(
-                    array_pattern(list, Vec::new(), ArrayRest::None),
+                    array_pattern(elem, Vec::new(), ArrayRest::None),
                     local(acc, ret),
                 ),
                 arm(
-                    array_pattern(list, vec![bind(h, elem)], ArrayRest::Bound(t)),
+                    array_pattern(elem, vec![bind(h, elem)], ArrayRest::Bound(t)),
                     call(slot, again, ret),
                 ),
             ],
@@ -717,11 +717,11 @@ impl Monomorphizer<'_> {
     /// and `Show` and `Hash` hand the tail to `DerivedItems`.
     fn list(&mut self, d: &Deriving, elem: Ty, a: Expr, b: Option<Expr>, slot: FuncIdx) -> Expr {
         let list = Ty::array(elem);
-        let empty = || array_pattern(list, Vec::new(), ArrayRest::None);
+        let empty = || array_pattern(elem, Vec::new(), ArrayRest::None);
         let ret = d.ret;
         let h = self.new_local("h", elem, Span::NONE);
         let t = self.new_local("t", list, Span::NONE);
-        let cons = |h, t| array_pattern(list, vec![bind(h, elem)], ArrayRest::Bound(t));
+        let cons = |h, t| array_pattern(elem, vec![bind(h, elem)], ArrayRest::Bound(t));
         match (d.op, b) {
             (Op::Equal | Op::Compare, Some(b)) => {
                 let k = self.new_local("k", elem, Span::NONE);

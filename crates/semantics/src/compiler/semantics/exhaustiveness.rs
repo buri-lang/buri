@@ -277,7 +277,7 @@ fn lower(p: &Pattern) -> Pat {
                 .unwrap_or(0);
             Pat::Ctor(Ctor::Variant(*con, *variant), by_index(fields, total))
         }
-        PatKind::Array { elems, rest } => {
+        PatKind::Array { elems, rest, .. } => {
             let subs: Vec<Pat> = elems.iter().map(lower).collect();
             let ctor = if rest.is_open() {
                 Ctor::ArrayRest(subs.len())

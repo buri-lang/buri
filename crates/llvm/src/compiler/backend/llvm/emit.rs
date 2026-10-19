@@ -975,7 +975,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 variant,
                 fields,
             } => self.make_enum(state, code, *dest, *ty, *variant, fields),
-            ir::Inst::MakeArray { dest, elems } => self.make_array(state, code, *dest, elems),
+            ir::Inst::MakeArray { dest, ty, elems } => self.make_array(state, *dest, *ty, elems),
             ir::Inst::MakeClosure { dest, func, env } => {
                 self.make_closure(state, code, *dest, *func, *env)
             }
@@ -1012,9 +1012,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 ty,
                 index,
             } => self.array_get(state, *dest, *array, *ty, *index),
-            ir::Inst::ArraySlice { dest, array, from } => {
-                self.array_slice(state, code, *dest, *array, *from)
-            }
+            ir::Inst::ArraySlice {
+                dest,
+                array,
+                ty,
+                from,
+            } => self.array_slice(state, code, *dest, (*array, *ty), *from),
             ir::Inst::ArrayAlloc { dest, ty, len } => self.array_alloc(state, *dest, *ty, *len),
             ir::Inst::ArraySet {
                 array,
@@ -2057,8 +2060,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// empty list leaked one block here and none on the debug backend. The
     /// backends now account for the same program identically, which is what
     /// `cli/tests/fuzz.rs`'s ownership search compares.
-    fn empty_list(&mut self, b: At<'ctx>, id: ir::TypeId) -> BasicValueEnum<'ctx> {
-        let slots = self.reprs.of(self.program, id).slots.clone();
+    fn empty_list(&mut self, b: At<'ctx>, ty: ir::Type) -> BasicValueEnum<'ctx> {
+        let slots = repr::ir_slots(&mut self.reprs, self.program, ty);
         let values = [
             self.ptr_ty().const_null().into(),
             self.ctx.i64_type().const_zero().into(),
@@ -2073,14 +2076,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn make_array(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
+        list: ir::ListTy,
         elems: &[ir::ValueId],
     ) {
-        let list = list_ty(code.ty_of(dest));
         let id = list.id();
         if elems.is_empty() {
-            let value = self.empty_list(state.b, id);
+            let value = self.empty_list(state.b, ir::Type::Agg(ir::Agg::List(list)));
             self.set(state, dest, value);
             return;
         }
@@ -2131,12 +2133,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        array: ir::ValueId,
+        (array, list): (ir::ValueId, ir::ListTy),
         from: ir::ValueId,
     ) {
         let word = self.ctx.i64_type();
         let list_ty = code.ty_of(array);
-        let element = self.element_of(list_ty);
+        let element = self.program.types.elem(list);
         let (stride, align) = {
             let r = self.reprs.of_ty(&element);
             (r.layout.stride, r.layout.align.max(1))
@@ -2291,11 +2293,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             index: i,
             element,
         }
-    }
-
-    /// The element type of a list.
-    fn element_of(&mut self, list: ir::Type) -> Ty {
-        self.program.types.elem(list_ty(list))
     }
 
     /// The element type of a value's type, where it is a list.
@@ -2824,7 +2821,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             _ => None,
         });
         match list {
-            Some(a) => Some(self.element_of(code.ty_of(a))),
+            Some(a) => self.list_element(code.ty_of(a)),
             None => self.list_element(code.ty_of(dest)),
         }
     }
@@ -4079,14 +4076,6 @@ fn agg(ty: ir::Type) -> ir::TypeId {
     match ty {
         ir::Type::Agg(id) => id.id(),
         _ => crate::diagnostics::ice("the verified IR types this value as an aggregate"),
-    }
-}
-
-/// The list a value's type names.
-fn list_ty(ty: ir::Type) -> ir::ListTy {
-    match ty {
-        ir::Type::Agg(ir::Agg::List(l)) => l,
-        _ => crate::diagnostics::ice("the verified IR types this value as a list"),
     }
 }
 
@@ -5837,7 +5826,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The indices are `VariantId::OK` and `VariantId::ERR`, the order
     /// `core/result` declares them in and `middle::layout` numbers them by.
     ///
-
     /// The payload's *size* comes from `T` and not from the variant's field
     /// list, because `Layout::variant` records where a field is and never how
     /// big it is: `Result<(), E>` has a field of no bytes, and whether the C
@@ -6686,7 +6674,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `list.empty()` is `Inst::MakeArray` with no elements, and it goes
             // to the same place: the null descriptor, which allocates nothing.
             ("list.empty", _) => {
-                let value = self.empty_list(b, list_ty(code.ty_of(dest)).id());
+                let value = self.empty_list(b, code.ty_of(dest));
                 self.set(state, dest, value);
                 true
             }

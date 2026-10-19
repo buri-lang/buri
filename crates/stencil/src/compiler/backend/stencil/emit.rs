@@ -445,10 +445,10 @@ impl<'a> Jit<'a> {
                 let p = self.region.pool_bytes(b);
                 self.emit("abort", &[Word::M.ptr(p), Lit::N.of(b.len() as u64)]);
             }
-            Inst::MakeArray { dest, elems } => {
+            Inst::MakeArray { dest, ty, elems } => {
                 // One allocation and `n` stores (VALUE-MODEL.md §4).
                 let d0 = st.at(*dest);
-                let stride = self.array_stride(prog, code.ty_of(*dest));
+                let stride = u64::from(self.list_elem(prog, *ty).0);
                 // One block of `n * stride` bytes with VALUE-MODEL.md §2's
                 // header, and the count beside it; the elements are stored
                 // below. `elemalloc` is `buri_rt_alloc` behind the
@@ -552,9 +552,14 @@ impl<'a> Jit<'a> {
             // pointer would make the next `decref` read a header that is not
             // one. Every element is retained on the way out, so the counts
             // balance against the copy's own eventual release.
-            Inst::ArraySlice { dest, array, from } => {
-                let (stride, _, _) = self.array_elem(prog, code.ty_of(*array));
-                let glue = self.element_glue(super::lists::element_of(prog, code.ty_of(*array)));
+            Inst::ArraySlice {
+                dest,
+                array,
+                ty,
+                from,
+            } => {
+                let (stride, _, _) = self.list_elem(prog, *ty);
+                let glue = self.element_glue(prog.types.elem(*ty));
                 let src = st.at(*array);
                 let dst = st.at(*dest);
                 // `buri_rt_list_slice(ptr, len, start, end, stride, retain,
@@ -2182,12 +2187,6 @@ impl<'a> Jit<'a> {
             .collect();
         let dest = (RET, f.sig.ret);
         self.rt_call(prog, st, (entry, answer), dest, &args, Vec::new());
-    }
-
-    /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
-    pub(crate) fn array_stride(&mut self, prog: &ir::Program, t: ir::Type) -> u64 {
-        let elem = super::lists::element_of(prog, t);
-        u64::from(self.layouts_of(elem).stride.max(1))
     }
 }
 

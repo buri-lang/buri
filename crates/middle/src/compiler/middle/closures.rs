@@ -243,7 +243,7 @@ fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
         PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
             .iter_mut()
             .for_each(|x| pattern_locals(&mut x.pattern, f)),
-        PatKind::Array { elems, rest } => {
+        PatKind::Array { elems, rest, .. } => {
             elems.iter_mut().for_each(|p| pattern_locals(p, f));
             if let typed::ArrayRest::Bound(l) = rest {
                 f(l);

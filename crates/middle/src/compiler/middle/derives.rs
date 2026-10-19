@@ -2274,12 +2274,12 @@ impl Generator {
     }
 
     fn json_array(&self, items: Vec<Expr>) -> Expr {
-        Expr::new(ExprKind::Array(items), self.json_array_ty(), Span::NONE)
-    }
-
-    /// `[(Str, Json)]`, which is what `.Object` carries.
-    fn json_object_ty(&self) -> Ty {
-        Ty::array(Ty::tuple([self.str_ty(), self.result_ty(Op::ToJson)]))
+        let elem = self.result_ty(Op::ToJson);
+        Expr::new(
+            ExprKind::Array { elem, elems: items },
+            Ty::array(elem),
+            Span::NONE,
+        )
     }
 
     fn json_members(&self, members: Vec<(String, Expr)>) -> Expr {
@@ -2294,7 +2294,14 @@ impl Generator {
                 )
             })
             .collect();
-        Expr::new(ExprKind::Array(items), self.json_object_ty(), Span::NONE)
+        Expr::new(
+            ExprKind::Array {
+                elem: pair_ty,
+                elems: items,
+            },
+            Ty::array(pair_ty),
+            Span::NONE,
+        )
     }
 
     fn json_of(&mut self, desc: usize, x: Expr, frame: &mut Frame) -> Option<Expr> {
@@ -2832,6 +2839,7 @@ impl Generator {
         }
         let exact = Pattern {
             kind: PatKind::Array {
+                elem: json,
                 elems,
                 rest: typed::ArrayRest::None,
             },
@@ -2862,7 +2870,14 @@ impl Generator {
         let xs_ty = Ty::array(self.json_ty());
         let xs = frame.local("xs", &xs_ty);
         let each = self.decode_each(ty, elem)?;
-        let empty = Expr::new(ExprKind::Array(Vec::new()), *ty, Span::NONE);
+        let empty = Expr::new(
+            ExprKind::Array {
+                elem: self.ty_of(elem),
+                elems: Vec::new(),
+            },
+            *ty,
+            Span::NONE,
+        );
         let args = vec![
             self.local_expr(xs, &xs_ty),
             pe.clone(),
@@ -3032,6 +3047,7 @@ impl Generator {
         );
         let single = Pattern {
             kind: PatKind::Array {
+                elem: pair_ty,
                 elems: vec![self.binding(pair, pair_ty)],
                 rest: typed::ArrayRest::None,
             },

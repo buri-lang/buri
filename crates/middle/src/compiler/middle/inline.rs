@@ -143,7 +143,7 @@ fn discardable(e: &Expr) -> bool {
         ExprKind::StructLit { fields: xs, .. }
         | ExprKind::EnumLit { args: xs, .. }
         | ExprKind::Tuple(xs)
-        | ExprKind::Array(xs) => xs.iter().all(discardable),
+        | ExprKind::Array { elems: xs, .. } => xs.iter().all(discardable),
         ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => discardable(base),
         _ => false,
     }
@@ -563,7 +563,7 @@ fn shift_pattern(p: &mut typed::Pattern, shift: &Shift<LocalId>) {
         PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
             .iter_mut()
             .for_each(|f| shift_pattern(&mut f.pattern, shift)),
-        PatKind::Array { elems, rest } => {
+        PatKind::Array { elems, rest, .. } => {
             elems.iter_mut().for_each(|p| shift_pattern(p, shift));
             if let typed::ArrayRest::Bound(l) = rest {
                 *l = shift.of(*l);

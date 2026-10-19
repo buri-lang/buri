@@ -2040,7 +2040,7 @@ impl<'a> Gen<'a> {
                 }
                 Some(cond)
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elems, rest, .. } => {
                 let len = Expr::member(subject.clone(), "length");
                 let mut cond = if rest.is_open() {
                     Expr::bin(BinOp::Ge, len, Expr::Num(elems.len() as f64))
@@ -2146,7 +2146,7 @@ impl<'a> Gen<'a> {
                     );
                 }
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elems, rest, .. } => {
                 for (i, p) in elems.iter().enumerate() {
                     self.bind(p, &Expr::index(subject.clone(), Expr::Num(i as f64)), out);
                 }
@@ -2275,7 +2275,7 @@ impl<'a> Gen<'a> {
                     );
                 }
             }
-            PatKind::Array { elems, rest } => {
+            PatKind::Array { elems, rest, .. } => {
                 for (i, p) in elems.iter().enumerate() {
                     self.bind_assignments(
                         p,
@@ -2536,7 +2536,7 @@ impl<'a> Gen<'a> {
                     self.intern(items)
                 }
             }
-            ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
+            ExprKind::Tuple(xs) | ExprKind::Array { elems: xs, .. } => {
                 let a = self.exprs(xs, out);
                 self.intern(a)
             }
