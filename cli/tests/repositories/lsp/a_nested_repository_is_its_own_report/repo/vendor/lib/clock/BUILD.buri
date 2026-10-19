@@ -1,0 +1,5 @@
+# No sources: `clock.buri` beside this is a finding, if anything reports on it.
+library {
+    sources: []
+    visibility: ["//visibility:public"]
+}
