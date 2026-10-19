@@ -991,3 +991,34 @@ There's no indexed read in Buri that can't answer `.None`, so these need a langu
 - **buri/ast 6278 `floatOf .None`** and **std/codegen/proto 3297** (`ast.parse` of a fixed source). Both parse text that always parses.
 
 **random 467 `radius == 0.0`** is a real guard against `ln(0)`. It needs two draws of exactly 0.5, and there's no public way to build that generator.
+
+## Stdlib MC/DC phase 24
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9835/9991 to 9828/9959 (98.7%). No module fell.
+
+- core/actor: 226/244 to 210/212
+- core/orderedmap: 1182/1215 to 1191/1215
+
+### Decisions removed
+
+- **actor 389 `unanswered .Ok(())`.** `drive` now answers the `SendError` itself, so `sendMessage` no longer asks a second time why the drive left nothing. Where the drive ran, the answer is there.
+- **actor 491 `discarding .Some`, once per instantiation (15).** `stop` used to pop leftover messages one at a time, and only a race with a send could leave one. The new `actor.mailboxRest` intrinsic takes every waiting message in one list and gives the room back, so `stop` has no decision. Changed in `rt.rs`, `runtime.js`, `runtime_table.rs`, `monomorphize.rs`, and the lists in `park.rs`, `rc.rs` and `actor_cross.txt`.
+
+Both new tests pass on the old code too:
+
+- `actor/test/counter.buri`: "a stop after a step's own sends finds each of them stepped, in order".
+- `native/agreement.rs`: `a_stop_racing_sends_lets_go_of_what_it_finds_waiting`. On JS every send lands in the mailbox before the stop, so the non-empty rest is dropped every time.
+
+`rt.rs` has the unit test `a_stop_before_a_drive_takes_every_message_still_waiting`.
+
+### Covered
+
+- **orderedmap's (Str, Entry) and (Str, [Entry]) splits.** Two new tests in `proto_gen/test/failures.buri` use two packages that each declare 60 messages. A field reaching each short name gets an ambiguity report for every one, in field order. A field reaching each name in full gets no report.
+
+### What's left
+
+- **actor 343 and 452** for the dialler (S = I64, M = Str, R = Bool). Its step can't reach its own address. Changing the types would only avoid the instantiation.
+- **map, 35.** These are collisions for keys that can't collide: Access, I64/[(I64, I64, Item)], IndexSet<Slot> and AllOne. AllOne's hash is constant, so its branch paths can't run. 318 `.None` can't run either, because `remove` asks `has` first with the same pure hash. Folding it would break the in-place `removeAt`. 91 and 96 are shift traps.
+- **orderedmap, 24.** All of them are K = Bool, V = Mood. A map with two keys never splits.
