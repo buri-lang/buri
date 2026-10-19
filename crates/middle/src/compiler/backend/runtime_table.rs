@@ -284,17 +284,19 @@ pub enum Ret {
     Scalar(CScalar),
     /// Nothing, and the call does not come back (SPEC 6.9).
     NoReturn,
-    /// One integer of exactly this width, which is **not** the destination's
-    /// register shape and is narrowed to it at the call site.
+    /// A `Bool` as a C `u8`, which is **not** the destination's register
+    /// shape and is narrowed to it at the call site.
     ///
-    /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_equal`
-    /// returns `u8` and `buri_rt_str_compare` returns `i32`, while `Bool` is an
-    /// `i1` and `Order` is whatever width `middle::layout` gave a three-variant
-    /// bare tag. Declaring the import at the destination's width instead would
-    /// work on both supported platforms by accident — the low byte of `eax` is
-    /// the low byte of the value — and would be wrong the first time a target
-    /// returned a narrow integer unextended.
-    Int(Narrow),
+    /// The C boundary has no `i1`: `buri_rt_str_equal` returns `u8`, while
+    /// `Bool` is an `i1`. Declaring the import at the destination's width
+    /// instead would work on both supported platforms by accident — the low
+    /// byte of `eax` is the low byte of the value — and would be wrong the
+    /// first time a target returned a narrow integer unextended.
+    Bool,
+    /// A `core/order` `Order` as a C `i32` variant index, narrowed to the
+    /// destination at the call site for [`Ret::Bool`]'s reason: `Order` is
+    /// whatever width `middle::layout` gave a three-variant bare tag.
+    Order,
     /// An aggregate written through a trailing out-pointer (§2 rule 2).
     ///
     /// The pointer is the destination's own slot, so the call writes the value
@@ -367,25 +369,6 @@ pub enum CScalar {
     U64,
     /// A `Float`.
     F64,
-}
-
-/// The integer a [`Ret::Int`] entry returns.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Narrow {
-    /// A `u8`, for a `Bool`.
-    U8,
-    /// An `i32`, for a bare enum tag.
-    I32,
-}
-
-impl Narrow {
-    /// The width C gives it.
-    pub fn bits(self) -> u32 {
-        match self {
-            Narrow::U8 => 8,
-            Narrow::I32 => 32,
-        }
-    }
 }
 
 /// What the frame-threaded backend appends after the flattened Buri
@@ -615,13 +598,13 @@ pub const ENTRIES: &[Entry] = &[
     e("str.trim", &[Str], Ret::Out),
     e("str.trimStart", &[Str], Ret::Out),
     e("str.trimEnd", &[Str], Ret::Out),
-    e("str.startsWith", &[Str, Str], Ret::Int(Narrow::U8)),
-    e("str.endsWith", &[Str, Str], Ret::Int(Narrow::U8)),
-    e("str.contains", &[Str, Str], Ret::Int(Narrow::U8)),
+    e("str.startsWith", &[Str, Str], Ret::Bool),
+    e("str.endsWith", &[Str, Str], Ret::Bool),
+    e("str.contains", &[Str, Str], Ret::Bool),
     e("str.indexOf", &[Str, Str], Ret::Sum),
     e("str.splitOnce", &[Str, Str], Ret::Sum),
-    e("str.compare", &[Str, Str], Ret::Int(Narrow::I32)),
-    e("str.equal", &[Str, Str], Ret::Int(Narrow::U8)),
+    e("str.compare", &[Str, Str], Ret::Order),
+    e("str.equal", &[Str, Str], Ret::Bool),
     e("str.hash", &[Str], Ret::Scalar(U64)),
     e("str.toInt", &[Str], Ret::Sum),
     e("str.toFloat", &[Str], Ret::Sum),
@@ -776,11 +759,11 @@ pub const ENTRIES: &[Entry] = &[
     // drift. So all eight go through the archive together rather than four of
     // them here and four there, and `cli/runtime/character.rs` is the one
     // place the answers live.
-    e("character.isDigit", &[Scalar], Ret::Int(Narrow::U8)),
-    e("character.isAlpha", &[Scalar], Ret::Int(Narrow::U8)),
-    e("character.isSpace", &[Scalar], Ret::Int(Narrow::U8)),
-    e("character.isUpper", &[Scalar], Ret::Int(Narrow::U8)),
-    e("character.isLower", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.isDigit", &[Scalar], Ret::Bool),
+    e("character.isAlpha", &[Scalar], Ret::Bool),
+    e("character.isSpace", &[Scalar], Ret::Bool),
+    e("character.isUpper", &[Scalar], Ret::Bool),
+    e("character.isLower", &[Scalar], Ret::Bool),
     e("character.toUpper", &[Scalar], Ret::Scalar(U32)),
     e("character.toLower", &[Scalar], Ret::Scalar(U32)),
     e("character.toDigit", &[Scalar, Scalar], Ret::Sum),
@@ -802,17 +785,13 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "crypto.ecdsaP256Sha256Verify",
         &[List, List, List],
-        Ret::Int(Narrow::U8),
+        Ret::Bool,
     ),
-    e(
-        "crypto.ed25519Verify",
-        &[List, List, List],
-        Ret::Int(Narrow::U8),
-    ),
+    e("crypto.ed25519Verify", &[List, List, List], Ret::Bool),
     e(
         "crypto.rsaPkcs1Sha256Verify",
         &[List, List, List, List],
-        Ret::Int(Narrow::U8),
+        Ret::Bool,
     ),
     // -- core/math, the exactly-specified half --------------------------------
     //
@@ -826,9 +805,9 @@ pub const ENTRIES: &[Entry] = &[
     e("math.ceiling", &[Float], Ret::Scalar(F64)),
     e("math.truncate", &[Float], Ret::Scalar(F64)),
     e("math.round", &[Float], Ret::Scalar(F64)),
-    e("math.isNan", &[Float], Ret::Int(Narrow::U8)),
-    e("math.isInfinite", &[Float], Ret::Int(Narrow::U8)),
-    e("math.isFinite", &[Float], Ret::Int(Narrow::U8)),
+    e("math.isNan", &[Float], Ret::Bool),
+    e("math.isInfinite", &[Float], Ret::Bool),
+    e("math.isFinite", &[Float], Ret::Bool),
     // -- the text streams ---------------------------------------------------
     //
     // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the
@@ -994,11 +973,7 @@ pub const ENTRIES: &[Entry] = &[
         &[Dropped, Scalar, Scalar],
         Ret::ResMsg,
     ),
-    e(
-        "host.HostSpawn.pollProcess",
-        &[Dropped, Scalar],
-        Ret::Int(Narrow::U8),
-    ),
+    e("host.HostSpawn.pollProcess", &[Dropped, Scalar], Ret::Bool),
     e(
         "host.HostSpawn.waitProcess",
         &[Dropped, Scalar],
@@ -1033,11 +1008,7 @@ pub const ENTRIES: &[Entry] = &[
     // fit the stencil backend's ten argument registers. `NetError`'s `BadUrl`
     // and `Transport` carry the sentence `Ret::ResMsg` gives a place to.
     e("host.HostNetwork.fetch", &[Dropped, Spilled], Ret::ResMsg),
-    e(
-        "host.HostFileSystem.fileExists",
-        &[Dropped, Str],
-        Ret::Int(Narrow::U8),
-    ),
+    e("host.HostFileSystem.fileExists", &[Dropped, Str], Ret::Bool),
     e(
         "host.HostClock.nowMilliseconds",
         &[Dropped],
@@ -1435,11 +1406,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.fsCalls", &[Scalar], Ret::Out),
     e("host_testing.fsReadFile", &[Scalar, Str], Ret::Res),
     e("host_testing.fsWriteFile", &[Scalar, Str, Str], Ret::Res),
-    e(
-        "host_testing.fsFileExists",
-        &[Scalar, Str],
-        Ret::Int(Narrow::U8),
-    ),
+    e("host_testing.fsFileExists", &[Scalar, Str], Ret::Bool),
     e("host_testing.fsReadDir", &[Scalar, Str], Ret::Res),
     e("host_testing.fsReadFileBytes", &[Scalar, Str], Ret::Res),
     e(
@@ -1543,7 +1510,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host_testing.recordTcpWrite",
         &[Scalar, Scalar, List],
-        Ret::Int(Narrow::U8),
+        Ret::Bool,
     ),
     e("host_testing.recordTcpClose", &[Scalar, Scalar], Ret::Void),
     e("host_testing.tcpCalls", &[Scalar], Ret::Out),
@@ -1661,11 +1628,7 @@ pub const ENTRIES: &[Entry] = &[
         &[Scalar, Scalar, Scalar],
         Ret::Void,
     ),
-    e(
-        "host_testing.spawnExited",
-        &[Scalar, Scalar],
-        Ret::Int(Narrow::U8),
-    ),
+    e("host_testing.spawnExited", &[Scalar, Scalar], Ret::Bool),
     e(
         "host_testing.spawnWait",
         &[Scalar, Scalar],
@@ -2591,15 +2554,10 @@ mod tests {
         }
     }
 
-    /// Every `fn <name>` in `source`, answered as the index of its `ctx`
-    /// parameter — `None` where it has none.
-    ///
-    /// A set rather than one answer because the name is looked up without its
-    /// owner: `Str.repeat` and `list.repeat` are two declarations of `repeat`,
-    /// and they are in two modules, so within one module the answers agree or
-    /// the lookup was not specific enough to assert on. The caller checks that.
-    fn declared_ctx(source: &str, name: &str) -> Vec<Option<usize>> {
-        declarations(source, name)
+    /// Each declaration's `ctx` parameter, as its index — `None` where it has
+    /// none.
+    fn declared_ctx(declared: &[Declared]) -> Vec<Option<usize>> {
+        declared
             .iter()
             .map(|d| {
                 d.params
@@ -2607,6 +2565,49 @@ mod tests {
                     .position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx"))
             })
             .collect()
+    }
+
+    /// The declarations of the operation `entry` names, from the module its
+    /// key's first segment names — `None` where no module declares it.
+    ///
+    /// A key `module.Type.name` is read from the `impl` blocks for `Type`
+    /// alone, so that `TestStdin.bytes` and `TestEntropy.bytes` each answer
+    /// for their own row. A key `module.name` is read from the whole module.
+    fn own_declarations(entry: &Entry) -> Option<Vec<Declared>> {
+        let (_, path) = DECLARED_IN
+            .iter()
+            .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))?;
+        let source = module_source(path);
+        let segments: Vec<&str> = entry.key.split('.').collect();
+        Some(match segments.as_slice() {
+            [_, owner, name] => declarations(&impl_bodies(source, owner), name),
+            [_, name] => declarations(source, name),
+            _ => panic!(
+                "{}: a key is `module.name` or `module.Type.name`",
+                entry.key
+            ),
+        })
+    }
+
+    /// The bodies of every `impl` block for `owner` in `source`, one after
+    /// another: `impl Owner {` and `impl Trait for Owner {`, each up to the
+    /// `}` that closes it at the start of a line.
+    fn impl_bodies(source: &str, owner: &str) -> String {
+        let mut out = String::new();
+        let mut inside = false;
+        for line in source.lines() {
+            if inside {
+                inside = line != "}";
+                out.push_str(line);
+                out.push('\n');
+                continue;
+            }
+            let Some(head) = line.strip_prefix("impl").and_then(|h| h.strip_suffix('{')) else {
+                continue;
+            };
+            inside = head.split_whitespace().next_back() == Some(owner);
+        }
+        out
     }
 
     /// Every `fn <name>` in `source`, read as far as its return type.
@@ -2698,24 +2699,13 @@ mod tests {
     /// about it — the signature.
     #[test]
     fn every_declared_context_is_dropped() {
-        let module = |path: &str| {
-            crate::compiler::standard_library::MODULES
-                .iter()
-                .find(|m| m.path == path)
-                .map(|m| m.source)
-        };
         let mut checked = 0usize;
         let mut contexts = 0usize;
         for entry in ENTRIES {
-            let Some((_, path)) = DECLARED_IN
-                .iter()
-                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
-            else {
+            let Some(declared) = own_declarations(entry) else {
                 continue;
             };
-            let source = module(path).unwrap_or_else(|| panic!("no module at {path}"));
-            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
-            let found = declared_ctx(source, name);
+            let found = declared_ctx(&declared);
             // `str.equal` and `str.hash` are `semantics/builtins.rs`'s, declared
             // on every primitive rather than written in `core/str` — so there
             // is nothing here to read, and neither takes a context.
@@ -2724,7 +2714,7 @@ mod tests {
             }
             assert!(
                 found.iter().all(|a| *a == found[0]),
-                "{}: two declarations of `{name}` in {path} disagree about `ctx`",
+                "{}: two declarations disagree about `ctx`",
                 entry.key
             );
             if let Some(at) = found[0] {
@@ -2746,29 +2736,28 @@ mod tests {
     }
 
     /// Every row's C scalars agree with the declaration: a `Float` parameter
-    /// is an [`Arg::Float`] and nothing else is, and a [`Ret::Scalar`] row
-    /// answers the C type its declared result crosses as.
+    /// is an [`Arg::Float`] and nothing else is, a [`Ret::Scalar`] row
+    /// answers the C type its declared result crosses as, and a [`Ret::Bool`]
+    /// or [`Ret::Order`] row answers a `Bool` or an `Order`.
     ///
     /// These are what let a backend build the call from the row alone, without
     /// asking the arguments' types which register file a word goes in or how
-    /// wide the answer is.
+    /// wide the answer is. The stencil backend stores an `Order` at its
+    /// layout's size, which is its tag's because no variant carries anything.
     #[test]
     fn every_declared_scalar_is_typed() {
         let mut params = 0usize;
         let mut floats = 0usize;
         let mut answers = 0usize;
+        let mut narrow = 0usize;
         for entry in ENTRIES {
-            let Some((_, path)) = DECLARED_IN
-                .iter()
-                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
-            else {
+            let Some(declared) = own_declarations(entry) else {
                 continue;
             };
-            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
             let consumed: Vec<Arg> = entry.consumed().collect();
             // An effect declares its methods without `self`, and the row has
             // one, so only a declaration of the row's own arity is the row's.
-            for d in declarations(module_source(path), name)
+            for d in declared
                 .into_iter()
                 .filter(|d| d.params.len() == consumed.len())
             {
@@ -2793,25 +2782,42 @@ mod tests {
                     assert_eq!(c, want, "{}: answers `{}`", entry.key, d.ret);
                     answers += 1;
                 }
+                let named = match entry.ret {
+                    Ret::Bool => "Bool",
+                    Ret::Order => "Order",
+                    _ => continue,
+                };
+                assert_eq!(d.ret, named, "{}: answers `{}`", entry.key, d.ret);
+                narrow += 1;
             }
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(params > 300, "only {params} parameters were read");
         assert_eq!(floats, 18);
         assert!(answers > 70, "only {answers} answers were read");
+        assert!(narrow > 15, "only {narrow} narrow answers were read");
+        let order = module_source("core/order")
+            .split("export enum Order {")
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .unwrap_or_else(|| panic!("no `enum Order` in `core/order`"));
+        assert!(
+            !order.contains('('),
+            "a variant of `Order` carries a field: {order}"
+        );
     }
 
-    /// Every row's argument shapes agree with a declaration of the same arity:
-    /// a `Str` crosses as [`Arg::Str`], a list as [`Arg::List`] or
+    /// Every row's argument shapes agree with its one declaration of the same
+    /// arity: a `Str` crosses as [`Arg::Str`], a list as [`Arg::List`] or
     /// [`Arg::Elems`], and a one-word value as [`Arg::Scalar`].
     ///
     /// The stencil backend flattens an argument by its row's shape and the
     /// LLVM backend by its type, so a row that names the wrong shape builds
     /// two different C calls from one program.
     ///
-    /// A key is looked up by its last segment, so two owners' methods of one
-    /// name and arity both answer: `TestStdin.bytes` takes a `[U8]` and
-    /// `TestEntropy.bytes` an `Int`. One of the declarations has to agree.
+    /// A key is looked up by its owner as well as its name, so a row is held
+    /// to exactly its own declaration: `TestStdin.bytes` takes a `[U8]` and
+    /// `TestEntropy.bytes` an `Int`.
     #[test]
     fn every_declared_argument_has_its_shape() {
         let fits = |key: &str, shape: Arg, ty: &str| {
@@ -2840,48 +2846,40 @@ mod tests {
         };
         let mut checked = 0usize;
         for entry in ENTRIES {
-            let Some((_, path)) = DECLARED_IN
-                .iter()
-                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
-            else {
+            let Some(declared) = own_declarations(entry) else {
                 continue;
             };
-            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
             let consumed: Vec<Arg> = entry.consumed().collect();
-            let declared = declarations(module_source(path), name);
             // `str.equal` and `str.hash` are `semantics/builtins.rs`'s.
-            if declared.is_empty() {
+            if matches!(entry.key, "str.equal" | "str.hash") {
                 continue;
             }
             let arity: Vec<&Declared> = declared
                 .iter()
                 .filter(|d| d.params.len() == consumed.len())
                 .collect();
+            let [own] = arity.as_slice() else {
+                panic!(
+                    "{}: {} declarations take {} arguments",
+                    entry.key,
+                    arity.len(),
+                    consumed.len()
+                );
+            };
             assert!(
-                !arity.is_empty(),
-                "{}: no declaration takes {} arguments",
-                entry.key,
-                consumed.len()
-            );
-            assert!(
-                arity
+                consumed
                     .iter()
-                    .any(|d| consumed.iter().enumerate().all(|(i, arg)| fits(
-                        entry.key,
-                        *arg,
-                        d.param_ty(i)
-                    ))),
+                    .enumerate()
+                    .all(|(i, arg)| fits(entry.key, *arg, own.param_ty(i))),
                 "{}: {consumed:?} against {:?}",
                 entry.key,
-                arity.iter().map(|d| &d.params).collect::<Vec<_>>()
+                own.params
             );
             // A fallible entry's error crosses through an out-pointer unless
             // it's an enum, and the runtime writes bytes there.
             if matches!(entry.ret, Ret::Res | Ret::ResMsg) {
                 assert!(
-                    arity
-                        .iter()
-                        .all(|d| !d.ret.replace(' ', "").ends_with(",()>")),
+                    !own.ret.replace(' ', "").ends_with(",()>"),
                     "{}: fails with `()`",
                     entry.key
                 );
