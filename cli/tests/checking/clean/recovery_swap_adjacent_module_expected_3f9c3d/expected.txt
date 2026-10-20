@@ -1,0 +1,9 @@
+error: expected `enum`, found `Shape` [unexpected-token]
+ --> main.buri:7:1
+  |
+7 | Shape enum {
+  | ^^^^^
+  |
+  = expected: `enum`
+  = actual: `Shape`
+  = fix: write `enum` first: `enum Shape`

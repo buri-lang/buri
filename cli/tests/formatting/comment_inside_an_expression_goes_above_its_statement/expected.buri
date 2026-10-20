@@ -1,0 +1,5 @@
+export fn total(a: Int, b: Int): Int {
+    // the second one
+    let sum = a + b;
+    sum
+}

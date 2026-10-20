@@ -1,0 +1,12 @@
+error: this tuple-struct field list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:6:21
+  |
+6 | struct Pair(Int, Int;
+  |                     ^
+  |
+ --> main.buri:6:12
+  |
+6 | struct Pair(Int, Int;
+  |            ^ opened here
+  |
+  = fix: write `)` here

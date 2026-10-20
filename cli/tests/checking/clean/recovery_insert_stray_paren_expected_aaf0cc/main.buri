@@ -1,6 +1,0 @@
-export fn show<T: Show>(
-    // the bound
-    x: extra T,
-): T {
-    x
-}

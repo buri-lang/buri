@@ -1,0 +1,17 @@
+error: there is nothing named `g` in scope [unknown-name]
+ --> main.buri:2:5
+  |
+2 |     g(
+  |     ^
+  |
+  = did you mean `f`?
+  = fix: if you meant `f`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: expected `:`, found `?` [unexpected-token]
+  --> main.buri:10:14
+   |
+10 | export fn g(a? : Int, b: Int): Int {
+   |              ^
+   |
+   = expected: `:`
+   = actual: `?`
+   = fix: write `:` here

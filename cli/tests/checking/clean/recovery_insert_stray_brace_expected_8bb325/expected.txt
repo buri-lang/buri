@@ -1,9 +1,0 @@
-error: expected `:`, found `x` [unexpected-token]
- --> main.buri:2:11
-  |
-2 |     extra x: Int,
-  |           ^
-  |
-  = expected: `:`
-  = actual: `x`
-  = fix: write `:` here

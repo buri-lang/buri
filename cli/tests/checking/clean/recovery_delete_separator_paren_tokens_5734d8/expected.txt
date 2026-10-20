@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:40:44
-   |
-40 |             .OnSurface => style.token("kit" "onSurface"),
-   |                                            ^
-   |
-   = fix: write `,` here

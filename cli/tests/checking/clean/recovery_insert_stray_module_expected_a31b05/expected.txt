@@ -1,0 +1,9 @@
+error: expected `(`, found `?` [unexpected-token]
+ --> main.buri:4:2
+  |
+4 | >? (x: T): T {
+  |  ^
+  |
+  = expected: `(`
+  = actual: `?`
+  = fix: write `(` here

@@ -28,6 +28,9 @@ export fn describe(s: State): Str {
 }
 
 export fn sum(xs: [Count]): Count {
-    xs.fold(fn(acc, x) => acc + x, 0)
-    // a comment no printer reaches keeps the place
+    xs.fold(
+        // a comment no printer reaches keeps the place
+        fn(acc, x) => acc + x,
+        0,
+    )
 }

@@ -83,8 +83,8 @@
 use crate::compiler::standard_library;
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockId, CtxBodyId, ExprId, ExprView, FieldPatData, InitData, Kind, LambdaParamData,
-    List, Location, PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
+    ArmData, BlockId, CtxBindData, CtxBodyId, ExprId, ExprView, FieldPatData, InitData, Kind,
+    LambdaParamData, List, Location, PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::{Comment, TokenKind};
 use crate::parsing::parser::Kept;
@@ -612,7 +612,8 @@ fn listed_between<'s>(
     edge: Doc<'s>,
     last: Doc<'s>,
 ) -> Doc<'s> {
-    let n = l.items.len().saturating_sub(1);
+    let n_items = l.items.len();
+    let n = n_items.saturating_sub(1);
     let mut inner = vec![edge.clone()];
     for (i, (item, beside)) in l.items.into_iter().zip(l.besides).enumerate() {
         // The comma belongs to the list and the comment to the line, so the
@@ -624,8 +625,13 @@ fn listed_between<'s>(
         }
         inner.push(cat(vec![item, comma, beside]));
     }
+    // In an empty list the edge is the line the comment starts.
     if let Some(c) = l.after {
-        inner.push(cat(vec![Doc::HardLine, c]));
+        inner.push(if n_items == 0 {
+            c
+        } else {
+            cat(vec![Doc::HardLine, c])
+        });
     }
     let list = group(cat(vec![open, nest(cat(inner)), edge, close]));
     if l.commented {
@@ -1388,10 +1394,10 @@ impl Comments {
 
     /// The same, over the runs that carry no documentation.
     ///
-    /// One caller, [`Build::lead_trivia`], and one reason: a `///` stranded
-    /// inside a declaration is documentation *of* something, and printing it
-    /// in the gap above the next declaration makes it that declaration's
-    /// documentation the next time the file is read.
+    /// One reason: a `///` stranded inside a declaration's head documents
+    /// nothing there, and printing it above the declaration, a field or a
+    /// binding would make it that line's documentation the next time the file
+    /// is read.
     ///
     /// So a stranded run holding a `///` is left unclaimed here and comes back
     /// at the module's closing sweep instead, which is one emission with EOF
@@ -1438,7 +1444,7 @@ impl Comments {
         let rest = self.entries.get(start..).unwrap_or(&[]);
         rest.iter()
             .take_while(|e| e.trivia.at() <= hi)
-            .any(|e| !e.claimed && e.trivia.is_run())
+            .any(|e| !e.claimed & e.trivia.is_run())
     }
 
     /// The index of the first entry at or after `at`. Entries are in source
@@ -1711,70 +1717,68 @@ impl<'t> Build<'t> {
         Some(cat(parts))
     }
 
+    /// What goes above a line: `lead`, written above it, and then whatever
+    /// was written inside it, in `lo ..= hi`, that no printer of its parts
+    /// put back. Asked after the line is built, so its parts claim theirs
+    /// first.
+    ///
+    /// A comment inside a line has no line of its own there, so it goes above
+    /// the line it is inside, rather than after it, where it would read as a
+    /// note about whatever comes next. One emission with `lead`, because the
+    /// two land next to each other and the next read of the file lexes them as
+    /// one run.
+    ///
+    /// `docs` says whether a `///` left inside goes too. Above a declaration,
+    /// a field or a binding it would document the line the next time the file
+    /// is read, so there it is left to whatever encloses the line, and above
+    /// a declaration to the module's closing sweep.
+    fn gathered(&mut self, mut lead: Vec<Trivia>, lo: u32, hi: u32, docs: bool) -> Option<Doc<'t>> {
+        if docs {
+            lead.extend(self.tv.drain(lo, hi));
+        } else {
+            lead.extend(self.tv.drain_undocumented(lo, hi));
+        }
+        self.flushed(&lead)
+    }
+
     /// An import's own comments, without the blank line `decl_trivia` would put
     /// back — inside a sorted run the blanks belong to the grouping, not to
-    /// where the line used to sit.
-    fn import_trivia(&mut self, at: u32, first: bool) -> Doc<'t> {
-        let Some(t) = self.tv.take(at) else {
-            return Doc::Nil;
-        };
-        if !t.is_run() {
+    /// where the line used to sit. What is left unplaced inside it, up to `hi`,
+    /// comes with them; a caller with nothing inside yet passes `at`.
+    fn import_trivia(&mut self, at: u32, hi: u32, first: bool) -> Doc<'t> {
+        let mut ts: Vec<Trivia> = self.tv.take(at).into_iter().collect();
+        ts.extend(self.tv.drain_undocumented(at, hi));
+        if !ts.iter().any(Trivia::is_run) {
             return Doc::Nil;
         }
         let mut parts = Vec::new();
         if !first {
             parts.push(Doc::Blank);
         }
-        parts.push(self.trivia_doc(std::slice::from_ref(&t)));
+        parts.push(self.trivia_doc(&ts));
         parts.push(Doc::HardLine);
         cat(parts)
     }
 
-    /// The whole gap above a declaration, as **one** emission: what the
-    /// declaration before it stranded, and then what was written directly
-    /// above it.
+    /// The whole gap above a declaration, as **one** emission: what was
+    /// written directly above it, and then whatever was written inside it that
+    /// no printer placed, `ts`.
     ///
     /// Comments and blank lines above a declaration come back where they were.
     /// The blank line is the printer's, not the author's — declarations are
     /// separated by one — so it is asked of `first` alone rather than of the
     /// trivia, which is what the three cases this replaces all did anyway.
     ///
-    /// `stranded` is the previous declaration's span, and it is why this takes
-    /// a range at all. A comment written somewhere inside a declaration that no
-    /// printer reaches — between a parameter list and its body, say — has to
-    /// come back somewhere, and the only place it can go is after that
-    /// declaration, which is *this* gap. Printing it in an emission of its own
-    /// is what made `format` not a fixed point: the two emissions of one gap
-    /// were each internally canonical and their concatenation was not. The
-    /// sweep printed the run with nothing above it, this printed the mandatory
-    /// blank line under it, and the next read of the file lexed the lot as one
-    /// run above this declaration — which comes back with the blank line
-    /// *above* it. `let e: Int = [ //` / `];` was exactly that, and moved on
-    /// every other run forever.
-    ///
-    /// So the gap is drained here and printed through one `trivia_doc` call,
-    /// which is the same thing [`Build::flush`] does for the gaps that end in a
-    /// token, and for the same reason.
-    ///
-    /// Undocumented, because a `///` stranded in the previous declaration is
-    /// documentation of *something*, and printing it here would make it this
-    /// declaration's the next time the file is read. It is left unclaimed and
-    /// comes back at the module's closing sweep instead; see
-    /// [`Comments::drain_undocumented`].
-    fn lead_trivia(&mut self, stranded: Option<(u32, u32)>, at: u32, first: bool) -> Doc<'t> {
-        let mut ts = match stranded {
-            Some((lo, hi)) => self.tv.drain_undocumented(lo, hi),
-            None => Vec::new(),
-        };
-        if let Some(t) = self.tv.take(at) {
-            ts.push(t);
-        }
+    /// One emission, because two of one gap were each internally canonical
+    /// and their concatenation was not: the next read of the file lexes the
+    /// lot as one run and prints it in its own order.
+    fn lead_trivia(&mut self, ts: &[Trivia], first: bool) -> Doc<'t> {
         let mut parts = Vec::new();
         if !first {
             parts.push(Doc::Blank);
         }
         if ts.iter().any(Trivia::is_run) {
-            parts.push(self.trivia_doc(&ts));
+            parts.push(self.trivia_doc(ts));
             parts.push(Doc::HardLine);
         }
         cat(parts)
@@ -1840,7 +1844,10 @@ impl<'t> Build<'t> {
             // the repository, because that order says something — what every
             // module may assume, and then what this one is — but a blank line
             // between the two says it a second time, in whitespace.
-            let t = self.import_trivia(item.span().start, first);
+            // An import prints no comment of its own, so what was written
+            // inside its clause comes with it, above it.
+            let at = item.span();
+            let t = self.import_trivia(at.start, at.end.saturating_sub(1), first);
             parts.push(t);
             let d = self.item(item);
             parts.push(d);
@@ -1857,14 +1864,6 @@ impl<'t> Build<'t> {
         // where it *reads* is against the declaration it is about, the way an
         // attribute would.
         let rest: Vec<&Item> = declarations.iter().collect();
-        // The span of the declaration the previous turn printed. A comment
-        // written somewhere inside it that no printer reached — between a
-        // parameter list and its body, say — belongs to the gap *above the
-        // next declaration*, so it is drained there rather than here and the
-        // gap stays one emission; [`Build::lead_trivia`] says what that buys.
-        // The last turn's is never drained, which is what leaves the last
-        // declaration's stranded comments to the closing sweep.
-        let mut stranded: Option<(u32, u32)> = None;
         for (i, (derives, decl)) in derive_groups(self.tree(), &rest).into_iter().enumerate() {
             // The derives lead and the declaration's own documentation stays
             // directly on the declaration. It cannot be the other way round: a
@@ -1875,37 +1874,42 @@ impl<'t> Build<'t> {
             let first = i == 0 && m.docs.is_empty() && run == 0;
             // What the group leads with is the token the gap above it ends at.
             let head = derives.first().map_or(decl, |d| d).span().start;
-            let t = self.lead_trivia(stranded.take(), head, first);
-            parts.push(t);
-            for d in derives {
+            let mut ts: Vec<Trivia> = self.tv.take(head).into_iter().collect();
+            let mut lines = Vec::new();
+            for d in &derives {
                 // Nothing between a derive and the declaration it is about,
                 // not even the paragraph break it was typed with. The first
-                // derive's own run has already been claimed by `lead_trivia`,
-                // so this is `Doc::Nil` for it.
-                let t = self.import_trivia(d.span().start, true);
-                parts.push(t);
-                let doc = self.item(d);
-                parts.push(doc);
+                // derive's own run has already been claimed above, so this is
+                // `Doc::Nil` for it.
+                let at = d.span().start;
+                lines.push(self.import_trivia(at, at, true));
+                lines.push(self.item(d));
                 // A `derive` is moved to sit on the type it is about, and what
                 // was written beside it goes with it. Left behind, it would end
                 // up at the bottom of the file explaining nothing.
-                let beside = self.trailing(d.span().end, written_after(&written, d.span().start));
-                parts.push(beside);
-                parts.push(Doc::HardLine);
+                lines.push(self.trailing(d.span().end, written_after(&written, at)));
+                lines.push(Doc::HardLine);
             }
             // Likewise claimed already when there are no derives, and the run
             // between the last derive and the declaration when there are.
-            let t = self.import_trivia(decl.span().start, true);
-            parts.push(t);
-            let d = self.item(decl);
-            parts.push(d);
+            let at = decl.span().start;
+            lines.push(self.import_trivia(at, at, true));
+            lines.push(self.item(decl));
             // A one-line declaration often carries its explanation beside it —
             // `type Int = I64;   // the default integer` — and that comment is
             // about the line, not about whatever comes next.
-            let beside = self.trailing(decl.span().end, written_after(&written, decl.span().start));
-            parts.push(beside);
-            parts.push(Doc::HardLine);
-            stranded = Some((decl.span().start, decl.span().end));
+            lines.push(self.trailing(decl.span().end, written_after(&written, at)));
+            lines.push(Doc::HardLine);
+            // A comment written inside the declaration that no printer placed
+            // — between a parameter list and its body, say — goes above it, in
+            // the same gap as what was written there: after it, it would read
+            // as a note about the declaration below.
+            for d in derives.iter().chain(std::iter::once(&decl)) {
+                let s = d.span();
+                ts.extend(self.tv.drain_undocumented(s.start, s.end.saturating_sub(1)));
+            }
+            parts.push(self.lead_trivia(&ts, first));
+            parts.extend(lines);
         }
 
         // A comment below the last declaration is attached to end-of-file and
@@ -1975,7 +1979,8 @@ impl<'t> Build<'t> {
                     text(format!("{ex}{keyword} {}", t.name(d.name))),
                     self.generics_doc(t.list(d.generics)),
                 ]);
-                if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
+                let inside = self.inside_head(d.name, t.list(d.generics));
+                if d.methods.is_empty() && !self.tv.any_in(inside, d.span.end) {
                     return cat(vec![head, text(" {}")]);
                 }
                 let mut lines = Vec::new();
@@ -1983,12 +1988,15 @@ impl<'t> Build<'t> {
                     // A trait method's own documentation is the trait's
                     // documentation of it, and is the reason `buri docs` has
                     // anything to say about a method that has no body.
-                    if let Some(c) = self.flush(d.span.start, m.span.start) {
+                    let above = self.tv.drain(inside, m.span.start);
+                    let sig = self.signature_doc(m, "", ";");
+                    let end = m.span.end.saturating_sub(1);
+                    if let Some(c) = self.gathered(above, m.span.start, end, false) {
                         lines.push(c);
                     }
-                    lines.push(self.signature_doc(m, "", ";"));
+                    lines.push(sig);
                 }
-                if let Some(c) = self.flush(d.span.start, d.span.end.saturating_sub(1)) {
+                if let Some(c) = self.flush(inside, d.span.end.saturating_sub(1)) {
                     lines.push(c);
                 }
                 cat(vec![head, braced(" {", join(Doc::HardLine, lines))])
@@ -2004,7 +2012,9 @@ impl<'t> Build<'t> {
                 head.push(text(" "));
                 head.push(self.type_doc(d.self_ty));
                 let head = cat(head);
-                if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
+                // Just inside the `{`: a comment before it is about the head.
+                let inside = self.tv.closer(t.type_span(d.self_ty).end).saturating_add(1);
+                if d.methods.is_empty() && !self.tv.any_in(inside, d.span.end) {
                     return cat(vec![head, text(" {}")]);
                 }
                 let mut lines = Vec::new();
@@ -2012,12 +2022,15 @@ impl<'t> Build<'t> {
                     if i > 0 {
                         lines.push(Doc::Blank);
                     }
-                    if let Some(c) = self.flush(d.span.start, m.span.start) {
+                    let above = self.tv.drain(inside, m.span.start);
+                    let f = self.fn_decl(m, m.exported);
+                    let end = m.span.end.saturating_sub(1);
+                    if let Some(c) = self.gathered(above, m.span.start, end, false) {
                         lines.push(c);
                     }
-                    lines.push(self.fn_decl(m, m.exported));
+                    lines.push(f);
                 }
-                if let Some(c) = self.flush(d.span.start, d.span.end.saturating_sub(1)) {
+                if let Some(c) = self.flush(inside, d.span.end.saturating_sub(1)) {
                     lines.push(c);
                 }
                 cat(vec![head, braced(" {", join(Doc::HardLine, lines))])
@@ -2136,22 +2149,35 @@ impl<'t> Build<'t> {
     fn context_body(&mut self, id: CtxBodyId) -> Doc<'t> {
         let body = self.tree().ctx_body(id);
         let lo = body.span.start;
+        let t = self.tree();
+        // The spread, if any, and then each binding, as the lines they are.
+        let spread = t
+            .opt(body.spread)
+            .map(|s| (t.span(s).start, t.span(s).end, Err(s)));
+        let binds = t.bindings_at(body.bind_start, body.bind_len);
+        let all: Vec<(u32, u32, Result<&CtxBindData, ExprId>)> = spread
+            .into_iter()
+            .chain(binds.iter().map(|b| (b.span.start, b.span.end, Ok(b))))
+            .collect();
         let mut lines = Vec::new();
-        if let Some(s) = self.tree().opt(body.spread) {
-            if let Some(c) = self.flush(lo, self.tree().span(s).start) {
-                lines.push(c);
-            }
-            lines.push(self.assign("..", s, ","));
-        }
         // No alignment. A column of padding is a column that moves every time
         // the longest name in the block changes, so one binding renamed is a
         // diff on every line around it.
-        for b in self.tree().bindings_at(body.bind_start, body.bind_len) {
-            if let Some(c) = self.flush(lo, b.span.start) {
+        for (i, &(start, end, b)) in all.iter().enumerate() {
+            let above = self.tv.drain(lo, start);
+            let line = match b {
+                Err(s) => self.assign("..", s, ","),
+                Ok(b) => {
+                    let head = cat(vec![self.type_doc(TypeId(b.effect)), text(":")]);
+                    self.assign_after(head, ExprId(b.value), ",")
+                }
+            };
+            if let Some(c) = self.gathered(above, start, end.saturating_sub(1), false) {
                 lines.push(c);
             }
-            let head = cat(vec![self.type_doc(TypeId(b.effect)), text(":")]);
-            lines.push(self.assign_after(head, ExprId(b.value), ","));
+            let next = all.get(i.saturating_add(1)).map_or(body.span.end, |n| n.0);
+            let beside = self.trailing(end, next);
+            lines.push(cat(vec![line, beside]));
         }
         if let Some(c) = self.flush(lo, body.span.end.saturating_sub(1)) {
             lines.push(c);
@@ -2181,25 +2207,11 @@ impl<'t> Build<'t> {
         ]);
         let ps = t.list(d.params);
         let ret = t.type_span(d.ret).start;
-        let mut l = Listed {
-            items: Vec::new(),
-            besides: Vec::new(),
-            after: None,
-            commented: false,
-        };
-        for (i, p) in ps.iter().enumerate() {
-            let c = self.flush(d.span.start, p.span.start);
-            let next = ps.get(i.saturating_add(1)).map_or(ret, |n| n.span.start);
-            let beside = self.trailing(p.span.end, next);
-            l.commented |= c.is_some() || !matches!(beside, Doc::Nil);
-            let pd = self.param_doc(p);
-            l.items.push(with_comment(c, pd));
-            l.besides.push(beside);
-        }
-        if let Some(p) = ps.last() {
-            l.after = self.flush(p.span.end, ret.saturating_sub(1));
-            l.commented |= l.after.is_some();
-        }
+        let span = |_: &Tree, p: &Param| (p.span.start, p.span.end);
+        // From the first parameter: a comment before the `(` is about the
+        // head, and goes above the declaration.
+        let lo = ps.first().map_or(ret, |p| p.span.start);
+        let l = self.list_of(ps, span, lo, ret, |b, p| b.param_doc(p));
         // And the answer outside them too.
         let answer = cat(vec![
             text(": "),
@@ -2219,19 +2231,11 @@ impl<'t> Build<'t> {
     /// three lines to add one. A body that is *empty* has no line to put
     /// anywhere, so it closes up: `fn f(): () {}`.
     fn fn_decl(&mut self, d: &FnDecl, exported: bool) -> Doc<'t> {
-        // A comment inside the signature — above a parameter, say — has no
-        // line of its own once the signature is re-printed on one, so it comes
-        // back above the declaration.
-        // Built before the sweep, not after: the signature claims the comments
-        // written among its parameters, and only what is left over — a comment
-        // above the return type, say, which has no line of its own — comes
-        // back above the declaration.
-        let sig_end = d
-            .body
-            .map(|b| self.tree().block_span(b).start)
-            .unwrap_or(d.span.end);
+        // A comment inside the signature that no list in it placed — above
+        // the return type, say — has no line of its own, and comes back
+        // above the declaration: whoever prints the function asks for it.
         let ex = if exported { "export " } else { "" };
-        let decl = match d.body {
+        match d.body {
             None => self.signature_doc(d, ex, ";"),
             Some(b) => {
                 // The block is read first only to learn whether it has
@@ -2249,9 +2253,7 @@ impl<'t> Build<'t> {
                     ])
                 }
             }
-        };
-        let above = self.flush(d.span.start, sig_end.saturating_sub(1));
-        with_above(above, decl)
+        }
     }
 
     fn struct_decl(&mut self, d: &StructDecl) -> Doc<'t> {
@@ -2287,7 +2289,7 @@ impl<'t> Build<'t> {
             }
             StructBody::Record(fields) => {
                 let fields = t.list(*fields);
-                let inside = d.span.start.saturating_add(1);
+                let inside = self.inside_head(d.name, t.list(d.generics));
                 if fields.is_empty() && !self.tv.any_in(inside, d.span.end) {
                     return cat(vec![head, text(" {}")]);
                 }
@@ -2295,15 +2297,16 @@ impl<'t> Build<'t> {
                 for (i, f) in fields.iter().enumerate() {
                     // A field's documentation is trivia like any other, and
                     // comes back through the same path as a comment above it.
-                    let c = self.flush(inside, f.span.start);
+                    let above = self.tv.drain(inside, f.span.start);
+                    let field = self.field_doc(f);
+                    let c = self.gathered(above, f.span.start, f.span.end.saturating_sub(1), false);
                     // And the one written beside it stays beside it, after the
                     // comma the list puts there.
                     let next = fields
                         .get(i.saturating_add(1))
                         .map_or(d.span.end, |n| n.span.start);
                     let beside = self.trailing(f.span.end, next);
-                    let field = self.field_doc(f);
-                    items.push((with_comment(c, field), beside));
+                    items.push((with_lead(c, field), beside));
                 }
                 let trailing = self.flush(inside, d.span.end.saturating_sub(1));
                 record(head, items, trailing)
@@ -2318,20 +2321,21 @@ impl<'t> Build<'t> {
             text(format!("{ex}enum {}", t.name(d.name))),
             self.generics_doc(t.list(d.generics)),
         ]);
-        let inside = d.span.start.saturating_add(1);
+        let inside = self.inside_head(d.name, t.list(d.generics));
         if d.variants.is_empty() && !self.tv.any_in(inside, d.span.end) {
             return cat(vec![head, text(" {}")]);
         }
         let mut items = Vec::new();
         for (i, v) in t.list(d.variants).iter().enumerate() {
-            let c = self.flush(inside, v.span.start);
+            let above = self.tv.drain(inside, v.span.start);
             let next = t
                 .list(d.variants)
                 .get(i.saturating_add(1))
                 .map_or(d.span.end, |n| n.span.start);
             let vd = self.variant_doc(v);
+            let c = self.gathered(above, v.span.start, v.span.end.saturating_sub(1), false);
             let beside = self.trailing(v.span.end, next);
-            items.push((with_comment(c, vd), beside));
+            items.push((with_lead(c, vd), beside));
         }
         let trailing = self.flush(inside, d.span.end.saturating_sub(1));
         record(head, items, trailing)
@@ -2407,13 +2411,8 @@ impl<'t> Build<'t> {
             // for. One of them, however many were typed, and none at all above
             // the first line of the block — see this function's own doc.
             let gap = self.tv.blank_at(s.span.start) && !lines.is_empty();
-            // Everything written above this statement, including anything
-            // stranded inside the statement before it.
-            match self.flush(lo, s.span.start) {
-                Some(c) => lines.push(c),
-                None if gap => lines.push(Doc::Blank),
-                None => {}
-            }
+            // Everything written above this statement.
+            let above = self.tv.drain(lo, s.span.start);
             let line = match s.kind {
                 StmtKind::Let => {
                     let mut head = vec![text("let ")];
@@ -2431,6 +2430,13 @@ impl<'t> Build<'t> {
                 }
                 StmtKind::Expr => self.assign("", ExprId(s.value), ";"),
             };
+            // And what was written inside it that nothing in it placed.
+            let inside = s.span.end.saturating_sub(1);
+            match self.gathered(above, s.span.start, inside, true) {
+                Some(c) => lines.push(c),
+                None if gap => lines.push(Doc::Blank),
+                None => {}
+            }
             let after = ends.get(i).copied().unwrap_or(b.span.end);
             let beside = self.trailing(s.span.end, after);
             lines.push(cat(vec![line, beside]));
@@ -2438,13 +2444,15 @@ impl<'t> Build<'t> {
         if let Some(x) = self.tree().opt(b.tail) {
             let at = self.tree().span(x).start;
             let gap = self.tv.blank_at(at) && !lines.is_empty();
-            match self.flush(lo, at) {
+            let above = self.tv.drain(lo, at);
+            let d = self.expr(x);
+            let end = self.tree().span(x).end;
+            match self.gathered(above, at, end.saturating_sub(1), true) {
                 Some(c) => lines.push(c),
                 None if gap => lines.push(Doc::Blank),
                 None => {}
             }
-            let d = self.expr(x);
-            let beside = self.trailing(self.tree().span(x).end, b.span.end);
+            let beside = self.trailing(end, b.span.end);
             lines.push(cat(vec![d, beside]));
         }
         // The last thing in a block may be a comment, written above the `}`.
@@ -2521,15 +2529,16 @@ impl<'t> Build<'t> {
                 cat(v)
             }
             ExprView::Array { elems, span } => {
-                if elems.is_empty() {
-                    return text("[]");
-                }
                 // One line, or one element to a line. A filled array packs
                 // more onto the page and makes every diff that adds an element
                 // reflow the ones after it; a list that reads down does not.
                 // The clause of an import is the exception, and it is one
                 // because a name there is not an element of anything.
                 let l = self.expr_list(elems, span.start, span.end);
+                // Text, so that hugging one cannot break it open.
+                if elems.is_empty() && !l.commented {
+                    return text("[]");
+                }
                 listed(text("["), l, text("]"))
             }
             ExprView::Tuple { elems, span } => {
@@ -2644,10 +2653,12 @@ impl<'t> Build<'t> {
                 // pins them and keeps the literal broken across lines; leaving
                 // them for the enclosing block to sweep up moves them out to
                 // after the whole literal, where they read as a note about
-                // something else. `lo` is the top of the literal for every
-                // field, because `drain` takes what it returns, so a later
-                // field's flush sees only the run above it.
-                let lo = span.start;
+                // something else. `lo` is just inside the `{` for every field,
+                // because `drain` takes what it returns, so a later field's
+                // flush sees only the run above it; a comment before the `{`
+                // is about the head, and goes above the line.
+                let brace = head.map_or(span.start, |h| self.tv.closer(self.tree().span(h).end));
+                let lo = brace.saturating_add(1);
                 if spread.is_none() && fields.is_empty() {
                     // No field to sit a comment above, but one written inside
                     // an empty literal still must not drift out; it comes back
@@ -2694,7 +2705,7 @@ impl<'t> Build<'t> {
                 for (i, ((slot, &start), &after)) in
                     slots.iter().zip(&starts).zip(&afters).enumerate()
                 {
-                    let lead = self.flush(lo, start);
+                    let above = self.tv.drain(lo, start);
                     let (body, end) = match slot {
                         Slot::Spread(s) => {
                             let d = self.expr(*s);
@@ -2712,6 +2723,7 @@ impl<'t> Build<'t> {
                             (d, f.span.end)
                         }
                     };
+                    let lead = self.gathered(above, start, end.saturating_sub(1), false);
                     // The comma belongs to the list and the comment beside it to
                     // the line, so the comment comes after the comma: written
                     // before it, the next read of the file would take it as
@@ -2754,13 +2766,20 @@ impl<'t> Build<'t> {
     /// comments written above and beside it, and whatever was written after
     /// the last one. Claiming them here, element by element, is what keeps them
     /// in the list: left for the enclosing block to sweep up, they came back
-    /// after the whole statement. An empty list claims nothing.
+    /// after the whole statement. An empty list keeps what was written between
+    /// its brackets, the way an empty body does.
     fn expr_list(&mut self, xs: &[ExprId], lo: u32, hi: u32) -> Listed<'t> {
         let span = |t: &Tree, x: &ExprId| {
             let s = t.span(*x);
             (s.start, s.end)
         };
-        self.list_of(xs, span, lo, hi, |b, x| b.expr(*x))
+        let mut l = self.list_of(xs, span, lo, hi, |b, x| b.expr(*x));
+        if xs.is_empty() {
+            let open = self.tv.closer(lo).saturating_add(1);
+            l.after = self.flush(open, hi.saturating_sub(1));
+            l.commented = l.after.is_some();
+        }
+        l
     }
 
     /// [`Build::expr_list`] over any list: the elements `xs`, each written
@@ -2783,15 +2802,16 @@ impl<'t> Build<'t> {
             after: None,
             commented: false,
         };
-        // Only what was written *between* elements: one stranded inside an
-        // element is no more about the element after it than about any other,
-        // and keeps the place it had.
+        // What was written between elements goes above the one after it, and
+        // what was written inside one and not placed by it goes above it too:
+        // it is no more about the element after it than about any other.
         let mut from = lo;
         for (i, x) in xs.iter().enumerate() {
             let (start, end) = span(t, x);
-            let lead = self.flush(from, start);
+            let above = self.tv.drain(from, start);
             from = end;
             let d = item(self, x);
+            let lead = self.gathered(above, start, end.saturating_sub(1), false);
             let next = xs.get(i.saturating_add(1)).map_or(hi, |n| span(t, n).0);
             let beside = self.trailing(end, next);
             l.commented |= lead.is_some() || !matches!(beside, Doc::Nil);
@@ -2888,6 +2908,16 @@ impl<'t> Build<'t> {
         (lo, hi)
     }
 
+    /// Just inside the bracket that opens a declaration's body, past its name
+    /// and its generic parameters: a comment before the bracket is about the
+    /// head, and goes above the declaration.
+    fn inside_head(&self, name: Name, g: &[GenericParam]) -> u32 {
+        let head = g.last().map_or(name.span.end, |p| {
+            self.tv.closer(p.span.end).saturating_add(1)
+        });
+        self.tv.closer(head).saturating_add(1)
+    }
+
     /// A declaration's generic parameters, with the `<` and `>` around them.
     fn generics_doc(&mut self, g: &'t [GenericParam]) -> Doc<'t> {
         let t = self.tree();
@@ -2969,7 +2999,15 @@ impl<'t> Build<'t> {
             }
             // The alternatives read down, each after its `|`, the way a
             // binary run breaks: the operator first.
-            PatView::Or { alts, span: at } if self.inside(at) => {
+            // Only for a comment after the first alternative: one before it
+            // or inside it is in front of the pattern, and goes above the line
+            // the pattern begins, which is where the next read finds it.
+            PatView::Or { alts, span: at }
+                if self.tv.any_in(
+                    alts.first().map_or(at.start, |f| t.pspan(*f).end),
+                    at.end.saturating_sub(1),
+                ) =>
+            {
                 let ps: Vec<Piece> = alts.iter().map(|x| Piece::Pat(*x)).collect();
                 let mut bar = Doc::Nil;
                 let l = self.list_of(&ps, span, at.start, at.end, |b, x| {
@@ -3130,6 +3168,11 @@ impl<'t> Build<'t> {
             text(") {"),
         ]));
         let mut lines = Vec::new();
+        // From the first arm, or the `}` of a match with none: a comment
+        // before the `{` is about the head, and goes above the match.
+        let inside = arms
+            .first()
+            .map_or(span.end.saturating_sub(1), |a| a.span.start);
         // Where the arm after this one begins, or the `}` of the match.
         let ends: Vec<u32> = arms
             .iter()
@@ -3140,9 +3183,7 @@ impl<'t> Build<'t> {
         for (i, a) in arms.iter().enumerate() {
             // A comment above an arm is about that arm, and a match is often
             // where the reasoning in a function lives.
-            if let Some(c) = self.flush(span.start, a.span.start) {
-                lines.push(c);
-            }
+            let above = self.tv.drain(inside, a.span.start);
             // The pattern is in front of the candidates rather than in them:
             // it is either one line of text, which measures the same in front
             // as inside, or broken by a comment, which says nothing about
@@ -3197,11 +3238,17 @@ impl<'t> Build<'t> {
             // After the comma: the comma belongs to the list and the comment
             // to the line, and a comment before it would be read as ending the
             // arm the next time the file is laid out.
+            // What was written inside the arm and placed by nothing in it —
+            // between the pattern and its arrow, say — goes above the arm.
+            if let Some(c) = self.gathered(above, a.span.start, a.span.end.saturating_sub(1), true)
+            {
+                lines.push(c);
+            }
             let after = ends.get(i).copied().unwrap_or(span.end);
             let beside = self.trailing(a.span.end, after);
             lines.push(cat(vec![arm, text(","), beside]));
         }
-        if let Some(c) = self.flush(span.start, span.end.saturating_sub(1)) {
+        if let Some(c) = self.flush(inside, span.end.saturating_sub(1)) {
             lines.push(c);
         }
         cat(vec![
@@ -3468,22 +3515,6 @@ fn derive_groups<'a>(t: &Tree, items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a It
         out.push((mine, *item));
     }
     out
-}
-
-/// A declaration with whatever was stranded above it.
-fn with_above<'s>(c: Option<Doc<'s>>, d: Doc<'s>) -> Doc<'s> {
-    match c {
-        Some(c) => cat(vec![c, Doc::HardLine, d]),
-        None => d,
-    }
-}
-
-/// A member with whatever was written above it.
-fn with_comment<'s>(c: Option<Doc<'s>>, d: Doc<'s>) -> Doc<'s> {
-    match c {
-        Some(c) => cat(vec![c, Doc::HardLine, d]),
-        None => d,
-    }
 }
 
 /// A branch of an `if` chain between its braces; an empty one closes up.

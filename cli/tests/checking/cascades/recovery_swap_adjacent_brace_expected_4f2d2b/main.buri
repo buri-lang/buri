@@ -1,0 +1,7 @@
+export fn area(
+    // across
+    width: Int,
+    height: Int,
+): Int {
+    width height *
+}

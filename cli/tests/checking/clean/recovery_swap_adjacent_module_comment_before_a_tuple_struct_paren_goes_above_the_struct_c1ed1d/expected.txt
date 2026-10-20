@@ -1,0 +1,9 @@
+error: expected a function body, found `n` [unexpected-token]
+ --> main.buri:1:23
+  |
+1 | fn twice(n: Int): Int n { * 2 }
+  |                       ^
+  |
+  = expected: a function body
+  = actual: `n`
+  = fix: write `{ ... }` after the return type
