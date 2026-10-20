@@ -1083,3 +1083,32 @@ Measured with the whole gate on aarch64-apple-darwin. The total went from 9919/1
 - **Reads that can't fail:** `digitAt`'s `charAt` in character, str and buri/ast; compression 463; random 453; buri/ast 1707, 2011 and 6283; std/codegen/proto 3297.
 - **random 467 `radius == 0.0`.** It needs two draws of exactly 0.5.
 - **map, orderedmap and actor** were out of scope here (see phase 25 and the actor design decision).
+
+## Stdlib MC/DC phase 27
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9922/10046 to 9949/10069 (98.8%). No module fell.
+
+- core/actor: 253/257 to 274/274, the new errand instantiation included
+
+### Covered
+
+- **actor 358, 383, 466 and 492 for the dialler (S = I64, M = Str, R = Bool).** `actor/test/payloads.buri` adds an errand actor that keeps calls. A call naming a messenger's address runs inside the messenger's step, so its send gets `.WouldDeadlock` and its stop lands after the step. The errand's own instantiation is covered too: its call sends to the errand and stops it, and `errandApart` runs it inside a scope that holds pages.
+
+No decision was removed.
+
+### What's left (120)
+
+All of it was checked this phase and is unreachable or a trap:
+
+- **Traps:** number 15, simd 8, compression 5, indexset 4, bigint 2, decimal 2, proto 2, random 2, time 1. A test can't expect an abort.
+- **map, 32.** Access keys never share a slot, AllOne's hash is constant, `Int`'s hash is one-to-one so (I64, [(I64, I64, Item)]) never collides, and 338 `removeNode`'s `.None` runs only for a key `remove` already found.
+- **orderedmap, 23.** All K = Bool, V = Mood. A map with two keys never splits.
+- **ui/node, 9.** 879 `artworkOf _`, `each`'s `.None` arms at 1796 and 1802, and 3527 `.Raw`/`.Fragment`. See phase 26.
+- **core/testing/check 198 and 217.** A failing property fails the test.
+- **ui/style/classify 234 and 318.** See phase 22.
+- **Reads that can't fail:** `digitAt`'s `charAt` in character, str and buri/ast; compression 463; random 453; buri/ast 1707, 2011 and 6283; std/codegen/proto 3317.
+- **random 467 `radius == 0.0`.** It needs two draws of exactly 0.5.
+
+More coverage needs a measure change, such as not counting traps, or runtime work, such as an `each` that hands rows their items.
