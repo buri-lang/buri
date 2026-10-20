@@ -889,14 +889,9 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
     // has an origin longer than a file name may be.
     let stem = crate::build::cache::ActionKey::of(name.as_bytes());
     let path = dir.join(format!("{}.mjs", stem.as_str()));
-    if let Err(e) = std::fs::write(&path, source) {
-        return Err(fail(
-            format!("cannot write {}: {e}", path.display()),
-            "check TMPDIR",
-        ));
-    }
     let written = actions::chunk_paths(&path, chunks);
-    for (at, text) in &written {
+    let chunks = written.iter().map(|(at, text)| (at, text.as_str()));
+    for (at, text) in std::iter::once((&path, source)).chain(chunks) {
         if let Err(e) = std::fs::write(at, text) {
             return Err(fail(
                 format!("cannot write {}: {e}", at.display()),
@@ -932,66 +927,4 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
-/// The platform this toolchain compiles *for* when nothing selects one: the
-/// machine it is running on, where it can produce something for that machine,
-/// and JavaScript where it cannot.
-///
-/// This is the switch `design/native/ARCHITECTURE.md` §4 calls "one line and a
-/// large amount of churn", and what it turned out to be is one line and a
-/// condition. `Platform::Js` unconditionally was right while there was no other
-/// backend; it is wrong now, because a toolchain that can emit, link and run a
-/// macOS executable should not be describing itself as a JavaScript compiler to
-/// the language server and the documentation harness.
-///
-/// The condition is [`actions::native_ready`] rather than `cfg!(target_os)`,
-/// because "this is a mac" and "this toolchain can build for a mac" are
-/// different claims: a build with `--no-default-features` has no native backend,
-/// a host outside macOS and Linux has no runtime archive, and either way the
-/// honest answer is the one that has always been given. That is what keeps a
-/// toolchain without a backend byte-identical to the one before this wave.
-pub fn host_platform() -> Platform {
-    let native = host_native_platform();
-    if actions::native_ready(
-        crate::compiler::backend::Target {
-            platform: native,
-            arch: None,
-        },
-        crate::compiler::backend::Profile::Debug,
-    ) {
-        native
-    } else {
-        Platform::Js
-    }
-}
-
 pub use crate::build::buildfile::host_native_platform;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The whole of what the switch promises, in both directions: a toolchain
-    /// that cannot build for its own host answers exactly what it answered
-    /// before this wave, and one that can answers the host.
-    ///
-    /// Written as an equivalence rather than as a constant, because the answer
-    /// depends on how this toolchain was built — `--no-default-features` has no
-    /// backend, a host outside macOS and Linux has no runtime archive — and a
-    /// test asserting `Js` would pass for the wrong reason on the machine where
-    /// it matters most.
-    #[test]
-    fn the_host_platform_is_js_exactly_when_this_toolchain_cannot_build_for_the_host() {
-        let native = host_native_platform();
-        let ready = actions::native_ready(
-            crate::compiler::backend::Target {
-                platform: native,
-                arch: None,
-            },
-            crate::compiler::backend::Profile::Debug,
-        );
-        assert_eq!(host_platform(), if ready { native } else { Platform::Js });
-        // And the machine's own platform is a fact about the machine, which no
-        // feature flag moves.
-        assert!(matches!(native, Platform::Macos | Platform::Linux));
-    }
-}

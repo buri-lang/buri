@@ -358,14 +358,8 @@ impl<'a> Loader<'a> {
     /// `Role::Std` parses with bodyless declarations allowed, which is how a
     /// document can show a signature without inventing an implementation for
     /// it.
-    pub fn load_source(&mut self, path: &str, role: Role, text: String) -> Option<ModuleId> {
-        if let Some(id) = self.by_path.get(path) {
-            return Some(*id);
-        }
-        self.load_source_in(path, role, text, None)
-    }
-
-    /// The same, but the module belongs to `pkg`.
+    ///
+    /// The module belongs to `pkg` when there is one.
     ///
     /// Documentation about a library shows the library's *own* files —
     /// `cents.buri` importing its neighbour — and those imports are legal only
