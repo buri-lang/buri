@@ -1402,7 +1402,8 @@ function ui_style_classify$plain$nc9115(ctx_0,text_1){
   if($t1){
     return false;
   }else if(!$t1){
-    return $list_all($str_splitAny(text_1,ctx_0,'0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'),piece_2=>$str_length(piece_2)===0n);
+    const self_3=$str_splitAny(text_1,ctx_0,'0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    return $list_length(self_3)===0n;
   }else{
     $abort('no arm matched');
   }
