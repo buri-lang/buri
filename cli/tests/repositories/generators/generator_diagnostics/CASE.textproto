@@ -50,3 +50,10 @@ run {
   exit: 1
   golden: "no_tool.txt"
 }
+
+# Linted on its own, the tool is just a rule whose `tool.buri` is missing.
+run {
+  args: ["lint", "//tools/gen"]
+  exit: 1
+  golden: "no_tool_lint.txt"
+}

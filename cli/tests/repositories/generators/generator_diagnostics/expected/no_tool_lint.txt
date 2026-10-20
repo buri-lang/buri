@@ -1,0 +1,5 @@
+error: "//tools/gen/tool.buri" names no file (tools/gen/tool.buri) [unknown-module]
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    There's no search path and no fallback, so a path never has two candidates.
+
