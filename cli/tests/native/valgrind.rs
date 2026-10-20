@@ -489,6 +489,11 @@ const UNSEEN: &[(&str, &str)] = &[
     ("std/src/sync/poison", "std's Mutex"),
     ("std::sync::once", "std's Once"),
     ("once_lock", "std's Once"),
+    // `std`'s `Condvar`, a futex word only it touches, with atomics, ordered by
+    // its `Mutex`. The runtime's own are `sync.rs`'s and reported as locks, so
+    // this is tokio's parker, whose frames can be inlined into a caller and
+    // lose tokio's name (#318).
+    ("std::sync::poison::condvar::Condvar", "std's Condvar"),
     // `std`'s `Barrier`, a futex mutex and condition variable: the runtime's
     // tests line threads up with it.
     ("std::sync::barrier", "std's Barrier"),
@@ -884,6 +889,19 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
          <frame><fn>__malloc_alloc_meta</fn><file>malloc.c</file><line>42</line></frame></stack></error>",
     );
     assert_eq!(meta[0].unseen_order(), Some("musl's malloc"));
+    // A notify on `std`'s futex condition variable, inlined into tokio's
+    // oneshot so no frame names tokio (issue #318).
+    let notify = errors(
+        "<error><kind>Race</kind><stack>\
+         <frame><fn>atomic_add&lt;u32, u32&gt;</fn><file>atomic.rs</file><line>4029</line></frame>\
+         <frame><fn>fetch_add</fn><file>atomic.rs</file><line>3220</line></frame>\
+         <frame><fn>notify_one</fn><file>futex.rs</file><line>23</line></frame>\
+         <frame><fn>&lt;std::sync::poison::condvar::Condvar&gt;::notify_one</fn><file>condvar.rs</file><line>452</line></frame>\
+         <frame><fn>complete&lt;&amp;str&gt;</fn><file>src/sync/oneshot.rs</file><line>1310</line></frame>\
+         <frame><fn>send&lt;&amp;str&gt;</fn><file>src/sync/oneshot.rs</file><line>636</line></frame>\
+         <frame><fn>{closure#0}</fn><file>rt.rs</file><line>3493</line></frame></stack></error>",
+    );
+    assert_eq!(notify[0].unseen_order(), Some("std's Condvar"));
 }
 
 #[test]
