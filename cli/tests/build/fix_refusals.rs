@@ -145,7 +145,9 @@ fn a_remembered_fix_inside_a_character_is_refused() {
 
 /// `linting/fix_applies` with both of its files read-only: the text edit to
 /// `main.buri` and the `buri gen` of its build file are each named as a write
-/// that failed, and neither file changes.
+/// that failed, the run says the fixes it found went unwritten rather than
+/// that there was nothing to fix, it exits `2` as any failed write does, and
+/// neither file changes.
 #[test]
 fn a_fix_that_cannot_be_written_is_named_and_the_file_is_left_alone() {
     use std::os::unix::fs::PermissionsExt;
@@ -165,12 +167,43 @@ fn a_fix_that_cannot_be_written_is_named_and_the_file_is_left_alone() {
     for f in files {
         mode(f, 0o644);
     }
-    run.exits(1)
+    run.exits(2)
         .says("error: writing ")
         .says("cmd/app/main.buri: Permission denied")
         .says("cmd/app/BUILD.buri: Permission denied")
+        .says("error: found 2 fixes but couldn't write them")
+        .silent_about("nothing to fix")
         .says("[unused-import]")
         .says("[missing-dependency]");
     let after: Vec<String> = files.iter().map(|f| scratch.read(f)).collect();
     assert_eq!(after, before);
+}
+
+/// The same with only `main.buri` read-only: the build file is still fixed and
+/// counted, the edit that could not land is counted apart from it, and the run
+/// exits `2` with the finding that edit was for still reported.
+#[test]
+fn a_fix_that_cannot_be_written_beside_one_that_can_says_which_is_which() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::copy_of(
+        "fix-refusals-half-read-only",
+        &tests_dir().join("repositories/linting/fix_applies/repo"),
+    );
+    let main = "cmd/app/main.buri";
+    let before = scratch.read(main);
+    let mode = |m: u32| {
+        std::fs::set_permissions(scratch.path(main), std::fs::Permissions::from_mode(m)).unwrap();
+    };
+    mode(0o444);
+    let run = scratch.run(&["lint", "//...", "--fix"]);
+    mode(0o644);
+    run.exits(2)
+        .says("cmd/app/main.buri: Permission denied")
+        .says("updated cmd/app/BUILD.buri")
+        .says("fixed 1 finding\n")
+        .says("error: found 1 fix but couldn't write it")
+        .says("[unused-import]")
+        .silent_about("[missing-dependency]")
+        .silent_about("nothing to fix");
+    assert_eq!(scratch.read(main), before);
 }

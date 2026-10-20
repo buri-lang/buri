@@ -80,12 +80,24 @@ fn lint_all(args: &arguments::Args) -> i32 {
     };
 
     if args.flags.fix {
-        let applied = apply_fixes(&mut session, &diagnostics, regenerable);
+        let Fixes { applied, unwritten } = apply_fixes(&mut session, &diagnostics, regenerable);
         if applied > 0 {
             println!(
                 "fixed {applied} finding{}",
                 if applied == 1 { "" } else { "s" }
             );
+        }
+        if unwritten > 0 {
+            eprintln!(
+                "error: found {unwritten} fix{} but couldn't write {}",
+                if unwritten == 1 { "" } else { "es" },
+                if unwritten == 1 { "it" } else { "them" }
+            );
+        }
+        if applied == 0 && unwritten == 0 {
+            println!("nothing to fix");
+        }
+        let code = if applied > 0 {
             // Everything is computed again from the files on disk rather than
             // subtracted from what was just reported: an edit can uncover a
             // finding the first pass could not see, and a count arrived at by
@@ -94,12 +106,23 @@ fn lint_all(args: &arguments::Args) -> i32 {
                 Ok(v) => v,
                 Err(code) => return code,
             };
-            return report_findings(&mut session, &diagnostics);
-        }
-        println!("nothing to fix");
+            report_findings(&mut session, &diagnostics)
+        } else {
+            report_findings(&mut session, &diagnostics)
+        };
+        // A failed write exits `2`, as it does in `buri gen`: the findings are
+        // still reported, but the run did not do what it was asked.
+        return if unwritten > 0 { 2 } else { code };
     }
 
     report_findings(&mut session, &diagnostics)
+}
+
+/// What `--fix` did: findings it answered on disk, and findings it had an
+/// answer for but could not write.
+struct Fixes {
+    applied: usize,
+    unwritten: usize,
 }
 
 /// Opens the repository and runs every check, in the order a reader would.
@@ -836,14 +859,18 @@ fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
 /// package's `BUILD.buri` should say.
 const REGENERABLE: &[&str] = &["missing-dependency", "unused-source", "duplicate-source"];
 
-fn regenerate_build_files(session: &mut Session, packages: Regenerable) -> usize {
-    let mut fixed = 0;
+fn regenerate_build_files(session: &mut Session, packages: Regenerable) -> Fixes {
+    let mut fixed = Fixes {
+        applied: 0,
+        unwritten: 0,
+    };
     for package in packages.0 {
         match crate::build::regenerate::regenerate(session, package) {
             Ok(Some(update)) => {
                 let path = session.workspace.package(package).build_path.clone();
                 if let Err(err) = std::fs::write(&path, &update.text) {
                     eprintln!("error: writing {}: {err}", path.display());
+                    fixed.unwritten += 1;
                     continue;
                 }
                 println!(
@@ -853,7 +880,7 @@ fn regenerate_build_files(session: &mut Session, packages: Regenerable) -> usize
                 for line in &update.summary {
                     println!("  {line}");
                 }
-                fixed += 1;
+                fixed.applied += 1;
             }
             Ok(None) => {}
             Err(d) => session.emit(&d),
@@ -863,7 +890,8 @@ fn regenerate_build_files(session: &mut Session, packages: Regenerable) -> usize
 }
 
 /// Applies every finding that carries a byte edit, and returns how many
-/// **findings** were answered.
+/// **findings** were answered, and how many had an answer that could not be
+/// written.
 ///
 /// Findings and not edits, which used to be the same number and is not any
 /// more: `unused-context` deletes a parameter and the argument at every call
@@ -879,7 +907,7 @@ fn apply_fixes(
     session: &mut Session,
     diagnostics: &Diagnostics,
     regenerable: Regenerable,
-) -> usize {
+) -> Fixes {
     use std::collections::BTreeMap;
     // The finding each edit came from, so that a file written out can say which
     // findings it answered rather than how many byte ranges it moved.
@@ -906,7 +934,8 @@ fn apply_fixes(
     }
 
     let mut answered: BTreeSet<usize> = BTreeSet::new();
-    let applied = regenerate_build_files(session, regenerable);
+    let mut unanswered: BTreeSet<usize> = BTreeSet::new();
+    let regenerated = regenerate_build_files(session, regenerable);
     for (file, (edits, findings)) in by_file {
         let id = crate::diagnostics::FileId(file);
         // Sorting, overlap, bounds and character boundaries are all settled
@@ -938,11 +967,15 @@ fn apply_fixes(
         let path = session.map.get(id).abs_path.clone();
         if let Err(err) = std::fs::write(&path, &text) {
             eprintln!("error: writing {}: {err}", path.display());
+            unanswered.extend(findings);
             continue;
         }
         answered.extend(findings);
     }
-    applied + answered.len()
+    Fixes {
+        applied: regenerated.applied + answered.len(),
+        unwritten: regenerated.unwritten + unanswered.difference(&answered).count(),
+    }
 }
 
 /// `unsatisfiable-target`. A target whose closure admits no platform at all is
