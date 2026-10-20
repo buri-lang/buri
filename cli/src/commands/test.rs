@@ -1739,8 +1739,6 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         return run_js(job, held, queue, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
-    // It keeps at least one: a filter that matches no block in the suite's
-    // sources, as loaded here, is answered unbuilt ([`left_out`]).
     if let Some(f) = filter {
         retain_tests(&mut program, |t| t.name.contains(f));
     }
@@ -1750,6 +1748,23 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         .iter()
         .map(|t| (t.name.clone(), t.module.clone()))
         .collect();
+    // [`left_out`] answers most of these unbuilt, but not a suite whose
+    // sources it can't read ahead, such as one that isn't a `.buri` file.
+    if tests.is_empty() {
+        let nothing = Built::Nothing {
+            skipped: skipped.clone(),
+        };
+        let build = Some(Build::Own(since(began)));
+        return answer(
+            Ok(Ran {
+                cases: Vec::new(),
+                skipped,
+                roots: Vec::new(),
+                build,
+            }),
+            Some(nothing),
+        );
+    }
     let paints = program
         .funcs
         .iter()

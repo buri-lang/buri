@@ -767,6 +767,29 @@ fn a_filtered_suite_with_a_missing_source_says_so() {
         .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
 }
 
+/// Under `--filter`, a suite whose source has no `.buri` extension, and so
+/// can't be read ahead of the compile, still skips the blocks the filter
+/// leaves out rather than building a binary with none in it.
+#[test]
+fn a_filter_that_leaves_nothing_in_a_txt_source_skips_it() {
+    let scratch = Scratch::repo("corners-filtered-txt");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.txt\"]\n",
+        &blocks("a", 1),
+    );
+    scratch.write("lib/a/test/t.txt", &blocks("a", 1));
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
+    scratch
+        .run(&["test", "//lib/a", "--filter=nothing"])
+        .ok()
+        .says("0 passed, 0 failed, 1 skipped");
+}
+
 /// A suite that asks for the native backend and reaches what it has no body
 /// for is refused with the keys it lacks and what to do, rather than run
 /// anywhere else.
