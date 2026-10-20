@@ -1,0 +1,4 @@
+/// Doubles a number.
+export fn double(n: Int):
+// the same kind back
+Int { n * 2 }

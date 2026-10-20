@@ -1,0 +1,24 @@
+error: expected `:`, found `}` [unexpected-token]
+ --> main.buri:5:7
+  |
+5 | extra }
+  |       ^
+  |
+  = expected: `:`
+  = actual: `}`
+  = fix: write `:` here
+error: there is no type `Point` [unknown-type]
+  --> main.buri:13:21
+   |
+13 | export fn origin(): Point {
+   |                     ^^^^^
+   |
+   = did you mean `Uint`?
+   = fix: if you meant `Uint`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: the head of a struct literal must be a struct or an enum variant [struct-literal-head]
+  --> main.buri:14:5
+   |
+14 |     Point { x: // left edge
+   |     ^^^^^
+   |
+   = fix: name the type, as in `Point { x: 1, y: 2 }`, or a variant that has fields, as in `.Variant { ... }` where the expected type is known

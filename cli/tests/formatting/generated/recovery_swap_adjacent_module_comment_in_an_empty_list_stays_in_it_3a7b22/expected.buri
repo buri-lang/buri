@@ -1,0 +1,11 @@
+let empty: List<Int> = [
+    // nothing in it yet
+];
+
+other let: List<Int> = [];
+
+export fn start(): Int {
+    run(
+        // no options yet
+    )
+}

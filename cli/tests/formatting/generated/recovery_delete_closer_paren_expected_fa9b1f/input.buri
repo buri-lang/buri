@@ -1,0 +1,11 @@
+export fn lines(depth: Int): [Int] {
+    pickerOptionLines(
+        firstArgument,
+        secondArgument,
+        thirdArgument,
+        ab,
+        depth + 1,
+        0,
+        [,
+    )
+}

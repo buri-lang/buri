@@ -1,4 +1,0 @@
-let empty: extra List<Int> = [];
-
-// nothing in it yet
-let other: List<Int> = [];

@@ -1,0 +1,21 @@
+struct Point {
+    // across
+    x: Int,
+    y: Int,
+}
+
+enum Shape {
+    Circle {
+        // from the middle
+        radius: Int,
+    ,
+    Dot,
+}
+
+export fn origin(): Point {
+    Point {
+        // left edge
+        x: 0,
+        y: 0,
+    }
+}

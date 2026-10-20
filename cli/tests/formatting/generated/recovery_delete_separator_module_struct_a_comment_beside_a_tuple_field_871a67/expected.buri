@@ -1,9 +1,0 @@
-export struct Point(
-    // the x
-    Int, // beside the x
-    export Int,
-    // after the last
-);
-
-export struct Row<T>(List<T, // the cells
->)

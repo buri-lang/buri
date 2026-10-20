@@ -1,0 +1,16 @@
+error: a variant payload field ends with `,` [missing-comma]
+ --> main.buri:9:12
+  |
+9 |       extra Int },
+  |            ^
+  |
+  = fix: write `,` here
+error: expected `:`, found `}` [unexpected-token]
+ --> main.buri:9:17
+  |
+9 |       extra Int },
+  |                 ^
+  |
+  = expected: `:`
+  = actual: `}`
+  = fix: write `:` here

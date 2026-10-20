@@ -1,0 +1,12 @@
+error: this `enum` is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:9:12
+  |
+9 |       Int }? ,
+  |            ^
+  |
+ --> main.buri:7:12
+  |
+7 | enum Shape {
+  |            ^ opened here
+  |
+  = fix: write `}` here

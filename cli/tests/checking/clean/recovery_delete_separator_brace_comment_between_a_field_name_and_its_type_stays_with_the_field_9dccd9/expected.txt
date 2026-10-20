@@ -1,0 +1,7 @@
+error: an enum variant ends with `,` [missing-comma]
+ --> main.buri:9:12
+  |
+9 |       Int }
+  |            ^
+  |
+  = fix: write `,` here

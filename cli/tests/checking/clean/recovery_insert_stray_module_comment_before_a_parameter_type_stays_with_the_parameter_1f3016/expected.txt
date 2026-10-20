@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:2:43
+  |
+2 |   Int, height: Int): Int { width * height , }
+  |                                           ^
+  |
+ --> main.buri:2:26
+  |
+2 |   Int, height: Int): Int { width * height , }
+  |                          ^ opened here
+  |
+  = fix: write `}` here

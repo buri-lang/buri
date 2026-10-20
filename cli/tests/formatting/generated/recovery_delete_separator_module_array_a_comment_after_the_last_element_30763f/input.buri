@@ -1,6 +1,0 @@
-let ys: List<Int> = [1, 2 // the last
-]
-
-let zs: List<Int> = [1, 2,
-  // after everything
-];

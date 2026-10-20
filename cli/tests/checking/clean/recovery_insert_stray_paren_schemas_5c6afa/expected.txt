@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+  --> main.buri:50:57
+   |
+50 | export fn block<C: Allocator>(ctx: C, out: [Str], head: , Str, count: Int): [Str] {
+   |                                                         ^
+   |
+   = expected: a type
+   = actual: `,`
+   = fix: name a type here, as in `Int` or `[Str]`

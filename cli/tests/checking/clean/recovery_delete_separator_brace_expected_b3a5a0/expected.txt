@@ -1,0 +1,7 @@
+error: an import name ends with `,` [missing-comma]
+ --> main.buri:2:31
+  |
+2 | from "core/list" export { fold map };
+  |                               ^
+  |
+  = fix: write `,` here

@@ -1,0 +1,7 @@
+export fn name(n: Int): String {
+    match (n) {
+        // nothing
+        0 => "zero",
+        _ => "many"extra ,
+    }
+}

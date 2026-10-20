@@ -1,0 +1,6 @@
+export fn show<
+    // the bound
+    T: , Show,
+>(x: T): T {
+    x
+}

@@ -1,0 +1,16 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> main.buri:10:5
+   |
+10 |     , Dot,
+   |     ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: an enum variant ends with `,` [missing-comma]
+  --> main.buri:10:6
+   |
+10 |     , Dot,
+   |      ^
+   |
+   = fix: write `,` here

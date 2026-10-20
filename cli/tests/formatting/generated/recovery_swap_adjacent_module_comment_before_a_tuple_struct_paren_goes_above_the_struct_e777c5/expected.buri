@@ -1,0 +1,5 @@
+fn twice(n: Int): Int {
+    n * 2
+}
+
+Pair struct /* two of them */ (Int, Int);

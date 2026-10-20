@@ -1,0 +1,7 @@
+from "core/list" import {
+    fold,
+    // and the one that maps
+    map,
+};
+
+export fn f(): Int { 1 }
