@@ -70,7 +70,7 @@
 
 use super::abi::{Jump, Lit, Word};
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
-use super::jit::{Fn2, FrameSig, Jit, RET, V};
+use super::jit::{Fn2, FrameSig, Jit, Label, RET, V};
 use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::backend::task_thread;
@@ -914,7 +914,7 @@ impl Jit<'_> {
     ///
     /// The whole stride rather than the value's `size`, so the last frame word
     /// holds the slot's own bytes rather than whatever the frame held before.
-    fn unless_spare(&mut self, stride: u32, skip: u32) {
+    fn unless_spare(&mut self, stride: u32, skip: Label) {
         // A counted element holds a pointer, so its stride is whole words.
         let words = stride / 8;
         self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, stride);
@@ -943,7 +943,7 @@ impl Jit<'_> {
     /// Only the stride's whole words are read, so the last element's read
     /// stays inside the block. A counted element is word-aligned, so its
     /// stride is whole words anyway.
-    fn unless_spare_in_place(&mut self, stride: u32, skip: u32) {
+    fn unless_spare_in_place(&mut self, stride: u32, skip: Label) {
         self.emit(
             "bin/mul/u64/fi/f",
             &[
@@ -1132,25 +1132,15 @@ impl Jit<'_> {
     /// The per-function state a generated body needs: no values, no registers,
     /// and a scratch area past the named slots.
     fn glue_frame(&mut self, frame: u32, scratch: u32) -> Fn2 {
-        Fn2 {
-            slot: Vec::new(),
-            blk: Vec::new(),
-            frame: FrameSig {
+        Fn2::bare(
+            FrameSig {
                 ret_size: 0,
                 params: Vec::new(),
                 param_end: scratch,
                 size: frame,
             },
             scratch,
-            reg: Vec::new(),
-            imm: Vec::new(),
-            wt: Vec::new(),
-            cross: Vec::new(),
-            region: Vec::new(),
-            cur: 0,
-            constants: Vec::new(),
-            uses: Vec::new(),
-        }
+        )
     }
 
     /// `extern "C" fn(state, index, arg, out)` — one step of a runtime-driven
