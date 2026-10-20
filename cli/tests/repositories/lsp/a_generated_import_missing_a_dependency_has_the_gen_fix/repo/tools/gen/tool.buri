@@ -7,7 +7,8 @@ from "core/tool" import { Generated, GenerateRequest };
 from "platform/effect" import { Allocator };
 
 export fn generate<C: Allocator>(ctx: C, _request: GenerateRequest<Str>): Generated {
-    let text = "from \"//lib/extra\" import { bonus };\n\nexport let extra: Int = bonus;\n";
+    let text =
+        "from \"//lib/extra\" import { bonus };\n\nexport let extra: Int = bonus;\n";
     let items = match (ast.parse(ctx, "", text)) {
         .Ok(m) => m.items,
         .Err(_) => [],
