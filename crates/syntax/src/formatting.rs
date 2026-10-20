@@ -318,10 +318,13 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // in it the output does not parse by construction, so the claim is the
     // stronger and honest one: it parses outside every region, and every
     // region is byte for byte what was written.
+    //
+    // A mistake inside a declaration makes that declaration a region, so the
+    // comparison of regions is the whole check. The one kind it cannot see,
+    // a mistake before every declaration, the output cannot hold: the input
+    // was refused above if it had one, and the printer writes nothing ahead
+    // of the first declaration but comments and blank lines it read as such.
     let (check, kept) = read(&out, dialect);
-    if !placed(&check) {
-        return None;
-    }
     let after = regions(&check);
     if region_text(text, &broken) != region_text(&out, &after) {
         return None;
@@ -1439,12 +1442,18 @@ impl Comments {
     /// with an *empty* form ask — `trait T {}` has no line for a comment to go
     /// on, so it has to be printed as the other shape. Everywhere else the
     /// comment's own `HardLine` settles it.
+    ///
+    /// Nothing in the range has been put back yet when it asks, so what was
+    /// written there is the answer. Each construct asks about a range past
+    /// its own first token, before it prints anything in it, and every claim
+    /// so far is of a comment above or beside something already printed: one
+    /// written above the construct's first token at the latest.
     fn any_in(&self, lo: u32, hi: u32) -> bool {
         let start = self.first_at(lo);
         let rest = self.entries.get(start..).unwrap_or(&[]);
         rest.iter()
             .take_while(|e| e.trivia.at() <= hi)
-            .any(|e| !e.claimed & e.trivia.is_run())
+            .any(|e| e.trivia.is_run())
     }
 
     /// The index of the first entry at or after `at`. Entries are in source
