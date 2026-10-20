@@ -1050,3 +1050,36 @@ Measured with the whole gate on aarch64-apple-darwin. The total went from 9828/9
   - AllOne: its hash is constant, so `h == hash` never fails and the root never holds two slots.
   - 338 `removeNode`'s `.None` (6): `remove` asks `has` first with the same hash.
 - **orderedmap, 23.** All K = Bool, V = Mood. A map with two keys never splits or branches.
+
+## Stdlib MC/DC phase 26
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9919/10048 (98.7%) to 9922/10046 (98.8%). No module fell.
+
+- ui/node: 761/772 to 761/770
+- ui/style/classify: 223/226 to 223/225
+- ui/web: 2/3 to 3/3
+- core/proto/wrappers: 81/82 to 81/81
+- std/codegen/proto: 346/347 to 348/349, from the new `writeSet` match, both arms shown
+
+### Decisions removed
+
+- **ui/node 4113 `painted.checked .Some` for C = Scope.** `widgetBodyUnder` is the only `Scope` caller of `answers`. Its painters are the tooltip bubble (`plain`), `emitBox` (`plain`), `answering` and the `hasFocus` copy of a box, and each one sets `checked: .None`. A toggle or radio rebuilds its region and paints with `widgetBody`. So `widgetBodyUnder` now calls `stateAnswers` (disabled and focused) and skips the `checked` match.
+- **ui/style/classify 722, `.all(fn(piece) => piece.isEmpty())`.** `splitAny` drops empty pieces (`buri_rt_str_split_any` and `$str_splitAny`), so the predicate could never answer true. `plain` now asks `.isEmpty()` of the pieces, which means the same thing.
+- **core/proto/wrappers 695, `if (value.value) { 1 } else { 0 }`.** It runs only after `value.value == false` failed. `codegen_proto` gained `writeSet`, which writes an implicit-presence bool as `1`. `proto_wrappers.buri` was changed by hand to match, and so was the pinned text in `proto_gen/test/scalars.buri`.
+
+### Covered
+
+- **ui/node 4423 `slotAgain` for C = Scope.** `ui/test/reactive.buri`: a box with a constant `.Width(.Px(1))` and a `.When` holding `.Width(.Px(3))`. Both pairs share a slot under the watcher, and the later one wins.
+- **ui/web 154 `sheet == ""`.** The new package `lib/web_unstyled` builds no node, so the compiler extracts no stylesheet, not even the reset. Its `shell` has no `<style>`. It's JS-only: `backends: [JS]`, `excluded` in `native/conformance.rs`, and `JAVASCRIPT_ONLY` in the gate.
+
+### What's left
+
+- **Traps:** number 15, simd 8, compression 5, indexset 4, bigint 2, decimal 2, proto 2, time 1, random 2. A test can't expect an abort.
+- **core/testing/check 198 and 217.** A failing property fails the test, so no passing test can show it.
+- **ui/node, 9.** 879 `artworkOf _` (`semantics::icons` refuses a non-constant source), the `each` `.None` arms at 1796 and 1802 (6: the runtime asks only for indexes below the length), and 3527 `.Raw`/`.Fragment` (only `bindDynamic` builds them, and `describe` never walks it).
+- **ui/style/classify 234 `.Extracted` and 318 `declared`'s `_`.** See phase 22.
+- **Reads that can't fail:** `digitAt`'s `charAt` in character, str and buri/ast; compression 463; random 453; buri/ast 1707, 2011 and 6283; std/codegen/proto 3297.
+- **random 467 `radius == 0.0`.** It needs two draws of exactly 0.5.
+- **map, orderedmap and actor** were out of scope here (see phase 25 and the actor design decision).
