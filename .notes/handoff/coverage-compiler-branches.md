@@ -18,24 +18,29 @@ Probe one branch without a full run: build an instrumented buri, run it with `LL
 - code_actions.rs 225: the code is looked up among the asked-for codes, so an uncoded finding is just one nobody asked about.
 - code_actions.rs 377, 378: `package_of` is gone. A regenerable finding points at its package's build file or at an import in one of its sources, so `owning_package` of that file is the package. Its `let Some(package)` near line 275 is still unreached.
 
+## Refactor phase 2
+
+- code_actions.rs 275: `Linted` carries its `target`, so the package is `linted.target.package` and there is no lookup left to fail.
+- code_actions.rs 233, 312: removed. Lint edits are never in generated (pathless) files.
+- The UX gap behind them is fixed: a generated module importing a library its rule doesn't list now gets the `buri gen` fix in the editor, as `lint --fix` gives it. Test: `lsp/a_generated_import_missing_a_dependency_has_the_gen_fix` (its golden was `[]` before).
+- javascript.rs `to_switch`: always emits a `default`; an empty one does nothing, as the `else`-less chain did.
+- profile.rs 315, 370: the allocations column is behind a new `alloc-counter` feature of `buri-diagnostics`, which `buri`'s `alloc-counter` turns on.
+- driver.rs 895: no pid directory any more. The doctest module is `temp_dir()/buri-doctest-<pid>-<stem>.mjs` with its chunks beside it, written in one loop with one failure message.
+- interrupt.rs 32: the handler puts back `SIG_DFL` for all three signals before noting one, so a second signal ends the process by default and the handler has no branch. Caveat: a different signal arriving in the few instructions before the resets runs the handler again instead of killing at once. `serving::a_second_signal_stops_the_server_at_once` still passes.
+
 ## Unreachable, for a refactor phase
 
-- `crates/diagnostics/src/profile.rs` 315, 360, 370: need the `alloc-counter` feature or hardware counters.
+- profile.rs 360: hardware counters. It is covered on real hardware and not on CI's VMs, so it was left alone.
 - `cli/src/main.rs` 64 and `arguments.rs` 321: need a panic other than a stdout print failure.
 - link.rs 289, 292, 1044, 1675, 1898, 1904, 1920, 2124; actions.rs 2059, 2070; runtime_cross.rs 188; runtime_native.rs 100: branch on build constants (`musl::BAKED`, `runtime_native::AVAILABLE`, `runtime_src::AVAILABLE`). Not fully verified.
-- code_actions.rs 233, 312: a finding whose edits are all in files with no path. Not verified.
-- javascript.rs 2061, 2563, 2722, 2800, 2897, 2938, 2943: the generator only makes fresh names and never an empty `default`. Not verified. An `if` with no `else` would make an empty `default`, but outside a test, every `if` is an expression with an `else`. A test source might still reach it.
-- driver.rs 895: a write failing inside the pid-named temp dir that was just created.
-- code_actions.rs 275: see above.
+- javascript.rs 2061, 2563, 2722, 2800, 2897, 2938, 2943 and the other fresh-name branches: the generator only makes fresh names. Not verified.
+- watch.rs 479: `passes` is `Some` only in the unit tests. Removing it needs another way for `an_edit_while_sweeping_triggers_the_next_pass` to stop after its second pass. An empty set is never adopted, so returning no inputs does not end the loop.
 
 ## Leads
 
-- test.rs 1751: a solo native suite with `--filter` that `left_out` lets through (needs a generated test module).
-- test.rs 4802: a batch whose filter selects nothing.
-- interrupt.rs 32: a second signal.
-- watch.rs 479: passes reached.
-- programs.rs 68, 82, 147: lock and symlink failures; see build_driver.rs.
-- modules.rs 224 (a tool checked twice), 464 (no generator outcome), 120 (platform already set).
+- test.rs 1751, 4802: need `left_out` to return `None` while no test matches. Escaped test names and a generated module shadowing a test source both failed: generators aren't registered when `left_out` runs.
+- programs.rs 29, 68, 82: lock and symlink failures; see build_driver.rs.
+- modules.rs 124, 245, 520; lint.rs 960; lint_cache.rs 247; spawn.rs 298; cache.rs 423; language_server/mod.rs 130, 140, 269.
 
 ## UX notes, not fixed
 
@@ -43,4 +48,4 @@ Probe one branch without a full run: build an instrumented buri, run it with `LL
 - A missing `tool.buri` (like a missing `lib.buri`) is reported with no location, because `load_unit` passes `Span::NONE`. `lint //...` also repeats it inside `tool-failed`.
 - Only `lint` reaches modules.rs 223. `build //cmd/app` loads the tool another way.
 
-Local macOS run: 14874/15107 before, 14878/15107 after the first four tests (cli/lint 560 to 564 of 566). modules.rs 223 came after that run and was confirmed by probe. After refactor phase 1: 14897/15105, with json/schema.rs fully covered.
+Local macOS run: 14874/15107 before, 14878/15107 after the first four tests (cli/lint 560 to 564 of 566). After refactor phase 1: 14897/15105, with json/schema.rs fully covered. After refactor phase 2: 14889/15096 by lcov sums (215 uncovered down to 207; the tool reported 14897/15105 before).
