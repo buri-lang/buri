@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+  --> main.buri:10:23
+   |
+10 |     let ctx = context extra {
+   |                       ^^^^^
+   |
+   = expected: `{`
+   = actual: `extra`
+   = fix: write `{` here

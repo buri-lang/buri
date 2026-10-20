@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:20:49
+   |
+20 |     assert.isFalse(document.contains("<style>"))
+   |                                                 ^
+   |
+   = fix: write `;` here

@@ -1,0 +1,14 @@
+error: an import name ends with `,` [missing-comma]
+ --> main.buri:6:46
+  |
+6 | from "platform/effect/testing" import { alloc extra };
+  |                                              ^
+  |
+  = fix: write `,` here
+error: "platform/effect/testing" does not export `extra` [unknown-export]
+ --> main.buri:6:47
+  |
+6 | from "platform/effect/testing" import { alloc extra };
+  |                                               ^^^^^
+  |
+  = fix: check the spelling, or add `export` to `extra`'s declaration in "platform/effect/testing"

@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:16:67
+   |
+16 |         web.Document { ..web.defaultDocument(), title: "Plain" }, ,
+   |                                                                   ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

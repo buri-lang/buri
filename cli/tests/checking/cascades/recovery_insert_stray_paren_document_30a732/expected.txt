@@ -1,0 +1,29 @@
+error: `shell` takes 5 arguments, but 3 were given [argument-count]
+  --> main.buri:13:20
+   |
+13 |     let document = web.shell(
+   |                    ^^^^^^^^^^
+   |
+   = expected: 5
+   = actual: 3
+   = fix: pass `shell` the following arguments: shell<C: Allocator>(ctx: C, path: Str, document: Document, body: Str, state: Json)
+error: there is nothing named `web` in scope [unknown-name]
+  --> main.buri:16:9
+   |
+16 |         web@ .Document { ..web.defaultDocument(), title: "Plain" },
+   |         ^^^
+   |
+   = `web` is a module namespace; name a member of it
+   = fix: correct the spelling, or declare it
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:16:12
+   |
+16 |         web@ .Document { ..web.defaultDocument(), title: "Plain" },
+   |            ^
+   |
+  --> main.buri:13:29
+   |
+13 |     let document = web.shell(
+   |                             ^ opened here
+   |
+   = fix: write `)` here

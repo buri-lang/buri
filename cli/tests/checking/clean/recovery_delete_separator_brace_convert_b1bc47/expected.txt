@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
-  --> main.buri:35:38
-   |
-35 |     let v = simd.i32x4(1, -2, 300, 0)
-   |                                      ^
-   |
-   = fix: write `;` here

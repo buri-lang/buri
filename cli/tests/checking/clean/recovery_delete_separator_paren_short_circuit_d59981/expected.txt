@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:80:27
-   |
-80 |             assert.equal(b "b");
-   |                           ^
-   |
-   = fix: write `,` here

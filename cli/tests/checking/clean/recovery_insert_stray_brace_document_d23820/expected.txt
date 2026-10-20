@@ -1,0 +1,9 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:13:29
+   |
+13 |     let document = web.shell, (
+   |                             ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
