@@ -1,0 +1,5 @@
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    .Ok(())
+}

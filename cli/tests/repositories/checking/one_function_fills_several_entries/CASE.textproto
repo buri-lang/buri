@@ -37,3 +37,22 @@ run {
   exit: 1
   golden: "no_platform_file.txt"
 }
+
+run {
+  args: ["lint", "//cmd/loose"]
+  exit: 1
+  golden: "no_platform_file.txt"
+}
+
+# An import of the platform says nothing more.
+edit {
+  file: "cmd/loose/main.buri"
+  replace: "export fn go("
+  with: "from \"//platform/solo\" import { SoloHost };\n\nexport fn go("
+}
+
+run {
+  args: ["build", "//cmd/loose"]
+  exit: 1
+  golden: "no_platform_file.txt"
+}

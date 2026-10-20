@@ -470,14 +470,14 @@ impl Workspace {
             .and_then(|_| self.target(id, RuleKind::Library))
     }
 
-    /// The `unknown-module` problem and fix for a library or tool whose root,
+    /// The `unknown-module` problem and fix for a package whose root file,
     /// `root`, doesn't exist. `kind` is the rule's name in the sentence.
-    pub fn missing_root(&self, target: TargetId, root: &str, kind: &str) -> (String, String) {
-        let file = self.file_in(target.package, root);
+    pub fn missing_root(&self, package: PackageId, root: &str, kind: &str) -> (String, String) {
+        let file = self.file_in(package, root);
         (
             format!(
                 "`{}` has no {file}, the file a {kind} is rooted at",
-                self.label(target)
+                self.package(package).label()
             ),
             format!("create {file}"),
         )
@@ -1102,14 +1102,23 @@ impl Workspace {
     /// The repository platforms a binary's outputs name, each once, in the
     /// order they are first named.
     pub fn custom_platforms(&self, target: TargetId) -> Vec<buildfile::RepoPlatform> {
-        let mut out: Vec<buildfile::RepoPlatform> = Vec::new();
+        self.custom_platform_outputs(target)
+            .into_iter()
+            .map(|c| c.platform)
+            .collect()
+    }
+
+    /// For each repository platform a binary's outputs name, the first output
+    /// naming it.
+    pub fn custom_platform_outputs(&self, target: TargetId) -> Vec<buildfile::CustomPlatform> {
+        let mut out: Vec<buildfile::CustomPlatform> = Vec::new();
         if target.kind != RuleKind::Binary {
             return out;
         }
         for e in self.declared_entries(target.package) {
             if let Some(c) = e.custom {
-                if !out.contains(&c.platform) {
-                    out.push(c.platform);
+                if !out.iter().any(|o| o.platform == c.platform) {
+                    out.push(c);
                 }
             }
         }

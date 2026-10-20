@@ -1,13 +1,53 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a library with no lib.buri is reported at the dependency that names it, or by its path when nothing does"
+doc: "a library with no lib.buri is reported at the dependency that names it, by the library and by what depends on it, or by its path when nothing does"
 
 # Linted on its own, the library is still found where //cmd/app names it.
 run {
   args: ["lint", "//lib/money"]
   exit: 1
   golden: "named.txt"
+}
+
+# The binary that depends on it says the same, building or linting, though it
+# imports nothing from the library.
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "named.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "named.txt"
+}
+
+# Linting both says it once.
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "named.txt"
+}
+
+# An import of the library says nothing more.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"node\" import { NodeHost };\n"
+  with: "from \"node\" import { NodeHost };\nfrom \"//lib/money\" import { fromCents };\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "named.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/money\" import { fromCents };\n"
+  with: ""
 }
 
 # With nothing naming it, the error names the file it needs.

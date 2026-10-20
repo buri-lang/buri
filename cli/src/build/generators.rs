@@ -1765,7 +1765,7 @@ fn answer(
         // run that lints both reports it once.
         let root = workspace.package(t.package).module_path("tool.buri");
         if workspace.resolve_module(&root).is_err() {
-            let (message, fix) = workspace.missing_root(t, "tool.buri", "tool");
+            let (message, fix) = workspace.missing_root(t.package, "tool.buri", "tool");
             let response = Response {
                 modules: Vec::new(),
                 diagnostics: vec![Diagnostic {

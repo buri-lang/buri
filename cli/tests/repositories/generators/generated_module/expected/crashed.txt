@@ -53,6 +53,7 @@ error: "//lib/wire/units" names no file (lib/wire/units.buri) [unknown-module]
 
     There's no search path and no fallback, so a path never has two candidates.
 
-    A library needs lib.buri and a tool needs tool.buri. A missing one is
-    reported where a build file names the rule.
+    Each rule is rooted at a file: a binary at main.buri, a library at lib.buri,
+    a tool at tool.buri and a platform at platform.buri. A missing one is
+    reported where a build file names the rule, or at a binary's own rule.
 
