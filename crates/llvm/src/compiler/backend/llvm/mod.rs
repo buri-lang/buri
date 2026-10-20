@@ -644,7 +644,7 @@ fn emit_unit(
     // body is complete: there is one builder, and a declared function with
     // no body is a link error rather than a wrong answer.
     emitter.finish();
-    attrs::unwind_tables(&emitter.module);
+    attrs::frames(&emitter.module, &shared.triple);
     optimize(&emitter.module, &worker.machine, opts.profile);
     emitter.prune(members.iter().map(|&(f, _)| f), &audience.kept);
     let bytes = match render(&emitter.module, &worker.machine) {

@@ -359,21 +359,36 @@ pub fn set_call_convention(call: CallSiteValue<'_>, conv: u32) {
     call.set_call_convention(conv);
 }
 
-/// `uwtable(async)` on every function `module` defines, so the object
-/// describes each frame at every instruction, as the x86-64 psABI asks and as
-/// clang and rustc do by default. `nounwind` alone drops the description, and
-/// a debugger, a profiler or Valgrind then guesses at the frames. Valgrind's
-/// guess reads the word at the stack pointer, and after a stack overflow that
-/// word is unmapped, which kills Valgrind before the program's handler runs.
-pub fn unwind_tables(module: &inkwell::module::Module<'_>) {
+/// How every function `module` defines describes its frame, for `triple`.
+///
+/// * `uwtable(async)` everywhere, so the object describes each frame at every
+///   instruction, as the x86-64 psABI asks and as clang and rustc do by
+///   default. `nounwind` alone drops the description, and a debugger, a
+///   profiler or Valgrind then guesses at the frames. Valgrind's guess reads
+///   the word at the stack pointer, and after a stack overflow that word is
+///   unmapped, which kills Valgrind before the program's handler runs.
+/// * `"frame-pointer"="non-leaf"` on arm64, so each frame keeps a frame
+///   record and the description finds its caller through `x29`, as AAPCS64
+///   asks and as clang does on every arm64 target. Described from the stack
+///   pointer instead, a frame can't be unwound under Valgrind after a stack
+///   overflow: Valgrind moves the stack pointer of `stp x29, x30, [sp, #-n]!`
+///   before the store faults, so the caller's frame is found `n` bytes low,
+///   on the unmapped page, and Valgrind dies reading it before the program's
+///   handler runs.
+pub fn frames(module: &inkwell::module::Module<'_>, triple: &str) {
     const ASYNC: u64 = 2;
-    let attr = module
-        .get_context()
-        .create_enum_attribute(known().uwtable, ASYNC);
+    let ctx = module.get_context();
+    let uwtable = ctx.create_enum_attribute(known().uwtable, ASYNC);
+    let records = triple
+        .starts_with("aarch64")
+        .then(|| ctx.create_string_attribute("frame-pointer", "non-leaf"));
     let mut next = module.get_first_function();
     while let Some(f) = next {
         if f.count_basic_blocks() > 0 {
-            f.add_attribute(AttributeLoc::Function, attr);
+            f.add_attribute(AttributeLoc::Function, uwtable);
+            if let Some(records) = records {
+                f.add_attribute(AttributeLoc::Function, records);
+            }
         }
         next = f.get_next_function();
     }
@@ -1055,5 +1070,35 @@ mod tests {
         let e = memory_effects(&facts(ir::Purity::Pure, false), observed);
         assert_eq!(e, MemoryEffects::arg_read().and_allocates());
         assert_ne!(e, MemoryEffects::none());
+    }
+
+    /// A defined function keeps a frame record on arm64 and only there; a
+    /// declaration describes no frame at all.
+    #[test]
+    fn an_arm64_function_keeps_a_frame_record() {
+        let records = |triple: &str| {
+            let ctx = Context::create();
+            let module = ctx.create_module("m");
+            let ty = ctx.void_type().fn_type(&[], false);
+            let defined = module.add_function("defined", ty, None);
+            let block = ctx.append_basic_block(defined, "entry");
+            let builder = ctx.create_builder();
+            builder.position_at_end(block);
+            builder.build_return(None).unwrap();
+            let declared = module.add_function("declared", ty, None);
+            frames(&module, triple);
+            let fp = |f: FunctionValue<'_>| {
+                f.get_string_attribute(AttributeLoc::Function, "frame-pointer")
+                    .map(|a| a.get_string_value().to_str().unwrap().to_owned())
+            };
+            assert_eq!(fp(declared), None);
+            fp(defined)
+        };
+        assert_eq!(
+            records("aarch64-unknown-linux-musl").as_deref(),
+            Some("non-leaf")
+        );
+        assert_eq!(records("aarch64-apple-darwin").as_deref(), Some("non-leaf"));
+        assert_eq!(records("x86_64-unknown-linux-musl"), None);
     }
 }
