@@ -1,0 +1,16 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a binary with no main.buri is reported at its own rule, by build and lint alike"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "missing.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "missing.txt"
+}

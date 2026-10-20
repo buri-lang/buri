@@ -753,6 +753,7 @@ pub struct Binary {
     /// repository turns into `outputs`. Empty once it has.
     pub written: Vec<WrittenOutput>,
     pub test: Option<TestSuite>,
+    /// The `binary` keyword.
     pub span: Span,
 }
 
@@ -2103,44 +2104,53 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
     });
 
-    let binary = reader.sub_message(&message, "binary").map(|(m, span)| {
-        // A binary has no `platforms` field of its own — `outputs` already
-        // says — and no `visibility`, because nothing can depend on a binary.
-        // The two fields reported below get that one diagnostic, not a second
-        // `build-unknown-field` on the same span.
-        reader.check_known(
-            m,
-            textproto::schema_order("binary"),
-            &["platforms", "visibility"],
-            "a `binary` rule",
-        );
-        for bad in ["platforms", "visibility"] {
-            if let Some(f) = m.get(bad) {
-                let note = if bad == "platforms" {
-                    "a binary's `outputs` already name its platforms"
-                } else {
-                    "nothing can depend on a binary, so there is no one to be visible to"
-                };
-                // The note is the site's: which of the two fields it is
-                // decides the sentence, and a page holds one note.
-                reader
-                    .templated("binary-field-not-allowed", f.name_span)
-                    .bind("field", bad)
-                    .note(note);
+    // At the `binary` keyword: a binary's own rule is where a missing
+    // main.buri is reported, and the block's brace says nothing.
+    let binary = message
+        .get("binary")
+        .and_then(|f| {
+            reader
+                .sub_message(&message, "binary")
+                .map(|(m, _)| (m, f.name_span))
+        })
+        .map(|(m, span)| {
+            // A binary has no `platforms` field of its own — `outputs` already
+            // says — and no `visibility`, because nothing can depend on a binary.
+            // The two fields reported below get that one diagnostic, not a second
+            // `build-unknown-field` on the same span.
+            reader.check_known(
+                m,
+                textproto::schema_order("binary"),
+                &["platforms", "visibility"],
+                "a `binary` rule",
+            );
+            for bad in ["platforms", "visibility"] {
+                if let Some(f) = m.get(bad) {
+                    let note = if bad == "platforms" {
+                        "a binary's `outputs` already name its platforms"
+                    } else {
+                        "nothing can depend on a binary, so there is no one to be visible to"
+                    };
+                    // The note is the site's: which of the two fields it is
+                    // decides the sentence, and a page holds one note.
+                    reader
+                        .templated("binary-field-not-allowed", f.name_span)
+                        .bind("field", bad)
+                        .note(note);
+                }
             }
-        }
-        let (outputs, written) = reader.outputs(m);
-        Binary {
-            sources: reader.strings(m, "sources"),
-            generators: reader.generators(m),
-            dependencies: reader.strings(m, "dependencies"),
-            tags: reader.strings(m, "tags"),
-            outputs,
-            written,
-            test: reader.test_suite(m),
-            span,
-        }
-    });
+            let (outputs, written) = reader.outputs(m);
+            Binary {
+                sources: reader.strings(m, "sources"),
+                generators: reader.generators(m),
+                dependencies: reader.strings(m, "dependencies"),
+                tags: reader.strings(m, "tags"),
+                outputs,
+                written,
+                test: reader.test_suite(m),
+                span,
+            }
+        });
 
     let tool = reader.sub_message(&message, "tool").map(|(m, span)| {
         reader.check_known(m, textproto::schema_order("tool"), &[], "a `tool` rule");

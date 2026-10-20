@@ -33,6 +33,9 @@ pub struct Loader<'a> {
     /// The tools whose entry points this compilation has already checked, so
     /// a batch that reaches one twice reports it once.
     checked_tools: std::collections::BTreeSet<TargetId>,
+    /// The packages, by label, whose missing root file this compilation has
+    /// reported, with the file: an import of one says nothing more.
+    rootless: std::collections::BTreeSet<(String, &'static str)>,
     /// See [`Loaded::platform`].
     platform: Option<Platform>,
     /// See [`Loaded::entry`].
@@ -68,6 +71,7 @@ impl<'a> Loader<'a> {
             by_path: HashMap::default(),
             generated_rules: std::collections::BTreeSet::new(),
             checked_tools: std::collections::BTreeSet::new(),
+            rootless: std::collections::BTreeSet::new(),
             test_sources: Vec::new(),
             platform: None,
             entry: None,
@@ -134,6 +138,15 @@ impl<'a> Loader<'a> {
             return;
         };
         let pkg = ws.package(target.package);
+        // Before anything can import one: a library this target depends on,
+        // however far down, is part of it whether imported or not. Every
+        // member but the target itself is a library.
+        for member in ws.closure(target) {
+            if member != target {
+                let span = ws.named_at(member).unwrap_or(Span::NONE);
+                self.check_root(ws, member.package, "lib.buri", "library", span);
+            }
+        }
         match ws.rule(target) {
             Rule::Library(lib) => {
                 self.check_testing_surface_declared(ws, target);
@@ -190,10 +203,18 @@ impl<'a> Loader<'a> {
                 // Every repository platform an output names is part of the
                 // binary, imported or not: its entries are what the binary's
                 // own are checked against.
-                for platform in ws.custom_platforms(target) {
-                    self.load_path(&platform.label, Role::Source, Span::NONE);
+                for output in ws.custom_platform_outputs(target) {
+                    let platform = output.platform;
+                    let span = output.label.span;
+                    if self.check_root(ws, platform.package, "platform.buri", "platform", span) {
+                        self.load_path(&platform.label, Role::Source, Span::NONE);
+                    }
                 }
-                self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
+                // The binary's own rule names main.buri: nothing can depend on
+                // a binary, so nothing else does.
+                if self.check_root(ws, target.package, "main.buri", "binary", bin.span) {
+                    self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
+                }
                 for src in &bin.sources {
                     self.load_package_source(ws, target, &src.value, Role::Source, src.span);
                 }
@@ -262,21 +283,38 @@ impl<'a> Loader<'a> {
         &mut self,
         ws: &Workspace,
         target: TargetId,
-        root: &str,
+        root: &'static str,
         kind: &str,
     ) -> Option<ModuleId> {
+        let span = ws.named_at(target).unwrap_or(Span::NONE);
         let path = ws.package(target.package).module_path(root);
-        if self.resolve(ws, &path).is_err() {
-            let (problem, fix) = ws.missing_root(target, root, kind);
-            let span = ws.named_at(target).unwrap_or(Span::NONE);
-            self.diags.push(
-                Diagnostic::templated("unknown-module", span)
-                    .with_bind("problem", problem)
-                    .with_fix(fix),
-            );
-            return None;
+        self.check_root(ws, target.package, root, kind, span)
+            .then(|| self.load_path(&path, Role::Source, Span::NONE))
+            .flatten()
+    }
+
+    /// Whether `package` has the root file `root`. One that doesn't is
+    /// reported at `span`.
+    fn check_root(
+        &mut self,
+        ws: &Workspace,
+        package: crate::build::workspace::PackageId,
+        root: &'static str,
+        kind: &str,
+        span: Span,
+    ) -> bool {
+        let pkg = ws.package(package);
+        if self.resolve(ws, &pkg.module_path(root)).is_ok() {
+            return true;
         }
-        self.load_path(&path, Role::Source, Span::NONE)
+        self.rootless.insert((pkg.label(), root));
+        let (problem, fix) = ws.missing_root(package, root, kind);
+        self.diags.push(
+            Diagnostic::templated("unknown-module", span)
+                .with_bind("problem", problem)
+                .with_fix(fix),
+        );
+        false
     }
 
     /// The prelude's modules are in scope in every module, so they are always
@@ -710,7 +748,12 @@ impl<'a> Loader<'a> {
                 // to name a file this one took, so the whole sentence is bound.
                 // A schema whose check failed has its errors reported on it; a
                 // second one here would only repeat them.
-                if msg != crate::build::workspace::SCHEMA_HAS_ERRORS {
+                // Nor is a root file already reported missing at the build
+                // file that needs it.
+                let reported = ["lib.buri", "platform.buri"]
+                    .into_iter()
+                    .any(|root| self.rootless.contains(&(path.to_string(), root)));
+                if msg != crate::build::workspace::SCHEMA_HAS_ERRORS && !reported {
                     self.diags.push(
                         Diagnostic::templated("unknown-module", span)
                             .with_bind("problem", msg.clone())

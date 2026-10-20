@@ -1,0 +1,14 @@
+error: `//cmd/app` has no cmd/app/main.buri, the file a binary is rooted at [unknown-module]
+ --> cmd/app/BUILD.buri:1:1
+  |
+1 | binary {
+  | ^^^^^^
+  |
+  = fix: create cmd/app/main.buri
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+    Each rule is rooted at a file: a binary at main.buri, a library at lib.buri,
+    a tool at tool.buri and a platform at platform.buri. A missing one is
+    reported where a build file names the rule, or at a binary's own rule.
+
