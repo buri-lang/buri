@@ -1,5 +1,5 @@
-struct Pair(Int, /// stranded
-Int);
+struct Pair /// stranded
+(Int, Int);
 
-struct Trio(Int, /// stranded too
-Int, Int);
+struct Trio /// stranded too
+(Int, Int, Int);
