@@ -1,0 +1,12 @@
+export type Pair = (
+  // the first
+  Int, // beside the first
+  String
+  // after the last
+);
+
+export fn swap(p: (Int, // the left
+  String)): (String, Int) {
+  let (a, b) = p;
+  (b, a)
+}
