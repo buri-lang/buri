@@ -1,0 +1,9 @@
+error: expected `=`, found `extra` [unexpected-token]
+ --> main.buri:1:18
+  |
+1 | export type Rows extra = [
+  |                  ^^^^^
+  |
+  = expected: `=`
+  = actual: `extra`
+  = fix: write `=` here

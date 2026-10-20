@@ -1,0 +1,27 @@
+error: this `match` does not cover `(.Green, _)` [match-not-exhaustive]
+  --> main.buri:19:5
+   |
+19 |     match (p) {
+   |     ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `(.Green, _)`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:23:10
+   |
+23 |         ) n =>,
+   |          ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:23:13
+   |
+23 |         ) n =>,
+   |             ^^
+   |
+  --> main.buri:19:15
+   |
+19 |     match (p) {
+   |               ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:10:5
+   |
+10 |     @ ],
+   |     ^
+   |
+ --> main.buri:8:9
+  |
+8 |     xs: [
+  |         ^ opened here
+  |
+  = fix: write `]` here

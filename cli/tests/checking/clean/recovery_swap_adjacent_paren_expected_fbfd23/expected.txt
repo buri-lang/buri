@@ -1,0 +1,16 @@
+error: a tuple-pattern element ends with `,` [missing-comma]
+  --> main.buri:25:19
+   |
+25 |             .Green
+   |                   ^
+   |
+   = fix: write `,` here
+error: expected an identifier, found `|` [unexpected-token]
+  --> main.buri:27:15
+   |
+27 |             . |Off,
+   |               ^
+   |
+   = expected: an identifier
+   = actual: `|`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

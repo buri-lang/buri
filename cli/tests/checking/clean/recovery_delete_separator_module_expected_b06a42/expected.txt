@@ -1,0 +1,7 @@
+error: a `struct` declaration ends with `;` [missing-semicolon]
+ --> main.buri:1:22
+  |
+1 | struct Pair(Int, Int)
+  |                      ^
+  |
+  = fix: write `;` here

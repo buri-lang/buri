@@ -13,7 +13,5 @@ export fn f(xs: List<Int>): List<Int> {
     ): Bool => true;
     xs.map(fn(
         x, // the element
-    ) => {
-        x + 1
-    })
+    ) => x + 1)
 }

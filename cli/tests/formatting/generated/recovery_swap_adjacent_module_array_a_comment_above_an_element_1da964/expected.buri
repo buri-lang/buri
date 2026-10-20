@@ -1,6 +1,0 @@
-let ysList :<Int> = [
-  // the first
-  1,
-  // the second
-  2,
-];

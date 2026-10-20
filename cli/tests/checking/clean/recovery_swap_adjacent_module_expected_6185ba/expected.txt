@@ -1,0 +1,18 @@
+error: expected `=>`, found `fn` [unexpected-token]
+ --> main.buri:8:28
+  |
+8 | export type Lift = fn(Int) fn =>(
+  |                            ^^
+  |
+  = expected: `=>`
+  = actual: `fn`
+  = fix: write `=>` here
+error: expected an identifier, found `=>` [unexpected-token]
+ --> main.buri:8:31
+  |
+8 | export type Lift = fn(Int) fn =>(
+  |                               ^^
+  |
+  = expected: an identifier
+  = actual: `=>`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

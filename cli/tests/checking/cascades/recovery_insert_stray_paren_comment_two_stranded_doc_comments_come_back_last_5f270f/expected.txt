@@ -1,0 +1,14 @@
+error: there is no type `extra` [unknown-type]
+ --> main.buri:2:2
+  |
+2 | (extra Int, Int);
+  |  ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: a tuple-struct field ends with `,` [missing-comma]
+ --> main.buri:2:7
+  |
+2 | (extra Int, Int);
+  |       ^
+  |
+  = fix: write `,` here

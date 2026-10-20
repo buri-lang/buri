@@ -1,5 +1,0 @@
-/* a /* nested */ block / with a slash
-   and * stars
-
-   and a blank line inside */
-from "core/list" import { List }, ;

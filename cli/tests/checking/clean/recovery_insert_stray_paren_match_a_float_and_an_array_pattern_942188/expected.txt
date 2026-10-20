@@ -1,9 +1,0 @@
-error: expected `:`, found `@` [unexpected-token]
- --> main.buri:1:25
-  |
-1 | fn patterns(f: Float, xs@ : [Int]): Int {
-  |                         ^
-  |
-  = expected: `:`
-  = actual: `@`
-  = fix: write `:` here

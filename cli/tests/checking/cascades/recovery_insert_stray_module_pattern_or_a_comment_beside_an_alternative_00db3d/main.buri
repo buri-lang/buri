@@ -1,0 +1,24 @@
+export enum Light { Red, Amber, Green, Off }
+
+export fn stop(l: Light): Bool {
+  match (l) {
+    .Red // beside the red
+    // above the amber
+    | .Amber
+    | .Off => true,
+    .Green => false,
+  }
+}
+
+export fn either(p: (Light, Int)): Int {
+  match (p) {
+    (.Red | .Amber, // the lights that stop
+      n) => n,
+    (
+      .Green
+      // above the off
+      | .Off
+      // after the last
+    , n) => n,
+  }
+extra }

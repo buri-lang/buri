@@ -1,0 +1,7 @@
+error: a type alias ends with `;` [missing-semicolon]
+ --> main.buri:6:10
+  |
+6 | ) => Bool
+  |          ^
+  |
+  = fix: write `;` here

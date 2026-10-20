@@ -1,0 +1,8 @@
+export fn f(): Int {
+  let g = fn(x: // the count
+    Int) => x;
+  let h = fn@ (a: Int, b:
+    // the second
+    Int) => a + b;
+  g(1) + h(1, 2)
+}

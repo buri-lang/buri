@@ -1,0 +1,9 @@
+error: expected a pattern, found `,` [unexpected-token]
+  --> main.buri:15:13
+   |
+15 |     (.Red | , .Amber, // the lights that stop
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `,`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

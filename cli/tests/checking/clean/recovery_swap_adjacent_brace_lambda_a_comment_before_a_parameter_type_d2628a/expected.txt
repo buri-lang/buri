@@ -1,0 +1,9 @@
+error: expected `=>`, found `a` [unexpected-token]
+ --> main.buri:6:10
+  |
+6 |     Int) a => + b;
+  |          ^
+  |
+  = expected: `=>`
+  = actual: `a`
+  = fix: write `=>` here

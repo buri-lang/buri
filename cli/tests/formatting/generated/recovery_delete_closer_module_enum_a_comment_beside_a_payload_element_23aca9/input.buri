@@ -1,0 +1,17 @@
+export enum Shape {
+  Circle(
+    // the radius
+    Int, // beside the radius
+    Int
+    // after the last
+  ),
+  Rect {
+    // the width
+    w: Int, // beside the width
+    h: List<Int, // the row
+    >,
+    // after the last
+  },
+  Dot(Int), // beside the dot
+  Empty {},
+

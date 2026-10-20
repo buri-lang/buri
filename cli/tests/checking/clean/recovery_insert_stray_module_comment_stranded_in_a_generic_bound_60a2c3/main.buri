@@ -1,0 +1,4 @@
+export fn show<@ T: // the bound
+  Show>(x: T): T {
+  x
+}

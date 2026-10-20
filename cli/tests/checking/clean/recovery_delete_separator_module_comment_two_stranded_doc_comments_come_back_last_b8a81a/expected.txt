@@ -1,7 +1,0 @@
-error: a `struct` declaration ends with `;` [missing-semicolon]
- --> main.buri:2:5
-  |
-2 | Int)
-  |     ^
-  |
-  = fix: write `;` here

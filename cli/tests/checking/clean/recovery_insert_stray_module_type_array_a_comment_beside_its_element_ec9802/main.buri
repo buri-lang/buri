@@ -1,0 +1,10 @@
+export type Rows extra = [
+  // the row
+  Int // beside the row
+  // after the row
+];
+
+export fn total(xs: [Int // the count
+]): Int {
+  0
+}

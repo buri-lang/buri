@@ -1,9 +1,0 @@
-error: expected a type, found `)` [unexpected-token]
- --> main.buri:2:22
-  |
-2 |     let g = fn(xInt :) => x;
-  |                      ^
-  |
-  = expected: a type
-  = actual: `)`
-  = fix: name a type here, as in `Int` or `[Str]`

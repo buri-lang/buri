@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:7:8
+  |
+7 |   g(1) , + h(1, 2)
+  |        ^
+  |
+ --> main.buri:1:20
+  |
+1 | export fn f(): Int {
+  |                    ^ opened here
+  |
+  = fix: write `}` here

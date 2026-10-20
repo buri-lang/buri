@@ -1,4 +1,0 @@
-export fn f(): (Int Int) {
-  (1, // one
-   2)
-}

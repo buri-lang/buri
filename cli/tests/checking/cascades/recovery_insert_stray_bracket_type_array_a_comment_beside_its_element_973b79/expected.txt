@@ -1,0 +1,19 @@
+error: there is no type `extra` [unknown-type]
+ --> main.buri:7:22
+  |
+7 | export fn total(xs: [extra Int // the count
+  |                      ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:7:28
+  |
+7 | export fn total(xs: [extra Int // the count
+  |                            ^^^
+  |
+ --> main.buri:7:21
+  |
+7 | export fn total(xs: [extra Int // the count
+  |                     ^ opened here
+  |
+  = fix: write `]` here

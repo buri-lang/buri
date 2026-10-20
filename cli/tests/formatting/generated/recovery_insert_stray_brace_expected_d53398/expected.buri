@@ -1,0 +1,11 @@
+export fn first(t: (Int, Int)): Int {
+    let @ (
+        // the only one
+        a, // beside it
+        // after the last
+    ) = t;
+    let (
+        b, // beside b
+    ) = t;
+    a + b
+}

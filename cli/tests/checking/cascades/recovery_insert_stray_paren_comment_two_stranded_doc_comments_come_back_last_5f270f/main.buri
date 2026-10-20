@@ -1,0 +1,5 @@
+struct Pair /// stranded
+(extra Int, Int);
+
+struct Trio /// stranded too
+(Int, Int, Int);

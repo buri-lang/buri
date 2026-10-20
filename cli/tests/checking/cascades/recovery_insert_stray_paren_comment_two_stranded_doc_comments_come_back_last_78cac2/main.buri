@@ -1,5 +1,0 @@
-struct Pair(extra Int, /// stranded
-Int);
-
-struct Trio(Int, /// stranded too
-Int, Int);

@@ -1,0 +1,27 @@
+error: this `match` does not cover `(.Green, _)` [match-not-exhaustive]
+  --> main.buri:14:3
+   |
+14 |   match (p) {
+   |   ^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `(.Green, _)`, or a `_` arm for everything left
+error: `I64` is not callable [not-callable]
+  --> main.buri:16:13
+   |
+16 |       n) => n
+   |             ^
+   |
+   = fix: call a function, a lambda, or a field holding one — `(x.f)(...)` for a field
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:22:10
+   |
+22 |     , n) => n,
+   |          ^^
+   |
+  --> main.buri:14:13
+   |
+14 |   match (p) {
+   |             ^ opened here
+   |
+   = fix: write `}` here
