@@ -720,6 +720,11 @@ fn formatting_cases_are_two_files() {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n != "NOTES.md")
             .collect();
+        // A blessing run writes a new case's `expected.buri` from another
+        // test, in whatever order `cargo test` runs them.
+        if std::env::var_os("BURI_BLESS").is_some() && names == ["input.buri"] {
+            names.push("expected.buri".to_string());
+        }
         names.sort();
         assert_eq!(
             names,
