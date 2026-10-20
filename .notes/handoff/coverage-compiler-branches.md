@@ -24,12 +24,12 @@ Probe one branch without a full run: build an instrumented buri, run it with `LL
 - code_actions.rs 233, 312: removed. Lint edits are never in generated (pathless) files.
 - The UX gap behind them is fixed: a generated module importing a library its rule doesn't list now gets the `buri gen` fix in the editor, as `lint --fix` gives it. Test: `lsp/a_generated_import_missing_a_dependency_has_the_gen_fix` (its golden was `[]` before).
 - javascript.rs `to_switch`: always emits a `default`; an empty one does nothing, as the `else`-less chain did.
-- profile.rs 315, 370: the allocations column is behind a new `alloc-counter` feature of `buri-diagnostics`, which `buri`'s `alloc-counter` turns on.
 - driver.rs 895: no pid directory any more. The doctest module is `temp_dir()/buri-doctest-<pid>-<stem>.mjs` with its chunks beside it, written in one loop with one failure message.
-- interrupt.rs 32: the handler puts back `SIG_DFL` for all three signals before noting one, so a second signal ends the process by default and the handler has no branch. Caveat: a different signal arriving in the few instructions before the resets runs the handler again instead of killing at once. `serving::a_second_signal_stops_the_server_at_once` still passes.
 
 ## Unreachable, for a refactor phase
 
+- interrupt.rs 32: a second signal. `serving::a_second_signal_stops_the_server_at_once` reaches it, but a process a signal kills writes no profile. Resetting `SIG_DFL` in the handler instead was reverted: a signal landing on another thread before the reset runs the handler again, so the process keeps going. Lead: continuous-mode profiles (`%c`) in the coverage harness.
+- profile.rs 315, 370: the allocations column, only in a `--features alloc-counter` build. Moving it behind a `cfg` was reverted: that hides the decision from coverage.
 - profile.rs 360: hardware counters. It is covered on real hardware and not on CI's VMs, so it was left alone.
 - `cli/src/main.rs` 64 and `arguments.rs` 321: need a panic other than a stdout print failure.
 - link.rs 289, 292, 1044, 1675, 1898, 1904, 1920, 2124; actions.rs 2059, 2070; runtime_cross.rs 188; runtime_native.rs 100: branch on build constants (`musl::BAKED`, `runtime_native::AVAILABLE`, `runtime_src::AVAILABLE`). Not fully verified.
@@ -48,4 +48,4 @@ Probe one branch without a full run: build an instrumented buri, run it with `LL
 - A missing `tool.buri` (like a missing `lib.buri`) is reported with no location, because `load_unit` passes `Span::NONE`. `lint //...` also repeats it inside `tool-failed`.
 - Only `lint` reaches modules.rs 223. `build //cmd/app` loads the tool another way.
 
-Local macOS run: 14874/15107 before, 14878/15107 after the first four tests (cli/lint 560 to 564 of 566). After refactor phase 1: 14897/15105, with json/schema.rs fully covered. After refactor phase 2: 14889/15096 by lcov sums (215 uncovered down to 207; the tool reported 14897/15105 before).
+Local macOS run: 14874/15107 before, 14878/15107 after the first four tests (cli/lint 560 to 564 of 566). After refactor phase 1: 14897/15105, with json/schema.rs fully covered. After refactor phase 2: 14889/15096 by lcov sums (215 uncovered down to 207; the tool reported 14897/15105 before). Reverting interrupt.rs 32 and profile.rs 315, 370 puts three back: 14889/15099.
