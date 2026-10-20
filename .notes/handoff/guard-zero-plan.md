@@ -119,6 +119,35 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 71
+
+## What landed
+
+- `llvm/build.rs` has `Known`: every attribute kind and intrinsic the backend names, looked up by name once per process through `build::known()`. One `invariant` checks that LLVM knew every name. Taking `Known` apart whole means a new row can't skip that check.
+- An intrinsic is a `build::Intrinsic`, an id only `Known` makes. `At::intrinsic` declares and calls it through llvm-sys. Its overload types are an array whose length is checked at compile time to be at least one, which is the case inkwell's `get_declaration` answered `None` for.
+- `attrs.rs`'s `kind(name)` is gone. Its helpers take a kind id, such as `known().nounwind`.
+
+## Guards
+
+Plan rule: 40 to 38. Three lookups go: `attrs.rs` "LLVM 21 knows every attribute this backend writes", and `emit.rs` "LLVM 21 has the intrinsic" and "its overloads fit". The new `invariant` in `Known::look_up` replaces them, as the plan's LLVM section asks. The other count stays 19.
+
+## Branches
+
+No counted branch was removed or added. The lookups were `or_ice` calls, which branch coverage doesn't count.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| crates/llvm | 535/536 | 535/536 | 580/580 |
+| total | 14838/15071 | 14838/15071 | 14898/15049 |
+
+Every area and file is equal between base and head. The CI baseline merges three more platforms.
+
+## Output
+
+Debug and release objects are byte-identical between base and head for `cli/tests/example` (55) and for conformance with `backends: [JS]` removed (1337). The release runs build through LLVM.
+
 # Guard phase 70
 
 ## What landed
