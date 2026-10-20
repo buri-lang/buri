@@ -402,9 +402,8 @@ fn build_page(
 /// Which of a target's outputs `buri run` executes.
 ///
 /// The host's own platform first, where this toolchain can build and link for
-/// it, and JavaScript otherwise. That order is the `host_platform()` switch
-/// applied to the one command whose answer a user watches
-/// (`design/native/ARCHITECTURE.md` §4): a repository that declares a native
+/// it, and JavaScript otherwise, for the one command whose answer a user
+/// watches (`design/native/ARCHITECTURE.md` §4): a repository that declares a native
 /// output for this machine gets a native process, and one that declares only
 /// `JS` gets what it always got.
 ///

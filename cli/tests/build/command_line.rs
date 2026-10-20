@@ -319,6 +319,18 @@ fn a_documented_program_that_fails_says_how_it_exited() {
         .says("the example exited 1");
 }
 
+/// A `fail` block whose code checks cleanly is compiled too, so a rule only
+/// compiling enforces is the one it claims.
+#[test]
+fn a_documented_failure_found_only_by_compiling_is_the_one_claimed() {
+    let scratch = Scratch::repo("command-line-doc-compiled-failure");
+    scratch.write(
+        "page.md",
+        "Money that wraps cents, not a number.\n\n```buri fail code=derive-operator-not-numeric\nfrom \"native\" import { NativeHost };\n\nderive Add for Cents;\nstruct Cents {\n    value: Int,\n}\n\nderive Add for Money;\nstruct Money {\n    cents: Cents,\n}\n\nexport fn main(_host: NativeHost): Result<(), Str> {\n    let _ = Money { cents: Cents { value: 1 } } + Money { cents: Cents { value: 2 } };\n    .Ok(())\n}\n```\n",
+    );
+    scratch.run(&["docs", "test", "page.md"]).ok();
+}
+
 /// A temporary directory that can't be made is why an example didn't run.
 #[test]
 fn a_documented_program_needs_a_temporary_directory() {

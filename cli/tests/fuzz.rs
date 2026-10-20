@@ -2779,7 +2779,7 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
         let last = program.modules.len().saturating_sub(1);
         for (i, m) in program.modules.iter().enumerate() {
             let role = if i == last { Role::Entry } else { Role::Source };
-            loader.load_source(&m.path, role, m.text.clone());
+            loader.load_source_in(&m.path, role, m.text.clone(), None);
         }
         loader.finish()
     };

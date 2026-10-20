@@ -255,7 +255,7 @@ fn costs(name: &str) -> Option<(u64, u64)> {
         let last = program.modules.len().saturating_sub(1);
         for (i, m) in program.modules.iter().enumerate() {
             let role = if i == last { Role::Entry } else { Role::Source };
-            loader.load_source(&m.path, role, m.text.clone());
+            loader.load_source_in(&m.path, role, m.text.clone(), None);
         }
         let loaded = loader.finish();
         assert!(

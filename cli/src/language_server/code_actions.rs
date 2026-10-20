@@ -222,12 +222,11 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
     let mut offered: Vec<Vec<(u32, u32, u32, String)>> = Vec::new();
 
     for d in &linted.diagnostics.items {
-        let Some(code) = d.code.as_deref() else {
+        // A finding with no code is one nobody asked about.
+        let Some(code) = wanted.iter().find(|w| d.code.as_ref() == Some(*w)) else {
             continue;
         };
-        if !wanted.iter().any(|w| w == code) {
-            continue;
-        }
+        let code = code.as_str();
 
         // A finding that already knows its bytes.
         if !d.edits.is_empty() {
@@ -270,7 +269,10 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         ) {
             continue;
         }
-        let Some(package) = package_of(session, d.span.file, path) else {
+        // These findings point into a package: at its build file, or at an
+        // import in one of its sources.
+        let at = &session.map.get(d.span.file).abs_path;
+        let Some(package) = session.workspace.owning_package(at) else {
             continue;
         };
         // `buri gen` leaves a tool's build file as written, so a title
@@ -365,19 +367,4 @@ fn changes(by_file: BTreeMap<String, Vec<Value>>) -> Value {
                 .collect(),
         ),
     )])
-}
-
-/// The package a diagnostic is about: the one owning the file it points at.
-fn package_of(
-    session: &Session,
-    file: crate::diagnostics::FileId,
-    fallback: &Path,
-) -> Option<crate::build::workspace::PackageId> {
-    let f = session.map.get(file);
-    if !f.abs_path.as_os_str().is_empty() {
-        if let Some(p) = session.workspace.owning_package(&f.abs_path) {
-            return Some(p);
-        }
-    }
-    session.workspace.owning_package(fallback)
 }

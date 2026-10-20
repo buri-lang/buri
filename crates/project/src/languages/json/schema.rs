@@ -20,6 +20,7 @@
 //! spellings with a 2020-12 replacement are refused by name, because 2020-12
 //! would silently ignore them.
 
+use super::number::Decimal;
 use super::regex::{Regex, TooCostly};
 use super::syntax::{Member, Node, Range, Value};
 use crate::languages::Finding;
@@ -238,8 +239,48 @@ pub struct Registry<'r> {
     location: HashMap<*const Node, (usize, String, usize)>,
     /// What each reference resolved to, by the string node that writes it.
     targets: HashMap<*const Node, Reference<'r>>,
+    /// Each object schema's keywords, as reading the schema understood them.
+    keywords: HashMap<*const Node, Vec<Keyword<'r>>>,
     regexes: HashMap<String, Regex>,
     problems: Vec<Finding>,
+}
+
+/// One keyword of an object schema.
+struct Keyword<'r> {
+    member: &'r Member,
+    kind: Kind<'r>,
+}
+
+/// What reading a keyword learned about its value, so checking a value does
+/// not have to learn it again.
+enum Kind<'r> {
+    /// `$ref` and `$dynamicRef`, resolved.
+    Ref(Reference<'r>),
+    /// `multipleOf` and the bounds.
+    Number(&'r Decimal),
+    /// `type`, as the names it lists.
+    Type(Vec<&'r str>),
+    Pattern(&'r str, Regex),
+    /// `patternProperties`, `dependentSchemas` and `dependentRequired`.
+    Entries(&'r [Member]),
+    /// A keyword checking reads straight from the schema.
+    Other,
+}
+
+/// A keyword as walking the schema leaves it: a reference has to wait until
+/// every resource is known before it resolves.
+enum Read<'r> {
+    Kind(Kind<'r>),
+    Reference,
+}
+
+/// What walking the schemas finds that has to wait for the walk to finish.
+#[derive(Default)]
+struct Found<'r> {
+    /// Each reference: its file, span and text, the string node, and the
+    /// resource it is written in.
+    refs: Vec<(usize, Range, &'r str, *const Node, usize)>,
+    schemas: Vec<(*const Node, Vec<(&'r Member, Read<'r>)>)>,
 }
 
 const TYPES: &[&str] = &[
@@ -304,10 +345,6 @@ fn is_count(n: &Node) -> bool {
     matches!(&n.value, Value::Number(super::number::Number::Finite(d)) if d.is_integer() && !d.is_negative())
 }
 
-fn is_finite_number(n: &Node) -> bool {
-    matches!(&n.value, Value::Number(super::number::Number::Finite(_)))
-}
-
 impl<'r> Registry<'r> {
     /// Reads every file as a schema. What is wrong with one is in
     /// [`Registry::problems`].
@@ -324,10 +361,11 @@ impl<'r> Registry<'r> {
             root_of: HashMap::new(),
             location: HashMap::new(),
             targets: HashMap::new(),
+            keywords: HashMap::new(),
             regexes: HashMap::new(),
             problems: Vec::new(),
         };
-        let mut refs = Vec::new();
+        let mut found = Found::default();
         for (i, file) in files.into_iter().enumerate() {
             let id = file
                 .root
@@ -337,11 +375,11 @@ impl<'r> Registry<'r> {
                 .map(|s| s.trim_end_matches('#').to_string());
             let r = reg.add_resource(i, &file.root, id);
             reg.by_file.insert(file.path.clone(), r);
-            reg.walk(&file.root, i, String::new(), r, &mut refs);
+            reg.walk(&file.root, i, String::new(), r, &mut found);
         }
         // Every reference resolves, and whatever it lands on is a schema too.
         let mut at = 0usize;
-        while let Some((file, span, reference, node, resource)) = refs.get(at).copied() {
+        while let Some((file, span, reference, node, resource)) = found.refs.get(at).copied() {
             at = at.saturating_add(1);
             match reg.resolve(reference, resource) {
                 Ok((target_resource, target)) => {
@@ -360,11 +398,35 @@ impl<'r> Registry<'r> {
                             .unwrap_or_default();
                         let target_file =
                             reg.resources.get(target_resource).map_or(file, |r| r.file);
-                        reg.walk(target, target_file, pointer, target_resource, &mut refs);
+                        reg.walk(target, target_file, pointer, target_resource, &mut found);
                     }
                 }
                 Err(e) => reg.unresolved(file, span, reference, e),
             }
+        }
+        for (node, read) in found.schemas {
+            let keywords = read
+                .into_iter()
+                .map(|(member, read)| {
+                    let kind = match read {
+                        Read::Kind(kind) => kind,
+                        Read::Reference => {
+                            // One that did not resolve is a problem already,
+                            // and a schema with a problem checks nothing.
+                            let Some(target) = reg.targets.get(&(&member.value as *const Node))
+                            else {
+                                return Keyword {
+                                    member,
+                                    kind: Kind::Other,
+                                };
+                            };
+                            Kind::Ref(*target)
+                        }
+                    };
+                    Keyword { member, kind }
+                })
+                .collect();
+            reg.keywords.insert(node, keywords);
         }
         reg
     }
@@ -465,20 +527,25 @@ impl<'r> Registry<'r> {
         self.problems.push(finding);
     }
 
-    fn regex(&mut self, file: usize, span: Range, pattern: &str) {
-        if self.regexes.contains_key(pattern) {
-            return;
+    /// The pattern, compiled, or `None` with the problem reported.
+    fn regex(&mut self, file: usize, span: Range, pattern: &str) -> Option<Regex> {
+        if let Some(r) = self.regexes.get(pattern) {
+            return Some(r.clone());
         }
         match Regex::new(pattern) {
             Ok(r) => {
-                self.regexes.insert(pattern.to_string(), r);
+                self.regexes.insert(pattern.to_string(), r.clone());
+                Some(r)
             }
-            Err(why) => self.problem(
-                file,
-                span,
-                format!("the pattern `{pattern}` does not read: {why}"),
-                "write an ECMA-262 regular expression this toolchain reads; `buri docs guides/json` lists the syntax",
-            ),
+            Err(why) => {
+                self.problem(
+                    file,
+                    span,
+                    format!("the pattern `{pattern}` does not read: {why}"),
+                    "write an ECMA-262 regular expression this toolchain reads; `buri docs guides/json` lists the syntax",
+                );
+                None
+            }
         }
     }
 
@@ -489,7 +556,7 @@ impl<'r> Registry<'r> {
         file: usize,
         pointer: String,
         resource: usize,
-        refs: &mut Vec<(usize, Range, &'r str, *const Node, usize)>,
+        found: &mut Found<'r>,
     ) {
         if self.location.contains_key(&(node as *const Node)) {
             return;
@@ -560,31 +627,40 @@ impl<'r> Registry<'r> {
             };
             map.insert((resource, name.to_string()), node);
         }
-        for m in members {
-            self.keyword(m, file, &pointer, resource, refs);
-        }
+        let read = members
+            .iter()
+            .map(|m| (m, self.keyword(m, file, &pointer, resource, found)))
+            .collect();
+        found.schemas.push((node as *const Node, read));
     }
 
+    /// Checks one keyword's value, and says what it learned.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per keyword, in the order the vocabularies list them"
+    )]
     fn keyword(
         &mut self,
         m: &'r Member,
         file: usize,
         pointer: &str,
         resource: usize,
-        refs: &mut Vec<(usize, Range, &'r str, *const Node, usize)>,
-    ) {
+        found: &mut Found<'r>,
+    ) -> Read<'r> {
+        use super::number::Number;
         let v = &m.value;
         let here = format!("{pointer}/{}", escape_pointer(&m.key));
         let key = m.key.as_str();
         if let Some((_, remedy)) = RETIRED.iter().find(|(k, _)| *k == key) {
-            return self.problem(
+            self.problem(
                 file,
                 m.key_span,
                 format!("`{key}` is not a JSON Schema 2020-12 keyword"),
                 *remedy,
             );
+            return Read::Kind(Kind::Other);
         }
-        match key {
+        let kind = match key {
             "$schema" => {
                 if !v.as_str().is_some_and(is_2020_12) {
                     self.problems.push(Finding::new(
@@ -597,31 +673,49 @@ impl<'r> Registry<'r> {
                         )],
                     ));
                 }
+                Kind::Other
             }
             "$ref" | "$dynamicRef" => match v.as_str() {
-                Some(s) => refs.push((file, v.span, s, v as *const Node, resource)),
-                None => self.problem(
+                Some(s) => {
+                    found
+                        .refs
+                        .push((file, v.span, s, v as *const Node, resource));
+                    return Read::Reference;
+                }
+                None => {
+                    self.problem(
+                        file,
+                        v.span,
+                        format!("`{key}` is a string"),
+                        "write the reference as a string",
+                    );
+                    Kind::Other
+                }
+            },
+            "$anchor" | "$dynamicAnchor" if !v.as_str().is_some_and(is_anchor) => {
+                self.problem(
                     file,
                     v.span,
-                    format!("`{key}` is a string"),
-                    "write the reference as a string",
-                ),
-            },
-            "$anchor" | "$dynamicAnchor" if !v.as_str().is_some_and(is_anchor) => self.problem(
-                file,
-                v.span,
-                format!(
-                    "`{key}` is a name: a letter or `_`, then letters, digits, `-`, `.` or `_`"
-                ),
-                "rename the anchor",
-            ),
-            "items" if matches!(v.value, Value::Array(..)) => self.problem(
-                file,
-                m.key_span,
-                "`items` holds one schema in 2020-12",
-                "use `prefixItems` for a list of schemas, one per position",
-            ),
-            k if SCHEMA_KEYWORDS.contains(&k) => self.walk(v, file, here, resource, refs),
+                    format!(
+                        "`{key}` is a name: a letter or `_`, then letters, digits, `-`, `.` or `_`"
+                    ),
+                    "rename the anchor",
+                );
+                Kind::Other
+            }
+            "items" if matches!(v.value, Value::Array(..)) => {
+                self.problem(
+                    file,
+                    m.key_span,
+                    "`items` holds one schema in 2020-12",
+                    "use `prefixItems` for a list of schemas, one per position",
+                );
+                Kind::Other
+            }
+            k if SCHEMA_KEYWORDS.contains(&k) => {
+                self.walk(v, file, here, resource, found);
+                Kind::Other
+            }
             k if SCHEMA_MAPS.contains(&k) => match &v.value {
                 Value::Object(entries, _) => {
                     for e in entries {
@@ -633,114 +727,154 @@ impl<'r> Registry<'r> {
                             file,
                             format!("{here}/{}", escape_pointer(&e.key)),
                             resource,
-                            refs,
+                            found,
                         );
                     }
+                    Kind::Entries(entries)
                 }
-                _ => self.problem(
-                    file,
-                    v.span,
-                    format!("`{k}` is an object of schemas"),
-                    "write an object",
-                ),
+                _ => {
+                    self.problem(
+                        file,
+                        v.span,
+                        format!("`{k}` is an object of schemas"),
+                        "write an object",
+                    );
+                    Kind::Other
+                }
             },
-            k if SCHEMA_LISTS.contains(&k) => match &v.value {
-                Value::Array(items, _) if !items.is_empty() => {
-                    for (i, item) in items.iter().enumerate() {
-                        self.walk(item, file, format!("{here}/{i}"), resource, refs);
+            k if SCHEMA_LISTS.contains(&k) => {
+                match &v.value {
+                    Value::Array(items, _) if !items.is_empty() => {
+                        for (i, item) in items.iter().enumerate() {
+                            self.walk(item, file, format!("{here}/{i}"), resource, found);
+                        }
                     }
+                    _ => self.problem(
+                        file,
+                        v.span,
+                        format!("`{k}` is a non-empty array of schemas"),
+                        "write an array with at least one schema",
+                    ),
                 }
-                _ => self.problem(
-                    file,
-                    v.span,
-                    format!("`{k}` is a non-empty array of schemas"),
-                    "write an array with at least one schema",
-                ),
-            },
+                Kind::Other
+            }
             "type" => {
-                let ok = match &v.value {
-                    Value::Str(s) => TYPES.contains(&s.as_str()),
-                    Value::Array(items, _) => {
-                        let names: Vec<Option<&str>> = items.iter().map(Node::as_str).collect();
-                        let unique: BTreeSet<&Option<&str>> = names.iter().collect();
-                        !names.is_empty()
-                            && unique.len() == names.len()
-                            && names.iter().all(|n| n.is_some_and(|n| TYPES.contains(&n)))
-                    }
-                    _ => false,
+                let names: Vec<Option<&str>> = match &v.value {
+                    Value::Str(s) => vec![Some(s.as_str())],
+                    Value::Array(items, _) => items.iter().map(Node::as_str).collect(),
+                    _ => Vec::new(),
                 };
-                if !ok {
+                let unique: BTreeSet<&Option<&str>> = names.iter().collect();
+                let known: Vec<&str> = names
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .filter(|n| TYPES.contains(n))
+                    .collect();
+                if !known.is_empty() && known.len() == names.len() && unique.len() == names.len() {
+                    Kind::Type(known)
+                } else {
                     self.problem(
                         file,
                         v.span,
                         format!("`type` is one of {}, or a list of them", TYPES.join(", ")),
                         "correct the type's name",
                     );
+                    Kind::Other
                 }
             }
-            "enum" if !matches!(v.value, Value::Array(..)) => self.problem(
-                file,
-                v.span,
-                "`enum` is an array",
-                "write the allowed values in an array",
-            ),
-            "multipleOf" => {
-                let positive = matches!(&v.value, Value::Number(super::number::Number::Finite(d)) if !d.is_zero() && !d.is_negative());
-                if !positive {
+            "enum" if !matches!(v.value, Value::Array(..)) => {
+                self.problem(
+                    file,
+                    v.span,
+                    "`enum` is an array",
+                    "write the allowed values in an array",
+                );
+                Kind::Other
+            }
+            "multipleOf" => match &v.value {
+                Value::Number(Number::Finite(d)) if !d.is_zero() && !d.is_negative() => {
+                    Kind::Number(d)
+                }
+                _ => {
                     self.problem(
                         file,
                         v.span,
                         "`multipleOf` is a number greater than zero",
                         "write a positive number",
                     );
+                    Kind::Other
                 }
-            }
-            k if BOUNDS.contains(&k) && !is_finite_number(v) => {
-                self.problem(file, v.span, format!("`{k}` is a number"), "write a number")
-            }
-            k if COUNTS.contains(&k) && !is_count(v) => self.problem(
-                file,
-                v.span,
-                format!("`{k}` is a whole number, zero or more"),
-                "write a whole number",
-            ),
-            "uniqueItems" if !matches!(v.value, Value::Bool(_)) => self.problem(
-                file,
-                v.span,
-                "`uniqueItems` is `true` or `false`",
-                "write a boolean",
-            ),
-            "pattern" => match v.as_str() {
-                Some(p) => self.regex(file, v.span, p),
-                None => self.problem(
+            },
+            k if BOUNDS.contains(&k) => match &v.value {
+                Value::Number(Number::Finite(d)) => Kind::Number(d),
+                _ => {
+                    self.problem(file, v.span, format!("`{k}` is a number"), "write a number");
+                    Kind::Other
+                }
+            },
+            k if COUNTS.contains(&k) && !is_count(v) => {
+                self.problem(
                     file,
                     v.span,
-                    "`pattern` is a string",
-                    "write the pattern as a string",
-                ),
+                    format!("`{k}` is a whole number, zero or more"),
+                    "write a whole number",
+                );
+                Kind::Other
+            }
+            "uniqueItems" if !matches!(v.value, Value::Bool(_)) => {
+                self.problem(
+                    file,
+                    v.span,
+                    "`uniqueItems` is `true` or `false`",
+                    "write a boolean",
+                );
+                Kind::Other
+            }
+            "pattern" => match v.as_str() {
+                Some(p) => {
+                    if let Some(regex) = self.regex(file, v.span, p) {
+                        Kind::Pattern(p, regex)
+                    } else {
+                        Kind::Other
+                    }
+                }
+                None => {
+                    self.problem(
+                        file,
+                        v.span,
+                        "`pattern` is a string",
+                        "write the pattern as a string",
+                    );
+                    Kind::Other
+                }
             },
-            "required" if !is_name_list(v) => self.problem(
-                file,
-                v.span,
-                "`required` is an array of property names, each once",
-                "write the names as strings",
-            ),
-            "dependentRequired" => {
-                let ok = match &v.value {
-                    Value::Object(entries, _) => entries.iter().all(|e| is_name_list(&e.value)),
-                    _ => false,
-                };
-                if !ok {
+            "required" if !is_name_list(v) => {
+                self.problem(
+                    file,
+                    v.span,
+                    "`required` is an array of property names, each once",
+                    "write the names as strings",
+                );
+                Kind::Other
+            }
+            "dependentRequired" => match &v.value {
+                Value::Object(entries, _) if entries.iter().all(|e| is_name_list(&e.value)) => {
+                    Kind::Entries(entries)
+                }
+                _ => {
                     self.problem(
                         file,
                         v.span,
                         "`dependentRequired` maps a property name to an array of names",
                         "write an object of arrays of names",
                     );
+                    Kind::Other
                 }
-            }
-            _ => {}
-        }
+            },
+            _ => Kind::Other,
+        };
+        Read::Kind(kind)
     }
 
     /// The schema `reference` names, from inside `resource`.
@@ -1030,9 +1164,12 @@ impl<'a, 'r> Checker<'a, 'r> {
         instance: &Node,
         out: &mut Vec<Violation>,
     ) -> Evaluated {
-        let members = match &schema.value {
-            Value::Bool(true) => return Evaluated::default(),
-            Value::Bool(false) => {
+        let keywords = match (
+            &schema.value,
+            self.reg.keywords.get(&(schema as *const Node)),
+        ) {
+            (Value::Bool(true), _) => return Evaluated::default(),
+            (Value::Bool(false), _) => {
                 self.violation(
                     out,
                     schema,
@@ -1046,8 +1183,8 @@ impl<'a, 'r> Checker<'a, 'r> {
                 );
                 return Evaluated::default();
             }
-            Value::Object(members, _) => members,
-            _ => return Evaluated::default(),
+            (_, Some(keywords)) => keywords,
+            (_, None) => return Evaluated::default(),
         };
         if self.depth > MAX_DEPTH {
             self.violation(
@@ -1073,11 +1210,11 @@ impl<'a, 'r> Checker<'a, 'r> {
             self.dynamic.push(r);
         }
         let mut seen = Evaluated::default();
-        for m in members {
-            self.keyword(schema, resource, m, instance, out, &mut seen);
+        for kw in keywords {
+            self.keyword(schema, resource, kw, instance, out, &mut seen);
         }
         // Last, because they ask what everything else looked at.
-        for m in members {
+        for Keyword { member: m, .. } in keywords {
             match m.key.as_str() {
                 "unevaluatedProperties" => self
                     .unevaluated_properties(schema, resource, &m.value, instance, out, &mut seen),
@@ -1102,37 +1239,30 @@ impl<'a, 'r> Checker<'a, 'r> {
         &mut self,
         schema: &'r Node,
         resource: usize,
-        m: &'r Member,
+        kw: &Keyword<'r>,
         v: &Node,
         out: &mut Vec<Violation>,
         seen: &mut Evaluated,
     ) {
-        let k = m.key.as_str();
-        let s = &m.value;
-        match (k, &v.value) {
-            ("$ref", _) => {
-                if let Some(reference) = s.as_str() {
-                    if let Ok((r, target)) = self.reg.resolve(reference, resource) {
-                        let e = self.check(target, r, v, out);
-                        seen.merge(e);
-                    }
-                }
+        let k = kw.member.key.as_str();
+        let s = &kw.member.value;
+        match (k, &kw.kind, &v.value) {
+            ("$ref", Kind::Ref(r), _) => {
+                let e = self.check(r.target, r.resource, v, out);
+                seen.merge(e);
             }
-            ("$dynamicRef", _) => {
-                if let Some(reference) = s.as_str() {
-                    if let Ok((r, target)) = self.dynamic_target(reference, resource) {
-                        let e = self.check(target, r, v, out);
-                        seen.merge(e);
-                    }
-                }
+            ("$dynamicRef", Kind::Ref(r), _) => {
+                let (resource, target) = self.dynamic_target(*r);
+                let e = self.check(target, resource, v, out);
+                seen.merge(e);
             }
-            ("allOf", _) => {
+            ("allOf", _, _) => {
                 for sub in list(s) {
                     let e = self.check(sub, resource, v, out);
                     seen.merge(e);
                 }
             }
-            ("anyOf", _) => {
+            ("anyOf", _, _) => {
                 let mut any = false;
                 for sub in list(s) {
                     let (ok, e) = self.passes(sub, resource, v);
@@ -1152,7 +1282,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("oneOf", _) => {
+            ("oneOf", _, _) => {
                 let mut matched = Vec::new();
                 for sub in list(s) {
                     let (ok, e) = self.passes(sub, resource, v);
@@ -1183,7 +1313,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     ),
                 }
             }
-            ("not", _) => {
+            ("not", _, _) => {
                 if self.passes(s, resource, v).0 {
                     self.violation(
                         out,
@@ -1195,7 +1325,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("if", _) => {
+            ("if", _, _) => {
                 let (ok, e) = self.passes(s, resource, v);
                 let branch = if ok { "then" } else { "else" };
                 if ok {
@@ -1206,23 +1336,16 @@ impl<'a, 'r> Checker<'a, 'r> {
                     seen.merge(e);
                 }
             }
-            ("dependentSchemas", Value::Object(..)) => {
-                if let Value::Object(entries, _) = &s.value {
-                    for e in entries {
-                        if v.get(&e.key).is_some() {
-                            let ev = self.check(&e.value, resource, v, out);
-                            seen.merge(ev);
-                        }
+            ("dependentSchemas", Kind::Entries(entries), Value::Object(..)) => {
+                for e in *entries {
+                    if v.get(&e.key).is_some() {
+                        let ev = self.check(&e.value, resource, v, out);
+                        seen.merge(ev);
                     }
                 }
             }
-            ("type", _) => {
-                let names: Vec<&str> = match &s.value {
-                    Value::Str(t) => vec![t.as_str()],
-                    Value::Array(items, _) => items.iter().filter_map(Node::as_str).collect(),
-                    _ => Vec::new(),
-                };
-                if !names.is_empty() && !names.iter().any(|t| has_type(v, t)) {
+            ("type", Kind::Type(names), _) => {
+                if !names.iter().any(|t| has_type(v, t)) {
                     let expected = names
                         .iter()
                         .map(|t| type_phrase(t))
@@ -1238,7 +1361,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("enum", _) => {
+            ("enum", _, _) => {
                 let allowed = list(s);
                 if !allowed.iter().any(|a| equal(a, v)) {
                     let mut shown: Vec<String> = allowed
@@ -1263,7 +1386,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("const", _) => {
+            ("const", _, _) => {
                 if !equal(s, v) {
                     self.violation(
                         out,
@@ -1275,13 +1398,10 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            (
-                "multipleOf" | "maximum" | "exclusiveMaximum" | "minimum" | "exclusiveMinimum",
-                Value::Number(n),
-            ) => {
-                self.number(schema, k, s, n, v, out);
+            (_, Kind::Number(bound), Value::Number(n)) => {
+                self.number(schema, kw.member, bound, n, v, out);
             }
-            ("maxLength" | "minLength", Value::Str(text)) => {
+            ("maxLength" | "minLength", _, Value::Str(text)) => {
                 let len = text.chars().count();
                 let bound = count(s);
                 let (bad, word) = if k == "maxLength" {
@@ -1306,18 +1426,16 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("pattern", Value::Str(text)) => {
-                if let Some(pattern) = s.as_str() {
-                    self.pattern(schema, k, pattern, text, v, out);
-                }
+            ("pattern", Kind::Pattern(pattern, regex), Value::Str(text)) => {
+                self.pattern(schema, pattern, regex, text, v, out);
             }
-            ("prefixItems", Value::Array(items, _)) => {
+            ("prefixItems", _, Value::Array(items, _)) => {
                 for (i, (sub, item)) in list(s).iter().zip(items).enumerate() {
                     self.check(sub, resource, item, out);
                     seen.items.insert(i);
                 }
             }
-            ("items", Value::Array(items, _)) => {
+            ("items", _, Value::Array(items, _)) => {
                 let skip = schema.get("prefixItems").map_or(0, |p| list(p).len());
                 for (i, item) in items.iter().enumerate().skip(skip) {
                     if matches!(s.value, Value::Bool(false)) {
@@ -1339,7 +1457,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                 }
                 seen.all_items = true;
             }
-            ("contains", Value::Array(items, _)) => {
+            ("contains", _, Value::Array(items, _)) => {
                 let mut matched = 0usize;
                 for (i, item) in items.iter().enumerate() {
                     if self.passes(s, resource, item).0 {
@@ -1378,7 +1496,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("maxItems" | "minItems", Value::Array(items, _)) => {
+            ("maxItems" | "minItems", _, Value::Array(items, _)) => {
                 let bound = count(s);
                 let (bad, word) = if k == "maxItems" {
                     (items.len() > bound, "at most")
@@ -1399,7 +1517,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("uniqueItems", Value::Array(items, _)) => {
+            ("uniqueItems", _, Value::Array(items, _)) => {
                 if matches!(s.value, Value::Bool(true)) {
                     'outer: for (j, b) in items.iter().enumerate() {
                         for (i, a) in items.iter().enumerate().take(j) {
@@ -1422,7 +1540,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     }
                 }
             }
-            ("properties", Value::Object(members, _)) => {
+            ("properties", _, Value::Object(members, _)) => {
                 for member in members {
                     if let Some(sub) = s.get(&member.key) {
                         self.check(sub, resource, &member.value, out);
@@ -1430,24 +1548,22 @@ impl<'a, 'r> Checker<'a, 'r> {
                     }
                 }
             }
-            ("patternProperties", Value::Object(members, _)) => {
-                if let Value::Object(patterns, _) = &s.value {
-                    for member in members {
-                        for p in patterns {
-                            if self
-                                .reg
-                                .regexes
-                                .get(&p.key)
-                                .is_some_and(|r| r.is_match(&member.key) == Ok(true))
-                            {
-                                self.check(&p.value, resource, &member.value, out);
-                                seen.props.insert(member.key.clone());
-                            }
+            ("patternProperties", Kind::Entries(patterns), Value::Object(members, _)) => {
+                for member in members {
+                    for p in *patterns {
+                        if self
+                            .reg
+                            .regexes
+                            .get(&p.key)
+                            .is_some_and(|r| r.is_match(&member.key) == Ok(true))
+                        {
+                            self.check(&p.value, resource, &member.value, out);
+                            seen.props.insert(member.key.clone());
                         }
                     }
                 }
             }
-            ("additionalProperties", Value::Object(members, _)) => {
+            ("additionalProperties", _, Value::Object(members, _)) => {
                 for member in members {
                     let declared = schema
                         .get("properties")
@@ -1468,7 +1584,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                 }
                 seen.all_props = true;
             }
-            ("propertyNames", Value::Object(members, _)) => {
+            ("propertyNames", _, Value::Object(members, _)) => {
                 for member in members {
                     let key = Node {
                         value: Value::Str(member.key.clone()),
@@ -1481,7 +1597,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     self.check(s, resource, &key, out);
                 }
             }
-            ("maxProperties" | "minProperties", Value::Object(members, _)) => {
+            ("maxProperties" | "minProperties", _, Value::Object(members, _)) => {
                 let bound = count(s);
                 let (bad, word) = if k == "maxProperties" {
                     (members.len() > bound, "at most")
@@ -1502,7 +1618,7 @@ impl<'a, 'r> Checker<'a, 'r> {
                     );
                 }
             }
-            ("required", Value::Object(..)) => {
+            ("required", _, Value::Object(..)) => {
                 for name in list(s).iter().filter_map(|n| n.as_str()) {
                     if v.get(name).is_none() {
                         let open = (v.span.0, v.span.0.saturating_add(1));
@@ -1517,26 +1633,21 @@ impl<'a, 'r> Checker<'a, 'r> {
                     }
                 }
             }
-            ("dependentRequired", Value::Object(members, _)) => {
-                if let Value::Object(entries, _) = &s.value {
-                    for e in entries {
-                        let Some(present) = members.iter().find(|m| m.key == e.key) else {
-                            continue;
-                        };
-                        for name in list(&e.value).iter().filter_map(|n| n.as_str()) {
-                            if v.get(name).is_none() {
-                                self.violation(
-                                    out,
-                                    schema,
-                                    k,
-                                    present.key_span,
-                                    format!(
-                                        "`\"{name}\"` is required when `\"{}\"` is present",
-                                        e.key
-                                    ),
-                                    format!("add `\"{name}\"`, or delete `\"{}\"`", e.key),
-                                );
-                            }
+            ("dependentRequired", Kind::Entries(entries), Value::Object(members, _)) => {
+                for e in *entries {
+                    let Some(present) = members.iter().find(|m| m.key == e.key) else {
+                        continue;
+                    };
+                    for name in list(&e.value).iter().filter_map(|n| n.as_str()) {
+                        if v.get(name).is_none() {
+                            self.violation(
+                                out,
+                                schema,
+                                k,
+                                present.key_span,
+                                format!("`\"{name}\"` is required when `\"{}\"` is present", e.key),
+                                format!("add `\"{name}\"`, or delete `\"{}\"`", e.key),
+                            );
                         }
                     }
                 }
@@ -1632,16 +1743,14 @@ impl<'a, 'r> Checker<'a, 'r> {
     fn number(
         &mut self,
         schema: &Node,
-        k: &str,
-        s: &Node,
+        member: &Member,
+        bound: &Decimal,
         n: &super::number::Number,
         v: &Node,
         out: &mut Vec<Violation>,
     ) {
         use super::number::Number;
-        let Value::Number(Number::Finite(bound)) = &s.value else {
-            return;
-        };
+        let (k, s) = (member.key.as_str(), &member.value);
         let Number::Finite(x) = n else {
             // `Infinity` and `NaN` pass `type: number` and nothing else.
             self.violation(
@@ -1699,15 +1808,13 @@ impl<'a, 'r> Checker<'a, 'r> {
     fn pattern(
         &mut self,
         schema: &Node,
-        k: &str,
         pattern: &str,
+        regex: &Regex,
         text: &str,
         v: &Node,
         out: &mut Vec<Violation>,
     ) {
-        let Some(regex) = self.reg.regexes.get(pattern) else {
-            return;
-        };
+        let k = "pattern";
         match regex.is_match(text) {
             Ok(true) => {}
             Ok(false) => self.violation(
@@ -1734,14 +1841,10 @@ impl<'a, 'r> Checker<'a, 'r> {
 
     /// `$dynamicRef`: the outermost resource in scope with a matching
     /// `$dynamicAnchor`, when the reference first lands on one.
-    fn dynamic_target(
-        &self,
-        reference: &str,
-        resource: usize,
-    ) -> Result<(usize, &'r Node), Unresolved> {
-        let (r, target) = self.reg.resolve(reference, resource)?;
-        let Some(name) = reference.split_once('#').map(|(_, f)| f) else {
-            return Ok((r, target));
+    fn dynamic_target(&self, reference: Reference<'r>) -> (usize, &'r Node) {
+        let (r, target) = (reference.resource, reference.target);
+        let Some(name) = reference.written.split_once('#').map(|(_, f)| f) else {
+            return (r, target);
         };
         let dynamic = self
             .reg
@@ -1749,14 +1852,14 @@ impl<'a, 'r> Checker<'a, 'r> {
             .get(&(r, name.to_string()))
             .is_some_and(|n| std::ptr::eq(*n, target));
         if !dynamic {
-            return Ok((r, target));
+            return (r, target);
         }
         for scope in &self.dynamic {
             if let Some(n) = self.reg.dynamic_anchors.get(&(*scope, name.to_string())) {
-                return Ok((*scope, n));
+                return (*scope, n);
             }
         }
-        Ok((r, target))
+        (r, target)
     }
 }
 
