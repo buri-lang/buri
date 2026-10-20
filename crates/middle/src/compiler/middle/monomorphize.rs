@@ -25,7 +25,7 @@
 
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::resolve::{Checked, Host, Started, TestCase};
+use crate::compiler::semantics::resolve::{Checked, Host, KnownIndexSet, Started, TestCase};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -2871,21 +2871,10 @@ impl Monomorphizer<'_> {
     }
 
     /// [`Desc::Members`] at `IndexSet<k>`.
-    fn members(&mut self, con: TyConId, k: Ty) -> Desc {
+    fn members(&mut self, known: KnownIndexSet, k: Ty) -> Desc {
         let list = self.descriptor(&Ty::array(k));
-        let to_list = self
-            .tables()
-            .method(con, "toList")
-            .or_ice("`core/indexset` declares `IndexSet.toList`");
-        let module = self.tables().tycon(con).module;
-        let (of, _) = self
-            .tables()
-            .fns
-            .entries()
-            .find(|(_, f)| (f.module, f.self_ty, f.name.as_str()) == (module, None, "of"))
-            .or_ice("`core/indexset` declares `of`");
-        let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
-        let from = self.request(Key::Fn(of, vec![k, Ty::UNIT]));
+        let to = self.request(Key::Fn(known.to_list, vec![k, Ty::UNIT]));
+        let from = self.request(Key::Fn(known.of, vec![k, Ty::UNIT]));
         Desc::Members { list, to, from }
     }
 
@@ -2925,8 +2914,8 @@ impl Monomorphizer<'_> {
                                 prim,
                             }
                         }
-                        None if checked.known_types.get("IndexSet") == Some(con) => {
-                            self.members(*con, args.first().copied().unwrap_or(Ty::ERROR))
+                        None if let Some(known) = checked.index_set.filter(|k| k.con == *con) => {
+                            self.members(known, args.first().copied().unwrap_or(Ty::ERROR))
                         }
                         None => {
                             let described: Dense<FieldId, DescField> = fields

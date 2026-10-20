@@ -147,3 +147,25 @@ fn the_self_check_opens_with_the_known_ids() {
     let analysis = driver::analyze_stdlib(&mut map);
     holds_the_known_ids("the self-check", &analysis);
 }
+
+/// `core/indexset`'s declarations are found when the module is loaded, so a
+/// derived `ToJson` or `FromJson` at an `IndexSet` converts through its
+/// members rather than its words.
+#[test]
+fn the_self_check_knows_the_index_set_s_members() {
+    let mut map = SourceMap::new();
+    let analysis = driver::analyze_stdlib(&mut map);
+    let tables = &analysis.checked.tables;
+    let known = analysis
+        .checked
+        .index_set
+        .expect("`core/indexset` declares `IndexSet`, `IndexSet.toList` and `of`");
+    assert_eq!(tables.tycon(known.con).name, "IndexSet");
+    let to_list = tables.fn_info(known.to_list);
+    assert_eq!(
+        (to_list.name.as_str(), to_list.self_ty),
+        ("toList", Some(known.con))
+    );
+    let of = tables.fn_info(known.of);
+    assert_eq!((of.name.as_str(), of.self_ty), ("of", None));
+}

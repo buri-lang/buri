@@ -217,6 +217,8 @@ pub struct Checked {
     /// Types by well-known name, `platform/effect`'s `Request` and `Response`
     /// among them.
     pub known_types: HashMap<String, TyConId>,
+    /// `core/indexset`'s declarations, when this compilation loaded it.
+    pub index_set: Option<KnownIndexSet>,
     /// Per package, the set of names its `lib.buri` puts on the surface. The
     /// checker needs it to filter method resolution; `dead-code` needs it to
     /// ask the opposite question — what is exported and reaches nobody.
@@ -259,6 +261,17 @@ pub(crate) struct KnownJson {
     pub from_json: TraitId,
     pub json: TyConId,
     pub decode_error: TyConId,
+}
+
+/// `core/indexset`'s declarations the passes after checking name. A derived
+/// `ToJson` or `FromJson` at an `IndexSet` reads its members, so it converts
+/// through `toList` and `of`. Methods are registered with conformance, so this
+/// is found after that.
+#[derive(Clone, Copy)]
+pub struct KnownIndexSet {
+    pub con: TyConId,
+    pub to_list: FnId,
+    pub of: FnId,
 }
 
 /// The module `Flags` is declared in. A `derive Flags` changes how the type is
@@ -381,6 +394,8 @@ pub struct Checker<'a> {
     pub known_types: HashMap<String, TyConId>,
     /// `core/json`'s declarations, when this compilation loaded it.
     pub(crate) json: Option<KnownJson>,
+    /// See [`Checked::index_set`].
+    pub(crate) index_set: Option<KnownIndexSet>,
     /// The signatures whose `ctx` rule is still to be checked, in declaration
     /// order — which is the order the check used to run in, so the diagnostics
     /// are the same ones in the same sequence. Held rather than checked in
@@ -461,6 +476,7 @@ pub struct Base {
     const_locals: ConstLocals,
     known_types: HashMap<String, TyConId>,
     json: Option<KnownJson>,
+    index_set: Option<KnownIndexSet>,
     /// What every prelude name refers to, which is the same in every module
     /// and is found in these modules' scopes.
     prelude: std::sync::Arc<Prelude>,
@@ -584,6 +600,7 @@ impl<'a> Checker<'a> {
             ctx_rebindings: Vec::new(),
             known_types: HashMap::default(),
             json: None,
+            index_set: None,
             pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
             expanding: Vec::new(),
@@ -620,6 +637,7 @@ impl<'a> Checker<'a> {
         c.const_locals = base.const_locals.layer();
         c.known_types = base.known_types.clone();
         c.json = base.json;
+        c.index_set = base.index_set;
         c.ctx_rebindings = base.ctx_rebindings.clone();
         c.base = Some(base);
         c
@@ -686,6 +704,7 @@ impl<'a> Checker<'a> {
             prelude,
             known_types: self.known_types,
             json: self.json,
+            index_set: self.index_set,
             ctx_rebindings: self.ctx_rebindings,
         }
     }
@@ -799,6 +818,7 @@ impl<'a> Checker<'a> {
             node_con,
             role_con,
             known_types: self.known_types,
+            index_set: self.index_set,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
         }
@@ -866,6 +886,7 @@ impl<'a> Checker<'a> {
         self.register_known_names();
         self.elaborate_signatures();
         self.register_conformance();
+        self.index_set = self.index_set.or_else(|| self.known_index_set());
         // Both of these read what the two passes above finished: the fixpoint
         // needs elaborated type bodies, and rule 26 needs to know which types
         // implement an effect. Asking either question from inside
@@ -2775,16 +2796,24 @@ impl<'a> Checker<'a> {
         // time a primitive needs an implementation of either to be found.
         let json = self.json.or_else(|| self.known_json());
         self.json = json;
-        // A derived `ToJson` or `FromJson` at an `IndexSet` reads its
-        // members, so whether it has one is a question about `K`.
-        let index_set = self.loaded.find(INDEX_MODULE).and_then(|m| {
-            match self.scope(m).exports.get("IndexSet") {
-                Some(&Sym::Ty(c)) => Some(c),
-                _ => None,
-            }
-        });
-        self.known_types
-            .extend(index_set.map(|c| ("IndexSet".to_string(), c)));
+    }
+
+    /// `core/indexset`'s declarations, when this compilation loaded it.
+    fn known_index_set(&self) -> Option<KnownIndexSet> {
+        let exports = &self.scope(self.loaded.find(INDEX_MODULE)?).exports;
+        let con = match exports.get("IndexSet") {
+            Some(&Sym::Ty(c)) => c,
+            _ => return None,
+        };
+        let of = match exports.get("of") {
+            Some(&Sym::Fn(f)) => f,
+            _ => return None,
+        };
+        Some(KnownIndexSet {
+            con,
+            to_list: self.tables.method(con, "toList")?,
+            of,
+        })
     }
 
     /// `core/json`'s declarations, when this compilation loaded it.
