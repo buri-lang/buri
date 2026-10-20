@@ -90,14 +90,45 @@ pub struct Store {
     paths: std::collections::HashMap<PathBuf, u32>,
     /// Each named file's hash now, by number.
     hashes: Vec<Option<u64>>,
-    /// Whether a closure node still holds, by key, once asked.
-    holds: std::collections::HashMap<String, bool>,
-    /// The files a node covers, sorted, once a new node needs them.
-    sets: std::collections::HashMap<String, std::rc::Rc<Vec<u32>>>,
+    /// Each closure node asked about, by key: the node when it still holds.
+    holds: std::collections::HashMap<String, Option<std::rc::Rc<Node>>>,
     /// The node each target's record named or was written with, this run.
-    nodes: std::collections::HashMap<TargetId, ActionKey>,
+    nodes: std::collections::HashMap<TargetId, (ActionKey, std::rc::Rc<Node>)>,
     /// Records [`Store::remember`] took, written by [`Store::flush`].
     pending: Vec<Pending>,
+}
+
+/// A closure node that still holds, as read: the files it lists, and the nodes
+/// it shares the rest with.
+struct Node {
+    own: Vec<u32>,
+    children: Vec<std::rc::Rc<Node>>,
+    /// Every file it covers, sorted, once a new node needs them.
+    set: std::cell::OnceCell<std::rc::Rc<Vec<u32>>>,
+}
+
+impl Node {
+    fn of(own: Vec<u32>, children: Vec<std::rc::Rc<Node>>) -> std::rc::Rc<Node> {
+        std::rc::Rc::new(Node {
+            own,
+            children,
+            set: std::cell::OnceCell::new(),
+        })
+    }
+
+    /// Every file the node covers, as sorted numbers.
+    fn set(&self) -> std::rc::Rc<Vec<u32>> {
+        let set = self.set.get_or_init(|| {
+            let mut set = self.own.clone();
+            for child in &self.children {
+                set.extend(child.set().iter().copied());
+            }
+            set.sort_unstable();
+            set.dedup();
+            std::rc::Rc::new(set)
+        });
+        std::rc::Rc::clone(set)
+    }
 }
 
 /// A record waiting for [`Store::flush`]: its closure, as file numbers, sorted,
@@ -126,7 +157,6 @@ impl Store {
             paths: std::collections::HashMap::new(),
             hashes: Vec::new(),
             holds: std::collections::HashMap::new(),
-            sets: std::collections::HashMap::new(),
             nodes: std::collections::HashMap::new(),
             pending: Vec::new(),
         }
@@ -177,58 +207,35 @@ impl Store {
     /// A node lists some files with their hashes and names the nodes it
     /// shares the rest with, so a chain of targets lists each file once. Each
     /// node is asked once a run.
-    fn holds(&mut self, key: &ActionKey) -> bool {
-        if let Some(&known) = self.holds.get(key.as_str()) {
-            return known;
+    /// The node, read as it is checked, when it holds.
+    fn holds(&mut self, key: &ActionKey) -> Option<std::rc::Rc<Node>> {
+        if let Some(known) = self.holds.get(key.as_str()) {
+            return known.clone();
         }
-        let held = self.check_node(key).unwrap_or(false);
-        self.holds.insert(key.as_str().to_string(), held);
+        let held = self.check_node(key);
+        self.holds.insert(key.as_str().to_string(), held.clone());
         held
     }
 
-    fn check_node(&mut self, key: &ActionKey) -> Option<bool> {
+    fn check_node(&mut self, key: &ActionKey) -> Option<std::rc::Rc<Node>> {
         let bytes = self.cache.get(key)?;
         let mut reader = Reader::after(NODE_FORMAT, &bytes)?;
+        let mut own = Vec::new();
         for _ in 0..reader.u32()? {
             let name = reader.text()?;
             let was = reader.u64()?;
             let id = self.id(&name);
             if self.hash(id) != was {
-                return Some(false);
+                return None;
             }
+            own.push(id);
         }
+        let mut children = Vec::new();
         for _ in 0..reader.u32()? {
             let child = ActionKey::parse(&reader.text()?)?;
-            if !self.holds(&child) {
-                return Some(false);
-            }
+            children.push(self.holds(&child)?);
         }
-        Some(true)
-    }
-
-    /// Every file a node covers, as sorted numbers.
-    fn set_of(&mut self, key: &ActionKey) -> Option<std::rc::Rc<Vec<u32>>> {
-        if let Some(known) = self.sets.get(key.as_str()) {
-            return Some(std::rc::Rc::clone(known));
-        }
-        let bytes = self.cache.get(key)?;
-        let mut reader = Reader::after(NODE_FORMAT, &bytes)?;
-        let mut set = Vec::new();
-        for _ in 0..reader.u32()? {
-            let name = reader.text()?;
-            let _ = reader.u64()?;
-            set.push(self.id(&name));
-        }
-        for _ in 0..reader.u32()? {
-            let child = ActionKey::parse(&reader.text()?)?;
-            set.extend(self.set_of(&child)?.iter().copied());
-        }
-        set.sort_unstable();
-        set.dedup();
-        let set = std::rc::Rc::new(set);
-        self.sets
-            .insert(key.as_str().to_string(), std::rc::Rc::clone(&set));
-        Some(set)
+        Some(Node::of(own, children))
     }
 
     /// Writes the node covering exactly `closure`, and answers its key.
@@ -237,16 +244,19 @@ impl Store {
     /// all in `closure`, and lists the rest. Content-addressed, so two
     /// targets with one closure share a node, and one already written is not
     /// written again.
-    fn node_of(&mut self, session: &Session, target: TargetId, closure: &[u32]) -> ActionKey {
+    fn node_of(
+        &mut self,
+        session: &Session,
+        target: TargetId,
+        closure: &[u32],
+    ) -> (ActionKey, std::rc::Rc<Node>) {
         let mut covered = vec![false; closure.len()];
         let mut children: Vec<ActionKey> = Vec::new();
         for (dep, _) in session.workspace.dep_edges(target) {
-            let Some(key) = self.nodes.get(&dep).cloned() else {
+            let Some((key, node)) = self.nodes.get(&dep).cloned() else {
                 continue;
             };
-            let Some(set) = self.set_of(&key) else {
-                continue;
-            };
+            let set = node.set();
             // Both sorted: one pass says whether `set` is inside `closure`,
             // and where.
             let mut at = Vec::with_capacity(set.len());
@@ -294,10 +304,10 @@ impl Store {
         if self.cache.entry(&key).is_none() {
             self.cache.put(&key, &out);
         }
-        self.holds.insert(key.as_str().to_string(), true);
-        self.sets
-            .insert(key.as_str().to_string(), std::rc::Rc::new(closure.to_vec()));
-        key
+        let node = Node::of(closure.to_vec(), Vec::new());
+        self.holds
+            .insert(key.as_str().to_string(), Some(std::rc::Rc::clone(&node)));
+        (key, node)
     }
 
     /// The key one target's findings are filed under: the action, the build
@@ -331,15 +341,13 @@ impl Store {
         let key = self.key(session, target);
         let bytes = self.cache.get(&key)?;
         let mut reader = Reader::new(&bytes)?;
-        let node = ActionKey::parse(&reader.text()?)?;
-        if !self.holds(&node) {
-            return None;
-        }
+        let closure = ActionKey::parse(&reader.text()?)?;
+        let node = self.holds(&closure)?;
         let parts = Parts {
             analysis: read_findings(&mut reader, &mut session.map, &self.root)?,
             target: read_findings(&mut reader, &mut session.map, &self.root)?,
         };
-        self.nodes.insert(target, node);
+        self.nodes.insert(target, (closure, node));
         Some(parts)
     }
 
@@ -387,10 +395,10 @@ impl Store {
         let mut pending = std::mem::take(&mut self.pending);
         pending.sort_by_key(|p| p.closure.len());
         for p in pending {
-            let node = self.node_of(session, p.target, &p.closure);
-            self.nodes.insert(p.target, node.clone());
+            let (node, held) = self.node_of(session, p.target, &p.closure);
             let mut out = FORMAT.to_vec();
             put_text(&mut out, node.as_str());
+            self.nodes.insert(p.target, (node, held));
             out.extend_from_slice(&p.findings);
             let key = self.key(session, p.target);
             self.cache.put(&key, &out);
