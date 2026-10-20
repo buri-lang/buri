@@ -41,9 +41,20 @@ mod json;
 /// Branch coverage needs a nightly; the `coverage` shell pins it.
 const RUSTFLAGS: &str = "-Cinstrument-coverage -Zcoverage-options=branch";
 
+/// What continuous mode (`%c`) needs, so a `buri` a signal kills still counts.
+/// macOS maps the profile over the counters, so their sections start on a
+/// page. Linux maps it elsewhere, and each increment goes through the offset.
+const CONTINUOUS: &str = if cfg!(target_os = "macos") {
+    "-Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_cnts,0x4000 \
+     -Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_bits,0x4000 \
+     -Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_data,0x4000"
+} else {
+    "-Cllvm-args=-runtime-counter-relocation"
+};
+
 /// Profiles merged online into this many files per binary, so disk use doesn't
-/// grow with the number of processes.
-const POOL: &str = "%16m";
+/// grow with the number of processes. `%c` writes each count as it happens.
+const POOL: &str = "%c%16m";
 
 /// How many files `compiler.txt` lists as the least covered.
 const WORST: usize = 30;
@@ -288,7 +299,7 @@ impl Gate {
                 "--features",
                 "backend-llvm,test-hooks",
             ])
-            .env("RUSTFLAGS", RUSTFLAGS)
+            .env("RUSTFLAGS", format!("{RUSTFLAGS} {CONTINUOUS}"))
             .env("CARGO_TARGET_DIR", &instrumented)
             // Its build scripts are instrumented too; their profiles go nowhere that counts.
             .env(

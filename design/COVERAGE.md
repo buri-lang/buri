@@ -275,6 +275,10 @@ Linux and arm64 macOS and gates the merge:
   for all of them. CI uploads those as `coverage-baseline`, so main's
   uncovered branches can be read without running the suite.
 
+`buri`'s profiles are in continuous mode (`%c`): each count lands in the file
+as it happens, so a `buri` a signal kills still counts. That takes aligned
+counter sections on macOS and `-runtime-counter-relocation` on Linux.
+
 Every branch counts, races included. A side a race decides would be covered
 on some runs and not others, so a test decides the race instead:
 
