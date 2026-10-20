@@ -37,3 +37,16 @@ run {
   exit: 1
   golden: "no_origin.txt"
 }
+
+# A tool with no `tool.buri` has nothing to build. The build says the file is
+# missing, and the `generators` entry fails with that as its note.
+move {
+  from: "tools/gen/tool.buri"
+  to: "away/tool.buri"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "no_tool.txt"
+}

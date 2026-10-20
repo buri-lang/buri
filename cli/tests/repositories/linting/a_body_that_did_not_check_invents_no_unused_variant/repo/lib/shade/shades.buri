@@ -1,0 +1,24 @@
+// `dim` does not check: it calls a function nobody declared. `Dark` is named
+// in it, so nothing here says `Dark` is never built — the construction that
+// is missing may be exactly the one that went with the body. `Shade` is not
+// exported, so nothing else exempts it.
+
+enum Shade {
+    Light,
+    Dark,
+}
+
+fn pick(n: Int): Shade {
+    .Light
+}
+
+fn dim(n: Int): Int {
+    nowhere(.Dark)
+}
+
+export fn count(n: Int): Int {
+    match (pick(n)) {
+        .Light => dim(n),
+        _ => 2,
+    }
+}

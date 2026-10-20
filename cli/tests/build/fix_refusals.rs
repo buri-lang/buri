@@ -1,5 +1,6 @@
 //! `lint --fix` refusing a file's edits: two fixes claiming the same bytes,
-//! and a remembered fix whose range no longer fits the file.
+//! a remembered fix whose range no longer fits the file, and a file that
+//! can't be written.
 //!
 //! Each refusal leaves the file exactly as it was.
 use crate::harness::*;
@@ -140,4 +141,36 @@ fn a_remembered_fix_inside_a_character_is_refused() {
     let (_scratch, run) = fix_with_damaged_range("fix-refusals-inside", |_, end| (7, end));
     run.exits(1)
         .says("has an edit at offset 7, which is inside a character, so none were applied");
+}
+
+/// `linting/fix_applies` with both of its files read-only: the text edit to
+/// `main.buri` and the `buri gen` of its build file are each named as a write
+/// that failed, and neither file changes.
+#[test]
+fn a_fix_that_cannot_be_written_is_named_and_the_file_is_left_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::copy_of(
+        "fix-refusals-read-only",
+        &tests_dir().join("repositories/linting/fix_applies/repo"),
+    );
+    let files = ["cmd/app/main.buri", "cmd/app/BUILD.buri"];
+    let before: Vec<String> = files.iter().map(|f| scratch.read(f)).collect();
+    let mode = |f: &str, m: u32| {
+        std::fs::set_permissions(scratch.path(f), std::fs::Permissions::from_mode(m)).unwrap();
+    };
+    for f in files {
+        mode(f, 0o444);
+    }
+    let run = scratch.run(&["lint", "//...", "--fix"]);
+    for f in files {
+        mode(f, 0o644);
+    }
+    run.exits(1)
+        .says("error: writing ")
+        .says("cmd/app/main.buri: Permission denied")
+        .says("cmd/app/BUILD.buri: Permission denied")
+        .says("[unused-import]")
+        .says("[missing-dependency]");
+    let after: Vec<String> = files.iter().map(|f| scratch.read(f)).collect();
+    assert_eq!(after, before);
 }
