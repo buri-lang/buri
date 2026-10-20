@@ -119,6 +119,36 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 72
+
+## What landed
+
+- `semantics::resolve::KnownIndexSet` holds `IndexSet`, `IndexSet.toList` and `of`. The checker finds it right after `register_conformance`, since that's where methods are registered, and `Checked.index_set` carries it.
+- `monomorphize::members` takes the `KnownIndexSet` and requests both functions with no lookup. `IndexSet` is no longer a `known_types` entry: `inference.rs` and `descriptor` both test `index_set`'s `con`.
+- A unit test, `known::the_self_check_knows_the_index_set_s_members`, checks that the standard library declares all three. If one went missing, `index_set` would be `None` and that test fails.
+
+## Guards
+
+Plan rule: 38 to 36. Both `members` lookups go: "`core/indexset` declares `IndexSet.toList`" and "`core/indexset` declares `of`". The other count stays 19.
+
+## Branches
+
+No counted branch was removed or added. `descriptor`'s match guard tests `index_set` in place of `known_types`, and `derived_components`' `if` does the same.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| crates/middle | 1847/1876 | 1847/1876 | 1859/1890 |
+| crates/semantics | 2162/2162 | 2162/2162 | 2158/2158 |
+| total | 14874/15107 | 14874/15107 | 14898/15049 |
+
+`compiler-branches.txt` is equal between base and head, every area and file.
+
+## Output
+
+Debug and release objects are byte-identical between base and head for `cli/tests/example` (55) and for conformance with `backends: [JS]` removed (1337). `cli/tests/example` shows no "failed to compile" in either. Conformance prints "5 failed to compile" on base and head alike.
+
 # Guard phase 71
 
 ## What landed
