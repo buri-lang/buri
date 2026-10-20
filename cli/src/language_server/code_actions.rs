@@ -230,13 +230,6 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
 
         // A finding that already knows its bytes.
         if !d.edits.is_empty() {
-            if !d
-                .edits
-                .iter()
-                .any(|e| !session.map.get(e.at.file).abs_path.as_os_str().is_empty())
-            {
-                continue;
-            }
             // In *this* file. The analysis behind `lint` is the whole closure,
             // so a second file with a finding of the same code would otherwise
             // be offered here — an action titled for one file carrying an edit
@@ -269,12 +262,9 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         ) {
             continue;
         }
-        // These findings point into a package: at its build file, or at an
-        // import in one of its sources.
-        let at = &session.map.get(d.span.file).abs_path;
-        let Some(package) = session.workspace.owning_package(at) else {
-            continue;
-        };
+        // These findings are about the linted target's own package: its build
+        // file, or an import in one of its modules, generated ones included.
+        let package = linted.target.package;
         // `buri gen` leaves a tool's build file as written, so a title
         // offered here would resolve to no edit.
         if session.workspace.package(package).has_tool() {
@@ -305,13 +295,14 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
 }
 
 /// A finding's own bytes, as a `WorkspaceEdit`.
+///
+/// Every file these name has a path: the lint rules that edit step around
+/// generated modules, and the finding they edit for is in the file asked
+/// about.
 fn byte_edits(session: &Session, d: &crate::diagnostics::Diagnostic) -> Value {
     let mut by_file: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     for e in &d.edits {
         let f = session.map.get(e.at.file);
-        if f.abs_path.as_os_str().is_empty() {
-            continue;
-        }
         let range = Value::object(vec![
             ("start", convert::position_of(&f.text, e.at.start).to_json()),
             ("end", convert::position_of(&f.text, e.at.end).to_json()),

@@ -382,6 +382,9 @@ pub struct Analyzed {
 /// same front end run twice for one answer.
 pub struct Linted {
     pub analyzed: Rc<Analyzed>,
+    /// The target linted. Every finding about a build file — what `buri gen`
+    /// answers — is about this target's package.
+    pub target: TargetId,
     pub diagnostics: crate::diagnostics::Diagnostics,
 }
 
@@ -1350,6 +1353,7 @@ impl State {
         let closure = Rc::new(closure_of(&analyzed.session.workspace, &analyzed.analysis));
         let linted = Rc::new(Linted {
             analyzed,
+            target,
             diagnostics,
         });
         let key = self.closure_key(root, Some(target), &closure);

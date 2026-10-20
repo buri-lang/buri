@@ -2058,9 +2058,9 @@ fn to_switch(s: Stmt) -> Stmt {
         }
         cases.push((Some(labels.last.clone()), switch_body(body)));
     }
-    if !default.is_empty() {
-        cases.push((None, switch_body(default)));
-    }
+    // An empty `default` is one that does nothing, as the chain without a
+    // final `else` did.
+    cases.push((None, switch_body(default)));
     Stmt::Switch {
         disc: disc.clone(),
         cases: merge_equal_cases(cases),

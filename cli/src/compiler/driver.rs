@@ -873,28 +873,24 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
         d.push(Diagnostic::error(Span::NONE, msg).with_fix(fix.to_string()));
         d
     };
-    // Process-scoped: the snippet-derived stem below is unique within one run,
-    // but two concurrent toolchain processes testing the same snippet would
-    // otherwise overwrite each other's file mid-execution.
-    let dir = std::env::temp_dir().join(format!("buri-doctest-{}", std::process::id()));
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        return Err(fail(
-            format!("cannot create {}: {e}", dir.display()),
-            "check TMPDIR",
-        ));
-    }
     // The file name has to be unique across concurrently running tests, and
     // derived from the snippet so a rerun overwrites rather than accumulates.
     // A digest of the name rather than the name: a page deep in a repository
-    // has an origin longer than a file name may be.
+    // has an origin longer than a file name may be. The process id too: the
+    // stem is unique within one run, but two toolchain processes testing the
+    // same snippet would otherwise overwrite each other's file mid-execution.
     let stem = crate::build::cache::ActionKey::of(name.as_bytes());
-    let path = dir.join(format!("{}.mjs", stem.as_str()));
+    let path = std::env::temp_dir().join(format!(
+        "buri-doctest-{}-{}.mjs",
+        std::process::id(),
+        stem.as_str()
+    ));
     let written = actions::chunk_paths(&path, chunks);
     let chunks = written.iter().map(|(at, text)| (at, text.as_str()));
     for (at, text) in std::iter::once((&path, source)).chain(chunks) {
         if let Err(e) = std::fs::write(at, text) {
             return Err(fail(
-                format!("cannot write {}: {e}", at.display()),
+                format!("cannot create {}: {e}", at.display()),
                 "check TMPDIR",
             ));
         }

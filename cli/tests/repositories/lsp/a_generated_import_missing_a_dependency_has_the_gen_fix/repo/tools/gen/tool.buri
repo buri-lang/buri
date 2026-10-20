@@ -1,0 +1,20 @@
+//! A generator whose module imports a library its rule doesn't list. The
+//! import is parsed from text and keeps no origin in any input, so the finding
+//! about it lands in the generated module itself.
+
+from "core/buri/ast" import * as ast;
+from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+export fn generate<C: Allocator>(ctx: C, _request: GenerateRequest<Str>): Generated {
+    let text = "from \"//lib/extra\" import { bonus };\n\nexport let extra: Int = bonus;\n";
+    let items = match (ast.parse(ctx, "", text)) {
+        .Ok(m) => m.items,
+        .Err(_) => [],
+    };
+    Generated {
+        modules: [("units", ast.Module { items: items, docs: [] })],
+        diagnostics: [],
+        needs: [],
+    }
+}
