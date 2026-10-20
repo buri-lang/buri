@@ -1761,6 +1761,23 @@ fn answer(
         if let Some(path) = cycle(workspace, target, t) {
             return Err(cycle_sentence(workspace, &path));
         }
+        // Said here, on this entry, in the words the tool's own lint uses, so a
+        // run that lints both reports it once.
+        let root = workspace.package(t.package).module_path("tool.buri");
+        if workspace.resolve_module(&root).is_err() {
+            let (message, fix) = workspace.missing_root(t, "tool.buri", "tool");
+            let response = Response {
+                modules: Vec::new(),
+                diagnostics: vec![Diagnostic {
+                    code: "unknown-module".to_string(),
+                    message,
+                    note: None,
+                    fix: Some(fix),
+                    origin: None,
+                }],
+            };
+            return Ok((response, BTreeSet::new(), Vec::new()));
+        }
     }
     let languages = &workspace.repo.languages;
     if tool == Tool::Json {

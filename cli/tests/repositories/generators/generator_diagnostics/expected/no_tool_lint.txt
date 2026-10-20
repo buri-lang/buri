@@ -1,5 +1,13 @@
-error: "//tools/gen/tool.buri" names no file (tools/gen/tool.buri) [unknown-module]
-  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+error: `//tools/gen` has no tools/gen/tool.buri, the file a tool is rooted at [unknown-module]
+ --> cmd/app/BUILD.buri:3:9
+  |
+3 |         { tool: "//tools/gen", inputs: ["units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create tools/gen/tool.buri
 
     There's no search path and no fallback, so a path never has two candidates.
+
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
 

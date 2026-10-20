@@ -39,7 +39,7 @@ run {
 }
 
 # A tool with no `tool.buri` has nothing to build. The build says the file is
-# missing, and the `generators` entry fails with that as its note.
+# missing, at the `generators` entry that names the tool.
 move {
   from: "tools/gen/tool.buri"
   to: "away/tool.buri"
@@ -51,9 +51,16 @@ run {
   golden: "no_tool.txt"
 }
 
-# Linted on its own, the tool is just a rule whose `tool.buri` is missing.
+# Linted on its own, the tool is still reported where //cmd/app names it.
 run {
   args: ["lint", "//tools/gen"]
   exit: 1
   golden: "no_tool_lint.txt"
+}
+
+# Linting both the tool and the binary that runs it says so once.
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "no_tool_lint_all.txt"
 }

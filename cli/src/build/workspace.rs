@@ -470,6 +470,39 @@ impl Workspace {
             .and_then(|_| self.target(id, RuleKind::Library))
     }
 
+    /// The `unknown-module` problem and fix for a library or tool whose root,
+    /// `root`, doesn't exist. `kind` is the rule's name in the sentence.
+    pub fn missing_root(&self, target: TargetId, root: &str, kind: &str) -> (String, String) {
+        let file = self.file_in(target.package, root);
+        (
+            format!(
+                "`{}` has no {file}, the file a {kind} is rooted at",
+                self.label(target)
+            ),
+            format!("create {file}"),
+        )
+    }
+
+    /// Where the build files name `target`: the first `dependencies` entry that
+    /// lists it, or, for a tool, the first `generators` entry that runs it.
+    /// `None` when nothing does.
+    pub fn named_at(&self, target: TargetId) -> Option<Span> {
+        let tool = crate::build::tools::Tool::Repo(target);
+        self.targets().into_iter().find_map(|from| {
+            let dependency = self
+                .declared_deps(from)
+                .iter()
+                .find(|d| self.dep_target(&d.value) == Some(target))
+                .map(|d| d.span);
+            dependency.or_else(|| {
+                crate::build::generators::declared(self, from)
+                    .iter()
+                    .find(|g| crate::build::tools::resolve(self, &g.tool.value).ok() == Some(tool))
+                    .map(|g| g.span)
+            })
+        })
+    }
+
     /// Every source file this package's rules declare, package-relative.
     ///
     /// The two entry points lead, and neither is written in a `sources` list:

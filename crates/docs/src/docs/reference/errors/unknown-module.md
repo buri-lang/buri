@@ -22,3 +22,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 ```
 
 There's no search path and no fallback, so a path never has two candidates.
+
+```text
+error: `//lib/money` has no lib/money/lib.buri, the file a library is rooted at [unknown-module]
+ --> cmd/app/BUILD.buri:2:20
+```
+
+A library needs `lib.buri` and a tool needs `tool.buri`. A missing one is
+reported where a build file names the rule.
