@@ -169,8 +169,13 @@ pub enum RelKind {
     Abs64,
     /// `ARM64_RELOC_PAGE21` on an `adrp`.
     Page21,
-    /// `ARM64_RELOC_PAGEOFF12` on the `add`/`ldr` that follows a `Page21`.
-    PageOff12,
+    /// `ARM64_RELOC_PAGEOFF12` on the `add` that follows a `Page21`: the low
+    /// twelve bits of an address, unscaled.
+    AddLo12,
+    /// `ARM64_RELOC_PAGEOFF12` on the 64-bit `ldr` that follows a `Page21`:
+    /// the same twelve bits, which the instruction scales by eight. Mach-O
+    /// spells both one way; ELF doesn't (`elf.rs`).
+    LoadLo12,
     /// x86-64: the `rel32` of a `jmp`, `call` or `jcc`. `R_X86_64_PLT32`.
     Rel32,
     /// x86-64: the `disp32` of a rip-relative operand. `R_X86_64_PC32`.
@@ -186,7 +191,7 @@ impl RelKind {
             Self::Branch26 => Some(ARM64_RELOC_BRANCH26),
             Self::Abs64 => Some(ARM64_RELOC_UNSIGNED),
             Self::Page21 => Some(ARM64_RELOC_PAGE21),
-            Self::PageOff12 => Some(ARM64_RELOC_PAGEOFF12),
+            Self::AddLo12 | Self::LoadLo12 => Some(ARM64_RELOC_PAGEOFF12),
             Self::Rel32 | Self::Pc32 => None,
         }
     }
@@ -606,7 +611,7 @@ fn group_relocs(
             .ok_or_else(|| format!("relocation names section {}", r.section))?;
 
         // Every instruction kind takes its addend in a separate record — a
-        // `PageOff12` is not pc-relative but has no more room in its immediate
+        // low-12 kind is not pc-relative but has no more room in its immediate
         // than an `adrp` does — and only `Abs64` carries it in the bytes.
         if r.kind != RelKind::Abs64 && r.addend != 0 {
             if r.addend < 0 || r.addend > MAX_ADDEND {
@@ -855,7 +860,7 @@ mod tests {
             Reloc {
                 section: 0,
                 offset: 4,
-                kind: RelKind::PageOff12,
+                kind: RelKind::LoadLo12,
                 symbol: 0,
                 addend: 0x30,
             },

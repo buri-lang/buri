@@ -255,7 +255,7 @@ impl Region {
         });
         self.relocs.push(Reloc {
             at: ldr,
-            kind: RelKind::PageOff12,
+            kind: RelKind::LoadLo12,
             target: Target::Pool,
             addend,
         });

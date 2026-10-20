@@ -421,7 +421,7 @@ impl Asm {
         ));
         self.relocs.push((
             off,
-            RelKind::PageOff12,
+            RelKind::AddLo12,
             Target::Symbol(name.to_string().into()),
         ));
     }
@@ -1468,7 +1468,8 @@ mod tests {
             RelKind::Branch26 => "Branch26",
             RelKind::Abs64 => "Abs64",
             RelKind::Page21 => "Page21",
-            RelKind::PageOff12 => "PageOff12",
+            RelKind::AddLo12 => "AddLo12",
+            RelKind::LoadLo12 => "LoadLo12",
             RelKind::Rel32 => "Rel32",
             RelKind::Pc32 => "Pc32",
         }
@@ -1507,16 +1508,16 @@ mod tests {
             vec![
                 ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
                 ("Branch26", String::from("abort")),
                 ("Branch26", String::from(runtime::TEST_ENTER)),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("t0")),
                 ("Branch26", String::from(runtime::TEST_ENTER)),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("t1")),
                 ("Branch26", String::from(runtime::FLUSH)),
             ]
@@ -1533,7 +1534,7 @@ mod tests {
             vec![
                 ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
                 ("Branch26", String::from("abort")),
                 ("Branch26", String::from(runtime::FLUSH)),
@@ -1639,11 +1640,11 @@ mod tests {
             vec![
                 ("Branch26", String::from(runtime::ARGV_INIT)),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("mprotect")),
                 ("Branch26", String::from("abort")),
                 ("Page21", String::from(STACK_SYMBOL)),
-                ("PageOff12", String::from(STACK_SYMBOL)),
+                ("AddLo12", String::from(STACK_SYMBOL)),
                 ("Branch26", String::from("buri$main")),
                 ("Branch26", String::from("buri_rt_host_stderr_eprintln")),
                 ("Branch26", String::from(runtime::FLUSH)),
@@ -1873,12 +1874,12 @@ mod tests {
         ] {
             let arm = names(program_entry(ARM64, "m", r.clone(), Marking::None));
             let x86 = names(program_entry(X86_64, "m", r, Marking::None));
-            // A64 spells an address as an adjacent `Page21`/`PageOff12` pair
+            // A64 spells an address as an adjacent `Page21`/`AddLo12` pair
             // and x86-64 as one `Pc32`, so the pairs collapse before the two
             // lists can be compared at all.
             let arm: Vec<String> = arm
                 .into_iter()
-                .filter(|(k, _)| *k != "PageOff12")
+                .filter(|(k, _)| *k != "AddLo12")
                 .map(|(_, n)| n)
                 .collect();
             let x86: Vec<String> = x86.into_iter().map(|(_, n)| n).collect();
