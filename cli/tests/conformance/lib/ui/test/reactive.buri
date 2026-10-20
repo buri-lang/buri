@@ -108,6 +108,28 @@ test "a toggle's reactive styles keep its checked state, and the last of a prope
     );
 }
 
+test "a box's reactive width wins over its constant one, and gives it back" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let wide = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [.Width(.Px(1)), .When(.Cell(wide), [.Width(.Px(3))], [])],
+            children: [],
+        }),
+    );
+    assert.isTrue(page.markup().contains("w-1"));
+    assert.isFalse(page.markup().contains("w-3"));
+    let _ = wide.set(ctx, true);
+    assert.isTrue(page.markup().contains("w-3"));
+    assert.isFalse(page.markup().contains("w-1"));
+    let _ = wide.set(ctx, false);
+    assert.isTrue(page.markup().contains("w-1"));
+    assert.isFalse(page.markup().contains("w-3"));
+}
+
 test "a routing link's reactive styles swap in place" {
     let ctx = context {
         Ui: headless(),

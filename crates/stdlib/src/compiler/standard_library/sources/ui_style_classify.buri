@@ -713,13 +713,15 @@ fn tokenKey<C: Allocator>(ctx: C, token: TokenReference): Str {
 fn plain<C: Allocator>(ctx: C, text: Str): Bool {
     match (text.isEmpty()) {
         true => false,
+        // `splitAny` drops empty pieces, so text of only letters and digits
+        // leaves none.
         false => {
             text
                 .splitAny(
                     ctx,
                     "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
                 )
-                .all(fn(piece) => piece.isEmpty())
+                .isEmpty()
         },
     }
 }

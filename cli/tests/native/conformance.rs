@@ -888,6 +888,12 @@ const PACKAGES: &[Case] = &[
     // address bar implements in Buri too. Nothing here is a document, so the
     // one thing that could hold it out is absent.
     included("web/routing.buri"),
+    excluded(
+        "web_unstyled/document.buri",
+        "`ui/web`'s `shell` around a body written by hand, for `web/document.buri`'s \
+             reason: a website is built for `web` and a worker platform, both of \
+             them on the `JS` backend",
+    ),
 ];
 
 /// Why this host cannot build and run a native artifact, or `None`.

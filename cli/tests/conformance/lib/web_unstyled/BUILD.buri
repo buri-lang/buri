@@ -1,0 +1,14 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/document.buri"]
+
+        # A website that builds no node, in a package of its own because the
+        # stylesheet belongs to the whole test binary and `lib/web`'s tests
+        # style their nodes. JS only, for `lib/web`'s reason: a website is a
+        # JavaScript artifact by construction. `native::conformance` records
+        # `web_unstyled/document.buri` as excluded, with that reason.
+        backends: [JS]
+    }
+}
