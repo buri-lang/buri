@@ -12,7 +12,6 @@ use std::sync::atomic::{AtomicI32, Ordering};
 // Declared rather than depended on, as in `commands::run`.
 unsafe extern "C" {
     fn signal(sig: i32, handler: usize) -> usize;
-    fn raise(sig: i32) -> i32;
     fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
 }
 
@@ -21,25 +20,25 @@ const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 const SIG_DFL: usize = 0;
 
-/// The first signal that arrived, or 0.
+/// The signal that arrived, or 0.
 static ASKED: AtomicI32 = AtomicI32::new(0);
 
 const SAID: &[u8] = b"buri: stopping once the run in progress ends; signal again to stop now\n";
 
-/// The handler. A `swap`, `write`, `signal` and `raise`, all on POSIX's
-/// async-signal-safe list.
+/// The handler, which runs once. A `signal`, `store` and `write`, all on
+/// POSIX's async-signal-safe list.
 extern "C" fn noted(sig: i32) {
-    if ASKED.swap(sig, Ordering::Relaxed) == 0 {
-        // SAFETY: a constant buffer, to standard error.
-        unsafe { write(2, SAID.as_ptr().cast(), SAID.len()) };
-        return;
-    }
-    // SAFETY: the default disposition back, then the signal again, so the
-    // process ends the way it would have without this module.
+    // SAFETY: the default disposition back for all three, first, so a second
+    // signal ends the process the way it would have without this module. The
+    // one being handled is held until this returns, so it is a second too.
     unsafe {
-        signal(sig, SIG_DFL);
-        raise(sig);
+        signal(SIGHUP, SIG_DFL);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTERM, SIG_DFL);
     }
+    ASKED.store(sig, Ordering::Relaxed);
+    // SAFETY: a constant buffer, to standard error.
+    unsafe { write(2, SAID.as_ptr().cast(), SAID.len()) };
 }
 
 /// Takes the three signals for the loop or server about to run.
