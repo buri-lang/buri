@@ -1,0 +1,24 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a body the checker stopped inside: the variant named in it is not reported as one nothing builds"
+
+run {
+  args: ["lint", "//lib/shade"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The body still does not check, but it no longer names `Dark`, so nothing is
+# in doubt about it and it is reported beside the error.
+edit {
+  file: "lib/shade/shades.buri"
+  replace: "    nowhere(.Dark)\n"
+  with: "    nowhere(n)\n"
+}
+
+run {
+  args: ["lint", "//lib/shade"]
+  exit: 1
+  golden: "dark.txt"
+}

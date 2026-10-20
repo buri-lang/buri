@@ -1,7 +1,8 @@
 //! The build's rarer paths, driven as a user reaches them: files no rule
 //! names open in the editor, a test dependency on a platform, a dependency
 //! cycle, a suite naming a backend twice, a source that stops being UTF-8
-//! between two analyses, a build file that is not UTF-8, a `buri run` with no
+//! between two analyses, a build file that is not UTF-8, a package directory
+//! `lint` can't list, a `buri run` with no
 //! JavaScript runtime, a damaged record of a link's unlisted reads, a runner
 //! kept under a fresh `BURI_HOME`, a platform asset read as a schema, a
 //! `platform` rule outside `//platform/`, `format` on a `testing` surface, and
@@ -619,6 +620,27 @@ fn a_build_file_that_cannot_be_read_is_named() {
         .run(&["build", "//lib/a"])
         .exits(2)
         .says("cannot read REPO.buri: stream did not contain valid UTF-8");
+}
+
+/// A directory in a package that can't be listed holds no source `lint` can
+/// name: the stray file in it draws `unused-source` only once it can be read.
+#[test]
+fn a_directory_lint_cannot_list_holds_no_unused_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::repo("rare-unlistable-directory");
+    scratch.write("lib/a/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write("lib/a/private/stray.buri", "export fn two(): Int { 2 }\n");
+    let private = scratch.path("lib/a/private");
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let run = scratch.run(&["lint", "//lib/a"]);
+    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o755)).unwrap();
+    run.exits(0).silent_about("unused-source");
+    scratch
+        .run(&["lint", "//lib/a"])
+        .exits(1)
+        .says("lib/a/private/stray.buri")
+        .says("[unused-source]");
 }
 
 /// `buri run` of a JavaScript output where no runtime can be started says it

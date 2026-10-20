@@ -1,0 +1,34 @@
+warning: nothing constructs or matches `Shade.Dark` [unused-variant]
+ --> lib/shade/shades.buri:8:5
+  |
+8 |     Dark,
+  |     ^^^^
+  |
+  = a variant nothing builds is a case the value can never be in, and every `match` on the enum still carries an arm for it
+  = fix: delete the variant, or construct it
+
+    Every reader has to work out what could put a value in an unreachable case.
+
+    - A _ arm keeps no variant alive, since it says you don't care which case
+    occurs.
+
+    - Naming the variant in a pattern does keep it alive, even if nothing constructs
+    it. Whoever wrote that arm thought the case could happen; check who's right
+    before deleting.
+
+    - A derive keeps no variant alive.
+
+    Enums on a surface (lib.buri, or testing/lib.buri for a fixture) are never
+    reported, since an unseen consumer may build any case.
+
+error: there is nothing named `nowhere` in scope [unknown-name]
+  --> lib/shade/shades.buri:16:5
+   |
+16 |     nowhere(n)
+   |     ^^^^^^^
+   |
+   = fix: declare `nowhere`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
+

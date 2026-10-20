@@ -1,0 +1,11 @@
+error: there is nothing named `nowhere` in scope [unknown-name]
+  --> lib/shade/shades.buri:16:5
+   |
+16 |     nowhere(.Dark)
+   |     ^^^^^^^
+   |
+   = fix: declare `nowhere`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
+
