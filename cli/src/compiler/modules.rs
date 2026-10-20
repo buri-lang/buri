@@ -30,9 +30,6 @@ pub struct Loader<'a> {
     by_path: HashMap<String, ModuleId>,
     /// The rules whose generators this compilation has already reported on.
     generated_rules: std::collections::BTreeSet<TargetId>,
-    /// The tools whose entry points this compilation has already checked, so
-    /// a batch that reaches one twice reports it once.
-    checked_tools: std::collections::BTreeSet<TargetId>,
     /// The packages, by label, whose missing root file this compilation has
     /// reported, with the file: an import of one says nothing more.
     rootless: std::collections::BTreeSet<(String, &'static str)>,
@@ -70,7 +67,6 @@ impl<'a> Loader<'a> {
             modules: Modules::default(),
             by_path: HashMap::default(),
             generated_rules: std::collections::BTreeSet::new(),
-            checked_tools: std::collections::BTreeSet::new(),
             rootless: std::collections::BTreeSet::new(),
             test_sources: Vec::new(),
             platform: None,
@@ -118,13 +114,11 @@ impl<'a> Loader<'a> {
     /// Loads every module of a unit: the target's entry point, its declared
     /// sources, and everything they import.
     pub fn load_unit(&mut self, unit: &Unit) {
-        // The first unit's, and every unit batched into one compilation shares
-        // it: `analyze_all` batches test suites, which build no output and
-        // carry `None` for exactly that reason.
-        if self.platform.is_none() {
-            self.platform = unit.platform;
-            self.entry = unit.entry.clone();
-        }
+        // Every unit batched into one compilation carries the same, `None`:
+        // a batch builds no output (`analyze_all` batches test suites, `shared`
+        // lint and build checks). Only a compilation of one unit has `Some`.
+        self.platform = unit.platform;
+        self.entry = unit.entry.clone();
         // The modules that define the built-in types, and no others. A method
         // needs no import (SPEC 6.7.3), so `[T]`'s and `Str`'s defining modules
         // have to be present for `xs.map(...)` and `s.trim()` to resolve in a
@@ -241,20 +235,19 @@ impl<'a> Loader<'a> {
                 let ast = root
                     .map(|r| self.modules.get(r))
                     .map(|m| std::sync::Arc::clone(&m.ast));
+                // Once per compilation: a batch names each target once.
                 if let Some(ast) = ast {
-                    if self.checked_tools.insert(target) {
-                        let roots = |path: &str| {
-                            ws.generated
-                                .module(path)
-                                .and_then(|m| crate::build::tools::root_of(&m.text))
-                        };
-                        self.diags.extend(crate::build::tools::contract(
-                            &ast,
-                            tool,
-                            &pkg.label(),
-                            &roots,
-                        ));
-                    }
+                    let roots = |path: &str| {
+                        ws.generated
+                            .module(path)
+                            .and_then(|m| crate::build::tools::root_of(&m.text))
+                    };
+                    self.diags.extend(crate::build::tools::contract(
+                        &ast,
+                        tool,
+                        &pkg.label(),
+                        &roots,
+                    ));
                 }
                 for src in &tool.sources {
                     self.load_package_source(ws, target, &src.value, Role::Source, src.span);

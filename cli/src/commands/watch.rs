@@ -386,13 +386,10 @@ pub struct Trigger {
     pub changed: Vec<PathBuf>,
 }
 
-/// The loop, with the two things a test needs to inject.
+/// The loop, with the sweep interval a test shortens.
 pub struct Watch {
     /// How often the declared set is swept. [`SWEEP`] outside the tests.
     pub interval: Duration,
-    /// Stop after this many passes. `None` outside the tests: a watch session
-    /// ends when the terminal it is attached to signals it.
-    pub passes: Option<usize>,
     /// Whether the separator is drawn before the pass rather than after it.
     /// `--explain` streams one line per action as the pass runs, so a separator
     /// printed afterwards would sit underneath the transcript it heads.
@@ -409,7 +406,6 @@ impl Watch {
         crate::commands::interrupt::listen();
         Watch {
             interval: SWEEP,
-            passes: None,
             header_first: explain,
             root,
         }
@@ -476,7 +472,7 @@ impl Watch {
                 print!("{}", result.output);
             }
             armed(n);
-            if self.passes.is_some_and(|k| n >= k) || watched.is_empty() {
+            if watched.is_empty() {
                 return result.code;
             }
             if let Some(stopped) = crate::commands::interrupt::asked() {
@@ -689,7 +685,6 @@ mod tests {
     fn the_separator_names_the_pass_the_time_and_what_moved() {
         let w = Watch {
             interval: SWEEP,
-            passes: None,
             header_first: false,
             root: PathBuf::from("/repo"),
         };
@@ -717,32 +712,27 @@ mod tests {
         );
     }
 
-    /// The loop runs its opening pass without anything having changed, and the
-    /// pass count is what ends it.
+    /// The loop runs its opening pass without anything having changed, and a
+    /// pass that declares nothing to watch is what ends it.
     #[test]
     fn the_opening_pass_has_no_trigger() {
-        let dir = scratch("opening");
-        let path = dir.join("a.buri");
-        let _ = std::fs::write(&path, "one");
         let w = Watch {
             interval: Duration::from_millis(5),
-            passes: Some(1),
             header_first: false,
-            root: dir.clone(),
+            root: PathBuf::from("/repo"),
         };
         let mut seen = Vec::new();
         let code = w.drive(|t| {
             seen.push((t.pass, t.changed.len()));
             Pass {
                 code: 7,
-                inputs: files(std::slice::from_ref(&path)),
+                inputs: Watched::default(),
                 output: String::new(),
                 quiet: true,
             }
         });
         assert_eq!(code, 7);
         assert_eq!(seen, vec![(1, 0)]);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An edit that lands on the far side of the stamp wakes the loop, and the
@@ -761,26 +751,35 @@ mod tests {
         let _ = std::fs::write(&path, "one");
         let w = Watch {
             interval: Duration::from_millis(5),
-            passes: Some(2),
             header_first: false,
             root: dir.clone(),
         };
+        // A watch session has no last pass, so the test leaves the loop by
+        // unwinding out of the second pass's instant.
+        struct Stop;
         let mut triggers: Vec<Vec<String>> = Vec::new();
-        w.drive_armed(
-            |t| {
-                triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
-                Pass {
-                    code: 0,
-                    inputs: files(std::slice::from_ref(&path)),
-                    output: String::new(),
-                    quiet: true,
-                }
-            },
-            |pass| {
-                if pass == 1 {
+        let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.drive_armed(
+                |t| {
+                    triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
+                    Pass {
+                        code: 0,
+                        inputs: files(std::slice::from_ref(&path)),
+                        output: String::new(),
+                        quiet: true,
+                    }
+                },
+                |pass| {
+                    if pass == 2 {
+                        std::panic::resume_unwind(Box::new(Stop));
+                    }
                     let _ = std::fs::write(&path, "one two three");
-                }
-            },
+                },
+            )
+        }));
+        assert!(
+            left.is_err_and(|e| e.is::<Stop>()),
+            "the loop ended on its own"
         );
         assert_eq!(triggers.len(), 2, "the loop did not run a second pass");
         assert!(triggers[0].is_empty());
@@ -795,22 +794,17 @@ mod tests {
         // The claim is about what `drive` decides rather than about what
         // reaches the terminal, so it is read off the two branches directly:
         // `quiet` suppresses the separator and the output together.
-        let dir = scratch("quiet");
-        let path = dir.join("a.buri");
-        let _ = std::fs::write(&path, "one");
         let w = Watch {
             interval: Duration::from_millis(5),
-            passes: Some(1),
             header_first: false,
-            root: dir.clone(),
+            root: PathBuf::from("/repo"),
         };
         let code = w.drive(|_| Pass {
             code: 1,
-            inputs: files(std::slice::from_ref(&path)),
+            inputs: Watched::default(),
             output: "0 passed, 1 failed, 0 skipped (0.0s)\n".into(),
             quiet: false,
         });
         assert_eq!(code, 1);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

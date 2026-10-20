@@ -376,7 +376,6 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
 
     let watch = Watch {
         interval: Duration::from_millis(20),
-        passes: Some(2),
         // The injected terminal flag. Production always has one — `--watch`
         // without a terminal is refused at parsing — and clearing it here means
         // the run separator does not land in the middle of cargo's output.
@@ -385,9 +384,12 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
     };
 
     let mut transcripts: Vec<(Vec<String>, String)> = Vec::new();
-    let code = watch.drive_armed(
+    let mut codes = Vec::new();
+    watch_two_passes(
+        &watch,
         |trigger| {
             let run = scratch.run(&["test", "//...", "--explain"]);
+            codes.push(run.code);
             transcripts.push((names(&scratch.root, &trigger.changed), run.all()));
             Pass {
                 code: run.code,
@@ -410,7 +412,7 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
         },
     );
 
-    assert_eq!(code, 0, "a passing repository did not exit 0 from the loop");
+    assert_eq!(codes, vec![0, 0], "a passing repository did not pass");
     assert_eq!(transcripts.len(), 2, "the loop did not run a second pass");
     assert!(
         transcripts[0].0.is_empty(),
@@ -502,13 +504,13 @@ fn a_broken_build_file_keeps_the_loop_watching() {
 
     let watch = Watch {
         interval: Duration::from_millis(20),
-        passes: Some(2),
         header_first: false,
         root: scratch.root.clone(),
     };
     let mut codes = Vec::new();
     let mut triggers: Vec<Vec<String>> = Vec::new();
-    watch.drive_armed(
+    watch_two_passes(
+        &watch,
         |trigger| {
             let run = scratch.run(&["test", "//..."]);
             codes.push(run.code);
@@ -547,6 +549,29 @@ fn a_broken_build_file_keeps_the_loop_watching() {
         "the loop stopped watching the file that broke it"
     );
     assert_eq!(codes[1], 0, "the repaired repository did not pass");
+}
+
+/// Runs the loop for two passes, `armed` scripting the edit between them.
+/// A watch session has no last pass, so the loop is left by unwinding out of
+/// the second pass's instant.
+fn watch_two_passes(
+    watch: &Watch,
+    pass: impl FnMut(&buri::commands::watch::Trigger) -> Pass,
+    mut armed: impl FnMut(usize),
+) {
+    struct Stop;
+    let left = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        watch.drive_armed(pass, |n| {
+            if n == 2 {
+                std::panic::resume_unwind(Box::new(Stop));
+            }
+            armed(n);
+        })
+    }));
+    assert!(
+        left.is_err_and(|e| e.is::<Stop>()),
+        "the loop ended on its own"
+    );
 }
 
 /// What `--explain` said about one action, as `run` / `cached` / `keyed`.

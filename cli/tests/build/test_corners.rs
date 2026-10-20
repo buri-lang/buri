@@ -361,6 +361,32 @@ fn a_filter_reaches_each_part_of_a_split_binary() {
         .says("2 passed, 0 failed, 2 skipped");
 }
 
+/// A suite with no test blocks, split into a part of its own, passes, and the
+/// suite beside it still runs its blocks.
+#[test]
+fn a_blockless_suite_split_from_the_rest_passes() {
+    let scratch = Scratch::repo("corners-split-blockless");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        "from \"//lib/a\" import { one };\n\nfn two(): Int {\n    one() + one()\n}\n",
+    );
+    library(
+        &scratch,
+        "b",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("b", 1),
+    );
+    scratch
+        .run_with_env(
+            &["test", "//lib/a", "//lib/b"],
+            &[("BURI_TEST_BATCH_BYTES", "1")],
+        )
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
+}
+
 /// A link with nowhere to write its binary fails each suite, saying where.
 #[test]
 fn a_link_that_fails_fails_each_suite() {
