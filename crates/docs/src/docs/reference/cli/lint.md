@@ -100,6 +100,9 @@ and checks the result still parses. Run `buri format` for the rest. If two edits
 in one file overlap, it applies none of that file's edits and reports the
 findings instead.
 
+A file it can't write, say a read-only one, is named, and the run ends with
+`error: found 1 fix but couldn't write it` and exits `2`.
+
 ## What a second run costs
 
 A finding depends only on the build graph and the bytes of the files a target's
