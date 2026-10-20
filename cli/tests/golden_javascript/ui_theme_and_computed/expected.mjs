@@ -26,11 +26,11 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$podn4b([$k6,[ui_node$stack$podn4b([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t3=ui_node$stack$fjcnwq([$k6,[ui_node$stack$fjcnwq([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const bindings_14=[[__cmd_x_main_buri$Token_color(0),__cmd_x_main_buri$light(0)]];
   return $ui_node_mount(ctx_1,$t3,[[[0,bindings_14]]]);
 }
-function ui_node$stack$podn4b(config_0){
+function ui_node$stack$fjcnwq(config_0){
   const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
   let $t1;
   const $t2=config_0[3];

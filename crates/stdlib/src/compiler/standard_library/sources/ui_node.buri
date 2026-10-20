@@ -2317,18 +2317,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // so the page behind is reachable again.
         .Dialog(open, _label, styles, children, scrimStyles, events) => {
             bindDynamic(builder, fn(scope) => {
-                if (open.get(scope)) {
-                    Node(
-                        .Raw(
-                            "div",
-                            scrimWith(scrimStyles),
-                            [Node(.Raw("dialog", styles, children, events))],
-                            noEvents(),
-                        ),
-                    )
-                } else {
-                    Node(.Empty)
-                }
+                dialogScene(scope, open, styles, children, scrimStyles, events)
             })
         },
         // The summary is always drawn; the children only when open. `open` is a
@@ -2354,7 +2343,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
             let _ = bindDynamic(builder, fn(scope) => {
-                if (open.get(scope)) { Node(.Fragment(children)) } else { Node(.Empty) }
+                disclosureBody(scope, open, children)
             });
             exitElement(builder)
         },
@@ -3254,6 +3243,37 @@ fn sliderTrack(styles: [Style]): [Style] {
     [.Width(.Rem(12.0)), .Height(.Rem(1.0)), .Shrink(0), .Group(styles)]
 }
 
+/// What a dialog is, read under `ctx`: open, a scrim `div` holding the
+/// `dialog` panel, as `.Raw` trees; shut, nothing. The document rebuilds its
+/// region from it, and `describe` draws it.
+fn dialogScene<C>(
+    ctx: Scope,
+    open: Signal<Bool>,
+    styles: [Style],
+    children: [Node<C>],
+    scrimStyles: [Style],
+    events: Events<C>,
+): Node<C> {
+    if (open.get(ctx)) {
+        Node(
+            .Raw(
+                "div",
+                scrimWith(scrimStyles),
+                [Node(.Raw("dialog", styles, children, events))],
+                noEvents(),
+            ),
+        )
+    } else {
+        Node(.Empty)
+    }
+}
+
+/// A disclosure's body, read under `ctx`: its children while it is open, and
+/// nothing while it is shut.
+fn disclosureBody<C>(ctx: Scope, open: Signal<Bool>, children: [Node<C>]): Node<C> {
+    if (open.get(ctx)) { Node(.Fragment(children)) } else { Node(.Empty) }
+}
+
 /// A dialog's scrim styles: the widget's own drawing, then the caller's
 /// `scrimStyles` on top — so a `BackdropBlur` or a tint reaches the backdrop and
 /// still wins. An empty list adds a `.Group([])`, which contributes nothing, so
@@ -3675,15 +3695,13 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // Shut, a browser draws none of it, so neither does this. Open, it is
         // the two things a browser draws: the scrim over the page, and the
         // panel centred on it.
-        .Dialog(open, _label, styles, children, scrimStyles, _events) => {
-            if (open.get(scope)) {
-                container(ctx, state, scrimWith(scrimStyles), [], depth).concat(
-                    ctx,
-                    container(ctx, state, styles, children, depth + 1),
-                )
-            } else {
-                []
-            }
+        .Dialog(open, _label, styles, children, scrimStyles, events) => {
+            nodeLines(
+                ctx,
+                state,
+                dialogScene(scope, open, styles, children, scrimStyles, events),
+                depth,
+            )
         },
         // The group is a box the caller styles; each option is a `<label>`
         // wrapping a radio box and its content node. The box answers for its own
@@ -3713,28 +3731,26 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             container(ctx, state, styles, children, depth)
         },
         // The summary is always drawn; the children only when it is open. A
-        // browser draws a shut `<details>` as its `<summary>` alone, so this
-        // reads the signal and leaves the rest out when it is shut.
+        // browser draws a shut `<details>` as its `<summary>` alone, so the body
+        // is the one the document's region shows.
         .Disclosure(summary, open, styles, children, _events) => {
             let head = [
                 styledLine(ctx, plain(state), styles, depth),
                 styledLine(ctx, plain(state), [], depth + 1),
                 textLine(ctx, depth + 2, summary.read(scope)),
             ];
-            if (open.get(scope)) {
-                head.concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
-            } else {
-                head
-            }
+            head.concat(
+                ctx,
+                nodeLines(ctx, state, disclosureBody(scope, open, children), depth + 1),
+            )
         },
-        // The renderer's own element, nameless here as every box is: `describe`
-        // draws no program tree into one, so this arm exists for the match and
-        // mirrors a stack's lines.
+        // The renderer's own element, nameless here as every box is: an open
+        // dialog's scrim and panel, drawn as a stack is.
         .Raw(_name, styles, children, _events) => {
             container(ctx, state, styles, children, depth)
         },
         // A fragment draws its children at the depth it sits, with no box of its
-        // own — `describe` never builds one, so this is for the match.
+        // own: an open disclosure's body.
         .Fragment(children) => childLines(ctx, state, children, depth, 0, []),
         // The button a reader presses to choose a file, drawn as a childless
         // button is: the label in the caller's styles. The hidden input a
