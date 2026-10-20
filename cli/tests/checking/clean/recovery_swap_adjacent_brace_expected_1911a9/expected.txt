@@ -1,0 +1,9 @@
+error: expected `=`, found `fn` [unexpected-token]
+ --> main.buri:2:11
+  |
+2 |     let g fn =(x: Int) => x;
+  |           ^^
+  |
+  = expected: `=`
+  = actual: `fn`
+  = fix: write `=` here

@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+ --> main.buri:2:14
+  |
+2 |   let g = fn(? x: // the count
+  |              ^
+  |
+  = expected: an identifier
+  = actual: `?`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
