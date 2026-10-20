@@ -3,7 +3,7 @@
 # context.
 
 module                                conditions           decisions              branches
-core/actor                       253/257   98.4%     134/138   97.1%       287/291   98.6%
+core/actor                       274/274  100.0%     147/147  100.0%       310/310  100.0%
 core/alloc                           3/3  100.0%         2/2  100.0%           4/4  100.0%
 core/bigint                        82/84   97.6%       60/62   96.8%       140/142   98.6%
 core/bool                            6/6  100.0%         6/6  100.0%         12/12  100.0%
@@ -47,7 +47,7 @@ core/proto/timestamp               16/16  100.0%       13/13  100.0%         30/
 core/proto/wrappers                81/81  100.0%       72/72  100.0%       162/162  100.0%
 core/queue                         22/22  100.0%       12/12  100.0%         24/24  100.0%
 core/random                        14/19   73.7%       11/16   68.8%         30/34   88.2%
-core/result                      616/616  100.0%     308/308  100.0%       616/616  100.0%
+core/result                      622/622  100.0%     311/311  100.0%       622/622  100.0%
 core/secret                          0/0       -         0/0       -           0/0       -
 core/set                           13/13  100.0%       13/13  100.0%         26/26  100.0%
 core/simd                         93/101   92.1%       81/89   91.0%       178/186   95.7%
@@ -66,7 +66,7 @@ ui/style                             6/6  100.0%         1/1  100.0%           6
 ui/style/classify                223/225   99.1%       46/48   95.8%       226/228   99.1%
 ui/theme                           22/22  100.0%         9/9  100.0%         24/24  100.0%
 ui/web                               3/3  100.0%         2/2  100.0%           4/4  100.0%
-total                         9922/10046   98.8%   5656/5775   97.9%   13578/13716   99.0%
+total                         9949/10069   98.8%   5672/5787   98.0%   13607/13741   99.0%
 
 The 30 modules with the most unshown conditions:
 
@@ -78,7 +78,6 @@ The 30 modules with the most unshown conditions:
        8      93/101   92.1%  core/simd
        6     107/113   94.7%  core/compression
        5       14/19   73.7%  core/random
-       4     253/257   98.4%  core/actor
        4   1107/1111   99.6%  core/buri/ast
        4     241/245   98.4%  core/indexset
        2       82/84   97.6%  core/bigint
