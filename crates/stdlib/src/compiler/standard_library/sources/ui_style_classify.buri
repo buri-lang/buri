@@ -231,15 +231,10 @@ fn atomsOf<C: Allocator>(
     screen: Int,
     acc: [(Int, Str)],
 ): Option<[(Int, Str)]> {
-    match (style) {
-        .Group(items) => atomsIn(ctx, items, state, screen, .Some(acc)),
-        .On(on, items) => atomsIn(ctx, items, stateIndex(on), screen, .Some(acc)),
-        .At(at, items) => atomsIn(ctx, items, state, screenIndex(at), .Some(acc)),
-        .When(_, _, _) => .None,
-        .Computed(_) => .None,
-        .Extracted(_) => .None,
-        property => {
-            let (variant, sub, abbreviation, key) = declared(ctx, property);
+    match (declared(ctx, style, state, screen)) {
+        .Nested(items, under, at) => atomsIn(ctx, items, under, at, .Some(acc)),
+        .Unsettled => .None,
+        .Atom(variant, sub, abbreviation, key) => {
             // A pin keeps its `position` in a class of its own, ahead of its inset.
             let before = match (variant) {
                 15 => acc.push(ctx, atom(ctx, 15, 4, state, screen, "pin", "out")),
@@ -312,80 +307,83 @@ fn screenIndex(screen: Screen): Int {
     }
 }
 
-/// A property's variant, sub-key, abbreviation and key, as the compiler
-/// declares it.
-fn declared<C: Allocator>(ctx: C, style: Style): (Int, Int, Str, Str) {
+/// What one style is to `atomsOf`.
+enum Declared {
+    /// A property's variant, sub-key, abbreviation and key, as the compiler
+    /// declares it.
+    Atom(Int, Int, Str, Str),
+    /// Styles under a state and a screen.
+    Nested([Style], Int, Int),
+    /// A style that is not settled, so the list isn't either.
+    Unsettled,
+}
+
+/// What `style` is under a state and a screen.
+fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declared {
     match (style) {
-        .Layout(layout) => (6, 0, "lay", layoutKey(ctx, layout)),
-        .AlignMain(align) => (7, 0, "am", alignKey(align)),
-        .AlignCross(align) => (8, 0, "ac", crossKey(align)),
-        .AlignSelf(align) => (9, 0, "as", crossKey(align)),
-        .Wrap(on) => (10, 0, "wrap", choose(on, "wrap", "nowrap")),
+        .Group(items) => .Nested(items, state, screen),
+        .On(on, items) => .Nested(items, stateIndex(on), screen),
+        .At(at, items) => .Nested(items, state, screenIndex(at)),
+        .When(_, _, _) => .Unsettled,
+        .Computed(_) => .Unsettled,
+        .Extracted(_) => .Unsettled,
+        .Layout(layout) => .Atom(6, 0, "lay", layoutKey(ctx, layout)),
+        .AlignMain(align) => .Atom(7, 0, "am", alignKey(align)),
+        .AlignCross(align) => .Atom(8, 0, "ac", crossKey(align)),
+        .AlignSelf(align) => .Atom(9, 0, "as", crossKey(align)),
+        .Wrap(on) => .Atom(10, 0, "wrap", choose(on, "wrap", "nowrap")),
         .Scroll(axis) => {
-            (
-                11,
-                0,
-                "scroll",
-                match (axis) {
-                    .X => "x",
-                    .Y => "y",
-                    .Both => "both",
-                },
-            )
+            .Atom(11, 0, "scroll", match (axis) {
+                .X => "x",
+                .Y => "y",
+                .Both => "both",
+            })
         },
-        .Grow(n) => (12, 0, "grow", integerKey(ctx, n)),
-        .Shrink(n) => (13, 0, "shrink", integerKey(ctx, n)),
-        .Span(n) => (14, 0, "span", integerKey(ctx, n)),
-        .Pin(edge, length) => (15, edgeIndex(edge), "pin", edgeKey(ctx, edge, length)),
+        .Grow(n) => .Atom(12, 0, "grow", integerKey(ctx, n)),
+        .Shrink(n) => .Atom(13, 0, "shrink", integerKey(ctx, n)),
+        .Span(n) => .Atom(14, 0, "span", integerKey(ctx, n)),
+        .Pin(edge, length) => {
+            .Atom(15, edgeIndex(edge), "pin", edgeKey(ctx, edge, length))
+        },
         .Position(position) => {
-            (
-                16,
-                0,
-                "pos",
-                match (position) {
-                    .Flow => "flow",
-                    .Sticky => "sticky",
-                    .PinViewport => "viewport",
-                    .PinAnchor => "anchor",
-                },
-            )
+            .Atom(16, 0, "pos", match (position) {
+                .Flow => "flow",
+                .Sticky => "sticky",
+                .PinViewport => "viewport",
+                .PinAnchor => "anchor",
+            })
         },
-        .Gap(length) => (17, 0, "gap", lengthKey(ctx, length)),
-        .GapX(length) => (18, 0, "gapx", lengthKey(ctx, length)),
-        .GapY(length) => (19, 0, "gapy", lengthKey(ctx, length)),
-        .Padding(length) => (20, 0, "p", lengthKey(ctx, length)),
-        .PaddingX(length) => (21, 0, "px", lengthKey(ctx, length)),
-        .PaddingY(length) => (22, 0, "py", lengthKey(ctx, length)),
+        .Gap(length) => .Atom(17, 0, "gap", lengthKey(ctx, length)),
+        .GapX(length) => .Atom(18, 0, "gapx", lengthKey(ctx, length)),
+        .GapY(length) => .Atom(19, 0, "gapy", lengthKey(ctx, length)),
+        .Padding(length) => .Atom(20, 0, "p", lengthKey(ctx, length)),
+        .PaddingX(length) => .Atom(21, 0, "px", lengthKey(ctx, length)),
+        .PaddingY(length) => .Atom(22, 0, "py", lengthKey(ctx, length)),
         .PaddingEdge(edge, length) => {
-            (23, edgeIndex(edge), "pe", edgeKey(ctx, edge, length))
+            .Atom(23, edgeIndex(edge), "pe", edgeKey(ctx, edge, length))
         },
-        .Width(length) => (24, 0, "w", lengthKey(ctx, length)),
-        .Height(length) => (25, 0, "h", lengthKey(ctx, length)),
-        .MinWidth(length) => (26, 0, "minw", lengthKey(ctx, length)),
-        .MaxWidth(length) => (27, 0, "maxw", lengthKey(ctx, length)),
-        .MinHeight(length) => (28, 0, "minh", lengthKey(ctx, length)),
-        .MaxHeight(length) => (29, 0, "maxh", lengthKey(ctx, length)),
-        .AspectRatio(ratio) => (30, 0, "ar", numberKey(ctx, ratio)),
-        .Background(color) => (31, 0, "bg", colorKey(ctx, color)),
-        .Foreground(color) => (32, 0, "fg", colorKey(ctx, color)),
-        .BorderWidth(length) => (33, 0, "bw", lengthKey(ctx, length)),
+        .Width(length) => .Atom(24, 0, "w", lengthKey(ctx, length)),
+        .Height(length) => .Atom(25, 0, "h", lengthKey(ctx, length)),
+        .MinWidth(length) => .Atom(26, 0, "minw", lengthKey(ctx, length)),
+        .MaxWidth(length) => .Atom(27, 0, "maxw", lengthKey(ctx, length)),
+        .MinHeight(length) => .Atom(28, 0, "minh", lengthKey(ctx, length)),
+        .MaxHeight(length) => .Atom(29, 0, "maxh", lengthKey(ctx, length)),
+        .AspectRatio(ratio) => .Atom(30, 0, "ar", numberKey(ctx, ratio)),
+        .Background(color) => .Atom(31, 0, "bg", colorKey(ctx, color)),
+        .Foreground(color) => .Atom(32, 0, "fg", colorKey(ctx, color)),
+        .BorderWidth(length) => .Atom(33, 0, "bw", lengthKey(ctx, length)),
         .BorderEdge(edge, length) => {
-            (34, edgeIndex(edge), "be", edgeKey(ctx, edge, length))
+            .Atom(34, edgeIndex(edge), "be", edgeKey(ctx, edge, length))
         },
-        .BorderColor(color) => (35, 0, "bc", colorKey(ctx, color)),
+        .BorderColor(color) => .Atom(35, 0, "bc", colorKey(ctx, color)),
         .BorderStyle(line) => {
-            (
-                36,
-                0,
-                "bs",
-                match (line) {
-                    .None => "none",
-                    .Solid => "solid",
-                    .Dashed => "dashed",
-                },
-            )
+            .Atom(36, 0, "bs", match (line) {
+                .None => "none",
+                .Solid => "solid",
+                .Dashed => "dashed",
+            })
         },
-        .Radius(length) => (37, 0, "r", lengthKey(ctx, length)),
+        .Radius(length) => .Atom(37, 0, "r", lengthKey(ctx, length)),
         .RadiusCorner(corner, length) => {
             let (index, name) = match (corner) {
                 .TopStart => (0, "topstart"),
@@ -393,12 +391,12 @@ fn declared<C: Allocator>(ctx: C, style: Style): (Int, Int, Str, Str) {
                 .BottomStart => (2, "bottomstart"),
                 .BottomEnd => (3, "bottomend"),
             };
-            (38, index, "rc", str.format(ctx, "${name}-${lengthKey(ctx, length)}"))
+            .Atom(38, index, "rc", str.format(ctx, "${name}-${lengthKey(ctx, length)}"))
         },
-        .Opacity(value) => (39, 0, "op", numberKey(ctx, value)),
-        .Shadow(shadow) => (40, 0, "sh", digest(ctx, shadowCss(ctx, shadow))),
+        .Opacity(value) => .Atom(39, 0, "op", numberKey(ctx, value)),
+        .Shadow(shadow) => .Atom(40, 0, "sh", digest(ctx, shadowCss(ctx, shadow))),
         .Shadows(layers) => {
-            (
+            .Atom(
                 41,
                 0,
                 "sh",
@@ -411,7 +409,7 @@ fn declared<C: Allocator>(ctx: C, style: Style): (Int, Int, Str, Str) {
             )
         },
         .FontFamily(family) => {
-            (
+            .Atom(
                 42,
                 0,
                 "ff",
@@ -425,121 +423,84 @@ fn declared<C: Allocator>(ctx: C, style: Style): (Int, Int, Str, Str) {
                 }),
             )
         },
-        .FontSize(length) => (43, 0, "fs", lengthKey(ctx, length)),
+        .FontSize(length) => .Atom(43, 0, "fs", lengthKey(ctx, length)),
         .FontWeight(weight) => {
-            (
-                44,
-                0,
-                "fw",
-                match (weight) {
-                    .Regular => "regular",
-                    .Medium => "medium",
-                    .Semibold => "semibold",
-                    .Bold => "bold",
-                },
-            )
+            .Atom(44, 0, "fw", match (weight) {
+                .Regular => "regular",
+                .Medium => "medium",
+                .Semibold => "semibold",
+                .Bold => "bold",
+            })
         },
-        .Italic(on) => (45, 0, "it", choose(on, "italic", "normal")),
-        .LineHeight(value) => (46, 0, "lh", numberKey(ctx, value)),
-        .LetterSpacing(length) => (47, 0, "ls", lengthKey(ctx, length)),
-        .TextAlign(align) => (48, 0, "ta", alignKey(align)),
+        .Italic(on) => .Atom(45, 0, "it", choose(on, "italic", "normal")),
+        .LineHeight(value) => .Atom(46, 0, "lh", numberKey(ctx, value)),
+        .LetterSpacing(length) => .Atom(47, 0, "ls", lengthKey(ctx, length)),
+        .TextAlign(align) => .Atom(48, 0, "ta", alignKey(align)),
         .TextCase(case) => {
-            (
-                49,
-                0,
-                "tc",
-                match (case) {
-                    .AsWritten => "aswritten",
-                    .Upper => "upper",
-                    .Lower => "lower",
-                    .Capitalize => "capitalize",
-                },
-            )
+            .Atom(49, 0, "tc", match (case) {
+                .AsWritten => "aswritten",
+                .Upper => "upper",
+                .Lower => "lower",
+                .Capitalize => "capitalize",
+            })
         },
         .TextLine(line) => {
-            (
-                50,
-                0,
-                "tl",
-                match (line) {
-                    .None => "none",
-                    .Underline => "underline",
-                    .Strike => "strike",
-                },
-            )
+            .Atom(50, 0, "tl", match (line) {
+                .None => "none",
+                .Underline => "underline",
+                .Strike => "strike",
+            })
         },
         .TextWrap(wrap) => {
-            (
-                51,
-                0,
-                "tw",
-                match (wrap) {
-                    .Wrap => "wrap",
-                    .NoWrap => "nowrap",
-                    .Balance => "balance",
-                },
-            )
+            .Atom(51, 0, "tw", match (wrap) {
+                .Wrap => "wrap",
+                .NoWrap => "nowrap",
+                .Balance => "balance",
+            })
         },
         .Truncate(lines) => {
-            (
-                52,
-                0,
-                "trunc",
-                match (lines > 0) {
-                    true => integerKey(ctx, lines),
-                    false => "0",
-                },
-            )
+            .Atom(52, 0, "trunc", match (lines > 0) {
+                true => integerKey(ctx, lines),
+                false => "0",
+            })
         },
         .Cursor(cursor) => {
-            (
-                53,
-                0,
-                "cur",
-                match (cursor) {
-                    .Default => "default",
-                    .Pointer => "pointer",
-                    .Text => "text",
-                    .NotAllowed => "notallowed",
-                },
-            )
+            .Atom(53, 0, "cur", match (cursor) {
+                .Default => "default",
+                .Pointer => "pointer",
+                .Text => "text",
+                .NotAllowed => "notallowed",
+            })
         },
         .ListMarker(marker) => {
-            (
-                54,
-                0,
-                "lm",
-                match (marker) {
-                    .None => "none",
-                    .Disc => "disc",
-                    .Decimal => "decimal",
-                },
-            )
+            .Atom(54, 0, "lm", match (marker) {
+                .None => "none",
+                .Disc => "disc",
+                .Decimal => "decimal",
+            })
         },
         .Bleed(edge, length) => {
-            (55, edgeIndex(edge), "bleed", edgeKey(ctx, edge, length))
+            .Atom(55, edgeIndex(edge), "bleed", edgeKey(ctx, edge, length))
         },
         .Translate(x, y) => {
-            (56, 0, "tr", str.format(ctx, "${lengthKey(ctx, x)}-${lengthKey(ctx, y)}"))
-        },
-        .Clip(on) => (57, 0, "clip", choose(on, "clip", "visible")),
-        .Passthrough(on) => (58, 0, "pass", choose(on, "none", "auto")),
-        .BackdropBlur(length) => (59, 0, "bdblur", lengthKey(ctx, length)),
-        .CaretColor(color) => (60, 0, "caret", colorKey(ctx, color)),
-        .VisuallyHidden => (61, 0, "vh", "on"),
-        .Animation(animation) => {
-            (
-                62,
+            .Atom(
+                56,
                 0,
-                "anim",
-                match (animation) {
-                    .Pulse => "pulse",
-                    .Spin => "spin",
-                },
+                "tr",
+                str.format(ctx, "${lengthKey(ctx, x)}-${lengthKey(ctx, y)}"),
             )
         },
-        // `atomsOf` answers every composition itself.
-        _ => (0, 0, "", ""),
+        .Clip(on) => .Atom(57, 0, "clip", choose(on, "clip", "visible")),
+        .Passthrough(on) => .Atom(58, 0, "pass", choose(on, "none", "auto")),
+        .BackdropBlur(length) => .Atom(59, 0, "bdblur", lengthKey(ctx, length)),
+        .CaretColor(color) => .Atom(60, 0, "caret", colorKey(ctx, color)),
+        .VisuallyHidden => .Atom(61, 0, "vh", "on"),
+        .Animation(animation) => {
+            .Atom(62, 0, "anim", match (animation) {
+                .Pulse => "pulse",
+                .Spin => "spin",
+            })
+        },
     }
 }
 

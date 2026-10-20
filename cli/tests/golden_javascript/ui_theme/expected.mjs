@@ -36,8 +36,8 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const label_11='clicks';
-  const count_12=ui_signal$signal$drpjp2(ctx_1,0n);
-  const $t4=ui_node$stack$fjcnwq([$k7,[ui_node$button$fjcnwq([[0,label_11],[],void 0,c_13=>ui_signal$Signal_update$dinfqt(count_12,c_13,n_14=>n_14+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$fjcnwq([0,label_11],[1,count_12])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const count_12=ui_signal$signal$zjm9db(ctx_1,0n);
+  const $t4=ui_node$stack$5yawf6([$k7,[ui_node$button$5yawf6([[0,label_11],[],void 0,c_13=>ui_signal$Signal_update$v3c2nl(count_12,c_13,n_14=>n_14+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$5yawf6([0,label_11],[1,count_12])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const $t3=ui_theme$themed([[__cmd_x_main_buri$Card_color(0),__cmd_x_main_buri$cardTheme(0)],[__cmd_x_main_buri$Card_color(1),__cmd_x_main_buri$cardTheme(1)],[__cmd_x_main_buri$Card_color(2),__cmd_x_main_buri$cardTheme(2)]]);
   const whenTrue_17=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$night);
   const whenFalse_18=__cmd_x_main_buri$appThemed(__cmd_x_main_buri$day);
@@ -119,14 +119,14 @@ function __cmd_x_main_buri$Card_color(self_0){
       break;
   }
 }
-function ui_signal$signal$drpjp2(ctx_0,initial_1){
+function ui_signal$signal$zjm9db(ctx_0,initial_1){
   return [$host_HostUi_signal(ctx_0[2],initial_1)];
 }
-function ui_signal$Signal_update$dinfqt(self_0,ctx_1,f_2){
+function ui_signal$Signal_update$v3c2nl(self_0,ctx_1,f_2){
   return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
 }
-function ui_node$button$fjcnwq(config_0){
-  const events_1=ui_node$listen$fjcnwq(config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15],config_0[16],config_0[17]);
+function ui_node$button$5yawf6(config_0){
+  const events_1=ui_node$listen$5yawf6(config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15],config_0[16],config_0[17]);
   const focus_2=[config_0[8],config_0[9]];
   const $t1=config_0[4];
   if($t1!==void 0&&$t1===1){
@@ -193,8 +193,8 @@ function ui_node$button$fjcnwq(config_0){
     return [[5,$t8,$t9,$t6,$t10,$t12,$t14,$t16,focus_2,events_1]];
   }
 }
-function __cmd_x_main_buri$badge$fjcnwq(title_0,count_1){
-  return ui_node$stack$fjcnwq([$k22,[ui_node$text$fjcnwq([title_0,void 0,void 0]),ui_node$text$fjcnwq([[2,c_2=>{
+function __cmd_x_main_buri$badge$5yawf6(title_0,count_1){
+  return ui_node$stack$5yawf6([$k22,[ui_node$text$5yawf6([title_0,void 0,void 0]),ui_node$text$5yawf6([[2,c_2=>{
     let $t1;
     if(count_1[0]===0){
       $t1=count_1[1];
@@ -208,8 +208,8 @@ function __cmd_x_main_buri$badge$fjcnwq(title_0,count_1){
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_node$stack$fjcnwq(config_0){
-  const events_1=ui_node$listen$fjcnwq(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
+function ui_node$stack$5yawf6(config_0){
+  const events_1=ui_node$listen$5yawf6(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
   let $t1;
   const $t2=config_0[3];
   if($t2!==void 0){
@@ -240,10 +240,10 @@ function ui_node$stack$fjcnwq(config_0){
     $abort('no arm matched');
   }
 }
-function ui_node$listen$fjcnwq(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
+function ui_node$listen$5yawf6(onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7){
   return [onHover_0,onFocus_1,onScroll_2,onKey_3,onPressOutside_4,onPointerDown_5,onPointerMove_6,onPointerUp_7];
 }
-function ui_node$text$fjcnwq(config_0){
+function ui_node$text$5yawf6(config_0){
   const $t1=config_0[1];
   if($t1!==void 0){
     const styles_2=$share(config_0[2]);
