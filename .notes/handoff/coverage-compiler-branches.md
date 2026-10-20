@@ -45,7 +45,7 @@ Local macOS run, before and after: 14892/15091 to 14893/15091. The one gain is i
 Removed:
 
 - watch.rs 479: the `passes` field is gone. Tests that need two passes leave the loop by unwinding out of the second pass's `armed` instant (`watch_two_passes` in tests/build/watch.rs). Tests that need one pass return an empty set.
-- test.rs 1751: the `tests.is_empty()` answer after `retain_tests`. `left_out` reads the same sources and names as the compile, so a filter that reaches this point keeps at least one test.
+- test.rs 1751: restored after review. `left_out` can't read a test source that isn't a `.buri` file (it resolves as a module), so `--filter` over a `test/t.txt` suite reaches the compile with no test left and, without the answer, links a binary with no `main`. Covered by `test_corners::a_filter_that_leaves_nothing_in_a_txt_source_skips_it`.
 - lint_cache.rs 247: `set_of`'s memo and its `None`. `holds` now returns the closure's node (`Rc<Node>`, with its id set computed once), so a recorded closure always has its set.
 - modules.rs 124: `if self.platform.is_none()`. Every batched unit carries `platform: None`; only a one-unit compilation has `Some`.
 - modules.rs 245: `checked_tools`. A batch names each target once, so the contract check runs once per tool unit.
