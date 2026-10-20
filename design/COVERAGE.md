@@ -275,9 +275,10 @@ Linux and arm64 macOS and gates the merge:
   for all of them. CI uploads those as `coverage-baseline`, so main's
   uncovered branches can be read without running the suite.
 
-`buri`'s profiles are in continuous mode (`%c`): each count lands in the file
-as it happens, so a `buri` a signal kills still counts. That takes aligned
-counter sections on macOS and `-runtime-counter-relocation` on Linux.
+A `buri` a signal kills counts nothing. Continuous-mode profiles (`%c`) would
+count it, but most counts are worked out from others, which only holds for a
+process that ran to its end. A killed one's counts said it ran lines it never
+reached, and some came out below zero.
 
 Every branch counts, races included. A side a race decides would be covered
 on some runs and not others, so a test decides the race instead:

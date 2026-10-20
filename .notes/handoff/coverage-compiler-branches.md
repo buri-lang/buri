@@ -26,14 +26,9 @@ Probe one branch without a full run: build an instrumented buri, run it with `LL
 - javascript.rs `to_switch`: always emits a `default`; an empty one does nothing, as the `else`-less chain did.
 - driver.rs 895: no pid directory any more. The doctest module is `temp_dir()/buri-doctest-<pid>-<stem>.mjs` with its chunks beside it, written in one loop with one failure message.
 
-## Continuous-mode profiles
-
-The harness writes `buri`'s profiles with `%c`, so a process a signal kills still counts. macOS needs `-sectalign` on the three `__llvm_prf_*` sections; Linux needs `-Cllvm-args=-runtime-counter-relocation` (probed on aarch64 Linux, LLVM 23, in a throwaway VM). The relocation cost nothing measurable there, debug or `-O`.
-
-Local macOS run, before and after: 14892/15091 to 14893/15091. The one gain is interrupt.rs's second signal (`serving::a_second_signal_stops_the_server_at_once`). No side was lost. Profiles 26M to 27M, test time not slower (650s before, 380s after, both under other agents' load). The baseline is left to CI's ratchet.
-
 ## Unreachable, for a refactor phase
 
+- interrupt.rs: a second signal. `serving::a_second_signal_stops_the_server_at_once` reaches it, but a process a signal kills writes no profile. Continuous-mode profiles (`%c`, 0b77f1c0c) were reverted: a killed process's counts covered lines it never reached and made some negative, which overflowed the merge (CI run 39423043418). `a_process_a_signal_kills_covers_nothing_it_never_reached` holds that.
 - profile.rs 315, 370: the allocations column, only in a `--features alloc-counter` build. Moving it behind a `cfg` was reverted: that hides the decision from coverage.
 - profile.rs 360: hardware counters. It is covered on real hardware and not on CI's VMs, so it was left alone.
 - `cli/src/main.rs` 64 and `arguments.rs` 321: need a panic other than a stdout print failure.
