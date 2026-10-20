@@ -373,7 +373,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         attrs::set_convention(f, attrs::C);
         f.add_attribute(
             inkwell::attributes::AttributeLoc::Function,
-            self.ctx.create_enum_attribute(attrs::kind("nounwind"), 0),
+            self.ctx.create_enum_attribute(build::known().nounwind, 0),
         );
     }
 
@@ -6725,20 +6725,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // the zero-is-poison flag: `$bits_leadingZeros(0)` is `64` and
         // `$bits_trailingZeros(0)` is `64`, so zero has an answer.
         let zero_defined = self.ctx.bool_type().const_zero().into();
+        let known = build::known();
         let counted = match op {
-            "popCount" | "popCountU64" => Some(("llvm.ctpop", vec![x.into()])),
-            "leadingZeros" | "leadingZerosU64" => Some(("llvm.ctlz", vec![x.into(), zero_defined])),
+            "popCount" | "popCountU64" => Some((known.ctpop, vec![x.into()])),
+            "leadingZeros" | "leadingZerosU64" => Some((known.ctlz, vec![x.into(), zero_defined])),
             "trailingZeros" | "trailingZerosU64" => {
-                Some(("llvm.cttz", vec![x.into(), zero_defined]))
+                Some((known.cttz, vec![x.into(), zero_defined]))
             }
             // `llvm.bswap` answers at the operand's own width, which is the
             // key's: `byteSwapU32` reverses four bytes and `byteSwapU64` eight.
-            "byteSwapU32" | "byteSwapU64" => Some(("llvm.bswap", vec![x.into()])),
+            "byteSwapU32" | "byteSwapU64" => Some((known.bswap, vec![x.into()])),
             _ => None,
         };
-        if let Some((name, argv)) = counted {
+        if let Some((id, argv)) = counted {
             let ty = x.get_type().as_basic_type_enum();
-            let v = self.llvm_intrinsic(b, name, &[ty], &argv);
+            let v = self.llvm_intrinsic(b, id, [ty], &argv);
             self.set(state, dest, v);
             return true;
         }
@@ -6767,13 +6768,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // poison at `n == 0`. The range check has already ruled out `n >= w`.
             "rotateLeft" | "rotateRight" | "rotateLeftU8" | "rotateRightU8" | "rotateLeftU32"
             | "rotateRightU32" | "rotateLeftU64" | "rotateRightU64" => {
-                let name = if op.starts_with("rotateLeft") {
-                    "llvm.fshl"
+                let id = if op.starts_with("rotateLeft") {
+                    known.fshl
                 } else {
-                    "llvm.fshr"
+                    known.fshr
                 };
                 let ty = want.as_basic_type_enum();
-                let v = self.llvm_intrinsic(b, name, &[ty], &[x.into(), x.into(), count.into()]);
+                let v = self.llvm_intrinsic(b, id, [ty], &[x.into(), x.into(), count.into()]);
                 self.set(state, dest, v);
                 return true;
             }
@@ -6801,20 +6802,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.to_end(ok);
     }
 
-    /// One LLVM intrinsic, by name and overload types.
-    fn llvm_intrinsic(
+    /// A call of one LLVM intrinsic at its overload types.
+    fn llvm_intrinsic<const N: usize>(
         &mut self,
         b: At<'ctx>,
-        name: &str,
-        overloads: &[BasicTypeEnum<'ctx>],
+        id: build::Intrinsic,
+        overloads: [BasicTypeEnum<'ctx>; N],
         args: &[BasicMetadataValueEnum<'ctx>],
     ) -> BasicValueEnum<'ctx> {
-        let intrinsic =
-            inkwell::intrinsics::Intrinsic::find(name).or_ice("LLVM 21 has the intrinsic");
-        let f = intrinsic
-            .get_declaration(&self.module, overloads)
-            .or_ice("its overloads fit");
-        b.answer(b.call_answering(f, args, "int"))
+        b.intrinsic(&self.module, id, overloads, args, "int")
     }
 
     /// `str.concat`, with MEMORY.md §5.3's in-place growth.
@@ -8220,7 +8216,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let v = pick(inside, x, m, "wrap.v");
         let reduced = pick(finite, v, fzero, "wrap.x");
         let overloads = [word.as_basic_type_enum(), f64t.as_basic_type_enum()];
-        let whole = int(self.llvm_intrinsic(b, "llvm.fptosi.sat", &overloads, &[reduced.into()]));
+        let whole =
+            int(self.llvm_intrinsic(b, build::known().fptosi_sat, overloads, &[reduced.into()]));
         if want.get_bit_width() == bits {
             return whole.as_basic_value_enum();
         }

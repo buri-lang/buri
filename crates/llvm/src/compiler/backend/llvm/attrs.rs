@@ -170,9 +170,9 @@ use inkwell::values::{CallSiteValue, FunctionValue};
 
 use crate::compiler::middle::ir;
 
+use super::build::known;
 use super::repr::{Machine, Slot, SlotTy};
 use crate::compiler::middle::layout::Scalar;
-use crate::diagnostics::Invariant;
 
 // ---------------------------------------------------------------------------
 // The `memory(...)` encoding hazard — CODEGEN-LLVM.md §3.5
@@ -369,7 +369,7 @@ pub fn unwind_tables(module: &inkwell::module::Module<'_>) {
     const ASYNC: u64 = 2;
     let attr = module
         .get_context()
-        .create_enum_attribute(kind("uwtable"), ASYNC);
+        .create_enum_attribute(known().uwtable, ASYNC);
     let mut next = module.get_first_function();
     while let Some(f) = next {
         if f.count_basic_blocks() > 0 {
@@ -603,7 +603,7 @@ pub fn decorate(
     // attribute here and it costs no analysis: the language has no `throw`, no
     // unwinding `panic` and no `catch` (SPEC 6.9). LLVM without it has to
     // assume every call is a potential unwind edge.
-    enum_attr(ctx, f, "nounwind", 0);
+    enum_attr(ctx, f, known().nounwind, 0);
 
     // The `sret` pointer is argument memory the function writes, so a
     // signature with one is never narrowed to having none.
@@ -628,12 +628,12 @@ pub fn decorate(
         && !observed.opaque
         && !observed.may_diverge;
     if terminates {
-        enum_attr(ctx, f, "willreturn", 0);
-        enum_attr(ctx, f, "mustprogress", 0);
+        enum_attr(ctx, f, known().willreturn, 0);
+        enum_attr(ctx, f, known().mustprogress, 0);
         if effects == MemoryEffects::none() {
             // `memory(none)` + `willreturn` + `nounwind`: a call may be
             // hoisted above a branch (CODEGEN-LLVM.md §3.1).
-            enum_attr(ctx, f, "speculatable", 0);
+            enum_attr(ctx, f, known().speculatable, 0);
         }
     }
 
@@ -642,7 +642,7 @@ pub fn decorate(
     let first = sig.first();
     if let Some(bytes) = sig.sret {
         sret(ctx, f, bytes);
-        enum_attr_at(ctx, f, AttributeLoc::Param(0), "noalias", 0);
+        enum_attr_at(ctx, f, AttributeLoc::Param(0), known().noalias, 0);
     }
     for (i, slot) in sig.params.iter().enumerate() {
         let loc = AttributeLoc::Param(first.saturating_add(i as u32));
@@ -650,7 +650,7 @@ pub fn decorate(
             // The value's own bytes, which nothing writes: values are
             // immutable. Not `align 16`: a field of a value in memory is
             // passed as its address inside the value.
-            enum_attr_at(ctx, f, loc, "readonly", 0);
+            enum_attr_at(ctx, f, loc, known().readonly, 0);
             continue;
         }
         decorate_param(ctx, f, loc, *slot, heap_align, observed);
@@ -663,8 +663,14 @@ pub fn decorate(
     // a call.
     if let [one] = sig.rets.as_slice() {
         if one.ty.is_pointer() {
-            enum_attr_at(ctx, f, AttributeLoc::Return, "noalias", 0);
-            enum_attr_at(ctx, f, AttributeLoc::Return, "align", u64::from(heap_align));
+            enum_attr_at(ctx, f, AttributeLoc::Return, known().noalias, 0);
+            enum_attr_at(
+                ctx,
+                f,
+                AttributeLoc::Return,
+                known().align,
+                u64::from(heap_align),
+            );
         }
     }
 
@@ -682,7 +688,13 @@ pub fn decorate(
         .map(|(i, _)| i)
         .collect();
     if let ([only], None) = (pointers.as_slice(), sig.sret) {
-        enum_attr_at(ctx, f, AttributeLoc::Param(*only as u32), "noalias", 0);
+        enum_attr_at(
+            ctx,
+            f,
+            AttributeLoc::Param(*only as u32),
+            known().noalias,
+            0,
+        );
     }
 }
 
@@ -700,15 +712,7 @@ pub fn sret_call(ctx: &Context, call: CallSiteValue<'_>, bytes: u32) {
 
 fn sret_attribute(ctx: &Context, bytes: u32) -> Attribute {
     let ty = ctx.i8_type().array_type(bytes.max(1)).as_any_type_enum();
-    ctx.create_type_attribute(kind("sret"), ty)
-}
-
-/// The kind id of an attribute. Every name this backend writes is one LLVM 21
-/// knows.
-pub fn kind(name: &str) -> u32 {
-    std::num::NonZeroU32::new(Attribute::get_named_enum_kind_id(name))
-        .or_ice("LLVM 21 knows every attribute this backend writes")
-        .get()
+    ctx.create_type_attribute(known().sret, ty)
 }
 
 /// The value model's half of the table (CODEGEN-LLVM.md §3.2).
@@ -745,7 +749,7 @@ fn decorate_param(
             // is true — which is still every function whose reference-counting
             // plan is empty, the common case for a leaf that reads a `Str`.
             if !observed.writes_args {
-                enum_attr_at(ctx, f, loc, "readonly", 0);
+                enum_attr_at(ctx, f, loc, known().readonly, 0);
             }
             // Every heap pointer is 16-byte aligned, because the header is
             // 16 bytes and sits immediately before the payload (VALUE-MODEL.md
@@ -754,7 +758,7 @@ fn decorate_param(
             // slot table does not carry which is which across a signature
             // boundary. Setting it where null is a value is a miscompile;
             // omitting it costs a null test LLVM would have removed.
-            enum_attr_at(ctx, f, loc, "align", u64::from(heap_align));
+            enum_attr_at(ctx, f, loc, known().align, u64::from(heap_align));
         }
         // A `Bool` is one byte with values 0 and 1 only, and a `Char` is a
         // scalar value. `range` is a type attribute in LLVM's C API and
@@ -771,15 +775,15 @@ fn decorate_param(
 /// list, because reference counting puts a rarely-taken branch next to *every*
 /// value that dies.
 pub fn cold_call(ctx: &Context, call: CallSiteValue<'_>) {
-    call_attr(ctx, call, AttributeLoc::Function, "cold", 0);
-    call_attr(ctx, call, AttributeLoc::Function, "nounwind", 0);
+    call_attr(ctx, call, AttributeLoc::Function, known().cold, 0);
+    call_attr(ctx, call, AttributeLoc::Function, known().nounwind, 0);
 }
 
 /// `noreturn` + `cold` on a call that does not come back: an abort, or
 /// `buri_rt_host_process_exit_with`.
 pub fn noreturn_call(ctx: &Context, call: CallSiteValue<'_>) {
     cold_call(ctx, call);
-    call_attr(ctx, call, AttributeLoc::Function, "noreturn", 0);
+    call_attr(ctx, call, AttributeLoc::Function, known().noreturn, 0);
 }
 
 /// `notail` on a call to a function that recurses: see
@@ -789,8 +793,8 @@ pub fn no_tail(call: CallSiteValue<'_>) {
 }
 
 pub fn mark_noreturn(ctx: &Context, f: FunctionValue<'_>) {
-    enum_attr(ctx, f, "noreturn", 0);
-    enum_attr(ctx, f, "cold", 0);
+    enum_attr(ctx, f, known().noreturn, 0);
+    enum_attr(ctx, f, known().cold, 0);
 }
 
 /// The `memory(...)` attribute itself. One call site in the whole backend, per
@@ -800,19 +804,19 @@ fn memory(ctx: &Context, f: FunctionValue<'_>, effects: MemoryEffects) {
         // The default. Writing it out would be noise in every dump.
         return;
     }
-    enum_attr(ctx, f, "memory", effects.bits());
+    enum_attr(ctx, f, known().memory, effects.bits());
 }
 
-fn enum_attr(ctx: &Context, f: FunctionValue<'_>, name: &str, value: u64) {
-    enum_attr_at(ctx, f, AttributeLoc::Function, name, value);
+fn enum_attr(ctx: &Context, f: FunctionValue<'_>, kind: u32, value: u64) {
+    enum_attr_at(ctx, f, AttributeLoc::Function, kind, value);
 }
 
-fn enum_attr_at(ctx: &Context, f: FunctionValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
-    f.add_attribute(loc, ctx.create_enum_attribute(kind(name), value));
+fn enum_attr_at(ctx: &Context, f: FunctionValue<'_>, loc: AttributeLoc, kind: u32, value: u64) {
+    f.add_attribute(loc, ctx.create_enum_attribute(kind, value));
 }
 
-fn call_attr(ctx: &Context, call: CallSiteValue<'_>, loc: AttributeLoc, name: &str, value: u64) {
-    call.add_attribute(loc, ctx.create_enum_attribute(kind(name), value));
+fn call_attr(ctx: &Context, call: CallSiteValue<'_>, loc: AttributeLoc, kind: u32, value: u64) {
+    call.add_attribute(loc, ctx.create_enum_attribute(kind, value));
 }
 
 #[cfg(test)]

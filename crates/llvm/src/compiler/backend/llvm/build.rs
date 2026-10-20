@@ -20,7 +20,9 @@
 
 use std::ffi::c_char;
 use std::ptr;
+use std::sync::OnceLock;
 
+use inkwell::attributes::Attribute;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -29,7 +31,8 @@ use inkwell::llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use inkwell::llvm_sys::LLVMOpcode;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{
-    AsTypeRef, BasicMetadataTypeEnum, BasicType, FloatType, FunctionType, IntType, PointerType,
+    AsTypeRef, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType,
+    PointerType,
 };
 use inkwell::values::{
     AggregateValue, ArrayValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
@@ -936,6 +939,144 @@ impl<'ctx> At<'ctx> {
     pub fn answer(self, call: CallSiteValue<'ctx>) -> BasicValueEnum<'ctx> {
         // SAFETY: the callee answers a first-class value, so the call is one.
         unsafe { BasicValueEnum::new(call.as_value_ref()) }
+    }
+
+    /// A call of the intrinsic `id` at its overload types. LLVM crashes on an
+    /// overloaded intrinsic declared with none, so `N` is at least one.
+    pub fn intrinsic<const N: usize>(
+        self,
+        module: &Module<'ctx>,
+        id: Intrinsic,
+        overloads: [BasicTypeEnum<'ctx>; N],
+        args: &[BasicMetadataValueEnum<'ctx>],
+        name: &str,
+    ) -> BasicValueEnum<'ctx> {
+        const { assert!(N > 0, "an overloaded intrinsic is declared at a type") };
+        let mut types = overloads.map(|t| t.as_type_ref());
+        // SAFETY: `id` names an intrinsic ([`Known`]) and `types` are its `N`
+        // overload types. LLVM answers its declaration, never null, whose
+        // value type is the function type.
+        let (target, ty) = unsafe {
+            let f =
+                llvm::LLVMGetIntrinsicDeclaration(module.as_mut_ptr(), id.0, types.as_mut_ptr(), N);
+            (f, FunctionType::new(llvm::LLVMGlobalGetValueType(f)))
+        };
+        self.answer(self.call_named(ty, target, args, name))
+    }
+}
+
+/// An LLVM intrinsic's id. Only [`Known`] makes one, from a name LLVM knows.
+#[derive(Clone, Copy)]
+pub struct Intrinsic(u32);
+
+/// The attribute kinds and intrinsics this backend names. LLVM numbers them
+/// per version, so [`known`] looks each name up once per process.
+pub struct Known {
+    pub align: u32,
+    pub cold: u32,
+    pub memory: u32,
+    pub mustprogress: u32,
+    pub noalias: u32,
+    pub noreturn: u32,
+    pub nounwind: u32,
+    pub readonly: u32,
+    pub speculatable: u32,
+    pub sret: u32,
+    pub uwtable: u32,
+    pub willreturn: u32,
+    pub bswap: Intrinsic,
+    pub ctlz: Intrinsic,
+    pub ctpop: Intrinsic,
+    pub cttz: Intrinsic,
+    pub fptosi_sat: Intrinsic,
+    pub fshl: Intrinsic,
+    pub fshr: Intrinsic,
+}
+
+/// The process's [`Known`], looked up the first time it's asked for.
+pub fn known() -> &'static Known {
+    static KNOWN: OnceLock<Known> = OnceLock::new();
+    KNOWN.get_or_init(Known::look_up)
+}
+
+impl Known {
+    fn look_up() -> Known {
+        let attr = Attribute::get_named_enum_kind_id;
+        let intrinsic = |name: &str| {
+            // SAFETY: LLVM reads `name.len()` bytes of `name`, with no
+            // terminator.
+            Intrinsic(unsafe { llvm::LLVMLookupIntrinsicID(name.as_ptr().cast(), name.len()) })
+        };
+        let known = Known {
+            align: attr("align"),
+            cold: attr("cold"),
+            memory: attr("memory"),
+            mustprogress: attr("mustprogress"),
+            noalias: attr("noalias"),
+            noreturn: attr("noreturn"),
+            nounwind: attr("nounwind"),
+            readonly: attr("readonly"),
+            speculatable: attr("speculatable"),
+            sret: attr("sret"),
+            uwtable: attr("uwtable"),
+            willreturn: attr("willreturn"),
+            bswap: intrinsic("llvm.bswap"),
+            ctlz: intrinsic("llvm.ctlz"),
+            ctpop: intrinsic("llvm.ctpop"),
+            cttz: intrinsic("llvm.cttz"),
+            fptosi_sat: intrinsic("llvm.fptosi.sat"),
+            fshl: intrinsic("llvm.fshl"),
+            fshr: intrinsic("llvm.fshr"),
+        };
+        // LLVM answers 0 for a name it doesn't know. Taken apart whole, so a
+        // new row can't be left out of the check.
+        let Known {
+            align,
+            cold,
+            memory,
+            mustprogress,
+            noalias,
+            noreturn,
+            nounwind,
+            readonly,
+            speculatable,
+            sret,
+            uwtable,
+            willreturn,
+            bswap,
+            ctlz,
+            ctpop,
+            cttz,
+            fptosi_sat,
+            fshl,
+            fshr,
+        } = &known;
+        let ids = [
+            align,
+            cold,
+            memory,
+            mustprogress,
+            noalias,
+            noreturn,
+            nounwind,
+            readonly,
+            speculatable,
+            sret,
+            uwtable,
+            willreturn,
+            &bswap.0,
+            &ctlz.0,
+            &ctpop.0,
+            &cttz.0,
+            &fptosi_sat.0,
+            &fshl.0,
+            &fshr.0,
+        ];
+        crate::diagnostics::invariant(
+            !ids.contains(&&0),
+            "LLVM 21 knows every attribute and intrinsic this backend names",
+        );
+        known
     }
 }
 
