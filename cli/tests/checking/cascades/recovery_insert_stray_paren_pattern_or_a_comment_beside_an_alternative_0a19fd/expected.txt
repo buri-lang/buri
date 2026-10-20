@@ -1,0 +1,14 @@
+error: `(Light, I64)` is not a 3-tuple [pattern-not-tuple]
+  --> main.buri:15:5
+   |
+15 |     (.Red | .extra Amber, // the lights that stop
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: match the shape of `(Light, I64)`, not a 3-tuple
+error: a tuple-pattern element ends with `,` [missing-comma]
+  --> main.buri:15:19
+   |
+15 |     (.Red | .extra Amber, // the lights that stop
+   |                   ^
+   |
+   = fix: write `,` here

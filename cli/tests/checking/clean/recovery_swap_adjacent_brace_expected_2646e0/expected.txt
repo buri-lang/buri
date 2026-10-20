@@ -1,0 +1,16 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:12:17
+   |
+12 |         | .Amber
+   |                 ^
+   |
+   = fix: write `=>` here
+error: expected an identifier, found `|` [unexpected-token]
+  --> main.buri:13:11
+   |
+13 |         . |Off => true,
+   |           ^
+   |
+   = expected: an identifier
+   = actual: `|`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

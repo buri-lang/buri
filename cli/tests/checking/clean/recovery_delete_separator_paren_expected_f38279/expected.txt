@@ -1,0 +1,7 @@
+error: a function-type parameter ends with `,` [missing-comma]
+ --> main.buri:3:8
+  |
+3 |     Int // beside the input
+  |        ^
+  |
+  = fix: write `,` here

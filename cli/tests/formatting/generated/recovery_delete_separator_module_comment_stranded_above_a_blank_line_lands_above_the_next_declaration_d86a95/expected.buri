@@ -1,5 +1,0 @@
-struct Pair(Int /* stranded */, Int)
-
-fn twice(n: Int): Int {
-    n * 2
-}

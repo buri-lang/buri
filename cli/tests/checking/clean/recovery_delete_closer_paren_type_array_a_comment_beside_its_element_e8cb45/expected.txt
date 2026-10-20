@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+ --> main.buri:8:1
+  |
+8 | ): Int {
+  | ^
+  |
+ --> main.buri:7:21
+  |
+7 | export fn total(xs: [Int // the count
+  |                     ^ opened here
+  |
+  = fix: write `]` here

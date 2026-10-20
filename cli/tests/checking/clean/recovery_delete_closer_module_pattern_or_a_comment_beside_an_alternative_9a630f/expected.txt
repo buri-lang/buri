@@ -1,0 +1,16 @@
+error: an enum variant ends with `,` [missing-comma]
+ --> main.buri:1:43
+  |
+1 | export enum Light { Red, Amber, Green, Off 
+  |                                           ^
+  |
+  = fix: write `,` here
+error: expected an identifier, found `fn` [unexpected-token]
+ --> main.buri:3:8
+  |
+3 | export fn stop(l: Light): Bool {
+  |        ^^
+  |
+  = expected: an identifier
+  = actual: `fn`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

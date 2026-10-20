@@ -1,7 +1,0 @@
-error: a tuple type element ends with `,` [missing-comma]
- --> main.buri:1:20
-  |
-1 | export fn f(): (Int Int) {
-  |                    ^
-  |
-  = fix: write `,` here

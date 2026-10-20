@@ -1,0 +1,20 @@
+export fn first(p: (Int, Int)): Int {
+    match (p) {
+        all @ (
+            // the left
+            a, // beside the left
+            b,
+            // after the last
+        ) => a,
+    }
+}
+
+export fn pick(xs: List<Int>): Int {
+    match (xs) {
+        whole @ [
+            head, // the head
+            ..,
+        ] head =>,
+        _ => 0,
+    }
+}

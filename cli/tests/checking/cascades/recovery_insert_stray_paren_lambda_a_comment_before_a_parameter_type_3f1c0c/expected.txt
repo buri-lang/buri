@@ -1,0 +1,23 @@
+error: this function takes 2 arguments, but 3 were given [argument-count]
+ --> main.buri:7:10
+  |
+7 |   g(1) + h(1, extra 2)
+  |          ^^^^^^^^^^^^^
+  |
+  = expected: 2
+  = actual: 3
+  = fix: pass this function the following arguments: fn(I64, I64) => I64
+error: there is nothing named `extra` in scope [unknown-name]
+ --> main.buri:7:15
+  |
+7 |   g(1) + h(1, extra 2)
+  |               ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-comma]
+ --> main.buri:7:20
+  |
+7 |   g(1) + h(1, extra 2)
+  |                    ^
+  |
+  = fix: write `,` here

@@ -1,0 +1,14 @@
+export type Step = fn(
+  // the input
+  Int, // beside the input
+  String
+  // after the last
+) => Bool;
+
+export type Lift = fn(Int) => fn(Int, // the second
+  Int) => Int;
+
+export fn apply(f: fn(Int@ , // the argument
+) => Int): Int {
+  f(1)
+}

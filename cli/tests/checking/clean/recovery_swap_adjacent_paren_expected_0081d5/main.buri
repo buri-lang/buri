@@ -1,5 +1,0 @@
-export fn f(): Int {
-    let g = fn(xInt :) => x;
-    // the count
-    g(1)
-}

@@ -1,0 +1,12 @@
+error: this tuple-struct field list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:1:27
+  |
+1 | export struct Meters(Float;
+  |                           ^
+  |
+ --> main.buri:1:21
+  |
+1 | export struct Meters(Float;
+  |                     ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,9 @@
+error: expected an identifier, found `export` [unexpected-token]
+ --> main.buri:8:6
+  |
+8 | type export Lift = fn(Int) => fn(Int, // the second
+  |      ^^^^^^
+  |
+  = expected: an identifier
+  = actual: `export`
+  = fix: write `export` before `type`

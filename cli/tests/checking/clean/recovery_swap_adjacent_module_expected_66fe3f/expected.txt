@@ -1,0 +1,9 @@
+error: expected `=`, found `[` [unexpected-token]
+ --> main.buri:1:18
+  |
+1 | export type Rows [ =
+  |                  ^
+  |
+  = expected: `=`
+  = actual: `[`
+  = fix: write `=` here

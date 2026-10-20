@@ -1,7 +1,0 @@
-error: a lambda parameter ends with `,` [missing-comma]
-  --> main.buri:47:43
-   |
-47 |         .Node(n, kids) => kids.fold(fn(acc k) => acc + total(k), n),
-   |                                           ^
-   |
-   = fix: write `,` here

@@ -1,0 +1,7 @@
+error: a tuple-pattern element ends with `,` [missing-comma]
+  --> main.buri:15:19
+   |
+15 |     (.Red | .Amber // the lights that stop
+   |                   ^
+   |
+   = fix: write `,` here

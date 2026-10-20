@@ -1,0 +1,9 @@
+error: expected an identifier, found `|` [unexpected-token]
+  --> main.buri:15:7
+   |
+15 |     (.| Red .Amber, // the lights that stop
+   |       ^
+   |
+   = expected: an identifier
+   = actual: `|`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

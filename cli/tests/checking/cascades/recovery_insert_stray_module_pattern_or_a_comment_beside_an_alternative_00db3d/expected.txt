@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> main.buri:14:3
+   |
+14 |   match (p) {
+   |   ^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> main.buri:14:3
+   |
+14 |   match (p) {
+   |   ^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a `match` used as a statement ends with `;` [missing-semicolon]
+  --> main.buri:23:4
+   |
+23 |   }
+   |    ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:24:1
+   |
+24 | extra }
+   | ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

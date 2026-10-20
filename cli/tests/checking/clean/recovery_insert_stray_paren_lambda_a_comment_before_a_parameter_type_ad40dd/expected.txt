@@ -1,0 +1,9 @@
+error: expected an identifier, found `:` [unexpected-token]
+ --> main.buri:4:17
+  |
+4 |   let h = fn(a, : Int, b:
+  |                 ^
+  |
+  = expected: an identifier
+  = actual: `:`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

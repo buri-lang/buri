@@ -1,7 +1,0 @@
-error: a `struct` declaration ends with `;` [missing-semicolon]
- --> main.buri:1:37
-  |
-1 | struct Pair(Int /* stranded */, Int)
-  |                                     ^
-  |
-  = fix: write `;` here

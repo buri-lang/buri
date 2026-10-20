@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:12:9
+   |
+12 | ) => Int@ ): Int {
+   |         ^
+   |
+  --> main.buri:11:16
+   |
+11 | export fn apply(f: fn(Int, // the argument
+   |                ^ opened here
+   |
+   = fix: write `)` here

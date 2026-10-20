@@ -1,0 +1,3 @@
+struct Pair /* stranded */ (Int, Int);
+
+fn twice(n: Int): Int { n * } 2

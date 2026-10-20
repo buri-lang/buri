@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-comma]
-  --> main.buri:59:21
-   |
-59 |         (four.get(a) four.get(b), four.get(c), four.get(zero)),
-   |                     ^
-   |
-   = fix: write `,` here

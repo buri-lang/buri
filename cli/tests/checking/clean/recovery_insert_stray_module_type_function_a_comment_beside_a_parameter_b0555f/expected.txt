@@ -1,0 +1,18 @@
+error: expected a type, found `@` [unexpected-token]
+ --> main.buri:1:20
+  |
+1 | export type Step = @ fn(
+  |                    ^
+  |
+  = expected: a type
+  = actual: `@`
+  = fix: name a type here, as in `Int` or `[Str]`
+error: expected an identifier, found `(` [unexpected-token]
+ --> main.buri:1:24
+  |
+1 | export type Step = @ fn(
+  |                        ^
+  |
+  = expected: an identifier
+  = actual: `(`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

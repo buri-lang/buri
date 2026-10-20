@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:8:2
+  |
+8 | ]? ): Int {
+  |  ^
+  |
+ --> main.buri:7:16
+  |
+7 | export fn total(xs: [Int // the count
+  |                ^ opened here
+  |
+  = fix: write `)` here

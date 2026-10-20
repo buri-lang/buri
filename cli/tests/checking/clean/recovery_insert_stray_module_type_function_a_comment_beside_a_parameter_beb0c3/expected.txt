@@ -1,0 +1,18 @@
+error: expected `=`, found `extra` [unexpected-token]
+ --> main.buri:1:18
+  |
+1 | export type Step extra = fn(
+  |                  ^^^^^
+  |
+  = expected: `=`
+  = actual: `extra`
+  = fix: write `=` here
+error: expected an identifier, found `(` [unexpected-token]
+ --> main.buri:1:28
+  |
+1 | export type Step extra = fn(
+  |                            ^
+  |
+  = expected: an identifier
+  = actual: `(`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

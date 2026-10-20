@@ -1,0 +1,12 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:9:7
+  |
+9 |   Int => Int;
+  |       ^^
+  |
+ --> main.buri:8:33
+  |
+8 | export type Lift = fn(Int) => fn(Int, // the second
+  |                                 ^ opened here
+  |
+  = fix: write `)` here

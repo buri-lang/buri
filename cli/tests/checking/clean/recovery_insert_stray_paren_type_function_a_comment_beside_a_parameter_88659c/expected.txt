@@ -1,0 +1,12 @@
+error: this function type is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:11:26
+   |
+11 | export fn apply(f: fn(Int@ , // the argument
+   |                          ^
+   |
+  --> main.buri:11:22
+   |
+11 | export fn apply(f: fn(Int@ , // the argument
+   |                      ^ opened here
+   |
+   = fix: write `)` here

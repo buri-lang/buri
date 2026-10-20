@@ -1,0 +1,12 @@
+error: this tuple-struct field list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:3:26
+  |
+3 | struct Trio(Int, Int, Int@ );
+  |                          ^
+  |
+ --> main.buri:3:12
+  |
+3 | struct Trio(Int, Int, Int@ );
+  |            ^ opened here
+  |
+  = fix: write `)` here

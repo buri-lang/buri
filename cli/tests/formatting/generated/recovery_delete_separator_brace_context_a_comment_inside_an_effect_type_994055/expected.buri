@@ -1,0 +1,9 @@
+context Store {
+  State<
+    // the key
+    String, // beside the key
+    Int
+    // after the last
+  >: table()
+  Log: log(),
+}

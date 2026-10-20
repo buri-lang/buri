@@ -1,0 +1,18 @@
+export enum Light { Red, } Green
+
+derive
+  // the first
+  Equal, // beside the first
+  Ordered
+  // after the last
+for Light;
+
+derive Show, // for printing
+  Hash for Light;
+
+derive Equal for Pair<
+  // the first
+  Int, // beside the first
+  Int
+  // after the last
+>;

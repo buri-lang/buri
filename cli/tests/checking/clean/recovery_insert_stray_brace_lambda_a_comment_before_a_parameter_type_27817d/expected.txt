@@ -1,0 +1,12 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:6:8
+  |
+6 |     Int@ ) => a + b;
+  |        ^
+  |
+ --> main.buri:4:13
+  |
+4 |   let h = fn(a: Int, b:
+  |             ^ opened here
+  |
+  = fix: write `)` here

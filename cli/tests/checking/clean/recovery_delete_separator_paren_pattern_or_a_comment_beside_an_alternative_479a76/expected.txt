@@ -1,0 +1,7 @@
+error: a tuple type element ends with `,` [missing-comma]
+  --> main.buri:13:27
+   |
+13 | export fn either(p: (Light Int)): Int {
+   |                           ^
+   |
+   = fix: write `,` here

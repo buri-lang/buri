@@ -1,9 +1,0 @@
-error: expected `{`, found `,` [unexpected-token]
- --> main.buri:4:12
-  |
-4 | struct Trio, (Int, /// stranded too
-  |            ^
-  |
-  = expected: `{`
-  = actual: `,`
-  = fix: write `{` here

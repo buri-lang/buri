@@ -1,0 +1,16 @@
+error: a function parameter ends with `,` [missing-comma]
+ --> main.buri:3:13
+  |
+3 |     x: extra T,
+  |             ^
+  |
+  = fix: write `,` here
+error: expected `:`, found `,` [unexpected-token]
+ --> main.buri:3:15
+  |
+3 |     x: extra T,
+  |               ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here
