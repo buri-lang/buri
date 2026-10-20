@@ -1,0 +1,48 @@
+export fn pick<
+    // what is kept
+    T: Eq + Show, // beside it
+    U,
+    // after the last
+>(a: T, b: U): T {
+    a
+}
+
+export struct Pair<
+    A, // the first
+    B,
+> {
+    export a: A,
+    export b: B,
+}
+
+export struct Wrap<
+    // the wrapped
+    T,
+>(T);
+
+export enum Either<
+    L,
+    R, // the right
+> {
+    Left(L),
+    Right(R),
+}
+
+export type Same<
+    T, // the one type
+> = Pair<T, T>;
+
+export trait Into<
+    // the target
+    T,
+> {
+    fn into(self): T;
+}
+
+impl<
+    T, // the element
+> Into<List<T>> for List<T> {
+    fn into(self): List<, T> {
+        self
+    }
+}

@@ -1,5 +1,0 @@
-from "//lib/mutual_imports/ring_b.buri" import { fromB };
-
-export fn fromA(n: Int): Int {
-    if (@ n <= 0) { 1 } else { fromB(n - 1) + 1 }
-}

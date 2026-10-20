@@ -83,10 +83,10 @@
 use crate::compiler::standard_library;
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, List, Location,
-    PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
+    ArmData, BlockId, CtxBodyId, ExprId, ExprView, FieldPatData, InitData, Kind, LambdaParamData,
+    List, Location, PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
-use crate::parsing::lexer::Comment;
+use crate::parsing::lexer::{Comment, TokenKind};
 use crate::parsing::parser::Kept;
 use crate::parsing::tree::*;
 use std::fmt::Write as _;
@@ -592,8 +592,14 @@ struct Listed<'s> {
 /// comment is a line of its own or the end of one, so a list with one in it is
 /// one element to a line.
 fn listed<'s>(open: Doc<'s>, l: Listed<'s>, close: Doc<'s>) -> Doc<'s> {
+    listed_between(open, l, close, Doc::SoftLine)
+}
+
+/// [`listed`], with `edge` between each bracket and the list: a `Line` for the
+/// braces that are spaced from what they hold.
+fn listed_between<'s>(open: Doc<'s>, l: Listed<'s>, close: Doc<'s>, edge: Doc<'s>) -> Doc<'s> {
     let last = l.items.len().saturating_sub(1);
-    let mut inner = vec![Doc::SoftLine];
+    let mut inner = vec![edge.clone()];
     for (i, (item, beside)) in l.items.into_iter().zip(l.besides).enumerate() {
         // The comma belongs to the list and the comment to the line, so the
         // comment comes after the comma: written before it, the next read of
@@ -611,11 +617,23 @@ fn listed<'s>(open: Doc<'s>, l: Listed<'s>, close: Doc<'s>) -> Doc<'s> {
     if let Some(c) = l.after {
         inner.push(cat(vec![Doc::HardLine, c]));
     }
-    let list = group(cat(vec![open, nest(cat(inner)), Doc::SoftLine, close]));
+    let list = group(cat(vec![open, nest(cat(inner)), edge, close]));
     if l.commented {
         force(list)
     } else {
         list
+    }
+}
+
+/// `list`, when a comment was put back inside it, and otherwise the one line
+/// `flat` it would have printed. A comment the list could not place, inside one
+/// of its elements, leaves it the line it was: laid out as a list it could
+/// break where the line never did, and the next read of the file would not.
+fn placed_or<'s>(list: Doc<'s>, flat: impl FnOnce() -> String) -> Doc<'s> {
+    if breaks(&list) {
+        list
+    } else {
+        text(flat())
     }
 }
 
@@ -1192,6 +1210,9 @@ struct Comments {
     /// back above the token below it, which is where it has always come back.
     /// Losing one is not on offer.
     beside_code: Vec<u32>,
+    /// Where every token but a comma begins, in source order: where to look
+    /// for the bracket that closes a list the tree keeps no span of.
+    tokens: Vec<u32>,
 }
 
 impl Comments {
@@ -1226,10 +1247,22 @@ impl Comments {
                 claimed: false,
             });
         }
+        let tokens = (0..tokens.len())
+            .filter(|i| tokens.kind(*i) != TokenKind::Comma)
+            .map(|i| tokens.span(i).start)
+            .collect();
         Comments {
             entries,
             beside_code,
+            tokens,
         }
+    }
+
+    /// Where the first token at or after `at` that is not a comma begins: the
+    /// closing bracket of a list whose last element ends at `at`.
+    fn closer(&self, at: u32) -> u32 {
+        let i = self.tokens.partition_point(|s| *s < at);
+        self.tokens.get(i).copied().unwrap_or(u32::MAX)
     }
 
     /// The comment written at the end of a line inside `lo .. hi`, taken out of
@@ -1890,30 +1923,34 @@ impl<'t> Build<'t> {
             Item::TypeAlias(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
-                let g = generics(t, t.list(d.generics));
-                text(format!(
-                    "{ex}type {}{g} = {};",
-                    t.name(d.name),
-                    type_text(t, d.ty)
-                ))
+                cat(vec![
+                    text(format!("{ex}type {}", t.name(d.name))),
+                    self.generics_doc(t.list(d.generics)),
+                    text(" = "),
+                    self.type_doc(d.ty),
+                    text(";"),
+                ])
             }
             Item::Let(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
-                self.assign(
-                    &format!("{ex}let {}: {} = ", t.name(d.name), type_text(t, d.ty)),
-                    d.value,
-                    ";",
-                )
+                let head = cat(vec![
+                    text(format!("{ex}let {}: ", t.name(d.name))),
+                    self.type_doc(d.ty),
+                    text(" ="),
+                ]);
+                self.assign_after(head, d.value, ";")
             }
             Item::Trait(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let keyword = if d.is_effect { "effect" } else { "trait" };
                 let t = self.tree();
-                let g = generics(t, t.list(d.generics));
-                let head = format!("{ex}{keyword} {}{g}", t.name(d.name));
+                let head = cat(vec![
+                    text(format!("{ex}{keyword} {}", t.name(d.name))),
+                    self.generics_doc(t.list(d.generics)),
+                ]);
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
-                    return text(format!("{head} {{}}"));
+                    return cat(vec![head, text(" {}")]);
                 }
                 let mut lines = Vec::new();
                 for m in t.list(d.methods) {
@@ -1928,23 +1965,21 @@ impl<'t> Build<'t> {
                 if let Some(c) = self.flush(d.span.start, d.span.end.saturating_sub(1)) {
                     lines.push(c);
                 }
-                braced(&format!("{head} {{"), join(Doc::HardLine, lines))
+                cat(vec![head, braced(" {", join(Doc::HardLine, lines))])
             }
             Item::Impl(d) => {
                 let t = self.tree();
-                let g = generics(t, t.list(d.generics));
-                let head = match d.trait_ty {
-                    Some(tr) => {
-                        format!(
-                            "impl{g} {} for {}",
-                            type_text(t, tr),
-                            type_text(t, d.self_ty)
-                        )
-                    }
-                    None => format!("impl{g} {}", type_text(t, d.self_ty)),
-                };
+                let mut head = vec![text("impl"), self.generics_doc(t.list(d.generics))];
+                if let Some(tr) = d.trait_ty {
+                    head.push(text(" "));
+                    head.push(self.type_doc(tr));
+                    head.push(text(" for"));
+                }
+                head.push(text(" "));
+                head.push(self.type_doc(d.self_ty));
+                let head = cat(head);
                 if d.methods.is_empty() && !self.tv.any_in(d.span.start, d.span.end) {
-                    return text(format!("{head} {{}}"));
+                    return cat(vec![head, text(" {}")]);
                 }
                 let mut lines = Vec::new();
                 for (i, m) in t.list(d.methods).iter().enumerate() {
@@ -1959,7 +1994,7 @@ impl<'t> Build<'t> {
                 if let Some(c) = self.flush(d.span.start, d.span.end.saturating_sub(1)) {
                     lines.push(c);
                 }
-                braced(&format!("{head} {{"), join(Doc::HardLine, lines))
+                cat(vec![head, braced(" {", join(Doc::HardLine, lines))])
             }
             Item::Derive(d) => {
                 let t = self.tree();
@@ -2099,6 +2134,14 @@ impl<'t> Build<'t> {
         // One written beside a parameter stays beside it, after its comma, and
         // one written under the last stays inside the parentheses.
         let t = self.tree();
+        // Before the parameters, which would claim its comments as written
+        // above the first of them.
+        // Outside the parameters' group, so a comment that breaks one list
+        // does not break the other.
+        let head = cat(vec![
+            text(format!("{lead}fn {}", t.name(d.name))),
+            self.generics_doc(t.list(d.generics)),
+        ]);
         let ps = t.list(d.params);
         let ret = t.type_span(d.ret).start;
         let mut l = Listed {
@@ -2112,27 +2155,24 @@ impl<'t> Build<'t> {
             let next = ps.get(i.saturating_add(1)).map_or(ret, |n| n.span.start);
             let beside = self.trailing(p.span.end, next);
             l.commented |= c.is_some() || !matches!(beside, Doc::Nil);
-            l.items.push(with_comment(c, text(param_text(t, p))));
+            let pd = self.param_doc(p);
+            l.items.push(with_comment(c, pd));
             l.besides.push(beside);
         }
         if let Some(p) = ps.last() {
             l.after = self.flush(p.span.end, ret.saturating_sub(1));
             l.commented |= l.after.is_some();
         }
-        let close = format!("): {}{tail}", type_text(t, d.ret));
+        // And the answer outside them too.
+        let answer = cat(vec![
+            text(": "),
+            self.type_doc(d.ret),
+            text(tail.to_string()),
+        ]);
         if ps.is_empty() {
-            return text(format!(
-                "{lead}fn {}{}({close}",
-                t.name(d.name),
-                generics(t, t.list(d.generics))
-            ));
+            return cat(vec![head, text("()"), answer]);
         }
-        let open = text(format!(
-            "{lead}fn {}{}(",
-            t.name(d.name),
-            generics(t, t.list(d.generics))
-        ));
-        listed(open, l, text(close))
+        cat(vec![head, listed(text("("), l, text(")")), answer])
     }
 
     /// A function, whose body is always on lines of its own.
@@ -2180,7 +2220,10 @@ impl<'t> Build<'t> {
     fn struct_decl(&mut self, d: &StructDecl) -> Doc<'t> {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
-        let g = generics(t, t.list(d.generics));
+        let head = cat(vec![
+            text(format!("{ex}struct {}", t.name(d.name))),
+            self.generics_doc(t.list(d.generics)),
+        ]);
         match &d.body {
             StructBody::Tuple(fields) => {
                 let inner = t
@@ -2195,14 +2238,13 @@ impl<'t> Build<'t> {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                text(format!("{ex}struct {}{g}({inner});", t.name(d.name)))
+                cat(vec![head, text(format!("({inner});"))])
             }
             StructBody::Record(fields) => {
                 let fields = t.list(*fields);
-                let head = format!("{ex}struct {}{g}", t.name(d.name));
                 let inside = d.span.start.saturating_add(1);
                 if fields.is_empty() && !self.tv.any_in(inside, d.span.end) {
-                    return text(format!("{head} {{}}"));
+                    return cat(vec![head, text(" {}")]);
                 }
                 let mut items = Vec::new();
                 for (i, f) in fields.iter().enumerate() {
@@ -2215,10 +2257,15 @@ impl<'t> Build<'t> {
                         .get(i.saturating_add(1))
                         .map_or(d.span.end, |n| n.span.start);
                     let beside = self.trailing(f.span.end, next);
-                    items.push((with_comment(c, text(field_decl(t, f))), beside));
+                    let ex = if f.exported { "export " } else { "" };
+                    let field = cat(vec![
+                        text(format!("{ex}{}: ", t.name(f.name))),
+                        self.type_doc(f.ty),
+                    ]);
+                    items.push((with_comment(c, field), beside));
                 }
                 let trailing = self.flush(inside, d.span.end.saturating_sub(1));
-                record(&head, items, trailing)
+                record(head, items, trailing)
             }
         }
     }
@@ -2226,11 +2273,13 @@ impl<'t> Build<'t> {
     fn enum_decl(&mut self, d: &EnumDecl) -> Doc<'t> {
         let ex = if d.exported { "export " } else { "" };
         let t = self.tree();
-        let g = generics(t, t.list(d.generics));
-        let head = format!("{ex}enum {}{g}", t.name(d.name));
+        let head = cat(vec![
+            text(format!("{ex}enum {}", t.name(d.name))),
+            self.generics_doc(t.list(d.generics)),
+        ]);
         let inside = d.span.start.saturating_add(1);
         if d.variants.is_empty() && !self.tv.any_in(inside, d.span.end) {
-            return text(format!("{head} {{}}"));
+            return cat(vec![head, text(" {}")]);
         }
         let mut items = Vec::new();
         for (i, v) in t.list(d.variants).iter().enumerate() {
@@ -2243,7 +2292,7 @@ impl<'t> Build<'t> {
             items.push((with_comment(c, text(variant(t, v))), beside));
         }
         let trailing = self.flush(inside, d.span.end.saturating_sub(1));
-        record(&head, items, trailing)
+        record(head, items, trailing)
     }
 
     // -- statements --------------------------------------------------------
@@ -2297,17 +2346,18 @@ impl<'t> Build<'t> {
             }
             let line = match s.kind {
                 StmtKind::Let => {
-                    let name = if s.is_ctx {
-                        "ctx".to_string()
+                    let mut head = vec![text("let ")];
+                    if s.is_ctx {
+                        head.push(text("ctx"));
                     } else {
-                        pattern_str(self.tree(), PatId(s.pattern))
-                    };
-                    let annotation = self
-                        .tree()
-                        .opt_type(s.ty)
-                        .map(|x| format!(": {}", type_text(self.tree(), x)))
-                        .unwrap_or_default();
-                    self.assign(&format!("let {name}{annotation} = "), ExprId(s.value), ";")
+                        head.push(self.pattern_doc(PatId(s.pattern)));
+                    }
+                    if let Some(x) = self.tree().opt_type(s.ty) {
+                        head.push(text(": "));
+                        head.push(self.type_doc(x));
+                    }
+                    head.push(text(" ="));
+                    self.assign_after(cat(head), ExprId(s.value), ";")
                 }
                 StmtKind::Expr => self.assign("", ExprId(s.value), ";"),
             };
@@ -2343,15 +2393,27 @@ impl<'t> Build<'t> {
     /// the only place the printer looks at the *shape* of an expression rather
     /// than at its width.
     fn assign(&mut self, prefix: &str, e: ExprId, suffix: &'static str) -> Doc<'t> {
-        let d = self.expr(e);
         match prefix.strip_suffix(' ') {
-            Some(head) if !breakable(self.tree(), e) => group(cat(vec![
-                text(head.to_string()),
-                nest(cat(vec![Doc::Line, d])),
-                text(suffix),
-            ])),
-            _ => cat(vec![text(prefix.to_string()), d, text(suffix)]),
+            Some(head) => self.assign_after(text(head.to_string()), e, suffix),
+            None => {
+                let d = self.expr(e);
+                cat(vec![text(prefix.to_string()), d, text(suffix)])
+            }
         }
+    }
+
+    /// [`Build::assign`] after a `head` that may be more than a line: a
+    /// pattern or a type with a comment in it. The group is only the space
+    /// after it, so the line that ends the head is the one measured.
+    fn assign_after(&mut self, head: Doc<'t>, e: ExprId, suffix: &'static str) -> Doc<'t> {
+        let d = self.expr(e);
+        if breakable(self.tree(), e) {
+            return cat(vec![head, text(" "), d, text(suffix)]);
+        }
+        cat(vec![
+            head,
+            group(cat(vec![nest(cat(vec![Doc::Line, d])), text(suffix)])),
+        ])
     }
 
     // -- expressions -------------------------------------------------------
@@ -2426,20 +2488,25 @@ impl<'t> Build<'t> {
                 // nothing; the braced form is the block body the grammar
                 // already has (`fn(x) => { … }`), so this costs the parser
                 // nothing and the reader a delimiter they can find.
-                let head = lambda_head(self.tree(), params, ret);
+                // The head is outside the candidates: a comment among the
+                // parameters breaks them, and says nothing about the body.
+                let head = self.lambda_head_doc(params, ret);
                 let d = self.expr(body);
                 if self.tree().kind(body) == Kind::Block {
-                    return cat(vec![text(format!("{head} ")), d]);
+                    return cat(vec![head, text(" "), d]);
                 }
-                alt(
-                    cat(vec![text(format!("{head} ")), d.clone()]),
-                    cat(vec![
-                        text(format!("{head} {{")),
-                        nest(cat(vec![Doc::HardLine, d])),
-                        Doc::HardLine,
-                        text("}"),
-                    ]),
-                )
+                cat(vec![
+                    head,
+                    alt(
+                        cat(vec![text(" "), d.clone()]),
+                        cat(vec![
+                            text(" {"),
+                            nest(cat(vec![Doc::HardLine, d])),
+                            Doc::HardLine,
+                            text("}"),
+                        ]),
+                    ),
+                ])
             }
             ExprView::Unary { op, operand, .. } => {
                 let d = self.at(operand, 10);
@@ -2608,6 +2675,27 @@ impl<'t> Build<'t> {
     /// in the list: left for the enclosing block to sweep up, they came back
     /// after the whole statement. An empty list claims nothing.
     fn expr_list(&mut self, xs: &[ExprId], lo: u32, hi: u32) -> Listed<'t> {
+        let span = |t: &Tree, x: &ExprId| {
+            let s = t.span(*x);
+            (s.start, s.end)
+        };
+        self.list_of(xs, span, lo, hi, |b, x| b.expr(*x))
+    }
+
+    /// [`Build::expr_list`] over any list: the elements `xs`, each written
+    /// between the offsets `span` says, after `lo` and before the closing
+    /// bracket at `hi - 1`, each printed by `item`. Each element is printed
+    /// before the comments above the next one are claimed, so a comment inside
+    /// one stays inside it.
+    fn list_of<T>(
+        &mut self,
+        xs: &[T],
+        span: impl Fn(&'t Tree, &T) -> (u32, u32),
+        lo: u32,
+        hi: u32,
+        mut item: impl FnMut(&mut Self, &T) -> Doc<'t>,
+    ) -> Listed<'t> {
+        let t = self.tree();
         let mut l = Listed {
             items: Vec::new(),
             besides: Vec::new(),
@@ -2618,15 +2706,13 @@ impl<'t> Build<'t> {
         // element is no more about the element after it than about any other,
         // and keeps the place it had.
         let mut from = lo;
-        for (i, &x) in xs.iter().enumerate() {
-            let at = self.tree().span(x);
-            let lead = self.flush(from, at.start);
-            from = at.end;
-            let d = self.expr(x);
-            let next = xs
-                .get(i.saturating_add(1))
-                .map_or(hi, |n| self.tree().span(*n).start);
-            let beside = self.trailing(at.end, next);
+        for (i, x) in xs.iter().enumerate() {
+            let (start, end) = span(t, x);
+            let lead = self.flush(from, start);
+            from = end;
+            let d = item(self, x);
+            let next = xs.get(i.saturating_add(1)).map_or(hi, |n| span(t, n).0);
+            let beside = self.trailing(end, next);
             l.commented |= lead.is_some() || !matches!(beside, Doc::Nil);
             l.items.push(with_lead(lead, d));
             l.besides.push(beside);
@@ -2636,6 +2722,194 @@ impl<'t> Build<'t> {
             l.commented |= l.after.is_some();
         }
         l
+    }
+
+    // -- the lists inside a line ---------------------------------------------
+    //
+    // A type, a generic parameter list, a lambda's parameters and a pattern are
+    // printed as text, because they are one line. A comment written inside one
+    // makes it a list instead, laid out like an array: each comment kept
+    // beside the element it was written beside, and one element to a line.
+    // Without one the text is what is printed, byte for byte.
+
+    /// A type, as a list where a comment was written among its arguments.
+    fn type_doc(&mut self, id: TypeId) -> Doc<'t> {
+        let t = self.tree();
+        match t.ty(id) {
+            TypeView::Named { path, args, .. } if !args.is_empty() => {
+                self.type_args(format!("{}<", t.path_text(path)), args)
+            }
+            _ => text(type_text(t, id)),
+        }
+    }
+
+    /// `open`, the types `ts`, and the `>` that closes them.
+    fn type_args(&mut self, open: String, ts: &'t [TypeId]) -> Doc<'t> {
+        let t = self.tree();
+        let span = |t: &Tree, x: &TypeId| {
+            let s = t.type_span(*x);
+            (s.start, s.end)
+        };
+        let lo = ts.first().map_or(u32::MAX, |x| span(t, x).0);
+        let hi = self.after_list(ts.last().map(|x| span(t, x).1));
+        if !self.tv.any_in(lo, hi.saturating_sub(1)) {
+            return text(format!("{open}{}>", type_list(t, ts)));
+        }
+        let l = self.list_of(ts, span, lo, hi, |b, x| b.type_doc(*x));
+        let flat = || format!("{open}{}>", type_list(t, ts));
+        placed_or(listed(text(open.clone()), l, text(">")), flat)
+    }
+
+    /// One past the bracket that closes a list whose last element ends at
+    /// `end`; past the end of the file for a list with no element.
+    fn after_list(&self, end: Option<u32>) -> u32 {
+        end.map_or(u32::MAX, |e| self.tv.closer(e))
+            .saturating_add(1)
+    }
+
+    /// A declaration's generic parameters, with the `<` and `>` around them.
+    fn generics_doc(&mut self, g: &'t [GenericParam]) -> Doc<'t> {
+        let t = self.tree();
+        let span = |_: &Tree, p: &GenericParam| (p.span.start, p.span.end);
+        let lo = g.first().map_or(u32::MAX, |p| p.span.start);
+        let hi = self.after_list(g.last().map(|p| p.span.end));
+        if !self.tv.any_in(lo, hi.saturating_sub(1)) {
+            return text(generics(t, g));
+        }
+        let l = self.list_of(g, span, lo, hi, |b, p| {
+            let name = t.name(p.name);
+            let bounds: Vec<Doc<'t>> = t
+                .type_list(p.bounds)
+                .iter()
+                .map(|x| b.type_doc(*x))
+                .collect();
+            if bounds.is_empty() {
+                text(name)
+            } else {
+                cat(vec![text(format!("{name}: ")), join(text(" + "), bounds)])
+            }
+        });
+        placed_or(listed(text("<"), l, text(">")), || generics(t, g))
+    }
+
+    /// [`param_text`], with the comments inside its type.
+    fn param_doc(&mut self, p: &Param) -> Doc<'t> {
+        match p.written_type() {
+            Some(ty) => {
+                let name = self.tree().name(p.name);
+                cat(vec![text(format!("{name}: ")), self.type_doc(ty)])
+            }
+            None => text(self.tree().name(p.name)),
+        }
+    }
+
+    /// [`lambda_head`], with the comments among its parameters.
+    fn lambda_head_doc(&mut self, params: &'t [LambdaParamData], ret: Option<TypeId>) -> Doc<'t> {
+        let t = self.tree();
+        let span = |_: &Tree, p: &LambdaParamData| (p.span.start, p.span.end);
+        let lo = params.first().map_or(u32::MAX, |p| p.span.start);
+        let hi = self.after_list(params.last().map(|p| p.span.end));
+        if !self.tv.any_in(lo, hi.saturating_sub(1)) {
+            return text(lambda_head(t, params, ret));
+        }
+        let l = self.list_of(params, span, lo, hi, |b, p| {
+            let name = t.text(p.name);
+            match t.opt_type(p.ty) {
+                Some(a) => cat(vec![text(format!("{name}: ")), b.type_doc(a)]),
+                None => text(name),
+            }
+        });
+        let answer = ret.map(|r| format!(": {}", type_text(t, r)));
+        let close = text(format!("){} =>", answer.unwrap_or_default()));
+        placed_or(listed(text("fn("), l, close), || {
+            lambda_head(t, params, ret)
+        })
+    }
+
+    /// A pattern, as a list where a comment was written among its elements.
+    fn pattern_doc(&mut self, p: PatId) -> Doc<'t> {
+        let t = self.tree();
+        let span = |t: &Tree, x: &Piece| x.span(t);
+        let list = match t.pat(p) {
+            // `(a,)` is one element and a comma; without the comma it is
+            // another pattern, so it stays the text that has one.
+            PatView::Tuple { elems, span: at } if elems.len() != 1 && self.inside(at) => {
+                let ps: Vec<Piece> = elems.iter().map(|x| Piece::Pat(*x)).collect();
+                let lo = at.start.saturating_add(1);
+                let l = self.list_of(&ps, span, lo, at.end, |b, x| b.piece(x));
+                listed(text("("), l, text(")"))
+            }
+            PatView::Array {
+                elems,
+                rest,
+                span: at,
+            } if self.inside(at) => {
+                let mut ps: Vec<Piece> = elems.iter().map(|x| Piece::Pat(*x)).collect();
+                let lo = at.start.saturating_add(1);
+                if let Some(name) = rest {
+                    let from = elems.last().map_or(lo, |x| t.pspan(*x).end);
+                    ps.push(Piece::Rest(self.tv.closer(from), name));
+                }
+                let l = self.list_of(&ps, span, lo, at.end, |b, x| b.piece(x));
+                listed(text("["), l, text("]"))
+            }
+            PatView::Path {
+                path,
+                dotted,
+                payload: Some(pay),
+                span: at,
+                ..
+            } if (pay.len > 0 || pay.rest) && self.inside(at) => {
+                let head = path_base(t, path, dotted);
+                // Just inside the payload's bracket.
+                let lo = self
+                    .tv
+                    .closer(path.last().map_or(at.start, |s| s.end))
+                    .saturating_add(1);
+                if !pay.record {
+                    let ps: Vec<Piece> = t
+                        .pkids_at(pay.start, pay.len)
+                        .iter()
+                        .map(|x| Piece::Pat(*x))
+                        .collect();
+                    let l = self.list_of(&ps, span, lo, at.end, |b, x| b.piece(x));
+                    listed(text(format!("{head}(")), l, text(")"))
+                } else {
+                    let fields = t.fpats_at(pay.start, pay.len);
+                    let mut ps: Vec<Piece> = fields.iter().map(Piece::Field).collect();
+                    if pay.rest {
+                        let from = fields.last().map_or(lo, |f| f.span.end);
+                        ps.push(Piece::Rest(self.tv.closer(from), None));
+                    }
+                    let l = self.list_of(&ps, span, lo, at.end, |b, x| b.piece(x));
+                    listed_between(text(format!("{head} {{")), l, text("}"), Doc::Line)
+                }
+            }
+            _ => return text(pattern_str(t, p)),
+        };
+        placed_or(list, || pattern_str(t, p))
+    }
+
+    /// Whether a comment is waiting between the brackets of `at`.
+    fn inside(&self, at: Span) -> bool {
+        self.tv
+            .any_in(at.start.saturating_add(1), at.end.saturating_sub(1))
+    }
+
+    /// One element of a pattern's list.
+    fn piece(&mut self, x: &Piece<'t>) -> Doc<'t> {
+        let t = self.tree();
+        match *x {
+            Piece::Pat(p) => self.pattern_doc(p),
+            Piece::Field(f) => {
+                let name = t.text(f.name);
+                match t.opt_pat(f.pattern) {
+                    Some(q) => cat(vec![text(format!("{name}: ")), self.pattern_doc(q)]),
+                    None => text(name),
+                }
+            }
+            Piece::Rest(_, name) => text(format!("..{}", name.map_or("", |n| t.text(n)))),
+        }
     }
 
     /// Parenthesizes only where precedence requires it.
@@ -2725,7 +2999,12 @@ impl<'t> Build<'t> {
             if let Some(c) = self.flush(span.start, a.span.start) {
                 lines.push(c);
             }
-            let mut h = vec![text(pattern_str(self.tree(), PatId(a.pattern)))];
+            // The pattern is in front of the candidates rather than in them:
+            // it is either one line of text, which measures the same in front
+            // as inside, or broken by a comment, which says nothing about
+            // whether the body fits beside the arrow.
+            let pattern = self.pattern_doc(PatId(a.pattern));
+            let mut h = Vec::new();
             if let Some(g) = self.tree().opt(a.guard) {
                 let d = self.expr(g);
                 h.push(text(" if "));
@@ -2761,12 +3040,15 @@ impl<'t> Build<'t> {
             let head = cat(h);
             let body = self.expr(ExprId(a.body));
             let arm = if self.tree().kind(ExprId(a.body)) == Kind::Block {
-                cat(vec![head, text(" => "), body])
+                cat(vec![pattern, head, text(" => "), body])
             } else {
-                alt(
-                    cat(vec![head.clone(), text(" => "), body.clone()]),
-                    cat(vec![head, text(" => "), block_doc(body)]),
-                )
+                cat(vec![
+                    pattern,
+                    alt(
+                        cat(vec![head.clone(), text(" => "), body.clone()]),
+                        cat(vec![head, text(" => "), block_doc(body)]),
+                    ),
+                ])
             };
             // After the comma: the comma belongs to the list and the comment
             // to the line, and a comment before it would be read as ending the
@@ -2829,8 +3111,8 @@ impl<'t> Build<'t> {
                 }
                 Link::Try => assembled.push(text("?")),
                 Link::TypeArgs(ts) => {
-                    let inner = type_list(self.tree(), ts);
-                    assembled.push(text(format!("<{inner}>")));
+                    let d = self.type_args("<".to_string(), ts);
+                    assembled.push(d);
                 }
             }
         }
@@ -2932,10 +3214,10 @@ fn braced<'s>(head: &str, body: Doc<'s>) -> Doc<'s> {
 /// line is the empty one — `struct S {}` — which has no member to give a line
 /// to and no list to put a comma on, and which `struct_decl` and `enum_decl`
 /// answer before they get here.
-fn record<'s>(head: &str, items: Vec<(Doc<'s>, Doc<'s>)>, trailing: Option<Doc<'s>>) -> Doc<'s> {
+fn record<'s>(head: Doc<'s>, items: Vec<(Doc<'s>, Doc<'s>)>, trailing: Option<Doc<'s>>) -> Doc<'s> {
     // A body of nothing but a comment has no list to put a trailing comma on.
     if items.is_empty() {
-        return braced(&format!("{head} {{"), trailing.unwrap_or(Doc::Nil));
+        return cat(vec![head, braced(" {", trailing.unwrap_or(Doc::Nil))]);
     }
     // Each member, its comma, and then whatever was written beside it: the
     // comma belongs to the list and the comment to the line, and a comment
@@ -2960,7 +3242,8 @@ fn record<'s>(head: &str, items: Vec<(Doc<'s>, Doc<'s>)>, trailing: Option<Doc<'
         inner.push(c);
     }
     cat(vec![
-        text(format!("{head} {{")),
+        head,
+        text(" {"),
         nest(cat(inner)),
         Doc::HardLine,
         text("}"),
@@ -3616,14 +3899,7 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
             payload,
             ..
         } => {
-            let joined = path
-                .iter()
-                .map(|s| t.text(*s))
-                .collect::<Vec<_>>()
-                .join(".");
-            // A dotted path is `.Variant`, so the one segment and the join of
-            // one segment are the same string.
-            let base = if dotted { format!(".{joined}") } else { joined };
+            let base = path_base(t, path, dotted);
             let Some(pay) = payload else { return base };
             if !pay.record {
                 return format!(
@@ -3646,6 +3922,44 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
                 return format!("{base} {{}}");
             }
             format!("{base} {{ {} }}", parts.join(", "))
+        }
+    }
+}
+
+/// The path a variant pattern names, before its payload.
+fn path_base(t: &Tree, path: &[Location], dotted: bool) -> String {
+    let joined = path
+        .iter()
+        .map(|s| t.text(*s))
+        .collect::<Vec<_>>()
+        .join(".");
+    // A dotted path is `.Variant`, so the one segment and the join of one
+    // segment are the same string.
+    if dotted {
+        format!(".{joined}")
+    } else {
+        joined
+    }
+}
+
+/// One element of a pattern's list: a pattern, a field of a record payload, or
+/// the `..` that ends either list, with where it begins and its name.
+#[derive(Clone, Copy)]
+enum Piece<'t> {
+    Pat(PatId),
+    Field(&'t FieldPatData),
+    Rest(u32, Option<Location>),
+}
+
+impl Piece<'_> {
+    fn span(&self, t: &Tree) -> (u32, u32) {
+        match *self {
+            Piece::Pat(p) => {
+                let s = t.pspan(p);
+                (s.start, s.end)
+            }
+            Piece::Field(f) => (f.span.start, f.span.end),
+            Piece::Rest(at, name) => (at, name.map_or(at.saturating_add(2), |n| n.end)),
         }
     }
 }

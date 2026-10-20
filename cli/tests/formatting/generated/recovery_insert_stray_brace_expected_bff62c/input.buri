@@ -1,5 +1,0 @@
-from "core/list" import {
-    a? ,
-    aNameSoLongThatItCannotFitOnTheLineEvenWhenItIsTheOnlyOneInTheClauseAndStandsAloneOnALineOfItsOwnPastTheMargin,
-    b,
-};
