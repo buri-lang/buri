@@ -1,0 +1,9 @@
+error: expected `=`, found `?` [unexpected-token]
+  --> main.buri:10:13
+   |
+10 |     let ctx ? = context {
+   |             ^
+   |
+   = expected: `=`
+   = actual: `?`
+   = fix: write `=` here

@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> main.buri:9:75
+  |
+9 | test "a page around a body written by hand has no stylesheet in its head" , {
+  |                                                                           ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:16:46
+   |
+16 |         web.Document { ..web.defaultDocument(, title: "Plain" },
+   |                                              ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:26:1
+   |
+26 | 
+   | ^
+   |
+ --> main.buri:9:75
+  |
+9 | test "a page around a body written by hand has no stylesheet in its head" {
+  |                                                                           ^ opened here
+  |
+  = fix: write `}` here

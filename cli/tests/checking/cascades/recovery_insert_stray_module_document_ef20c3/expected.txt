@@ -1,0 +1,16 @@
+error: expected `;`, found `@` [unexpected-token]
+ --> main.buri:6:48
+  |
+6 | from "platform/effect/testing" import { alloc }@ ;
+  |                                                ^
+  |
+  = expected: `;`
+  = actual: `@`
+  = fix: write `;` here
+error: there is nothing named `alloc` in scope [unknown-name]
+  --> main.buri:11:20
+   |
+11 |         Allocator: alloc(),
+   |                    ^^^^^
+   |
+   = fix: declare `alloc`, or import it — a name is in scope only from this module's own declarations and its imports
