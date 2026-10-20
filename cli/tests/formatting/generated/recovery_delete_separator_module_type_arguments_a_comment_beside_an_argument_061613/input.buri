@@ -1,0 +1,37 @@
+from "core/map" import { Map };
+
+export let empty: Map<
+  // the key
+  String, // beside the key
+  Int
+> = Map.empty();
+
+export type Table = Map<String List<
+  // a row
+  Int, // beside a row
+  // after the rows
+>>;
+
+export struct Index {
+  export rows: Map<String, // by name
+    Int>,
+}
+
+export fn lookup(m: Map<
+  String, // the key
+  Int,
+>): Map<String, // the key
+  Int> {
+  let n: List<
+    // the count
+    Int,
+  > = [];
+  m
+}
+
+export fn make(): List<Int> {
+  List.empty<
+    // the element
+    Int, // beside it
+  >()
+}

@@ -1,0 +1,19 @@
+export fn f(xs: List<Int>): List<Int> {
+    let add = fn(
+        // the left
+        a: Int, // beside the left
+        b,
+        // after the last
+    ) => a + b;
+    keep let = fn(
+        x: List<
+            // the element
+            Int,
+        >,
+    ): Bool => true;
+    xs.map(fn(
+        x, // the element
+    ) => {
+        x + 1
+    })
+}

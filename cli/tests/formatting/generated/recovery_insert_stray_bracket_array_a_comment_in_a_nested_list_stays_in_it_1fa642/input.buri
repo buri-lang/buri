@@ -1,6 +1,0 @@
-let grid: List<List<Int>> = [
-  [1, // one
-   2],
-  // the second row
-  [extra 3, 4], // three and four
-];
