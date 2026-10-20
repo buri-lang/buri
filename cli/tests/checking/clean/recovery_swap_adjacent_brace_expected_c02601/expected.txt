@@ -1,0 +1,9 @@
+error: expected `=>`, found `x` [unexpected-token]
+ --> main.buri:2:24
+  |
+2 |     let g = fn(x: Int) x =>;
+  |                        ^
+  |
+  = expected: `=>`
+  = actual: `x`
+  = fix: write `=>` here

@@ -1,7 +1,0 @@
-error: a type argument ends with `,` [missing-comma]
-  --> main.buri:18:23
-   |
-18 |     let good: Result<T E> = .Ok(ok);
-   |                       ^
-   |
-   = fix: write `,` here

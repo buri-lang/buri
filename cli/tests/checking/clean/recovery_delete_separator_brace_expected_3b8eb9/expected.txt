@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+ --> main.buri:2:28
+  |
+2 |     let g = fn(x: Int) => x
+  |                            ^
+  |
+  = fix: write `;` here
