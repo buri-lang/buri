@@ -950,3 +950,149 @@ test "every payload's actor stops itself from inside a step, and its hook runs a
     assert.equal(assert.err(front.sendMessage(ctx, .Total)), SendError.Stopped);
     assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
 }
+
+// -----------------------------------------------------------------------------
+// A step that reaches its own actor through another one
+// -----------------------------------------------------------------------------
+//
+// An actor whose messages are `Str` can't be handed a function, so the
+// `Within` messages above can't reach its step. Another actor can: an errand
+// keeps a call that names the first actor's address, and the first actor's
+// step asks the errand to make it. The call then runs inside that step, two
+// actors deep, and the runtime answers it as it answers a step's own send.
+
+enum Errand<C> {
+    /// Keep this call until the next `Run`.
+    Leave(fn(C) => ()),
+    /// Make the calls kept so far, and forget them.
+    Run,
+}
+
+/// Keeps the calls it's left, and makes and drops them on each `Run`. A `Run`
+/// answers whether there was a call to make.
+fn errand<C: Allocator + Tasks>(): Actor<C, [fn(C) => ()], Errand<C>, Bool> {
+    Actor {
+        state: [],
+        step: fn(c, kept, message) => {
+            match (message) {
+                .Leave(f) => Stepped { state: kept.push(c, f), answer: true },
+                .Run => {
+                    let _ = kept.foldCtx(
+                        c,
+                        fn(inner, _none: (), f) => {
+                            let call = f;
+                            call(inner)
+                        },
+                        (),
+                    );
+                    Stepped { state: [], answer: kept.length() > 0 }
+                },
+            }
+        },
+    }
+}
+
+/// Counts what it's told, and answers whether its errand had a call to make
+/// for it. Its hook prints the count it ended on.
+fn messenger<C: Allocator + Stdout + Tasks>(
+    runner: Address<C, [fn(C) => ()], Errand<C>, Bool>,
+): Actor<C, Int, Str, Bool> {
+    Actor {
+        state: 0,
+        step: fn(c, told, message) => {
+            let _ = io.println(c, "told ${message}").ignore();
+            Stepped {
+                state: told + 1,
+                answer: runner.sendMessage(c, .Run) == .Ok(true),
+            }
+        },
+        onStop: .Some(fn(c, last) => io.println(c, "messenger ${last}").ignore()),
+    }
+}
+
+test "a step that reaches its own actor through another actor is refused, and its stop lands" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let runner = actor.start(ctx, errand());
+    let told = actor.start(ctx, messenger(runner));
+    // Nothing kept yet, so the errand has no call to make.
+    assert.equal(told.sendMessage(ctx, "first"), .Ok(false));
+    assert.equal(
+        runner.sendMessage(
+            ctx,
+            .Leave(fn(c) => {
+                assert.equal(told.sendMessage(c, "again"), .Err(.WouldDeadlock));
+                assert.equal(told.stop(c), .Ok(()));
+                assert.equal(told.stop(c), .Err(.Stopped));
+            }),
+        ),
+        .Ok(true),
+    );
+    // The call runs inside `second`'s step, which still answers. The stop
+    // drops the waiting `again`, so the hook sees two messages, after the step.
+    assert.equal(told.sendMessage(ctx, "second"), .Ok(true));
+    assert.equal(sink.captured(), "told first\ntold second\nmessenger 2\n");
+    assert.equal(told.sendMessage(ctx, "late"), .Err(.Stopped));
+    assert.equal(told.stop(ctx), .Err(.Stopped));
+    // The errand made the call and forgot it.
+    assert.equal(runner.sendMessage(ctx, .Run), .Ok(false));
+    assert.equal(runner.stop(ctx), .Ok(()));
+    assert.isTrue(variants.resultsCompare(true, SendError.Stopped));
+}
+
+test "an errand's call that sends to the errand is refused, and its stop lands after the run" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let runner = actor.start(ctx, Actor { ..errand(), onStop: .Some(keptCount) });
+    let left = runner.sendMessage(
+        ctx,
+        .Leave(fn(c) => {
+            assert.equal(runner.sendMessage(c, .Run), .Err(.WouldDeadlock));
+            assert.equal(runner.stop(c), .Ok(()));
+        }),
+    );
+    assert.equal(left, .Ok(true));
+    // The stop drops the `Run` the call posted, and the hook runs once the
+    // step that made the call is done, with what that step left.
+    assert.equal(runner.sendMessage(ctx, .Run), .Ok(true));
+    assert.equal(sink.captured(), "kept 0\n");
+    assert.equal(runner.sendMessage(ctx, .Run), .Err(.Stopped));
+    assert.equal(runner.stop(ctx), .Err(.Stopped));
+}
+
+/// The errand's hook: how many calls it still kept.
+fn keptCount<C: Stdout>(ctx: C, last: [fn(C) => ()]): () {
+    let _ = io.println(ctx, "kept ${last.length()}").ignore();
+}
+
+/// An errand's whole life, through a context of its own.
+fn errandApart(): [Result<Bool, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let runner = actor.start(ctx, errand());
+    let left = runner.sendMessage(ctx, .Leave(fn(_c) => ()));
+    let ran = runner.sendMessage(ctx, .Run);
+    let _ = runner.stop(ctx).ignore();
+    [left, ran]
+}
+
+test "an errand keeps its calls the same while a scope holds pages" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let answers = alloc.scoped(ctx, fn(c) => {
+        let held = "pages".repeat(c, 100);
+        (held.length(), errandApart())
+    });
+    assert.equal(answers, (500, [.Ok(true), .Ok(true)]));
+}
