@@ -1112,3 +1112,33 @@ All of it was checked this phase and is unreachable or a trap:
 - **random 467 `radius == 0.0`.** It needs two draws of exactly 0.5.
 
 More coverage needs a measure change, such as not counting traps, or runtime work, such as an `each` that hands rows their items.
+
+## Stdlib MC/DC phase 28
+
+### MC/DC
+
+Measured with the whole gate on aarch64-apple-darwin. The total went from 9949/10069 to 9951/10068 (98.8%). No module fell.
+
+- ui/node: 761/770 to 761/768
+- ui/style/classify: 223/225 to 225/226
+
+### Decisions removed
+
+- **ui/node 3527 `.Raw` and `.Fragment` in `nodeLines`.** `describe` now draws an open dialog and a disclosure's body from the same `dialogScene` and `disclosureBody` the document's region rebuilds from, so both arms run (`ui/test/render.buri`). Their `if (open.get(scope))` copies in `nodeLines` are gone. The scene text is unchanged.
+- **ui/style/classify 318 `declared`'s `_`.** `declared` now answers every style as a private `Declared`: `.Atom` for a property, `.Nested` for a group, `.On` or `.At`, and `.Unsettled` for the rest. `atomsOf` matches those three, and each runs. The `ui_styles_handed` golden artifact grew 112 bytes.
+
+No condition was reachable from a new test.
+
+### What's left (117)
+
+Each was checked again:
+
+- **Traps:** number 15, simd 8, compression 5, indexset 4, bigint 2, decimal 2, proto 2, random 2, time 1. They need a decision on the measure.
+- **map, 32.** Access keys never share a slot, AllOne's hash is constant, and `Int`'s hash is one-to-one. 338 `removeNode`'s `.None` runs only for a key `remove` already found, and dropping `has` would copy a shared map's path for an absent key.
+- **orderedmap, 23.** All K = Bool, V = Mood. Two keys never split.
+- **ui/node, 7.** 879 `artworkOf _`: `.Icon` holds a `Str` that `runtime.js` reads by tag, so it can't take the `Prop`. `each`'s `.None` arms at 1796 and 1802 need an `each` that hands rows their items, which is runtime work.
+- **core/testing/check 198 and 217.** A failing property fails the test.
+- **ui/style/classify 234 `.Extracted`.** See phase 22.
+- **Reads that can't fail:** `digitAt`'s `charAt` in character, str and buri/ast; compression 463; random 453; buri/ast 6283 and std/codegen/proto 3317.
+- **buri/ast 1707 and 2011.** Only a hand-built `.If` with no else reaches them, and it prints a dangling `else `.
+- **random 467 `radius == 0.0`.** It needs two draws of exactly 0.5.
