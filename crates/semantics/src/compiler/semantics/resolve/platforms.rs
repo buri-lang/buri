@@ -356,12 +356,33 @@ impl<'a> Checker<'a> {
             self.check_crossing_of(&want, skip, &format!("`{}`", custom.point));
         }
         if let Some(host) = host {
-            let production = self.start(name, fid, host);
+            let production = self.start(name, fid, host, true);
             self.check_host_fields(custom, production);
             if custom.backend == Backend::Js {
                 self.check_js_methods(platform);
             }
+        } else if let Some(borrowed) = self.borrowed_host(&want.params) {
+            // Another platform's struct is a host only where every field is a
+            // production struct, and otherwise a parameter like any other.
+            self.start(name, fid, borrowed, false);
         }
+    }
+
+    /// Another platform's host, which an entry may take first in place of one
+    /// of its own platform's: `node`'s `NodeHost`, say. The CLI builds it and
+    /// hands it over as it does the platform's own, so a `js` file calls the
+    /// entry without it.
+    fn borrowed_host(&self, params: &[ParamInfo]) -> Option<TyConId> {
+        let TyKind::Con(con, _) = (params.first()?.ty).kind() else {
+            return None;
+        };
+        let module = self.tables.tycon(*con).module;
+        let path = &self.loaded.modules.owner(module)?.path;
+        let surface =
+            standard_library::is_bundled_platform(path) || self.is_platform_surface(module);
+        surface
+            .then(|| declared_host(&self.tables, module, params))
+            .flatten()
     }
 
     /// Refuses generic parameters on an entry, which the platform calls.
@@ -385,8 +406,9 @@ impl<'a> Checker<'a> {
     }
 
     /// Mints the entry's [`Started`] when every field of its host is a
-    /// production struct, and refuses each field that isn't. Answers the fields
-    /// that are, each with its struct and whether that is `platform/host`'s.
+    /// production struct, and, where `refuse`, refuses each field that isn't.
+    /// Answers the fields that are, each with its struct and whether that is
+    /// `platform/host`'s.
     ///
     /// A production struct is one of `platform/host`'s, or one the host's own
     /// `platform.buri` declares, with no fields of its own: the CLI builds the
@@ -396,6 +418,7 @@ impl<'a> Checker<'a> {
         name: &str,
         func: FnId,
         host: TyConId,
+        refuse: bool,
     ) -> Vec<(FieldInfo, TyConId, bool)> {
         let platform = self.tables.tycon(host).module;
         let fields = self.tables.tycon(host).fields().as_slice().to_vec();
@@ -423,7 +446,9 @@ impl<'a> Checker<'a> {
                 _ => None,
             };
             let Some((con, from_host, true)) = found else {
-                self.refuse_host_field(&field, found.is_some());
+                if refuse {
+                    self.refuse_host_field(&field, found.is_some());
+                }
                 whole = false;
                 continue;
             };
