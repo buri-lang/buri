@@ -302,15 +302,19 @@ pub fn report(started: Instant) -> Option<String> {
         .map(|&p| (p, totals(p).each_ref().map(|v| v.load(Relaxed))))
         .collect();
     let counted_instructions = os::thread_instructions() != 0;
+    let counted_allocations = rows
+        .iter()
+        .any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
     let counted_children = rows.iter().any(|(_, [.., cpu])| *cpu != 0);
     let columns = Columns {
         instructions: counted_instructions,
+        allocations: counted_allocations,
         children: counted_children,
     };
     let mut out = String::from("buri profile           instructions        cpu       busy");
-    // Only the counting allocator counts, and only this feature installs it.
-    #[cfg(feature = "alloc-counter")]
-    out.push_str("   allocations");
+    if counted_allocations {
+        out.push_str("   allocations");
+    }
     if counted_children {
         out.push_str("  child instructions  child cpu");
     }
@@ -347,11 +351,12 @@ pub fn report(started: Instant) -> Option<String> {
 /// Which optional columns the table has.
 struct Columns {
     instructions: bool,
+    allocations: bool,
     children: bool,
 }
 
 fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
-    let [count, cpu, busy, _, child_count, child_cpu] = *row;
+    let [count, cpu, busy, allocated, child_count, child_cpu] = *row;
     let count = if columns.instructions {
         mega(count)
     } else {
@@ -362,9 +367,7 @@ fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
         seconds(cpu),
         seconds(busy)
     );
-    #[cfg(feature = "alloc-counter")]
-    {
-        let [.., allocated, _, _] = *row;
+    if columns.allocations {
         s.push_str(&format!(" {allocated:>13}"));
     }
     if columns.children {
