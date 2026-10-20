@@ -2162,7 +2162,7 @@ impl<'a> Checker<'a> {
                             ));
                     }
                     (Some((host, _)), _) => {
-                        self.start(name, fid, host);
+                        self.start(name, fid, host, true);
                     }
                     (None, _) => {
                         self.templated("entry-signature-mismatch", param.span)

@@ -427,3 +427,59 @@ fn a_js_file_keeps_every_shape_of_export_and_await_through_the_bundle() {
         "an export or an await lost its meaning in the bundle"
     );
 }
+
+/// A repository platform whose entry takes `node`'s host rather than one of
+/// its own: the CLI builds the host and hands it over, so the `js` file calls
+/// the entry with the request alone, as it would with the platform's own host.
+#[test]
+fn an_entry_that_takes_a_bundled_platform_s_host_is_handed_it_by_the_cli() {
+    let scratch = Scratch::repo("borrowed-host");
+    scratch.write("platform/server/BUILD.buri", BORROWED_HOST_PLATFORM);
+    scratch.write("platform/server/platform.buri", BORROWED_HOST_SURFACE);
+    scratch.write("platform/server/fetch.mjs", BORROWED_HOST_JS);
+    scratch.write("cmd/site/BUILD.buri", BORROWED_HOST_BINARY);
+    scratch.write("cmd/site/main.buri", BORROWED_HOST_MAIN);
+    let said = drive(&scratch, "//cmd/site", BORROWED_HOST_DRIVER);
+    assert_eq!(said, "200 /hello\n", "the entry was not handed its host");
+}
+
+const BORROWED_HOST_PLATFORM: &str = r#"platform {
+    entry {
+        name: "fetch"
+        backend: JS
+        js: "fetch.mjs"
+    }
+}
+"#;
+
+const BORROWED_HOST_SURFACE: &str = r#"from "platform/effect" import { Request, Response };
+from "node" import { NodeHost };
+
+export fn fetch(host: NodeHost, request: Request): Response;
+"#;
+
+const BORROWED_HOST_JS: &str = r#"import { fetch } from "buri:program";
+export default { fetch(request) { return fetch(request); } };
+"#;
+
+const BORROWED_HOST_BINARY: &str = r#"binary {
+    outputs: [
+        { platform: "//platform/server" },
+    ]
+}
+"#;
+
+const BORROWED_HOST_MAIN: &str = r#"from "core/net/http" import * as http;
+from "platform/effect" import { Request, Response };
+from "node" import { NodeHost };
+
+export fn fetch(host: NodeHost, request: Request): Response {
+    http.text(host.alloc, request.path())
+}
+"#;
+
+const BORROWED_HOST_DRIVER: &str = r#"
+import worker from "./.buri/out/platform/server/cmd/site/fetch.mjs";
+const answer = await worker.fetch(new Request("https://example.com/hello"));
+console.log(`${answer.status} ${await answer.text()}`);
+"#;
