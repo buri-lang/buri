@@ -9,7 +9,7 @@ page.md:42: this file does not fail the build with `build-unknown-field`
 
 page.md:48: this file does not fail the build with `build-unknown-field`
     lib/c/BUILD.buri:2:20: `//lib/nowhere` names no library [unknown-dependency]
-    "//lib/c/lib.buri" names no file (lib/c/lib.buri) [unknown-module]
+    `//lib/c` has no lib/c/lib.buri, the file a library is rooted at [unknown-module]
 
 page.md:56: the repository these fences are files of could not be built
     `repo=missing` cannot be copied: No such file or directory (os error 2)

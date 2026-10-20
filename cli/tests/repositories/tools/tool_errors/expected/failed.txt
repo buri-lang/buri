@@ -37,3 +37,6 @@ error: "//lib/app/made" names no file (lib/app/made.buri) [unknown-module]
 
     There's no search path and no fallback, so a path never has two candidates.
 
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
+

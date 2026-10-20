@@ -1,0 +1,5 @@
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    .Ok(())
+}

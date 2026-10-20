@@ -137,7 +137,7 @@ impl<'a> Loader<'a> {
         match ws.rule(target) {
             Rule::Library(lib) => {
                 self.check_testing_surface_declared(ws, target);
-                self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
+                self.load_root(ws, target, "lib.buri", "library");
                 self.load_closure_generators(ws, target);
                 for src in &lib.sources {
                     self.load_package_source(ws, target, &src.value, Role::Source, src.span);
@@ -216,7 +216,7 @@ impl<'a> Loader<'a> {
                 // A source rather than an entry: `tool.buri` has no `main` and
                 // builds no context. The toolchain writes the `main` that calls
                 // it, when it runs the tool.
-                let root = self.load_path(&pkg.module_path("tool.buri"), Role::Source, Span::NONE);
+                let root = self.load_root(ws, target, "tool.buri", "tool");
                 let ast = root
                     .map(|r| self.modules.get(r))
                     .map(|m| std::sync::Arc::clone(&m.ast));
@@ -253,6 +253,30 @@ impl<'a> Loader<'a> {
                 }
             }
         }
+    }
+
+    /// A library's `lib.buri` or a tool's `tool.buri`. One that doesn't exist is
+    /// reported where a build file names the rule, since the rule itself names
+    /// no file, and by its path alone when nothing names it.
+    fn load_root(
+        &mut self,
+        ws: &Workspace,
+        target: TargetId,
+        root: &str,
+        kind: &str,
+    ) -> Option<ModuleId> {
+        let path = ws.package(target.package).module_path(root);
+        if self.resolve(ws, &path).is_err() {
+            let (problem, fix) = ws.missing_root(target, root, kind);
+            let span = ws.named_at(target).unwrap_or(Span::NONE);
+            self.diags.push(
+                Diagnostic::templated("unknown-module", span)
+                    .with_bind("problem", problem)
+                    .with_fix(fix),
+            );
+            return None;
+        }
+        self.load_path(&path, Role::Source, Span::NONE)
     }
 
     /// The prelude's modules are in scope in every module, so they are always

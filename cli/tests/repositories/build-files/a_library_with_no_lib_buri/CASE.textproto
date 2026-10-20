@@ -1,0 +1,24 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a library with no lib.buri is reported at the dependency that names it, or by its path when nothing does"
+
+# Linted on its own, the library is still found where //cmd/app names it.
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "named.txt"
+}
+
+# With nothing naming it, the error names the file it needs.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "    dependencies: [\"//lib/money\"]\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "unnamed.txt"
+}

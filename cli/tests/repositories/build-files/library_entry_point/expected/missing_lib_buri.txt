@@ -1,5 +1,8 @@
-error: "//cmd/app/lib.buri" names no file (cmd/app/lib.buri) [unknown-module]
-  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+error: `//cmd/app` has no cmd/app/lib.buri, the file a library is rooted at [unknown-module]
+  = fix: create cmd/app/lib.buri
 
     There's no search path and no fallback, so a path never has two candidates.
+
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
 

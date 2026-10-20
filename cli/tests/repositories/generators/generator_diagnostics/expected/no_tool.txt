@@ -1,28 +1,13 @@
-error: `//tools/gen` did not answer [tool-failed]
+error: `//tools/gen` has no tools/gen/tool.buri, the file a tool is rooted at [unknown-module]
  --> cmd/app/BUILD.buri:3:9
   |
 3 |         { tool: "//tools/gen", inputs: ["units.txt"] },
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = the tool does not build: error: "//tools/gen/tool.buri" names no file (tools/gen/tool.buri) [unknown-module]
-     --> //tools/gen/(tool main):4:6
-      |
-    4 | from "//tools/gen/tool.buri" import * as entry;
-      |      ^^^^^^^^^^^^^^^^^^^^^^^
-      |
-      = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
-  = fix: fix what the note names; `buri test` on the tool runs its own tests
+  = fix: create tools/gen/tool.buri
 
-      = the tool was killed by SIGSEGV (signal 11)
-        RangeError: Maximum call stack size exceeded.
+    There's no search path and no fallback, so a path never has two candidates.
 
-    The note says what went wrong: the tool didn't build, exited non-zero, was
-    killed by a signal, wrote nothing, or wrote something that isn't an answer.
-
-    A killed tool names its signal: SIGSEGV for a crash or a stack overflow,
-    SIGKILL for a machine out of memory. The last four kilobytes of its standard
-    error come with the note.
-
-    A slow tool isn't this error. The build waits for a tool as long as it runs,
-    the way it waits for a compiler.
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
 

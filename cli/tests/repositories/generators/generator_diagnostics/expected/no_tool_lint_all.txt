@@ -1,0 +1,13 @@
+error: `//tools/gen` has no tools/gen/tool.buri, the file a tool is rooted at [unknown-module]
+ --> cmd/app/BUILD.buri:3:9
+  |
+3 |         { tool: "//tools/gen", inputs: ["units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create tools/gen/tool.buri
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
+

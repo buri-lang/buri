@@ -99,6 +99,9 @@ error: "//lib/edges/edges.json" names no file (lib/edges/edges.json.buri) [unkno
 
     There's no search path and no fallback, so a path never has two candidates.
 
+    A library needs lib.buri and a tool needs tool.buri. A missing one is
+    reported where a build file names the rule.
+
 error: "//lib/edges/edges.schema.json" names no file (lib/edges/edges.schema.json.buri) [unknown-module]
  --> lib/edges/lib.buri:3:6
   |
