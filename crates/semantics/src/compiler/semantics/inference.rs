@@ -1563,7 +1563,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// its variants' payloads. An `IndexSet` is encoded and decoded as the
     /// list of its members, so its one component is `K`, not its words.
     fn derived_components(&self, con: TyConId, args: &[Ty]) -> Vec<Ty> {
-        if self.c.known_types.get("IndexSet") == Some(&con) {
+        if self.c.index_set.is_some_and(|k| k.con == con) {
             return args.to_vec();
         }
         let components: Vec<Ty> = match &self.c.tables.tycon(con).def {
