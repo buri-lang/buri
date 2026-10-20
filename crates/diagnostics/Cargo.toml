@@ -12,5 +12,10 @@ buri-docs = { path = "../docs", version = "0.3.19" }
 buri-hash = { path = "../hash", version = "0.3.19" }
 buri-stdlib = { path = "../stdlib", version = "0.3.19" }
 
+[features]
+# The allocations column of `BURI_PROFILE=1`, for a `buri` built with its
+# counting allocator (`buri`'s own `alloc-counter`, which turns this on).
+alloc-counter = []
+
 [lints]
 workspace = true

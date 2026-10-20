@@ -76,7 +76,7 @@ backend-llvm = ["dep:buri-llvm"]
 # figure it produces — allocations per line, per phase — is the one number in
 # the whole benchmark with no measurement noise in it. The `buri` binary installs
 # one too, for `BURI_PROFILE=1`'s allocation column.
-alloc-counter = []
+alloc-counter = ["buri-diagnostics/alloc-counter"]
 
 # Off by default. Builds this toolchain, and the runtime of every program it
 # compiles, to show Valgrind's memcheck and helgrind each block and lock when
