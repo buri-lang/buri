@@ -4089,13 +4089,17 @@ fn widgetBody<C: Allocator>(
 /// a reactive element's watcher computes its body this way so the styles it
 /// reads subscribe it, and a write to one re-runs the watcher and patches the
 /// body in place. A `Scope` is an allocator, so it builds the strings too.
+///
+/// No element painted here is checked: a toggle or a radio rebuilds its whole
+/// region when it flips and paints itself with `widgetBody`, so `painted` never
+/// holds a `checked` and only the other states are answered.
 fn widgetBodyUnder(ctx: Scope, painted: Painted, leading: [Str], styles: [Style]): Str {
     let flat = resolve(ctx, painted, styles, 0, []);
     elementBody(
         ctx,
         classNames(ctx, painted, flat),
         leading
-            .concat(ctx, answers(ctx, painted))
+            .concat(ctx, stateAnswers(ctx, painted, []))
             .concat(ctx, inlineIn(ctx, flat, 0, [])),
     )
 }
@@ -4114,6 +4118,11 @@ fn answers<C: Allocator>(ctx: C, painted: Painted): [Str] {
         .Some(on) => [decl(ctx, "checked", boolName(on))],
         .None => [],
     };
+    stateAnswers(ctx, painted, checked)
+}
+
+/// `answers` past the `checked` one, after `checked`.
+fn stateAnswers<C: Allocator>(ctx: C, painted: Painted, checked: [Str]): [Str] {
     let refused = if (painted.disabled) {
         checked.push(ctx, decl(ctx, "disabled", "true"))
     } else {

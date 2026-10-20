@@ -1645,7 +1645,27 @@ fn encodeOtherPiece<C: Allocator>(ctx: C, f: ResolvedField): ast.Expr {
             armOf(dotP0("None"), out),
         ])
     } else {
-        ifE(isDefaultTest(ctx, f, v), out, writeOne(ctx, f, v, out, id("ctx")))
+        ifE(isDefaultTest(ctx, f, v), out, writeSet(ctx, f, v, out))
+    }
+}
+
+/// [`writeOne`] for an implicit-presence field that isn't its default. A bool
+/// that isn't `false` is `true`, so it is written as `1` without asking again.
+fn writeSet<C: Allocator>(
+    ctx: C,
+    f: ResolvedField,
+    value: ast.Expr,
+    out: ast.Expr,
+): ast.Expr {
+    match (f.ty) {
+        .Scalar(.Bool) => {
+            nsCall("proto", "writeVarint", [
+                id("ctx"),
+                pushTag(ctx, f, wireNumber(f.ty), out, id("ctx")),
+                intE(1),
+            ])
+        },
+        _ => writeOne(ctx, f, value, out, id("ctx")),
     }
 }
 

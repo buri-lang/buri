@@ -40,9 +40,18 @@ const RUNS: [(&str, bool, &[&str]); 4] = [
 ];
 
 /// The corpus's packages the native backends can't build yet, which stay on
-/// JavaScript in every run: `deriveArrayHash`, `core/math`'s transcendentals
-/// and a page's `mount` (`cli/tests/native/conformance.rs` has why).
-const JAVASCRIPT_ONLY: [&str; 6] = ["bignum", "numbers", "random", "ui_mount", "uuid", "web"];
+/// JavaScript in every run: `deriveArrayHash`, `core/math`'s transcendentals,
+/// a page's `mount` and a website's document (`cli/tests/native/conformance.rs`
+/// has why).
+const JAVASCRIPT_ONLY: [&str; 7] = [
+    "bignum",
+    "numbers",
+    "random",
+    "ui_mount",
+    "uuid",
+    "web",
+    "web_unstyled",
+];
 
 /// Pairs of runs that run the same suites, so count alike.
 const ALIKE: [(usize, usize); 2] = [(0, 1), (2, 3)];
