@@ -41,20 +41,10 @@ mod json;
 /// Branch coverage needs a nightly; the `coverage` shell pins it.
 const RUSTFLAGS: &str = "-Cinstrument-coverage -Zcoverage-options=branch";
 
-/// What continuous mode (`%c`) needs, so a `buri` a signal kills still counts.
-/// macOS maps the profile over the counters, so their sections start on a
-/// page. Linux maps it elsewhere, and each increment goes through the offset.
-const CONTINUOUS: &str = if cfg!(target_os = "macos") {
-    "-Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_cnts,0x4000 \
-     -Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_bits,0x4000 \
-     -Clink-arg=-Wl,-sectalign,__DATA,__llvm_prf_data,0x4000"
-} else {
-    "-Cllvm-args=-runtime-counter-relocation"
-};
-
 /// Profiles merged online into this many files per binary, so disk use doesn't
-/// grow with the number of processes. `%c` writes each count as it happens.
-const POOL: &str = "%c%16m";
+/// grow with the number of processes. Not continuous (`%c`): most counts are
+/// worked out from others, so a killed process would cover what it never reached.
+const POOL: &str = "%16m";
 
 /// How many files `compiler.txt` lists as the least covered.
 const WORST: usize = 30;
@@ -236,18 +226,7 @@ impl Gate {
     fn new(root: PathBuf, release: bool) -> Gate {
         let target = target(&root);
         std::fs::create_dir_all(&target).unwrap();
-        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-        let version = output(Command::new(&rustc).arg("-vV"));
-        let host = version
-            .lines()
-            .find_map(|l| l.strip_prefix("host: "))
-            .expect("rustc -vV names a host")
-            .to_string();
-        let sysroot = output(Command::new(&rustc).args(["--print", "sysroot"]));
-        let tools = Path::new(sysroot.trim())
-            .join("lib/rustlib")
-            .join(&host)
-            .join("bin");
+        let (host, tools) = toolchain();
         if !tools.join("llvm-cov").exists() {
             eprintln!(
                 "{} has no llvm-cov. Run this inside `nix develop .#coverage`, whose nightly has \
@@ -299,7 +278,7 @@ impl Gate {
                 "--features",
                 "backend-llvm,test-hooks",
             ])
-            .env("RUSTFLAGS", format!("{RUSTFLAGS} {CONTINUOUS}"))
+            .env("RUSTFLAGS", RUSTFLAGS)
             .env("CARGO_TARGET_DIR", &instrumented)
             // Its build scripts are instrumented too; their profiles go nowhere that counts.
             .env(
@@ -1254,6 +1233,24 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
     Verdict { report, failed }
 }
 
+/// rustc's host triple, and the directory its `llvm-profdata` and `llvm-cov`
+/// are in.
+fn toolchain() -> (String, PathBuf) {
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let version = output(Command::new(&rustc).arg("-vV"));
+    let host = version
+        .lines()
+        .find_map(|l| l.strip_prefix("host: "))
+        .expect("rustc -vV names a host")
+        .to_string();
+    let sysroot = output(Command::new(&rustc).args(["--print", "sysroot"]));
+    let tools = Path::new(sysroot.trim())
+        .join("lib/rustlib")
+        .join(&host)
+        .join("bin");
+    (host, tools)
+}
+
 fn run(command: &mut Command) {
     let status = command
         .status()
@@ -1565,5 +1562,103 @@ mod tests {
         assert!(!counted("cli/src/compiler/tests/mod.rs"));
         assert!(!counted("crates/stencil/build.rs"));
         assert!(!counted("target/debug/build/x/out/gen.rs"));
+    }
+
+    /// A program built and profiled as `buri` is, which echoes each line it
+    /// reads and says `done` at the end of its input.
+    const ECHO: &str = r#"use std::io::{BufRead, Write};
+
+fn main() {
+    let mut out = std::io::stdout();
+    for line in std::io::stdin().lock().lines().map_while(Result::ok) {
+        if line == "even" {
+            writeln!(out, "took even").unwrap();
+        } else {
+            writeln!(out, "took odd").unwrap();
+        }
+        out.flush().unwrap();
+    }
+    writeln!(out, "done").unwrap();
+}
+"#;
+
+    /// In continuous mode a killed process's counts said it ran what it never
+    /// reached, and some came out below zero (CI run 39423043418).
+    #[test]
+    fn a_process_a_signal_kills_covers_nothing_it_never_reached() {
+        use std::io::{BufRead as _, Write as _};
+        let dir = std::env::temp_dir().join(format!("buri-coverage-killed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let profiles = dir.join("profiles");
+        std::fs::create_dir_all(&profiles).unwrap();
+        std::fs::write(dir.join("echo.rs"), ECHO).unwrap();
+        let program = dir.join("echo");
+        let (_, tools) = toolchain();
+        run(
+            Command::new(std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string()))
+                .args(["--edition", "2021"])
+                .args(RUSTFLAGS.split_whitespace())
+                .arg(dir.join("echo.rs"))
+                .arg("-o")
+                .arg(&program)
+                // `-Z` on the workspace's stable toolchain, as the nightly takes it.
+                .env("RUSTC_BOOTSTRAP", "1"),
+        );
+        let start = || {
+            Command::new(&program)
+                .env(
+                    "LLVM_PROFILE_FILE",
+                    profiles.join(format!("{POOL}.profraw")),
+                )
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .spawn()
+                .unwrap()
+        };
+
+        let mut finished = start();
+        finished
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"even\nodd\n")
+            .unwrap();
+        assert!(finished.wait().unwrap().success());
+
+        // Killed while it waits for its second line.
+        let mut killed = start();
+        let mut input = killed.stdin.take().unwrap();
+        input.write_all(b"even\n").unwrap();
+        let mut echoed = String::new();
+        std::io::BufReader::new(killed.stdout.take().unwrap())
+            .read_line(&mut echoed)
+            .unwrap();
+        assert_eq!(echoed, "took even\n");
+        killed.kill().unwrap();
+        let _ = killed.wait();
+        drop(input);
+
+        let profdata = dir.join("echo.profdata");
+        run(Command::new(tools.join("llvm-profdata"))
+            .args(["merge", "-sparse", "-o"])
+            .arg(&profdata)
+            .args(
+                std::fs::read_dir(&profiles)
+                    .unwrap()
+                    .map(|e| e.unwrap().path()),
+            ));
+        let text = output(
+            Command::new(tools.join("llvm-cov"))
+                .args(["export", "-format=text", "--instr-profile"])
+                .arg(&profdata)
+                .arg(&program),
+        );
+        let measured = Measured::of_export(&json::parse(&text).unwrap(), |path| {
+            path.ends_with("echo.rs").then(|| "echo.rs".to_string())
+        });
+        let echo = &measured.files["echo.rs"];
+        // Only the finished run said `done`.
+        assert_eq!(echo.lines.get(&13), Some(&1), "{:?}", echo.lines);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
