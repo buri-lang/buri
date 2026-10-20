@@ -386,7 +386,8 @@ export enum ExprKind {
     Array([Expr]),
     Tuple([Expr]),
     Block(Block),
-    /// Condition, then-block, else-expression. Every `if` has an else.
+    /// Condition, then-block, else-expression. Every `if` in source has an
+    /// else; [`print`] writes `else {}` for an empty else position.
     If([Expr], [Block], [Expr]),
     Match([Expr], [Arm]),
     /// `context { ..base, Allocator: alloc() }` — the spread, then the bindings.
@@ -1648,21 +1649,9 @@ fn blockExpr<C: Allocator>(ctx: C, out: Out, b: Block): Out {
 
 /// The braces of an `if` branch, which are the chain's rather than the block's.
 fn branch<C: Allocator>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
-    blocks.foldCtx(
-        ctx,
-        fn(c, o, b) => {
-            // The brace that closes a branch belongs to the `else` that
-            // follows it, so it is written here with its space attached.
-            if (broken) {
-                let opened = nl(c, emit(c, o, "{"));
-                let inner = blockLines(c, indented(opened, 1), b);
-                emit(c, nl(c, Out { ..inner, indent: o.indent }), "} ")
-            } else {
-                emit(c, blockLines(c, emit(c, o, "{ "), b), " } ")
-            }
-        },
-        out,
-    )
+    // The brace that closes a branch belongs to the `else` that follows it, so
+    // it is written here with its space attached.
+    blocks.foldCtx(ctx, fn(c, o, b) => emit(c, branchBlock(c, o, b, broken), " "), out)
 }
 
 /// An `if`/`else if`/`else` chain, written link by link.
@@ -1705,7 +1694,9 @@ fn elseChain<C: Allocator>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): O
 /// time it runs (SPEC 8.3).
 fn elseLinks<C: Allocator>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
     match (otherwise.first()) {
-        .None => out,
+        // Every `if` has an `else` (`missing-else`), so a tree without one is
+        // written with the empty one that means what the missing one would.
+        .None => emit(ctx, out, "{}"),
         .Some(e) => {
             match (e.kind) {
                 .Block(b) => {
@@ -1749,8 +1740,11 @@ fn owe<C: Allocator>(ctx: C, out: Out, start: Int, source: Origin): Out {
     }
 }
 
+/// An empty branch closes up whether or not its chain breaks.
 fn branchBlock<C: Allocator>(ctx: C, out: Out, b: Block, broken: Bool): Out {
-    if (broken) {
+    if (b.stmts.isEmpty() && b.tail.isEmpty()) {
+        emit(ctx, out, "{}")
+    } else if (broken) {
         let opened = nl(ctx, emit(ctx, out, "{"));
         let inner = blockLines(ctx, indented(opened, 1), b);
         emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), "}")

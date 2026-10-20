@@ -542,6 +542,71 @@ test "an else that is an if is the chain, unwrapped" {
     );
 }
 
+/// `text` parsed and printed again: the same text when `print` wrote it.
+fn reprinted<C: Allocator>(ctx: C, text: Str): Str {
+    ast.print(ctx, assert.ok(ast.parse(ctx, "probe.buri", text))).text
+}
+
+test "an if with no else is given an empty one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // `if` requires an `else` (`missing-else`), so a tree without one is
+    // printed with the empty else that means what the missing one would.
+    let flat = ex(.If([id("a")], [block([], [id("b")])], []));
+    let text = ast.print(ctx, letOf(flat)).text;
+    assert.equal(text, "let X: Int = if (a) { b } else {};\n");
+    assert.equal(reprinted(ctx, text), text);
+
+    let broken = ex(.If([id("a")], [block([st(.Expr(id("b")))], [id("c")])], []));
+    let lines = ast.print(ctx, letOf(broken)).text;
+    assert.equal(lines, "let X: Int = if (a) {\n    b;\n    c\n} else {};\n");
+    assert.equal(reprinted(ctx, lines), lines);
+}
+
+test "a chain whose last link has no else ends in an empty one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let inner = ex(.If([id("b")], [block([], [ex(.Int(2))])], []));
+    let flat = ex(.If([id("a")], [block([], [ex(.Int(1))])], [inner]));
+    let text = ast.print(ctx, letOf(flat)).text;
+    assert.equal(text, "let X: Int = if (a) { 1 } else if (b) { 2 } else {};\n");
+    assert.equal(reprinted(ctx, text), text);
+
+    let long = ex(.If([id("b")], [block([st(.Expr(id("c")))], [id("d")])], []));
+    let broken = ex(.If([id("a")], [block([], [ex(.Int(1))])], [long]));
+    let lines = ast.print(ctx, letOf(broken)).text;
+    assert.equal(
+        lines,
+        "let X: Int = if (a) {\n    1\n} else if (b) {\n    c;\n    d\n} else {};\n",
+    );
+    assert.equal(reprinted(ctx, lines), lines);
+}
+
+test "an empty branch closes up" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let empty = ex(.Block(block([], [])));
+    let flat = ex(.If([id("a")], [block([], [])], [empty]));
+    let text = ast.print(ctx, letOf(flat)).text;
+    assert.equal(text, "let X: Int = if (a) {} else {};\n");
+    assert.equal(reprinted(ctx, text), text);
+
+    let broken = ex(.If([id("a")], [block([st(.Expr(id("b")))], [id("c")])], [empty]));
+    let lines = ast.print(ctx, letOf(broken)).text;
+    assert.equal(lines, "let X: Int = if (a) {\n    b;\n    c\n} else {};\n");
+    assert.equal(reprinted(ctx, lines), lines);
+
+    let long = ex(.Block(block([st(.Expr(id("b")))], [id("c")])));
+    let opening = ast
+        .print(ctx, letOf(ex(.If([id("a")], [block([], [])], [long]))))
+        .text;
+    assert.equal(opening, "let X: Int = if (a) {} else {\n    b;\n    c\n};\n");
+    assert.equal(reprinted(ctx, opening), opening);
+}
+
 // --- a literal wider than the number that would hold one --------------------------
 
 test "a wide integer prints the digits it was given" {
