@@ -119,12 +119,45 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 70
+
+## What landed
+
+- Every `jit.rs` table indexed by a value or a block is an `ir::PerValue` or `ir::PerBlock`, made with `Code::per_value_in`, `per_block_in` or `per_value_from`, which reuse a spare table's storage. `frame_sigs`' sizes are an `ir::PerType<Option<u32>>`.
+- `ent_mut`, `put`, `bump` and `table` are gone. `ent` is left for tables by position: per instruction of one block, and `Operands`' rows.
+- The union-find holds `ValueId`s. `BlockUses` and the stamps hold `Option<BlockId>`.
+- Branch targets are a `Label`. `Labels` has a row per block, then one per label `mint` hands out.
+- `Lists` and `Dominance` are keyed by `Node`, which is `Root` or `Block(BlockId)`, through `PerNode`. `Lists::fill` sorts its pairs (stable) instead of the counting pass.
+- A register holds a `Held`: `Promoted`, or `Value(ValueId)`. It replaces the `u32::MAX` sentinel.
+
+## Guards
+
+Plan rule: 41 to 40. The other count stays 19.
+
+## Branches
+
+No covered branch was removed. `frame_sigs` lost its `w != u32::MAX` match guard and gained an `if let Some(w)`, both covered both ways.
+
+## Coverage
+
+| Area | Local base | Local head | CI baseline |
+| --- | --- | --- | --- |
+| stencil | 1043/1082 | 1043/1082 | 1075/1084 |
+| jit.rs | 438/454 | 438/454 | 447/450 |
+
+Every other area moved only with the staging commits the head was rebased onto.
+
+## Output
+
+Debug and release objects are byte-identical between base and head for `cli/tests/example`, `cli/benches/instructions/{tested,programs}`, and conformance with `backends: [JS]` removed (650 debug, 724 release).
+
 # Guard phase 69
 
 ## What landed
 
 - `semantics::resolve::Host` holds the host's constructor and each field's constructor. `Started` carries one, and `platforms.rs`'s `start` mints it only when the host and every field are accepted. `monomorphize::host_value` builds from it, so its `_ => ExprKind::Error` arm is gone. Phase 68 had moved that arm, and no program reached it.
 - `monomorphize::Handed` is `Hosted(&Started)` or `Bare(FnId)`. `host_parameter` is gone: a handed entry no longer looks up its host again.
+- Correction: removing `host_parameter` lost a case. It also accepted another platform's host, a bundled one too, whose fields were all production structs (empty structs the CLI builds), and `start` minted no `Started` for it, so such an entry was handed over bare. The review restored it in 226ffc058 through `borrowed_host` in `resolve/platforms.rs`. e2e: `custom_platforms::an_entry_that_takes_a_bundled_platform_s_host_is_handed_it_by_the_cli`.
 - `Checked.entry` is gone. `Checked.started` replaced it in phase 68.
 
 ## Guards
