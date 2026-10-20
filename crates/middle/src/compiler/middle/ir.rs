@@ -436,6 +436,11 @@ impl TypeList {
         self.infos.is_empty()
     }
 
+    /// A row per type interned so far, each `init`.
+    pub fn per_type<T: Clone>(&self, init: T) -> PerType<T> {
+        PerType(vec![init; self.infos.len()])
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (TypeId, &TypeInfo)> {
         self.infos
             .iter()
@@ -1292,6 +1297,13 @@ pub struct PerValue<T>(Vec<T>);
 #[derive(Debug)]
 pub struct PerBlock<T>(Vec<T>);
 
+/// A row per type of one [`TypeList`], made by [`TypeList::per_type`].
+///
+/// Types are only ever interned, so a table made from a list covers every id
+/// that list had minted when it was made.
+#[derive(Debug)]
+pub struct PerType<T>(Vec<T>);
+
 macro_rules! side_table {
     ($table:ident, $id:ident) => {
         #[expect(
@@ -1310,6 +1322,10 @@ macro_rules! side_table {
             pub fn iter(&self) -> impl Iterator<Item = ($id, &T)> {
                 self.0.iter().enumerate().map(|(i, t)| ($id::at(i), t))
             }
+
+            pub fn iter_mut(&mut self) -> impl Iterator<Item = ($id, &mut T)> {
+                self.0.iter_mut().enumerate().map(|(i, t)| ($id::at(i), t))
+            }
         }
     };
 }
@@ -1326,8 +1342,15 @@ impl<T> Default for PerBlock<T> {
     }
 }
 
+impl<T> Default for PerType<T> {
+    fn default() -> Self {
+        PerType(Vec::new())
+    }
+}
+
 side_table!(PerValue, ValueId);
 side_table!(PerBlock, BlockId);
+side_table!(PerType, TypeId);
 
 #[expect(
     clippy::indexing_slicing,
@@ -1415,6 +1438,35 @@ impl Code {
     /// A row per block, each `init`.
     pub fn per_block<T: Clone>(&self, init: T) -> PerBlock<T> {
         PerBlock(vec![init; self.blocks.len()])
+    }
+
+    /// [`Code::per_value`], in `spare`'s storage, which is left empty.
+    pub fn per_value_in<T: Clone>(&self, spare: &mut PerValue<T>, init: T) -> PerValue<T> {
+        let mut rows = std::mem::take(&mut spare.0);
+        rows.clear();
+        rows.resize(self.values.len(), init);
+        PerValue(rows)
+    }
+
+    /// A row per value, from each value in order, in `spare`'s storage, which
+    /// is left empty.
+    pub fn per_value_from<T>(
+        &self,
+        spare: &mut PerValue<T>,
+        f: impl FnMut(ValueId) -> T,
+    ) -> PerValue<T> {
+        let mut rows = std::mem::take(&mut spare.0);
+        rows.clear();
+        rows.extend(self.value_ids().map(f));
+        PerValue(rows)
+    }
+
+    /// [`Code::per_block`], in `spare`'s storage, which is left empty.
+    pub fn per_block_in<T: Clone>(&self, spare: &mut PerBlock<T>, init: T) -> PerBlock<T> {
+        let mut rows = std::mem::take(&mut spare.0);
+        rows.clear();
+        rows.resize(self.blocks.len(), init);
+        PerBlock(rows)
     }
 
     /// A row per block, from each block in order.

@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{copyless_test, Bind, Fn2, Jit, Plan, RET, V};
+use super::jit::{copyless_test, Bind, Fn2, Jit, Label, Plan, RET, V};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
@@ -95,23 +95,15 @@ pub fn prim_tag(s: Scalar) -> (&'static str, u32, bool) {
     }
 }
 
-// `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables and carry one
-// entry per value of the `ir::Code` being emitted, exactly as `Fn2::slot` —
-// which is why `Fn2::at` reads its own with the same fallback. An index past
-// the end would mean the IR disagreed with itself, so each of these answers
-// what a value the analyses never saw would mean rather than panicking:
-// holding no immediate, and promoted into a register that nothing reads out of
-// the frame.
-
 /// The literal `v` holds when a stencil can take it as an immediate, or zero —
 /// which is the same zero the immediate hole is ignored at when it cannot.
 fn constant(st: &Fn2, v: ir::ValueId) -> u64 {
-    st.constants.get(v.index()).copied().flatten().unwrap_or(0)
+    st.constants.get(v).unwrap_or(0)
 }
 
 /// Whether a register-promoted `v` also needs its frame slot kept in step.
 fn write_through(st: &Fn2, v: ir::ValueId) -> bool {
-    st.wt.get(v.index()).copied().unwrap_or(false)
+    *st.wt.get(v)
 }
 
 impl<'a> Jit<'a> {
@@ -1410,18 +1402,18 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
-        next: usize,
+        next: Option<ir::BlockId>,
         t: &Term,
         plan: &Plan,
     ) {
         match t {
             Term::Jump(x) => {
-                let fall = x.block.index() == next;
+                let fall = Some(x.block) == next;
                 if let Some(b) = plan.incbr {
-                    let out = if b.out.index() == next {
+                    let out = if Some(b.out) == next {
                         V::Fall
                     } else {
-                        V::Blk(b.out.index() as u32)
+                        V::Blk(Label::of(b.out))
                     };
                     let key = self.arm_key(self.lib.known.inc_lt, Jump::F);
                     self.emit(
@@ -1431,7 +1423,7 @@ impl<'a> Jit<'a> {
                             Lit::A.of(u64::from(st.at(b.from))),
                             Lit::N.of(b.by),
                             Lit::B.of(u64::from(st.at(b.bound))),
-                            Jump::T.to(V::Blk(b.back.index() as u32)),
+                            Jump::T.to(V::Blk(Label::of(b.back))),
                             Jump::F.to(out),
                         ],
                     );
@@ -1447,7 +1439,7 @@ impl<'a> Jit<'a> {
                 if fall {
                     self.emit("jump", &[Jump::T.to(V::Fall)]);
                 } else {
-                    self.emit("jump", &[Jump::T.to(V::Blk(x.block.index() as u32))]);
+                    self.emit("jump", &[Jump::T.to(V::Blk(Label::of(x.block)))]);
                 }
             }
             Term::Branch { cond, then, else_ } => {
@@ -1461,17 +1453,17 @@ impl<'a> Jit<'a> {
                 // walk reaches it from the branch and places one of the two
                 // targets right after it.
                 if then.args.is_empty() && else_.args.is_empty() {
-                    let ft = then.block.index() == next;
-                    let fe = else_.block.index() == next;
+                    let ft = Some(then.block) == next;
+                    let fe = Some(else_.block) == next;
                     let tv = if ft {
                         V::Fall
                     } else {
-                        V::Blk(then.block.index() as u32)
+                        V::Blk(Label::of(then.block))
                     };
                     let fv = if fe {
                         V::Fall
                     } else {
-                        V::Blk(else_.block.index() as u32)
+                        V::Blk(Label::of(else_.block))
                     };
                     let fall = if ft { Jump::T } else { Jump::F };
                     self.cond(st, *cond, plan, tv, fv, fall);
@@ -1480,7 +1472,7 @@ impl<'a> Jit<'a> {
                 // With edge copies, one arm's copies fall through and the
                 // other's sit behind a label; the label goes to the arm whose
                 // own target is the next block, so that its jump goes too.
-                let y_is_then = then.block.index() == next;
+                let y_is_then = Some(then.block) == next;
                 let (x, y) = if y_is_then {
                     (else_, then)
                 } else {
@@ -1495,7 +1487,7 @@ impl<'a> Jit<'a> {
                 let fall = if y_is_then { Jump::F } else { Jump::T };
                 self.cond(st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
-                self.emit("jump", &[Jump::T.to(V::Blk(x.block.index() as u32))]);
+                self.emit("jump", &[Jump::T.to(V::Blk(Label::of(x.block)))]);
                 st.place(lf, self.region.code_addr());
                 // `y` is the arm laid out next.
                 self.edge(prog, code, st, y);
@@ -1573,7 +1565,7 @@ impl<'a> Jit<'a> {
                     // no parameters), so the test names the block itself.
                     let mut binds: Vec<Bind> = vec![
                         Lit::A.of(src as u64),
-                        Jump::T.to(V::Blk(tgt.block.index() as u32)),
+                        Jump::T.to(V::Blk(Label::of(tgt.block))),
                         Jump::F.to(V::Blk(lnext)),
                     ];
                     if fusedw.is_some() {
@@ -1587,7 +1579,7 @@ impl<'a> Jit<'a> {
                 match default {
                     Some(tgt) => {
                         self.edge(prog, code, st, tgt);
-                        self.emit("jump", &[Jump::T.to(V::Blk(tgt.block.index() as u32))]);
+                        self.emit("jump", &[Jump::T.to(V::Blk(Label::of(tgt.block)))]);
                     }
                     None => self.emit("unreachable", &[]),
                 }
@@ -1706,8 +1698,8 @@ impl<'a> Jit<'a> {
             st,
             cond,
             &plan,
-            V::Blk(then.block.index() as u32),
-            V::Blk(else_.block.index() as u32),
+            V::Blk(Label::of(then.block)),
+            V::Blk(Label::of(else_.block)),
             Jump::T,
         );
         true
@@ -1757,7 +1749,7 @@ impl<'a> Jit<'a> {
             binds.push(sh.of(*s as u64));
             binds.push(dh.of(*d as u64));
         }
-        binds.push(Jump::T.to(V::Blk(t.block.index() as u32)));
+        binds.push(Jump::T.to(V::Blk(Label::of(t.block))));
         self.emit(&key, &binds);
         true
     }
@@ -2522,7 +2514,7 @@ impl Jit<'_> {
         reason = "a comparison and its branch: the two operands, where the answer \
                   lands, the width to compare at, and where a true answer goes"
     )]
-    fn cmp_to(&mut self, tag: &str, op: &str, a: u32, b: u32, verdict: u32, target: u32) {
+    fn cmp_to(&mut self, tag: &str, op: &str, a: u32, b: u32, verdict: u32, target: Label) {
         self.emit(
             &key!["bin/", op, "/", tag, "/ff/f"],
             &[
