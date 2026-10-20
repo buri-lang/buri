@@ -4210,8 +4210,8 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
 
 /// A program with enough shapes in it to reach every relocation kind
 /// `elf.rs` can write: a call between units' functions (`Branch26`), a string
-/// literal in the pool (`Abs64` and the `Page21`/`PageOff12` pair), the Buri
-/// stack the shim names (a `Page21`/`PageOff12` against a `__bss` symbol), and
+/// literal in the pool (`Abs64` and the `Page21`/`LoadLo12` pair), the Buri
+/// stack the shim names (a `Page21`/`AddLo12` against a `__bss` symbol), and
 /// a runtime call.
 const CROSS_PROGRAM: &str = r#"
 from "native" import { NativeHost };

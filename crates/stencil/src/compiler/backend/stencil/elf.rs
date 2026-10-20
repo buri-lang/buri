@@ -40,10 +40,12 @@
 //! and lets the linker read the instruction to decide what to do with it. The
 //! AArch64 ELF psABI splits it by *instruction*: `ADD_ABS_LO12_NC` for an `add`
 //! and `LDST64_ABS_LO12_NC` for a 64-bit `ldr`, and the two are not
-//! interchangeable — the second is scaled by eight and the first is not. So this
-//! file decodes the instruction at the site, which is the one place it looks at
-//! the bytes it is relocating. The same split applies to `BRANCH26`, which ELF
-//! spells `JUMP26` for a `b` and `CALL26` for a `bl`.
+//! interchangeable — the second is scaled by eight and the first is not. The
+//! code that writes the instruction knows which it wrote, so `RelKind` carries
+//! it as `AddLo12` or `LoadLo12`. `BRANCH26` splits the same way, `JUMP26` for
+//! a `b` and `CALL26` for a `bl`, but a branch out of a stencil is whichever
+//! clang wrote, so this file decodes that instruction at the site: the one place
+//! it looks at the bytes it is relocating.
 //!
 //! # Determinism
 //!
@@ -186,10 +188,10 @@ impl Shdr {
 }
 
 /// The relocation type for one kind, decided from the instruction where the
-/// psABI splits a Mach-O kind in two.
+/// psABI splits `Branch26` in two.
 ///
-/// `w` is the four bytes at the site, which for the two split kinds is the
-/// instruction whose field is being relocated. A kind the target has no
+/// `w` is the four bytes at the site, which for a `Branch26` is the `b` or
+/// `bl` whose field is being relocated. A kind the target has no
 /// counterpart for is an `Err` naming both, rather than the nearest number.
 fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<u32, String> {
     if target.is_arm64() {
@@ -205,22 +207,11 @@ fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<
                     R_AARCH64_JUMP26
                 }
             }
-            // `add Xd, Xn, #imm12` is `0x91……`; `ldr Xt, [Xn, #imm12]` is
-            // `0xf94…….` The two low-12 relocations are *not* interchangeable:
-            // the load's field is scaled by eight and the add's is not, so a
-            // wrong choice here is a pool slot read from the wrong address.
-            RelKind::PageOff12 => {
-                if w & 0xffc0_0000 == 0x9100_0000 {
-                    R_AARCH64_ADD_ABS_LO12_NC
-                } else if w & 0xffc0_0000 == 0xf940_0000 {
-                    R_AARCH64_LDST64_ABS_LO12_NC
-                } else {
-                    return Err(format!(
-                        "{where_}: a low-12 relocation names {w:#010x}, which is neither \
-                         `add Xd, Xn, #imm12` nor `ldr Xt, [Xn, #imm12]`"
-                    ));
-                }
-            }
+            // The two low-12 relocations are *not* interchangeable: the
+            // load's field is scaled by eight and the add's is not, so a wrong
+            // choice here is a pool slot read from the wrong address.
+            RelKind::AddLo12 => R_AARCH64_ADD_ABS_LO12_NC,
+            RelKind::LoadLo12 => R_AARCH64_LDST64_ABS_LO12_NC,
             // A64 has no `rel32` field of any width, so neither x86-64 kind
             // can be spelled for this machine.
             RelKind::Rel32 | RelKind::Pc32 => {
@@ -680,34 +671,11 @@ mod tests {
     /// both types exist, both apply to the same field, and only one scales.
     #[test]
     fn a_low_twelve_is_split_by_its_instruction() {
-        // `add x8, x8, #0`
-        let add = r_type(
-            StencilTarget::LinuxArm64,
-            RelKind::PageOff12,
-            0x9100_0108,
-            "t",
-        )
-        .unwrap();
-        // `ldr x8, [x8]`
-        let ldr = r_type(
-            StencilTarget::LinuxArm64,
-            RelKind::PageOff12,
-            0xf940_0108,
-            "t",
-        )
-        .unwrap();
+        let of = |k| r_type(StencilTarget::LinuxArm64, k, 0, "t").unwrap();
         assert_eq!(
-            (add, ldr),
+            (of(RelKind::AddLo12), of(RelKind::LoadLo12)),
             (R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC)
         );
-        // A `str`, which no pool reference is, is refused rather than guessed.
-        assert!(r_type(
-            StencilTarget::LinuxArm64,
-            RelKind::PageOff12,
-            0xf900_0108,
-            "t"
-        )
-        .is_err());
     }
 
     /// **Neither machine's kinds may be spelled for the other**, and the refusal
@@ -719,7 +687,12 @@ mod tests {
         for k in [RelKind::Rel32, RelKind::Pc32] {
             assert!(r_type(StencilTarget::LinuxArm64, k, 0, "t").is_err());
         }
-        for k in [RelKind::Branch26, RelKind::Page21, RelKind::PageOff12] {
+        for k in [
+            RelKind::Branch26,
+            RelKind::Page21,
+            RelKind::AddLo12,
+            RelKind::LoadLo12,
+        ] {
             assert!(r_type(StencilTarget::LinuxX86_64, k, 0, "t").is_err());
         }
         // And the three x86-64 emission uses are the three psABI numbers.
