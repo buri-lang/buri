@@ -6,15 +6,11 @@
 //! and without one the suite still runs through it.
 
 use crate::hang::Capped;
-use std::path::Path;
 use std::process::Command;
 
 #[test]
 fn a_test_process_error_under_the_tool_is_reported() {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-test-processes-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = crate::sweep::owned("native-test-processes", "run");
     let repo = dir.join("repo");
     std::fs::create_dir_all(repo.join("sums/test")).unwrap();
     std::fs::write(repo.join("REPO.buri"), "").unwrap();

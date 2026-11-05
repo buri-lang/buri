@@ -138,11 +138,8 @@ fn list(root: &Path, dir: &Path, out: &mut Vec<String>) {
 }
 
 /// A fresh copy of the corpus's repository.
-fn repository(name: &str) -> PathBuf {
-    let repo = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("coverage-counts-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&repo);
+fn repository(name: &str) -> crate::sweep::Owned {
+    let repo = crate::sweep::owned("coverage-counts", name);
     let mut files = Vec::new();
     let from = corpus().join("repo");
     list(&from, &from, &mut files);

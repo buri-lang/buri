@@ -23,7 +23,7 @@
 //!   kept therefore survives that run and every run for hours after it, which is
 //!   when somebody is reading it — `cli/tests/README.md` states the contract and
 //!   this is the bound on it.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -56,6 +56,44 @@ pub fn run_name() -> String {
 pub fn once() {
     static DONE: OnceLock<()> = OnceLock::new();
     DONE.get_or_init(sweep);
+}
+
+/// One test's directory, `<tree>-<pid>/<name>` under the scratch root.
+///
+/// It goes when the test passes, so a run holds only the running tests' trees.
+/// Like a `Scratch`, it stays when the test fails or `BURI_KEEP` is set.
+pub struct Owned(PathBuf);
+
+/// A fresh, empty [`Owned`] directory.
+pub fn owned(tree: &str, name: &str) -> Owned {
+    once();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("{tree}-{}", std::process::id()))
+        .join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    Owned(dir)
+}
+
+impl std::ops::Deref for Owned {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Owned {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        if !std::thread::panicking() && std::env::var_os("BURI_KEEP").is_none() {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 }
 
 fn sweep() {
@@ -107,6 +145,34 @@ fn sweep_dir(root: &Path, stale: Duration) {
 #[cfg(test)]
 mod sweep_tests {
     use super::*;
+
+    /// A test's own tree goes when the test passes, and stays when it fails.
+    ///
+    /// Nothing else takes it inside the run, and on Linux the native suite's
+    /// trees came to 10 GB, which filled the x86_64 `release` job's disk (run
+    /// 42000871073).
+    #[test]
+    fn a_tree_goes_when_its_test_passes_and_stays_when_it_fails() {
+        let passed = owned("sweep-owned-test", "passed");
+        std::fs::write(passed.join("file"), b"x").unwrap();
+        let path = passed.to_path_buf();
+        drop(passed);
+        assert!(!path.exists(), "a passing test's tree was kept");
+
+        let failed = std::thread::spawn(|| {
+            let tree = owned("sweep-owned-test", "failed");
+            let path = tree.to_path_buf();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let _tree = tree;
+                panic!("a failing test");
+            }));
+            path
+        })
+        .join()
+        .unwrap();
+        assert!(failed.is_dir(), "a failing test's tree was taken");
+        let _ = std::fs::remove_dir_all(failed.parent().unwrap());
+    }
 
     /// The rule, both ways round: a tree nothing has written to for longer than
     /// the bound is taken, and one that is younger than it is left.

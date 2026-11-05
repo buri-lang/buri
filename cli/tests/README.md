@@ -489,8 +489,9 @@ test leaves its own regardless: a failing test's evidence is the directory it
 failed in.
 
 A run also sweeps that directory once, before it makes its first tree
-(`harness/sweep.rs`). Most scratch removes itself when its `Scratch` drops. The
-native suites' per-process trees — `native-stencil-<pid>` and its siblings,
+(`harness/sweep.rs`). Most scratch removes itself when its `Scratch` drops, and
+a native test's own directory (`sweep::owned`) when the test passes. The
+native suites' shared per-process trees — `native-stencil-<pid>` and its siblings,
 about 180 MB a run — are named for the process so two overlapping runs cannot
 share one, and nothing deletes them; fourteen gigabytes of them filled a disk
 twice. The sweep takes only what has not been written to for **two hours**,

@@ -6,17 +6,11 @@
 //! Each run is a real `buri test` over a repository, under the heap check, on
 //! JavaScript and on every native backend this toolchain has built in.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-fn workspace(name: &str) -> PathBuf {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-odd-sizes-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn workspace(name: &str) -> crate::sweep::Owned {
+    crate::sweep::owned("native-odd-sizes", name)
 }
 
 fn write(at: &Path, body: &str) {

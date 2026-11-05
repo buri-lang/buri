@@ -7,7 +7,7 @@
 //! of it that `coverage_agrees` leaves on JavaScript run here.
 
 use crate::hang::CappedChild;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 fn copy(from: &Path, to: &Path) {
@@ -27,13 +27,8 @@ fn copy(from: &Path, to: &Path) {
 }
 
 /// A fresh directory for `name`, under this process's own.
-fn scratch(name: &str) -> PathBuf {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-release-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    dir
+fn scratch(name: &str) -> crate::sweep::Owned {
+    crate::sweep::owned("native-release", name)
 }
 
 /// `buri test --release` over `targets` in `repo`, which must pass whole.
@@ -317,7 +312,7 @@ fn count_fn(i: usize, extra: bool) -> String {
 /// A repository whose binary `//cmd/app` calls `count{i}` for each of
 /// `modules`, a list of the functions each library module holds, by `i` and
 /// whether it drops an `Extra`. It prints their sum.
-fn shared_rows(name: &str, modules: &[Vec<(usize, bool)>]) -> PathBuf {
+fn shared_rows(name: &str, modules: &[Vec<(usize, bool)>]) -> crate::sweep::Owned {
     let repo = scratch(name);
     let release = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release");
     std::fs::create_dir_all(&repo).unwrap();

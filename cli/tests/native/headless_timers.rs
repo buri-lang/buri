@@ -8,17 +8,11 @@
 //!
 //! Each run is a real `buri test` over a repository, under the heap check.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-fn workspace(name: &str) -> PathBuf {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-headless-timers-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn workspace(name: &str) -> crate::sweep::Owned {
+    crate::sweep::owned("native-headless-timers", name)
 }
 
 fn write(at: &Path, body: &str) {

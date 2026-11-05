@@ -5,17 +5,11 @@
 //! Each run is a real `buri test` over a repository, under the heap check, on
 //! JavaScript and on every native backend this toolchain has built in.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-fn workspace(name: &str) -> PathBuf {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-hand-written-impls-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn workspace(name: &str) -> crate::sweep::Owned {
+    crate::sweep::owned("native-hand-written-impls", name)
 }
 
 fn write(at: &Path, body: &str) {
@@ -26,7 +20,7 @@ fn write(at: &Path, body: &str) {
 }
 
 /// A repository holding one library, `//lib`, whose test source is `test`.
-pub(crate) fn repository(name: &str, test: &str) -> PathBuf {
+pub(crate) fn repository(name: &str, test: &str) -> crate::sweep::Owned {
     let repo = workspace(name);
     write(&repo.join("REPO.buri"), "");
     write(

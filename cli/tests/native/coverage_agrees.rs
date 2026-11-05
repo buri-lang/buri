@@ -10,7 +10,7 @@
 //! next one. The corpus holds that case in `semantics/conditions.buri`.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// Each coverage mode, against the run without one.
@@ -18,12 +18,8 @@ const MODES: [&[&str]; 3] = [&[], &["--coverage"], &["--coverage=mcdc"]];
 
 /// A copy of the corpus at `name`, with every package the native set can build
 /// moved to the native backends when `native`.
-fn corpus(name: &str, native: bool) -> PathBuf {
-    crate::sweep::once();
-    let repo = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-coverage-agrees-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&repo);
+fn corpus(name: &str, native: bool) -> crate::sweep::Owned {
+    let repo = crate::sweep::owned("native-coverage-agrees", name);
     copy(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"),
         &repo,

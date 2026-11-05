@@ -11,17 +11,11 @@
 //! JavaScript runs a scope's tasks after its body everywhere, so it isn't run
 //! here.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
-fn workspace(name: &str) -> PathBuf {
-    crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-own-scheduler-{}", std::process::id()))
-        .join(name);
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+fn workspace(name: &str) -> crate::sweep::Owned {
+    crate::sweep::owned("native-own-scheduler", name)
 }
 
 fn write(at: &Path, body: &str) {
