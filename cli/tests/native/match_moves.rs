@@ -397,8 +397,8 @@ test "every arm of a match on a value it built" {
     passes("built", test, 1);
 }
 
-/// The last element of a list, carried through the walk, against the sum of
-/// every element's length.
+/// The last element of a list of one shared `Str`, carried through the walk,
+/// against the same walk carrying what it started with.
 const LASTS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -412,15 +412,15 @@ fn last(xs: [Str], at: Int, seen: Str): Str {
     }
 }
 
-fn lengths(xs: [Str], at: Int, acc: Int): Int {
+fn skipped(xs: [Str], at: Int, seen: Str): Str {
     match (xs.get(at)) {
-        .None => acc,
-        .Some(x) => lengths(xs, at + 1, acc + x.length()),
+        .None => seen,
+        .Some(_) => skipped(xs, at + 1, seen),
     }
 }
 
-fn filled<C: Allocator>(ctx: C, k: Int, acc: [Str]): [Str] {
-    if (k == 0) { acc } else { filled(ctx, k - 1, acc.push(ctx, "ab".repeat(ctx, k % 3 + 1))) }
+fn filled<C: Allocator>(ctx: C, x: Str, k: Int, acc: [Str]): [Str] {
+    if (k == 0) { acc } else { filled(ctx, x, k - 1, acc.push(ctx, x)) }
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
@@ -428,11 +428,11 @@ export fn main(host: NativeHost): Result<(), Str> {
   let args = env.arguments(ctx);
   let ops = args[1].andThen(fn(s) => s.toInt()).withDefault(0);
   let mode = args.first().withDefault("none");
-  let xs = filled(ctx, ops, []);
+  let xs = filled(ctx, "ab".repeat(ctx, 2), ops, []);
   let answer = if (mode == "last") {
     last(xs, 0, "").length() * ops
-  } else if (mode == "lengths") {
-    lengths(xs, 0, 0) - ops * 2
+  } else if (mode == "skipped") {
+    skipped(xs, 0, "abc").length() * ops
   } else {
     0
   };
@@ -442,13 +442,13 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// **Keeping part of a value the match built costs no extra count.** Each
 /// element `last` kept took a count of its own and the `Option` it came in
-/// was released after the arm: a retain and a release a step that `lengths`,
-/// which only reads each element, doesn't pay: 108 instructions a step
-/// against 142 on the copy-and-patch backend, and 29 against 27 on LLVM.
-/// Taking the `Option` apart is 76 and 17.
+/// was released after the arm, a retain and a release a step more than
+/// `skipped`, which keeps nothing: 112 instructions against 75 on the
+/// copy-and-patch backend. Taken apart, `last` is 78. LLVM is 26 against 22
+/// either way.
 #[test]
 fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
-    const STEPS: u64 = 99_999;
+    const STEPS: u64 = 500_000;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("lasts", LASTS);
@@ -462,22 +462,22 @@ fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
             STEPS,
             &format!("{}\n", STEPS * 4),
         );
-        let (lengths, _) = per_op(
+        let (skipped, _) = per_op(
             backend,
             &binary,
-            "lengths",
+            "skipped",
             &args,
             STEPS,
-            &format!("{}\n", STEPS * 2),
+            &format!("{}\n", STEPS * 3),
         );
-        eprintln!("{backend}: last {last:?}, lengths {lengths:?} instructions a step");
-        let (Some(last), Some(lengths)) = (last, lengths) else {
+        eprintln!("{backend}: last {last:?}, skipped {skipped:?} instructions a step");
+        let (Some(last), Some(skipped)) = (last, skipped) else {
             continue;
         };
-        if last * 4 > lengths * 3 {
+        if last > skipped + 10 {
             failures.push(format!(
-                "{backend}: keeping an element is {last} instructions a step against {lengths} \
-                 for reading it"
+                "{backend}: keeping an element is {last} instructions a step against {skipped} \
+                 for keeping none"
             ));
         }
     }

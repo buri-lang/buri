@@ -3651,7 +3651,7 @@ impl Scan<'_> {
             && (fresh(scrutinee) || compound(scrutinee))
             && self.counted_ty(&scrutinee.ty.clone())
             && arms.iter().all(|a| {
-                a.guard.is_none() && (!binds_something(&a.pattern) || self.takes_apart(&a.pattern))
+                a.guard.is_none() && (!binds_something(&a.pattern) || self.apart(&a.pattern))
             }))
         .then(|| self.child(id, 0));
         // A scrutinee that is a **projection of a local** binds payloads that
@@ -3997,7 +3997,7 @@ impl Scan<'_> {
             && !self.opts.sharing
             && a.guard.is_none()
             && binds_something(&a.pattern)
-            && self.takes_apart(&a.pattern);
+            && self.apart(&a.pattern);
         if moves {
             self.taken_apart.push(bid);
             for b in &bound {
@@ -4025,6 +4025,17 @@ impl Scan<'_> {
         for b in &bound {
             live.remove(b);
         }
+    }
+
+    /// Whether an arm with pattern `p` takes its scrutinee apart. Not past a
+    /// few names: each is released on every path out of the arm that is done
+    /// with it, so a wide pattern over a long `else if` chain grew the code
+    /// quadratically where one release of the whole value did.
+    fn apart(&mut self, p: &Pattern) -> bool {
+        let mut names: Vec<LocalId> = Vec::new();
+        p.binds(&mut names);
+        names.retain(|n| self.is_counted(*n));
+        names.len() <= 4 && self.takes_apart(p)
     }
 
     /// Whether `p` gives every counted value under it exactly one name, read
