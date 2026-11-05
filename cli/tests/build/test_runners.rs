@@ -10,8 +10,10 @@ use crate::harness::*;
 
 const ONE: &str = "export fn one(): Int {\n    1\n}\n";
 
+/// `first` is the longer test, so a process is handed it first and `second`
+/// after it, in the order they're declared.
 const TWO_TESTS: &str = "from \"core/testing/assert\" import * as assert;\n\n\
-     test \"first\" {\n    assert.isTrue(true);\n}\n\n\
+     test \"first\" {\n    assert.equal(1 + 1, 2);\n}\n\n\
      test \"second\" {\n    assert.isTrue(true);\n}\n";
 
 /// `//lib/a`, a plain suite, and `//lib/t`, one with a timeout.
@@ -259,13 +261,18 @@ fn a_test_binary_failure_elsewhere_fails_the_block_it_was_running() {
          fi\n\
          echo '{\"i\":99,\"message\":\"elsewhere\"}'\nexit 5\n",
     );
-    under(&scratch, &runner, |run, suite| {
+    // One job, so the one process is handed both blocks.
+    for suite in ["//lib/a", "//lib/t"] {
+        let run = scratch.run_with_env(
+            &["test", suite, "--force", "--jobs=1"],
+            &[("BURI_TEST_RUNNER", &runner), LINKED],
+        );
         run.exits(1)
             .says(&format!("FAIL {suite}  test/t.buri  \"second\""))
             .says("  the run exited 5")
             .says("test/t.buri:7:1")
             .says("1 passed, 1 failed, 0 skipped");
-    });
+    }
 }
 
 /// A runner that isn't there, or can't be run, fails each suite with why.

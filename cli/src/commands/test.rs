@@ -5517,9 +5517,9 @@ fn run_pulled(
             {
                 Some(((block, at), pipe)) => {
                     last = Some(at);
-                    if let Some((name, _)) = spec.tests.get(at) {
-                        crate::build::counted::handed(&spec.label, name);
-                    }
+                    // `tests` has an entry for each of the member's blocks.
+                    let name = spec.tests.get(at).map_or("", |(name, _)| name.as_str());
+                    crate::build::counted::handed(&spec.label, name);
                     // A write to a process that has just died fails, and
                     // its status below says how it ended.
                     let _ = writeln!(pipe, "{block}");

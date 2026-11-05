@@ -1,0 +1,12 @@
+# A page whose repository has two programs on the `web` platform, each
+# handed the platform's one `main.mjs`. The repository builds, so the
+# page passes `buri docs test`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a page's repository builds two programs on one platform"
+
+run {
+  args: ["docs", "test", "page.md"]
+  exit: 0
+}
