@@ -327,15 +327,45 @@ fn parse(lcov: &str) -> Modules {
     modules
 }
 
-/// Where two runs counted a module differently, record by record.
+/// Where two runs counted a module differently, record by record: the
+/// module's totals, then the first few branches whose counts differ.
 fn disagree((one, a): &(&str, Modules), (two, b): &(&str, Modules)) -> Vec<String> {
+    const SHOWN: usize = 20;
     let names: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
     names
         .into_iter()
         .filter(|module| a.get(*module) != b.get(*module))
         .map(|module| {
-            let (x, y) = (a.get(module).map(Stats::of), b.get(module).map(Stats::of));
-            format!("{module}: {one} {} and {two} {}", show(x), show(y))
+            let (ma, mb) = (a.get(module), b.get(module));
+            let (x, y) = (ma.map(Stats::of), mb.map(Stats::of));
+            let count = |m: Option<&Module>, key| match m.and_then(|m| m.branches.get(key)) {
+                Some(Some(n)) => n.to_string(),
+                Some(None) => "-".to_string(),
+                None => "nothing".to_string(),
+            };
+            let keys: BTreeSet<_> = ma
+                .into_iter()
+                .chain(mb)
+                .flat_map(|m| m.branches.keys())
+                .collect();
+            let differ: Vec<String> = keys
+                .into_iter()
+                .filter(|k| count(ma, k) != count(mb, k))
+                .take(SHOWN)
+                .map(|k @ (line, block, branch)| {
+                    format!(
+                        "\n    line {line}, block {block}, branch {branch}: {one} {} and {two} {}",
+                        count(ma, k),
+                        count(mb, k)
+                    )
+                })
+                .collect();
+            format!(
+                "{module}: {one} {} and {two} {}{}",
+                show(x),
+                show(y),
+                differ.concat()
+            )
         })
         .collect()
 }
@@ -688,5 +718,17 @@ mod tests {
         );
         assert!(!merged.contains_key("lib/x.buri"));
         assert_eq!(disagree(&("one", a), &("two", b)).len(), 1);
+    }
+
+    #[test]
+    fn a_disagreement_names_the_records_that_differ() {
+        let a = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,4\n");
+        let b = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,6\n");
+        let said = disagree(&("one", a), &("two", b));
+        assert!(
+            said[0].contains("line 9, block 1, branch Less: one 4 and two 6"),
+            "{said:?}"
+        );
+        assert!(!said[0].contains("line 3"), "{said:?}");
     }
 }
