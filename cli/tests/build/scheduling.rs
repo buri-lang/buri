@@ -684,3 +684,156 @@ fn a_runner_killed_with_no_test_in_hand_is_run_again() {
     assert!(run.capped_wait().unwrap().success(), "{}", held.printed());
     assert!(held.printed().contains("2 passed"), "{}", held.printed());
 }
+
+/// Three suites of uneven size, `//lib/many` with the most tests and
+/// `//lib/few` with the fewest, and tests of uneven length in each. Two of
+/// them fail, one of them the longest test of the largest suite.
+fn uneven(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    let tests = [
+        (
+            "few",
+            "test \"few passes\" {\n  assert.equal(one(), 1);\n}\n",
+        ),
+        (
+            "many",
+            "test \"many short\" {\n  assert.equal(one(), 1);\n}\n\n\
+             test \"many longest fails\" {\n  let two = one() + one();\n  let three = two + one();\n  \
+             assert.equal(two, 2);\n  assert.equal(three, 3);\n  assert.equal(three + one(), 5);\n}\n\n\
+             test \"many middle\" {\n  let two = one() + one();\n  assert.equal(two, 2);\n}\n",
+        ),
+        (
+            "some",
+            "test \"some fails\" {\n  assert.equal(one(), 2);\n}\n\n\
+             test \"some longer\" {\n  let two = one() + one();\n  assert.equal(two, 2);\n}\n",
+        ),
+    ];
+    for (lib, body) in tests {
+        scratch.write(
+            &format!("lib/{lib}/BUILD.buri"),
+            &format!("library {{\n  test {{ sources: [\"test/{lib}.buri\"] }}\n}}\n"),
+        );
+        scratch.write(
+            &format!("lib/{lib}/lib.buri"),
+            "export fn one(): Int { 1 }\n",
+        );
+        scratch.write(
+            &format!("lib/{lib}/test/{lib}.buri"),
+            &format!(
+                "from \"//lib/{lib}\" import {{ one }};\n\
+                 from \"core/testing/assert\" import * as assert;\n\n{body}"
+            ),
+        );
+    }
+    scratch
+}
+
+/// **Suites of uneven size report in label order, and each suite's tests in
+/// the order they're declared**, whichever ran first and however many run at
+/// once. The failures read the same as well, the one in the longest test of
+/// the largest suite included.
+#[test]
+fn uneven_suites_report_in_label_and_declared_order() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = uneven("uneven-order");
+    let report = |args: &[&str]| {
+        let run = scratch.run(args);
+        run.heap_ok();
+        let lines: Vec<String> = run
+            .stdout
+            .lines()
+            .map(|l| {
+                if l.contains(" passed, ") {
+                    l.split(" (").next().unwrap_or(l).to_string()
+                } else {
+                    blank_test_time(l)
+                }
+            })
+            .collect();
+        (run.code, lines.join("\n"), run.stderr.clone())
+    };
+    let failures = "\
+FAIL //lib/many  test/many.buri  \"many longest fails\"
+  assert.equal failed
+    actual:   4
+    expected: 5
+  --> lib/many/test/many.buri:8:1
+FAIL //lib/some  test/some.buri  \"some fails\"
+  assert.equal failed
+    actual:   1
+    expected: 2
+  --> lib/some/test/some.buri:4:1
+";
+    let list = "\
+//lib/few  native  1 test  <time>  built with others
+  ok    few.buri  few passes  <time>
+//lib/many  native  3 tests  <time>  built with others
+  ok    many.buri  many short          <time>
+  FAIL  many.buri  many longest fails  <time>
+  ok    many.buri  many middle         <time>
+//lib/some  native  2 tests  <time>  built with others
+  FAIL  some.buri  some fails   <time>
+  ok    some.buri  some longer  <time>
+shared build  <time>
+";
+    for jobs in ["--jobs=1", "--jobs=3"] {
+        let plain = report(&["test", "//...", "--force", "--color=never", jobs]);
+        assert_eq!(
+            plain,
+            (
+                1,
+                format!("{failures}\n4 passed, 2 failed, 0 skipped"),
+                String::new()
+            ),
+            "{jobs}"
+        );
+        let verbose = report(&[
+            "test",
+            "//...",
+            "--force",
+            "--verbose",
+            "--color=never",
+            jobs,
+        ]);
+        assert_eq!(
+            verbose,
+            (
+                1,
+                format!("{list}\n{failures}\n4 passed, 2 failed, 0 skipped"),
+                String::new()
+            ),
+            "{jobs}"
+        );
+    }
+}
+
+/// **The suite with the most tests is handed out first, and each suite's
+/// longest tests before its shorter ones**, so the tests likeliest to take
+/// longest start while the other suites can still fill the slots beside them.
+/// One job at a time, `BURI_PROFILE` lists the order exactly.
+#[test]
+fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = uneven("uneven-handed");
+    let run = scratch.run_with_env(&["test", "//...", "--jobs=1"], &[("BURI_PROFILE", "1")]);
+    run.exits(1);
+    let handed = run
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("first tests handed out: "))
+        .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
+    assert_eq!(
+        handed,
+        "//lib/many \"many longest fails\", //lib/many \"many middle\", \
+         //lib/many \"many short\", //lib/some \"some longer\", \
+         //lib/some \"some fails\", //lib/few \"few passes\"",
+        "{}",
+        indent(&run.all())
+    );
+}

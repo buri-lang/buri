@@ -61,6 +61,13 @@ static COUNTS: [AtomicU64; COUNTS_LEN] = [const { AtomicU64::new(0) }; COUNTS_LE
 /// Executables this run wrote as new files and has not started yet.
 static FRESH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
+/// The first [`HANDED_KEPT`] tests handed to a native test process, as
+/// `<label> "<test>"`, in the order they were handed out.
+static HANDED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// How many of the first tests handed out the profile names.
+const HANDED_KEPT: usize = 10;
+
 pub fn add(count: Count) {
     add_n(count, 1);
 }
@@ -130,11 +137,29 @@ pub fn started(program: &std::ffi::OsStr) {
     }
 }
 
-/// One `<name> <count>` line per count, for the profile report.
+/// Notes that the test `name` of the suite `label` was handed to a native
+/// test process, which shows the order a run started its tests in.
+pub fn handed(label: &str, name: &str) {
+    if !crate::profile::enabled() {
+        return;
+    }
+    let mut handed = HANDED.lock().unwrap_or_else(PoisonError::into_inner);
+    if handed.len() < HANDED_KEPT {
+        handed.push(format!("{label} \"{name}\""));
+    }
+}
+
+/// One `<name> <count>` line per count, for the profile report, then the first
+/// tests handed out, when any were.
 pub fn lines() -> String {
-    NAMES
+    let mut out: String = NAMES
         .iter()
         .zip(&COUNTS)
         .map(|(name, n)| format!("{name} {}\n", n.load(Relaxed)))
-        .collect()
+        .collect();
+    let handed = HANDED.lock().unwrap_or_else(PoisonError::into_inner);
+    if !handed.is_empty() {
+        out.push_str(&format!("first tests handed out: {}\n", handed.join(", ")));
+    }
+    out
 }

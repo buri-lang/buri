@@ -275,8 +275,11 @@ struct QueueState<J> {
     /// Each job with the bytes it holds, `0` for a light one.
     jobs: std::collections::VecDeque<(J, u64)>,
     /// Light jobs that run what is already built, taken only when no job in
-    /// `jobs` can be ([`Queue::push_later`]).
-    later: std::collections::VecDeque<J>,
+    /// `jobs` can be ([`Queue::push_later`]): by rank, highest first, and in
+    /// the order queued within a rank.
+    later: std::collections::BTreeMap<(std::cmp::Reverse<u64>, u64), J>,
+    /// How many jobs [`Queue::push_later`] has queued, which orders a rank.
+    queued_later: u64,
     /// The bytes the heavy jobs holding a program are expected to hold.
     held: u64,
     closed: bool,
@@ -328,22 +331,21 @@ impl<J> Queue<J> {
     /// Queues a light job that runs something already built, such as a test
     /// binary. It is taken only when no job [`Queue::push`] queued can be, so
     /// everything waiting to be built is built — and linked — first, and the
-    /// runs fill the workers the builds leave idle. `first` puts it ahead of
-    /// the other runs: it finishes work already started.
-    pub fn push_later(&self, job: J, first: bool) {
+    /// runs fill the workers the builds leave idle. A higher `rank` goes
+    /// ahead of the runs queued with a lower one, and behind those queued
+    /// with its own.
+    pub fn push_later(&self, job: J, rank: u64) {
         let mut state = self.lock();
-        if first {
-            state.later.push_front(job);
-        } else {
-            state.later.push_back(job);
-        }
+        let order = state.queued_later;
+        state.queued_later = order.saturating_add(1);
+        state.later.insert((std::cmp::Reverse(rank), order), job);
         drop(state);
         self.ready.notify_one();
     }
 
     /// The first job a worker may start: the first light one, or the first
     /// heavy one the budget has room for, whichever is queued first; and only
-    /// when there is neither, the first run.
+    /// when there is neither, the highest-ranked run.
     fn take(&self) -> Option<(J, Held<'_>)> {
         let mut state = self.lock();
         loop {
@@ -361,7 +363,7 @@ impl<J> Queue<J> {
                     },
                 ));
             }
-            if let Some(job) = state.later.pop_front() {
+            if let Some((_, job)) = state.later.pop_first() {
                 return Some((job, Held { room: None }));
             }
             if state.closed {
@@ -406,7 +408,8 @@ where
     let queue = Queue {
         state: std::sync::Mutex::new(QueueState {
             jobs: std::collections::VecDeque::new(),
-            later: std::collections::VecDeque::new(),
+            later: std::collections::BTreeMap::new(),
+            queued_later: 0,
             held: 0,
             closed: false,
         }),

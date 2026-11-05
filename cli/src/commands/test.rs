@@ -1899,7 +1899,8 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
             std::sync::Arc::new(sheet),
             ran_at(&shared.root, &binary),
         )),
-        alone: Some(label),
+        label,
+        alone: true,
         build,
     };
     if spec.limit.is_some() {
@@ -1981,7 +1982,7 @@ fn run_alone(
         limit,
         ..
     } = *spec;
-    let label = spec.alone.as_deref().unwrap_or_default();
+    let label = spec.label.as_str();
     if paints {
         shared.claim_waiting(snapshot_dir, slot);
     }
@@ -2258,9 +2259,9 @@ fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> u
 /// Runs a suite's bundle: in this job, when it is one process, and otherwise
 /// in processes that each pull tests one at a time ([`run_js_pulled`]).
 ///
-/// The second way is the native runner's ([`queue_members`]): one job at the
-/// front of the runs, and helpers at the back that start another process only
-/// if tests are still waiting when a worker reaches them.
+/// The second way is the native runner's ([`queue_members`]): jobs ranked by
+/// how many tests the suite has, each starting another process only if tests
+/// are still waiting when a worker reaches it.
 fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
     let processes = js_processes(suite.roots.len(), suite.run.limit, &shared.flags);
     if processes == 1 {
@@ -2279,10 +2280,12 @@ fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
             ..JsGathered::default()
         }),
     });
+    // Ranked as a native member is ([`queue_members`]).
+    let rank = u64::try_from(tests).unwrap_or(u64::MAX);
     for _ in 1..processes {
-        queue.push_later(Job::Js(std::sync::Arc::clone(&pulled)), false);
+        queue.push_later(Job::Js(std::sync::Arc::clone(&pulled)), rank);
     }
-    queue.push_later(Job::Js(pulled), true);
+    queue.push_later(Job::Js(pulled), rank);
     Done::Progress
 }
 
@@ -3445,7 +3448,7 @@ fn rerun(
                         bundled: *bundled,
                         run,
                     })),
-                    false,
+                    0,
                 );
                 continue;
             }
@@ -3476,7 +3479,8 @@ fn rerun(
             limit,
             on_timeout: timed_out(session, target, &suite),
             remember: None,
-            alone: None,
+            label: session.workspace.label(target),
+            alone: false,
             build: None,
         };
         match found.iter_mut().find(|(j, ..)| j.link == link) {
@@ -4847,7 +4851,8 @@ fn submit_group(
                     limit: None,
                     on_timeout: Diagnostics::new(),
                     remember: None,
-                    alone: None,
+                    label: info.labels.get(i)?.clone(),
+                    alone: false,
                     build: None,
                 },
             ))
@@ -4937,11 +4942,13 @@ struct MemberSpec {
         std::sync::Arc<String>,
         std::path::PathBuf,
     )>,
-    /// The suite's label, when the binary is its own and was just linked
+    /// The suite's label.
+    label: String,
+    /// Whether the binary is the suite's own and was just linked
     /// ([`run_solo`]). A process that ends without a verdict then runs the
     /// suite again one process at a time ([`run_alone`]), rather than sending
     /// it back to be built alone, which is where it already is.
-    alone: Option<String>,
+    alone: bool,
     /// How the member was built, or put back, for this run.
     build: Option<Build>,
 }
@@ -5016,18 +5023,23 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
 /// them** ([`run_pulled`]), so a member is one process unless it is worth more.
 /// All of it is queued behind every build ([`crate::parallel::Queue::push_later`]),
 /// so no binary waits to be linked while another is run. Each member gets one
-/// job at the front of the runs, because it finishes work already paid for, and
-/// up to `width - 1` helpers at the back. A helper starts another process for
-/// the member only if blocks are still waiting when a worker reaches it, which
-/// is when nothing queued ahead of it needed the worker: a long suite run alone
-/// is spread over the machine, and a pass with work to spare does not pay a
-/// launch per few blocks.
+/// job, and up to `width - 1` helpers behind it. A helper starts another
+/// process for the member only if blocks are still waiting when a worker
+/// reaches it: a long suite is spread over the machine, and a short one does
+/// not pay a launch per few blocks.
+///
+/// **The slowest work goes first**, so it doesn't start last and run on while
+/// every other slot is idle. Nothing has timed a cold run's tests, so size
+/// stands in for time: a member's jobs are ranked by how many tests it has, and
+/// each of its processes starts at its longest waiting test, by the length of
+/// the test's source ([`starts_of`]). Only the schedule moves. Each block keeps
+/// its number, so verdicts are reported in block order whichever ran first.
 ///
 /// A suite with a `timeout_seconds` has one job: a limit bounds the suite's
 /// one process, so it is not divided between several. So does a suite that
-/// paints: two blocks that name one snapshot share its file, and the later
-/// block's picture is the one `--update` keeps (the user-interfaces guide),
-/// which needs an order between them.
+/// paints, whose blocks also run in order: two blocks that name one snapshot
+/// share its file, and the later block's picture is the one `--update` keeps
+/// (the user-interfaces guide), which needs an order between them.
 fn queue_members(
     binary: actions::TestBinary,
     sheet: Option<String>,
@@ -5036,38 +5048,56 @@ fn queue_members(
     width: usize,
 ) {
     let binary = std::sync::Arc::new(binary);
-    // Reversed, because each first job goes to the front: the first member
-    // runs first.
-    for (spec, seeds) in members.into_iter().rev() {
+    for (spec, seeds) in members {
+        let ordered = spec.limit.is_some() || spec.paints;
         let blocks: Vec<usize> = spec
             .ranges
             .iter()
             .flat_map(|&(from, to)| from..to)
             .collect();
-        let helpers = if spec.limit.is_some() || spec.paints {
+        let starts = if ordered {
+            (0..blocks.len()).collect()
+        } else {
+            starts_of(&spec.roots, blocks.len())
+        };
+        let jobs = if ordered {
             1
         } else {
             blocks.len().clamp(1, width.max(1))
         };
+        let rank = u64::try_from(blocks.len()).unwrap_or(u64::MAX);
         let spec = std::sync::Arc::new(spec);
         let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
+            taken: vec![false; blocks.len()],
             blocks,
+            starts,
             ..Gathered::default()
         }));
-        let job = || {
-            Job::Member(MemberJob {
+        for _ in 0..jobs {
+            let job = Job::Member(MemberJob {
                 binary: std::sync::Arc::clone(&binary),
                 seeds: std::sync::Arc::clone(&seeds),
                 sheet: sheet.clone(),
                 spec: std::sync::Arc::clone(&spec),
                 gathered: std::sync::Arc::clone(&gathered),
-            })
-        };
-        for _ in 1..helpers {
-            queue.push_later(job(), false);
+            });
+            queue.push_later(job, rank);
         }
-        queue.push_later(job(), true);
     }
+}
+
+/// The positions of a member's `count` blocks, longest test first: by the
+/// length of the source of the test at that position in `roots`. Tests of one
+/// length keep their order.
+fn starts_of(roots: &[Root], count: usize) -> Vec<usize> {
+    let length = |at: usize| {
+        roots
+            .get(at)
+            .map_or(0, |r| r.span.end.saturating_sub(r.span.start))
+    };
+    let mut starts: Vec<usize> = (0..count).collect();
+    starts.sort_by_key(|&at| std::cmp::Reverse(length(at)));
+    starts
 }
 
 /// One of the jobs running one member's blocks, in its group's binary. The
@@ -5086,6 +5116,10 @@ struct MemberJob {
 struct Gathered {
     /// The member's blocks, in the binary's numbering, in order.
     blocks: Vec<usize>,
+    /// Positions in `blocks`, in the order a process starts at them.
+    starts: Vec<usize>,
+    /// Which of `blocks` have been handed to a process, by position.
+    taken: Vec<bool>,
     /// How many of `blocks` have been handed to a process.
     handed: usize,
     /// The member's processes still running.
@@ -5112,14 +5146,25 @@ impl Gathered {
         !self.failed && !self.timed_out && self.handed < self.blocks.len()
     }
 
-    /// The next block to hand a process, if any is waiting.
-    fn claim(&mut self) -> Option<usize> {
+    /// The next block to hand a process, with its position in the member:
+    /// the first one [`Gathered::starts`] names that is waiting, or, for a
+    /// process last handed the block at `after`, the next waiting one after
+    /// it. A process enters its blocks in program order and can't go back to
+    /// one it passed (`cli/runtime/testing.rs`'s `handed_this`), so `None`
+    /// there ends the process, and the next one starts again.
+    fn claim(&mut self, after: Option<usize>) -> Option<(usize, usize)> {
         if !self.waiting() {
             return None;
         }
-        let block = self.blocks.get(self.handed).copied();
+        let free = |at: &usize| self.taken.get(*at) == Some(&false);
+        let at = match after {
+            None => self.starts.iter().copied().find(free),
+            Some(last) => (last.saturating_add(1)..self.blocks.len()).find(free),
+        }?;
+        let block = *self.blocks.get(at)?;
+        *self.taken.get_mut(at)? = true;
         self.handed += 1;
-        block
+        Some((block, at))
     }
 
     /// What one process reported.
@@ -5162,7 +5207,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         // Another suite is painting there. Back of the queue, rather than a
         // worker held waiting.
         std::thread::sleep(Duration::from_millis(20));
-        queue.push_later(Job::Member(job), false);
+        queue.push_later(Job::Member(job), 0);
         return Done::Progress;
     }
     // Until the first process reaches a block, or shows the binary cannot
@@ -5197,7 +5242,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
                 }
                 all.running += 1;
             }
-            let ran = run_pulled(&program, &gathered, &seeds, &snapshots);
+            let ran = run_pulled(&program, &spec, &gathered, &seeds, &snapshots);
             gathered_of(&gathered).take(ran);
         }
     }
@@ -5216,16 +5261,13 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     }
     drop(all);
     match answer_member(&gathered, &spec, shared) {
-        Done::Abandoned { .. } if spec.alone.is_some() => {
+        Done::Abandoned { .. } if spec.alone => {
             // A binary that could not start once would not start again.
             let not_started = gathered_of(&gathered).not_started.take();
             match not_started {
                 Some(how) => Done::Answer {
                     slot: spec.slot,
-                    answer: Err(the_binary_did_not_start(
-                        spec.alone.as_deref().unwrap_or_default(),
-                        &how,
-                    )),
+                    answer: Err(the_binary_did_not_start(&spec.label, &how)),
                     explain: String::new(),
                     notes: String::new(),
                     built: None,
@@ -5379,6 +5421,7 @@ enum Pulled {
 /// that block never wrote its `left` line.
 fn run_pulled(
     program: &str,
+    spec: &MemberSpec,
     gathered: &std::sync::Mutex<Gathered>,
     seeds: &str,
     snapshots: &[(&str, String)],
@@ -5407,6 +5450,8 @@ fn run_pulled(
     let mut verdicts: Vec<(usize, Block)> = Vec::new();
     let mut reached = false;
     let mut held: Option<usize> = None;
+    // Where in the member the block last handed over is.
+    let mut last: Option<usize> = None;
     let mut returned = false;
     let mut asked = false;
     // A block was handed over and never reported before the next was asked for.
@@ -5432,9 +5477,13 @@ fn run_pulled(
             // Nothing is claimed once the input is closed.
             match input
                 .as_mut()
-                .and_then(|pipe| Some((gathered_of(gathered).claim()?, pipe)))
+                .and_then(|pipe| Some((gathered_of(gathered).claim(last)?, pipe)))
             {
-                Some((block, pipe)) => {
+                Some(((block, at), pipe)) => {
+                    last = Some(at);
+                    if let Some((name, _)) = spec.tests.get(at) {
+                        crate::build::counted::handed(&spec.label, name);
+                    }
                     // A write to a process that has just died fails, and
                     // its status below says how it ended.
                     let _ = writeln!(pipe, "{block}");
