@@ -3,18 +3,18 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 14974 15087 99.25%
+total 14971 15079 99.28%
 area cli/build 1684 1691 99.59%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
-area cli/lint 578 580 99.66%
-area cli/other 540 552 97.83%
+area cli/lint 571 572 99.83%
+area cli/other 539 550 98.00%
 area cli/run 58 58 100.00%
-area cli/serve+watch 69 70 98.57%
-area cli/test 497 514 96.69%
+area cli/serve+watch 68 68 100.00%
+area cli/test 499 514 97.08%
 area crates/backend 68 68 100.00%
-area crates/diagnostics 193 194 99.48%
+area crates/diagnostics 197 198 99.49%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 995 1020 97.55%
@@ -54,20 +54,20 @@ area crates/syntax 1268 1268 100.00%
 98 98 cli/src/commands/format.rs
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
-0 0 cli/src/commands/interrupt.rs
+1 2 cli/src/commands/interrupt.rs
 543 544 cli/src/commands/lint.rs
-35 36 cli/src/commands/lint_cache.rs
+28 28 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 38 38 cli/src/commands/query.rs
 58 58 cli/src/commands/run.rs
 34 34 cli/src/commands/serve.rs
-497 514 cli/src/commands/test.rs
+499 514 cli/src/commands/test.rs
 4 4 cli/src/commands/version.rs
-35 36 cli/src/commands/watch.rs
+34 34 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 48 54 cli/src/compiler/driver.rs
-201 204 cli/src/compiler/modules.rs
+199 200 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 4 4 cli/src/documentation/assemble.rs
 169 170 cli/src/documentation/examples.rs
@@ -109,7 +109,7 @@ area crates/syntax 1268 1268 100.00%
 98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
 26 26 crates/diagnostics/src/parallel.rs
-25 26 crates/diagnostics/src/profile.rs
+29 30 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 18 18 crates/docs/src/documentation/frontmatter.rs
 0 0 crates/docs/src/documentation/lints.rs
