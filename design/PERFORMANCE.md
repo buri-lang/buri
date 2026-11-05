@@ -8160,8 +8160,9 @@ the units and `buri.glue` in parallel. `buri.glue` defines each glue function
 once.
 
 `buri.glue`'s codegen key hashes every other unit's key, so it re-emits
-whenever any unit does. `Llvm::emit_ir_text` keeps `linkonce_odr` glue in
-each unit, since its reader wants each unit whole.
+whenever any unit does. A build whose cache lost one unit's object emits
+that unit alone and serves `buri.glue` from the cache. `Llvm::emit_ir_text`
+shows a unit as the build emits it, glue declared.
 
 A copy of the profiled monorepo, cold release build, `BURI_PROFILE=1`:
 

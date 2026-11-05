@@ -363,9 +363,6 @@ struct For {
     /// Whether anything names each function. One nothing names is not
     /// emitted at all.
     named: Dense<FuncIdx, bool>,
-    /// Whether the glue is compiled once, in [`GLUE_UNIT`], rather than in
-    /// each unit that calls it. A reader of one unit reads its glue there.
-    shared_glue: bool,
 }
 
 impl For {
@@ -374,7 +371,6 @@ impl For {
             names: false,
             kept: crate::compiler::backend::linkage::named_elsewhere(program),
             named: crate::compiler::backend::linkage::named_anywhere(program),
-            shared_glue: true,
         }
     }
 
@@ -385,7 +381,6 @@ impl For {
             names: true,
             kept: every.clone(),
             named: every,
-            shared_glue: false,
         }
     }
 }
@@ -495,7 +490,6 @@ fn emit_selected(
         names: audience.names,
         kept: with_roots(audience.kept),
         named: with_roots(audience.named),
-        shared_glue: audience.shared_glue,
     };
     let shared = Shared {
         program,
@@ -528,7 +522,7 @@ fn emit_selected(
     // glue every unit asks for, wanted or not. So when it is wanted, every
     // unit's module is built first, for that, and dropped.
     let glue_index = program.units.len();
-    let glue_wanted = shared.audience.shared_glue && units.wants(glue_index);
+    let glue_wanted = units.wants(glue_index);
     let asked = if glue_wanted {
         let every: Vec<(usize, &ir::Unit)> = program.units.iter().enumerate().collect();
         let built = crate::parallel::map_items_with(
@@ -593,8 +587,7 @@ fn emit_selected(
     out.into_iter().map(|(_, e)| e).collect()
 }
 
-/// The unit after the program's own that the linker audience's glue is
-/// compiled in, once ([`emit::GlueHome::Shared`]).
+/// The unit after the program's own that every unit's glue is compiled in, once ([`emit::GlueHome::Shared`]).
 pub const GLUE_UNIT: &str = "buri.glue";
 
 /// One unit's object, where it is wanted, and the glue it asked for.
@@ -680,9 +673,6 @@ fn emit_unit(
         .module
         .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
     emitter.module.set_data_layout(&worker.data_layout);
-    if audience.shared_glue {
-        emitter.glue_in(emit::GlueHome::Elsewhere);
-    }
     for &(member, code) in &members {
         emitter.define(member, code);
     }

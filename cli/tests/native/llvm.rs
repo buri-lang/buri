@@ -2542,7 +2542,94 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let repo = workspace().join("codegen-key-follows-the-ir");
+    let build = release_app("codegen-key-follows-the-ir");
+
+    let cold = build(&one, "a");
+    assert!(
+        cold.iter().all(|(_, s, _)| s == "run"),
+        "a cold build hit the cache: {cold:?}"
+    );
+    let reformatted = build(&same, "a");
+    assert!(
+        reformatted.iter().all(|(_, s, _)| s == "cached"),
+        "reformatting must not move a codegen key: {reformatted:?}"
+    );
+    let changed = build(&other, "b");
+    let moved: Vec<&str> = changed
+        .iter()
+        .filter(|(_, s, _)| s == "run")
+        .map(|(u, _, _)| u.as_str())
+        .collect();
+    assert!(
+        moved.len() == 2
+            && moved.iter().any(|u| u.ends_with("main_buri"))
+            && moved.iter().any(|u| u.ends_with(":buri.glue")),
+        "a changed literal in `main` must move `main`'s codegen key and the glue unit's, no other: {changed:?}"
+    );
+}
+
+/// A release build whose cache lost one unit's object emits that unit alone:
+/// the glue unit's key is unchanged, so its object is served from the cache,
+/// and the program it links still runs.
+#[test]
+fn a_lost_unit_object_is_emitted_without_the_glue_unit() {
+    skip_unless_executable!();
+    let one = program(
+        r#"
+from "native" import { NativeHost };
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "a").ignore();
+  .Ok(())
+}
+"#,
+    );
+    // A comment misses the build's record, so the next build asks for every
+    // unit's object again.
+    let same = format!("// a comment changes no instruction\n{one}");
+    let build = release_app("lost-unit-object");
+    let cold = build(&one, "a");
+    let main = cold
+        .iter()
+        .find(|(unit, _, _)| unit.ends_with("main_buri"))
+        .expect("`main`'s unit is built");
+    let key = main.2.as_str();
+    let (prefix, rest) = key.split_at(2);
+    let dir = workspace()
+        .join("lost-unit-object/.buri/cache")
+        .join(prefix);
+    let lost: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(rest))
+        })
+        .collect();
+    assert_eq!(lost.len(), 1, "one cache entry for key {key}: {lost:?}");
+    std::fs::remove_file(&lost[0]).unwrap();
+
+    let again = build(&same, "a");
+    let ran: Vec<&str> = again
+        .iter()
+        .filter(|(_, s, _)| s == "run")
+        .map(|(u, _, _)| u.as_str())
+        .collect();
+    assert!(
+        ran.len() == 1 && ran[0].ends_with("main_buri"),
+        "only the unit whose object was lost re-emits: {again:?}"
+    );
+    let _ = std::fs::remove_dir_all(workspace().join("lost-unit-object"));
+}
+
+/// Builds `source` as a native binary in a fresh repository `name`, with
+/// `buri build --release --explain`. Each call checks the binary prints `says`
+/// and answers each unit's `codegen` line: its unit, its status (`run` or
+/// `cached`) and its short key.
+fn release_app(name: &str) -> impl Fn(&str, &str) -> Vec<(String, String, String)> {
+    let repo = workspace().join(name);
     let _ = std::fs::remove_dir_all(&repo);
     let pkg = repo.join("cmd").join("app");
     std::fs::create_dir_all(&pkg).unwrap();
@@ -2570,9 +2657,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         .join(&variant)
         .join("cmd/app/app");
 
-    // Builds `source`, runs it to be sure it is the program, and answers each
-    // unit's `codegen` status as `--explain` printed it: `run` or `cached`.
-    let build = |source: &str, says: &str| -> Vec<(String, String)> {
+    move |source: &str, says: &str| {
         std::fs::write(pkg.join("main.buri"), source).unwrap();
         let out = Command::new(env!("CARGO_BIN_EXE_buri"))
             .current_dir(&repo)
@@ -2589,13 +2674,15 @@ export fn main(host: NativeHost): Result<(), Str> {
             .capped_output()
             .expect("run the artifact");
         assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
-        let units: Vec<(String, String)> = stdout
+        let units: Vec<(String, String, String)> = stdout
             .lines()
             .filter_map(
                 |line| match line.split_whitespace().collect::<Vec<_>>().as_slice() {
-                    [status, "codegen", unit, ..] => {
-                        Some(((*unit).to_string(), (*status).to_string()))
-                    }
+                    [status, "codegen", unit, _, key] => Some((
+                        (*unit).to_string(),
+                        (*status).to_string(),
+                        (*key).to_string(),
+                    )),
                     _ => None,
                 },
             )
@@ -2605,31 +2692,7 @@ export fn main(host: NativeHost): Result<(), Str> {
             "`--explain` named no codegen unit:\n{stdout}"
         );
         units
-    };
-
-    let cold = build(&one, "a");
-    assert!(
-        cold.iter().all(|(_, s)| s == "run"),
-        "a cold build hit the cache: {cold:?}"
-    );
-    let reformatted = build(&same, "a");
-    assert!(
-        reformatted.iter().all(|(_, s)| s == "cached"),
-        "reformatting must not move a codegen key: {reformatted:?}"
-    );
-    let changed = build(&other, "b");
-    let moved: Vec<&str> = changed
-        .iter()
-        .filter(|(_, s)| s == "run")
-        .map(|(u, _)| u.as_str())
-        .collect();
-    assert!(
-        moved.len() == 2
-            && moved.iter().any(|u| u.ends_with("main_buri"))
-            && moved.iter().any(|u| u.ends_with(":buri.glue")),
-        "a changed literal in `main` must move `main`'s codegen key and the glue unit's, no other: {changed:?}"
-    );
-    let _ = std::fs::remove_dir_all(&repo);
+    }
 }
 
 /// A unit drops a function nothing else in the program names, so a cached

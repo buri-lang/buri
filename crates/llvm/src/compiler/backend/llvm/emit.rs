@@ -237,7 +237,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             equals: Map::default(),
             env_release: None,
             env_copy: None,
-            glue_home: GlueHome::Here,
+            glue_home: GlueHome::Elsewhere,
             asked: Vec::new(),
             inlinable: Vec::new(),
             pending: Vec::new(),
@@ -3946,10 +3946,6 @@ enum StepParam<'t> {
 /// Which object the machine code of a unit's glue is in.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum GlueHome {
-    /// Every unit's own, `linkonce_odr`, so the linker keeps one copy: a weak
-    /// definition on Mach-O, a COMDAT on ELF. What a reader of one unit's IR
-    /// sees.
-    Here,
     /// Another object's: the unit declares it, except for the small glue
     /// [`Unit::keep_inlinable_glue`] keeps for the inliner.
     Elsewhere,
@@ -4320,7 +4316,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// Where the glue this unit defines is compiled to machine code
-    /// ([`GlueHome`]). [`GlueHome::Here`] unless set.
+    /// ([`GlueHome`]). [`GlueHome::Elsewhere`] unless set.
     pub fn glue_in(&mut self, home: GlueHome) {
         self.glue_home = home;
     }
@@ -4355,22 +4351,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return (f, false);
         }
         let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-        let linkage = match self.glue_home {
-            GlueHome::Here => Linkage::LinkOnceODR,
-            GlueHome::Elsewhere | GlueHome::Shared => Linkage::External,
-        };
-        let f = self.module.add_function(&name, ty, Some(linkage));
-        let global = f.as_global_value();
-        global.set_visibility(inkwell::GlobalVisibility::Hidden);
-        let elf = self
-            .module
-            .get_triple()
-            .as_str()
-            .to_str()
-            .is_ok_and(|t| t.contains("linux"));
-        if elf && self.glue_home == GlueHome::Here {
-            global.set_comdat(self.module.get_or_insert_comdat(&name));
-        }
+        let f = self.module.add_function(&name, ty, Some(Linkage::External));
+        f.as_global_value()
+            .set_visibility(inkwell::GlobalVisibility::Hidden);
         // `ccc`: `cli/runtime/list.rs` takes the retain glue as a plain C
         // function pointer, and a closure environment's glue is reached through
         // an indirect call whose signature is written at the call site. One
