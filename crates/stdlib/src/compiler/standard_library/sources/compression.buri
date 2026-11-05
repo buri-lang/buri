@@ -48,7 +48,7 @@
 //! The tables are RFC 1951 §3.2.5's own: 29 lengths and 30 distances, as base
 //! and extra-bit pairs, 118 `Int`s in all. There is no Huffman table and no
 //! CRC table — the fixed tree is arithmetic and the CRC is a bit at a time,
-//! which is `core/hash`'s decision for `crc32c` and made here for its reason.
+//! because a 256-entry table is the same arithmetic precomputed.
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;

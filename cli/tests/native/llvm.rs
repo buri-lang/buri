@@ -999,22 +999,29 @@ fn the_float_order_holds_at_both_profiles() {
 #[test]
 fn the_flags_file_holds_at_both_profiles() {
     skip_unless_executable!();
-    collections_file_holds_at_both_profiles("flags");
+    conformance_file_holds_at_both_profiles("collections", "flags");
 }
 
 /// **`core/indexset` holds at both pipelines** (#296), as the flags file does.
 #[test]
 fn the_indexset_file_holds_at_both_profiles() {
     skip_unless_executable!();
-    collections_file_holds_at_both_profiles("indexset");
+    conformance_file_holds_at_both_profiles("collections", "indexset");
 }
 
-/// `conformance/lib/collections/test/<file>.buri` as one linked test binary
-/// at each profile, under the heap check, with every block returning.
-fn collections_file_holds_at_both_profiles(file: &str) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "tests/conformance/lib/collections/test/{file}.buri"
-    ));
+/// **`core/hash`'s `crc32c` holds at both pipelines**: the published vectors
+/// and the bit-at-a-time definition, as the other two backends run them.
+#[test]
+fn the_checksum_file_holds_at_both_profiles() {
+    skip_unless_executable!();
+    conformance_file_holds_at_both_profiles("checksum", "checksum");
+}
+
+/// `conformance/lib/<package>/test/<file>.buri` as one linked test binary at
+/// each profile, under the heap check, with every block returning.
+fn conformance_file_holds_at_both_profiles(package: &str, file: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("tests/conformance/lib/{package}/test/{file}.buri"));
     let source = std::fs::read_to_string(path).unwrap();
     let declared = source.matches("\ntest \"").count();
     for profile in [Profile::Release, Profile::Debug] {
@@ -1022,7 +1029,7 @@ fn collections_file_holds_at_both_profiles(file: &str) {
         let binary = build_tests_at(
             &name,
             "main.buri",
-            Some("lib/collections"),
+            Some(&format!("lib/{package}")),
             &source,
             profile,
         );

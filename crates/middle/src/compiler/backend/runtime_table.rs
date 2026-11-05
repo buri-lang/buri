@@ -767,6 +767,11 @@ pub const ENTRIES: &[Entry] = &[
     e("character.toUpper", &[Scalar], Ret::Scalar(U32)),
     e("character.toLower", &[Scalar], Ret::Scalar(U32)),
     e("character.toDigit", &[Scalar, Scalar], Ret::Sum),
+    // -- core/hash ----------------------------------------------------------
+    //
+    // `crc32c`, which the processor computes eight octets an instruction
+    // (`cli/runtime/checksum.rs`). The rest of `hash.buri` is Buri.
+    e("hash.crc32c", &[List], Ret::Scalar(U32)),
     // -- core/crypto --------------------------------------------------------
     //
     // Sealing and the three signature checks, in `cli/runtime/crypto.rs` behind

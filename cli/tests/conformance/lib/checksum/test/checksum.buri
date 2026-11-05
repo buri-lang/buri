@@ -5,6 +5,7 @@
 // specification, and a decimal `U32` in an assertion is a number nobody can
 // look up.
 
+from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/hash" import * as hash;
 from "core/list" import * as list;
@@ -112,6 +113,106 @@ test "the RFC 3720 vectors" {
 
     let descending = ascending.reverse(ctx);
     assert.equal(hex32(hash.crc32c(descending)), "113fdb5c");
+}
+
+// Every width the inner loop of a fast CRC handles differently: one octet,
+// a word short, a word, a word and the octets after it, and the long runs.
+// The expected values come from a bitwise implementation outside this
+// repository, over the octets `(31 * i + 7) mod 256`.
+fn sloped<C: Allocator>(ctx: C, n: Int, step: Int, start: Int): [U8] {
+    list.range(ctx, 0, n).map(ctx, fn(i) => (i * step + start).wrapToU8())
+}
+
+fn crcOfSloped(n: Int): Str {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    hex32(hash.crc32c(sloped(ctx, n, 31, 7)))
+}
+
+test "every length from one octet to seventeen" {
+    assert.equal(crcOfSloped(1), "86b737ba");
+    assert.equal(crcOfSloped(2), "8d10d7a1");
+    assert.equal(crcOfSloped(3), "765a7c83");
+    assert.equal(crcOfSloped(4), "65f1c5dc");
+    assert.equal(crcOfSloped(5), "5d2e4463");
+    assert.equal(crcOfSloped(6), "63c6d8d2");
+    assert.equal(crcOfSloped(7), "5110a112");
+    assert.equal(crcOfSloped(8), "40795c72");
+    assert.equal(crcOfSloped(9), "6fe35da6");
+    assert.equal(crcOfSloped(10), "6ade9a0a");
+    assert.equal(crcOfSloped(11), "b63ea091");
+    assert.equal(crcOfSloped(12), "2e6e07e6");
+    assert.equal(crcOfSloped(13), "7fd38d92");
+    assert.equal(crcOfSloped(14), "d8dbd813");
+    assert.equal(crcOfSloped(15), "9b0c1517");
+    assert.equal(crcOfSloped(16), "cf7845a4");
+    assert.equal(crcOfSloped(17), "10c70233");
+}
+
+test "four kilobytes and the lengths just past them" {
+    assert.equal(crcOfSloped(4096), "e1c2f7e8");
+    assert.equal(crcOfSloped(4097), "efbf0598");
+    assert.equal(crcOfSloped(4103), "a6b5a810");
+}
+
+test "all zeros and all ones" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // RFC 3720 B.4 gives both at 32 octets.
+    assert.equal(hex32(hash.crc32c(list.repeat(ctx, 0, 32))), "8a9136aa");
+    assert.equal(hex32(hash.crc32c(list.repeat(ctx, 255, 32))), "62a8ab43");
+    assert.equal(hex32(hash.crc32c(list.repeat(ctx, 0, 4096))), "98f94189");
+    assert.equal(hex32(hash.crc32c(list.repeat(ctx, 255, 4096))), "25c1fe13");
+}
+
+// CRC-32C one bit at a time, straight from the definition: shift right, and
+// fold the reflected polynomial in whenever a one falls off the end.
+fn referenceCrc32c(b: [U8]): U32 {
+    b.fold(fn(crc, octet) => referenceShifts(crc ^ octet.toU32(), 8), 0xffffffff)
+        ^ 0xffffffff
+}
+
+fn referenceShifts(crc: U32, left: Int): U32 {
+    if (left == 0) {
+        crc
+    } else {
+        let shifted = bits.shiftRightU32(crc, 1);
+        let next = if (crc & 1 == 1) { shifted ^ 0x82f63b78 } else { shifted };
+        referenceShifts(next, left - 1)
+    }
+}
+
+// The lengths `crc32c` gives a different answer from the definition at, for
+// windows starting `offset` octets into `source`.
+fn disagreements<C: Allocator>(
+    ctx: C,
+    source: [U8],
+    offset: Int,
+    lengths: [Int],
+): [Int] {
+    lengths
+        .mapCtx(ctx, fn(c, n) => {
+            let window = source.slice(c, offset, offset + n);
+            if (hash.crc32c(window) == referenceCrc32c(window)) { -1 } else { n }
+        })
+        .filter(ctx, fn(n) => n >= 0)
+}
+
+test "the definition agrees at every length and starting offset" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let source = sloped(ctx, 4200, 167, 13);
+    let lengths = list
+        .range(ctx, 0, 41)
+        .concat(ctx, [63, 64, 65, 255, 256, 257, 1000, 4095, 4096, 4097]);
+    let offsets = list.range(ctx, 0, 9);
+    let wrong = offsets.mapCtx(ctx, fn(c, offset) => {
+        disagreements(c, source, offset, lengths)
+    });
+    assert.equal(wrong, list.repeat(ctx, list.empty<Int>(), 9));
 }
 
 // --- SipHash-2-4 --------------------------------------------------------------------

@@ -625,6 +625,8 @@ pub(crate) mod allocator;
 static ALLOCATOR: allocator::Allocator = allocator::Allocator;
 mod bytes;
 mod character;
+/// `core/hash`'s `crc32c`, through the processor's CRC instructions.
+mod checksum;
 mod child;
 /// `buri test --coverage`'s counts.
 mod coverage;

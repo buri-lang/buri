@@ -364,7 +364,12 @@ fn scaleUp(units: Int, by: Int): Option<Int> {
 /// even.
 fn dropDigits(units: Int, drop: Int): Int {
     match (tenTo(drop)) {
-        .Some(divisor) => nearest(units / divisor, units % divisor, divisor),
+        .Some(divisor) => {
+            // The remainder from the quotient, so the one division is all
+            // that could meet a zero divisor, and `tenTo` gives none.
+            let quotient = units / divisor;
+            nearest(quotient, units - quotient * divisor, divisor)
+        },
         .None => {
             match (tenTo(drop - 1)) {
                 // `10^drop` is past `Int`, so every quotient is zero and only the

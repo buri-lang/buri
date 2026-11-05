@@ -10,9 +10,10 @@
 //! a log record, a bucket index in a hash table, a fingerprint that lets you
 //! compare two runs of a simulator.
 //!
-//! Each is written in the language and pinned to the vectors its publisher
-//! wrote down, so the answer is the same on every backend and is the same
-//! answer another implementation gives:
+//! Each is pinned to the vectors its publisher wrote down, so the answer is
+//! the same on every backend and is the same answer another implementation
+//! gives. All but `crc32c` are written in the language; that one is the
+//! processor's own instruction where there is one:
 //!
 //! | Function | Width | Pinned against |
 //! |---|---|---|
@@ -98,33 +99,15 @@ export fn fnv1a64Step(hash: U64, octet: U8): U64 {
 // the parameters iSCSI, ext4, Btrfs and every `crc32c` instruction on a modern
 // processor agree on.
 //
-// A bit at a time rather than a 256-entry table: the table is the same
-// arithmetic precomputed, so it is a speed decision and not a correctness one.
-
-let CRC32C_POLY: U32 = 0x82f63b78;
-
-let CRC32C_ALL_ONES: U32 = 0xffffffff;
+// The runtime computes it: ARMv8 and SSE 4.2 both have an instruction that
+// folds eight octets in, and a processor without one gets slicing-by-8
+// tables. Every route gives the answer the bit-at-a-time definition gives.
 
 /// The CRC-32C of these octets.
 ///
 /// Its check value — the CRC of the nine ASCII digits `123456789`, the number
 /// every catalogue of CRC parameters publishes — is `0xe3069283`.
-export fn crc32c(b: [U8]): U32 {
-    b.fold(fn(crc, octet) => crc32cByte(crc ^ octet.toU32(), 8), CRC32C_ALL_ONES)
-        ^ CRC32C_ALL_ONES
-}
-
-/// The eight shifts one octet contributes, unrolled by recursion rather than by
-/// a table.
-fn crc32cByte(crc: U32, left: Int): U32 {
-    if (left == 0) {
-        crc
-    } else {
-        let shifted = bits.shiftRightU32(crc, 1);
-        let next = if (crc & 1 == 1) { shifted ^ CRC32C_POLY } else { shifted };
-        crc32cByte(next, left - 1)
-    }
-}
+export fn crc32c(b: [U8]): U32;
 
 // --- SipHash-2-4 ----------------------------------------------------------------
 //

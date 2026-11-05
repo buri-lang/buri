@@ -357,6 +357,10 @@ mod wrapping;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod collection_costs;
+// What `core/hash`'s `crc32c` costs an octet against `fnv1a32`'s fold:
+// instructions counted rather than timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod checksum_costs;
 // The programs the fast paths are for, at the size they're for: fan-outs of
 // every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
 // long sorts, on JavaScript and every backend built in, under the heap check.

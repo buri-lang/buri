@@ -1760,6 +1760,26 @@ function $err(x) {
 // a JavaScript string is UTF-16, and turning one into UTF-8 bytes is the
 // engine's job, not something to reimplement on top of `charAt`.
 
+// `core/hash`'s `crc32c`, a table lookup an octet. The native runtime uses the
+// processor's CRC instructions (`cli/runtime/checksum.rs`); both are the
+// bit-at-a-time definition's answer.
+let $crc32cTable;
+function $hash_crc32c(b) {
+  if (!$crc32cTable) {
+    $crc32cTable = new Uint32Array(256);
+    for (let x = 0; x < 256; x++) {
+      let c = x;
+      for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0x82f63b78 : c >>> 1;
+      $crc32cTable[x] = c;
+    }
+  }
+  let c = 0xffffffff;
+  for (let i = 0; i < b.length; i++) {
+    c = (c >>> 8) ^ $crc32cTable[(c ^ b[i]) & 0xff];
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
 function $bytes_toUtf8(_c, s) {
   const out = [];
   for (const ch of s) {

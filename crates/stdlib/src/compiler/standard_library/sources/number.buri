@@ -161,7 +161,8 @@ export fn clamp<T: Ordered>(low: T, high: T, value: T): T {
 /// Aborts if `b` is zero, exactly as `a / b` does.
 export fn divideFloor(a: Int, b: Int): Int {
     let q = a / b;
-    let r = a % b;
+    // `a % b`, from the quotient: `/` has already aborted on a zero `b`.
+    let r = a - q * b;
     // `%` takes the sign of the dividend, so a non-zero remainder whose sign
     // disagrees with the divisor is a quotient `/` rounded the other way.
     if (r == 0) {
