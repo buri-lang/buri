@@ -480,6 +480,12 @@
 //! }
 //! ```
 //!
+//! The release backend's `main` is two statements: `buri_rt_argv_init`, then
+//! `return buri_rt_main_on_stack(buri$main)`, where `buri$main` is the rest of
+//! the sketch above. [`memory::buri_rt_main_on_stack`] runs it on a stack as
+//! deep as the development backend's, which keeps its frames on a block of
+//! its own and so needs no such call.
+//!
 //! [`buri_rt_main_returned`] is the success arm's flush, and it fires the
 //! timers `core/tasks`'s `after` left pending first. An entry point that calls
 //! `buri_rt_flush` there instead drops them, which is what the failure arm

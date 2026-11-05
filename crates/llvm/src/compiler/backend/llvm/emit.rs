@@ -8359,6 +8359,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// ```c
     /// int main(int argc, char** argv) {
     ///     buri_rt_argv_init(argc, argv);
+    ///     return buri_rt_main_on_stack(buri$main);
+    /// }
+    /// int buri$main(void) {
     ///     buri_rt_frames_are_per_thread();
     ///     r = buri_main();
     ///     buri_rt_flush();
@@ -8495,8 +8498,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.ret(i32t.const_zero());
     }
 
-    /// `main(argc, argv)`, which hands the process's arguments to the runtime.
-    /// Answers it, and the builder in its entry block after that call.
+    /// `main(argc, argv)`, which hands the process's arguments to the runtime
+    /// and then runs `buri$main` on a stack of the runtime's
+    /// (`runtime::MAIN_ON_STACK`), answering what it answers. Answers
+    /// `buri$main`, `int (void)`, and the builder in its empty entry block.
+    ///
+    /// ```c
+    /// int main(int argc, char** argv) {
+    ///     buri_rt_argv_init(argc, argv);
+    ///     return buri_rt_main_on_stack(buri$main);
+    /// }
+    /// ```
     fn main_shim(&mut self) -> (FunctionValue<'ctx>, At<'ctx>) {
         let i32t = self.ctx.i32_type();
         let params = [i32t.into(), self.ptr_ty().into()];
@@ -8508,12 +8520,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Linkage::External,
         );
         attrs::set_convention(shim.value(), attrs::C);
+        let program = build::Declared::add(
+            &self.module,
+            "buri$main",
+            [],
+            |ps| i32t.fn_type(ps, false),
+            Linkage::Internal,
+        )
+        .value();
+        attrs::set_convention(program, attrs::C);
+
         let block = self.ctx.append_basic_block(shim.value(), "entry");
         let b = At::end_of(self.builder, block);
         let argv_init = self.declare_rt(runtime::ARGV_INIT, &params, None);
         let [argc, argv] = shim.params();
         self.call_c(b, argv_init, &[argc.into(), argv.into()]);
-        (shim.value(), b)
+        let on_stack = self.declare_rt(
+            runtime::MAIN_ON_STACK,
+            &[self.ptr_ty().into()],
+            Some(i32t.into()),
+        );
+        let address = program.as_global_value().as_pointer_value();
+        let answer = self.call_c(b, on_stack, &[address.into()]);
+        b.ret(b.answer(answer));
+
+        let block = self.ctx.append_basic_block(program, "entry");
+        (program, At::end_of(self.builder, block))
     }
 
     /// The `main` of a **test binary**: every `test` block, in order.

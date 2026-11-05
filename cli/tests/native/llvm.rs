@@ -960,6 +960,78 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// **`main` has the stack the development backend gives it**, at both
+/// profiles: 64 MiB, and not the 8 MiB the system hands a process.
+///
+/// The development backend runs a program's frames on a 64 MiB block, and a
+/// task's frames are on a 64 MiB mapping under either backend. A program's
+/// own `main` is the third place Buri code runs, and under this backend it ran
+/// on the process's stack. So a recursion the debug build answered aborted
+/// with *Maximum call stack size exceeded* once built here, and on `main`
+/// only. `buri_ast`'s parser was the one found that way: its `test` blocks
+/// nest it 128 calls deep, and `default<O0>`'s frames needed 8.2 MiB of it.
+///
+/// Each profile recurses about four times as deep as 8 MiB holds, which still
+/// fits 64 MiB with room. A test block is the other entry point, and it is
+/// asked the same question.
+#[test]
+fn main_and_a_test_block_recurse_past_the_systems_stack_at_both_profiles() {
+    skip_unless_executable!();
+    // 16-byte frames at `default<O2>` and 32-byte ones at `default<O0>`, so
+    // each depth is 32 MiB of frames.
+    for (profile, n) in [(Profile::Release, 2_000_000), (Profile::Debug, 1_000_000)] {
+        let depth = r#"
+fn depth(i: Int): Int { if (i <= 0) { 0 } else { 1 + depth(i - 1) } }
+"#;
+        let main = program(&format!(
+            r#"{depth}
+from "native" import {{ NativeHost }};
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};
+  let n = "a".repeat(ctx, {n}).length();
+  let _ = io.println(ctx, "depth ${{depth(n)}}").ignore();
+  .Ok(())
+}}
+"#
+        ));
+        let name = format!("deep-main-{}", profile.name());
+        let (out, err, code) = build_and_run_at(&name, &main, None, profile);
+        assert_eq!(
+            (out.as_str(), code),
+            (format!("depth {n}\n").as_str(), Some(0)),
+            "main, at {}, stderr was: {err}",
+            profile.name()
+        );
+
+        let block = format!(
+            r#"
+from "core/alloc" import * as alloc;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import {{ Allocator }};
+{depth}
+test "a deep recursion answers" {{
+    let ctx = context {{ Allocator: alloc.generalPurpose() }};
+    let n = "a".repeat(ctx, {n}).length();
+    assert.equal(depth(n), {n});
+}}
+"#
+        );
+        let name = format!("deep-test-{}", profile.name());
+        let binary = build_tests_at(&name, "main.buri", None, &block, profile);
+        let mut cmd = Command::new(&binary);
+        cmd.env("BURI_TEST_FROM", "0");
+        let ran = crate::shared::ran_command(&mut cmd);
+        assert!(
+            ran.status == 0 && ran.stdout.contains("\"left\":1"),
+            "a test block, at {}:\n{}\n{}",
+            profile.name(),
+            ran.stdout,
+            ran.stderr
+        );
+    }
+}
+
 /// **`compare`'s total order at a float holds at both pipelines** (#272).
 ///
 /// The conformance file the other two backends run, as one linked test binary
@@ -1436,19 +1508,24 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     // The order is the contract (`lib.rs` §6): the latch decides the header of
     // every block allocated *after* it, so a call that landed after the first
-    // allocation would mark a program's heap only from the middle. `main`'s
-    // body is where both calls are, and `argv_init` — which allocates no Buri
-    // block — is the only thing before it.
+    // allocation would mark a program's heap only from the middle. `main`
+    // calls `argv_init` — which allocates no Buri block — and then runs
+    // `buri$main` on the runtime's stack, and the mark is in `buri$main`.
     let shim = function_body(&tasks, "i32 @main(");
     let init = shim
         .find("buri_rt_argv_init")
         .expect("no argv_init in the emitted main");
-    let mark = shim
-        .find("buri_rt_values_may_cross_tasks")
-        .expect("no mark in the emitted main");
+    let run = shim
+        .find("buri_rt_main_on_stack")
+        .expect("the emitted main does not run the program");
     assert!(
-        init < mark,
-        "the mark was made before the runtime was initialised:\n{shim}"
+        init < run,
+        "the program ran before the runtime was initialised:\n{shim}"
+    );
+    let body = function_body(&tasks, "i32 @\"buri$main\"()");
+    assert!(
+        body.contains("buri_rt_values_may_cross_tasks"),
+        "no mark in the emitted program:\n{body}"
     );
 }
 

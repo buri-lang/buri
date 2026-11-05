@@ -4753,6 +4753,72 @@ pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
     (base, base.wrapping_add(BURI_RT_STACK_BYTES))
 }
 
+/// Run `program` on a machine stack of its own, [`BURI_RT_STACK_USABLE`] deep,
+/// and answer what it answered: the release backend's `main` calls this right
+/// after `buri_rt_argv_init` (`cli/runtime/lib.rs` §6).
+///
+/// **So `main` recurses as deep as everything else.** The development backend
+/// runs `main`'s frames on its 64 MiB static block, and a task's frames are on
+/// a [`map_task_stack`] mapping under either backend. Under the release
+/// backend a Buri frame is a machine frame, and `main`'s were on the process's
+/// own stack: 8 MiB on both platforms. A recursion the debug build answered
+/// then ran out of stack once built for release, on `main` only.
+///
+/// The process's stack can't be the fix: macOS sizes it at link time, Linux
+/// grows it to a limit the user's shell sets, and under Valgrind it is
+/// Valgrind's. So `main` moves, onto a task stack it never gives back, as the
+/// process never gives back its own. The stack isn't counted in
+/// [`buri_rt_task_stacks_peak`]: it belongs to no task.
+///
+/// The old stack pointer is the one word under the new stack's top, and the
+/// frame pointer is left alone, so a debugger walks from `program`'s frames
+/// back onto the process's stack.
+///
+/// # Safety
+/// `program` is safe to call with no arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_main_on_stack(program: extern "C" fn() -> i32) -> i32 {
+    let top = map_task_stack().wrapping_add(BURI_RT_STACK_BYTES);
+    let answer: u64;
+    // SAFETY: `top` is the sixteen-byte-aligned high end of a mapping nothing
+    // else runs on, with its guard at the low end. The old stack pointer is
+    // saved on the new stack and restored from it, so the block leaves `sp` as
+    // it found it, and `clobber_abi` names every register the call may change.
+    #[cfg(target_arch = "aarch64")]
+    unsafe {
+        core::arch::asm!(
+            "mov x9, sp",
+            "sub sp, x10, #16",
+            "str x9, [sp]",
+            "blr x11",
+            "ldr x9, [sp]",
+            "mov sp, x9",
+            in("x10") top,
+            in("x11") program,
+            lateout("x0") answer,
+            clobber_abi("C"),
+        );
+    }
+    // SAFETY: as above. `rsp` is sixteen-byte aligned at the `call`, as the
+    // ABI asks.
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        core::arch::asm!(
+            "mov rax, rsp",
+            "lea rsp, [r10 - 16]",
+            "mov [rsp], rax",
+            "call r11",
+            "mov rsp, [rsp]",
+            in("r10") top,
+            in("r11") program,
+            lateout("rax") answer,
+            clobber_abi("C"),
+        );
+    }
+    // The low half: `int` is answered in `w0`/`eax`.
+    answer as u32 as i32
+}
+
 /// Give a finished task's machine stack back, decommitted.
 ///
 /// Called from the **thread's** stack and never from the task's own, which is

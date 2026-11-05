@@ -2137,6 +2137,10 @@ pub const INCREF: &str = "buri_rt_incref";
 pub const DECREF: &str = "buri_rt_decref";
 /// `buri_rt_argv_init(argc, argv)` — the emitted `main`'s first statement.
 pub const ARGV_INIT: &str = "buri_rt_argv_init";
+/// `buri_rt_main_on_stack(program) -> int` — the release backend's `main`
+/// after `buri_rt_argv_init`: the rest of `main` is `program`, run on a
+/// machine stack as deep as the development backend's (`cli/runtime/memory.rs`).
+pub const MAIN_ON_STACK: &str = "buri_rt_main_on_stack";
 /// `buri_rt_flush()` — required before every return path from `main`.
 pub const FLUSH: &str = "buri_rt_flush";
 /// `buri_rt_main_returned()` — `main` answered `.Ok(())`, or answered nothing:
