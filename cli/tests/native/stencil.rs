@@ -2272,6 +2272,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/reachability.buri",
     "semantics/traits.buri",
     "semantics/values.buri",
+    "semantics/handed_on.buri",
     "semantics/variance.buri",
     "tasks/background.buri",
     "streams/io.buri",

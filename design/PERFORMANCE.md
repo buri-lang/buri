@@ -7467,6 +7467,8 @@ test processes 1
 - **suites built, restored, reused**: `--explain`'s `run build`,
   `cached build` and `cached test` lines.
 - **objects compiled, restored**: its `run codegen` and `cached codegen` lines.
+- **functions compiled**: functions in the objects compiled, one per
+  instantiation of a generic (§6.90).
 - **links**: linker runs (`CDriver::link`).
 - **new executables launched**: first starts of a file `place_from` wrote as a
   new inode, which is what macOS checks.
@@ -8238,6 +8240,49 @@ Where `emit`'s 6,970 G instructions go:
 The 42% row is what sharing could reach, and only by compiling one body for
 instantiations that differ in a handler they don't touch. That changes symbols
 and unit contents, so binaries would no longer match today's.
+
+### 6.90 One body for a handler a function only hands on, 2026-11-05
+
+Most library functions generic over `C: Allocator` never touch `ctx`. They
+pass it to another function like them, and at the bottom to a runtime call
+that drops it:
+
+```buri
+fn count<C: Allocator>(ctx: C, n: Int, acc: [Int]): Int {
+    if (n == 0) { acc.length() } else { count(ctx, n - 1, acc.push(ctx, n)) }
+}
+```
+
+The monomorphizer now instantiates such a type parameter at `()`, so every
+handler stack shares one body, and the caller passes `()` for `ctx`.
+`monomorphize/erase.rs` holds the rule. In short: the parameter may appear only
+as the bare type of a parameter that the body passes on, unread, to another
+erasable parameter or to a runtime call that drops it. A trait call,
+a layout, a closure capture or the return type keeps the instantiation.
+Coverage builds keep every instantiation, since they report each one.
+
+Within one program this removes duplicate bodies. It doesn't make units match
+across programs: §6.89's unit keys carry the package path. A copy of the
+profiled monorepo, cold `buri build --release //...`, `BURI_PROFILE=1`:
+
+| | Before | After |
+|---|---:|---:|
+| functions compiled | 104,661 | 97,318 |
+| `emit` instructions | 6,991 G | 6,557 G |
+| process instructions | 7,059 G | 6,624 G |
+| process CPU, three runs each | 808–843 s | 763–781 s |
+
+That is 6.2% of the build's instructions, about 50 CPU seconds. Run time
+doesn't move: the instruction-gate programs and the cluster suite's tests
+retire the same instructions to within 0.1%, which is run-to-run noise.
+
+`cli/tests/native/release.rs` guards it. A program that calls a function that
+only hands its allocator on, at two allocators, compiles as many functions
+as one that calls it at one. A function that calls its allocator compiles
+once per allocator.
+
+What still keeps an instantiation is mostly a closure typed `fn(C, …)`, as in
+`foldCtx(ctx, fn(c, a, child) => …)`, and a trait call on `ctx`.
 
 ## 7. Profiling, on this platform
 

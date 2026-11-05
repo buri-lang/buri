@@ -67,9 +67,6 @@ impl Monomorphizer<'_> {
             return None;
         }
         let mask = self.erasable(f);
-        if mask.len() != targs.len() {
-            return None;
-        }
         let mut out = targs.to_vec();
         let mut changed = false;
         for (t, &erase) in out.iter_mut().zip(mask.iter()) {
@@ -142,33 +139,27 @@ impl Monomorphizer<'_> {
         }
         // Rule out whatever passes a parameter to one that is ruled out, until
         // nothing changes.
-        let mut changed = true;
-        while changed {
-            changed = false;
-            let ruled_out: Vec<(FnId, usize)> = found
-                .iter()
-                .flat_map(|(g, facts)| {
-                    facts
-                        .ok
-                        .iter()
-                        .zip(&facts.deps)
-                        .enumerate()
-                        .filter(|(_, (ok, deps))| {
-                            **ok && deps.iter().any(|(h, t)| {
-                                let known = self.erasable.get(h).map(|m| m.get(*t).copied());
-                                let open = found.get(h).map(|x| x.ok.get(*t).copied());
-                                known.or(open).flatten() != Some(true)
-                            })
-                        })
-                        .map(|(j, _)| (*g, j))
-                        .collect::<Vec<_>>()
+        loop {
+            let next: Vec<Vec<bool>> = found
+                .values()
+                .map(|facts| {
+                    let passed_on = |(h, t): &(FnId, usize)| {
+                        let known = self.erasable.get(h).map(|m| m.get(*t).copied());
+                        let open = found.get(h).map(|x| x.ok.get(*t).copied());
+                        known.or(open).flatten() == Some(true)
+                    };
+                    let ok = facts.ok.iter().zip(&facts.deps);
+                    ok.map(|(ok, deps)| *ok && deps.iter().all(passed_on))
+                        .collect()
                 })
                 .collect();
-            for (g, j) in ruled_out {
-                if let Some(slot) = found.get_mut(&g).and_then(|x| x.ok.get_mut(j)) {
-                    *slot = false;
-                    changed = true;
-                }
+            let mut changed = false;
+            for (facts, ok) in found.values_mut().zip(next) {
+                changed |= facts.ok != ok;
+                facts.ok = ok;
+            }
+            if !changed {
+                break;
             }
         }
         for (g, facts) in found {
@@ -188,9 +179,11 @@ impl Monomorphizer<'_> {
             ok: (0..n).map(|j| !mentions(&info.ret, j)).collect(),
             deps: vec![Vec::new(); n],
         };
-        if info.intrinsic {
+        // A runtime operation, or a trait method with no body, which is already
+        // diagnosed.
+        let Some(body) = self.checked.bodies.get(&f).filter(|_| !info.intrinsic) else {
             let key = self.runtime_key(info);
-            let entry = runtime_table::entry(&key);
+            let entry = runtime_table::entry(&key).filter(|_| info.intrinsic);
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 let bounds = info
                     .generics
@@ -204,23 +197,18 @@ impl Monomorphizer<'_> {
                 });
                 let dropped = info.params.iter().enumerate().all(|(i, p)| {
                     !mentions(&p.ty, j)
-                        || (matches!(p.ty.kind(), TyKind::Param(k) if *k as usize == j)
+                        || (matches!(p.ty.kind(), TyKind::Param(_))
                             && entry.is_some_and(|e| e.dropped(i)))
                 });
                 *ok = *ok && allocator_only && dropped;
             }
-            return facts;
-        }
-        let Some(body) = self.checked.bodies.get(&f) else {
-            facts.ok.iter_mut().for_each(|ok| *ok = false);
             return facts;
         };
         // Only a parameter may hold a value of the type, and only typed as it.
         for (id, local) in body.locals.entries() {
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 if mentions(&local.ty, j)
-                    && (!matches!(local.ty.kind(), TyKind::Param(k) if *k as usize == j)
-                        || !body.params.contains(&id))
+                    && (!matches!(local.ty.kind(), TyKind::Param(_)) || !body.params.contains(&id))
                 {
                     *ok = false;
                 }
@@ -259,9 +247,6 @@ impl Monomorphizer<'_> {
                     }
                 }
                 let params = &self.tables().fn_info(func.id).params;
-                if params.len() != args.len() {
-                    facts.ok.iter_mut().for_each(|ok| *ok = false);
-                }
                 for (k, arg) in args.iter().enumerate() {
                     let bare = params
                         .get(k)
