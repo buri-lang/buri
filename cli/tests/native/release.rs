@@ -694,6 +694,10 @@ fn retired(binary: &Path, mode: &str, prints: &str) -> Option<u64> {
 /// optimizer can put in the loop that drops the list, rather than a call to
 /// code it cannot see. Counted in instructions, with the cost of a run that
 /// drops nothing taken off both.
+///
+/// The bound is on the instructions the strings add to a list, which were 24 a
+/// list when allocation and free still cost 143 of both: 1.2 times that was
+/// 28 more. A ratio would tighten every time the block both share got cheaper.
 #[test]
 fn dropping_a_list_of_strings_in_release_code_costs_little_more_than_one_of_ints() {
     skip_unless_executable!();
@@ -737,9 +741,9 @@ fn dropping_a_list_of_strings_in_release_code_costs_little_more_than_one_of_ints
     };
     let (lits, ints) = (lits.saturating_sub(none), ints.saturating_sub(none));
     assert!(
-        lits * 10 <= ints * 12,
-        "dropping 200,000 lists of two strings took {lits} instructions, {:.2} times the {ints} \
-         that as many lists of two numbers took",
-        lits as f64 / ints as f64
+        lits <= ints + 28 * 200_000,
+        "dropping 200,000 lists of two strings took {lits} instructions, {} a list more than the \
+         {ints} that as many lists of two numbers took",
+        lits.saturating_sub(ints) / 200_000
     );
 }

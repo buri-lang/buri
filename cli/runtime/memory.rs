@@ -669,6 +669,15 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 /// caller does not write every byte.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
+    match alloc_cached(payload) {
+        Some(p) => p,
+        None => alloc_uncached(payload),
+    }
+}
+
+/// [`buri_rt_alloc`] past its fast path.
+#[inline(never)]
+fn alloc_uncached(payload: u64) -> *mut u8 {
     // G5: a process that has opened a scope asks which one it is in; one that
     // has not takes the two lines below, which are the two lines it took
     // before this slice. [`scopes_exist`] is the whole of the difference.
@@ -716,6 +725,11 @@ fn big_take_beside_scopes(payload: u64) -> Option<*mut u8> {
 /// [`buri_rt_alloc`], with the payload zeroed.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
+    if let Some(p) = alloc_cached(payload) {
+        // SAFETY: `p` has `payload` usable bytes.
+        unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
+        return p;
+    }
     // G5: as in `buri_rt_alloc`, and an arena block needs no zeroing — it is a
     // range of a fresh anonymous mapping handed out exactly once, because the
     // window only moves forward and a released arena's pages are unmapped
@@ -1059,6 +1073,8 @@ impl Cache {
         // because nothing would give it back.
         if CACHE_DRAIN.try_with(|_| ()).is_ok() {
             self.limit = cache_budget();
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            let _ = CACHE.try_with(|t| heap_slot::set(t));
         }
     }
 
@@ -1198,6 +1214,10 @@ impl Drop for CacheDrain {
         // `try_with` cannot fail here — `CACHE`'s type has no destructor, so
         // it has no destroyed state to be in — but asking is free and a panic
         // out of a thread-local destructor would abort the process.
+        // First, so a free from a later destructor takes the slow path and
+        // finds the cache closed.
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        heap_slot::set(std::ptr::null());
         let _ = CACHE.try_with(|c| {
             // SAFETY: this thread's own cell, on the way out; nothing else can
             // hold a reference derived from it.
@@ -1249,6 +1269,184 @@ thread_local! {
     /// Touched once per thread, by [`Cache::arm`], purely so that its
     /// destructor is registered.
     static CACHE_DRAIN: CacheDrain = const { CacheDrain };
+}
+
+/// This thread's [`ThreadHeap`] for the fast paths, or null where they must not
+/// run: on macOS arm64 before the cache is armed and after it closes.
+///
+/// **On macOS a `thread_local!` is a call into dyld**, `_tlv_get_addr`, and
+/// the call made both `buri_rt_alloc` and `buri_rt_free` keep a stack frame.
+/// [`heap_slot`] keeps the address where one load from the thread's own
+/// register finds it. Elsewhere the thread-local is that load already.
+#[inline(always)]
+fn heap_fast() -> *const ThreadHeap {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    return heap_slot::get();
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    CACHE
+        .try_with(|t| std::ptr::from_ref(t))
+        .unwrap_or(std::ptr::null())
+}
+
+/// This thread's [`ThreadHeap`] address, in a pthread key read straight from
+/// the thread's own data, which `tpidrro_el0` points at.
+///
+/// The read assumes key `k`'s value sits `k` words into that data, as Go's
+/// runtime does. [`set`](heap_slot::set) checks that once, and leaves every
+/// thread on the slow path if it doesn't hold.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod heap_slot {
+    use super::ThreadHeap;
+    use std::ffi::c_void;
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe extern "C" {
+        fn pthread_key_create(
+            key: *mut usize,
+            destructor: Option<unsafe extern "C" fn(*mut c_void)>,
+        ) -> i32;
+        fn pthread_setspecific(key: usize, value: *const c_void) -> i32;
+    }
+
+    /// The key's byte offset into the thread's data, or zero while there is no
+    /// checked key. Key zero is the C library's own, so no key made here is.
+    static OFFSET: AtomicUsize = AtomicUsize::new(0);
+
+    /// The word `offset` bytes into this thread's data.
+    #[inline(always)]
+    fn read(offset: usize) -> *const c_void {
+        let base: usize;
+        // SAFETY: reads a register.
+        unsafe {
+            core::arch::asm!(
+                "mrs {}, tpidrro_el0",
+                out(reg) base,
+                options(nomem, nostack, preserves_flags)
+            );
+        }
+        // SAFETY: the thread's data holds every key's value, and `offset` is a
+        // key's.
+        unsafe {
+            ((base & !7) as *const u8)
+                .add(offset)
+                .cast::<*const c_void>()
+                .read()
+        }
+    }
+
+    /// This thread's heap, or null.
+    #[inline(always)]
+    pub(super) fn get() -> *const ThreadHeap {
+        let offset = OFFSET.load(Ordering::Relaxed);
+        if offset == 0 {
+            return std::ptr::null();
+        }
+        read(offset).cast()
+    }
+
+    /// Point this thread's key at `heap`, or at nothing.
+    pub(super) fn set(heap: *const ThreadHeap) {
+        static KEY: OnceLock<Option<usize>> = OnceLock::new();
+        let key = *KEY.get_or_init(|| {
+            let mut key = 0;
+            // SAFETY: `key` is writable, and a key with no destructor needs none.
+            if unsafe { pthread_key_create(&mut key, None) } != 0 || key == 0 {
+                return None;
+            }
+            let probe = (&raw const OFFSET).cast::<c_void>();
+            // SAFETY: `key` was just made.
+            unsafe { pthread_setspecific(key, probe) };
+            let seen = read(key * 8);
+            // SAFETY: as above.
+            unsafe { pthread_setspecific(key, std::ptr::null()) };
+            if seen != probe {
+                return None;
+            }
+            OFFSET.store(key * 8, Ordering::Relaxed);
+            Some(key)
+        });
+        if let Some(key) = key {
+            // SAFETY: `key` is a live key.
+            unsafe { pthread_setspecific(key, heap.cast()) };
+        }
+    }
+}
+
+/// [`buri_rt_alloc`]'s fast path: a block of exactly `payload` bytes from this
+/// thread's cache, finished. `None` changes nothing and leaves the call to the
+/// slow path, which asks every question again.
+///
+/// Nothing in it calls out, so the function needs no stack frame for it. A
+/// block in the cache means the cache is armed, so the tally is open.
+#[inline(always)]
+fn alloc_cached(payload: u64) -> Option<*mut u8> {
+    if scopes_exist() || !heap_check_off() {
+        return None;
+    }
+    let t = heap_fast();
+    if t.is_null() {
+        return None;
+    }
+    // SAFETY: this thread's own heap, and nothing derived from it escapes.
+    let t = unsafe { &*t };
+    // SAFETY: as above.
+    let p = cache_take(unsafe { &mut *t.cache.get() }, payload)?;
+    t.tally.add(&allocated(payload));
+    // SAFETY: `p` is the payload of a dead block with `payload` usable bytes.
+    unsafe {
+        header(p).write(Header {
+            rc: 1,
+            cap: payload | shared_mask(),
+        });
+    }
+    Some(p)
+}
+
+/// [`buri_rt_free`]'s fast path, with no heap check running: a small block
+/// into this thread's cache. `false` changes nothing.
+///
+/// # Safety
+/// As [`buri_rt_free`], and `p` is not null.
+#[inline(always)]
+unsafe fn free_cached(p: *mut u8) -> bool {
+    let t = heap_fast();
+    if t.is_null() {
+        return false;
+    }
+    // SAFETY: the caller promises a live payload pointer.
+    let h = unsafe { &*header(p) };
+    if h.rc == BURI_RT_IMMORTAL {
+        return true;
+    }
+    let cap = h.cap & BURI_RT_CAP_MASK;
+    if h.cap & BURI_RT_CAP_ARENA != 0 || crate::scalars::indexed(p) {
+        return false;
+    }
+    // SAFETY: this thread's own heap, and nothing derived from it escapes.
+    let t = unsafe { &*t };
+    // SAFETY: as above.
+    let cache = unsafe { &mut *t.cache.get() };
+    let bytes = slot_bytes(cap);
+    if cap > CACHE_MAX_PAYLOAD
+        || cache.held + bytes > cache.limit
+        || cache.since_sweep + 1 >= CACHE_SWEEP_OPS
+    {
+        return false;
+    }
+    t.tally.add(&freed(cap));
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`cap <= CACHE_MAX_PAYLOAD` was checked above, and there are `CACHE_SLOTS` of them"
+    )]
+    let slot = &mut cache.slots[cap as usize];
+    // SAFETY: the block is dead, so its header is this file's to use as list
+    // storage.
+    unsafe { (*header(p)).rc = slot.head as u64 };
+    slot.head = p;
+    cache.held += bytes;
+    cache.since_sweep += 1;
+    true
 }
 
 /// A dead block of exactly `payload` usable bytes from this thread's cache,
@@ -1826,7 +2024,10 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // and none of their registers saved on the way in.
     if heap_check_off() {
         // SAFETY: forwarded.
-        unsafe { free_block(p, HeapCheck::Off) }
+        if !unsafe { free_cached(p) } {
+            // SAFETY: forwarded.
+            unsafe { free_uncached(p) }
+        }
     } else {
         // SAFETY: forwarded.
         unsafe { free_checked(p, heap_check()) }
@@ -1845,6 +2046,16 @@ pub unsafe extern "C" fn buri_rt_drop(p: *mut u8, drop_glue: extern "C" fn(*mut 
     drop_glue(p);
     // SAFETY: forwarded.
     unsafe { buri_rt_free(p) }
+}
+
+/// [`buri_rt_free`] past its fast path, with no heap check running.
+///
+/// # Safety
+/// As [`buri_rt_free`], and `p` is not null.
+#[inline(never)]
+unsafe fn free_uncached(p: *mut u8) {
+    // SAFETY: forwarded.
+    unsafe { free_block(p, HeapCheck::Off) }
 }
 
 /// [`buri_rt_free`] under a heap check.

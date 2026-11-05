@@ -8401,6 +8401,43 @@ each part twice and releases it once. Lending the tuple's parts to the push
 cut a step from 584 to 524 instructions, but the same large suite showed no
 change beyond noise, so it isn't in.
 
+### 6.96 Allocation and free read the thread's cache without a call, 2026-11-05
+
+On macOS a `thread_local!` read is a call to dyld's `_tlv_get_addr`.
+`buri_rt_alloc` and `buri_rt_free` made it on every call, so both kept a stack
+frame even when the block came from or went to the thread's cache.
+
+Now a pthread key holds the thread's `ThreadHeap`, and arm64 reads it inline:
+
+```rust
+asm!("mrs {}, tpidrro_el0", out(reg) base);       // the thread's own data
+((base & !7) as *const u8).add(key * 8).read()    // key k sits k words in
+```
+
+- Go's runtime reads keys the same way. `heap_slot::set` checks the layout
+  once with a probe value and leaves every thread on the slow path if it
+  doesn't hold.
+- `Cache::arm` sets the key, and `CacheDrain` clears it first, so a free from
+  a later destructor finds the cache closed.
+- `alloc_cached` and `free_cached` call nothing, so the cache paths need no
+  frame. Everything else tail-calls `alloc_uncached` or `free_uncached`,
+  which ask every question again.
+- Other targets read the thread-local inline already and share the same fast
+  paths.
+
+An allocation and free pair costs about 35 fewer instructions on both
+backends. `cli/tests/native/alloc_churn.rs` guards it: a `list.range` step went
+from 245 to 210 instructions on stencil and from 198 to 164 on LLVM. A large
+test suite retired about 1% fewer test-binary instructions.
+
+`release.rs`'s list-of-strings drop test bounded strings at 1.2 times ints,
+which tightened as the shared block got cheaper. It now bounds what the
+strings add: 28 instructions a list, the same allowance it gave before.
+
+Skipping the zeroing of a stencil list literal whose elements fill its block
+saved about 30 instructions a literal, but the suite's hottest test showed no
+change, so it isn't in.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -371,14 +371,19 @@ fn walk(bytes: &[u8], index: usize) -> usize {
 /// loads, and the call around them cost as much again.
 #[inline]
 pub(crate) fn forget(p: *mut u8) {
-    let key = p as usize;
-    if !INDEXED.load(Ordering::Relaxed)
-        || key == 0
-        || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key)
-    {
-        return;
+    if indexed(p) {
+        forget_slow(p as usize);
     }
-    forget_slow(key);
+}
+
+/// Whether some index is about the block at `p`: [`forget`]'s test, without
+/// the forgetting.
+#[inline(always)]
+pub(crate) fn indexed(p: *mut u8) -> bool {
+    let key = p as usize;
+    INDEXED.load(Ordering::Relaxed)
+        && key != 0
+        && KEYS.iter().any(|k| k.load(Ordering::Relaxed) == key)
 }
 
 /// [`forget`]'s rare half: some index is about this block.

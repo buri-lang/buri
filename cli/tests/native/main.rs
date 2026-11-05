@@ -357,6 +357,10 @@ mod wrapping;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod collection_costs;
+// A block allocated and freed every step, counted rather than timed, and
+// blocks moved between threads and actors, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod alloc_churn;
 // Records and enums of several strings and lists, shared and released under
 // the heap check, and what retaining and releasing one field costs, on every
 // backend built in.
