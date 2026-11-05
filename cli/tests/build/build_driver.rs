@@ -1339,6 +1339,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --target) target=$2; shift ;;
     --target-dir) dir=$2; shift ;;
+    --features) echo "features=$2" >> "$STAND_IN_LOG"; shift ;;
   esac
   shift
 done

@@ -19,15 +19,14 @@
 //! that will build it — so a toolchain upgrade or a runtime edit is a fresh
 //! entry rather than a stale hit.
 //!
-//! **The first target is net-off and crypto-off**, and that is a property of the
-//! cross host rather than a choice: `ring`, the TLS provider `net` needs,
-//! compiles C against the target's musl headers, which a bare macOS host does
-//! not have. `crypto` is left off with it for this first increment. So a cross
-//! archive carries the base runtime and `paint`, and a program that reaches
-//! networking or entropy against it is refused **by name at compile time**
-//! ([`net`], [`crypto`], `backend::networking_gap_when`) rather than at the
-//! system linker — which is the whole reason the feature set travels back with
-//! the paths.
+//! **A cross archive carries no features.** `net` and `crypto` need `ring`,
+//! which compiles C against the target's musl headers, and a bare macOS host
+//! has none. A program that reaches networking or entropy against it is refused
+//! **by name at compile time** ([`net`], [`crypto`],
+//! `backend::networking_gap_when`) rather than at the system linker. `paint`
+//! serves only `platform/effect/testing`'s `snapshot`, which only a test can
+//! import, and a test runs on this machine. Leaving it out skips the painter's
+//! forty crates, most of a cold cross build.
 
 use crate::build::musl;
 use crate::build::runtime_src;
@@ -94,29 +93,14 @@ impl Cross {
     }
 }
 
-/// The features a cross archive is built with: the host's, minus the two the
-/// first cross target cannot carry.
+/// The features a cross archive is built with: none, for the reasons the
+/// module header gives.
 ///
-/// `net` is dropped because `ring` compiles C against musl headers a macOS host
-/// does not have; `crypto` is dropped with it for this increment. `paint` is
-/// pure Rust and crosses, so a cross UI program still links. Deriving from the
-/// host's own feature set rather than a fixed list means a `BURI_RUNTIME_*`
-/// toolchain that already dropped `paint` does not have it re-added here.
-///
-/// **A pure function of the host's declared features**, so it can answer the
-/// compile-time gap check without building anything: the decision is the same
-/// whether or not the archive has been cached yet.
+/// **A pure function**, so it can answer the compile-time gap check without
+/// building anything.
 pub fn cross_features() -> Vec<String> {
-    CROSSES
-        .into_iter()
-        .filter(|feature| backend::runtime_native::declares(feature))
-        .map(String::from)
-        .collect()
+    Vec::new()
 }
-
-/// The runtime features a cross archive can carry: pure Rust, with nothing
-/// compiled against the target's C headers.
-const CROSSES: [&str; 1] = ["paint"];
 
 /// `net`/`crypto` for a cross target, without building the archive.
 ///
@@ -172,9 +156,9 @@ type Started = Vec<(Target, Option<std::thread::JoinHandle<()>>)>;
 /// See [`Started`].
 static STARTED: Mutex<Started> = Mutex::new(Vec::new());
 
-/// What `BURI_PROFILE` says of each build [`start`] began: its triple, and how
-/// many modules had been loaded when it began.
-static STARTED_AFTER: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+/// What `BURI_PROFILE` says of each build [`start`] began: its triple, how
+/// many modules had been loaded when it began, and its features.
+static STARTED_AFTER: Mutex<Vec<(String, u64, Vec<String>)>> = Mutex::new(Vec::new());
 
 /// Resolves `target`'s runtime as soon as a build knows it will link for
 /// `target`: from the cache at once, or, when the runtime has to be built, on
@@ -207,6 +191,7 @@ pub fn start(target: Target) {
             .push((
                 plan.triple.clone(),
                 crate::compiler::modules::modules_loaded(),
+                plan.features.clone(),
             ));
     }
     // With no thread to build on, the link builds it, as [`resolve`] does.
@@ -244,16 +229,19 @@ pub fn settle() {
     }
 }
 
-/// One `BURI_PROFILE` line per build [`start`] began, with how many modules
-/// were loaded before it began. Zero says it began before any program was
-/// loaded, let alone compiled.
+/// Two `BURI_PROFILE` lines per build [`start`] began: how many modules were
+/// loaded before it began, and its features. Zero modules says it began before
+/// any program was loaded, let alone compiled.
 pub fn profile_lines() -> String {
     STARTED_AFTER
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .iter()
-        .map(|(triple, modules)| {
-            format!("cross runtime for {triple} started after {modules} modules loaded\n")
+        .map(|(triple, modules, features)| {
+            format!(
+                "cross runtime for {triple} started after {modules} modules loaded\n\
+                 cross runtime for {triple} built with features {features:?}\n"
+            )
         })
         .collect()
 }

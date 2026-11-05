@@ -125,6 +125,19 @@ fn a_cross_runtime_starts_before_any_program_is_loaded() {
     assert_eq!(cargo_builds(&scratch), 1);
 }
 
+/// The runtime for another machine leaves the painter out: only a test can
+/// paint, and a test runs on this machine.
+#[test]
+fn a_cross_runtime_is_built_without_the_painter() {
+    let scratch = repository("cross-features", BOTH, NATIVE_MAIN);
+    let cold = Cold::new(&scratch);
+    cold.run(&scratch, &["build", "//..."], &[("BURI_PROFILE", "1")])
+        .ok()
+        .says("cross runtime for x86_64-unknown-linux-musl built with features []");
+    let log = scratch.read("cargo.log");
+    assert!(log.lines().any(|l| l == "features="), "{log}");
+}
+
 /// A build whose cross runtime is built along the way says what one that
 /// found it cached says, line for line, and writes the same artifacts.
 #[test]
