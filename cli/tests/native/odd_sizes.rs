@@ -22,7 +22,7 @@ fn write(at: &Path, body: &str) {
 
 /// `buri test //lib` on every backend, with `test` as the one test source.
 /// Each run must pass all `blocks` of it.
-fn passes(name: &str, test: &str, blocks: usize) {
+pub(crate) fn passes(name: &str, test: &str, blocks: usize) {
     let repo = workspace(name);
     write(&repo.join("REPO.buri"), "");
     write(

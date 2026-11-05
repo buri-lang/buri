@@ -2122,6 +2122,8 @@ pub const TEST_FAIL_EXPECTED: &str = "buri_rt_test_fail_expected";
 pub const ALLOC: &str = "buri_rt_alloc";
 /// `buri_rt_free(p)`.
 pub const FREE: &str = "buri_rt_free";
+/// `buri_rt_drop(p, glue)` — `glue(p)`, then [`FREE`].
+pub const DROP: &str = "buri_rt_drop";
 /// `buri_rt_incref(p)` — the **shared** arm of `incref` (MEMORY.md §5.1).
 ///
 /// The unshared arm is open-coded and always will be; this is reached only from

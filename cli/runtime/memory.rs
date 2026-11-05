@@ -1833,6 +1833,20 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     }
 }
 
+/// Run `drop_glue` on a block that has died, then [`buri_rt_free`] it: the
+/// dying path of a native decrement whose type has glue. It is one call so
+/// that the decrement's surviving path saves no registers for it.
+///
+/// # Safety
+/// `p` is a live payload pointer with no remaining references, and
+/// `drop_glue` is the drop glue for the type `p` holds.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_drop(p: *mut u8, drop_glue: extern "C" fn(*mut u8)) {
+    drop_glue(p);
+    // SAFETY: forwarded.
+    unsafe { buri_rt_free(p) }
+}
+
 /// [`buri_rt_free`] under a heap check.
 ///
 /// # Safety

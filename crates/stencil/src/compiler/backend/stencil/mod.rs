@@ -322,7 +322,7 @@ impl Backend for Stencil {
     /// `linux-arm64` object built from the old ones, which is a wrong artifact
     /// rather than a slow build.
     /// In a program that can fan out, every count's fork reads the mask
-    /// (`emit.rs`'s `rc_key`).
+    /// (`emit.rs`'s `count_stencil`).
     fn forks_read_shared_mask(&self) -> bool {
         true
     }

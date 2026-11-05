@@ -456,7 +456,7 @@ pub struct Jit<'a> {
     part: usize,
     bufs: Bufs,
     /// Whether the program can fan out (`runtime::shares_counts`), so every
-    /// count reads `buri_rt_shared_mask` (`emit.rs`'s `rc_key`).
+    /// count reads `buri_rt_shared_mask` (`emit.rs`'s `count_stencil`).
     pub(crate) shares: bool,
 }
 
@@ -1628,6 +1628,10 @@ impl<'a> Jit<'a> {
         }
         for (i, h) in s.holes.iter().enumerate() {
             if elide && s.tail == Some(i) {
+                // The branches to the dropped tail go where it would have.
+                for off in h.branches.iter().filter(|o| at + u64::from(**o) < end) {
+                    self.patch_branch(at + u64::from(*off), end);
+                }
                 continue;
             }
             let Some(b) = bind_of(binds, h) else {
@@ -3769,11 +3773,12 @@ fn literal(c: &ir::Const, ty: ir::Type) -> Option<u64> {
 /// C library — the boundary `runtime.rs` draws — so this list is checked
 /// against `cli/runtime/lib.rs`'s exports by a test rather than left to a link
 /// error to discover.
-pub const EXTERNALS: [&str; 7] = [
+pub const EXTERNALS: [&str; 8] = [
     runtime::ABORT,
     runtime::ABORT_DIV_ZERO,
     runtime::ABORT_UNREACHABLE,
     runtime::ALLOC,
+    runtime::DROP,
     runtime::FREE,
     runtime::I128_DIVMOD,
     "memcpy",

@@ -306,6 +306,7 @@ NORET void buri_rt_abort_unreachable(void);
 NORET void buri_rt_abort(const char *, uint64_t);
 void buri_rt_decref(uint64_t, void *);
 void buri_rt_free(uint64_t);
+void buri_rt_drop(uint64_t, void *);
 uint64_t buri_rt_alloc(uint64_t);
 uint64_t buri_rt_alloc_zeroed(uint64_t);
 // 128-bit division, which is a call on every backend: clang would otherwise
@@ -1649,7 +1650,7 @@ fn memory(o: &mut Out) {
     // Each count stencil has a `/shared` twin for a program that can fan out.
     // It ORs `buri_rt_shared_mask`, whose address is the `R` hole, into the
     // `cap` it tests, so a block allocated before the first fan-out counts as
-    // marked after it (buri-lang/buri#243, `emit.rs`'s `rc_key`).
+    // marked after it (buri-lang/buri#243, `emit.rs`'s `count_stencil`).
     for (suffix, marked) in [
         ("", "(int64_t)*(uint64_t *)(p - 8) < 0"),
         (
@@ -1663,77 +1664,73 @@ fn memory(o: &mut Out) {
 }
 
 /// `incref`, `decref/drop` and `decref/free`, under `suffix`, with `marked` as
-/// the test that picks the atomic arm.
+/// the test that picks the atomic arm. Each has an `/at` twin that counts the
+/// pointer at offset `N` of the block whose address is in slot `A`, which is
+/// how glue walks a value wider than one load field by field.
 fn memory_counts(o: &mut Out, suffix: &str, marked: &str) {
-    o.push(
-        &format!("incref{suffix}"),
-        format!(
-            "void $NAME(ARGS) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
-         uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
-         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
-         __atomic_fetch_add(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_RELAXED); \
-         }} else {{ uint64_t v = *rc; *rc = v + (v != (uint64_t)-1); }} }} TAIL; }}"
-        ),
-    );
-    // === G2 end =============================================================
-    // The decrement's dying arm is open-coded, the way `llvm/emit.rs`'s
-    // `decref_pointer` has open-coded it all along: the glue and
-    // `buri_rt_free` are reached from here rather than through
-    // `buri_rt_decref`, which would re-load the header and re-decide what this
-    // stencil has already decided. Two backends deciding separately when a
-    // block dies is the one divergence MEMORY.md §5 cannot tolerate, and this
-    // is that divergence closed on the side that still had it.
-    //
-    // `buri_rt_free` stays the sole owner of the free and of the live-block
-    // counters, so every observable allocation number is the runtime's whether
-    // a block dies here or on a generic path.
-    //
-    // `fp` is not recovered from the callee here, because neither callee
-    // answers anything: the stencil keeps it across the call, which is the one
-    // place in this library where clang emits a prologue.
-    //
-    // === G2 begin: the shared fork, again ===================================
-    //
-    // The decrement's atomic arm reads the count *before* the subtraction, so
-    // the block is this thread's to free when that value was `1` — the atomic
-    // spelling of the `v == 1` the unshared arm tests, and the reason it
-    // cannot be a separate load: two threads that each read `1` would each
-    // free. `ACQ_REL` is release so this thread's writes to the value reach
-    // whichever thread performs the last decrement, and acquire so that thread
-    // sees them before it runs the glue. An `IMMORTAL` block subtracts nothing
-    // and answers `u64::MAX`, which is not `1`, so it is not freed — the same
-    // no-op `buri_rt_free` promises for one.
-    o.push(
-        &format!("decref/drop{suffix}"),
-        format!(
-            "void $NAME(ARGS0) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
-         uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
-         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
-         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) {{ \
-         ((void (*)(uint64_t))_JIT_CALLEE)(p); buri_rt_free(p); }} \
-         }} else {{ uint64_t v = *rc; \
-         if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; }} \
-         else if (v != (uint64_t)-1) {{ \
-         ((void (*)(uint64_t))_JIT_CALLEE)(p); buri_rt_free(p); }} }} }} TAIL0; }}"
-        ),
-    );
-    o.push(
-        &format!("decref/free{suffix}"),
-        format!(
-            "void $NAME(ARGS0) {{ uint64_t p = AT(uint64_t, _JIT_A); if (p) {{ \
-         uint64_t *rc = (uint64_t *)(p - 16); \
-         if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
-         uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
-         if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) {{ \
-         buri_rt_free(p); }} \
-         }} else {{ uint64_t v = *rc; \
-         if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; }} \
-         else if (v != (uint64_t)-1) {{ buri_rt_free(p); }} }} }} TAIL0; }}"
-        ),
-    );
-    // === G2 end =============================================================
+    for (at, load) in [
+        ("", "AT(uint64_t, _JIT_A)"),
+        ("/at", "*(uint64_t *)(AT(uint64_t, _JIT_A) + OFF(_JIT_N))"),
+    ] {
+        o.push(
+            &format!("incref{suffix}{at}"),
+            format!(
+                "void $NAME(ARGS) {{ uint64_t p = {load}; if (p) {{ \
+             uint64_t *rc = (uint64_t *)(p - 16); \
+             if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
+             uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
+             __atomic_fetch_add(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_RELAXED); \
+             }} else {{ uint64_t v = *rc; *rc = v + (v != (uint64_t)-1); }} }} TAIL; }}"
+            ),
+        );
+        // === G2 end =========================================================
+        // The decrement decides here when a block dies, the way `llvm/emit.rs`'s
+        // `decref_pointer` has all along, rather than in `buri_rt_decref`,
+        // which would re-load the header and decide again. Two backends
+        // deciding separately when a block dies is the one divergence
+        // MEMORY.md §5 cannot tolerate. A dying block goes to `buri_rt_free`,
+        // or to `buri_rt_drop` with its glue's address in the `M` hole, and
+        // `buri_rt_free` stays the sole owner of the free and of the
+        // live-block counters.
+        //
+        // A surviving block returns before anything is called, so clang saves
+        // callee-saved registers on the dying path only. The glue is called
+        // from `buri_rt_drop` rather than from here: a call here keeps `p`
+        // live across it, and that puts the saves back on every path.
+        //
+        // === G2 begin: the shared fork, again ===============================
+        //
+        // The decrement's atomic arm reads the count *before* the
+        // subtraction, so the block is this thread's to free when that value
+        // was `1` — the atomic spelling of the `v == 1` the unshared arm
+        // tests, and the reason it cannot be a separate load: two threads
+        // that each read `1` would each free. `ACQ_REL` is release so this
+        // thread's writes to the value reach whichever thread performs the
+        // last decrement, and acquire so that thread sees them before it runs
+        // the glue. An `IMMORTAL` block subtracts nothing and answers
+        // `u64::MAX`, which is not `1`, so it is not freed — the same no-op
+        // `buri_rt_free` promises for one.
+        for (kind, dies) in [
+            ("drop", "buri_rt_drop(p, (void *)_JIT_M)"),
+            ("free", "buri_rt_free(p)"),
+        ] {
+            o.push(
+                &format!("decref/{kind}{suffix}{at}"),
+                format!(
+                    "void $NAME(ARGS0) {{ uint64_t p = {load}; if (p) {{ \
+                 uint64_t *rc = (uint64_t *)(p - 16); int dies; \
+                 if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
+                 uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
+                 dies = __atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1; \
+                 }} else {{ uint64_t v = *rc; \
+                 if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; TAIL0; }} \
+                 dies = v != (uint64_t)-1; }} \
+                 if (dies) {{ {dies}; }} }} TAIL0; }}"
+                ),
+            );
+        }
+        // === G2 end =========================================================
+    }
 }
 
 /// (e) and (f): supernodes over two and three IR operations.

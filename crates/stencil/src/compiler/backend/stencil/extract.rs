@@ -447,9 +447,49 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
             tail,
             ..Stencil::unspilled()
         };
-        out.push(strip_dead_clears(&st).unwrap_or(st));
+        let st = strip_dead_clears(&st).unwrap_or(st);
+        out.push(branches_to_tail(st));
     }
     Ok(out)
+}
+
+/// A `b` to the continuation branch becomes another site of the
+/// continuation's hole, so the JIT points it where the continuation goes. A
+/// path that merges just before a tail in the middle of the body, such as a
+/// count that survives, then takes one branch, not two.
+///
+/// A conditional branch stays as it is: its nineteen bits may not reach the
+/// continuation.
+fn branches_to_tail(mut s: Stencil) -> Stencil {
+    let cont = [Jump::Cont, Jump::Cont0].map(|j| HoleName::Slot(Slot::Jump(j)));
+    let Some(t) = s.holes.iter().position(|h| cont.contains(&h.name)) else {
+        return s;
+    };
+    let Some(&[tail]) = s.holes.get(t).map(|h| h.branches.as_slice()) else {
+        return s;
+    };
+    let (Some(code), Some(reloc)) = (words_of(&s.code), reloc_words(&s, s.code.len() / 4)) else {
+        return s;
+    };
+    let to_tail = |(i, (&w, &is_reloc)): (usize, (&u32, &bool))| {
+        let words = i64::from(((w << 6) as i32) >> 6);
+        let b = w & 0xfc00_0000 == 0x1400_0000 && !is_reloc;
+        (b && (i as i64 + words) * 4 == i64::from(tail)).then_some(i as u32 * 4)
+    };
+    let offs: Vec<u32> = code
+        .iter()
+        .zip(&reloc)
+        .enumerate()
+        .filter_map(to_tail)
+        .collect();
+    if let Some(h) = s.holes.get_mut(t) {
+        h.branches.splice(0..0, offs.iter().copied());
+        h.sites.extend(offs.iter().map(|&off| Site {
+            off,
+            kind: SiteKind::Branch26,
+        }));
+    }
+    s
 }
 
 // ---------------------------------------------------------------------------
@@ -524,7 +564,15 @@ fn to_unsigned_offset(w: u32, imm12: u32) -> u32 {
 /// branch that survives and moving every hole site to its new offset.
 ///
 /// Relocation sites are never re-displaced: their fields are the JIT's to fill.
-fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<Stencil> {
+/// With `onto_next`, a branch into a deleted word lands on the next word kept,
+/// which is right only where every deleted word does nothing.
+fn remove(
+    s: &Stencil,
+    dead: &[bool],
+    code: &mut [u32],
+    name: String,
+    onto_next: bool,
+) -> Option<Stencil> {
     let words = code.len();
     // One flag per word is what every caller builds and what the three tables
     // below are sized to; the whole rewrite indexes them interchangeably.
@@ -573,14 +621,15 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         if target < 0 {
             return None;
         }
-        // A branch out of the body, or into a word that is being deleted, is
-        // one this rewrite has nowhere to point: refuse the whole stencil.
-        let (Some(&to), Some(&from)) = (newpos.get(target as usize), newpos.get(i)) else {
-            return None;
+        // A branch out of the body, or into a word that is being deleted and
+        // not `onto_next`, is one this rewrite has nowhere to point: refuse
+        // the whole stencil.
+        let landing = newpos.get(target as usize..)?.iter();
+        let to = match onto_next {
+            true => landing.copied().find(|&p| p != usize::MAX)?,
+            false => landing.copied().next().filter(|&p| p != usize::MAX)?,
         };
-        if to == usize::MAX {
-            return None;
-        }
+        let from = *newpos.get(i)?;
         let nd = to as i64 - from as i64;
         let slot = code.get_mut(i)?;
         *slot = (w & !((mask as u32) << shift)) | (((nd & mask) as u32) << shift);
@@ -625,9 +674,10 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
     }
     if out.code.len() >= 4 {
         let last = (out.code.len() - 4) as u32;
-        out.tail = out.holes.iter().position(|h| {
-            h.kind == HoleKind::Branch && h.branches.len() == 1 && h.branches.first() == Some(&last)
-        });
+        out.tail = out
+            .holes
+            .iter()
+            .position(|h| h.kind == HoleKind::Branch && h.branches.last() == Some(&last));
     }
     Some(out)
 }
@@ -658,6 +708,9 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
 /// the two are distinguishable after extraction.
 ///
 /// `x0` is never a candidate at either prototype: it is the frame pointer.
+///
+/// A branch to a run of them, which every path that merges before the tail
+/// takes, goes to the transfer after it instead.
 pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
     let words = s.code.len() / 4;
     let mut code = words_of(&s.code)?;
@@ -700,7 +753,7 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
     if !dead.iter().any(|d| *d) {
         return None;
     }
-    remove(s, &dead, &mut code, s.name.clone())
+    remove(s, &dead, &mut code, s.name.clone(), true)
 }
 
 /// Answers the folded twin of a stencil, when there is one to have.
@@ -799,7 +852,7 @@ pub fn fold_addressing(s: &Stencil) -> Option<Stencil> {
         hole.pairs = pairs;
         hole.lo12 = lo12;
     }
-    remove(&s2, &dead, &mut code, format!("{}+fold", s.name))
+    remove(&s2, &dead, &mut code, format!("{}+fold", s.name), false)
 }
 
 /// Removes one trailing `movz Xn, #0` (n >= 8) sitting immediately before the
@@ -965,7 +1018,7 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
     });
     let mut dead = vec![false; words];
     *dead.get_mut(x)? = true;
-    remove(&s2, &dead, &mut code, s.name.clone())
+    remove(&s2, &dead, &mut code, s.name.clone(), false)
 }
 
 /// The other shape the same fold takes, for the stencils where the two arms are
@@ -1049,7 +1102,7 @@ fn fold_cond_last(s: &Stencil) -> Option<Stencil> {
     });
     let mut dead = vec![false; words];
     *dead.get_mut(y)? = true;
-    remove(&s2, &dead, &mut code, s.name.clone())
+    remove(&s2, &dead, &mut code, s.name.clone(), false)
 }
 
 /// The same stencil with its two arms exchanged: the conditional branch's
@@ -1323,5 +1376,5 @@ pub fn fold_imm(s: &Stencil) -> Option<Stencil> {
     for h in s2.holes.iter_mut() {
         h.pairs.retain(|p| p.0 != u32::MAX);
     }
-    remove(&s2, &dead, &mut code, format!("{}+ifold", s.name))
+    remove(&s2, &dead, &mut code, format!("{}+ifold", s.name), false)
 }

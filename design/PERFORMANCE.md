@@ -8341,6 +8341,45 @@ suites loads each module once. The `linting` case
 `lint_during_build_over_programs_sharing_modules` holds the findings and their
 order.
 
+### 6.93 A count that survives calls nothing, 2026-11-05
+
+Retain and release glue is a large share of a dev test binary's time. On
+arm64, releasing one `Str` field of a wide record took 22 instructions on the
+path where the block survives:
+
+- glue loaded the pointer, stored it to the frame, and the stencil loaded it
+  back;
+- clang saved `x19`, `x20`, `x29` and `x30` on every path, because the dying
+  path calls the glue and `buri_rt_free` with `p` live across them;
+- three `mov xN, #0` sat where the paths merged, which `strip_dead_clears`
+  couldn't drop because a branch landed on them;
+- the merged path then branched to the tail, which branched again.
+
+Now it takes 12:
+
+```c
+uint64_t p = *(uint64_t *)(AT(uint64_t, _JIT_A) + OFF(_JIT_N));  // `/at` twin
+...
+if (v > 1 && v != (uint64_t)-1) { *rc = v - 1; TAIL0; }          // survives
+...
+if (dies) { buri_rt_drop(p, (void *)_JIT_M); }                   // glue, then free
+```
+
+- each count stencil has an `/at` twin, which reads the pointer from the
+  value glue walks, so nothing goes through the frame;
+- a block that survives returns before any call, and the dying path makes one
+  call, `buri_rt_drop`, so clang saves registers on the dying path only;
+- a branch onto dead clears lands on the transfer after them;
+- a `b` to the continuation becomes another site of the continuation's hole.
+
+x86-64 gets the first two from the same C: `push rbx` moves off the survive
+path. Its `xor` clears stay, since `x86.rs` rewrites nothing and a zeroing
+`xor` is close to free.
+
+`cli/tests/native/glue_counts.rs` guards it. Sharing a record of eight `Str`s
+against a record of one went from 66 to 54 instructions a field, and the test
+fails above 56.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

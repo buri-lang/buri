@@ -506,8 +506,9 @@ impl Jit<'_> {
     }
 
     /// A retain or a release over the value at `G_PTR + at`, reading only the
-    /// words it counts or tests: each block pointer, tag and niche word is
-    /// loaded on its own ([`Jit::load_through`]) and nothing else is.
+    /// words it counts or tests: each block pointer is read by its count's
+    /// `/at` stencil, each tag and niche word is loaded on its own
+    /// ([`Jit::load_through`]), and nothing else is.
     ///
     /// The same walk as `Jit::walk_rc`, site for site and depth for depth, with
     /// offsets relative to the pointer instead of the frame.
@@ -516,8 +517,8 @@ impl Jit<'_> {
         for site in sites.iter() {
             match site {
                 Site::Block { offset, glue } => {
-                    self.load_through(G_VALUE, at.plus(*offset), 8);
-                    self.block_op(st, G_VALUE, glue, op);
+                    let field = Some(at.plus(*offset).bytes());
+                    self.block_op(st, G_PTR, field, glue, op);
                 }
                 Site::Field(f) => self.field_through(st, f, at, op, depth),
                 Site::Tagged { tag, arms } => {

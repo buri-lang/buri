@@ -72,6 +72,22 @@ const RC_LIGHT: u32 = 4;
 /// writing each one out made a match over `n` counted variants `n²` code.
 const RC_OUT_OF_LINE: u32 = 16;
 
+/// Each count's stencils, plain and `/shared`, then their `/at` twins, in the
+/// order `Jit::count_stencil` picks from.
+const INCREF: [&str; 4] = ["incref", "incref/shared", "incref/at", "incref/shared/at"];
+const DROP: [&str; 4] = [
+    "decref/drop",
+    "decref/drop/shared",
+    "decref/drop/at",
+    "decref/drop/shared/at",
+];
+const FREE: [&str; 4] = [
+    "decref/free",
+    "decref/free/shared",
+    "decref/free/at",
+    "decref/free/shared/at",
+];
+
 /// A scalar's stencil tag, its width in bits, and whether it is signed.
 pub fn prim_tag(s: Scalar) -> (&'static str, u32, bool) {
     match s {
@@ -846,7 +862,9 @@ impl<'a> Jit<'a> {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
-                Site::Block { offset, glue } => self.block_op(st, at + offset.bytes(), glue, op),
+                Site::Block { offset, glue } => {
+                    self.block_op(st, at + offset.bytes(), None, glue, op)
+                }
                 Site::Field(f) => self.walk_field(st, f, at, op, depth),
                 // One arm per variant that owns something, dispatched on the
                 // tag the same way a `match` is.
@@ -946,7 +964,7 @@ impl<'a> Jit<'a> {
         if f.boxed {
             let glue = (op != Op::Retain && self.rc_counted(&f.ty))
                 .then(|| self.helper(Helper::Walk { ty: f.ty, op }));
-            return self.count_block(st, at, op, glue);
+            return self.count_block(st, at, None, op, glue);
         }
         if self.field_out_of_line(&f.ty, depth) {
             return self.walk_out_of_line(st, f.ty, at, op);
@@ -967,8 +985,17 @@ impl<'a> Jit<'a> {
         compound && depth >= RC_INLINE && !light
     }
 
-    /// `op` on one nullable block pointer, with the glue its contents need.
-    pub(crate) fn block_op(&mut self, st: &mut Fn2, at: u32, glue: &Glue, op: Op) {
+    /// `op` on one nullable block pointer, with the glue its contents need. The
+    /// pointer is at frame offset `at`, or with `field`, at that offset into
+    /// the block whose address is at frame offset `at`.
+    pub(crate) fn block_op(
+        &mut self,
+        st: &mut Fn2,
+        at: u32,
+        field: Option<u32>,
+        glue: &Glue,
+        op: Op,
+    ) {
         let glue = match glue {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so a copy rebases as well as replaces (`buri_rt_copy_str`).
@@ -984,66 +1011,78 @@ impl<'a> Jit<'a> {
             Glue::Elems(elem) => (op != Op::Retain && self.rc_counted(elem))
                 .then(|| self.helper(Helper::Elems { ty: *elem, op })),
         };
-        self.count_block(st, at, op, glue)
+        self.count_block(st, at, field, op, glue)
     }
 
-    /// `op` on the block whose pointer is at frame offset `at`.
+    /// `op` on the block whose pointer is at frame offset `at`, or with
+    /// `field`, at that offset into the block whose address is there.
     ///
     /// `glue` releases or copies the block's *contents*, and is `None` for a
     /// block of bytes — a `Str`'s allocation, a `[Int]`. A retain never needs
     /// one. A null pointer copies to a null pointer, so a niche and a static
     /// `Str`'s absent base need no test.
-    fn count_block(&mut self, st: &mut Fn2, at: u32, op: Op, glue: Option<String>) {
-        match (op, glue) {
-            (Op::Retain, _) => self.incref(at),
-            (Op::Release, Some(g)) => {
-                let (key, mask) = self.rc_key("decref/drop", "decref/drop/shared");
-                self.emit(
-                    key,
-                    &[
-                        Lit::A.of(u64::from(at)),
-                        Jump::Callee.to(V::Sym(g)),
-                        mask,
-                        Jump::Cont0.to(V::Fall),
-                    ],
-                )
-            }
-            (Op::Release, None) => {
-                let (key, mask) = self.rc_key("decref/free", "decref/free/shared");
-                self.emit(
-                    key,
-                    &[Lit::A.of(u64::from(at)), mask, Jump::Cont0.to(V::Fall)],
-                )
-            }
-            (Op::Copy, glue) => {
+    fn count_block(
+        &mut self,
+        st: &mut Fn2,
+        at: u32,
+        field: Option<u32>,
+        op: Op,
+        glue: Option<String>,
+    ) {
+        let keys = match (op, &glue) {
+            (Op::Retain, _) => return self.count_stencil(INCREF, Jump::Cont, at, field, None),
+            (Op::Release, Some(_)) => DROP,
+            (Op::Release, None) => FREE,
+            (Op::Copy, _) => {
                 let g = glue.map_or(Src::Imm(0), Src::Sym);
-                self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
+                return self.c_call(runtime::COPY_BLOCK, st, &[Src::Word(at), g], &[], at, "i");
             }
-        }
+        };
+        self.count_stencil(keys, Jump::Cont0, at, field, glue)
     }
 
     /// A retain of the block whose pointer is at frame offset `at`.
     pub(crate) fn incref(&mut self, at: u32) {
-        let (key, mask) = self.rc_key("incref", "incref/shared");
-        self.emit(
-            key,
-            &[Lit::A.of(u64::from(at)), mask, Jump::Cont.to(V::Fall)],
-        );
+        self.count_stencil(INCREF, Jump::Cont, at, None, None)
     }
 
-    /// The count stencil to use, and the binding for its mask hole.
+    /// A count stencil of `keys`, with `glue` for a dying block's contents.
     ///
-    /// A program that can fan out ([`Jit::shares`]) ORs `buri_rt_shared_mask`
-    /// into the bit its fork tests, so a block allocated before the first
-    /// fan-out is counted atomically after it (buri-lang/buri#243). Any other
-    /// program keeps the plain stencil; the plain one has no `R` hole, so the
-    /// binding is never read.
-    fn rc_key(&self, plain: &'static str, shared: &'static str) -> (&'static str, Bind) {
-        if self.shares {
-            (shared, Word::R.ext(runtime::SHARED_MASK))
+    /// A program that can fan out ([`Jit::shares`]) takes the `/shared` key,
+    /// which ORs `buri_rt_shared_mask` into the bit its fork tests, so a block
+    /// allocated before the first fan-out is counted atomically after it
+    /// (buri-lang/buri#243). With `field`, it takes the key's `/at` twin. A
+    /// stencil without one of the holes bound here never reads its binding.
+    fn count_stencil(
+        &mut self,
+        keys: [&'static str; 4],
+        cont: Jump,
+        at: u32,
+        field: Option<u32>,
+        glue: Option<String>,
+    ) {
+        let mask = if self.shares {
+            Word::R.ext(runtime::SHARED_MASK)
         } else {
-            (plain, Word::R.lit(0))
-        }
+            Word::R.lit(0)
+        };
+        let [plain, shared, plain_at, shared_at] = keys;
+        let key = match (self.shares, field.is_some()) {
+            (false, false) => plain,
+            (true, false) => shared,
+            (false, true) => plain_at,
+            (true, true) => shared_at,
+        };
+        self.emit(
+            key,
+            &[
+                Lit::A.of(u64::from(at)),
+                Lit::N.of(u64::from(field.unwrap_or(0))),
+                glue.map_or(Word::M.lit(0), |g| Word::M.sym(g)),
+                mask,
+                cont.to(V::Fall),
+            ],
+        );
     }
 
     /// A comparison of two `Str`s, through one helper. The six orderings are

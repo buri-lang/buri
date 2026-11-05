@@ -848,7 +848,7 @@ const PROT_NONE: u64 = 0;
 /// and `bl buri_rt_frames_are_per_thread` right after `buri_rt_argv_init`.
 /// Together they let the runtime fan out: a step's entry thunk takes a Buri
 /// stack of its own on a task (`glue.rs`), and the program's counts read
-/// `buri_rt_shared_mask` (`emit.rs`'s `rc_key`), so a block allocated before
+/// `buri_rt_shared_mask` (`emit.rs`'s `count_stencil`), so a block allocated before
 /// the first fan-out is counted atomically after it.
 ///
 /// A program that can't fan out says nothing, keeps the plain fork and pays
