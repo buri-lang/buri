@@ -1779,7 +1779,8 @@ stays part of the identity.
 Drop and copy glue is then named by a hash of what its body reads
 (`Layouts::glue_key`) and defined weak, so the linker keeps one copy per
 program: a weak private external on Mach-O, a COMDAT group on ELF, and
-`linkonce_odr` on LLVM.
+`linkonce_odr` on LLVM. A release build now defines LLVM's glue once, in a
+unit of its own (§6.88).
 
 A copy of the profiled monorepo, release toolchains, clean runs at load average
 44–118:
@@ -8142,6 +8143,42 @@ M3 Pro, release build, `BURI_THREADS=1`, fewest of five:
 `BURI_PROFILE` prints `style graphs drawn`, and
 `cli/tests/build/profile.rs` pins it at 0 for a test build that imports
 nothing from `ui/` and at 1 for one that styles a node.
+
+### 6.88 One glue unit per release program, 2026-11-05
+
+A cold `buri build --release //...` of the profiled monorepo spent most of
+its time in LLVM, and a fifth of that optimized and compiled drop and copy
+glue. Every unit defined each glue function it called, as `linkonce_odr`, so
+LLVM optimized the same function once per unit and the linker threw all but
+one copy away. The inliner took glue at only about 4% of its call sites, all
+on paths that free memory.
+
+Now a linked release program gets one more unit, `buri.glue`. Every other
+unit only declares the glue it calls, as it does a function of another unit.
+The build first lowers every unit to collect the glue they call, then emits
+the units and `buri.glue` in parallel. `buri.glue` defines each glue function
+once.
+
+`buri.glue`'s codegen key hashes every other unit's key, so it re-emits
+whenever any unit does. `Llvm::emit_ir_text` keeps `linkonce_odr` glue in
+each unit, since its reader wants each unit whole.
+
+A copy of the profiled monorepo, cold release build, `BURI_PROFILE=1`:
+
+| Build | `emit` instructions | Objects compiled |
+|---|---:|---:|
+| Before | 8,855 G | 1,996 |
+| Glue `available_externally` in each unit | 7,869 G | 2,028 |
+| Glue declared in each unit | 6,851 G | 2,028 |
+
+Declaring the glue saves 22.6% of `emit`'s instructions. Keeping an
+`available_externally` body in each unit so the inliner could still take it
+saved 11%. A mix that kept bodies only for small glue saved about as much
+as declaring it all, so the simpler rule stays.
+
+`cli/tests/native/release.rs` guards it: eight modules that each release the
+same wide record emit no more than 1.28× the instructions of one module that
+holds all eight functions. The ratio was 1.39 before.
 
 ## 7. Profiling, on this platform
 

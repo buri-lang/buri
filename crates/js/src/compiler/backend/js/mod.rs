@@ -57,6 +57,11 @@ impl Backend for Js {
         false
     }
 
+    /// One bundle, and no units to share anything between.
+    fn shared_unit(&self) -> Option<&'static str> {
+        None
+    }
+
     /// Which intrinsics this backend has no body for, asked of the program
     /// rather than accumulated as a side effect of a failed emission.
     ///

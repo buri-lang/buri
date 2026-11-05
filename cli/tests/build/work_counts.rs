@@ -287,7 +287,7 @@ fn native(release: bool, linked: bool) -> [String; 8] {
     // Under LLVM's `-O3`, `//lib/c`'s runner folds to the bytes of a runner an
     // earlier step linked, so on macOS the store already holds it.
     let filtered = u64::from(!(release && KEPT_BY_BYTES));
-    [
+    let counts: [String; 8] = [
         "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3".into(),
         "suites reused 3, files written 0".into(),
         format!(
@@ -309,7 +309,31 @@ fn native(release: bool, linked: bool) -> [String; 8] {
         // The runner's bytes match the filtered run's, so it isn't a new file.
         "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5".into(),
         "suites reused 1, files written 0".into(),
-    ]
+    ];
+    if release {
+        counts.map(|line| glued(&line))
+    } else {
+        counts
+    }
+}
+
+/// A release link also compiles and writes its program's glue unit, since
+/// that unit follows every other unit's key (`design/PERFORMANCE.md` §6.88).
+fn glued(line: &str) -> String {
+    let count = |name: &str| -> Option<u64> {
+        let at = line.find(name)? + name.len() + 1;
+        line[at..].split(',').next()?.parse().ok()
+    };
+    let Some(links) = count("links") else {
+        return line.to_string();
+    };
+    let mut line = line.to_string();
+    for name in ["objects compiled", "files written"] {
+        if let Some(n) = count(name) {
+            line = line.replacen(&format!("{name} {n}"), &format!("{name} {}", n + links), 1);
+        }
+    }
+    line
 }
 
 /// A JavaScript run builds a bundle per suite and links nothing.
@@ -655,7 +679,13 @@ fn a_native_release_failing_suites_runner_is_never_a_new_executable_again() {
     }
     first.ok();
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    failing_groups(&scratch, &["--release"], &[], NATIVE_FAILING);
+    let want = NATIVE_FAILING.map(glued);
+    failing_groups(
+        &scratch,
+        &["--release"],
+        &[],
+        want.each_ref().map(String::as_str),
+    );
 }
 
 #[test]

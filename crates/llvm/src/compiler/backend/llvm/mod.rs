@@ -206,6 +206,10 @@ impl Backend for Llvm {
     fn forks_read_shared_mask(&self) -> bool {
         true
     }
+
+    fn shared_unit(&self) -> Option<&'static str> {
+        Some(GLUE_UNIT)
+    }
 }
 
 impl Native for Llvm {
@@ -359,6 +363,9 @@ struct For {
     /// Whether anything names each function. One nothing names is not
     /// emitted at all.
     named: Dense<FuncIdx, bool>,
+    /// Whether the glue is compiled once, in [`GLUE_UNIT`], rather than in
+    /// each unit that calls it. A reader of one unit reads its glue there.
+    shared_glue: bool,
 }
 
 impl For {
@@ -367,6 +374,7 @@ impl For {
             names: false,
             kept: crate::compiler::backend::linkage::named_elsewhere(program),
             named: crate::compiler::backend::linkage::named_anywhere(program),
+            shared_glue: true,
         }
     }
 
@@ -377,6 +385,7 @@ impl For {
             names: true,
             kept: every.clone(),
             named: every,
+            shared_glue: false,
         }
     }
 }
@@ -486,6 +495,7 @@ fn emit_selected(
         names: audience.names,
         kept: with_roots(audience.kept),
         named: with_roots(audience.named),
+        shared_glue: audience.shared_glue,
     };
     let shared = Shared {
         program,
@@ -500,33 +510,78 @@ fn emit_selected(
         audience,
     };
 
-    let mut wanted: Vec<(usize, &ir::Unit)> = program
+    let worker_for = |worker: &mut Option<Worker>| -> Result<(), Diagnostics> {
+        if worker.is_none() {
+            let machine = machine_for(&shared.triple, opts)?;
+            let data_layout = machine.get_target_data().get_data_layout();
+            let counted = Rc::new(RefCell::new(counted.clone()));
+            *worker = Some(Worker {
+                machine,
+                data_layout,
+                counted,
+            });
+        }
+        Ok(())
+    };
+
+    // The glue unit is the one after the program's own, and it defines the
+    // glue every unit asks for, wanted or not. So when it is wanted, every
+    // unit's module is built first, for that, and dropped.
+    let glue_index = program.units.len();
+    let glue_wanted = shared.audience.shared_glue && units.wants(glue_index);
+    let asked = if glue_wanted {
+        let every: Vec<(usize, &ir::Unit)> = program.units.iter().enumerate().collect();
+        let built = crate::parallel::map_items_with(
+            &every,
+            || None,
+            |worker: &mut Option<Worker>, _, &(index, unit)| {
+                worker_for(worker)?;
+                let worker = worker.as_ref().or_ice("made above");
+                emit_unit(&shared, worker, index, unit, None)
+            },
+        );
+        let mut asked: Vec<emit::GlueAsk> = Vec::new();
+        let mut seen = crate::hash::Set::default();
+        for unit in built {
+            let (_, asks) = unit?;
+            // The first unit to ask for a symbol gives its type: two types
+            // with one glue key walk alike.
+            asked.extend(
+                asks.into_iter()
+                    .filter(|a| seen.insert(a.name().to_string())),
+            );
+        }
+        asked.sort_by(|a, b| a.name().cmp(b.name()));
+        asked
+    } else {
+        Vec::new()
+    };
+
+    let mut wanted: Vec<(usize, Option<&ir::Unit>)> = program
         .units
         .iter()
         .enumerate()
         .filter(|(i, _)| units.wants(*i))
+        .map(|(i, u)| (i, Some(u)))
         .collect();
+    if glue_wanted {
+        wanted.push((glue_index, None));
+    }
     // Largest first, by member count, with the unit index breaking ties so that
     // the order is a function of the program alone.
-    wanted.sort_by_key(|(i, u)| (std::cmp::Reverse(u.funcs.len()), *i));
+    let size = |unit: Option<&ir::Unit>| unit.map_or(asked.len(), |u| u.funcs.len());
+    wanted.sort_by_key(|(i, u)| (std::cmp::Reverse(size(*u)), *i));
     let emitted = crate::parallel::map_items_with(
         &wanted,
         || None,
         |worker: &mut Option<Worker>, _, &(index, unit)| {
-            let worker = match worker {
-                Some(w) => w,
-                None => {
-                    let machine = machine_for(&shared.triple, opts)?;
-                    let data_layout = machine.get_target_data().get_data_layout();
-                    let counted = Rc::new(RefCell::new(counted.clone()));
-                    worker.insert(Worker {
-                        machine,
-                        data_layout,
-                        counted,
-                    })
-                }
-            };
-            emit_unit(&shared, worker, index, unit, render)
+            worker_for(worker)?;
+            let worker = worker.as_ref().or_ice("made above");
+            match unit {
+                Some(unit) => emit_unit(&shared, worker, index, unit, Some(render))
+                    .map(|(object, _)| object.or_ice("a rendered unit has an object")),
+                None => emit_glue(&shared, worker, &asked, render),
+            }
         },
     );
 
@@ -537,6 +592,13 @@ fn emit_selected(
     out.sort_by_key(|(index, _)| *index);
     out.into_iter().map(|(_, e)| e).collect()
 }
+
+/// The unit after the program's own that the linker audience's glue is
+/// compiled in, once ([`emit::GlueHome::Shared`]).
+pub const GLUE_UNIT: &str = "buri.glue";
+
+/// One unit's object, where it is wanted, and the glue it asked for.
+type Built = (Option<Emitted>, Vec<emit::GlueAsk>);
 
 /// The machine to optimize and emit against, or the diagnostic for a toolchain
 /// whose LLVM cannot make one.
@@ -563,13 +625,14 @@ type Render<'r> = &'r (dyn Fn(
          + Sync);
 
 /// One unit's object: its module emitted, verified, optimized and rendered.
+/// Without `render`, only the module, for the glue it asks for.
 fn emit_unit(
     shared: &Shared<'_>,
     worker: &Worker,
     index: usize,
     this: &ir::Unit,
-    render: Render<'_>,
-) -> Result<Emitted, Diagnostics> {
+    render: Option<Render<'_>>,
+) -> Result<Built, Diagnostics> {
     let program = shared.program;
     let opts = shared.opts;
     let mut diags = Diagnostics::new();
@@ -617,6 +680,9 @@ fn emit_unit(
         .module
         .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
     emitter.module.set_data_layout(&worker.data_layout);
+    if audience.shared_glue {
+        emitter.glue_in(emit::GlueHome::Elsewhere);
+    }
     for &(member, code) in &members {
         emitter.define(member, code);
     }
@@ -644,6 +710,10 @@ fn emit_unit(
     // body is complete: there is one builder, and a declared function with
     // no body is a link error rather than a wrong answer.
     emitter.finish();
+    let asked = emitter.asked().to_vec();
+    let Some(render) = render else {
+        return Ok((None, asked));
+    };
     attrs::frames(&emitter.module, &shared.triple);
     optimize(&emitter.module, &worker.machine, opts.profile);
     emitter.prune(members.iter().map(|&(f, _)| f), &audience.kept);
@@ -654,8 +724,55 @@ fn emit_unit(
             return Err(diags);
         }
     };
-    Ok(Emitted {
+    let object = Emitted {
         name: format!("{unit_name}.o"),
+        key: None,
+        bytes,
+    };
+    Ok((Some(object), asked))
+}
+
+/// [`GLUE_UNIT`]'s object: every glue function `asked` names, each defined
+/// for the whole program.
+fn emit_glue(
+    shared: &Shared<'_>,
+    worker: &Worker,
+    asked: &[emit::GlueAsk],
+    render: Render<'_>,
+) -> Result<Emitted, Diagnostics> {
+    let ctx = Context::create();
+    build::keep_names(&ctx, shared.audience.names);
+    let builder = ctx.create_builder();
+    let mut emitter = emit::Unit::new(
+        &ctx,
+        &builder,
+        shared.program,
+        shared.routes,
+        shared.tables,
+        &format!("{}{GLUE_UNIT}", shared.opts.unit_prefix),
+        &shared.observed,
+        shared.shares,
+        std::sync::Arc::clone(&shared.cycles),
+        Rc::clone(&worker.counted),
+    );
+    emitter
+        .module
+        .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
+    emitter.module.set_data_layout(&worker.data_layout);
+    emitter.glue_in(emit::GlueHome::Shared);
+    for ask in asked {
+        emitter.define_glue(ask);
+    }
+    emitter.finish();
+    attrs::frames(&emitter.module, &shared.triple);
+    optimize(&emitter.module, &worker.machine, shared.opts.profile);
+    let bytes = render(&emitter.module, &worker.machine).map_err(|message| {
+        let mut diags = Diagnostics::new();
+        diags.push(Diagnostic::error(Span::NONE, message));
+        diags
+    })?;
+    Ok(Emitted {
+        name: format!("{GLUE_UNIT}.o"),
         key: None,
         bytes,
     })

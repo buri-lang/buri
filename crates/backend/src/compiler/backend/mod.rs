@@ -268,6 +268,14 @@ pub trait Backend {
     /// No default, so a wrapper can't answer `false` for a backend that says
     /// `true`.
     fn forks_read_shared_mask(&self) -> bool;
+
+    /// The unit this backend emits after the program's own, if it emits one:
+    /// what every unit of the program shares, compiled once. Its index is
+    /// one past the program's last unit, so [`Units::All`] includes it and
+    /// [`Units::Only`] asks for it by that index.
+    ///
+    /// No default, for [`Backend::forks_read_shared_mask`]'s reason.
+    fn shared_unit(&self) -> Option<&'static str>;
 }
 
 /// A backend that emits from the lowered IR: `stencil` and `llvm`.

@@ -177,6 +177,10 @@ pub struct Unit<'ctx, 'a> {
     /// [`Unit::env_glue`]'s release, and its copy.
     env_release: Option<FunctionValue<'ctx>>,
     env_copy: Option<FunctionValue<'ctx>>,
+    /// Which module's object holds the glue this unit defines.
+    glue_home: GlueHome,
+    /// The glue this unit asked for, each once, in the order it first did.
+    asked: Vec<GlueAsk>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
@@ -230,6 +234,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             equals: Map::default(),
             env_release: None,
             env_copy: None,
+            glue_home: GlueHome::Here,
+            asked: Vec::new(),
             pending: Vec::new(),
             bodies: Vec::new(),
             helpers: 0,
@@ -3933,6 +3939,50 @@ enum StepParam<'t> {
     Element(&'t Ty),
 }
 
+/// Which object the machine code of a unit's glue is in.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GlueHome {
+    /// Every unit's own, `linkonce_odr`, so the linker keeps one copy: a weak
+    /// definition on Mach-O, a COMDAT on ELF. What a reader of one unit's IR
+    /// sees.
+    Here,
+    /// Another object's: the unit only declares it, as it does a function of
+    /// another unit's. With a body to inline, a copy per unit was a fifth of a
+    /// release build's LLVM time, and the inliner took it at 4% of the calls.
+    Elsewhere,
+    /// This unit's, for every other unit of the program: the unit
+    /// [`GlueHome::Elsewhere`] points at.
+    Shared,
+}
+
+/// One glue function a unit asked for: what [`Unit::define_glue`] makes.
+#[derive(Clone)]
+pub enum GlueAsk {
+    /// `op` over a value of `ty`, or over each element of a `[ty]` block.
+    Walk {
+        name: String,
+        op: Op,
+        elems: bool,
+        ty: Ty,
+    },
+    /// The glue every closure environment shares.
+    Env { name: String, op: Op },
+}
+
+impl GlueAsk {
+    /// The symbol it defines.
+    pub fn name(&self) -> &str {
+        match self {
+            GlueAsk::Walk { name, .. } | GlueAsk::Env { name, .. } => name,
+        }
+    }
+}
+
+/// A glue function's symbol.
+fn glue_name(f: FunctionValue<'_>) -> String {
+    f.get_name().to_string_lossy().into_owned()
+}
+
 /// A helper whose declaration exists and whose body does not yet.
 enum Job<'ctx> {
     /// A closure's `code`: converts an environment *pointer* into the
@@ -4196,12 +4246,35 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// Where the glue this unit defines is compiled to machine code
+    /// ([`GlueHome`]). [`GlueHome::Here`] unless set.
+    pub fn glue_in(&mut self, home: GlueHome) {
+        self.glue_home = home;
+    }
+
+    /// The glue this unit asked for, each once, in the order it first did.
+    /// What [`GlueHome::Shared`]'s unit is built from.
+    pub fn asked(&self) -> &[GlueAsk] {
+        &self.asked
+    }
+
+    /// Defines the glue `ask` names.
+    pub fn define_glue(&mut self, ask: &GlueAsk) {
+        match ask {
+            GlueAsk::Walk { op, elems, ty, .. } => {
+                self.made_glue(*op, *elems, ty);
+            }
+            GlueAsk::Env { op, .. } => {
+                self.env_glue(*op);
+            }
+        }
+    }
+
     /// One `void(ptr)` glue function, and whether it still needs a body.
     ///
     /// Named by what it does and by `key`, the glue key of the type it walks
     /// (`Layouts::glue_key`), so two units that both need the glue for `[Str]`
-    /// define the same symbol. `linkonce_odr` and hidden, so the linker keeps
-    /// one copy per program: a weak definition on Mach-O, a COMDAT on ELF.
+    /// define the same symbol. Hidden, and linked as [`GlueHome`] says.
     fn glue_function(&mut self, what: &str, key: &str) -> (FunctionValue<'ctx>, bool) {
         let name = format!("buri.glue.{what}.{key}");
         // Two types with one glue key in one unit: the first one's body serves.
@@ -4209,9 +4282,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return (f, false);
         }
         let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-        let f = self
-            .module
-            .add_function(&name, ty, Some(Linkage::LinkOnceODR));
+        let linkage = match self.glue_home {
+            GlueHome::Here => Linkage::LinkOnceODR,
+            GlueHome::Elsewhere | GlueHome::Shared => Linkage::External,
+        };
+        let f = self.module.add_function(&name, ty, Some(linkage));
         let global = f.as_global_value();
         global.set_visibility(inkwell::GlobalVisibility::Hidden);
         let elf = self
@@ -4220,7 +4295,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .as_str()
             .to_str()
             .is_ok_and(|t| t.contains("linux"));
-        if elf {
+        if elf && self.glue_home == GlueHome::Here {
             global.set_comdat(self.module.get_or_insert_comdat(&name));
         }
         // `ccc`: `cli/runtime/list.rs` takes the retain glue as a plain C
@@ -4272,6 +4347,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (f, fresh) = self.glue_function(what, &key);
         self.glues.insert((*ty, op, elems), f);
         if fresh {
+            self.asked.push(GlueAsk::Walk {
+                name: glue_name(f),
+                op,
+                elems,
+                ty: *ty,
+            });
+            if self.glue_home == GlueHome::Elsewhere {
+                return f;
+            }
             self.pending.push(Job::Glue {
                 value: f,
                 op,
@@ -4648,11 +4732,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         // Fresh: only this table makes the two.
         let (f, _) = self.glue_function(what, "any");
+        self.asked.push(GlueAsk::Env {
+            name: glue_name(f),
+            op,
+        });
         match op {
             Op::Copy => self.env_copy = Some(f),
             Op::Retain | Op::Release => self.env_release = Some(f),
         }
-        self.pending.push(Job::Env { value: f, word });
+        if self.glue_home != GlueHome::Elsewhere {
+            self.pending.push(Job::Env { value: f, word });
+        }
         f
     }
 

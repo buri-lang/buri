@@ -2502,7 +2502,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// Asked of `buri build --release --explain`, which prints every unit's
 /// `codegen` status: the key is the build system's, and the backend leaves
-/// `Emitted::key` empty.
+/// `Emitted::key` empty. The `buri.glue` unit holds the program's shared glue
+/// and follows every unit's key, so it re-emits along with `main`.
 #[test]
 fn the_codegen_key_follows_the_ir() {
     skip_unless_executable!();
@@ -2623,8 +2624,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         .map(|(u, _)| u.as_str())
         .collect();
     assert!(
-        moved.len() == 1 && moved[0].ends_with("main_buri"),
-        "a changed literal in `main` must move `main`'s codegen key and no other: {changed:?}"
+        moved.len() == 2
+            && moved.iter().any(|u| u.ends_with("main_buri"))
+            && moved.iter().any(|u| u.ends_with(":buri.glue")),
+        "a changed literal in `main` must move `main`'s codegen key and the glue unit's, no other: {changed:?}"
     );
     let _ = std::fs::remove_dir_all(&repo);
 }

@@ -110,6 +110,10 @@ impl<B: Backend> Backend for WithRuntime<B> {
     fn forks_read_shared_mask(&self) -> bool {
         self.0.forks_read_shared_mask()
     }
+
+    fn shared_unit(&self) -> Option<&'static str> {
+        self.0.shared_unit()
+    }
 }
 
 impl<B: Native> Native for WithRuntime<B> {

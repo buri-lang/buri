@@ -2946,6 +2946,15 @@ fn objects_named(
             (unit, key)
         })
         .collect();
+    // What the units share, such as the LLVM backend's glue, is a function of
+    // all of them, so its key is every unit's key in unit order.
+    let mut keys = keys;
+    if let Some(shared) = backend.backend().shared_unit() {
+        let every: Vec<&str> = keys.iter().map(|(_, k)| k.as_str()).collect();
+        let ir_hash = hash_bytes(format!("{shared}\n{}", every.join("\n")).as_bytes());
+        let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, "");
+        keys.push((shared.to_string(), key));
+    }
 
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {

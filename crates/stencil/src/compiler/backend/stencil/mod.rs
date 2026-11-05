@@ -327,6 +327,11 @@ impl Backend for Stencil {
         true
     }
 
+    /// Each unit's glue is its own.
+    fn shared_unit(&self) -> Option<&'static str> {
+        None
+    }
+
     fn identity(&self) -> String {
         let mut id = String::from("stencil");
         for t in abi::StencilTarget::ALL {
