@@ -594,6 +594,31 @@ test "divideFloor and remainderEuclidean hold at the far end of I64" {
     assert.equal(number.remainderEuclidean(-9223372036854775807, 1000), 193);
 }
 
+test "divideFloor at the ends of I64 is the floor of the true quotient" {
+    // The quotient rounded toward zero always fits, and so does every floor
+    // below: `bottom / -1` is the only one past the range, and it is not here.
+    let bottom = number.minValue<I64>();
+    let top = number.maxValue<I64>();
+    assert.equal(number.divideFloor(bottom, 3), -3074457345618258603);
+    assert.equal(number.divideFloor(bottom, -3), 3074457345618258602);
+    assert.equal(number.divideFloor(bottom, 7), -1317624576693539402);
+    assert.equal(number.divideFloor(bottom, -7), 1317624576693539401);
+    assert.equal(number.divideFloor(bottom, 2), -4611686018427387904);
+    assert.equal(number.divideFloor(bottom, -2), 4611686018427387904);
+    assert.equal(number.divideFloor(bottom, 1), bottom);
+    assert.equal(number.divideFloor(top, 3), 3074457345618258602);
+    assert.equal(number.divideFloor(top, -3), -3074457345618258603);
+    assert.equal(number.divideFloor(top, 7), 1317624576693539401);
+    assert.equal(number.divideFloor(top, -7), -1317624576693539401);
+    assert.equal(number.divideFloor(top, 2), 4611686018427387903);
+    assert.equal(number.divideFloor(top, -2), -4611686018427387904);
+    assert.equal(number.divideFloor(top, -1), -9223372036854775807);
+    assert.equal(number.divideFloor(top, 1), top);
+    assert.equal(number.divideFloor(bottom + 1, 3), -3074457345618258603);
+    assert.equal(number.divideFloor(bottom + 1, -2), 4611686018427387903);
+    assert.equal(number.divideFloor(bottom + 1, -1), top);
+}
+
 // --- Literals -------------------------------------------------------------------
 
 test "hex literals equal their decimal value" {

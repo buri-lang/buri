@@ -318,6 +318,31 @@ test "roundTo drops more digits than an Int has powers of ten" {
     assert.equal(decimal.of(1, 30).roundTo(0).text(ctx), "0");
 }
 
+test "roundTo at the ends of I64 rounds the true value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let bottom = number.minValue<I64>();
+    let top = number.maxValue<I64>();
+    assert.equal(decimal.of(bottom, 1).roundTo(0).text(ctx), "-922337203685477581");
+    assert.equal(decimal.of(bottom, 3).roundTo(0).text(ctx), "-9223372036854776");
+    assert.equal(decimal.of(bottom, 10).roundTo(0).text(ctx), "-922337204");
+    assert.equal(decimal.of(bottom, 18).roundTo(0).text(ctx), "-9");
+    assert.equal(decimal.of(bottom, 5).roundTo(2).text(ctx), "-92233720368547.76");
+    assert.equal(decimal.of(bottom, 18).roundTo(17).text(ctx), "-9.22337203685477581");
+    assert.equal(decimal.of(bottom, 19).roundTo(18).text(ctx), "-0.922337203685477581");
+    assert.equal(decimal.of(bottom, 19).roundTo(1).text(ctx), "-0.9");
+    assert.equal(decimal.of(top, 1).roundTo(0).text(ctx), "922337203685477581");
+    assert.equal(decimal.of(top, 3).roundTo(0).text(ctx), "9223372036854776");
+    assert.equal(decimal.of(top, 10).roundTo(0).text(ctx), "922337204");
+    assert.equal(decimal.of(top, 18).roundTo(0).text(ctx), "9");
+    assert.equal(decimal.of(top, 5).roundTo(2).text(ctx), "92233720368547.76");
+    assert.equal(decimal.of(top, 18).roundTo(17).text(ctx), "9.22337203685477581");
+    assert.equal(decimal.of(top, 19).roundTo(18).text(ctx), "0.922337203685477581");
+    assert.equal(decimal.of(top, 19).roundTo(1).text(ctx), "0.9");
+    assert.equal(decimal.of(bottom, 20).roundTo(0).text(ctx), "0");
+}
+
 // --- toFloat -------------------------------------------------------------------------
 
 test "toFloat is the nearest double" {
