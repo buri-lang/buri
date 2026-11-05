@@ -3777,7 +3777,24 @@ impl<'a> Checker<'a> {
                 .iter()
                 .any(|s| matches!(s, endless::Step::Dispatch { .. }))
             {
-                through.extend(growth.between.iter().map(|g| format!("`{}`", name_of(*g))));
+                // A toolchain function its module keeps to itself is no name
+                // the reader could look up.
+                let named = |g: &&FnId| {
+                    let info = self.tables.fn_info(**g);
+                    info.exported
+                        || !self
+                            .loaded
+                            .modules
+                            .owner(info.module)
+                            .is_some_and(|m| matches!(m.role, Role::Std | Role::Platform))
+                };
+                through.extend(
+                    growth
+                        .between
+                        .iter()
+                        .filter(named)
+                        .map(|g| format!("`{}`", name_of(*g))),
+                );
             }
             let through = if through.is_empty() {
                 String::new()

@@ -256,6 +256,11 @@ test "contains works on strings" {
     assert.isFalse(["a", "b"].contains("c"));
 }
 
+test "contains works on lists of lists" {
+    assert.isTrue([[1, 2], [3]].contains([3]));
+    assert.isFalse([[1, 2], [3]].contains([1]));
+}
+
 // --- map / filter -------------------------------------------------------------
 
 test "map applies the function elementwise" {

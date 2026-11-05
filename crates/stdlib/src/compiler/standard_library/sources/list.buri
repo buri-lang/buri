@@ -69,7 +69,16 @@ impl<T> [T] {
 
 impl<T: Equal> [T] {
     export fn contains(self, needle: T): Bool {
-        self.any(fn(x) => x == needle)
+        containsFrom(self, needle, 0)
+    }
+}
+
+/// `contains` from `at` on. It reads each element by index, which neither
+/// retains it nor allocates a closure over the needle as `any` would.
+fn containsFrom<T: Equal>(xs: [T], needle: T, at: Int): Bool {
+    match (xs[at]) {
+        .None => false,
+        .Some(x) => if (x == needle) { true } else { containsFrom(xs, needle, at + 1) },
     }
 }
 

@@ -1638,6 +1638,106 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `contains` over every shape a derived `Equal` reads: an empty list, floats
+/// with `NaN` and both zeros, text built at run time against a literal of the
+/// same bytes, a record nested in a record, and an enum with payloads. A
+/// hand-written `Equal` that is never true answers false even for the very
+/// value the list holds.
+#[test]
+fn row_09_contains_over_derived_equal() {
+    rows_or_skip!();
+    agree(
+        "row 9 contains",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+export struct Name(Str);
+export struct F { x: Float }
+export struct P { name: Name, at: F }
+export struct Outer { p: P, n: Int }
+export enum Shape { Dot, Circle(Float), Named(Str, Int) }
+export struct Never(Int);
+derive Equal for Name;
+derive Equal for F;
+derive Equal for P;
+derive Equal for Outer;
+derive Equal for Shape;
+
+impl Equal for Never {
+    fn equal(self, other: Never): Bool { false }
+}
+
+fn zeroF(): Float { 0.0 }
+fn negZeroF(): Float { -0.0 }
+fn notANumber(): Float { zeroF() / zeroF() }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let empty: [Int] = [];
+  let nothing: [Name] = [];
+  let e = str.format(ctx, "${empty.contains(0)} ${nothing.contains(Name("a"))}");
+  let floats = [1.5, notANumber(), zeroF()];
+  let f = str.format(ctx, "${floats.contains(notANumber())} ${floats.contains(negZeroF())} ${floats.contains(2.5)}");
+  let fs = [F { x: notANumber() }, F { x: negZeroF() }];
+  let g = str.format(ctx, "${fs.contains(F { x: notANumber() })} ${fs.contains(F { x: zeroF() })} ${fs.contains(F { x: 1.0 })}");
+  let built = "users.".concat(ctx, "name");
+  let texts = ["users.age", built];
+  let names = [Name("users.age"), Name(built)];
+  let t = str.format(ctx, "${texts.contains("users.name")} ${texts.contains("users.nam")} ${names.contains(Name("users.".concat(ctx, "name")))} ${names.contains(Name("users.names"))}");
+  let p = P { name: Name(built), at: F { x: notANumber() } };
+  let outers = [Outer { p: p, n: 1 }, Outer { p: P { name: Name("b"), at: F { x: 2.0 } }, n: 2 }];
+  let o = str.format(ctx, "${outers.contains(Outer { p: P { name: Name("users.name"), at: F { x: notANumber() } }, n: 1 })} ${outers.contains(Outer { p: p, n: 2 })} ${outers.contains(Outer { p: P { name: Name("b"), at: F { x: 2.0 } }, n: 2 })}");
+  let shapes = [Shape.Dot, Shape.Circle(notANumber()), Shape.Named(built, 3)];
+  let s = str.format(ctx, "${shapes.contains(Shape.Dot)} ${shapes.contains(Shape.Circle(notANumber()))} ${shapes.contains(Shape.Circle(1.0))} ${shapes.contains(Shape.Named("users.name", 3))} ${shapes.contains(Shape.Named("users.name", 4))} ${[Shape.Circle(1.0)].contains(Shape.Dot)}");
+  let never = Never(1);
+  let n = str.format(ctx, "${[never].contains(never)} ${never == never}");
+  let _ = io.println(host.stdout, "${e} | ${f} | ${g} | ${t} | ${o} | ${s} | ${n}").ignore();
+  .Ok(())
+}
+"#,
+        "false false | true true false | true true false | true false true false | true false true | true true false true false false | false false\n",
+    );
+}
+
+/// `contains` asks each element in order and stops at the first that is
+/// equal: an element after it whose `Equal` would abort is never asked, and
+/// one before a list's only match is.
+#[test]
+fn row_11_contains_asks_in_order_and_stops_at_a_match() {
+    rows_or_skip!();
+    let source = |needle: i32| {
+        format!(
+            r#"
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+
+export struct Q(Int);
+
+impl Equal for Q {{
+    fn equal(self, other: Q): Bool {{ 12 / self.0 == 12 / other.0 }}
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let zero = "".length();
+  let qs = [Q(1), Q(2), Q(zero), Q(3)];
+  let _ = io.println(host.stdout, "before").ignore();
+  let _ = io.println(host.stdout, "${{qs.contains(Q({needle}))}}").ignore();
+  .Ok(())
+}}
+"#
+        )
+    };
+    agree("row 11 contains stops", &source(2), "before\ntrue\n");
+    abort_agrees(
+        "row 11 contains asks",
+        &source(5),
+        "before\n",
+        "division by zero",
+    );
+}
+
 /// `==` on floats in every position a comparison can be read from.
 ///
 /// The row above reads the comparison as a **value**; this one reads the same

@@ -738,3 +738,101 @@ fn a_derived_order_over_text_compares_the_text_once() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// `mode` asked 100,000 times of a 16-element list, alternating its last
+/// element (an equal copy) and one it doesn't hold, through `contains` or a
+/// scan written by hand.
+const SCANS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct Name(Str);
+
+derive Equal for Name;
+
+fn has<T: Equal>(xs: [T], x: T, at: Int): Bool {
+  match (xs[at]) {
+    .None => false,
+    .Some(y) => if (y == x) { true } else { has(xs, x, at + 1) },
+  }
+}
+
+fn listed<T: Equal>(xs: [T], needles: [T], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let found = match (needles[i % 2]) {
+      .Some(x) => if (xs.contains(x)) { 1 } else { 0 },
+      .None => 0,
+    };
+    listed(xs, needles, i + 1, n, acc + found)
+  }
+}
+
+fn handwritten<T: Equal>(xs: [T], needles: [T], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let found = match (needles[i % 2]) {
+      .Some(x) => if (has(xs, x, 0)) { 1 } else { 0 },
+      .None => 0,
+    };
+    handwritten(xs, needles, i + 1, n, acc + found)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let keys = list.range(ctx, 0, 17).mapCtx(ctx, fn(c, i) => str.format(c, "users.name.${i}").padStart(c, 24, 'x'));
+  let names = keys.take(ctx, 16).map(ctx, fn(k) => Name(k));
+  let copy = match (names.last()) { .Some(k) => Name(str.format(ctx, "${k.0}")), .None => Name("") };
+  let missing = match (keys.last()) { .Some(k) => Name(k), .None => Name("") };
+  let ints = list.range(ctx, 0, 16);
+  let n = 100000;
+  let answer = match (args.first()) {
+    .Some("names") => listed(names, [copy, missing], 0, n, 0),
+    .Some("handNames") => handwritten(names, [copy, missing], 0, n, 0),
+    .Some("ints") => listed(ints, [15, 16], 0, n, 0),
+    .Some("handInts") => handwritten(ints, [15, 16], 0, n, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **`contains` costs about what a scan written by hand does, and allocates
+/// no more than it.** It asked `any` with a closure over the needle, so every call
+/// allocated that closure and called it through a pointer for each element.
+#[test]
+fn contains_costs_what_a_scan_written_by_hand_does() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("scans", SCANS);
+        let want = format!("{}\n", LOOKUPS / 2);
+        for (mode, hand) in [("names", "handNames"), ("ints", "handInts")] {
+            let (listed, blocks) = per_op(backend, &binary, mode, &[], LOOKUPS, &want);
+            let (handwritten, by_hand) = per_op(backend, &binary, hand, &[], LOOKUPS, &want);
+            eprintln!(
+                "{backend} {mode}: contains {listed:?}, by hand {handwritten:?} instructions, \
+                 {blocks} blocks"
+            );
+            if blocks > by_hand {
+                failures.push(format!(
+                    "{backend} {mode}: {LOOKUPS} `contains` allocated {blocks} blocks against \
+                     {by_hand} for a scan written by hand"
+                ));
+            }
+            let (Some(listed), Some(handwritten)) = (listed, handwritten) else {
+                continue;
+            };
+            if listed * 10 > handwritten * 13 {
+                failures.push(format!(
+                    "{backend} {mode}: `contains` is {listed} instructions against \
+                     {handwritten} for a scan written by hand"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
