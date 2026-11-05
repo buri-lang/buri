@@ -269,6 +269,7 @@ pub struct Queue<J> {
     state: std::sync::Mutex<QueueState<J>>,
     ready: std::sync::Condvar,
     budget: u64,
+    width: std::sync::Arc<Width>,
 }
 
 struct QueueState<J> {
@@ -379,6 +380,225 @@ impl<J> Queue<J> {
     fn close(&self) {
         self.lock().closed = true;
         self.ready.notify_all();
+        self.width.close();
+    }
+}
+
+/// How many of a [`pool`]'s jobs count against its width: each job a worker
+/// has taken, or is waiting to take, less those [`aside_while_idle`] has found
+/// waiting with nothing to run.
+struct Width {
+    limit: usize,
+    state: std::sync::Mutex<WidthState>,
+    freed: std::sync::Condvar,
+}
+
+struct WidthState {
+    counted: usize,
+    closed: bool,
+}
+
+impl Width {
+    fn lock(&self) -> std::sync::MutexGuard<'_, WidthState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// A place among the counted jobs, once there's room for one; `None`
+    /// once the pool is closed.
+    fn enter(self: &std::sync::Arc<Self>) -> Option<std::sync::Arc<Place>> {
+        let mut state = self.lock();
+        while !state.closed && state.counted >= self.limit {
+            state = self
+                .freed
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        if state.closed {
+            return None;
+        }
+        state.counted = state.counted.saturating_add(1);
+        Some(std::sync::Arc::new(Place {
+            width: std::sync::Arc::clone(self),
+            counted: std::sync::atomic::AtomicBool::new(true),
+        }))
+    }
+
+    fn close(&self) {
+        self.lock().closed = true;
+        self.freed.notify_all();
+    }
+}
+
+/// One worker's place in its pool's width, counted or set aside.
+struct Place {
+    width: std::sync::Arc<Width>,
+    /// Changed only under `width`'s lock.
+    counted: std::sync::atomic::AtomicBool,
+}
+
+impl Place {
+    /// Counts this place against the width again, or stops counting it and
+    /// lets a waiting worker in. A place counted again may leave more jobs
+    /// running than the width for a while: nothing stops a process that has
+    /// woken, so the next job waits until the count is back under it.
+    fn count(&self, counted: bool) {
+        let mut state = self.width.lock();
+        if self.counted.swap(counted, Ordering::Relaxed) == counted {
+            return;
+        }
+        if counted {
+            state.counted = state.counted.saturating_add(1);
+        } else {
+            state.counted = state.counted.saturating_sub(1);
+            self.width.freed.notify_one();
+        }
+    }
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.count(false);
+    }
+}
+
+thread_local! {
+    /// The place of the [`pool`] job running on this thread, if one is.
+    static PLACE: std::cell::RefCell<Option<std::sync::Arc<Place>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// How often [`aside_while_idle`] looks at its process.
+const LOOK: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// How many looks in a row must find no thread of the process runnable before
+/// its job is set aside: a second.
+const QUIET_LOOKS: u32 = 10;
+
+/// While the answer lives, the [`pool`] job on this thread stops counting
+/// against the pool's width whenever process `pid` has had no thread runnable
+/// for a second, and counts again as soon as one is.
+///
+/// It's for a job that does nothing but wait on a process, such as a test
+/// waiting out a thirty-second deadline. The place it held lets another job
+/// start, so the machine isn't left a core short while it waits. Nothing
+/// about the waiting process changes; it only stops holding the next job
+/// back. It looks for a runnable thread rather than processor time, because
+/// on macOS a busy thread that never yields can leave its time unread for
+/// seconds, and it's runnable throughout.
+///
+/// Outside a pool job it does nothing.
+#[must_use = "dropping it at once stops the watch"]
+pub fn aside_while_idle(pid: u32) -> Aside {
+    let place = PLACE.with(|p| p.borrow().clone());
+    let (stop, stopped) = std::sync::mpsc::channel::<()>();
+    let watcher = place.clone().and_then(|place| {
+        std::thread::Builder::new()
+            .name("buri-idle".into())
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                let mut quiet = 0u32;
+                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+                    stopped.recv_timeout(LOOK)
+                {
+                    quiet = if os::runs(pid) {
+                        0
+                    } else {
+                        quiet.saturating_add(1)
+                    };
+                    place.count(quiet < QUIET_LOOKS);
+                }
+            })
+            .ok()
+    });
+    Aside {
+        stop: Some(stop),
+        watcher,
+        place,
+    }
+}
+
+/// [`aside_while_idle`]'s watch. Dropping it ends the watch and counts the
+/// job's place again.
+pub struct Aside {
+    stop: Option<std::sync::mpsc::Sender<()>>,
+    watcher: Option<std::thread::JoinHandle<()>>,
+    place: Option<std::sync::Arc<Place>>,
+}
+
+impl Drop for Aside {
+    fn drop(&mut self) {
+        drop(self.stop.take());
+        let _ = self.watcher.take().map(std::thread::JoinHandle::join);
+        let _ = self.place.as_ref().map(|place| place.count(true));
+    }
+}
+
+/// Whether a process has a thread on a core or waiting for one. A process
+/// that is gone, or one the system won't say about, has none.
+#[cfg(target_os = "macos")]
+mod os {
+    /// `PROC_PIDTASKINFO`'s `proc_taskinfo`, in `<sys/proc_info.h>`'s order.
+    #[repr(C)]
+    #[derive(Default)]
+    struct TaskInfo {
+        sizes_and_times: [u64; 6],
+        counts: [i32; 10],
+        numrunning: i32,
+        priority: i32,
+    }
+
+    unsafe extern "C" {
+        fn proc_pidinfo(
+            pid: i32,
+            flavor: i32,
+            arg: u64,
+            buffer: *mut std::ffi::c_void,
+            size: i32,
+        ) -> i32;
+    }
+
+    pub fn runs(pid: u32) -> bool {
+        const PROC_PIDTASKINFO: i32 = 4;
+        const SIZE: i32 = std::mem::size_of::<TaskInfo>() as i32;
+        let mut info = TaskInfo::default();
+        let buffer: *mut TaskInfo = &mut info;
+        // SAFETY: the kernel writes at most `SIZE` bytes, a `proc_taskinfo`,
+        // into `info`. A call that fails writes nothing, and the zero left
+        // there reads as no thread running.
+        let _ = unsafe {
+            proc_pidinfo(
+                i32::try_from(pid).unwrap_or(-1),
+                PROC_PIDTASKINFO,
+                0,
+                buffer.cast(),
+                SIZE,
+            )
+        };
+        info.numrunning > 0
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod os {
+    /// Whether any of `/proc/<pid>/task/*/stat` is in state `R` or `D`. The
+    /// state follows the name's closing bracket, and a name may hold one.
+    pub fn runs(pid: u32) -> bool {
+        std::fs::read_dir(format!("/proc/{pid}/task"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|thread| {
+                std::fs::read_to_string(thread.path().join("stat"))
+                    .ok()
+                    .and_then(|stat| {
+                        stat.rsplit_once(')')
+                            .and_then(|(_, after)| after.split_whitespace().next())
+                            .map(|state| matches!(state, "R" | "D"))
+                    })
+                    .unwrap_or(false)
+            })
     }
 }
 
@@ -389,7 +609,8 @@ impl<J> Queue<J> {
 /// The heavy jobs holding a program at once are expected to hold at most
 /// `budget` bytes between them. It limits nothing else: a job that has dropped
 /// its [`Held`] leaves its worker free to run beside the others, so `width`
-/// jobs can always be in flight.
+/// jobs can always be in flight. So can more, while some of them are set aside
+/// waiting on an idle process ([`aside_while_idle`]).
 ///
 /// `work` hands its result back by returning it, and may hand more back on the
 /// way with the [`Tell`] it is given. A job that panics hands back its panic,
@@ -415,6 +636,14 @@ where
         }),
         ready: std::sync::Condvar::new(),
         budget,
+        width: std::sync::Arc::new(Width {
+            limit: width.max(1),
+            state: std::sync::Mutex::new(WidthState {
+                counted: 0,
+                closed: false,
+            }),
+            freed: std::sync::Condvar::new(),
+        }),
     };
     let results = Results {
         inbox: std::sync::Mutex::new(std::collections::VecDeque::new()),
@@ -424,8 +653,9 @@ where
     let tally = crate::profile::tally();
     std::thread::scope(|scope| {
         // A worker the machine has no thread for leaves its jobs to the ones
-        // that started.
-        let started = (0..width.max(1))
+        // that started. Twice the width, so each job set aside while it waits
+        // ([`aside_while_idle`]) has a worker to take the next job in its place.
+        let started = (0..width.max(1).saturating_mul(2))
             .filter(|_| {
                 let (queue, work, results) = (&queue, &work, &results);
                 let tally = tally.clone();
@@ -436,12 +666,17 @@ where
                         let _phase = crate::profile::adopt(phase);
                         crate::profile::tallied(tally, || {
                             let tell = Tell { results };
-                            while let Some((job, held)) = queue.take() {
+                            while let Some(place) = queue.width.enter() {
+                                let Some((job, held)) = queue.take() else {
+                                    break;
+                                };
+                                PLACE.with(|p| *p.borrow_mut() = Some(place));
                                 // A job that panics drops its `Held` as it
                                 // unwinds.
                                 results.send(std::panic::catch_unwind(
                                     std::panic::AssertUnwindSafe(|| work(job, held, queue, &tell)),
                                 ));
+                                PLACE.with(|p| p.borrow_mut().take());
                             }
                         });
                     })

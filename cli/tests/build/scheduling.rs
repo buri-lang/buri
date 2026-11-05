@@ -837,3 +837,178 @@ fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
         indent(&run.all())
     );
 }
+
+/// **A suite whose process waits with nothing to run doesn't hold its job's
+/// place**, so another suite starts beside it. One job at a time, each suite's
+/// runtime waits until the other's has started: held, the first would wait
+/// alone and fail; let go while it waits, both go.
+#[test]
+fn a_suite_waiting_on_nothing_lets_another_start() {
+    let scratch = Scratch::repo("idle-suites");
+    suite(&scratch, "a", 1);
+    suite(&scratch, "b", 1);
+    let dir = scratch.path("arrived").display().to_string();
+    let js = js_path();
+    // A quarter of a second between looks, so the waiting shell is asleep
+    // rather than starting a `sleep` twenty times a second.
+    let wait = wait_for(
+        &format!("[ \"$(/bin/ls '{dir}' | /usr/bin/wc -l)\" -ge 2 ]"),
+        "the other suite never started while this one waited",
+    )
+    .replace("2400", "480")
+    .replace("sleep 0.05", "sleep 0.25");
+    let script = runtime_script(
+        &scratch,
+        &format!("/bin/mkdir -p '{dir}'\n: > '{dir}/'$$\n{wait}exec '{js}' \"$@\"\n"),
+    );
+    let run = scratch.run_with_env(
+        &["test", "//...", "--output=js", "--jobs=1"],
+        &[("BURI_JS", &script), SMALL_HOST],
+    );
+    run.ok();
+    assert_eq!(
+        run.tests_passed(),
+        2,
+        "the suites did not both run:\n{}",
+        indent(&run.all())
+    );
+}
+
+/// `//lib/wait`'s tests: the first waits out a send's thirty seconds, in a
+/// mailbox its own step filled, and is the longer, so it's handed out first.
+const WAIT_TESTS: &str = r#"enum Message<C> {
+  Tick,
+  Within(fn(C) => Int),
+}
+
+fn ticker<C: Allocator + Tasks>(): Actor<C, Int, Message<C>, Int> {
+  Actor {
+    state: 0,
+    step: fn(c, count, message) => {
+      match (message) {
+        .Tick => Stepped { state: count + 1, answer: count + 1 },
+        .Within(f) => {
+          let call = f;
+          Stepped { state: count, answer: call(c) }
+        },
+      }
+    },
+  }
+}
+
+test "a send into a mailbox its own step filled gives up after waiting" {
+  let ctx = context {
+    Allocator: alloc(),
+    Tasks: tasks(),
+  };
+  let ticks = actor.start(ctx, ticker());
+  let inside = ticks.sendMessage(ctx, .Within(fn(c) => {
+    let filled = list.range(c, 0, 64).foldCtx(c, fn(c2, sofar, _i) => {
+      match (ticks.sendMessage(c2, .Tick)) {
+        .Err(.WouldDeadlock) => sofar + 1,
+        _ => sofar,
+      }
+    }, 0);
+    match (ticks.sendMessage(c, .Tick)) {
+      .Err(.TimedOut) => filled,
+      _ => 0 - 1,
+    }
+  }));
+  assert.equal(inside, .Ok(64));
+  assert.equal(ticks.sendMessage(ctx, .Tick), .Ok(65));
+}
+
+test "wait counts" {
+  assert.equal(one(), 1);
+}
+"#;
+
+/// Two suites, `//lib/wait`'s first test waiting out a send's deadline.
+fn waiting(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    let tests = [
+        ("wait", WAIT_TESTS),
+        (
+            "quick",
+            "test \"quick counts\" {\n  assert.equal(one(), 1);\n}\n",
+        ),
+    ];
+    for (lib, body) in tests {
+        scratch.write(
+            &format!("lib/{lib}/BUILD.buri"),
+            &format!("library {{\n  test {{ sources: [\"test/{lib}.buri\"] }}\n}}\n"),
+        );
+        scratch.write(
+            &format!("lib/{lib}/lib.buri"),
+            "export fn one(): Int { 1 }\n",
+        );
+        scratch.write(
+            &format!("lib/{lib}/test/{lib}.buri"),
+            &format!(
+                "from \"//lib/{lib}\" import {{ one }};\n\
+                 from \"core/actor\" import * as actor;\n\
+                 from \"core/actor\" import {{ Actor, Stepped }};\n\
+                 from \"core/list\" import * as list;\n\
+                 from \"core/testing/assert\" import * as assert;\n\
+                 from \"platform/effect\" import {{ Allocator, Tasks }};\n\
+                 from \"platform/effect/testing\" import {{ alloc, tasks }};\n\n{body}"
+            ),
+        );
+    }
+    scratch
+}
+
+/// **A test waiting out a send's deadline lets another suite run meanwhile,
+/// and nothing it reports changes.** One job at a time, `//lib/quick` is
+/// handed its test while `//lib/wait` waits, rather than once `//lib/wait` is
+/// done; the send still gives up, and the report reads as it always has.
+#[test]
+fn a_test_waiting_out_a_deadline_lets_another_suite_run() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = waiting("idle-deadline");
+    let run = scratch.run_with_env(
+        &["test", "//...", "--jobs=1", "--verbose", "--color=never"],
+        &[("BURI_PROFILE", "1")],
+    );
+    run.heap_ok();
+    let report: Vec<String> = run
+        .stdout
+        .lines()
+        .map(|l| {
+            if l.contains(" passed, ") {
+                l.split(" (").next().unwrap_or(l).to_string()
+            } else {
+                blank_test_time(l)
+            }
+        })
+        .collect();
+    assert_eq!(
+        report.join("\n"),
+        "\
+//lib/quick  native  1 test  <time>  built with others
+  ok    quick.buri  quick counts  <time>
+//lib/wait  native  2 tests  <time>  built with others
+  ok    wait.buri  a send into a mailbox its own step filled gives up after waiting  <time>
+  ok    wait.buri  wait counts                                                       <time>
+shared build  <time>
+
+3 passed, 0 failed, 0 skipped",
+        "{}",
+        indent(&run.all())
+    );
+    let handed = run
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("first tests handed out: "))
+        .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
+    assert_eq!(
+        handed,
+        "//lib/wait \"a send into a mailbox its own step filled gives up after waiting\", \
+         //lib/quick \"quick counts\", //lib/wait \"wait counts\"",
+        "{}",
+        indent(&run.all())
+    );
+}

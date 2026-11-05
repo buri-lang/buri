@@ -2403,6 +2403,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     let piped = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let (mut child, mut input, reading_err, output) = pipes(piped);
+    let idle = crate::parallel::aside_while_idle(child.id());
     let mut asked = false;
     let mut held: Option<usize> = None;
     for line in std::io::BufReader::new(output)
@@ -2435,6 +2436,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
         }
     }
     drop(input);
+    drop(idle);
     crate::profile::reaped(child.id());
     let _ = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
@@ -5447,6 +5449,10 @@ fn run_pulled(
     };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let (mut child, mut input, reading_err, output) = pipes(piped);
+    // Watched from its first block rather than its launch: a binary just
+    // written waits on the system's check before it runs, and a job let go
+    // then would start a schedule that depends on how long that took.
+    let mut idle = None;
     let mut verdicts: Vec<(usize, Block)> = Vec::new();
     let mut reached = false;
     let mut held: Option<usize> = None;
@@ -5465,6 +5471,7 @@ fn run_pulled(
         if value.get("started").is_some() {
             reached = true;
             gathered_of(gathered).started = true;
+            idle = Some(crate::parallel::aside_while_idle(child.id()));
         } else if value.get("next").is_some() {
             asked = true;
             if let Some(block) = held.take() {
@@ -5508,6 +5515,7 @@ fn run_pulled(
         }
     }
     drop(input);
+    drop(idle);
     crate::profile::reaped(child.id());
     let status = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
@@ -6034,6 +6042,7 @@ fn execute(
     let mut child =
         crate::build::spawn::start_runner(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
+    let _idle = crate::parallel::aside_while_idle(child.id());
     let Some(limit) = limit else {
         return Ok(Execution::Finished(crate::build::spawn::finish(child)?));
     };
