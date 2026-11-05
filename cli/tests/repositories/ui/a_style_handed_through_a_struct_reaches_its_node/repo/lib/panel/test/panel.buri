@@ -20,6 +20,12 @@ fn card<C>(props: CardProps<C>): Node<C> {
     })
 }
 
+/// A box written in this module, given the styles a local took from its props.
+fn held<C>(props: CardProps<C>): Node<C> {
+    let styles = props.styles;
+    ui.stack({ styles: [.Group(styles.withDefault([]))], children: props.children })
+}
+
 test "a style handed through a struct built in another module reaches its node" {
     let ctx = context {
         Ui: headless(),
@@ -54,4 +60,16 @@ test "a style list handed straight to another module's node reaches it" {
     let page = render(ctx, plain([], [.MinWidth(.Px(286))]));
     assert.equal(page.markup(), "e 0 class:bg-c8c8ff minw-286");
     assert.isTrue(stylesheet().contains(".minw-286{min-width:286px}"));
+}
+
+test "a style a local takes from a struct reaches its node" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        held(CardProps { children: [], styles: .Some([.MinWidth(.Px(285))]) }),
+    );
+    assert.equal(page.markup(), "e 0 class:minw-285");
+    assert.isTrue(stylesheet().contains(".minw-285{min-width:285px}"));
 }

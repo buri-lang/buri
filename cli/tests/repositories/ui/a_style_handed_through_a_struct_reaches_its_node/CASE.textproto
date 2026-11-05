@@ -10,10 +10,11 @@
 # an inline variable that no rule in the sheet reads, and rendered as if it had
 # never been given it.
 #
-# Three ways in, so none of them regresses: the struct built in another module,
-# the struct built in the module that gives the node its styles, and the same
-# list handed straight to a `[Style]` parameter. Each block asserts the markup
-# the node renders and the rule the stylesheet holds for it.
+# Four ways in, so none of them regresses: the struct built in another module,
+# the struct built in the module that gives the node its styles, the same
+# struct's styles taken into a local first, and the same list handed straight
+# to a `[Style]` parameter. Each block asserts the markup the node renders and
+# the rule the stylesheet holds for it.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

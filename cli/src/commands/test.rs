@@ -2467,9 +2467,13 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
 fn claim_js(pulled: &JsPulled) -> Option<usize> {
     let mut state = js_state(pulled);
     let test = state.claim()?;
-    if let Some(root) = pulled.suite.roots.get(test) {
-        crate::build::counted::handed(&pulled.suite.run.label, &root.name);
-    }
+    // `order` numbers the suite's roots, so each has a name.
+    let name = pulled
+        .suite
+        .roots
+        .get(test)
+        .map_or("", |root| root.name.as_str());
+    crate::build::counted::handed(&pulled.suite.run.label, name);
     drop(state);
     Some(test)
 }

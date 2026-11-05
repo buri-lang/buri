@@ -212,3 +212,50 @@ fn a_build_for_this_machine_alone_builds_no_cross_runtime() {
     assert_eq!(cargo_builds(&scratch), 0);
     assert!(!scratch.path("home/cross").exists());
 }
+
+/// Two programs for the same other machine share one build of its runtime,
+/// whether it is built along the way or found cached.
+#[test]
+fn two_cross_programs_share_one_runtime() {
+    let tool = "binary {\n    outputs: [\n        { platform: \"native\", variant: \"linux-x86_64\" },\n    ]\n}\n";
+    let built = repository("cross-shared-built", BOTH, NATIVE_MAIN);
+    built.write("cmd/tool/BUILD.buri", tool);
+    let cold = Cold::new(&built);
+    cold.run(&built, &["build", "//..."], &[]).ok();
+    assert_eq!(cargo_builds(&built), 1);
+    let cached = repository("cross-shared-cached", BOTH, NATIVE_MAIN);
+    cached.write("cmd/tool/BUILD.buri", tool);
+    cold.run(&cached, &["build", "//..."], &[]).ok();
+    assert_eq!(
+        cargo_builds(&built),
+        1,
+        "the cached runtime was built again"
+    );
+    for scratch in [&built, &cached] {
+        for program in ["cmd/app/app", "cmd/tool/tool"] {
+            let path = scratch.path(&format!(".buri/out/native/linux-x86_64/{program}"));
+            assert!(path.is_file(), "{} was not built", path.display());
+        }
+    }
+}
+
+/// A program for another machine that its policy refuses is refused for
+/// that alone, and no runtime is built for it.
+#[test]
+fn a_cross_program_its_policy_refuses_builds_no_runtime() {
+    let scratch = repository(
+        "cross-private",
+        "        { platform: \"native\", variant: \"linux-x86_64\" },\n",
+        NATIVE_MAIN,
+    );
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/one\"]\n    outputs: [\n        { platform: \"native\", variant: \"linux-x86_64\" },\n    ]\n}\n",
+    );
+    let cold = Cold::new(&scratch);
+    cold.run(&scratch, &["build", "//..."], &[])
+        .exits(1)
+        .says("[visibility-violation]");
+    assert_eq!(cargo_builds(&scratch), 0);
+    assert!(!scratch.path("home/cross").exists());
+}
