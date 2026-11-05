@@ -1701,6 +1701,45 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// `==` and `compare` on `Str`s that share their bytes: slices from the same
+/// first byte, of the same and of different lengths, the empty slices, and a
+/// copy built apart, bare and through a derived `Equal` and `Ordered`.
+#[test]
+fn row_09_text_that_shares_its_bytes() {
+    rows_or_skip!();
+    agree(
+        "row 9 shared text",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/order" import { Order };
+from "core/str" import * as str;
+
+export struct Name(Str);
+derive Equal, Ordered for Name;
+
+fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let s = "users.".concat(ctx, "name");
+  let whole = s.slice(0, 10);
+  let head = s.slice(0, 5);
+  let copy = "users.".concat(ctx, "name");
+  let none = s.slice(0, 0);
+  let tail = s.slice(6, 10);
+  let e = str.format(ctx, "${s == whole} ${s == copy} ${s == head} ${head == s} ${none == ""} ${none == s.slice(4, 4)} ${tail == "name"} ${s != head}");
+  let c = str.format(ctx, "${name(s.compare(whole))} ${name(head.compare(s))} ${name(s.compare(head))} ${name(none.compare(s))} ${name(s.compare(none))} ${name(s.compare(copy))} ${name(tail.compare(s))}");
+  let o = str.format(ctx, "${head < s} ${s <= whole} ${s > head} ${none >= none}");
+  let d = str.format(ctx, "${Name(s) == Name(whole)} ${Name(head) == Name(s)} ${name(Name(head).compare(Name(s)))} ${name(Name(s).compare(Name(whole)))} ${[Name(head), Name(none)].contains(Name(s))} ${[Name(head), Name(whole)].contains(Name(s))}");
+  let _ = io.println(host.stdout, "${e} | ${c} | ${o} | ${d}").ignore();
+  .Ok(())
+}
+"#,
+        "true true false false true true true true | eq lt gt lt gt eq lt | true true true true | true false lt eq false true\n",
+    );
+}
+
 /// `contains` asks each element in order and stops at the first that is
 /// equal: an element after it whose `Equal` would abort is never asked, and
 /// one before a list's only match is.

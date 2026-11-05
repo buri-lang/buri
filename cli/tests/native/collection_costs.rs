@@ -836,3 +836,56 @@ fn contains_costs_what_a_scan_written_by_hand_does() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// `equal` asks 100,000 times whether a `Str` equals the very same `Str`,
+/// held in a list so each comparison reads it afresh. The second argument is
+/// its length in bytes.
+const SAME_TEXT: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn equal(xs: [Str], x: Str, i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let same = match (xs[i % 2]) { .Some(y) => if (y == x) { 1 } else { 0 }, .None => 0 };
+    equal(xs, x, i + 1, n, acc + same)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
+  let text = "x".repeat(ctx, size);
+  let answer = match (args.first()) {
+    .Some("equal") => equal([text, text], text, 0, 100000, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A `Str` asked whether it equals itself costs the same at any length.**
+/// `==` read every byte of the two, even when they were the same bytes.
+#[test]
+fn text_equal_to_itself_costs_the_same_at_any_length() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("same-text", SAME_TEXT);
+        let want = format!("{LOOKUPS}\n");
+        let (short, _) = per_op(backend, &binary, "equal", &["8"], LOOKUPS, &want);
+        let (long, _) = per_op(backend, &binary, "equal", &["4096"], LOOKUPS, &want);
+        eprintln!("{backend}: 8 bytes {short:?}, 4096 bytes {long:?} instructions");
+        let (Some(short), Some(long)) = (short, long) else {
+            continue;
+        };
+        if long * 10 > short * 13 {
+            failures.push(format!(
+                "{backend}: 4096 bytes against themselves are {long} instructions against \
+                 {short} for 8"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

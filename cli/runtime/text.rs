@@ -621,7 +621,8 @@ pub unsafe extern "C" fn buri_rt_str_equal(
 ) -> u8 {
     // SAFETY: the caller promises both ranges.
     let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
-    u8::from(a == b)
+    // Two views of the same bytes are equal without reading them.
+    u8::from(a.len() == b.len() && (a.as_ptr() == b.as_ptr() || a == b))
 }
 
 /// `str.toInt(self) -> Option<Int>` — `$str_toInt`.
