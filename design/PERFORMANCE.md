@@ -8284,6 +8284,34 @@ once per allocator.
 What still keeps an instantiation is mostly a closure typed `fn(C, …)`, as in
 `foldCtx(ctx, fn(c, a, child) => …)`, and a trait call on `ctx`.
 
+### 6.91 A growth handed on takes the list it grew, 2026-11-05
+
+A fold step that grows its list and hands the result to a function that
+owns its list copied the whole list once per step:
+
+```buri
+xs.foldCtx(ctx, fn(c, acc: [Int], x) => digits(c, acc.push(c, 0), x), [])
+```
+
+Ownership inference didn't count `acc.push(c, 0)` as taking `acc`, so `acc`
+stayed lent. Its lender still held the block that the push grew in place, so
+the list reached `digits` at a count of two, and `digits`'s own push copied
+it. The loop was quadratic.
+
+`collect_consuming` in `middle/rc.rs` now follows a consumed growth
+(`push`, `concat`) down to its receiver and takes that receiver. It also
+takes the tail of a consumed block, `if` or `match`, which is what an
+inlined helper becomes. A record field that a functional update writes over
+is still moved into the growth, as before.
+
+The test program in `cli/tests/native/ownership.rs`
+(`a_list_a_fold_step_grows_and_hands_on_grows_in_place`) makes thirty
+thousand pushes through a helper, a nested call, an inlined helper and a
+nested record field. On stencil it allocated 13,992 blocks before the change
+and 60 after, and retired 126 M instructions before and 23.5 M after. The
+test guards the block count. A test suite that encodes many records into one
+buffer used about 15% fewer instructions.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

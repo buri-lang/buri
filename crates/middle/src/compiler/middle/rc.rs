@@ -1679,18 +1679,45 @@ fn collect_consuming<'e>(
     // Owned, the whole is released as the piece is taken, and the list is at
     // one. Not under `sharing`, whose marks are a different question and
     // whose answers `language::sharing` pins.
-    let consume = |e: &Expr, out: &mut HashSet<LocalId>, counted: &mut dyn Counted| match &e.kind {
-        ExprKind::Local(l) => {
-            out.insert(*l);
-        }
-        ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces.is_some() => {
-            if let Some(root) = field_root(e) {
-                if counted.counted(&e.ty) == Answer::Yes {
-                    out.insert(root);
+    //
+    // Natively, taking a growth takes what it grew: `f(ctx, acc.push(ctx, x))`
+    // with `f` owning its list takes `acc`. Lent, `acc`'s lender still held
+    // the block the push grew in place, so the list reached `f` at two and
+    // `f`'s own push copied it, once per step of a fold whose step writes a
+    // header and hands the list on. A field of a record an update is written
+    // over is moved into the growth instead, as below. And taking a block, an
+    // `if` or a `match` takes what it answers: the inliner turns
+    // `add(ctx, add(ctx, acc))` into a `let` of a block whose tail is a push.
+    let consume_one =
+        |e: &Expr, out: &mut HashSet<LocalId>, counted: &mut dyn Counted| match &e.kind {
+            ExprKind::Local(l) => {
+                out.insert(*l);
+            }
+            ExprKind::Field { .. } | ExprKind::TupleIndex { .. } if pieces.is_some() => {
+                if let Some(root) = field_root(e) {
+                    if counted.counted(&e.ty) == Answer::Yes {
+                        out.insert(root);
+                    }
                 }
             }
-        }
-        _ => {}
+            _ => {}
+        };
+    let consume = |e: &Expr, out: &mut HashSet<LocalId>, counted: &mut dyn Counted| {
+        all_tails(e, &mut |t| {
+            let mut at = t;
+            while let ExprKind::CallFunc { func, args } = &at.kind {
+                match args.first() {
+                    Some(r) if pieces.is_some_and(|g| grower(g, *func)) => at = r,
+                    _ => break,
+                }
+            }
+            let updated =
+                !std::ptr::eq(at, t) && field_root(at).is_some_and(|r| bases.contains(&r));
+            if !updated {
+                consume_one(at, out, counted);
+            }
+            true
+        });
     };
     typed::walk(body, &mut |e| match &e.kind {
         ExprKind::StructLit { fields: args, .. }

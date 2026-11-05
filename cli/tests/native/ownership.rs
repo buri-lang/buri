@@ -337,6 +337,83 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// Steps that push a tag onto the list a fold lends them and hand the grown
+/// list to a function that pushes the rest: straight from the step, from a
+/// helper that runs a fold of its own, through a one-line function twice, and
+/// as a field of a record inside the accumulator. The tag's push grows the list
+/// in place, so the step has to take the list for the function's pushes to
+/// find it unique; lent, every step copied the whole list.
+#[test]
+fn a_list_a_fold_step_grows_and_hands_on_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Buf { n: Int, items: [Int] }
+
+struct Out { rows: Int, buf: Buf }
+
+fn digits<C: Allocator>(ctx: C, out: [Int], n: Int): [Int] {
+  if (n < 10) { out.push(ctx, n) } else { digits(ctx, out.push(ctx, n % 10), n / 10) }
+}
+
+fn add<C: Allocator>(ctx: C, items: [Int], k: Int): [Int] { items.push(ctx, k) }
+
+fn tagged<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: [Int], i) => digits(c, acc.push(c, 0), i), list.empty<Int>()).length()
+}
+
+fn row<C: Allocator>(ctx: C, out: [Int], xs: [Int]): [Int] {
+  xs.foldCtx(ctx, fn(c, acc: [Int], x) => digits(c, acc.push(c, 1), x * 1000), out)
+}
+
+fn rows<C: Allocator>(ctx: C, count: Int): Int {
+  let pair = list.range(ctx, 0, 2);
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: [Int], _i) => row(c, acc.push(c, 2), pair), list.empty<Int>()).length()
+}
+
+fn twice<C: Allocator>(ctx: C, count: Int): Int {
+  list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: [Int], i) => add(c, add(c, acc, i), i), list.empty<Int>()).length()
+}
+
+fn field<C: Allocator>(ctx: C, o: Out, i: Int): Out {
+  Out { rows: o.rows + 1, buf: Buf { n: o.buf.n + 1, items: digits(ctx, o.buf.items.push(ctx, 3), i) } }
+}
+
+fn nested<C: Allocator>(ctx: C, count: Int): Int {
+  let o = list.range(ctx, 0, count).foldCtx(ctx, fn(c, acc: Out, i) => field(c, acc, i), Out { rows: 0, buf: Buf { n: 0, items: list.empty<Int>() } });
+  o.buf.items.length()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let _ = io.println(host.stdout, "${tagged(ctx, 2000)} ${rows(ctx, 1000)} ${twice(ctx, 2000)} ${nested(ctx, 2000)}").ignore();
+  .Ok(())
+}
+"#;
+    let expected = "8890 8000 4000 8890\n";
+    let name = "fold-step-grows-and-hands-on";
+    if let Some((status, stdout, stderr)) = crate::agreement::javascript(name, source) {
+        assert_eq!(status, 0, "javascript exited {status}: {stderr}");
+        assert_eq!(stdout, expected, "javascript");
+    }
+    for (backend, r) in run_each(name, source) {
+        assert_eq!(r.stdout, expected, "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 120,
+            "{backend}: thirty thousand pushes allocated {blocks} blocks: a step lent its list \
+             grew it and handed it on still lent, so every push after the first copied it"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}
+
 /// A match arm binds a record holding a heap `Str`, its guard reads the record
 /// and fails, and the match falls through to the wildcard (buri-lang/buri#231).
 /// The value must be released once, by the arm that ran: released by the guard
