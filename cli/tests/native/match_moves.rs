@@ -185,7 +185,7 @@ fn nothingOf(g: Grown): Str {
 
 /// A recursive enum boxes its own payload, an arm that reads the value it
 /// took apart still has all of it, and an arm with a guard may not be the arm
-/// that runs.
+/// that runs, on a local or on a value the match built whose every arm jumps.
 #[test]
 fn boxed_payloads_rereads_and_guards_keep_the_whole_value() {
     let test = r#"
@@ -233,6 +233,17 @@ fn guarded<C: Allocator>(ctx: C, n: Int): Str {
     }
 }
 
+fn longs(xs: [Str], at: Int, acc: Int): Int {
+    if (at >= xs.length()) {
+        acc
+    } else {
+        match (xs.get(at)) {
+            .Some(x) if x.length() > 2 => longs(xs, at + 1, acc + 1),
+            _ => longs(xs, at + 1, acc),
+        }
+    }
+}
+
 test "the parts a match keeps whole" {
     let ctx = context { Allocator: alloc() };
     assert.equal(top(deep(ctx, 3, .Leaf(str.format(ctx, "leaf")))), "f1");
@@ -242,6 +253,8 @@ test "the parts a match keeps whole" {
     assert.equal(guarded(ctx, 3), "r3");
     assert.equal(guarded(ctx, 13), "l13");
     assert.equal(guarded(ctx, 4), "fit4");
+    let words = [str.format(ctx, "ab"), str.format(ctx, "abc"), str.format(ctx, "abcd")];
+    assert.equal(longs(words, 0, 0), 2);
 }
 "#;
     passes("whole", test, 1);
