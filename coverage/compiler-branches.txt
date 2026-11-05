@@ -3,31 +3,31 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 14971 15079 99.28%
-area cli/build 1684 1691 99.59%
+total 15051 15159 99.29%
+area cli/build 1698 1705 99.59%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
 area cli/lint 571 572 99.83%
-area cli/other 539 550 98.00%
+area cli/other 565 576 98.09%
 area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
-area cli/test 499 514 97.08%
+area cli/test 501 516 97.09%
 area crates/backend 68 68 100.00%
-area crates/diagnostics 197 198 99.49%
+area crates/diagnostics 213 214 99.53%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 995 1020 97.55%
 area crates/llvm 580 580 100.00%
-area crates/middle 1847 1876 98.45%
+area crates/middle 1849 1878 98.46%
 area crates/project 1335 1338 99.78%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1070 1078 99.26%
 area crates/syntax 1268 1268 100.00%
-264 265 cli/src/build/actions.rs
+266 267 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
-14 14 cli/src/build/counted.rs
+20 20 cli/src/build/counted.rs
 94 94 cli/src/build/coverage.rs
 32 32 cli/src/build/exe_identity.rs
 166 166 cli/src/build/generators.rs
@@ -38,7 +38,7 @@ area crates/syntax 1268 1268 100.00%
 0 0 cli/src/build/musl.rs
 36 37 cli/src/build/programs.rs
 122 122 cli/src/build/regenerate.rs
-29 29 cli/src/build/runtime_cross.rs
+35 35 cli/src/build/runtime_cross.rs
 2 2 cli/src/build/runtime_src.rs
 8 8 cli/src/build/session.rs
 28 28 cli/src/build/sources.rs
@@ -49,7 +49,7 @@ area crates/syntax 1268 1268 100.00%
 0 0 cli/src/commands/add/mod.rs
 8 8 cli/src/commands/add/skills.rs
 43 44 cli/src/commands/arguments.rs
-90 90 cli/src/commands/build.rs
+116 116 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 98 98 cli/src/commands/format.rs
 30 30 cli/src/commands/generate.rs
@@ -61,7 +61,7 @@ area crates/syntax 1268 1268 100.00%
 38 38 cli/src/commands/query.rs
 58 58 cli/src/commands/run.rs
 34 34 cli/src/commands/serve.rs
-499 514 cli/src/commands/test.rs
+501 516 cli/src/commands/test.rs
 4 4 cli/src/commands/version.rs
 34 34 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
@@ -108,7 +108,7 @@ area crates/syntax 1268 1268 100.00%
 0 0 crates/backend/src/compiler/backend/task_thread.rs
 98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
-26 26 crates/diagnostics/src/parallel.rs
+42 42 crates/diagnostics/src/parallel.rs
 29 30 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 18 18 crates/docs/src/documentation/frontmatter.rs
@@ -127,8 +127,8 @@ area crates/syntax 1268 1268 100.00%
 65 66 crates/js/src/compiler/backend/js/park.rs
 58 58 crates/llvm/src/compiler/backend/llvm/attrs.rs
 10 10 crates/llvm/src/compiler/backend/llvm/build.rs
-420 420 crates/llvm/src/compiler/backend/llvm/emit.rs
-6 6 crates/llvm/src/compiler/backend/llvm/mod.rs
+432 432 crates/llvm/src/compiler/backend/llvm/emit.rs
+14 14 crates/llvm/src/compiler/backend/llvm/mod.rs
 44 44 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/route.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
@@ -153,7 +153,7 @@ area crates/syntax 1268 1268 100.00%
 16 16 crates/middle/src/compiler/middle/mod.rs
 155 164 crates/middle/src/compiler/middle/monomorphize.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-580 586 crates/middle/src/compiler/middle/rc.rs
+582 588 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 178 178 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
