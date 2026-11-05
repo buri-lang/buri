@@ -201,7 +201,7 @@ fn runs<K: Ordered, V, W, C: Allocator>(
     at: Int,
     acc: [(K, W)],
 ): [(K, W)] {
-    match (pairs.get(at)) {
+    match (pairs[at]) {
         .None => acc,
         .Some(p) => {
             let (k, v) = p;
@@ -221,7 +221,7 @@ fn runFrom<K: Ordered, V, W, C: Allocator>(
     run: (K, W),
 ): (Int, (K, W)) {
     let (k, w) = run;
-    match (pairs.get(at)) {
+    match (pairs[at]) {
         .None => (at, run),
         .Some(p) => {
             let (pk, v) = p;
@@ -285,7 +285,7 @@ export fn fromSorted<K: Ordered, V, C: Allocator>(
 /// The index of the first entry whose key is not greater than the one before
 /// it.
 fn unsorted<K: Ordered, V>(entries: [(K, V)]): Option<Int> {
-    match (entries.get(0)) {
+    match (entries[0]) {
         .None => .None,
         .Some(e) => {
             let (k, _v) = e;
@@ -295,7 +295,7 @@ fn unsorted<K: Ordered, V>(entries: [(K, V)]): Option<Int> {
 }
 
 fn unsortedAfter<K: Ordered, V>(entries: [(K, V)], before: K, at: Int): Option<Int> {
-    match (entries.get(at)) {
+    match (entries[at]) {
         .None => .None,
         .Some(e) => {
             let (k, _v) = e;
@@ -357,7 +357,7 @@ fn leaves<K, V, C: Allocator>(
     at: Int,
     above: Node<K, V>,
 ): Node<K, V> {
-    match (keys.get(at)) {
+    match (keys[at]) {
         .None => above,
         .Some(first) => {
             let size = if (above.children.length() < extra) { base + 1 } else { base };
@@ -421,7 +421,7 @@ fn group<K, V, C: Allocator>(
         flat.children.slice(ctx, at, end + 1),
     );
     let nodes = above.children.push(ctx, built);
-    match (flat.keys.get(end)) {
+    match (flat.keys[end]) {
         .None => branch(above.keys, nodes),
         .Some(k) => {
             group(
@@ -459,7 +459,7 @@ fn interleave<K: Ordered, V, C: Allocator>(
     j: Int,
     acc: [(K, V)],
 ): [(K, V)] {
-    match (mine.get(i)) {
+    match (mine[i]) {
         .None => acc.concat(ctx, theirs.drop(ctx, j)),
         .Some(a) => {
             match (theirs.get(j)) {
@@ -546,7 +546,7 @@ fn joinAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
 
 /// A leaf's entry at `at`, if there is one.
 fn entryAt<K, V>(n: Node<K, V>, at: Int): Option<(K, V)> {
-    match ((n.keys.get(at), n.values.get(at))) {
+    match ((n.keys[at], n.values[at])) {
         (.Some(k), .Some(v)) => .Some((k, v)),
         _ => .None,
     }
@@ -557,7 +557,7 @@ fn entryAt<K, V>(n: Node<K, V>, at: Int): Option<(K, V)> {
 /// Linear from `at`. A node holds at most `MAX_ENTRIES`, so this is a bounded
 /// scan; the module comment says why a short one beats a binary search.
 fn seek<K: Ordered>(keys: [K], key: K, at: Int): (Int, Bool) {
-    match (keys.get(at)) {
+    match (keys[at]) {
         .None => (at, false),
         .Some(k) => {
             match (key.compare(k)) {
@@ -586,8 +586,8 @@ fn under(at: Int, found: Bool): Int {
 
 fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
     let (at, found) = seek(n.keys, key, 0);
-    match (n.children.get(under(at, found))) {
-        .None => if (found) { n.values.get(at) } else { .None },
+    match (n.children[under(at, found)]) {
+        .None => if (found) { n.values[at] } else { .None },
         .Some(child) => lookup(child, key),
     }
 }
@@ -595,21 +595,21 @@ fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
 /// `lookup` without the value.
 fn holds<K: Ordered, V>(n: Node<K, V>, key: K): Bool {
     let (at, found) = seek(n.keys, key, 0);
-    match (n.children.get(under(at, found))) {
+    match (n.children[under(at, found)]) {
         .None => found,
         .Some(child) => holds(child, key),
     }
 }
 
 fn leftmost<K, V>(n: Node<K, V>): Option<(K, V)> {
-    match (n.children.get(0)) {
+    match (n.children[0]) {
         .None => entryAt(n, 0),
         .Some(child) => leftmost(child),
     }
 }
 
 fn rightmost<K, V>(n: Node<K, V>): Option<(K, V)> {
-    match (n.children.get(n.children.length() - 1)) {
+    match (n.children[n.children.length() - 1]) {
         .None => entryAt(n, n.keys.length() - 1),
         .Some(child) => rightmost(child),
     }
@@ -635,7 +635,7 @@ fn overfull<K, V, C: Allocator>(ctx: C, n: Node<K, V>): Grown<K, V> {
     let half = n.keys.length() / 2;
     // A node is overfull once it has a key past `MAX_ENTRIES`, and then it has
     // one at `half`; for a leaf that's the right half's first.
-    match ((n.keys.get(MAX_ENTRIES), n.keys.get(half))) {
+    match ((n.keys[MAX_ENTRIES], n.keys[half])) {
         (.Some(_), .Some(up)) => {
             if (isLeaf(n)) {
                 .Split(
@@ -666,7 +666,7 @@ fn insertInto<K: Ordered, V, C: Allocator>(
 ): (Grown<K, V>, Bool) {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => {
             if (found) {
                 let replaced = leaf(
@@ -727,12 +727,12 @@ fn fixChild<K: Ordered, V, C: Allocator>(
     // sibling before it, or, as the first child, the one after it: a branch has
     // at least two children, so a short child always has one or the other.
     let short = child.keys.length() < MIN_ENTRIES;
-    match ((short, n.children.get(at - 1), n.keys.get(at - 1))) {
+    match ((short, n.children[at - 1], n.keys[at - 1])) {
         (true, .Some(left), .Some(separator)) => {
             rejoin(ctx, n, at - 1, left, separator, child)
         },
         _ => {
-            match ((short, n.keys.get(at), n.children.get(at + 1))) {
+            match ((short, n.keys[at], n.children[at + 1])) {
                 (true, .Some(separator), .Some(right)) => {
                     rejoin(ctx, n, at, child, separator, right)
                 },
@@ -794,7 +794,7 @@ fn removeFrom<K: Ordered, V, C: Allocator>(
 ): (Node<K, V>, Bool) {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => if (found) { (without(ctx, n, seen), true) } else { (n, false) },
         .Some(child) => {
             let (shrunk, gone) = removeFrom(ctx, child, key);
@@ -807,7 +807,7 @@ fn removeFrom<K: Ordered, V, C: Allocator>(
 /// is the tree. This is the only place the tree gets shallower.
 fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
     if (n.keys.isEmpty()) {
-        match (n.children.get(0)) {
+        match (n.children[0]) {
             .None => n,
             .Some(only) => only,
         }
@@ -822,7 +822,7 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 /// walks the left spine to the leaf the entry sits in, takes it out, and
 /// repairs every node on the way back up.
 fn dropFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
-    match (n.children.get(0)) {
+    match (n.children[0]) {
         .None => without(ctx, n, 0),
         .Some(child) => fixChild(ctx, n, 0, dropFirst(ctx, child)),
     }
@@ -831,7 +831,7 @@ fn dropFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
 /// The mirror of [`dropFirst`], down the right spine.
 fn dropLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
     let at = n.children.length() - 1;
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => without(ctx, n, n.keys.length() - 1),
         .Some(child) => fixChild(ctx, n, at, dropLast(ctx, child)),
     }
@@ -848,7 +848,7 @@ fn floorIn<K: Ordered, V>(
 ): Option<(K, V)> {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => {
             if (found) {
                 entryAt(n, seen)
@@ -862,7 +862,7 @@ fn floorIn<K: Ordered, V>(
             }
         },
         .Some(child) => {
-            let nearer = if (at > 0) { n.children.get(at - 1) } else { before };
+            let nearer = if (at > 0) { n.children[at - 1] } else { before };
             floorIn(child, key, nearer)
         },
     }
@@ -876,7 +876,7 @@ fn ceilingIn<K: Ordered, V>(
 ): Option<(K, V)> {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => {
             match (entryAt(n, seen)) {
                 .Some(e) => .Some(e),
@@ -890,7 +890,7 @@ fn ceilingIn<K: Ordered, V>(
         },
         .Some(child) => {
             let nearer = if (at + 1 < n.children.length()) {
-                n.children.get(at + 1)
+                n.children[at + 1]
             } else {
                 after
             };
@@ -1026,7 +1026,7 @@ fn walkRange<K: Ordered, V, C: Allocator>(
 ): [(K, V)] {
     let (seen, found) = seek(n.keys, start, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         .None => rangeLeaf(ctx, n, end, seen, acc),
         .Some(child) => rangeFrom(ctx, n, child, start, end, at, acc),
     }
@@ -1045,7 +1045,7 @@ fn rangeFrom<K: Ordered, V, C: Allocator>(
 ): [(K, V)] {
     let below = walkRange(ctx, child, start, end, acc);
     // The next child holds nothing below separator `at`.
-    match ((n.keys.get(at), n.children.get(at + 1))) {
+    match ((n.keys[at], n.children[at + 1])) {
         (.Some(k), .Some(next)) if k.compare(end).isLess() => {
             rangeFrom(ctx, n, next, start, end, at + 1, below)
         },
@@ -1454,9 +1454,9 @@ fn sameFrom<K: Ordered, V: Equal>(
     at: Int,
     other: OrderedMap<K, V>,
 ): Bool {
-    match (n.keys.get(at)) {
+    match (n.keys[at]) {
         .None => true,
-        .Some(k) => other.get(k) == n.values.get(at) && sameFrom(n, at + 1, other),
+        .Some(k) => other.get(k) == n.values[at] && sameFrom(n, at + 1, other),
     }
 }
 
@@ -1496,7 +1496,7 @@ fn prefixFrom<V, C: Allocator>(
 ): [(Str, V)] {
     let (seen, found) = seek(n.keys, prefix, 0);
     let at = under(seen, found);
-    match (n.children.get(at)) {
+    match (n.children[at]) {
         // The first key that is at least the prefix is the first that can match it.
         .None => prefixLeaf(ctx, n, prefix, seen, acc),
         .Some(child) => prefixAt(ctx, n, child, prefix, at, acc),
@@ -1514,7 +1514,7 @@ fn prefixAt<V, C: Allocator>(
     acc: [(Str, V)],
 ): [(Str, V)] {
     let below = prefixFrom(ctx, child, prefix, acc);
-    match ((n.keys.get(at), n.children.get(at + 1))) {
+    match ((n.keys[at], n.children[at + 1])) {
         (.Some(k), .Some(next)) if k.startsWith(prefix) => {
             prefixAt(ctx, n, next, prefix, at + 1, below)
         },

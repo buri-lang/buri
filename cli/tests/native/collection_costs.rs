@@ -228,6 +228,87 @@ fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// The same `size` `Str` keys in an ordered map and in a sorted list, and
+/// whether each holds a key asked 100,000 times: of the map with `has`, and of
+/// the list with a binary search. `main` takes the mode and the size.
+const STR_LOOKUPS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn holds(ks: [Str], k: Str, lo: Int, hi: Int): Bool {
+  if (lo >= hi) { false } else {
+    let mid = (lo + hi) / 2;
+    match (ks[mid]) {
+      .Some(m) => if (m == k) { true } else if (m < k) { holds(ks, k, mid + 1, hi) } else { holds(ks, k, lo, mid) },
+      .None => false,
+    }
+  }
+}
+
+fn mapped(m: OrderedMap<Str, Int>, ks: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let k = ks[i % ks.length()].withDefault("");
+    mapped(m, ks, i + 1, n, acc + (if (m.has(k)) { 1 } else { 0 }))
+  }
+}
+
+fn searched(sorted: [Str], ks: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let k = ks[i % ks.length()].withDefault("");
+    searched(sorted, ks, i + 1, n, acc + (if (holds(sorted, k, 0, sorted.length())) { 1 } else { 0 }))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let size = args[1].andThen(fn(s) => s.toInt()).withDefault(1);
+  let ks = list.range(ctx, 0, size).mapCtx(ctx, fn(c, i) => str.format(c, "key-${i * 7919 % size}"));
+  let m = orderedmap.of(ctx, ks.mapCtx(ctx, fn(_c, k) => (k, k.length())));
+  let sorted = ks.sort(ctx);
+  let answer = match (args.first()) {
+    .Some("map") => mapped(m, ks, 0, 100000, 0),
+    .Some("list") => searched(sorted, ks, 0, 100000, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **An ordered lookup over `Str` keys costs about what a binary search over a
+/// sorted list does.** Each node read its keys and children with `list.get`,
+/// which retains the element it answers, so the search retained and released
+/// every key it compared and every node it passed through: 2,000 keys cost
+/// 1.72 times the binary search on the copy-and-patch backend. Read by index,
+/// a key or a child is a word of its node, and that's 1.31.
+#[test]
+fn an_ordered_lookup_over_str_keys_costs_about_what_a_binary_search_does() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("str-lookups", STR_LOOKUPS);
+        let want = format!("{LOOKUPS}\n");
+        let (map, _) = per_op(backend, &binary, "map", &["2000"], LOOKUPS, &want);
+        let (list, _) = per_op(backend, &binary, "list", &["2000"], LOOKUPS, &want);
+        eprintln!("{backend}: map {map:?}, list {list:?} instructions a lookup");
+        let (Some(map), Some(list)) = (map, list) else {
+            continue;
+        };
+        if map * 10 > list * 14 {
+            failures.push(format!(
+                "{backend}: an ordered lookup over 2,000 `Str` keys is {map} instructions \
+                 against {list} for a binary search"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// 2,000 records of four `Str`s, four `Int`s and a `[Str]`, #266's shape, and
 /// `mode` run over them 50 times: `map` and `filterMap` copy the list through
 /// a lambda that keeps every element, and `values` reads them back out of a
