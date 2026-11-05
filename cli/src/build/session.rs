@@ -162,15 +162,21 @@ impl Session {
     }
 
     /// Every diagnostic leaves through here, so the format is chosen once.
+    pub fn emit(&self, d: &crate::diagnostics::Diagnostic) {
+        self.emit_from(&self.map, d);
+    }
+
+    /// [`Session::emit`] against a map other than the session's: one a
+    /// program's build read more files into, on a thread of its own.
     #[expect(
         clippy::print_stderr,
         reason = "this is the sink the `print_stderr` lint exists to funnel every diagnostic into; \
                   writing them is what it is for"
     )]
-    pub fn emit(&self, d: &crate::diagnostics::Diagnostic) {
+    pub fn emit_from(&self, map: &SourceMap, d: &crate::diagnostics::Diagnostic) {
         match self.rendering {
-            Rendering::Human { color } => eprint!("{}", self.map.render_with_body(d, color)),
-            Rendering::Json => eprintln!("{}", self.map.to_json(d)),
+            Rendering::Human { color } => eprint!("{}", map.render_with_body(d, color)),
+            Rendering::Json => eprintln!("{}", map.to_json(d)),
         }
     }
 }

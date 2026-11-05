@@ -1200,19 +1200,15 @@ fn refusal(triple: &str) -> Refusal {
 fn accepts_target(driver: &Path, triple: &str) -> bool {
     static ASKED: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
     let name = format!("{}\u{0}{triple}", driver.display());
-    if let Some((_, answer)) = ASKED
+    // Held over the probe, so programs built side by side ask once.
+    let mut asked = ASKED
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .find(|(key, _)| *key == name)
-    {
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, answer)) = asked.iter().find(|(key, _)| *key == name) {
         return *answer;
     }
     let answer = probe_target(driver, triple);
-    ASKED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push((name, answer));
+    asked.push((name, answer));
     answer
 }
 

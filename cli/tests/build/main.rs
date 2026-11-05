@@ -104,6 +104,7 @@ mod many_findings;
 mod middle;
 mod monorepo;
 mod profile;
+mod programs_at_once;
 mod rare_paths;
 mod repositories;
 mod reproducible_files;

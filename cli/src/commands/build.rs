@@ -18,9 +18,12 @@
 )]
 
 use crate::build::actions;
+use crate::build::buildfile::Output;
+use crate::build::session::Session;
 use crate::build::session::{self, open_or_exit};
-use crate::build::workspace::RuleKind;
+use crate::build::workspace::{RuleKind, TargetId};
 use crate::commands::arguments;
+use std::collections::BTreeMap;
 
 pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
@@ -58,8 +61,6 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         }
     }
 
-    let mut built = 0;
-    let mut failed = false;
     // Each library's own contribution to a check key, read once.
     let mut members = std::collections::HashMap::new();
     let mut rule_paths = actions::RulePaths::new();
@@ -104,73 +105,125 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         &checked,
         crate::compiler::driver::Checking::All,
     );
-    // By reference: the resolved list is the catalogue's input too, below.
-    for &target in &targets {
-        // Only a binary produces an artifact; a library or a tool is checked,
-        // which is what `buri build //lib/money` means.
-        if target.kind != RuleKind::Binary {
-            // Every library and tool in `targets` asked above.
-            let (mut diagnostics, key) = asked.remove(&target).unwrap_or_default();
-            let share = shared
-                .as_ref()
-                .and_then(|s| Some((s, s.shares.get(&target)?)));
-            if let (Some(key), Some((shared, share))) = (&key, share) {
-                if share.reported.is_empty() {
-                    actions::record_clean_share(
-                        &session,
-                        target,
-                        key,
-                        &shared.analysis,
-                        share,
-                        &mut rule_paths,
-                    );
+    // Each binary's outputs are built side by side, on the pool's workers, and
+    // everything is printed in target order however the builds finish. This
+    // thread checks the libraries, asks the cache about each output, and
+    // loads each program a worker is to build — loading mints the file ids in
+    // the session's map, so it happens here and only here.
+    let workers = Workers {
+        root: session.root.clone(),
+        workspace: std::sync::Arc::clone(&session.workspace),
+        rendering: session.rendering,
+        flags: &args.flags,
+    };
+    let mut reports: Vec<Report> = Vec::new();
+    // By slot: an output's place among the outputs, in target order.
+    let mut outcomes: BTreeMap<usize, Outcome> = BTreeMap::new();
+    let mut slots = 0;
+    let mut printing = Printing::default();
+    let ran = crate::parallel::pool(
+        crate::parallel::cores(),
+        memory_budget(),
+        |job: Job, held, _, _| job.build(held, &workers),
+        |queue, done| {
+            // By reference: the resolved list is the catalogue's input too, below.
+            for &target in &targets {
+                // Only a binary produces an artifact; a library or a tool is
+                // checked, which is what `buri build //lib/money` means.
+                if target.kind != RuleKind::Binary {
+                    // Every library and tool in `targets` asked above.
+                    let (mut diagnostics, key) = asked.remove(&target).unwrap_or_default();
+                    let share = shared
+                        .as_ref()
+                        .and_then(|s| Some((s, s.shares.get(&target)?)));
+                    if let (Some(key), Some((shared, share))) = (&key, share) {
+                        if share.reported.is_empty() {
+                            actions::record_clean_share(
+                                &session,
+                                target,
+                                key,
+                                &shared.analysis,
+                                share,
+                                &mut rule_paths,
+                            );
+                        }
+                        diagnostics.extend(share.reported.iter().cloned());
+                    } else if let Some(key) = key {
+                        let analysis = crate::compiler::driver::analyze(
+                            Some(&session.workspace),
+                            &mut session.map,
+                            &mut session.parsed,
+                            &unit(target),
+                        );
+                        if analysis.diagnostics.items.is_empty() {
+                            actions::record_clean_check(
+                                &session,
+                                target,
+                                &key,
+                                &analysis,
+                                &mut rule_paths,
+                            );
+                        }
+                        diagnostics.extend(analysis.diagnostics.items);
+                    }
+                    reports.push(Report::Checked(diagnostics));
+                    continue;
                 }
-                diagnostics.extend(share.reported.iter().cloned());
-            } else if let Some(key) = key {
-                let analysis = crate::compiler::driver::analyze(
-                    Some(&session.workspace),
-                    &mut session.map,
-                    &mut session.parsed,
-                    &unit(target),
-                );
-                if analysis.diagnostics.items.is_empty() {
-                    actions::record_clean_check(&session, target, &key, &analysis, &mut rule_paths);
+                // One sink for every output of this target, because a mistake
+                // in `main.buri` is one mistake however many artifacts are
+                // built from it. Two outputs are two compilations of the same
+                // sources, so a helper that will not typecheck otherwise
+                // reports once per artifact.
+                let first = slots;
+                for output in actions::selected_outputs(&session, target, &args.flags) {
+                    let slot = slots;
+                    slots += 1;
+                    let (prepared, explain) = crate::build::cache::holding_explain(|| {
+                        actions::prepare_output(&session, target, &output, &args.flags)
+                    });
+                    match prepared {
+                        actions::Prepared::Done(built) => {
+                            let outcome =
+                                outcome(&session, target, output, &args.flags, built, explain);
+                            outcomes.insert(slot, outcome);
+                        }
+                        actions::Prepared::Front(front) => {
+                            let loading = crate::compiler::driver::load_all(
+                                Some(&session.workspace),
+                                &mut session.map,
+                                &mut session.parsed,
+                                std::slice::from_ref(&front.unit),
+                            );
+                            let bytes = build_bytes(loading.source_bytes(&session.map));
+                            let job = Job {
+                                slot,
+                                target,
+                                output,
+                                front,
+                                loading,
+                                map: session.map.shared(),
+                                explain,
+                            };
+                            queue.push(job, bytes);
+                            printing.pending += 1;
+                        }
+                    }
                 }
-                diagnostics.extend(analysis.diagnostics.items);
+                reports.push(Report::Built(first..slots));
             }
-            failed |= session.print(&diagnostics);
-            continue;
-        }
-        // One sink for every output of this target, because a mistake in
-        // `main.buri` is one mistake however many artifacts are built from it.
-        // Two outputs are two compilations of the same sources, so a helper
-        // that will not typecheck otherwise reports once per artifact.
-        let mut reported = crate::diagnostics::Diagnostics::new();
-        for output in actions::selected_outputs(&session, target, &args.flags) {
-            match actions::build_target(&mut session, target, &output, &args.flags) {
-                Ok(a) => {
-                    built += 1;
-                    let rel = a.path.strip_prefix(&session.root).unwrap_or(&a.path);
-                    let note = if a.cached { ", cached" } else { "" };
-                    println!("{} ({} bytes{note})", rel.display(), a.bytes);
-                }
-                Err(diagnostics)
-                    if args.flags.output.is_none() && foreign(&output, &diagnostics) =>
-                {
-                    reported.push(
-                        crate::diagnostics::Diagnostic::templated(
-                            "output-unavailable",
-                            output.span,
-                        )
-                        .with_bind("selector", output.dir())
-                        .with_bind("target", session.workspace.label(target)),
-                    );
-                }
-                Err(diagnostics) => reported.extend(diagnostics.items),
+            printing.flush(&session, &reports, &outcomes);
+            while printing.pending > 0 {
+                let (slot, outcome) = done.recv();
+                outcomes.insert(slot, outcome);
+                printing.pending -= 1;
+                printing.flush(&session, &reports, &outcomes);
             }
-        }
-        failed |= session.print(&reported);
-    }
+            true
+        },
+    )
+    .unwrap_or_else(no_thread);
+    let Printing { built, failed, .. } = printing;
+    let mut failed = failed | !ran;
     // `check_during_build`: the catalogue runs here too, but only over a build
     // that held — findings on code that does not compile are noise stacked on
     // top of the answer.
@@ -223,6 +276,227 @@ fn foreign(
             .as_deref()
             .is_some_and(|c| HOST_REFUSALS.contains(&c))
     }) && !crate::build::link::is_host_target(actions::target_of(output))
+}
+
+// ---------------------------------------------------------------------------
+// Programs side by side
+// ---------------------------------------------------------------------------
+
+/// What every worker building a program needs from the session, which stays
+/// with the thread that loads.
+struct Workers<'a> {
+    root: std::path::PathBuf,
+    workspace: std::sync::Arc<crate::build::workspace::Workspace>,
+    rendering: session::Rendering,
+    flags: &'a arguments::Flags,
+}
+
+/// One output whose program is loaded: checked, compiled and placed on a
+/// worker.
+struct Job {
+    /// Where its [`Outcome`] goes among the outputs, in target order.
+    slot: usize,
+    target: TargetId,
+    output: Output,
+    front: Box<actions::Front>,
+    loading: crate::compiler::driver::Loading,
+    /// The session's map as the load left it, which names every file the
+    /// build can report on.
+    map: std::sync::Arc<crate::diagnostics::SourceMap>,
+    /// The `--explain` lines its cache lookup printed.
+    explain: String,
+}
+
+/// Where a test holds `buri build` as a worker starts a program's front end
+/// ([`crate::hold`]): two programs held there at once are two being built at
+/// once.
+#[cfg(feature = "test-hooks")]
+static BUILDING: crate::hold::Point = crate::hold::Point::new("building");
+
+impl Job {
+    fn build(self, held: crate::parallel::Held<'_>, workers: &Workers<'_>) -> (usize, Outcome) {
+        #[cfg(feature = "test-hooks")]
+        BUILDING.held();
+        let Job {
+            slot,
+            target,
+            output,
+            front,
+            loading,
+            map,
+            explain,
+        } = self;
+        // A session of its own, over the map the load left: the build may
+        // read a file more, and what it reports is printed against the map
+        // that names it.
+        let mut session = Session {
+            root: workers.root.clone(),
+            map: crate::diagnostics::SourceMap::clone(&map),
+            parsed: crate::parsing::parser::Cache::new(),
+            diagnostics: crate::diagnostics::Diagnostics::new(),
+            workspace: std::sync::Arc::clone(&workers.workspace),
+            rendering: workers.rendering,
+        };
+        drop(map);
+        let analysis =
+            crate::compiler::driver::check(loading, Some(&session.workspace), &session.map);
+        let (built, finished) = crate::build::cache::holding_explain(|| {
+            actions::finish_output(
+                &mut session,
+                target,
+                &output,
+                workers.flags,
+                front,
+                analysis,
+            )
+        });
+        // The program is gone by now; only its artifact and its report are left.
+        drop(held);
+        let explain = explain + &finished;
+        let mut outcome = outcome(&session, target, output, workers.flags, built, explain);
+        outcome.map = Some(std::sync::Arc::new(session.map));
+        (slot, outcome)
+    }
+}
+
+/// One output's build, as it is to be printed.
+struct Outcome {
+    /// Its `--explain` lines, then the artifact's.
+    stdout: String,
+    reported: crate::diagnostics::Diagnostics,
+    /// The map `reported` is printed against, when it isn't the session's.
+    map: Option<std::sync::Arc<crate::diagnostics::SourceMap>>,
+    /// Whether it produced an artifact.
+    built: bool,
+    /// The output `out` points at once this one is printed, when it built.
+    linked: Option<Output>,
+}
+
+/// What an output's build reports: its artifact, or its diagnostics — or, for
+/// an output this host can't build and nobody asked for by name, that it is
+/// unavailable.
+fn outcome(
+    session: &Session,
+    target: TargetId,
+    output: Output,
+    flags: &arguments::Flags,
+    built: Result<actions::Artifact, crate::diagnostics::Diagnostics>,
+    mut stdout: String,
+) -> Outcome {
+    let linked = built.is_ok();
+    let mut reported = crate::diagnostics::Diagnostics::new();
+    let placed = built.and_then(|a| actions::with_assets(session, target, &output, a));
+    let made = placed.is_ok();
+    match placed {
+        Ok(a) => {
+            let rel = a.path.strip_prefix(&session.root).unwrap_or(&a.path);
+            let note = if a.cached { ", cached" } else { "" };
+            stdout.push_str(&format!("{} ({} bytes{note})\n", rel.display(), a.bytes));
+        }
+        Err(diagnostics) if flags.output.is_none() && foreign(&output, &diagnostics) => {
+            reported.push(
+                crate::diagnostics::Diagnostic::templated("output-unavailable", output.span)
+                    .with_bind("selector", output.dir())
+                    .with_bind("target", session.workspace.label(target)),
+            );
+        }
+        Err(diagnostics) => reported.extend(diagnostics.items),
+    }
+    Outcome {
+        stdout,
+        reported,
+        map: None,
+        built: made,
+        linked: linked.then_some(output),
+    }
+}
+
+/// A library's or tool's check, or a binary's outputs, in target order.
+enum Report {
+    Checked(crate::diagnostics::Diagnostics),
+    Built(std::ops::Range<usize>),
+}
+
+/// How far printing has got through the reports.
+#[derive(Default)]
+struct Printing {
+    next: usize,
+    /// The jobs whose outcome hasn't come back.
+    pending: usize,
+    built: usize,
+    failed: bool,
+}
+
+impl Printing {
+    /// Prints every report whose outcomes are all in, up to the first that
+    /// isn't. A binary's artifacts come first and its diagnostics after them,
+    /// as one target's report. Printed here, in this order, rather than where
+    /// each was built, because a code's explanation follows the first
+    /// diagnostic printed with it.
+    fn flush(
+        &mut self,
+        session: &Session,
+        reports: &[Report],
+        outcomes: &BTreeMap<usize, Outcome>,
+    ) {
+        while let Some(report) = reports.get(self.next) {
+            match report {
+                Report::Checked(diagnostics) => self.failed |= session.print(diagnostics),
+                Report::Built(range) => {
+                    let done: Option<Vec<&Outcome>> =
+                        range.clone().map(|slot| outcomes.get(&slot)).collect();
+                    let Some(done) = done else {
+                        return;
+                    };
+                    for outcome in &done {
+                        print!("{}", outcome.stdout);
+                        if let Some(output) = &outcome.linked {
+                            actions::link_out_symlink(session, output);
+                        }
+                        self.built += usize::from(outcome.built);
+                    }
+                    // One report for every output of the target, because a
+                    // mistake in `main.buri` is one mistake however many
+                    // artifacts are built from it. By file name: each output
+                    // reports against a map of its own.
+                    let mut seen = std::collections::HashSet::new();
+                    for outcome in &done {
+                        let map = outcome.map.as_deref().unwrap_or(&session.map);
+                        for d in &outcome.reported.items {
+                            let file = map.get(d.span.file).name.as_str();
+                            if seen.insert((file, d.span.start, d.span.end, d.message.as_str())) {
+                                session.emit_from(map, d);
+                                self.failed |= d.is_error();
+                            }
+                        }
+                    }
+                }
+            }
+            self.next += 1;
+        }
+    }
+}
+
+/// What a build does on a machine with no thread to build on: says so, and
+/// fails.
+fn no_thread() -> bool {
+    eprintln!("error: nothing could be built: the machine has no thread to build on");
+    false
+}
+
+/// The bytes the programs being built may hold between them: half this
+/// machine's memory, as `buri test` allows its builds. A machine that cannot
+/// say how much memory it has is not limited.
+fn memory_budget() -> u64 {
+    crate::parallel::memory_bytes().map_or(u64::MAX, |bytes| bytes / 2)
+}
+
+/// The memory a build of `source` bytes of repository code is expected to
+/// hold: `buri test`'s measured bound (`commands::test`'s `build_bytes`).
+fn build_bytes(source: u64) -> u64 {
+    const BASE: u64 = 64 * 1024 * 1024;
+    const PER_SOURCE_BYTE: u64 = 400;
+    BASE.saturating_add(source.saturating_mul(PER_SOURCE_BYTE))
 }
 
 // ---------------------------------------------------------------------------

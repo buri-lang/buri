@@ -41,12 +41,87 @@ pub fn build_target(
     output: &Output,
     flags: &Flags,
 ) -> Result<Artifact, Diagnostics> {
-    let built = build_artifact(session, target, output, flags)?;
+    let built = match prepare_output(session, target, output, flags) {
+        Prepared::Done(done) => done,
+        Prepared::Front(front) => {
+            let analysis = crate::compiler::driver::analyze(
+                Some(&session.workspace),
+                &mut session.map,
+                &mut session.parsed,
+                &front.unit,
+            );
+            finish_output(session, target, output, flags, front, analysis)
+        }
+    }?;
+    link_out_symlink(session, output);
+    with_assets(session, target, output, built)
+}
+
+/// An artifact with its platform's assets beside it ([`copy_assets`]), or the
+/// copy that failed.
+pub fn with_assets(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    built: Artifact,
+) -> Result<Artifact, Diagnostics> {
     let mut diagnostics = Diagnostics::new();
     if !copy_assets(session, target, output, &mut diagnostics) {
         return Err(diagnostics);
     }
     Ok(built)
+}
+
+/// One output's build as far as it goes without its program: the answer, when
+/// the policy refuses it or the cache holds it, or what is left to do once the
+/// entry is loaded.
+///
+/// Apart from [`finish_output`] because the two need different things. This reads
+/// the session and the cache, loading mints file ids in the session's map, and
+/// what follows the load needs neither, so `buri build` runs it on any thread
+/// while one thread loads the next program. `build_target` is the three in a
+/// row.
+pub enum Prepared {
+    Done(Result<Artifact, Diagnostics>),
+    Front(Box<Front>),
+}
+
+/// An output whose program is still to be checked and compiled.
+pub struct Front {
+    /// What to load: the target, for the output's platform, at its entry.
+    pub unit: Unit,
+    diagnostics: Diagnostics,
+    cache: Cache,
+    path: PathBuf,
+    rest: Rest,
+}
+
+/// What a [`Front`] does once it has its program.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "only ever inside a boxed `Front`, so the size is paid once per output"
+)]
+enum Rest {
+    /// A JavaScript artifact, filed under `key`.
+    Js { key: ActionKey },
+    /// A native one, linked by `linker`, its record filed under `front`.
+    Native {
+        linker: link::CDriver,
+        front: ActionKey,
+        label: String,
+    },
+}
+
+/// The program an output builds from: its target, for its platform, entered
+/// where it names. `Some` platform: a build is the per-output check. See
+/// `Unit::platform`.
+fn entry_unit(target: TargetId, output: &Output) -> Unit {
+    Unit {
+        target: Some(target),
+        platform: Some(output.platform()),
+        entry: Some(output.entry_name().to_string()),
+        with_tests: false,
+    }
 }
 
 /// Every `assets` file of the platform an output names, copied into the
@@ -110,19 +185,20 @@ pub fn is_page(output: &Output) -> bool {
 /// The document `buri run` serves an output's directory by.
 pub const PAGE: &str = "index.html";
 
-fn build_artifact(
-    session: &mut Session,
+/// [`Prepared`]: the checks the graph answers, then the cache.
+pub fn prepare_output(
+    session: &Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
-) -> Result<Artifact, Diagnostics> {
+) -> Prepared {
     let mut diagnostics = Diagnostics::new();
     let platform = output.platform();
 
     // Every check the graph can answer before a line is compiled.
     check_policy(session, target, &output.output_platform(), &mut diagnostics);
     if diagnostics.has_errors() {
-        return Err(diagnostics);
+        return Prepared::Done(Err(diagnostics));
     }
 
     // "Is there a linker and an object file at the end of this?" — not "is
@@ -136,10 +212,10 @@ fn build_artifact(
         // names *which* of the three, because the one sentence the three used
         // to share was false on two of them.
         match native_gap(target_of(output), profile_of(flags)) {
-            None => return build_native(session, target, output, flags, diagnostics),
+            None => return prepare_native(session, target, output, flags, diagnostics),
             Some(gap) => {
                 diagnostics.push(no_native_artifact(&gap, output.span));
-                return Err(diagnostics);
+                return Prepared::Done(Err(diagnostics));
             }
         }
     }
@@ -179,20 +255,68 @@ fn build_artifact(
                     && write_companions(&path, stylesheet, chunks, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
-                    link_out_symlink(session, output);
-                    return Ok(Artifact {
+                    return Prepared::Done(Ok(Artifact {
                         target,
                         path,
                         bytes: module.len(),
                         cached: true,
-                    });
+                    }));
                 }
             }
         }
     }
     explain_link(crate::build::cache::Status::Run);
+    Prepared::Front(Box::new(Front {
+        unit: entry_unit(target, output),
+        diagnostics,
+        cache,
+        path,
+        rest: Rest::Js { key },
+    }))
+}
 
-    let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
+/// The rest of a [`Front`]'s build, from its program's `analysis`.
+pub fn finish_output(
+    session: &mut Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    front: Box<Front>,
+    analysis: crate::compiler::driver::Analysis,
+) -> Result<Artifact, Diagnostics> {
+    let Front {
+        mut diagnostics,
+        cache,
+        path,
+        rest,
+        ..
+    } = *front;
+    let key = match rest {
+        Rest::Js { key } => key,
+        Rest::Native {
+            linker,
+            front,
+            label,
+        } => {
+            let native = Native {
+                linker,
+                front,
+                label,
+                cache,
+                path,
+            };
+            return finish_native(
+                session,
+                target,
+                output,
+                flags,
+                native,
+                analysis,
+                diagnostics,
+            );
+        }
+    };
+    let compiled = compile_analyzed(session, target, output, flags, analysis, &mut diagnostics)?;
     let reads = encode_reads(session, &compiled.unkeyed);
     let parts = [&reads, &compiled.module, &compiled.stylesheet]
         .into_iter()
@@ -214,7 +338,6 @@ fn build_artifact(
     ) {
         return Err(diagnostics);
     }
-    link_out_symlink(session, output);
     Ok(Artifact {
         target,
         path,
@@ -279,21 +402,26 @@ fn monomorphized_entry(
     handed: bool,
     diagnostics: &mut Diagnostics,
 ) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
-    let platform = output.platform();
-    let name = output.entry_name().to_string();
-    // `Some`: a build is the per-output check. See `Unit::platform`.
-    let unit = Unit {
-        target: Some(target),
-        platform: Some(platform),
-        entry: Some(name.clone()),
-        with_tests: false,
-    };
-    let mut analysis = crate::compiler::driver::analyze(
+    let analysis = crate::compiler::driver::analyze(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
-        &unit,
+        &entry_unit(target, output),
     );
+    monomorphized(session, analysis, target, output, handed, diagnostics)
+}
+
+/// [`monomorphized_entry`] over the entry's `analysis`, loaded and checked
+/// already.
+fn monomorphized(
+    session: &Session,
+    mut analysis: crate::compiler::driver::Analysis,
+    target: TargetId,
+    output: &Output,
+    handed: bool,
+    diagnostics: &mut Diagnostics,
+) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
+    let name = output.entry_name().to_string();
     if analysis.diagnostics.has_errors() {
         return Err(analysis.diagnostics);
     }
@@ -350,11 +478,29 @@ pub fn compile_artifact(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
+    let analysis = crate::compiler::driver::analyze(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        &entry_unit(target, output),
+    );
+    compile_analyzed(session, target, output, flags, analysis, diagnostics)
+}
+
+/// [`compile_artifact`] over the entry's `analysis`.
+fn compile_analyzed(
+    session: &mut Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    analysis: crate::compiler::driver::Analysis,
+    diagnostics: &mut Diagnostics,
+) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (module, js) = entry_js(output);
     let handed = js.is_some();
     let (analysis, mut program) =
-        monomorphized_entry(session, target, output, handed, diagnostics)?;
+        monomorphized(session, analysis, target, output, handed, diagnostics)?;
     let unkeyed = unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new());
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
@@ -2845,17 +2991,19 @@ fn refuse_missing(
     std::mem::take(diagnostics)
 }
 
-/// A native build: codegen per unit, then one full link.
-fn build_native(
-    session: &mut Session,
+/// A native build: codegen per unit, then one full link. This is the half
+/// before the front end: the linker, and the record of a build of these
+/// sources.
+fn prepare_native(
+    session: &Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
     mut diagnostics: Diagnostics,
-) -> Result<Artifact, Diagnostics> {
+) -> Prepared {
     let path = artifact_path(session, target, output);
     let Some(linker) = linker_for(output, &mut diagnostics) else {
-        return Err(diagnostics);
+        return Prepared::Done(Err(diagnostics));
     };
 
     explain_closure(session, target, output, flags);
@@ -2866,17 +3014,55 @@ fn build_native(
         if let Some(artifact) =
             native_from_record(session, &cache, &front, &label, output, flags, &path)
         {
-            link_out_symlink(session, output);
-            return Ok(Artifact {
+            return Prepared::Done(Ok(Artifact {
                 target,
                 path,
                 bytes: artifact,
                 cached: true,
-            });
+            }));
         }
     }
+    Prepared::Front(Box::new(Front {
+        unit: entry_unit(target, output),
+        diagnostics,
+        cache,
+        path,
+        rest: Rest::Native {
+            linker,
+            front,
+            label,
+        },
+    }))
+}
+
+/// What [`finish_native`] links with and files under.
+struct Native {
+    linker: link::CDriver,
+    front: ActionKey,
+    label: String,
+    cache: Cache,
+    path: PathBuf,
+}
+
+/// The native build from its program's `analysis`: codegen, then the link.
+fn finish_native(
+    session: &mut Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    native: Native,
+    analysis: crate::compiler::driver::Analysis,
+    mut diagnostics: Diagnostics,
+) -> Result<Artifact, Diagnostics> {
+    let Native {
+        linker,
+        front,
+        label,
+        cache,
+        path,
+    } = native;
     let (analysis, mut program) =
-        monomorphized_entry(session, target, output, false, &mut diagnostics)?;
+        monomorphized(session, analysis, target, output, false, &mut diagnostics)?;
     let reads = encode_reads(
         session,
         &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()),
@@ -2921,7 +3107,6 @@ fn build_native(
             return Err(diagnostics);
         }
     };
-    link_out_symlink(session, output);
     Ok(Artifact {
         target,
         path,
@@ -3079,12 +3264,28 @@ fn link_cached(
         target: target_of(output),
         unit_prefix: prefix,
     };
+    // Two outputs of one binary for the same platform link in the one
+    // directory, and `buri build` builds them side by side: one waits.
+    let dir = dir_lock(place.as_str());
+    let _linking = dir
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let staged = link::run(&objects.units, &objects.rows, &linker, path, &opts)?;
     // The linker's own output, moved into the entry rather than a second copy
     // of it written from a full read of the artifact just placed. See
     // `Cache::put_file`. The copy at `path` is the one that runs.
     cache.put_file(&key, staged.path());
     Ok((key, None))
+}
+
+/// The lock a link in the directory named `place` holds.
+fn dir_lock(place: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    type Locks = std::collections::BTreeMap<String, std::sync::Arc<std::sync::Mutex<()>>>;
+    static LOCKS: std::sync::Mutex<Locks> = std::sync::Mutex::new(Locks::new());
+    let mut locks = LOCKS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    std::sync::Arc::clone(locks.entry(place.to_string()).or_default())
 }
 
 /// Where a native test binary was put, for as long as it is the one to run.
@@ -3759,7 +3960,7 @@ fn write_companions(
 }
 
 /// A convenience symlink pointing at the most recent output directory.
-fn link_out_symlink(session: &Session, output: &Output) {
+pub fn link_out_symlink(session: &Session, output: &Output) {
     let link = session.root.join("out");
     let target = PathBuf::from(".buri/out").join(output.dir());
     #[cfg(unix)]

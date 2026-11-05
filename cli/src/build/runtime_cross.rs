@@ -138,22 +138,22 @@ pub fn features_for(_target: Target) -> (bool, bool) {
 /// artifact, and re-checking the cache — or worse, rebuilding — each time would
 /// be the ~30s build paid per suite. The memo holds the resolved paths, not a
 /// lock on the directory.
+///
+/// Held while a runtime is resolved, so that programs linking side by side
+/// wait for one build rather than each starting their own in the one
+/// temporary directory this process builds in ([`build_into`]).
 pub fn resolve(target: Target) -> Result<Cross, link_refusal::Refusal> {
     use std::sync::Mutex;
     static MEMO: Mutex<Vec<(Target, Result<Cross, link_refusal::Refusal>)>> =
         Mutex::new(Vec::new());
-    if let Some((_, answer)) = MEMO
+    let mut memo = MEMO
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .iter()
-        .find(|(t, _)| *t == target)
-    {
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, answer)) = memo.iter().find(|(t, _)| *t == target) {
         return answer.clone();
     }
     let answer = resolve_uncached(target);
-    MEMO.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .push((target, answer.clone()));
+    memo.push((target, answer.clone()));
     answer
 }
 
