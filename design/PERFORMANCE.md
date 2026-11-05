@@ -8194,10 +8194,10 @@ each unit as `available_externally`. Release binaries, instructions retired:
 | `strings` | 1,987.7 M | 2,007.7 M | 1,987.8 M |
 | `lists` | 2,047.7 M | 2,042.0 M | 2,040.0 M |
 | records and a `Str`-keyed ordered map | 1,333.5 M | 1,327.1 M | 1,327.0 M |
-| code repo's cluster test | 119,044 M | 119,093 M | 119,122 M |
+| a large multi-node test suite | 119,044 M | 119,093 M | 119,122 M |
 
 The other instruction-gate workloads moved less than 0.5%, all down. The
-cluster package's `emit` went from 492.6 G to 421.9 G declared and 427.2 G
+large package's `emit` went from 492.6 G to 421.9 G declared and 427.2 G
 with small glue kept, so the build keeps 93% of the win.
 
 `release.rs` guards it too: dropping lists of two `Str`s costs at most 1.2×
@@ -8273,7 +8273,7 @@ profiled monorepo, cold `buri build --release //...`, `BURI_PROFILE=1`:
 | process CPU, three runs each | 808–843 s | 763–781 s |
 
 That is 6.2% of the build's instructions, about 50 CPU seconds. Run time
-doesn't move: the instruction-gate programs and the cluster suite's tests
+doesn't move: the instruction-gate programs and a large multi-node suite's tests
 retire the same instructions to within 0.1%, which is run-to-run noise.
 
 `cli/tests/native/release.rs` guards it. A program that calls a function that
