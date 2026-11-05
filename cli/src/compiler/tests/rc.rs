@@ -199,7 +199,7 @@ struct Balance<'a> {
     /// Arm bodies that take their scrutinee apart (`FuncPlan::taken_apart`),
     /// with the scrutinee and the counted names the pattern binds: the
     /// scrutinee's count becomes one count per name as the arm is entered.
-    taken_at: HashMap<NodeId, (LocalId, Vec<LocalId>)>,
+    taken_at: HashMap<NodeId, (Target, Vec<LocalId>)>,
     errors: Vec<String>,
 }
 
@@ -299,7 +299,10 @@ impl Balance<'_> {
             st.bump(l, 1);
         }
         if let Some((t, names)) = self.taken_at.get(&id).cloned() {
-            st.bump(t, -1);
+            match t {
+                Target::Node(n) => st.bump_temp(n, -1),
+                Target::Local(l) | Target::LocalExcept(l, _) => st.bump(l, -1),
+            }
             for l in names {
                 st.bump(l, 1);
             }
@@ -391,7 +394,8 @@ impl Balance<'_> {
                 // of it at an arm entry is what "the match consumed it"
                 // looks like from outside.
                 let consumed = self.consumes_scrutinee(scrutinee)
-                    || self.takes_apart(id, arms.iter().map(|a| a.guard.is_some()));
+                    || (matches!(scrutinee.kind, ExprKind::Local(_))
+                        && self.takes_apart(id, arms.iter().map(|a| a.guard.is_some())));
                 // The same promotion the scan makes for a compound scrutinee.
                 let promoted = !consumed
                     && compound(scrutinee)
@@ -440,14 +444,15 @@ impl Balance<'_> {
                     if !fresh_bound.is_empty() {
                         self.fresh_at.insert(bid, fresh_bound);
                     }
-                    if let (ExprKind::Local(t), true) = (
-                        &scrutinee.kind,
-                        self.plan.taken_apart.binary_search(&bid).is_ok(),
-                    ) {
+                    if self.plan.taken_apart.binary_search(&bid).is_ok() {
+                        let whole = match &scrutinee.kind {
+                            ExprKind::Local(t) => Target::Local(*t),
+                            _ => Target::Node(sid),
+                        };
                         let mut names: Vec<LocalId> = Vec::new();
                         a.pattern.binds(&mut names);
                         names.retain(|b| self.counted_local(*b));
-                        self.taken_at.insert(bid, (*t, names));
+                        self.taken_at.insert(bid, (whole, names));
                     }
                     branches.push((&a.body, bid, mode));
                     k += 1;
@@ -1618,14 +1623,12 @@ export fn main(host: NodeHost): Result<(), Str> {
     assert_eq!(check_balance(&program), Vec::<String>::new());
 }
 
-/// A value the match itself built has no binding and no owner.
-///
-/// The arms take a count for whatever they keep out of it — `owns` is
-/// false, so every payload use is an increment — and after the arms nothing
-/// names it. `match (q.pop(ctx))` leaked the `Option` and the two lists the
-/// queue it answered still pointed at, once per iteration of a drain.
+/// A value the match itself built has no binding and no owner, so the arm
+/// takes it apart: each name keeps its count and is dropped after its last
+/// read. `match (q.pop(ctx))` leaked the `Option` and the two lists the queue
+/// it answered still pointed at, once per iteration of a drain.
 #[test]
-fn a_scrutinee_the_match_built_is_dropped_after_the_arms() {
+fn a_scrutinee_the_match_built_is_taken_apart_by_its_arm() {
     const SRC: &str = r#"
 from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
@@ -1653,9 +1656,11 @@ export fn main(host: NodeHost): Result<(), Str> {
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
     let fp = plan.func(i);
-    // `n1` is the `match`, `n2` its scrutinee, and the drop is after the
-    // arms have read what they keep out of it.
-    assert_eq!(named_sites(&program, i, fp), vec!["dec n2 after n1"]);
+    assert_eq!(
+        named_sites(&program, i, fp),
+        vec!["dec a after n6", "dec b after n8"]
+    );
+    assert_eq!(check_balance(&program), Vec::<String>::new());
 }
 
 /// A fresh value reached through a branch is still fresh.
@@ -1889,19 +1894,16 @@ export fn main(host: NodeHost): Result<(), Str> {
     assert_eq!(
         named_sites(&program, i, fp),
         vec![
-            // `n3` is `takeOne(ctx, xs)`, the value the match built. It is
-            // dropped after the match — the `.None` arm's path — *and*
-            // before the back edge at `n11`, which is the `.Some` arm's.
-            // Before, only the first of the two was there.
-            "dec n3 after n2",
             "dec xs after n3",
-            // `t` points into `n3`, so `let (v, rest) = t` binds borrowed
-            // names and only `rest`, handed to the jump, takes a count.
-            "inc rest after n10",
+            // `n3` is `takeOne(ctx, xs)`, the value the match built. The
+            // `.Some` arm takes it apart, so `t` keeps its count and `rest`
+            // goes to the jump with it; the `.None` arm, which binds
+            // nothing, drops it at its entry.
             "dec acc after n11",
-            "dec n3 after n11",
+            "dec n3 before n15",
         ]
     );
+    assert_eq!(check_balance(&program), Vec::<String>::new());
 }
 
 /// **Calling a closure does not consume it.**

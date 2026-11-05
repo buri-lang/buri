@@ -421,7 +421,9 @@ On top of that, three local rules:
 - **A matched value the function is done with is taken apart.** In
   `match (g) { .Split(l, _, r) => join(l, r) }`, `l` and `r` keep the counts
   `g` held for them, the `_` is released by name, and nothing releases `g`.
-  Not where the arm has a guard, reads `g` again, or binds a boxed field.
+  Not where the arm has a guard, reads `g` again, or binds a boxed field. A
+  value the match built, as in `match (xs.get(at))`, is taken apart the same
+  way when no arm has a guard and every arm that binds a name can take it.
 
 ### 5.3 Reuse, which is where the copying goes
 

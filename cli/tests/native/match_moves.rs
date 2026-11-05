@@ -319,3 +319,167 @@ fn taking_apart_a_dying_value_costs_about_what_carrying_its_parts_does() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A `match` on a value it built: a call's answer, a tuple, a branch's value
+/// and an element read. Arms that keep parts of it, arms that bind nothing,
+/// arms that leave early through `?`, and an array pattern, which keeps the
+/// whole value.
+#[test]
+fn a_value_the_match_built_is_taken_apart_by_its_arms() {
+    let test = r#"
+fn pair<C: Allocator>(ctx: C, n: Int): (Str, Str) {
+    (str.format(ctx, "a${n}"), str.format(ctx, "b${n}"))
+}
+
+fn swapped<C: Allocator>(ctx: C, n: Int): Str {
+    match (pair(ctx, n)) {
+        (a, b) => str.format(ctx, "${b}${a}"),
+    }
+}
+
+fn kind<C: Allocator>(ctx: C, n: Int): Int {
+    match (grow(ctx, n)) {
+        .Fit(_) => 1,
+        .Split(_, up, _) => up.length(),
+    }
+}
+
+fn chosen<C: Allocator>(ctx: C, n: Int): Str {
+    match (if (n > 2) { grow(ctx, n) } else { .Fit(str.format(ctx, "small")) }) {
+        .Fit(one) => one,
+        .Split(left, _, right) => str.format(ctx, "${left}${right}"),
+    }
+}
+
+fn paired<C: Allocator>(ctx: C, xs: [Str], at: Int, acc: [(Int, Str)]): [(Int, Str)] {
+    match (xs.get(at)) {
+        .None => acc,
+        .Some(x) => paired(ctx, xs, at + 1, acc.push(ctx, (at, x))),
+    }
+}
+
+fn limit<C: Allocator>(ctx: C, n: Int): Result<Int, Str> {
+    if (n > 5) { .Err(str.format(ctx, "big")) } else { .Ok(1) }
+}
+
+fn checked<C: Allocator>(ctx: C, n: Int): Result<Str, Str> {
+    match (pair(ctx, n)) {
+        (a, b) => {
+            let k = limit(ctx, n)?;
+            .Ok(str.format(ctx, "${a}${k}${b}"))
+        },
+    }
+}
+
+fn ends<C: Allocator>(ctx: C, n: Int): Str {
+    match ([str.format(ctx, "x${n}"), str.format(ctx, "y${n}")]) {
+        [first, ..] => first,
+        [] => str.format(ctx, "none"),
+    }
+}
+
+test "every arm of a match on a value it built" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(swapped(ctx, 1), "b1a1");
+    assert.equal(kind(ctx, 2) + kind(ctx, 3), 3);
+    assert.equal(chosen(ctx, 1), "small");
+    assert.equal(chosen(ctx, 3), "l3r3");
+    assert.equal(chosen(ctx, 4), "fit4");
+    let words = [str.format(ctx, "p"), str.format(ctx, "q")];
+    let got = paired(ctx, words, 0, []);
+    assert.equal(got.length(), 2);
+    assert.equal(got[1].map(fn(p) => p.1).withDefault(""), "q");
+    assert.equal(checked(ctx, 2), .Ok("a21b2"));
+    assert.equal(checked(ctx, 6), .Err("big"));
+    assert.equal(ends(ctx, 7), "x7");
+}
+"#;
+    passes("built", test, 1);
+}
+
+/// The last element of a list, carried through the walk, against the sum of
+/// every element's length.
+const LASTS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn last(xs: [Str], at: Int, seen: Str): Str {
+    match (xs.get(at)) {
+        .None => seen,
+        .Some(x) => last(xs, at + 1, x),
+    }
+}
+
+fn lengths(xs: [Str], at: Int, acc: Int): Int {
+    match (xs.get(at)) {
+        .None => acc,
+        .Some(x) => lengths(xs, at + 1, acc + x.length()),
+    }
+}
+
+fn filled<C: Allocator>(ctx: C, k: Int, acc: [Str]): [Str] {
+    if (k == 0) { acc } else { filled(ctx, k - 1, acc.push(ctx, "ab".repeat(ctx, k % 3 + 1))) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let ops = args[1].andThen(fn(s) => s.toInt()).withDefault(0);
+  let mode = args.first().withDefault("none");
+  let xs = filled(ctx, ops, []);
+  let answer = if (mode == "last") {
+    last(xs, 0, "").length() * ops
+  } else if (mode == "lengths") {
+    lengths(xs, 0, 0) - ops * 2
+  } else {
+    0
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **Keeping part of a value the match built costs no extra count.** Each
+/// element `last` kept took a count of its own and the `Option` it came in
+/// was released after the arm: a retain and a release a step that `lengths`,
+/// which only reads each element, doesn't pay: 108 instructions a step
+/// against 142 on the copy-and-patch backend, and 29 against 27 on LLVM.
+/// Taking the `Option` apart is 76 and 17.
+#[test]
+fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
+    const STEPS: u64 = 99_999;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("lasts", LASTS);
+        let steps = STEPS.to_string();
+        let args = [steps.as_str()];
+        let (last, _) = per_op(
+            backend,
+            &binary,
+            "last",
+            &args,
+            STEPS,
+            &format!("{}\n", STEPS * 4),
+        );
+        let (lengths, _) = per_op(
+            backend,
+            &binary,
+            "lengths",
+            &args,
+            STEPS,
+            &format!("{}\n", STEPS * 2),
+        );
+        eprintln!("{backend}: last {last:?}, lengths {lengths:?} instructions a step");
+        let (Some(last), Some(lengths)) = (last, lengths) else {
+            continue;
+        };
+        if last * 4 > lengths * 3 {
+            failures.push(format!(
+                "{backend}: keeping an element is {last} instructions a step against {lengths} \
+                 for reading it"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

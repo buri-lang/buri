@@ -783,14 +783,13 @@ pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
 }
 
 /// Every `let` in `e` and everything under it, and every unguarded arm of a
-/// `match` on a local.
+/// `match`.
 ///
 /// An arm is named for [`Scan::arm`]'s moves: a scrutinee the function is done
 /// with is taken apart there, each name the arm reads keeping its count and
 /// each it doesn't released, so a position with no name would be released by
-/// nobody. A guarded arm may not be the one that runs, and a scrutinee that is
-/// not a local is never the function's to take apart; neither moves, so
-/// neither is named.
+/// nobody. A guarded arm may not be the one that runs, so it never moves and
+/// isn't named.
 fn name_in(locals: &mut typed::Locals, e: &mut Expr, counted: &mut dyn Counted) {
     match &mut e.kind {
         ExprKind::Block { stmts, .. } => {
@@ -803,7 +802,7 @@ fn name_in(locals: &mut typed::Locals, e: &mut Expr, counted: &mut dyn Counted) 
                 }
             }
         }
-        ExprKind::Match { scrutinee, arms } if matches!(scrutinee.kind, ExprKind::Local(_)) => {
+        ExprKind::Match { arms, .. } => {
             for a in arms.iter_mut().filter(|a| a.guard.is_none()) {
                 if binds_something(&a.pattern) {
                     name_skipped(locals, &mut a.pattern, counted);
@@ -3645,6 +3644,16 @@ impl Scan<'_> {
             _ => None,
         };
         let owns = token.is_some();
+        // A scrutinee the match built dies with it, so its arms take it apart
+        // too ([`Scan::arm`]). Only where no arm needs the whole value kept.
+        let built = (!owns
+            && !self.opts.sharing
+            && (fresh(scrutinee) || compound(scrutinee))
+            && self.counted_ty(&scrutinee.ty.clone())
+            && arms.iter().all(|a| {
+                a.guard.is_none() && (!binds_something(&a.pattern) || self.takes_apart(&a.pattern))
+            }))
+        .then(|| self.child(id, 0));
         // A scrutinee that is a **projection of a local** binds payloads that
         // are words copied out of that local's block, with no count of their
         // own — exactly the alias [`Scan::children`] keeps open across a
@@ -3712,7 +3721,7 @@ impl Scan<'_> {
             &mut rows,
             &mut |me, (a, bid, gid, edges), live| {
                 let edges_before = me.jumps.len();
-                me.arm(a, *gid, *bid, live, mode, token);
+                me.arm(a, *gid, *bid, live, mode, token, built);
                 *edges = me.jumps.get(edges_before..).unwrap_or_default().to_vec();
             },
         );
@@ -3813,7 +3822,11 @@ impl Scan<'_> {
         // iteration of `match (q.pop(ctx)) { .Some(..) => drain(..), .None => acc }`:
         // the recursive arm is the back edge, the `.None` arm is the
         // fall-through, and only the second was disposing of the `Option`.
-        if !owns && (fresh(scrutinee) || promoted) && self.counted_ty(&scrutinee.ty.clone()) {
+        if !owns
+            && built.is_none()
+            && (fresh(scrutinee) || promoted)
+            && self.counted_ty(&scrutinee.ty.clone())
+        {
             for (node, at) in &arm_jumps {
                 self.push(*node, *at, RcOp::DecRef, Target::Node(sid));
             }
@@ -3830,6 +3843,7 @@ impl Scan<'_> {
 
     /// One arm of [`Scan::match_`], scanned from what is live after the match:
     /// what its pattern binds, its body, then its guard.
+    #[allow(clippy::too_many_arguments)]
     fn arm(
         &mut self,
         a: &typed::Arm,
@@ -3838,8 +3852,9 @@ impl Scan<'_> {
         live: &mut Live,
         mode: Mode,
         token: Option<LocalId>,
+        built: Option<NodeId>,
     ) {
-        let owns = token.is_some();
+        let owns = token.is_some() || (built.is_some() && binds_something(&a.pattern));
         let mut bound: Vec<LocalId> = Vec::new();
         a.pattern.binds(&mut bound);
         bound.sort_by_key(|l| l.index());
@@ -3978,7 +3993,7 @@ impl Scan<'_> {
         // A scrutinee the arm is done with is taken apart: each name keeps the
         // count the scrutinee held for it, and an unread name is released here.
         // Not under a guard, whose names are lent and whose arm may not run.
-        let moves = token.is_some_and(|t| !live.contains(&t))
+        let moves = (token.is_some_and(|t| !live.contains(&t)) || built.is_some())
             && !self.opts.sharing
             && a.guard.is_none()
             && binds_something(&a.pattern)
@@ -4004,6 +4019,8 @@ impl Scan<'_> {
             if !live.contains(&t) {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
             }
+        } else if let Some(sid) = built {
+            self.push(bid, Position::Before, RcOp::DecRef, Target::Node(sid));
         }
         for b in &bound {
             live.remove(b);
