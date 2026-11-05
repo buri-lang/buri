@@ -9,6 +9,7 @@
 use crate::build::buildfile::{Output, OutputPlatform, PlatformRule};
 use crate::build::cache::{hash_bytes, Action, ActionKey, Cache, KeyBuilder};
 use crate::build::link;
+use crate::build::runtime_cross;
 use crate::build::session::Session;
 use crate::build::workspace::{Rule, RuleKind, TargetId};
 use crate::commands::arguments::Flags;
@@ -96,6 +97,14 @@ pub struct Front {
     rest: Rest,
 }
 
+impl Front {
+    /// Whether its linker waits for a cross runtime still being built
+    /// ([`runtime_cross::building`]).
+    pub fn waits_for_cross(&self) -> bool {
+        matches!(self.rest, Rest::Cross)
+    }
+}
+
 /// What a [`Front`] does once it has its program.
 #[expect(
     clippy::large_enum_variant,
@@ -104,12 +113,12 @@ pub struct Front {
 enum Rest {
     /// A JavaScript artifact, filed under `key`.
     Js { key: ActionKey },
-    /// A native one, linked by `linker`, its record filed under `front`.
-    Native {
-        linker: link::CDriver,
-        front: ActionKey,
-        label: String,
-    },
+    /// A native one, with its linker.
+    Native(Linker),
+    /// A native one for a cross target whose runtime is still being built:
+    /// its linker, and so its record's key, are worked out once that build
+    /// is done, after the program is checked.
+    Cross,
 }
 
 /// The program an output builds from: its target, for its platform, entered
@@ -293,15 +302,42 @@ pub fn finish_output(
     } = *front;
     let key = match rest {
         Rest::Js { key } => key,
-        Rest::Native {
-            linker,
-            front,
-            label,
-        } => {
+        Rest::Native(linker) => {
             let native = Native {
                 linker,
-                front,
-                label,
+                cache,
+                path,
+            };
+            return finish_native(
+                session,
+                target,
+                output,
+                flags,
+                native,
+                analysis,
+                diagnostics,
+            );
+        }
+        // As `prepare_native` would have, had the runtime been there: a
+        // refusal or a record hit is the whole answer, and the checked program
+        // goes unused.
+        Rest::Cross => {
+            let found = native_record(
+                session,
+                target,
+                output,
+                flags,
+                &cache,
+                &path,
+                &mut diagnostics,
+            );
+            let linker = match found {
+                Err(()) => return Err(diagnostics),
+                Ok(Recorded::Hit(artifact)) => return Ok(artifact),
+                Ok(Recorded::Miss(linker)) => *linker,
+            };
+            let native = Native {
+                linker,
                 cache,
                 path,
             };
@@ -3002,44 +3038,88 @@ fn prepare_native(
     mut diagnostics: Diagnostics,
 ) -> Prepared {
     let path = artifact_path(session, target, output);
-    let Some(linker) = linker_for(output, &mut diagnostics) else {
-        return Prepared::Done(Err(diagnostics));
-    };
+    let cache = Cache::open(&session.root);
+    if runtime_cross::building(target_of(output)) {
+        return Prepared::Front(Box::new(Front {
+            unit: entry_unit(target, output),
+            diagnostics,
+            cache,
+            path,
+            rest: Rest::Cross,
+        }));
+    }
+    match native_record(
+        session,
+        target,
+        output,
+        flags,
+        &cache,
+        &path,
+        &mut diagnostics,
+    ) {
+        Err(()) => Prepared::Done(Err(diagnostics)),
+        Ok(Recorded::Hit(artifact)) => Prepared::Done(Ok(artifact)),
+        Ok(Recorded::Miss(linker)) => Prepared::Front(Box::new(Front {
+            unit: entry_unit(target, output),
+            diagnostics,
+            cache,
+            path,
+            rest: Rest::Native(*linker),
+        })),
+    }
+}
 
+/// A native output's record of a build of these sources, found by its
+/// linker: the artifact it names, or what a build needs to file a new one.
+enum Recorded {
+    Hit(Artifact),
+    Miss(Box<Linker>),
+}
+
+/// A native output's linker, with the key its record is filed under and its
+/// label.
+struct Linker {
+    driver: link::CDriver,
+    front: ActionKey,
+    label: String,
+}
+
+/// The linker for a native output, then its [`Recorded`] record. `Err` when
+/// there is no linker, said in `diagnostics`.
+fn native_record(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    flags: &Flags,
+    cache: &Cache,
+    path: &std::path::Path,
+    diagnostics: &mut Diagnostics,
+) -> Result<Recorded, ()> {
+    let linker = linker_for(output, diagnostics).ok_or(())?;
     explain_closure(session, target, output, flags);
     let label = session.workspace.label(target);
     let front = native_front_key(session, target, output, flags, &linker);
-    let cache = Cache::open(&session.root);
     if !flags.force {
-        if let Some(artifact) =
-            native_from_record(session, &cache, &front, &label, output, flags, &path)
+        if let Some(bytes) = native_from_record(session, cache, &front, &label, output, flags, path)
         {
-            return Prepared::Done(Ok(Artifact {
+            return Ok(Recorded::Hit(Artifact {
                 target,
-                path,
-                bytes: artifact,
+                path: path.to_path_buf(),
+                bytes,
                 cached: true,
             }));
         }
     }
-    Prepared::Front(Box::new(Front {
-        unit: entry_unit(target, output),
-        diagnostics,
-        cache,
-        path,
-        rest: Rest::Native {
-            linker,
-            front,
-            label,
-        },
-    }))
+    Ok(Recorded::Miss(Box::new(Linker {
+        driver: linker,
+        front,
+        label,
+    })))
 }
 
 /// What [`finish_native`] links with and files under.
 struct Native {
-    linker: link::CDriver,
-    front: ActionKey,
-    label: String,
+    linker: Linker,
     cache: Cache,
     path: PathBuf,
 }
@@ -3055,9 +3135,11 @@ fn finish_native(
     mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
     let Native {
-        linker,
-        front,
-        label,
+        linker: Linker {
+            driver: linker,
+            front,
+            label,
+        },
         cache,
         path,
     } = native;

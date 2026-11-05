@@ -1332,7 +1332,7 @@ fn a_buri_without_a_build_id_still_caches() {
 /// first copies that cross runtime to `$STAND_IN_PUBLISH`, as another build
 /// finishing first would.
 #[cfg(target_os = "macos")]
-const STAND_IN_CARGO: &str = r#"#!/bin/sh
+pub(crate) const STAND_IN_CARGO: &str = r#"#!/bin/sh
 echo "$1" >> "$STAND_IN_LOG"
 command=$1
 while [ $# -gt 0 ]; do

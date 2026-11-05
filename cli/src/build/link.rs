@@ -793,14 +793,7 @@ pub fn warm(target: Target) {
 /// story covers, because there is no link at all without a C driver — and a
 /// Linux host that cannot produce a hermetic executable ([`libc_for`]).
 pub fn select(target: Target) -> Result<CDriver, Refusal> {
-    let name = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-    let Some(driver) = spawn::resolve(&name) else {
-        return Err(Refusal::new(
-            format!("no C compiler on PATH to drive the link (looked for `{name}`)"),
-            "install a C toolchain — the link is driven through `cc`, which is what knows where \
-             this platform's libc and startup files live",
-        ));
-    };
+    let driver = c_driver()?;
     // A cross target — a Linux output on a machine that is not that Linux — is
     // linked against the runtime and sysroot `runtime_cross` cross-built and
     // cached, with `rustc`'s own recipe for the triple. Split here so the host
@@ -833,6 +826,30 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
         version,
         store: None,
     })
+}
+
+/// The C driver a link is driven through: `CC`, or `cc`, on `PATH`.
+fn c_driver() -> Result<PathBuf, Refusal> {
+    let name = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    spawn::resolve(&name).ok_or_else(|| {
+        Refusal::new(
+            format!("no C compiler on PATH to drive the link (looked for `{name}`)"),
+            "install a C toolchain — the link is driven through `cc`, which is what knows where \
+             this platform's libc and startup files live",
+        )
+    })
+}
+
+/// Whether [`select`] for `target` goes on to resolve a cross runtime: a cross
+/// target, and a C driver that can be pointed at its triple.
+pub fn reaches_cross_runtime(target: Target) -> bool {
+    !is_host_target(target)
+        && c_driver().is_ok_and(|driver| {
+            accepts_target(
+                &driver,
+                &crate::compiler::backend::linux_triple(target.arch),
+            )
+        })
 }
 
 /// [`select`] for a cross target: resolve the cached cross runtime and pin the

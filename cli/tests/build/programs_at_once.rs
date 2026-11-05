@@ -61,7 +61,7 @@ fn repository(name: &str) -> Scratch {
 }
 
 /// Every file under `dir`, by its path below it.
-fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+pub(crate) fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(at) = stack.pop() {

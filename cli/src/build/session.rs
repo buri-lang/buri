@@ -235,13 +235,23 @@ pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<
 /// [`open_and_resolve`], running only the generators the targets read
 /// ([`crate::build::generators::prepare_for`]). For `buri build` and
 /// `buri run`, which read nothing else.
+pub fn open_and_resolve_to_build(
+    flags: &Flags,
+    args: &[String],
+) -> Result<(Session, Vec<TargetId>), u8> {
+    open_and_resolve_to_build_with(flags, args, |_, _| {})
+}
+
+/// [`open_and_resolve_to_build`], handing `resolved` the session and the
+/// targets before the generators run.
 #[expect(
     clippy::print_stderr,
     reason = "the same argument as `open_or_exit` above"
 )]
-pub fn open_and_resolve_to_build(
+pub fn open_and_resolve_to_build_with(
     flags: &Flags,
     args: &[String],
+    resolved: impl FnOnce(&Session, &[TargetId]),
 ) -> Result<(Session, Vec<TargetId>), u8> {
     let opened = root_of_cwd().and_then(|root| open_graph_at(&root, flags));
     let session = match opened {
@@ -252,6 +262,7 @@ pub fn open_and_resolve_to_build(
         }
     };
     let (mut session, targets) = resolve_in(session, args)?;
+    resolved(&session, &targets);
     crate::build::generators::prepare_for(&mut session, flags, &targets);
     Ok((session, targets))
 }

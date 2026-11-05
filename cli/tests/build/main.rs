@@ -11,6 +11,7 @@
 //! | [`diagnostics_paths`] | scratch | That the JSON an editor sends is read as written, a source too big to hold is refused, a long line of wide characters is cut between them, and a damaged build record is passed over. |
 //! | [`command_line`] | scratch | What the command line says when it is asked badly: no command, a flag with a value it can't take, a misspelled command, a query that names nothing, a skill no longer shipped, a `.gitignore` to merge into, and a remembered `gen` answer that no longer reads. |
 //! | [`coverage_runs`] | scratch | That a killed `buri test --coverage` takes its test runners with it, and that a run's report holds only its own counts, with another run beside it or one killed before it. |
+//! | [`cross_runtime`] | scratch | That a build for another machine starts its runtime before loading a program, and only when an output needs it, and reports alike whether the runtime was cached or built. |
 //! | [`custom_platforms`] | `repositories/custom-platforms/` | That a repository platform's artifact answers when the host it was written for calls it, and that editing its `js` file rebuilds it. |
 //! | [`build_command`] | scratch | What `buri build` itself answers: `--check-reproducible` with nowhere to write its rounds, beside a broken build file and on a library alone, and two pages in one run. |
 //! | [`build_driver`] | scratch | What `buri build` does around the compiler: `--check-reproducible` on a native artifact, an output this machine can't build, an artifact path something else holds, a cache that rotted, the C driver and linker a link runs through, and the macOS program store. |
@@ -79,6 +80,7 @@ mod checking;
 mod closed_stdout;
 mod command_line;
 mod coverage_runs;
+mod cross_runtime;
 mod custom_platforms;
 mod diagnostics_paths;
 mod example;

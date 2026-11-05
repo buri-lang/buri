@@ -29,11 +29,16 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
-    let (mut session, targets) =
-        match session::open_and_resolve_to_build(&args.flags, &args.targets) {
-            Ok(both) => both,
-            Err(c) => return c as i32,
-        };
+    // Whatever way the build ends, it waits for a cross runtime build it began.
+    let _settle = Settle;
+    let opened =
+        session::open_and_resolve_to_build_with(&args.flags, &args.targets, |session, targets| {
+            start_cross_runtimes(session, targets, &args.flags);
+        });
+    let (mut session, targets) = match opened {
+        Ok(both) => both,
+        Err(c) => return c as i32,
+    };
 
     // `--output` selects one of the outputs a target declares. A selector that
     // matches none of them is the thing you asked *with* being wrong, and has
@@ -121,6 +126,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     let mut outcomes: BTreeMap<usize, Outcome> = BTreeMap::new();
     let mut slots = 0;
     let mut printing = Printing::default();
+    let mut crossing = Vec::new();
     let ran = crate::parallel::pool(
         crate::parallel::cores(),
         memory_budget(),
@@ -187,29 +193,25 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                                 outcome(&session, target, output, &args.flags, built, explain);
                             outcomes.insert(slot, outcome);
                         }
+                        // Queued behind every other program, so the workers
+                        // build those while its cross runtime is being built.
+                        actions::Prepared::Front(front) if front.waits_for_cross() => {
+                            crossing.push((slot, target, output, front, explain));
+                        }
                         actions::Prepared::Front(front) => {
-                            let loading = crate::compiler::driver::load_all(
-                                Some(&session.workspace),
-                                &mut session.map,
-                                &mut session.parsed,
-                                std::slice::from_ref(&front.unit),
-                            );
-                            let bytes = build_bytes(loading.source_bytes(&session.map));
-                            let job = Job {
-                                slot,
-                                target,
-                                output,
-                                front,
-                                loading,
-                                map: session.map.shared(),
-                                explain,
-                            };
+                            let (job, bytes) =
+                                load(&mut session, slot, target, output, front, explain);
                             queue.push(job, bytes);
                             printing.pending += 1;
                         }
                     }
                 }
                 reports.push(Report::Built(first..slots));
+            }
+            for (slot, target, output, front, explain) in crossing {
+                let (job, bytes) = load(&mut session, slot, target, output, front, explain);
+                queue.push(job, bytes);
+                printing.pending += 1;
             }
             printing.flush(&session, &reports, &outcomes);
             while printing.pending > 0 {
@@ -279,6 +281,42 @@ fn foreign(
 }
 
 // ---------------------------------------------------------------------------
+// Cross runtimes
+// ---------------------------------------------------------------------------
+
+/// Starts the cross runtime of every output the build will link for another
+/// machine, before the generators run and long before the link: an output
+/// the policy allows, for a target this host has a backend and a C driver
+/// for. Those are the outputs that go on to ask for a linker.
+fn start_cross_runtimes(session: &Session, targets: &[TargetId], flags: &arguments::Flags) {
+    for &target in targets.iter().filter(|t| t.kind == RuleKind::Binary) {
+        for output in actions::selected_outputs(session, target, flags) {
+            let at = actions::target_of(&output);
+            if !output.platform().is_native()
+                || actions::native_gap(at, actions::profile_of(flags)).is_some()
+                || !crate::build::link::reaches_cross_runtime(at)
+            {
+                continue;
+            }
+            let mut refused = crate::diagnostics::Diagnostics::new();
+            actions::check_policy(session, target, &output.output_platform(), &mut refused);
+            if !refused.has_errors() {
+                crate::build::runtime_cross::start(at);
+            }
+        }
+    }
+}
+
+/// Waits, when dropped, for the cross runtime builds the command began.
+struct Settle;
+
+impl Drop for Settle {
+    fn drop(&mut self) {
+        crate::build::runtime_cross::settle();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Programs side by side
 // ---------------------------------------------------------------------------
 
@@ -305,6 +343,35 @@ struct Job {
     map: std::sync::Arc<crate::diagnostics::SourceMap>,
     /// The `--explain` lines its cache lookup printed.
     explain: String,
+}
+
+/// Loads the program `front` names, on the session's map, as a [`Job`] with
+/// the bytes it is expected to hold.
+fn load(
+    session: &mut Session,
+    slot: usize,
+    target: TargetId,
+    output: Output,
+    front: Box<actions::Front>,
+    explain: String,
+) -> (Job, u64) {
+    let loading = crate::compiler::driver::load_all(
+        Some(&session.workspace),
+        &mut session.map,
+        &mut session.parsed,
+        std::slice::from_ref(&front.unit),
+    );
+    let bytes = build_bytes(loading.source_bytes(&session.map));
+    let job = Job {
+        slot,
+        target,
+        output,
+        front,
+        loading,
+        map: session.map.shared(),
+        explain,
+    };
+    (job, bytes)
 }
 
 /// Where a test holds `buri build` as a worker starts a program's front end

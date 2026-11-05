@@ -568,6 +568,7 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
             crate::compiler::semantics::styles::graphs_drawn()
         );
         eprint!("{}", crate::build::counted::lines());
+        eprint!("{}", crate::build::runtime_cross::profile_lines());
     }
     code
 }

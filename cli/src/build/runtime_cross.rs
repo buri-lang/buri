@@ -35,6 +35,7 @@ use crate::build::sha256::hash_bytes;
 use crate::compiler::backend::{self, Target};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 /// A version stamped into the cache key, bumped when this file changes what it
 /// builds in a way an old cache entry would not otherwise reflect (the feature
@@ -131,6 +132,9 @@ pub fn features_for(_target: Target) -> (bool, bool) {
     )
 }
 
+/// What resolving a target's runtime answers.
+type Answer = Result<Cross, link_refusal::Refusal>;
+
 /// The cross runtime for `target`, from the cache or freshly built.
 ///
 /// Memoized for the process, for the reason `link`'s linker-identity probe is:
@@ -139,22 +143,119 @@ pub fn features_for(_target: Target) -> (bool, bool) {
 /// be the ~30s build paid per suite. The memo holds the resolved paths, not a
 /// lock on the directory.
 ///
-/// Held while a runtime is resolved, so that programs linking side by side
-/// wait for one build rather than each starting their own in the one
-/// temporary directory this process builds in ([`build_into`]).
-pub fn resolve(target: Target) -> Result<Cross, link_refusal::Refusal> {
-    use std::sync::Mutex;
-    static MEMO: Mutex<Vec<(Target, Result<Cross, link_refusal::Refusal>)>> =
-        Mutex::new(Vec::new());
-    let mut memo = MEMO
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((_, answer)) = memo.iter().find(|(t, _)| *t == target) {
-        return answer.clone();
+/// A caller that arrives while the runtime is being resolved waits for that
+/// one answer, so programs linking side by side, and a build [`start`] began,
+/// share one build rather than each starting their own in the one temporary
+/// directory this process builds in ([`build_into`]).
+pub fn resolve(target: Target) -> Answer {
+    slot(target)
+        .get_or_init(|| resolve_uncached(target))
+        .clone()
+}
+
+/// `target`'s place in the memo, empty until its runtime is resolved.
+fn slot(target: Target) -> Arc<OnceLock<Answer>> {
+    static SLOTS: Mutex<Vec<(Target, Arc<OnceLock<Answer>>)>> = Mutex::new(Vec::new());
+    let mut slots = SLOTS.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, slot)) = slots.iter().find(|(t, _)| *t == target) {
+        return Arc::clone(slot);
     }
-    let answer = resolve_uncached(target);
-    memo.push((target, answer.clone()));
-    answer
+    let slot = Arc::new(OnceLock::new());
+    slots.push((target, Arc::clone(&slot)));
+    slot
+}
+
+/// The targets whose runtime [`start`] began building, each with the thread
+/// building it until [`settle`] waits for it.
+type Started = Vec<(Target, Option<std::thread::JoinHandle<()>>)>;
+
+/// See [`Started`].
+static STARTED: Mutex<Started> = Mutex::new(Vec::new());
+
+/// What `BURI_PROFILE` says of each build [`start`] began: its triple, and how
+/// many modules had been loaded when it began.
+static STARTED_AFTER: Mutex<Vec<(String, u64)>> = Mutex::new(Vec::new());
+
+/// Resolves `target`'s runtime as soon as a build knows it will link for
+/// `target`: from the cache at once, or, when the runtime has to be built, on
+/// a thread of its own, so the ~30s build runs beside checking and compiling
+/// instead of in front of the link. [`resolve`] then waits for that build.
+///
+/// Call [`settle`] before the process exits, so the build is never left
+/// running, nor its temporary directory left behind.
+pub fn start(target: Target) {
+    let slot = slot(target);
+    let mut started = STARTED.lock().unwrap_or_else(PoisonError::into_inner);
+    if slot.get().is_some() || started.iter().any(|(t, _)| *t == target) {
+        return;
+    }
+    let plan = match buri_home().and_then(|home| locate(&home, target)) {
+        Ok(Located::Build(plan)) => plan,
+        Ok(Located::Cached(cross)) => {
+            let _ = slot.set(Ok(cross));
+            return;
+        }
+        Err(refusal) => {
+            let _ = slot.set(Err(refusal));
+            return;
+        }
+    };
+    if crate::profile::enabled() {
+        STARTED_AFTER
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((
+                plan.triple.clone(),
+                crate::compiler::modules::modules_loaded(),
+            ));
+    }
+    // With no thread to build on, the link builds it, as [`resolve`] does.
+    let thread = std::thread::Builder::new()
+        .name("buri-cross".into())
+        .spawn(move || {
+            slot.get_or_init(|| plan.build());
+        })
+        .ok();
+    started.push((target, thread));
+}
+
+/// Whether [`start`] began building `target`'s runtime, so a link for it
+/// waits for that build. Fixed once [`start`] returns, however far the build
+/// has got.
+pub fn building(target: Target) -> bool {
+    STARTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .any(|(t, _)| *t == target)
+}
+
+/// Waits for every build [`start`] began. A build that began is one a link
+/// waits for, so by the end of a command it has usually finished.
+pub fn settle() {
+    let threads: Vec<_> = STARTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter_mut()
+        .filter_map(|(_, thread)| thread.take())
+        .collect();
+    for thread in threads {
+        let _ = thread.join();
+    }
+}
+
+/// One `BURI_PROFILE` line per build [`start`] began, with how many modules
+/// were loaded before it began. Zero says it began before any program was
+/// loaded, let alone compiled.
+pub fn profile_lines() -> String {
+    STARTED_AFTER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .map(|(triple, modules)| {
+            format!("cross runtime for {triple} started after {modules} modules loaded\n")
+        })
+        .collect()
 }
 
 // `Refusal` is `link.rs`'s, and its fields are public so a sibling module can
@@ -173,7 +274,7 @@ fn refuse(message: impl Into<String>, fix: impl Into<String>) -> link_refusal::R
 }
 
 /// [`resolve`] without the memo.
-fn resolve_uncached(target: Target) -> Result<Cross, link_refusal::Refusal> {
+fn resolve_uncached(target: Target) -> Answer {
     resolve_in(&buri_home()?, target)
 }
 
@@ -184,7 +285,47 @@ fn resolve_uncached(target: Target) -> Result<Cross, link_refusal::Refusal> {
 /// the test harness, which builds the runtime once, before any test step runs,
 /// into the home that every `buri` it starts is given. Nothing is built if the
 /// entry is already there.
-pub fn resolve_in(home: &Path, target: Target) -> Result<Cross, link_refusal::Refusal> {
+pub fn resolve_in(home: &Path, target: Target) -> Answer {
+    match locate(home, target)? {
+        Located::Cached(cross) => Ok(cross),
+        Located::Build(plan) => plan.build(),
+    }
+}
+
+/// Where a target's runtime is: in the cache, or still to be built.
+enum Located {
+    Cached(Cross),
+    Build(Plan),
+}
+
+/// What a cross build is run from, worked out before it starts.
+struct Plan {
+    root: PathBuf,
+    dir: PathBuf,
+    triple: String,
+    sysroot_src: PathBuf,
+    features: Vec<String>,
+    rustc: String,
+    cargo: String,
+}
+
+impl Plan {
+    fn build(self) -> Answer {
+        build_into(
+            &self.root,
+            &self.dir,
+            &self.triple,
+            &self.sysroot_src,
+            &self.features,
+            &self.rustc,
+            &self.cargo,
+        )
+    }
+}
+
+/// `target`'s runtime in the cache under `home`, or the plan to build it
+/// there.
+fn locate(home: &Path, target: Target) -> Result<Located, link_refusal::Refusal> {
     if !runtime_src::AVAILABLE {
         return Err(refuse(
             "this toolchain carries no runtime sources to cross-build from",
@@ -216,18 +357,17 @@ pub fn resolve_in(home: &Path, target: Target) -> Result<Cross, link_refusal::Re
     // the key encodes every input, so the directory's mere existence with the
     // right files in it is the freshness answer, no stamp needed.
     if let Some(cross) = read_cache(&dir, &features) {
-        return Ok(cross);
+        return Ok(Located::Cached(cross));
     }
-
-    build_into(
-        &root,
-        &dir,
-        &triple,
-        &sysroot_src,
-        &features,
-        &rustc,
-        &cargo,
-    )
+    Ok(Located::Build(Plan {
+        root,
+        dir,
+        triple,
+        sysroot_src,
+        features,
+        rustc,
+        cargo,
+    }))
 }
 
 /// The cross build itself: unpack the sources, copy the sysroot, compile, and
