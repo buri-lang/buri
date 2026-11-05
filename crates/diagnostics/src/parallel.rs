@@ -283,6 +283,11 @@ struct QueueState<J> {
     queued_later: u64,
     /// The bytes the heavy jobs holding a program are expected to hold.
     held: u64,
+    /// How many heavy jobs hold a program.
+    holding: usize,
+    /// The most there have been at once, and the most bytes they were
+    /// expected to hold ([`Queue::most_held`]).
+    most: (usize, u64),
     closed: bool,
 }
 
@@ -295,6 +300,7 @@ impl<J> Release for Queue<J> {
     fn release(&self, bytes: u64) {
         let mut state = self.lock();
         state.held = state.held.saturating_sub(bytes);
+        state.holding = state.holding.saturating_sub(1);
         drop(state);
         self.ready.notify_all();
     }
@@ -356,6 +362,11 @@ impl<J> Queue<J> {
             let at = state.jobs.iter().position(|(_, bytes)| fits(*bytes));
             if let Some((job, bytes)) = at.and_then(|at| state.jobs.remove(at)) {
                 state.held = state.held.saturating_add(bytes);
+                if bytes > 0 {
+                    state.holding = state.holding.saturating_add(1);
+                    let (programs, most) = state.most;
+                    state.most = (programs.max(state.holding), most.max(state.held));
+                }
                 let room: &dyn Release = self;
                 return Some((
                     job,
@@ -375,6 +386,12 @@ impl<J> Queue<J> {
                 .wait(state)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
+    }
+
+    /// The most heavy jobs that have held a program at once, and the most
+    /// bytes the ones holding one have been expected to hold between them.
+    pub fn most_held(&self) -> (usize, u64) {
+        self.lock().most
     }
 
     fn close(&self) {
@@ -632,6 +649,8 @@ where
             later: std::collections::BTreeMap::new(),
             queued_later: 0,
             held: 0,
+            holding: 0,
+            most: (0, 0),
             closed: false,
         }),
         ready: std::sync::Condvar::new(),

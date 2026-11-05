@@ -127,9 +127,12 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     let mut slots = 0;
     let mut printing = Printing::default();
     let mut crossing = Vec::new();
+    let release = args.flags.mode.is_release();
+    let budget = memory_budget();
+    let mut most_held = (0, 0);
     let ran = crate::parallel::pool(
         crate::parallel::cores(),
-        memory_budget(),
+        budget,
         |job: Job, held, _, _| job.build(held, &workers),
         |queue, done| {
             // By reference: the resolved list is the catalogue's input too, below.
@@ -200,7 +203,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                         }
                         actions::Prepared::Front(front) => {
                             let (job, bytes) =
-                                load(&mut session, slot, target, output, front, explain);
+                                load(&mut session, slot, target, output, front, explain, release);
                             queue.push(job, bytes);
                             printing.pending += 1;
                         }
@@ -209,7 +212,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                 reports.push(Report::Built(first..slots));
             }
             for (slot, target, output, front, explain) in crossing {
-                let (job, bytes) = load(&mut session, slot, target, output, front, explain);
+                let (job, bytes) =
+                    load(&mut session, slot, target, output, front, explain, release);
                 queue.push(job, bytes);
                 printing.pending += 1;
             }
@@ -220,10 +224,15 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                 printing.pending -= 1;
                 printing.flush(&session, &reports, &outcomes);
             }
+            most_held = queue.most_held();
             true
         },
     )
     .unwrap_or_else(no_thread);
+    if crate::profile::enabled() {
+        let (programs, bytes) = most_held;
+        eprintln!("programs held at once {programs}, expected {bytes} of {budget} bytes");
+    }
     let Printing { built, failed, .. } = printing;
     let mut failed = failed | !ran;
     // `check_during_build`: the catalogue runs here too, but only over a build
@@ -354,6 +363,7 @@ fn load(
     output: Output,
     front: Box<actions::Front>,
     explain: String,
+    release: bool,
 ) -> (Job, u64) {
     let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
@@ -361,7 +371,7 @@ fn load(
         &mut session.parsed,
         std::slice::from_ref(&front.unit),
     );
-    let bytes = build_bytes(loading.source_bytes(&session.map));
+    let bytes = build_bytes(loading.source_bytes(&session.map), release);
     let job = Job {
         slot,
         target,
@@ -555,15 +565,42 @@ fn no_thread() -> bool {
 /// machine's memory, as `buri test` allows its builds. A machine that cannot
 /// say how much memory it has is not limited.
 fn memory_budget() -> u64 {
-    crate::parallel::memory_bytes().map_or(u64::MAX, |bytes| bytes / 2)
+    machine_memory().map_or(u64::MAX, |bytes| bytes / 2)
+}
+
+/// Where a test says how much memory the machine has ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static MEMORY: crate::hold::Point = crate::hold::Point::new("memory");
+
+/// The bytes of memory this machine has, or what a test says it has.
+fn machine_memory() -> Option<u64> {
+    #[cfg(feature = "test-hooks")]
+    if let Some(bytes) = std::str::from_utf8(&MEMORY.held())
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+    {
+        return Some(bytes);
+    }
+    crate::parallel::memory_bytes()
 }
 
 /// The memory a build of `source` bytes of repository code is expected to
-/// hold: `buri test`'s measured bound (`commands::test`'s `build_bytes`).
-fn build_bytes(source: u64) -> u64 {
+/// hold, from its check to its link.
+///
+/// An upper bound on what was measured. Building each of the 35 binaries of a
+/// 100 MB repository on its own, the most a program's build grew the
+/// process's footprint by was:
+///
+/// - `--release`: 822 MB for 4.1 MB of source, about 200 bytes a byte, and
+///   up to 71 MB for programs under 300 KB.
+/// - `--debug`, over the eight of those that grew most: 384 MB for the same
+///   4.1 MB, about 94 bytes a byte, and under 20 MB for the small ones.
+///
+/// Each bound is at least 19% above every one of those.
+fn build_bytes(source: u64, release: bool) -> u64 {
     const BASE: u64 = 64 * 1024 * 1024;
-    const PER_SOURCE_BYTE: u64 = 400;
-    BASE.saturating_add(source.saturating_mul(PER_SOURCE_BYTE))
+    let per_source_byte = if release { 240 } else { 120 };
+    BASE.saturating_add(source.saturating_mul(per_source_byte))
 }
 
 // ---------------------------------------------------------------------------

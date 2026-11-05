@@ -152,3 +152,86 @@ fn two_programs_build_at_once() {
     let b = printed.find("cmd/b/").unwrap_or(0);
     assert!(a < b, "{printed}");
 }
+
+/// Three JavaScript programs of the same size.
+fn three_alike(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    for name in ["a", "b", "c"] {
+        binary(&scratch, name, "node", NODE_MAIN);
+    }
+    scratch
+}
+
+/// What `BURI_PROFILE` says of the programs held at once: the most there
+/// were, the most they were expected to hold, and the budget.
+fn expected(printed: &str) -> (usize, u64, u64) {
+    let line = printed
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("programs held at once "))
+        .unwrap_or_else(|| panic!("no profile line in\n{printed}"));
+    let words: Vec<&str> = line.split([' ', ',']).filter(|w| !w.is_empty()).collect();
+    match words.as_slice() {
+        [programs, "expected", bytes, "of", budget, "bytes"] => (
+            programs.parse().unwrap(),
+            bytes.parse().unwrap(),
+            budget.parse().unwrap(),
+        ),
+        _ => panic!("unexpected profile line `{line}`"),
+    }
+}
+
+/// What one of [`three_alike`]'s programs is expected to hold in a release
+/// build, from a build of them one at a time.
+fn one_program() -> u64 {
+    let scratch = three_alike("programs-at-once-one");
+    let run = scratch.run_with_env(
+        &["build", "--release", "//..."],
+        &[("BURI_THREADS", "1"), ("BURI_PROFILE", "1")],
+    );
+    run.ok();
+    let (programs, bytes, _) = expected(&run.stderr);
+    assert_eq!(programs, 1);
+    bytes
+}
+
+/// Release programs that fit the memory between them build at once: two
+/// held in their front ends together, on a machine with room for two.
+#[test]
+fn programs_that_fit_the_memory_build_at_once() {
+    let one = one_program();
+    let scratch = three_alike("programs-at-once-room");
+    let held = Held::new("programs-at-once-room");
+    // The budget is half the memory.
+    held.set("memory", 1, &(4 * one).to_string());
+    held.hold("building", 1);
+    held.hold("building", 2);
+    let mut child = held.start_with_env(
+        &scratch,
+        &["build", "--release", "//..."],
+        &[("BURI_THREADS", "3"), ("BURI_PROFILE", "1")],
+    );
+    let first = held.reached("building", 1);
+    let second = held.reached("building", 2);
+    first.go();
+    second.go();
+    assert!(child.wait().unwrap().success(), "{}", held.printed());
+    assert_eq!(expected(&held.printed()), (2, 2 * one, 2 * one));
+}
+
+/// A release program that would not fit beside the one being built waits
+/// for it, however many workers are free.
+#[test]
+fn a_program_that_does_not_fit_waits() {
+    let one = one_program();
+    let scratch = three_alike("programs-at-once-full");
+    let held = Held::new("programs-at-once-full");
+    held.set("memory", 1, &(2 * one + 1).to_string());
+    let mut child = held.start_with_env(
+        &scratch,
+        &["build", "--release", "//..."],
+        &[("BURI_THREADS", "3"), ("BURI_PROFILE", "1")],
+    );
+    assert!(child.wait().unwrap().success(), "{}", held.printed());
+    assert_eq!(expected(&held.printed()), (1, one, one));
+}
