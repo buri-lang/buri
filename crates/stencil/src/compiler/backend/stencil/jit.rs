@@ -2812,6 +2812,22 @@ impl<'a> Jit<'a> {
         a: ir::ValueId,
         from: u32,
     ) -> bool {
+        // An aggregate is built a store at a time, a discriminant first, so
+        // the instruction defining `a` reads its fields after it has started
+        // writing. Where one of them is in the class it would write over:
+        // `deep(n - 1, .Fork(acc, s))` built its `.Fork` in `acc`'s own
+        // slot, and boxed an `acc` whose tag was already the new one's.
+        let builds = |k: usize| {
+            matches!(
+                b.insts.get(k),
+                Some(ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
+            )
+        };
+        if let Some(def) = (from as usize).checked_sub(1).filter(|k| builds(*k)) {
+            if opnd.inst(id, def).iter().any(|o| find(uf, *o) == root) {
+                return false;
+            }
+        }
         // A write to the class is no separate question: every value merged
         // into it is a parameter or a temporary its own block's terminator
         // reads once, so one defined here is a second read below.

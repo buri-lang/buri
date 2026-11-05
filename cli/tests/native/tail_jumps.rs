@@ -388,3 +388,31 @@ test "the label of the last tree grown" {
     );
     passes("built", &test, 1);
 }
+
+/// A tail call handing itself its own argument wrapped in a variant of the
+/// same recursive type, which holds it behind a box: the argument boxed is the
+/// one it was given, whatever the call goes on to build in its place.
+#[test]
+fn an_argument_wrapped_in_its_own_recursive_type_is_kept_whole() {
+    let test = r#"
+enum Tree { Leaf(Str), Fork(Tree, Str) }
+
+fn deep<C: Allocator>(ctx: C, n: Int, acc: Tree): Tree {
+    if (n == 0) { acc } else { deep(ctx, n - 1, .Fork(acc, str.format(ctx, "f${n}"))) }
+}
+
+fn spelled<C: Allocator>(ctx: C, t: Tree): Str {
+    match (t) {
+        .Leaf(s) => s,
+        .Fork(under, s) => str.format(ctx, "${s}<${spelled(ctx, under)}"),
+    }
+}
+
+test "every fork over the leaf it started from" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(spelled(ctx, deep(ctx, 3, .Leaf(str.format(ctx, "leaf")))), "f1<f2<f3<leaf");
+    assert.equal(spelled(ctx, deep(ctx, 0, .Leaf(str.format(ctx, "leaf")))), "leaf");
+}
+"#;
+    passes("boxed", test, 1);
+}
