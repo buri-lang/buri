@@ -2,11 +2,11 @@ const $k0=[[],[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
-  const xs_6=__cmd_x_main_buri$upTo$l3wgis(ctx_1,3n,[]);
+  const xs_6=__cmd_x_main_buri$upTo$htol58(0,3n,[]);
   let $t1;
   if(xs_6.length>=1){
     const head_7=xs_6[0];
-    const turned_8=$list_reverse(xs_6,ctx_1);
+    const turned_8=$list_reverse(xs_6,0);
     const text_24=String($list_length(turned_8));
     const self_25=$host_HostStdout_println(ctx_1[1],text_24);
     let $t3;
@@ -24,12 +24,12 @@ function __cmd_x_main_buri$main(){
     $abort('no arm matched');
   }
   const head_2=$t1;
-  const xs_10=__cmd_x_main_buri$upTo$l3wgis(ctx_1,3n,[]);
+  const xs_10=__cmd_x_main_buri$upTo$htol58(0,3n,[]);
   let $t5;
   if(xs_10.length>=2){
     const a_11=xs_10[0];
     const b_12=xs_10[1];
-    const rest_13=$list_drop(xs_10,ctx_1,1n);
+    const rest_13=$list_drop(xs_10,0,1n);
     const text_29=String($list_length(rest_13));
     const self_30=$host_HostStdout_println(ctx_1[1],text_29);
     let $t7;
@@ -45,11 +45,11 @@ function __cmd_x_main_buri$main(){
     $t5=0n;
   }
   const pair_3=$t5;
-  const xs_15=__cmd_x_main_buri$upTo$l3wgis(ctx_1,3n,[]);
+  const xs_15=__cmd_x_main_buri$upTo$htol58(0,3n,[]);
   let $t9;
   if(xs_15.length===3){
     const c_16=xs_15[2];
-    const kept_17=$list_take(xs_15,ctx_1,1n);
+    const kept_17=$list_take(xs_15,0,1n);
     const text_34=String($list_length(kept_17));
     const self_35=$host_HostStdout_println(ctx_1[1],text_34);
     let $t11;
@@ -77,7 +77,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k1;
 }
-function __cmd_x_main_buri$upTo$l3wgis(ctx_0,n_1,acc_2){
+function __cmd_x_main_buri$upTo$htol58(ctx_0,n_1,acc_2){
   while(true){
     if(n_1===0n){
       return $list_reverse(acc_2,ctx_0);

@@ -93,12 +93,13 @@ function ui_style_classify$found$nc9115(ctx_0,styles_1,known_2,state_3,screen_4)
   if($t1===void 0){
     return $k9;
   }else if($t1!==void 0){
-    return ui_style_classify$named$nc9115(ctx_0,$list_foldCtx($t1,ctx_0,(c_6,out_7,a_8)=>{
+    return ui_style_classify$named$htol58(0,$list_foldCtx($t1,ctx_0,(c_6,out_7,a_8)=>{
+      const ctx_9=0;
       const $t2=$list_findIndex(out_7,o_12=>o_12[0]===a_8[0]);
       if($t2!==void 0){
-        return $list_replaceAt(out_7,c_6,$t2,a_8);
+        return $list_replaceAt(out_7,ctx_9,$t2,a_8);
       }else if($t2===void 0){
-        return $list_push(out_7,c_6,a_8);
+        return $list_push(out_7,ctx_9,a_8);
       }else{
         $abort('no arm matched');
       }
@@ -261,7 +262,7 @@ function ui_style_classify$atomsIn$nc9115(ctx_0,styles_1,state_2,screen_3,acc_4)
     }
   },acc_4);
 }
-function ui_style_classify$named$nc9115(ctx_0,atoms_1,known_2,at_3,acc_4){
+function ui_style_classify$named$htol58(ctx_0,atoms_1,known_2,at_3,acc_4){
   while(true){
     const $t1=$list_getFlat(atoms_1,at_3);
     if($t1===void 0){
@@ -299,8 +300,8 @@ function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
         const sub_9=$t1[2];
         const abbreviation_10=$t1[3];
         const key_11=$t1[4];
-        const $t2=variant_8===15n?$list_push(acc_4,ctx_0,ui_style_classify$atom$nc9115(ctx_0,15n,4n,state_2,screen_3,'pin','out')):acc_4;
-        return $list_push($t2,ctx_0,ui_style_classify$atom$nc9115(ctx_0,variant_8,sub_9,state_2,screen_3,abbreviation_10,key_11));
+        const $t2=variant_8===15n?$list_push(acc_4,0,ui_style_classify$atom$nc9115(ctx_0,15n,4n,state_2,screen_3,'pin','out')):acc_4;
+        return $list_push($t2,0,ui_style_classify$atom$nc9115(ctx_0,variant_8,sub_9,state_2,screen_3,abbreviation_10,key_11));
       }
     default:
       {
@@ -397,7 +398,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
               $share(tracks_78);
               const columns_81=$list_join($list_mapCtx(tracks_78,ctx_0,(c_79,track_80)=>{
                 if(track_80[0]===0){
-                  return $str_format(c_79,$str_fromInt(c_79,track_80[1])+'fr');
+                  return $str_format(c_79,$str_fromInt(0,track_80[1])+'fr');
                 }else if(track_80[0]===1){
                   return ui_style_classify$lengthCss$nc9115(c_79,track_80[1]);
                 }else if(track_80[0]===2){
@@ -405,7 +406,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
                 }else{
                   $abort('no arm matched');
                 }
-              }),ctx_0,' ');
+              }),0,' ');
               $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_81));
             }
             break;
@@ -644,7 +645,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 30:
       {
-        return [0,30n,0n,'ar',ui_style_classify$numberKey$nc9115(ctx_0,style_1[1])];
+        return [0,30n,0n,'ar',ui_style_classify$numberKey$htol58(0,style_1[1])];
       }
     case 31:
       {
@@ -766,7 +767,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 39:
       {
-        return [0,39n,0n,'op',ui_style_classify$numberKey$nc9115(ctx_0,style_1[1])];
+        return [0,39n,0n,'op',ui_style_classify$numberKey$htol58(0,style_1[1])];
       }
     case 40:
       {
@@ -777,7 +778,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       {
         const layers_50=style_1[1];
         $share(layers_50);
-        const text_88=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$nc9115(c_51,layer_52)),ctx_0,',');
+        const text_88=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$nc9115(c_51,layer_52)),0,',');
         return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_88)];
       }
     case 42:
@@ -866,7 +867,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 46:
       {
-        return [0,46n,0n,'lh',ui_style_classify$numberKey$nc9115(ctx_0,style_1[1])];
+        return [0,46n,0n,'lh',ui_style_classify$numberKey$htol58(0,style_1[1])];
       }
     case 47:
       {
@@ -1180,9 +1181,9 @@ function ui_style_classify$alignKey(align_0){
 function ui_style_classify$integerKey$nc9115(ctx_0,n_1){
   const $t1=n_1<0n;
   if($t1){
-    return $str_format(ctx_0,'n'+$str_fromInt(ctx_0,0n-n_1));
+    return $str_format(ctx_0,'n'+$str_fromInt(0,0n-n_1));
   }else if(!$t1){
-    return $str_fromInt(ctx_0,n_1);
+    return $str_fromInt(0,n_1);
   }else{
     $abort('no arm matched');
   }
@@ -1227,15 +1228,15 @@ function ui_style_classify$lengthKey$nc9115(ctx_0,length_1){
       }
     case 1:
       {
-        return $str_format(ctx_0,'r'+ui_style_classify$numberKey$nc9115(ctx_0,length_1[1]));
+        return $str_format(ctx_0,'r'+ui_style_classify$numberKey$htol58(0,length_1[1]));
       }
     case 2:
       {
-        return $str_format(ctx_0,'e'+ui_style_classify$numberKey$nc9115(ctx_0,length_1[1]));
+        return $str_format(ctx_0,'e'+ui_style_classify$numberKey$htol58(0,length_1[1]));
       }
     case 3:
       {
-        return $str_format(ctx_0,'pc'+ui_style_classify$numberKey$nc9115(ctx_0,length_1[1]));
+        return $str_format(ctx_0,'pc'+ui_style_classify$numberKey$htol58(0,length_1[1]));
       }
     case 4:
       {
@@ -1252,8 +1253,8 @@ function ui_style_classify$lengthKey$nc9115(ctx_0,length_1){
       break;
   }
 }
-function ui_style_classify$numberKey$nc9115(ctx_0,n_1){
-  return $str_replace($str_replace(ui_style_classify$number$nc9115(ctx_0,n_1),ctx_0,'.','_'),ctx_0,'-','n');
+function ui_style_classify$numberKey$htol58(ctx_0,n_1){
+  return $str_replace($str_replace(ui_style_classify$number$htol58(ctx_0,n_1),ctx_0,'.','_'),ctx_0,'-','n');
 }
 function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
   switch(color_1[0]){
@@ -1268,7 +1269,7 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
         const g_6=color_1[2];
         const b_7=color_1[3];
         const a_8=color_1[4];
-        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_6)+ui_style_classify$hex$nc9115(ctx_0,b_7)+'a'+ui_style_classify$numberKey$nc9115(ctx_0,a_8));
+        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_6)+ui_style_classify$hex$nc9115(ctx_0,b_7)+'a'+ui_style_classify$numberKey$htol58(0,a_8));
       }
     case 2:
       {
@@ -1285,7 +1286,7 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
     case 5:
       {
         const a_11=color_1[2];
-        return $str_format(ctx_0,ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$nc9115(ctx_0,a_11));
+        return $str_format(ctx_0,ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$htol58(0,a_11));
       }
     default:
       {
@@ -1308,7 +1309,7 @@ function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
     case 1:
       {
         const a_12=$t2[4];
-        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$nc9115(ctx_0,a_12)+')');
+        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$htol58(0,a_12)+')');
       }
       break;
     case 2:
@@ -1330,7 +1331,7 @@ function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
     case 5:
       {
         const token_14=$t2[1];
-        const percent_16=ui_style_classify$number$nc9115(ctx_0,$t2[2]*100);
+        const percent_16=ui_style_classify$number$htol58(0,$t2[2]*100);
         $t1=$str_format(ctx_0,'color-mix(in srgb,var(--'+token_14[0]+'-'+token_14[1]+') '+percent_16+'%,transparent)');
       }
       break;
@@ -1346,19 +1347,19 @@ function ui_style_classify$lengthCss$nc9115(ctx_0,length_1){
   switch(length_1[0]){
     case 0:
       {
-        return $str_format(ctx_0,$str_fromInt(ctx_0,length_1[1])+'px');
+        return $str_format(ctx_0,$str_fromInt(0,length_1[1])+'px');
       }
     case 1:
       {
-        return $str_format(ctx_0,ui_style_classify$number$nc9115(ctx_0,length_1[1])+'rem');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'rem');
       }
     case 2:
       {
-        return $str_format(ctx_0,ui_style_classify$number$nc9115(ctx_0,length_1[1])+'em');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'em');
       }
     case 3:
       {
-        return $str_format(ctx_0,ui_style_classify$number$nc9115(ctx_0,length_1[1])+'%');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'%');
       }
     case 4:
       {
@@ -1376,9 +1377,9 @@ function ui_style_classify$lengthCss$nc9115(ctx_0,length_1){
   }
 }
 function ui_style_classify$channels$nc9115(ctx_0,r_1,g_2,b_3){
-  return $str_format(ctx_0,$str_fromInt(ctx_0,r_1)+','+$str_fromInt(ctx_0,g_2)+','+$str_fromInt(ctx_0,b_3));
+  return $str_format(ctx_0,$str_fromInt(0,r_1)+','+$str_fromInt(0,g_2)+','+$str_fromInt(0,b_3));
 }
-function ui_style_classify$number$nc9115(ctx_0,n_1){
+function ui_style_classify$number$htol58(ctx_0,n_1){
   const text_2=$str_fromFloat(ctx_0,n_1);
   const $t1=$str_endsWith(text_2,'.0');
   if($t1){
@@ -1400,8 +1401,8 @@ function ui_style_classify$hex$nc9115(ctx_0,n_1){
   }
 }
 function ui_style_classify$tokenKey$nc9115(ctx_0,token_1){
-  const $t1=ui_style_classify$plain$nc9115(ctx_0,token_1[0]);
-  const $t2=[$t1,ui_style_classify$plain$nc9115(ctx_0,token_1[1])];
+  const $t1=ui_style_classify$plain$htol58(0,token_1[0]);
+  const $t2=[$t1,ui_style_classify$plain$htol58(0,token_1[1])];
   if($t2[0]&&$t2[1]){
     return $str_format(ctx_0,'t_'+token_1[0]+'_'+token_1[1]);
   }else{
@@ -1409,7 +1410,7 @@ function ui_style_classify$tokenKey$nc9115(ctx_0,token_1){
     return $str_format(ctx_0,'t_'+$str_format(ctx_0,'#'+text_9));
   }
 }
-function ui_style_classify$plain$nc9115(ctx_0,text_1){
+function ui_style_classify$plain$htol58(ctx_0,text_1){
   const $t1=$str_length(text_1)===0n;
   if($t1){
     return false;

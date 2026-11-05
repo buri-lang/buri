@@ -31,6 +31,7 @@ use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
+mod erase;
 mod hand_written;
 
 /// What a concrete function *is*.
@@ -663,6 +664,10 @@ pub struct Monomorphizer<'a> {
     /// See [`Program::cell_equal`]: here, the cells whose type reaches a
     /// hand-written `Equal`, which a descriptor cannot see.
     cell_equal: HashMap<Ty, FuncIdx>,
+    /// Whether to instantiate erasable type parameters at `()` (`erase.rs`).
+    erase: bool,
+    /// Which of each declaration's type parameters are erasable.
+    erasable: HashMap<FnId, std::rc::Rc<[bool]>>,
 }
 
 pub fn run(
@@ -670,6 +675,19 @@ pub fn run(
     module_paths: Vec<String>,
     diags: &mut Diagnostics,
     roots: Roots<'_>,
+) -> Program {
+    run_erasing(checked, module_paths, diags, roots, true)
+}
+
+/// [`run`], with `erase` saying whether instantiations that differ only in a
+/// type they don't use share one body (`erase.rs`). Coverage passes `false`,
+/// because it reports each instantiation on its own.
+pub fn run_erasing(
+    checked: &Checked,
+    module_paths: Vec<String>,
+    diags: &mut Diagnostics,
+    roots: Roots<'_>,
+    erase: bool,
 ) -> Program {
     let _phase = crate::profile::enter(crate::profile::Phase::Monomorphize);
     let mut m = Monomorphizer {
@@ -689,6 +707,8 @@ pub fn run(
         mangled: HashMap::default(),
         reaches: HashMap::default(),
         cell_equal: HashMap::default(),
+        erase,
+        erasable: HashMap::default(),
     };
 
     let mut export = None;
@@ -1626,29 +1646,7 @@ impl Monomorphizer<'_> {
     /// call. [`GENERIC_INTRINSICS`] is the rule for which keys that is allowed
     /// for, and this is where it is enforced.
     fn intrinsic_key(&self, info: &FnInfo, targs: &[Ty]) -> String {
-        let module = self
-            .module_paths
-            .get(info.module.index())
-            .cloned()
-            .unwrap_or_else(|| "core/number".into());
-        // `core/str` is `str` and `ui/node` is `ui_node`, which is what
-        // every backend's runtime table is written against. A standard library
-        // module path is the module and nothing else — it never names a file
-        // inside one, because there is nothing inside one to name — so there
-        // is no surface name to take off here.
-        let short = runtime_module_key(&module);
-        let key = match info.self_ty {
-            // `core/str` exists for `Str`, so `str.Str.len` says it twice.
-            // `core/number` is the defining module of a dozen types, so there the
-            // type is what tells two conversions apart.
-            Some(con)
-                if is_prim(self.tables(), con) && short != "number" && info.impl_of.is_none() =>
-            {
-                format!("{short}.{}", info.name)
-            }
-            Some(con) => format!("{short}.{}.{}", self.tables().tycon(con).name, info.name),
-            None => format!("{short}.{}", info.name),
-        };
+        let key = self.runtime_key(info);
         // Only a bundled standard-library module can declare an operation the
         // runtime supplies — `resolve::record_intrinsic` guards on exactly this
         // — and a bodyless `fn` anywhere else is `missing-body`
@@ -1666,6 +1664,33 @@ impl Monomorphizer<'_> {
             )
         });
         key
+    }
+
+    /// [`Monomorphizer::intrinsic_key`], unchecked.
+    fn runtime_key(&self, info: &FnInfo) -> String {
+        let module = self
+            .module_paths
+            .get(info.module.index())
+            .cloned()
+            .unwrap_or_else(|| "core/number".into());
+        // `core/str` is `str` and `ui/node` is `ui_node`, which is what
+        // every backend's runtime table is written against. A standard library
+        // module path is the module and nothing else — it never names a file
+        // inside one, because there is nothing inside one to name — so there
+        // is no surface name to take off here.
+        let short = runtime_module_key(&module);
+        match info.self_ty {
+            // `core/str` exists for `Str`, so `str.Str.len` says it twice.
+            // `core/number` is the defining module of a dozen types, so there the
+            // type is what tells two conversions apart.
+            Some(con)
+                if is_prim(self.tables(), con) && short != "number" && info.impl_of.is_none() =>
+            {
+                format!("{short}.{}", info.name)
+            }
+            Some(con) => format!("{short}.{}.{}", self.tables().tycon(con).name, info.name),
+            None => format!("{short}.{}", info.name),
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2052,7 +2077,12 @@ impl Monomorphizer<'_> {
                 if let Some(converted) = self.index_conversion(id, &resolved, &args, e.span) {
                     return self.rewrite(converted, targs);
                 }
-                let args = self.rewrite_all(args, targs);
+                let mut args = self.rewrite_all(args, targs);
+                let mut resolved = resolved;
+                if let Some(erased) = self.erased(id, &resolved) {
+                    args = self.erased_args(id, &erased, args);
+                    resolved = erased;
+                }
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFunc { func: slot, args }
             }
@@ -2454,6 +2484,11 @@ impl Monomorphizer<'_> {
                 }
             };
 
+        let mut instance_targs = instance_targs;
+        if let Some(erased) = self.erased(fid, &instance_targs) {
+            args = self.erased_args(fid, &erased, args);
+            instance_targs = erased;
+        }
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFunc { func: slot, args }
     }

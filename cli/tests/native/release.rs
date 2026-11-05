@@ -459,6 +459,134 @@ fn spreading_functions_over_modules_compiles_their_release_code_once() {
     );
 }
 
+/// A library of functions generic over the caller's allocator. `tally` and
+/// `count` only hand it on, to each other and to `push`; `grow` calls it.
+const CONTEXT_LIBRARY: &str = r#"
+from "core/alloc" import * as alloc;
+from "platform/effect" import { Allocator };
+
+export fn tally<C: Allocator>(ctx: C, n: Int): Int {
+    count(ctx, n, [])
+}
+
+fn count<C: Allocator>(ctx: C, n: Int, acc: [Int]): Int {
+    if (n == 0) { acc.length() } else { count(ctx, n - 1, acc.push(ctx, n)) }
+}
+
+export fn grow<C: Allocator>(ctx: C, n: Int): Int {
+    let _ = alloc.allocate(ctx, n);
+    n
+}
+"#;
+
+/// A program printing `CALL` of `//lib/store` at the host's allocator, plus
+/// `SECOND`.
+const CONTEXT_PROGRAM: &str = r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "platform/effect" import { Allocator, Region };
+from "//lib/store" import * as store;
+
+struct Quiet<C> {
+    inner: C,
+}
+
+impl<C: Allocator> Allocator for Quiet<C> {
+    fn allocate(self, bytes: Int): Region {
+        self.inner.allocate(bytes)
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let total = store.CALL(host.alloc, 5)SECOND;
+    let _ = io.println(host.stdout, "${total}").ignore();
+    .Ok(())
+}
+"#;
+
+/// A repository whose binary `//cmd/app` prints `call` of `//lib/store`'s
+/// [`CONTEXT_LIBRARY`] at the host's allocator and, with `wrapped`, adds
+/// `call` at that allocator wrapped in a struct of the program's own.
+fn context_program(name: &str, call: &str, wrapped: bool) -> crate::sweep::Owned {
+    let repo = scratch(name);
+    let release = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release");
+    std::fs::create_dir_all(repo.join("lib/store")).unwrap();
+    std::fs::create_dir_all(repo.join("cmd/app")).unwrap();
+    std::fs::copy(release.join("REPO.buri"), repo.join("REPO.buri")).unwrap();
+    std::fs::write(
+        repo.join("lib/store/BUILD.buri"),
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("lib/store/lib.buri"), CONTEXT_LIBRARY).unwrap();
+    std::fs::write(
+        repo.join("cmd/app/BUILD.buri"),
+        "binary {\n    dependencies: [\"//lib/store\"]\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n",
+    )
+    .unwrap();
+    let second = if wrapped {
+        format!(" + store.{call}(Quiet {{ inner: host.alloc }}, 7)")
+    } else {
+        String::new()
+    };
+    std::fs::write(
+        repo.join("cmd/app/main.buri"),
+        CONTEXT_PROGRAM
+            .replace("CALL", call)
+            .replace("SECOND", &second),
+    )
+    .unwrap();
+    repo
+}
+
+/// The functions `buri build --release //cmd/app` compiled in `repo`, off a
+/// `BURI_PROFILE=1` report.
+fn functions_compiled(repo: &Path) -> u64 {
+    let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+        .current_dir(repo)
+        .args(["build", "--release", "//cmd/app"])
+        .env("BURI_PROFILE", "1")
+        .output()
+        .unwrap();
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "{all}");
+    all.lines()
+        .find_map(|l| l.strip_prefix("functions compiled "))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no count of functions compiled:\n{all}"))
+}
+
+/// **A generic function that only hands its allocator on is compiled once,
+/// whatever allocators a program calls it with.** A second allocator, a
+/// struct of the program's own, adds no function to compile.
+#[test]
+fn a_function_that_only_passes_its_allocator_on_is_compiled_once() {
+    skip_unless_executable!();
+    let one = context_program("passed-once", "tally", false);
+    let two = context_program("passed-twice", "tally", true);
+    // Counted first, while every object is still to compile.
+    assert_eq!(functions_compiled(&one), functions_compiled(&two));
+    assert_eq!(run_app(&one), "5\n");
+    assert_eq!(run_app(&two), "12\n");
+}
+
+/// **A generic function that calls its allocator is compiled once per
+/// allocator.** Each instantiation calls a different `allocate`.
+#[test]
+fn a_function_that_calls_its_allocator_is_compiled_for_each() {
+    skip_unless_executable!();
+    let one = context_program("called-once", "grow", false);
+    let two = context_program("called-twice", "grow", true);
+    // Counted first, while every object is still to compile.
+    assert!(functions_compiled(&one) < functions_compiled(&two));
+    assert_eq!(run_app(&one), "5\n");
+    assert_eq!(run_app(&two), "12\n");
+}
+
 /// A release program that drops a two-element list `n` times: of `Str`s with
 /// `lits`, of `Int`s with `ints`, and no list at all with any other mode.
 const DROPPED_LISTS: &str = r#"

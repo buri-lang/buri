@@ -26,6 +26,9 @@ pub enum Count {
     ObjectsCompiled,
     /// A codegen unit taken from the cache: `cached codegen`.
     ObjectsRestored,
+    /// A function in a codegen unit emitted, so one generic function's
+    /// instantiations count once each.
+    FunctionsCompiled,
     /// A linker run.
     Links,
     /// A suite's objects linked into an image for the test host
@@ -49,6 +52,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "suites reused",
     "objects compiled",
     "objects restored",
+    "functions compiled",
     "links",
     "images linked",
     "new executables launched",

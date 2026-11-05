@@ -603,6 +603,9 @@ const PACKAGES: &[Case] = &[
     // Types that hold themselves through an `Option`, a later enum and a
     // list, built and taken apart.
     included("semantics/values.buri"),
+    // Generic functions handed a context, or any value, they never read: one
+    // answer at every context, effects in order, and every value released.
+    included("semantics/handed_on.buri"),
     // `core/cli`, driven end to end through `run` — which means the
     // environment double, two captured streams, and a handler reached through
     // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an

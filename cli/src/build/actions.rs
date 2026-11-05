@@ -2977,7 +2977,14 @@ fn objects_named(
 
     let mut units = Vec::with_capacity(emitted.len());
     let mut rows = Vec::with_capacity(emitted.len());
-    for ((unit, key), (object, cached)) in keys.iter().zip(emitted) {
+    for (u, ((unit, key), (object, cached))) in keys.iter().zip(emitted).enumerate() {
+        if !cached {
+            let funcs = lowered.units.get(u).map_or(0, |unit| unit.funcs.len());
+            crate::build::counted::add_n(
+                crate::build::counted::Count::FunctionsCompiled,
+                funcs as u64,
+            );
+        }
         crate::build::cache::explain(
             flags.explain,
             if cached {

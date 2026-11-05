@@ -1,0 +1,134 @@
+// SPEC 5.10, 10.1, 10.8 — a generic function whose type parameter only
+// reaches its body as a value it hands on.
+//
+// Each function here takes a value of a type it never looks at, typically the
+// caller's context, and passes it to another function or to a built-in
+// operation. Whatever that type is, the function's answer, the order of its
+// effects and the values it releases are the same. The functions at the end
+// do look at their type parameter, and their answers differ with it.
+
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
+from "platform/effect" import { Allocator, Clock, Stdout };
+from "platform/effect/testing" import { alloc, clock, stdout };
+from "//lib/semantics" import { Logged, note, ReadOnly };
+
+/// Pushes `n` down to 1 onto `acc`, handing `ctx` to itself and to `push`.
+fn countdown<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
+    if (n == 0) { acc } else { countdown(ctx, n - 1, acc.push(ctx, n)) }
+}
+
+/// `countdown` from `n`, one call further from the caller.
+fn handOn<C: Allocator>(ctx: C, n: Int): [Int] {
+    countdown(ctx, n, [])
+}
+
+/// `countdown` from `n`, then `f` of its length.
+fn applyAfter<C: Allocator>(ctx: C, n: Int, f: fn(Int) => Int): Int {
+    f(handOn(ctx, n).length())
+}
+
+/// How many times `n` steps down to zero, with `held` handed along unread.
+fn carried<T>(held: T, n: Int): Int {
+    if (n == 0) { 0 } else { carried(held, n - 1) + 1 }
+}
+
+/// `handOn` at `ctx`, then at `ctx` wrapped.
+fn both<C: Allocator>(ctx: C, n: Int): [Int] {
+    handOn(ctx, n).concat(ctx, handOn(ReadOnly { inner: ctx }, n))
+}
+
+/// Notes `mark` and answers `ctx`, so an argument written as a call to this
+/// leaves a mark when it is evaluated.
+fn noting<C: Stdout>(ctx: C, mark: Str): C {
+    note(ctx, mark);
+    ctx
+}
+
+/// The clock's reading, appended to `countdown` from `n`.
+fn stamped<C: Allocator + Clock>(ctx: C, n: Int): [Int] {
+    handOn(ctx, n).push(ctx, time.now(ctx).0)
+}
+
+struct Tagged<T> {
+    tag: Str,
+    value: T,
+}
+
+test "a function that hands its context on answers the same at every context" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(handOn(alloc(), 3), [3, 2, 1]);
+    assert.equal(handOn(ctx, 3), [3, 2, 1]);
+    assert.equal(handOn(ReadOnly { inner: alloc() }, 3), [3, 2, 1]);
+    assert.equal(handOn(Logged { inner: ctx, prefix: "p" }, 3), [3, 2, 1]);
+    assert.equal(
+        handOn(ReadOnly { inner: Logged { inner: alloc(), prefix: "q" } }, 3),
+        [3, 2, 1],
+    );
+}
+
+test "a handler stack built inside the call is evaluated once" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let wrapped = handOn(Logged { inner: ctx, prefix: "ab".concat(ctx, "cd") }, 2);
+    assert.equal(wrapped, [2, 1]);
+}
+
+test "a context and its wrapper are handed on in order" {
+    assert.equal(both(alloc(), 2), [2, 1, 2, 1]);
+}
+
+test "an argument in a context's place is evaluated where it was written" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+    };
+    note(ctx, "<");
+    let xs = handOn(noting(ctx, "a"), 1).concat(ctx, handOn(noting(ctx, "b"), 2));
+    note(ctx, ">");
+    assert.equal(xs, [1, 2, 1]);
+    assert.equal(sink.captured(), "<ab>");
+}
+
+test "a closure called after the context is handed on sees what it captured" {
+    let offset = [10, 20];
+    let add = fn(n) => n + offset.length();
+    assert.equal(applyAfter(alloc(), 3, add), 5);
+    assert.equal(applyAfter(ReadOnly { inner: alloc() }, 4, add), 6);
+}
+
+test "a value of a type the function never reads is handed along and released" {
+    assert.equal(carried(1, 3), 3);
+    assert.equal(carried("text", 3), 3);
+    assert.equal(carried([1, 2, 3], 3), 3);
+    assert.equal(carried(["a", "b"], 3), 3);
+    assert.equal(carried(Tagged { tag: "t", value: [[1], [2]] }, 3), 3);
+    assert.equal(carried(fn(n: Int) => n + 1, 3), 3);
+}
+
+test "a function that reads its context answers with that context" {
+    let early = context {
+        Allocator: alloc(),
+        Clock: clock().at(5),
+    };
+    let late = context {
+        Allocator: alloc(),
+        Clock: clock().at(9),
+    };
+    assert.equal(stamped(early, 2), [2, 1, 5]);
+    assert.equal(stamped(late, 2), [2, 1, 9]);
+}
+
+test "a function that reads its type parameter answers with that type" {
+    let ints = list.repeat(alloc(), 7, 2);
+    let strs = list.repeat(alloc(), "x", 2);
+    assert.equal(ints, [7, 7]);
+    assert.equal(strs, ["x", "x"]);
+    assert.equal(Tagged { tag: "n", value: 1 }.value, 1);
+    assert.equal(Tagged { tag: "s", value: "one" }.value, "one");
+}

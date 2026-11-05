@@ -3,9 +3,9 @@ const $k1=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
   const trimmed_3=$str_trim('  the quick brown fox  ');
-  const words_4=$str_split(trimmed_3,ctx_1,' ');
-  const upper_7=$list_mapCtx(words_4,ctx_1,(c_5,w_6)=>$str_toUpper(w_6,c_5));
-  const joined_8=$list_join(upper_7,ctx_1,'-');
+  const words_4=$str_split(trimmed_3,0,' ');
+  const upper_7=$list_mapCtx(words_4,ctx_1,(c_5,w_6)=>$str_toUpper(w_6,0));
+  const joined_8=$list_join(upper_7,0,'-');
   const self_11=$host_HostStdout_println(ctx_1[1],joined_8);
   let $t1;
   if(self_11[0]===0){

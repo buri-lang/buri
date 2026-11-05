@@ -17,6 +17,7 @@ library {
             "test/conditions.buri",
             "test/reachability.buri",
             "test/values.buri",
+            "test/handed_on.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

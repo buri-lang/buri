@@ -1657,11 +1657,13 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         .map(|m| m.path.clone())
         .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program = monomorphize::run(
+    // Coverage reports each instantiation of a generic on its own.
+    let mut program = monomorphize::run_erasing(
         &analysis.checked,
         module_paths,
         &mut diagnostics,
         monomorphize::Roots::Tests,
+        shared.coverage.is_none(),
     );
     if diagnostics.has_errors() {
         return answer(Err(diagnostics.clone()), Some(Built::Refused(diagnostics)));
