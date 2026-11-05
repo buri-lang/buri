@@ -149,8 +149,12 @@ const BUILDER: [&str; 3] = [
     include_str!("../../src/build/musl.rs"),
 ];
 
-/// The [`cross_home`] for the code in [`BUILDER`], held until the process
-/// exits.
+/// The [`cross_home`] for the code in [`BUILDER`] and the runtime's sources,
+/// held until the process exits.
+///
+/// The sources are in the key so that a home holds one runtime: a test that
+/// takes the runtime it finds there gets the one this `buri` links against,
+/// not one left by an older runtime.
 ///
 /// Every `buri` that `harness::buri_command` starts gets this as `BURI_HOME`,
 /// and so does the one `native::cross` starts. So a run has one cross runtime per runtime version, shared
@@ -161,7 +165,8 @@ pub fn shared_cross_home() -> &'static Path {
     &HOME
         .get_or_init(|| {
             super::once();
-            let key = buri::build::sha256::hash_bytes(BUILDER.concat().as_bytes());
+            let builder = BUILDER.concat() + &buri::build::runtime_src::pack_hash();
+            let key = buri::build::sha256::hash_bytes(builder.as_bytes());
             cross_home(key.get(..16).unwrap_or(&key))
         })
         .0
