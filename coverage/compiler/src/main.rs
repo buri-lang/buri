@@ -8,6 +8,8 @@
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --release     # any of the three, of a release `buri`
 //! cargo run -p buri-compiler-coverage -- --merge=<dir>                           # CI: merge every platform's shards, gate
 //! cargo run -p buri-compiler-coverage -- --raise                                 # CI: the ratchet
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --against-ci  # this host's shard, gated with green CI's others
+//! cargo run -p buri-compiler-coverage -- --against-ci=<dir> --run=<id>           # of a shard already measured, against run <id>
 //! ```
 //!
 //! Only `buri` processes count. `buri` is built with coverage on and the test
@@ -37,6 +39,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod ci;
 mod json;
 
 /// Branch coverage needs a nightly; the `coverage` shell pins it.
@@ -66,14 +69,20 @@ fn main() {
         Gate::new(root, release).shard(shard);
         return;
     }
-    match args.iter().find_map(|a| a.strip_prefix("--merge=")) {
-        Some(dir) => check(&root, &shards(Path::new(dir)), true),
-        None => {
-            let gate = Gate::new(root.clone(), release);
-            gate.build();
-            gate.shard("1/1");
-            check(&root, &shards(&gate.target.join("shard")), false);
-        }
+    let against = args.iter().find(|a| a.starts_with("--against-ci"));
+    let passed = if let Some(against) = against {
+        let run = args.iter().find_map(|a| a.strip_prefix("--run="));
+        ci::against_ci(&root, release, against.strip_prefix("--against-ci="), run)
+    } else if let Some(dir) = args.iter().find_map(|a| a.strip_prefix("--merge=")) {
+        check(&root, &shards(Path::new(dir)), true)
+    } else {
+        let gate = Gate::new(root.clone(), release);
+        gate.build();
+        gate.shard("1/1");
+        check(&root, &shards(&gate.target.join("shard")), false)
+    };
+    if !passed {
+        std::process::exit(1);
     }
 }
 
@@ -94,8 +103,8 @@ fn target(root: &Path) -> PathBuf {
 /// Merges every platform's shards, writes what it measured beside the build,
 /// and holds it to the baseline. `ci` is `--merge`, where a platform the
 /// baseline has must be there; a local run measures one host and compares
-/// nothing then.
-fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
+/// nothing then. Whether it passed.
+fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) -> bool {
     let target = target(root);
     let lcov = target.join("lcov");
     let _ = std::fs::remove_dir_all(&lcov);
@@ -127,7 +136,7 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
     let baseline = Baseline::parse(&std::fs::read_to_string(&baseline_path).unwrap_or_default());
     if baseline.hosts.is_empty() {
         println!("\nThere is no baseline, so nothing was compared.");
-        return;
+        return true;
     }
     let missing: Vec<&String> = baseline.hosts.difference(&hosts).collect();
     if !missing.is_empty() {
@@ -135,10 +144,7 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
             "\nThe baseline merges {}, and this run has no shard from it.",
             list(missing.iter().copied())
         );
-        if ci {
-            std::process::exit(1);
-        }
-        return;
+        return !ci;
     }
     let compared = if baseline.hosts == hosts {
         now
@@ -158,9 +164,7 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
     };
     let verdict = compare(&baseline, &compared);
     println!("\n{}", verdict.report.trim_end());
-    if verdict.failed {
-        std::process::exit(1);
-    }
+    !verdict.failed
 }
 
 /// The ratchet: raises the checked-in baseline to the last measurement

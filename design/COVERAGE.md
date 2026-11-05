@@ -258,8 +258,28 @@ that instantiation's conditions.
 ## The compiler's gate
 
 ```sh
-nix develop .#coverage -c cargo run -p buri-compiler-coverage   # this host's numbers
+nix develop .#coverage -c cargo run -p buri-compiler-coverage                  # this host's numbers
+nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --against-ci  # gated as CI gates
 ```
+
+`--against-ci` runs this host's shard, merges it with the other platforms'
+shards from the newest green CI run on main, and gates as CI's `coverage` job
+does. `--run=<id>` picks another run. The shards download once, into
+`target/coverage/ci/<id>`.
+
+Those shards measured the green run's commit, so:
+
+- Each of their lines moves where `git diff` from that commit puts it, and a
+  changed line is dropped.
+- A side this host took then and doesn't now counts as untaken everywhere: a
+  change that stops it here most likely stops it everywhere. A difference
+  between this machine and CI's macOS runner can do it too.
+- A change that names `target_os = "linux"`, or changes a branch only the
+  other platforms took, gets a warning that their shards are stale.
+
+It lists the sides no test takes that the green run took, then the untaken
+sides in changed lines, which the old shards can't vouch for, and says
+whether those alone make coverage fall.
 
 `coverage/compiler` measures the compiler's own branch coverage, counted from
 `buri`'s end-to-end tests only; `cli/tests/README.md` has the rules. Some
