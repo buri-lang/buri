@@ -235,3 +235,162 @@ test "the first ready line, from either side" {
 "#;
     passes("mutual", test, 1);
 }
+
+/// A tree whose labels are long enough to live on the heap, three levels
+/// deep, for the descents below. None of them hands back the node it was
+/// given, so each only reads it.
+const TREE: &str = r#"
+struct Node {
+    label: Str,
+    kids: [Node],
+}
+
+fn grow<C: Allocator>(ctx: C, depth: Int, at: Int): Node {
+    let label = str.format(ctx, "a label long enough for the heap ${depth}.${at}");
+    if (depth == 0) {
+        Node { label: label, kids: [] }
+    } else {
+        Node { label: label, kids: [grow(ctx, depth - 1, 0), grow(ctx, depth - 1, 1)] }
+    }
+}
+"#;
+
+/// A descent that hands each step a piece of the node it was given: the
+/// tree it walks is the caller's, and it is whole afterwards.
+#[test]
+fn a_descent_into_pieces_of_its_argument_leaves_the_tree_whole() {
+    let test = format!(
+        "{TREE}{}",
+        r#"
+fn reaches(n: Node, path: [Int], at: Int, label: Str): Bool {
+    match (path[at]) {
+        .None => n.label == label,
+        .Some(i) => match (n.kids[i]) {
+            .Some(child) => reaches(child, path, at + 1, label),
+            .None => n.label == label,
+        },
+    }
+}
+
+test "the label at the end of a path, twice, then the root" {
+    let ctx = context { Allocator: alloc() };
+    let tree = grow(ctx, 3, 0);
+    assert.isTrue(reaches(tree, [1, 0, 1], 0, "a label long enough for the heap 0.1"));
+    assert.isTrue(reaches(tree, [1, 0, 1], 0, "a label long enough for the heap 0.1"));
+    assert.isTrue(reaches(tree, [0, 5], 0, "a label long enough for the heap 2.0"));
+    assert.isFalse(reaches(tree, [0, 0], 0, "a label long enough for the heap 2.0"));
+    assert.equal(tree.label, "a label long enough for the heap 3.0");
+}
+"#
+    );
+    passes("descent", &test, 1);
+}
+
+/// The same descent, keeping each node it passes as well as stepping into
+/// it, and a piece of a piece.
+#[test]
+fn a_descent_that_keeps_what_it_steps_into_leaves_the_tree_whole() {
+    let test = format!(
+        "{TREE}{}",
+        r#"
+fn trail<C: Allocator>(ctx: C, n: Node, acc: [Node]): [Node] {
+    match (n.kids[1]) {
+        .Some(child) => trail(ctx, child, acc.push(ctx, child)),
+        .None => acc,
+    }
+}
+
+fn leftmost(n: Node): [Node] {
+    match (n.kids[0]) {
+        .Some(child) => if (child.kids.isEmpty()) { [child] } else { leftmost(child) },
+        .None => [],
+    }
+}
+
+fn grandchild(n: Node, label: Str): Bool {
+    match (n.kids[0]) {
+        .Some(child) => match (child.kids[1]) {
+            .Some(g) => grandchild(g, label),
+            .None => child.label == label,
+        },
+        .None => n.label == label,
+    }
+}
+
+test "every node down the right side, the leftmost leaf, and every other one down the left" {
+    let ctx = context { Allocator: alloc() };
+    let tree = grow(ctx, 3, 0);
+    let kept = trail(ctx, tree, []);
+    assert.equal(kept.length(), 3);
+    assert.equal(kept[2].map(fn(k) => k.label), .Some("a label long enough for the heap 0.1"));
+    assert.equal(leftmost(tree).map(ctx, fn(k) => k.label), ["a label long enough for the heap 0.0"]);
+    assert.isTrue(grandchild(tree, "a label long enough for the heap 0.0"));
+    assert.equal(tree.label, "a label long enough for the heap 3.0");
+}
+"#
+    );
+    passes("kept", &test, 1);
+}
+
+/// A descent split between two functions, each stepping into a piece of
+/// what the other handed it.
+#[test]
+fn a_descent_between_two_functions_leaves_the_tree_whole() {
+    let test = format!(
+        "{TREE}{}",
+        r#"
+fn right(n: Node, label: Str): Bool {
+    match (n.kids[1]) {
+        .Some(child) => left(child, label),
+        .None => n.label == label,
+    }
+}
+
+fn left(n: Node, label: Str): Bool {
+    match (n.kids[0]) {
+        .Some(child) => right(child, label),
+        .None => n.label == label,
+    }
+}
+
+test "a zigzag from either side" {
+    let ctx = context { Allocator: alloc() };
+    let tree = grow(ctx, 3, 0);
+    assert.isTrue(right(tree, "a label long enough for the heap 0.1"));
+    assert.isTrue(left(tree, "a label long enough for the heap 0.0"));
+    assert.equal(tree.label, "a label long enough for the heap 3.0");
+}
+"#
+    );
+    passes("zigzag", &test, 1);
+}
+
+/// A descent into a piece of something the iteration built rather than of
+/// what it was given: the piece outlives the iteration that built it.
+#[test]
+fn a_descent_into_a_piece_of_what_it_built_keeps_the_piece() {
+    let test = format!(
+        "{TREE}{}",
+        r#"
+fn regrow<C: Allocator>(ctx: C, n: Node, depth: Int, label: Str): Bool {
+    if (depth == 0) {
+        n.label == label
+    } else {
+        let fresh = grow(ctx, depth, 7);
+        match (fresh.kids[1]) {
+            .Some(child) => regrow(ctx, child, depth - 1, label),
+            .None => n.label == label,
+        }
+    }
+}
+
+test "the label of the last tree grown" {
+    let ctx = context { Allocator: alloc() };
+    let tree = grow(ctx, 3, 0);
+    assert.isTrue(regrow(ctx, tree, 2, "a label long enough for the heap 0.1"));
+    assert.equal(tree.label, "a label long enough for the heap 3.0");
+}
+"#
+    );
+    passes("built", &test, 1);
+}

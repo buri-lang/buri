@@ -309,6 +309,100 @@ fn an_ordered_lookup_over_str_keys_costs_about_what_a_binary_search_does() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A chain of `depth` nodes below a root, each the one child of the one
+/// above, and `mode` walked over it until about `ops` steps have been taken:
+/// `down` steps from each node into its child, and `across` reads each node's
+/// child from a list of every node instead. `main` takes the mode, the depth
+/// and the steps.
+const DESCENTS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct Node { at: Int, kids: [Node] }
+
+fn chain<C: Allocator>(ctx: C, n: Int, acc: Node): Node {
+  if (n == 0) { acc } else { chain(ctx, n - 1, Node { at: n, kids: [acc] }) }
+}
+
+fn down(n: Node, steps: Int): Int {
+  match (n.kids[0]) {
+    .Some(child) => down(child, steps + 1),
+    .None => steps + n.at,
+  }
+}
+
+fn across(nodes: [Node], i: Int, steps: Int): Int {
+  match (nodes[i]) {
+    .Some(n) => match (n.kids[0]) {
+      .Some(_child) => across(nodes, i + 1, steps + 1),
+      .None => steps + n.at,
+    },
+    .None => steps,
+  }
+}
+
+fn spine<C: Allocator>(ctx: C, n: Node, acc: [Node]): [Node] {
+  match (n.kids[0]) {
+    .Some(child) => spine(ctx, child, acc.push(ctx, n)),
+    .None => acc.push(ctx, n),
+  }
+}
+
+fn rounds(root: Node, nodes: [Node], mode: Str, k: Int, acc: Int): Int {
+  if (k == 0) { acc } else {
+    let got = if (mode == "down") { down(root, 0) } else { across(nodes, 0, 0) };
+    rounds(root, nodes, mode, k - 1, acc + got)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let depth = args[1].andThen(fn(s) => s.toInt()).withDefault(1);
+  let ops = args[2].andThen(fn(s) => s.toInt()).withDefault(0);
+  let root = chain(ctx, depth, Node { at: 0, kids: [] });
+  let nodes = spine(ctx, root, []);
+  let mode = args.first().withDefault("none");
+  let answer = if (mode == "none") { 0 } else { rounds(root, nodes, mode, ops / depth, 0) };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **Stepping down a chain it was lent costs less than reading each node's
+/// child out of a list.** The child a step matched out of its node was the
+/// next step's own, so each step retained it and released the node before it:
+/// 69 instructions a step against 70 across the list on the copy-and-patch
+/// backend, and 27 against 16 on LLVM. The caller's count holds the whole
+/// chain for the whole walk, so the walk borrows all the way down, and that's
+/// 36 and 10.
+#[test]
+fn stepping_down_a_lent_chain_costs_less_than_reading_it_from_a_list() {
+    const DEPTH: u64 = 1000;
+    const STEPS: u64 = 1_000_000;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("descents", DESCENTS);
+        let (depth, steps) = (DEPTH.to_string(), STEPS.to_string());
+        let args = [depth.as_str(), steps.as_str()];
+        let want = format!("{STEPS}\n");
+        let (down, _) = per_op(backend, &binary, "down", &args, STEPS, &want);
+        let (across, _) = per_op(backend, &binary, "across", &args, STEPS, &want);
+        eprintln!("{backend}: down {down:?}, across {across:?} instructions a step");
+        let (Some(down), Some(across)) = (down, across) else {
+            continue;
+        };
+        if down * 10 > across * 8 {
+            failures.push(format!(
+                "{backend}: a step down a chain is {down} instructions against {across} \
+                 for reading the same child from a list"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// 2,000 records of four `Str`s, four `Int`s and a `[Str]`, #266's shape, and
 /// `mode` run over them 50 times: `map` and `filterMap` copy the list through
 /// a lambda that keeps every element, and `values` reads them back out of a

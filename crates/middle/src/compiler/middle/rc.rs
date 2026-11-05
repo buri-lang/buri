@@ -1454,6 +1454,14 @@ fn converge_scc(
 /// puts before the back edge frees the next iteration's variable.
 /// `middle/rc.rs`'s own `a_jump_owns_what_it_did_not_pass_through` is that
 /// shape; `stepV` below was the program.
+///
+/// It also covers a **piece of** a borrowed parameter: a name a `match` binds
+/// out of a field, tuple index or element read of one, such as `child` in
+/// `match (n.children[at]) { .Some(child) => lookup(child, key) }`. The caller's
+/// count on the parameter holds everything reachable from it for the whole
+/// call, and the next iteration's borrowed variable is held the same way, so a
+/// descent down a tree borrows the whole way rather than retaining each node
+/// it passes through and releasing the one before.
 fn loop_variables_taken(own: &Own, scc: &[Member]) -> Vec<(FuncIdx, usize)> {
     let mut out: Vec<(FuncIdx, usize)> = Vec::new();
     for &Member {
@@ -1463,28 +1471,52 @@ fn loop_variables_taken(own: &Own, scc: &[Member]) -> Vec<(FuncIdx, usize)> {
     } in scc
     {
         let row = own.get(i);
-        typed::walk(body, &mut |e| {
-            let ExprKind::Continue { func, args, .. } = &e.kind else {
-                return;
-            };
-            let target = func.unwrap_or(i);
-            for (k, a) in args.iter().enumerate() {
-                let through = match &a.kind {
-                    ExprKind::Local(l) => f
-                        .params
-                        .iter()
-                        .position(|p| p == l)
-                        .and_then(|j| row.get(j))
-                        .is_some_and(|o| *o == ir::Ownership::Borrow),
-                    _ => false,
-                };
-                if !through {
-                    out.push((target, k));
+        let mut lent: HashSet<LocalId> = f
+            .params
+            .iter()
+            .zip(row.iter())
+            .filter(|(_, o)| **o == ir::Ownership::Borrow)
+            .map(|(p, _)| *p)
+            .collect();
+        // Pre-order, so an outer `match` lends its names before an inner one
+        // reads them.
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::Match { scrutinee, arms } => {
+                if projection_root(scrutinee).is_some_and(|r| lent.contains(&r)) {
+                    for a in arms {
+                        let (mut bound, mut fresh) = (Vec::new(), Vec::new());
+                        a.pattern.binds(&mut bound);
+                        a.pattern.fresh_binds(&mut fresh);
+                        lent.extend(bound.into_iter().filter(|b| !fresh.contains(b)));
+                    }
                 }
             }
+            ExprKind::Continue { func, args, .. } => {
+                let target = func.unwrap_or(i);
+                for (k, a) in args.iter().enumerate() {
+                    let through = matches!(&a.kind, ExprKind::Local(l) if lent.contains(l));
+                    if !through {
+                        out.push((target, k));
+                    }
+                }
+            }
+            _ => {}
         });
     }
     out
+}
+
+/// The local a chain of field, tuple index and element reads starts at:
+/// `n`, `n.children`, `n.children[at]`. The value read is words of that
+/// local's blocks, with no count of its own.
+fn projection_root(e: &Expr) -> Option<LocalId> {
+    match &e.kind {
+        ExprKind::Local(l) => Some(*l),
+        ExprKind::Field { base, .. }
+        | ExprKind::TupleIndex { base, .. }
+        | ExprKind::Index { base, .. } => projection_root(base),
+        _ => None,
+    }
 }
 
 /// Every local this body consumes: stores in a construction, returns, captures,
