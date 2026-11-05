@@ -658,3 +658,79 @@ fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const NAMED_COMPARES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/order" import { Order };
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct Name(Str);
+
+derive Equal, Ordered for Name;
+
+fn named(ks: [Name], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let at = i % 1000;
+    let after = match ((ks[at], ks[at + 1])) {
+      (.Some(a), .Some(b)) => if (a.compare(b) == Order.Less) { 0 } else { 1 },
+      _ => 0,
+    };
+    named(ks, i + 1, n, acc + after)
+  }
+}
+
+fn plain(ks: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let at = i % 1000;
+    let after = match ((ks[at], ks[at + 1])) {
+      (.Some(a), .Some(b)) => if (a.compare(b) == Order.Less) { 0 } else { 1 },
+      _ => 0,
+    };
+    plain(ks, i + 1, n, acc + after)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let ks = list.range(ctx, 0, 1001).mapCtx(ctx, fn(c, i) => str.format(c, "users.name.${20000 - i}").padStart(c, 24, 'x'));
+  let names = ks.map(ctx, fn(k) => Name(k));
+  let answer = match (args.first()) {
+    .Some("named") => named(names, 0, 100000, 0),
+    .Some("plain") => plain(ks, 0, 100000, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A derived order over a `Str` field costs about what comparing the `Str`
+/// does.** The derived `compare` asked whether one field was less than the
+/// other and then whether it was greater, and each question compared the two
+/// strings from their first byte, so a field that wasn't less cost two
+/// comparisons. One comparison answers both.
+#[test]
+fn a_derived_order_over_text_compares_the_text_once() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("named-compares", NAMED_COMPARES);
+        let want = format!("{LOOKUPS}\n");
+        let (named, _) = per_op(backend, &binary, "named", &[], LOOKUPS, &want);
+        let (plain, _) = per_op(backend, &binary, "plain", &[], LOOKUPS, &want);
+        eprintln!("{backend}: named {named:?}, plain {plain:?} instructions a compare");
+        let (Some(named), Some(plain)) = (named, plain) else {
+            continue;
+        };
+        if named * 10 > plain * 13 {
+            failures.push(format!(
+                "{backend}: a derived order over a `Str` is {named} instructions a compare \
+                 against {plain} for the `Str` itself"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

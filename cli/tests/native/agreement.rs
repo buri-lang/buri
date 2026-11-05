@@ -1538,6 +1538,53 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// Derived `Ordered` over `Str` fields: every verdict, a prefix, a tie the
+/// next field breaks, and the order a sort and an ordered map keyed by it
+/// read back. The strings are built at run time, so two equal ones are two
+/// blocks.
+#[test]
+fn row_09_derived_ord_over_text() {
+    rows_or_skip!();
+    agree(
+        "row 9 ord text",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/order" import { Order };
+from "core/orderedmap" import * as orderedmap;
+from "core/str" import * as str;
+
+export struct Name(Str);
+export struct P { name: Str, n: Int }
+derive Equal, Ordered for Name;
+derive Equal, Ordered for P;
+
+fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let users = "users.".concat(ctx, "name");
+  let a = Name(users);
+  let same = Name("users.".concat(ctx, "name"));
+  let longer = Name("users.".concat(ctx, "names"));
+  let lower = Name("users.age");
+  let x = str.format(ctx, "${name(a.compare(same))} ${name(a.compare(longer))} ${name(longer.compare(a))}");
+  let y = str.format(ctx, "${name(a.compare(lower))} ${name(lower.compare(a))} ${name(Name("").compare(a))}");
+  let p = P { name: users, n: 2 };
+  let z = str.format(ctx, "${name(p.compare(P { name: users, n: 3 }))} ${name(p.compare(P { name: users, n: 1 }))}");
+  let w = str.format(ctx, "${name(p.compare(P { name: "users.namf", n: 0 }))} ${name(p.compare(P { name: "users.namd", n: 9 }))}");
+  let sorted = [longer, lower, same, Name("")].sort(ctx);
+  let s = sorted.map(ctx, fn(k) => k.0.length());
+  let m = orderedmap.of(ctx, [(longer, 1), (lower, 2), (a, 3)]);
+  let order = m.values(ctx);
+  let _ = io.println(host.stdout, "${x} | ${y} | ${z} | ${w} | ${s} | ${order}").ignore();
+  .Ok(())
+}
+"#,
+        "eq lt gt | gt lt lt | lt gt | lt gt | [0, 9, 10, 11] | [2, 3, 1]\n",
+    );
+}
+
 /// Derived `Equal` over an `F64` field: the float facts SPEC 6.2 and 7.2 pin, on
 /// every backend.
 ///

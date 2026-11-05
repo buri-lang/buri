@@ -302,14 +302,14 @@ fn ordering_is_lexicographic() {
     let out = run(&mut program);
     // A primitive comparison writes both operands twice, so it is inlined
     // only where writing them twice is free — which a projection of a
-    // parameter is.
+    // parameter is. A `Str` is compared once, by the runtime's `compare`,
+    // since each of `Lt` and `Gt` would read its bytes from the start.
     assert_eq!(
         printed(&program, &out, Op::Compare),
         vec![
             "$derive$cmp$P(l0, l1) = match if Lt<I64>(l0.0, l1.0) { .v0 } \
              else { if Gt<I64>(l0.0, l1.0) { .v2 } else { .v1 } } \
-             { .v1 => if Lt<Str>(l0.1, l1.1) { .v0 } \
-             else { if Gt<Str>(l0.1, l1.1) { .v2 } else { .v1 } }, l2 => l2 }",
+             { .v1 => str.compare(l0.1, l1.1), l2 => l2 }",
         ]
     );
 }

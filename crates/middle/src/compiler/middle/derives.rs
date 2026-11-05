@@ -1546,6 +1546,10 @@ impl Generator {
         let descs = std::rc::Rc::clone(&self.descs);
         match descs.get(desc)? {
             Desc::Prim(p) if p.is_float() => self.compare_float(desc, *p, a, b),
+            // One pass over the bytes answers both of `compare_prim`'s questions.
+            Desc::Prim(Prim::Str) => {
+                Some(self.intrinsic("str.compare", Vec::new(), vec![a, b], order))
+            }
             Desc::Prim(p) | Desc::Flags { prim: p, .. } => {
                 let otherwise = self.order_lit(ORDER_EQUAL)?;
                 self.compare_prim(*p, a, b, otherwise)
