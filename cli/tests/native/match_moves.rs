@@ -425,6 +425,84 @@ test "every arm of a match on a value it built" {
     passes("built", test, 1);
 }
 
+/// A loop whose every arm calls it again, matching on a field of a value it
+/// holds: one arm hands the value on, the other only reads it. A value taken
+/// out of a list's first element and one the loop built itself.
+#[test]
+fn a_loop_matching_on_a_field_hands_the_value_on_once() {
+    let test = r#"
+enum Mark { Held(Str), Passed(Str) }
+
+struct Letter { to: Int, mark: Mark }
+
+struct Post { queue: [Letter], seen: [Str] }
+
+fn letter<C: Allocator>(ctx: C, n: Int): Letter {
+    let mark: Mark = if (n % 2 == 0) {
+        .Held(str.format(ctx, "h${n}"))
+    } else {
+        .Passed(str.format(ctx, "p${n}"))
+    };
+    Letter { to: n, mark }
+}
+
+fn read<C: Allocator>(ctx: C, post: Post, l: Letter): Post {
+    let text = match (l.mark) {
+        .Held(s) => s,
+        .Passed(s) => s,
+    };
+    Post { ..post, seen: post.seen.push(ctx, text) }
+}
+
+fn sorted<C: Allocator>(ctx: C, post: Post, held: [Letter]): (Post, [Letter]) {
+    match (post.queue.splitFirst(ctx)) {
+        .None => (post, held),
+        .Some((l, rest)) => {
+            let popped = Post { ..post, queue: rest };
+            match (l.mark) {
+                .Held(_) => sorted(ctx, popped, held.push(ctx, l)),
+                _ => sorted(ctx, read(ctx, popped, l), held),
+            }
+        },
+    }
+}
+
+fn copied<C: Allocator>(ctx: C, post: Post, held: [Letter]): (Post, [Letter]) {
+    match (post.queue.splitFirst(ctx)) {
+        .None => (post, held),
+        .Some((first, rest)) => {
+            let l = Letter { to: first.to, mark: first.mark };
+            let popped = Post { ..post, queue: rest };
+            match (l.mark) {
+                .Held(_) => copied(ctx, popped, held.push(ctx, l)),
+                _ => copied(ctx, read(ctx, popped, l), held),
+            }
+        },
+    }
+}
+
+fn tos<C: Allocator>(ctx: C, ls: [Letter]): [Int] {
+    ls.map(ctx, fn(l: Letter) => l.to)
+}
+
+test "each letter is read or held, once" {
+    let ctx = context { Allocator: alloc() };
+    let letters = [letter(ctx, 1), letter(ctx, 2), letter(ctx, 3), letter(ctx, 4), letter(ctx, 5)];
+    let (post, held) = sorted(ctx, Post { queue: letters, seen: [] }, []);
+    assert.equal(post.seen, ["p1", "p3", "p5"]);
+    assert.equal(tos(ctx, held), [2, 4]);
+    let (again, kept) = copied(ctx, Post { queue: held, seen: [] }, []);
+    assert.equal(again.seen, []);
+    assert.equal(tos(ctx, kept), [2, 4]);
+    let others = [letter(ctx, 7), letter(ctx, 8), letter(ctx, 9)];
+    let (more, back) = copied(ctx, Post { queue: others, seen: post.seen }, []);
+    assert.equal(more.seen, ["p1", "p3", "p5", "p7", "p9"]);
+    assert.equal(tos(ctx, back), [8]);
+}
+"#;
+    passes("handed-on", test, 1);
+}
+
 /// The last element of a list of one shared `Str`, carried through the walk,
 /// against the same walk carrying what it started with.
 const LASTS: &str = r#"

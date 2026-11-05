@@ -3828,9 +3828,7 @@ impl Scan<'_> {
             Branches::Split(_) => vec![None; arm_edges.len()],
         };
         for (skip, edges) in skips.iter().zip(&arm_edges) {
-            // Where no path falls through, `flush_at` below already writes
-            // this drop at every back edge.
-            if let (Some(r), true) = (skip, falls_through) {
+            if let Some(r) = skip {
                 for (node, at) in edges {
                     self.push(*node, *at, RcOp::DecRef, Target::Local(*r));
                 }
@@ -3852,6 +3850,11 @@ impl Scan<'_> {
         } else {
             Mode::Borrow
         };
+        // The scrutinee's read of the root held open is never its last: the
+        // arms, or the code after them, dispose of it.
+        if let Some(r) = kept {
+            self.enliven(live, r);
+        }
         self.expr(scrutinee, sid, live, smode);
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
@@ -3864,7 +3867,12 @@ impl Scan<'_> {
         // own `flush` below. An arm that jumps took its own drop above, and a
         // `Continue` is a tail call, so exactly one of the two runs on any
         // path.
-        if let Some(r) = kept {
+        //
+        // Where every arm jumps, each arm has disposed of the root already:
+        // one that reads it at its last read, one that doesn't at its back
+        // edges above. Dropping it again before every jump released it twice
+        // in an arm that handed it on, as in `.A => loop(xs.push(ctx, r))`.
+        if let (Some(r), true) = (kept, falls_through) {
             self.pending.push(r);
         }
         if falls_through {
