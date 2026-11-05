@@ -378,6 +378,20 @@ fn ends<C: Allocator>(ctx: C, n: Int): Str {
     }
 }
 
+fn five<C: Allocator>(ctx: C, n: Int): (Str, Str, Str, Str, Str) {
+    (str.format(ctx, "a${n}"), str.format(ctx, "b"), str.format(ctx, "c"), str.format(ctx, "d"), str.format(ctx, "e"))
+}
+
+fn widths<C: Allocator>(ctx: C, n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        match (five(ctx, n)) {
+            (a, b, c, d, e) => widths(ctx, n - 1, acc + a.length() + b.length() + c.length() + d.length() + e.length()),
+        }
+    }
+}
+
 test "every arm of a match on a value it built" {
     let ctx = context { Allocator: alloc() };
     assert.equal(swapped(ctx, 1), "b1a1");
@@ -392,6 +406,7 @@ test "every arm of a match on a value it built" {
     assert.equal(checked(ctx, 2), .Ok("a21b2"));
     assert.equal(checked(ctx, 6), .Err("big"));
     assert.equal(ends(ctx, 7), "x7");
+    assert.equal(widths(ctx, 3, 0), 18);
 }
 "#;
     passes("built", test, 1);

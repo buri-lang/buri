@@ -4001,7 +4001,7 @@ impl Scan<'_> {
         if moves {
             self.taken_apart.push(bid);
             for b in &bound {
-                if !live.contains(b) && !fresh_bound.contains(b) && self.is_counted(*b) {
+                if !live.contains(b) && self.is_counted(*b) {
                     self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
                 }
             }
