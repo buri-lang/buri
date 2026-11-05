@@ -8317,6 +8317,36 @@ path. Its `xor` clears stay, since `x86.rs` rewrites nothing and a zeroing
 against a record of one went from 66 to 54 instructions a field, and the test
 fails above 56.
 
+### 6.94 Style extraction draws its graph once, 2026-11-05
+
+A generic parameter that a node reads through a field, such as
+`props: Props<C>` here, stands for every caller's argument:
+
+```buri
+export fn card<C>(props: Props<C>): Node<C> {
+    ui.stack({ styles: [.Group(props.styles)], children: props.children })
+}
+```
+
+Finding one made `Flow::of` in `styles.rs` draw its graph of what reads what
+again, over every declaration the program reads. A chain of helpers handing
+props on found one more each round, so a large UI program drew the whole graph
+several times.
+
+Only a declaration that calls such a function reads differently once that
+parameter escapes. So `Edges::callers` remembers those declarations, and each
+round draws just them twice, before and after the change. `Edges::redraw`
+swaps the old reads for the new ones.
+
+In a cold one-thread build of a large workspace, check retired about a quarter
+fewer instructions. Each round still walks the whole graph to find what a node
+reaches, which is now most of what style extraction costs.
+
+`cli/tests/build/profile.rs` guards it: a test build that hands styles two
+calls deep through a generic struct draws the graph once. The `ui` case
+`styles_shared_by_several_programs` holds two programs' classes and the style
+errors, in order.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

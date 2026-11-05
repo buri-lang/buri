@@ -1,0 +1,27 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, render, stylesheet };
+from "//lib/panel" import { framed, lit, Props };
+
+test "a framed card's styles are its classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        framed(Props { children: [], styles: [.MinWidth(.Px(301))] }),
+    );
+    assert.equal(
+        page.markup(),
+        "e 0 class:bg-c8c8ff minw-300\ne 1 class:bg-c8c8ff minw-301",
+    );
+    assert.isTrue(stylesheet().contains(".minw-301{min-width:301px}"));
+}
+
+test "a lit card's styles are its classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, lit(.Rgb(29, 78, 216), []));
+    assert.equal(page.markup(), "e 0 class:bg-c8c8ff p-4");
+}

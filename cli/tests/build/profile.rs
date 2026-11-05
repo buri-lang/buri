@@ -1292,6 +1292,53 @@ fn a_test_build_that_styles_a_node_draws_the_style_graph_once() {
     );
 }
 
+/// **A test build that hands a node its styles through a generic struct draws
+/// the style graph once.** A generic parameter a node reads through a field
+/// stands for every caller's argument, and finding one drew the graph of what
+/// reads what again, over every declaration, once per round that found more.
+/// Only the declarations that call such a function read differently.
+#[test]
+fn a_style_handed_through_a_generic_struct_draws_the_style_graph_once() {
+    let scratch = Scratch::repo("profile-styled-generic");
+    scratch.write(
+        "lib/card/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/card.buri\"]\n    }\n}\n",
+    );
+    scratch.write(
+        "lib/card/lib.buri",
+        "from \"ui/node\" import * as ui;\n\
+         from \"ui/node\" import { Node };\n\
+         from \"ui/style\" import { Style };\n\n\
+         export struct Props<C> {\n    export children: [Node<C>],\n    \
+         export styles: [Style],\n}\n\n\
+         export fn card<C>(props: Props<C>): Node<C> {\n    \
+         ui.stack({ styles: [.Group(props.styles)], children: props.children })\n}\n\n\
+         export fn framed<C>(props: Props<C>): Node<C> {\n    \
+         card(Props { children: [card(props)], styles: [.MinWidth(.Px(9))] })\n}\n",
+    );
+    scratch.write(
+        "lib/card/test/card.buri",
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import { headless, render, stylesheet };\n\
+         from \"//lib/card\" import { framed, Props };\n\n\
+         test \"a framed card's styles are its classes\" {\n    \
+         let ctx = context {\n        Ui: headless(),\n    };\n    \
+         let page = render(ctx, framed(Props { children: [], styles: [.MinWidth(.Px(286))] }));\n    \
+         assert.equal(page.markup(), \"e 0 class:minw-9\\ne 1 class:minw-286\");\n    \
+         assert.isTrue(stylesheet().contains(\".minw-286{min-width:286px}\"));\n}\n",
+    );
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+    assert_eq!(
+        style_graphs_drawn(&run.all()),
+        Some(1),
+        "{}",
+        indent(&run.all())
+    );
+}
+
 /// The instructions the test processes a `BURI_PROFILE=1` run of `buri test`
 /// waited for retired, in millions: the `run` row's child column, or `None`
 /// where the platform counts no child's instructions (Linux).

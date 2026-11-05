@@ -1,0 +1,27 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
+
+/// What a card is given.
+export struct Props<C> {
+    export children: [Node<C>],
+    export styles: [Style],
+}
+
+/// A card with a blue ground and whatever styles it is handed.
+export fn card<C>(props: Props<C>): Node<C> {
+    ui.stack({
+        styles: [.Background(.Rgb(200, 200, 255)), .Group(props.styles)],
+        children: props.children,
+    })
+}
+
+/// A card inside a wider one.
+export fn framed<C>(props: Props<C>): Node<C> {
+    card(Props { children: [card(props)], styles: [.MinWidth(.Px(300))] })
+}
+
+/// A card that answers a pointer over it.
+export fn lit<C>(accent: Color, children: [Node<C>]): Node<C> {
+    card(Props { children: children, styles: [.Padding(.Px(4))] })
+}

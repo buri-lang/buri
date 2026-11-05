@@ -1,0 +1,52 @@
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+ --> lib/badge/lib.buri:6:60
+  |
+6 |     card(Props { children: children, styles: [.On(.Focus, [.MinWidth(.Px(children.length()))])] })
+  |                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+
+    A style the compiler can't evaluate usually falls back to an inline style,
+    where Computed already lives. On and At can't: :hover and @media have no
+    inline form. They exist only as stylesheet rules, which the compiler writes
+    at compile time.
+
+error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [alpha-out-of-range]
+  --> lib/panel/lib.buri:14:30
+   |
+14 |         styles: [.Background(.Rgba(200, 200, 255, 1.5)), .Group(props.styles)],
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write an alpha between 0.0 and 1.0, or reach for `Opacity` to fade the whole element
+
+     Rgba's fourth value and Color.alpha's argument both mean how much of the
+     colour there is, so nothing outside 0.0 to 1.0 makes sense.
+
+     On a token it would fail silently: alpha lowers to color-mix(in srgb,
+     var(--pkg-name) 50%, transparent), and a percentage outside 0 to 100
+     invalidates the whole declaration, so the element loses the colour.
+
+     Only an alpha known at compile time is checked. One built from a parameter
+     isn't.
+
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> lib/panel/lib.buri:26:60
+   |
+26 |     card(Props { children: children, styles: [.On(.Hover, [.Background(accent)])] })
+   |                                                            ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style
+error: a colour's alpha is 1.5, and an alpha is a fraction from 0 to 1 [alpha-out-of-range]
+  --> lib/panel/lib.buri:14:30
+   |
+14 |         styles: [.Background(.Rgba(200, 200, 255, 1.5)), .Group(props.styles)],
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write an alpha between 0.0 and 1.0, or reach for `Opacity` to fade the whole element
+error: this style is not statically known, and `On` and `At` exist only in the stylesheet [style-not-static]
+  --> lib/panel/lib.buri:26:60
+   |
+26 |     card(Props { children: children, styles: [.On(.Hover, [.Background(accent)])] })
+   |                                                            ^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the value out, or make it a module-level `let`, or apply it outside the `On`/`At`, where it can be an inline style

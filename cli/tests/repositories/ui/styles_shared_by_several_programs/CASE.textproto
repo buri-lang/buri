@@ -1,0 +1,47 @@
+# Two test programs that give nodes styles through the same library.
+#
+# **The claim is that each program gets the same classes, and that a style
+# mistake is reported where it is written, in the same order every time.**
+# `//lib/panel` hands a node the styles a generic struct carries, through two
+# calls deep, so the compiler has to follow that struct's styles into every
+# caller. `//lib/badge` uses it too, so both test programs read it. Only the
+# second program reads `//lib/badge`.
+#
+# The edits then put two mistakes in the shared library and one in the library
+# only the second program reads: an alpha out of range and a style under `On`
+# that isn't known until the program runs.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two programs sharing a styled library get the same classes, and each style mistake is reported where it is written, in order"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/panel/lib.buri"
+  replace: "styles: [.Background(.Rgb(200, 200, 255)), .Group(props.styles)],"
+  with: "styles: [.Background(.Rgba(200, 200, 255, 1.5)), .Group(props.styles)],"
+}
+
+edit {
+  file: "lib/panel/lib.buri"
+  replace: "styles: [.Padding(.Px(4))]"
+  with: "styles: [.On(.Hover, [.Background(accent)])]"
+}
+
+edit {
+  file: "lib/badge/lib.buri"
+  replace: "styles: [.Radius(.Px(6))]"
+  with: "styles: [.On(.Focus, [.MinWidth(.Px(children.length()))])]"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 1
+  golden: "build_errors.txt"
+}

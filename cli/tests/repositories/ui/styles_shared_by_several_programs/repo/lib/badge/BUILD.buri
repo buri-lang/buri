@@ -1,0 +1,6 @@
+library {
+    dependencies: ["//lib/panel"]
+    test {
+        sources: ["test/badge.buri"]
+    }
+}

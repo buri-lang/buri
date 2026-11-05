@@ -640,7 +640,7 @@ fn serving_a_page() {
 /// ring is on the field that answers that it has the focus and on no other.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 65);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 66);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

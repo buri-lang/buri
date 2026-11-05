@@ -559,7 +559,8 @@ pub fn run(
 }
 
 /// How many times this process drew [`Flow`]'s graph of what reads what, over
-/// every declaration a compilation reads. `BURI_PROFILE` prints it, because
+/// every declaration a compilation reads, rather than over the few a round
+/// draws again. `BURI_PROFILE` prints it, because
 /// unlike instructions it is the same on every run.
 static GRAPHS_DRAWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -1515,11 +1516,35 @@ struct Edges {
     referenced: HashSet<FnId>,
     /// The locals a `let` or a pattern binds.
     bound: Vec<(Owner, LocalId)>,
+    /// The declarations calling each function with a `Param::Passed`
+    /// parameter: the only ones that read differently once it escapes.
+    callers: HashMap<FnId, HashSet<Owner>>,
 }
 
 impl Edges {
     fn add(&mut self, from: Demand, to: Demand, stopped: bool) {
         self.reads.entry(from).or_default().push((to, stopped));
+    }
+
+    /// Swaps what some declarations read, `stale`, for what they read now,
+    /// `fresh`. A read is in no particular order, so a stale one goes by
+    /// value.
+    fn redraw(&mut self, owners: &HashSet<Owner>, stale: Edges, fresh: Edges) {
+        for (from, mut gone) in stale.reads {
+            let reads = self.reads.entry(from).or_default();
+            reads.retain(|read| match gone.iter().position(|g| g == read) {
+                Some(i) => {
+                    gone.swap_remove(i);
+                    false
+                }
+                None => true,
+            });
+        }
+        for (from, reads) in fresh.reads {
+            self.reads.entry(from).or_default().extend(reads);
+        }
+        self.stops.retain(|owner| !owners.contains(owner));
+        self.stops.extend(fresh.stops);
     }
 }
 
@@ -1666,6 +1691,8 @@ struct Flow<'a> {
     /// The locals every value of which this run sees bound: a `let`'s or a
     /// pattern's, and the parameters of a function called only by name.
     seen: HashSet<(Owner, LocalId)>,
+    /// The functions with a parameter that is `Param::Passed`.
+    passing: HashSet<FnId>,
 }
 
 impl<'a> Flow<'a> {
@@ -1693,9 +1720,8 @@ impl<'a> Flow<'a> {
             touched: HashSet::default(),
             edges: Edges::default(),
             seen: HashSet::default(),
+            passing: HashSet::default(),
         };
-        // The functions with a parameter that is `Param::Passed`.
-        let mut passing: HashSet<FnId> = HashSet::default();
         for (id, body) in walked.unsettled(bodies) {
             let info = tables.fn_info(id);
             let ui = flow.in_ui_node(info.module);
@@ -1703,7 +1729,7 @@ impl<'a> Flow<'a> {
                 let kind = if !p.ty.has_params() {
                     Param::Fixed
                 } else if !ui && flow.may_hold_style(p.ty) {
-                    passing.insert(id);
+                    flow.passing.insert(id);
                     Param::Passed
                 } else {
                     Param::Opaque
@@ -1714,20 +1740,29 @@ impl<'a> Flow<'a> {
             flow.params.insert(id, kinds);
         }
         // A generic parameter found to go further than its function's result
-        // is given each of its callers' arguments too, so the graph is drawn
-        // again following it. That can send one of theirs further, so this
-        // runs until nothing more does. Most programs have no such parameter
-        // and draw it once.
-        let mut edges = flow.graph(walked);
+        // is given each of its callers' arguments too, so the declarations
+        // calling its function are drawn again following it: no other reads
+        // anything differently. That can send one of theirs further, so this
+        // runs until nothing more does.
+        GRAPHS_DRAWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut edges = flow.graph(walked, |_| true);
         loop {
-            let (reached, roots) = reach(&edges, &passing);
+            let (reached, roots) = reach(&edges, &flow.passing);
             let grown = flow.escaping(&edges, roots);
             if grown.is_empty() {
                 flow.reached = reached;
                 break;
             }
+            let owners: HashSet<Owner> = grown
+                .iter()
+                .flat_map(|(f, _)| edges.callers.get(f))
+                .flatten()
+                .copied()
+                .collect();
+            let stale = flow.graph(walked, |o| owners.contains(&o));
             flow.escaping.extend(grown);
-            edges = flow.graph(walked);
+            let fresh = flow.graph(walked, |o| owners.contains(&o));
+            edges.redraw(&owners, stale, fresh);
         }
         flow.demanded = closure(Demand::Node, &[&edges]);
         flow.touched = std::mem::take(&mut edges.stops);
@@ -1762,11 +1797,12 @@ impl<'a> Flow<'a> {
         flow
     }
 
-    /// What reads what, across every declaration this run reads.
-    fn graph(&self, walked: &Walked) -> Edges {
-        GRAPHS_DRAWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    /// What reads what, across the declarations this run reads that `drawn`
+    /// keeps.
+    fn graph(&self, walked: &Walked, drawn: impl Fn(Owner) -> bool) -> Edges {
         let mut edges = Edges::default();
-        for (id, init) in walked.unsettled_constants(self.consts) {
+        let consts = walked.unsettled_constants(self.consts);
+        for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
             self.edges(
                 Owner::Const(id),
                 init,
@@ -1775,7 +1811,8 @@ impl<'a> Flow<'a> {
                 &mut edges,
             );
         }
-        for (id, body) in walked.unsettled(self.bodies) {
+        let bodies = walked.unsettled(self.bodies);
+        for (id, body) in bodies.filter(|(id, _)| drawn(Owner::Fn(*id))) {
             if let Some((t, m)) = self.tables.fn_info(id).impl_of {
                 edges.add(Demand::Method(t, m), Demand::Ret(id), false);
             }
@@ -1933,6 +1970,9 @@ impl<'a> Flow<'a> {
         match &e.kind {
             ExprKind::CallFn { func, .. } => {
                 out.called.insert(func.id);
+                if self.passing.contains(&func.id) {
+                    out.callers.entry(func.id).or_default().insert(owner);
+                }
             }
             ExprKind::FnRef(func) => {
                 out.referenced.insert(func.id);

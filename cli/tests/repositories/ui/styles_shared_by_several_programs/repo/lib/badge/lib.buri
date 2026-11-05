@@ -1,0 +1,7 @@
+from "ui/node" import { Node };
+from "//lib/panel" import { card, Props };
+
+/// A card with rounded corners.
+export fn badge<C>(children: [Node<C>]): Node<C> {
+    card(Props { children: children, styles: [.Radius(.Px(6))] })
+}

@@ -1,0 +1,6 @@
+library {
+    visibility: ["//lib/badge"]
+    test {
+        sources: ["test/panel.buri"]
+    }
+}

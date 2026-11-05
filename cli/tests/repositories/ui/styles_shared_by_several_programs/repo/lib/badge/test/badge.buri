@@ -1,0 +1,28 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui };
+from "platform/effect/testing" import { headless, render, stylesheet };
+from "//lib/badge" import { badge };
+from "//lib/panel" import { framed, Props };
+
+test "a badge's styles are its classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, badge([]));
+    assert.equal(page.markup(), "e 0 class:bg-c8c8ff r-6");
+}
+
+test "a framed card in a second program has the same classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        framed(Props { children: [], styles: [.MinWidth(.Px(302))] }),
+    );
+    assert.equal(
+        page.markup(),
+        "e 0 class:bg-c8c8ff minw-300\ne 1 class:bg-c8c8ff minw-302",
+    );
+    assert.isTrue(stylesheet().contains(".minw-302{min-width:302px}"));
+}
