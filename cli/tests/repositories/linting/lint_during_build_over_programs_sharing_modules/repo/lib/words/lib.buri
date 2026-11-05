@@ -1,0 +1,5 @@
+from "//lib/shared" import { base };
+
+export fn answer(): Int {
+    base(2)
+}

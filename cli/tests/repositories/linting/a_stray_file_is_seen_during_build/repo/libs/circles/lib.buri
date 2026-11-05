@@ -1,0 +1,1 @@
+from "//libs/circles/circle.schema.json" export { Circle };

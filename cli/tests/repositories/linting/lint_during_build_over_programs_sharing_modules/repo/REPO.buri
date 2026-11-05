@@ -1,0 +1,4 @@
+# The catalogue runs during `buri build`, over every target the build names.
+lint {
+    check_during_build: true
+}

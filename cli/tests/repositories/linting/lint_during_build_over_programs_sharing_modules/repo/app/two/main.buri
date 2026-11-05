@@ -1,0 +1,8 @@
+from "node" import { NodeHost };
+from "//lib/shared" import { base };
+from "//lib/words" import { answer };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let two = base(1);
+    if (answer() == 42) { .Ok(()) } else { .Err("wrong") }
+}

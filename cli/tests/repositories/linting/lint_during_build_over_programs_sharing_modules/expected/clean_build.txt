@@ -1,0 +1,45 @@
+.buri/out/node/app/one/one.mjs (N bytes, cached)
+.buri/out/node/app/two/two.mjs (N bytes, cached)
+warning: `one` is bound and never used [unused-variable]
+ --> app/one/main.buri:6:9
+  |
+6 |     let one = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+
+    An unused local is usually one of three things:
+
+    - A result nobody consumes. Delete the computation, not just the binding.
+    - A leftover from a refactor.
+    - A value you meant to use and forgot to wire in. That's the real bug.
+
+    Decide which before deleting. If the right-hand side has side effects you
+    need, keep the call and drop the binding. If the value was meant to be
+    returned or passed on, finish that instead of silencing the warning.
+
+warning: `two` is bound and never used [unused-variable]
+ --> app/two/main.buri:6:9
+  |
+6 |     let two = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+warning: `spare` is bound and never used [unused-variable]
+ --> lib/shared/lib.buri:3:9
+  |
+3 |     let spare = n * 2;
+  |         ^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+warning: `unread` is bound and never used [unused-variable]
+ --> lib/words/test/words.buri:6:9
+  |
+6 |     let unread = 3;
+  |         ^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

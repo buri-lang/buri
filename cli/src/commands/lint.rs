@@ -168,84 +168,143 @@ fn findings_and_regenerable(
     session: &mut Session,
     targets: &[TargetId],
     flags: &arguments::Flags,
-    mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+    analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 ) -> (Diagnostics, Regenerable) {
     if !crate::build::generators::all_prepared(&session.workspace)
         && needs_every_generator(session, targets)
     {
         crate::build::generators::prepare(session, flags, &crate::build::sources::Overlay::new());
     }
-    let mut diagnostics = Diagnostics::new();
-    let mut seen_packages = BTreeSet::new();
-    let mut spoken = Spoken::default();
-    let mut regenerable = Regenerable::default();
-    let mut store = super::lint_cache::Store::open(&session.root, flags);
-    // The records first, so that every target they cannot answer is analysed
-    // in one compilation rather than one each.
-    let recalled: Vec<Option<super::lint_cache::Parts>> = targets
-        .iter()
-        .map(|target| store.recall(session, *target))
-        .collect();
-    let unanswered: Vec<TargetId> = targets
-        .iter()
-        .zip(&recalled)
-        .filter(|(target, parts)| parts.is_none() && !analyses.iter().any(|(t, _)| t == *target))
-        .map(|(target, _)| *target)
-        .collect();
-    let shared = Shared::of(session, &unanswered);
-    for (target, recalled) in targets.iter().zip(recalled) {
-        let before = diagnostics.items.len();
-        if let Some(parts) = recalled {
-            store.reused(session, *target);
-            replay(
-                session,
-                *target,
-                parts,
-                &mut seen_packages,
-                &mut diagnostics,
-            );
-            regenerable.note(session, *target, &diagnostics, before);
-            continue;
-        }
-        let alone;
-        let part = match analyses.iter().position(|(t, _)| t == target) {
-            Some(i) => {
-                alone = analyses.swap_remove(i).1;
-                Part::whole(&alone)
+    Linting::start(session, targets, flags).finish(session, targets, analyses, None)
+}
+
+/// The lint records a run answers targets from, read before any target is
+/// analysed, so that every target they can't answer is analysed in one
+/// compilation rather than one each.
+///
+/// `buri build` reads them before it checks anything, and checks the targets
+/// they can't answer in its own compilation ([`Linting::units`]).
+pub struct Linting {
+    store: super::lint_cache::Store,
+    recalled: Vec<Option<super::lint_cache::Parts>>,
+}
+
+impl Linting {
+    /// `None` where the catalogue would run generators the build doesn't,
+    /// which waits for a build that holds.
+    pub fn before_build(
+        session: &mut Session,
+        targets: &[TargetId],
+        flags: &arguments::Flags,
+    ) -> Option<Linting> {
+        (crate::build::generators::all_prepared(&session.workspace)
+            || !needs_every_generator(session, targets))
+        .then(|| Linting::start(session, targets, flags))
+    }
+
+    fn start(session: &mut Session, targets: &[TargetId], flags: &arguments::Flags) -> Linting {
+        let mut store = super::lint_cache::Store::open(&session.root, flags);
+        let recalled = targets
+            .iter()
+            .map(|target| store.recall(session, *target))
+            .collect();
+        Linting { store, recalled }
+    }
+
+    /// The units of the targets no record answers.
+    pub fn units(&self, targets: &[TargetId]) -> Vec<Unit> {
+        targets
+            .iter()
+            .zip(&self.recalled)
+            .filter(|(_, parts)| parts.is_none())
+            .map(|(target, _)| unit(*target))
+            .collect()
+    }
+
+    /// Every check over `targets`, reading a target's analysis from
+    /// `analyses`, or from `shared`, a compilation of [`Linting::units`], where
+    /// either has it.
+    pub fn finish(
+        self,
+        session: &mut Session,
+        targets: &[TargetId],
+        mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+        shared: Option<crate::compiler::driver::Shared>,
+    ) -> (Diagnostics, Regenerable) {
+        let Linting {
+            mut store,
+            recalled,
+        } = self;
+        let unanswered: Vec<TargetId> = targets
+            .iter()
+            .zip(&recalled)
+            .filter(|(target, parts)| {
+                parts.is_none() && !analyses.iter().any(|(t, _)| t == *target)
+            })
+            .map(|(target, _)| *target)
+            .collect();
+        let shared = match shared {
+            Some(shared) => Some(Shared::over(shared)),
+            None => Shared::of(session, &unanswered),
+        };
+        let mut diagnostics = Diagnostics::new();
+        let mut seen_packages = BTreeSet::new();
+        let mut spoken = Spoken::default();
+        let mut regenerable = Regenerable::default();
+        for (target, recalled) in targets.iter().zip(recalled) {
+            let before = diagnostics.items.len();
+            if let Some(parts) = recalled {
+                store.reused(session, *target);
+                replay(
+                    session,
+                    *target,
+                    parts,
+                    &mut seen_packages,
+                    &mut diagnostics,
+                );
+                regenerable.note(session, *target, &diagnostics, before);
+                continue;
             }
-            None => match shared.as_ref().and_then(|shared| shared.part(*target)) {
-                Some(part) => part,
-                None => {
-                    alone = analysis_of(session, *target);
+            let alone;
+            let part = match analyses.iter().position(|(t, _)| t == target) {
+                Some(i) => {
+                    alone = analyses.swap_remove(i).1;
                     Part::whole(&alone)
                 }
-            },
-        };
-        LINTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let marks = one_target(
-            session,
-            *target,
-            &part,
-            &mut seen_packages,
-            &mut spoken,
-            &mut diagnostics,
-        );
-        let closure = part.reads(&session.workspace);
-        store.remember(session, *target, &closure, &marks.parts(&diagnostics));
-        regenerable.note(session, *target, &diagnostics, before);
-    }
-    store.flush(session);
-    check_cycles(session, &mut diagnostics);
+                None => match shared.as_ref().and_then(|shared| shared.part(*target)) {
+                    Some(part) => part,
+                    None => {
+                        alone = analysis_of(session, *target);
+                        Part::whole(&alone)
+                    }
+                },
+            };
+            LINTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let marks = one_target(
+                session,
+                *target,
+                &part,
+                &mut seen_packages,
+                &mut spoken,
+                &mut diagnostics,
+            );
+            let closure = part.reads(&session.workspace);
+            store.remember(session, *target, &closure, &marks.parts(&diagnostics));
+            regenerable.note(session, *target, &diagnostics, before);
+        }
+        store.flush(session);
+        check_cycles(session, &mut diagnostics);
 
-    keep_what_the_repository_runs(session, &mut diagnostics);
-    promote(session, &mut diagnostics);
-    diagnostics.sort(&session.map);
-    (diagnostics, regenerable)
+        keep_what_the_repository_runs(session, &mut diagnostics);
+        promote(session, &mut diagnostics);
+        diagnostics.sort(&session.map);
+        (diagnostics, regenerable)
+    }
 }
 
 /// The packages whose build file answers a finding of theirs (`REGENERABLE`).
 #[derive(Default)]
-struct Regenerable(BTreeSet<PackageId>);
+pub struct Regenerable(BTreeSet<PackageId>);
 
 impl Regenerable {
     /// Every regenerable finding a target's pass adds is about the target's own
@@ -387,20 +446,24 @@ pub fn reports(
 /// language server's lint pass rides the same analysis, which is what keeps
 /// the two reports the same set.
 pub fn analysis_of(session: &mut Session, target: TargetId) -> crate::compiler::driver::Analysis {
-    // A lint is not a build, so it does not refuse a program for an output it
-    // was not asked about. See `Unit::platform`.
-    let unit = Unit {
-        target: Some(target),
-        platform: None,
-        entry: None,
-        with_tests: true,
-    };
     crate::compiler::driver::analyze_program(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
-        &unit,
+        &unit(target),
     )
+}
+
+/// One target as lint compiles it, tests included. A lint is not a build, so
+/// it does not refuse a program for an output it was not asked about. See
+/// `Unit::platform`.
+fn unit(target: TargetId) -> Unit {
+    Unit {
+        target: Some(target),
+        platform: None,
+        entry: None,
+        with_tests: true,
+    }
 }
 
 /// One target's share of an analysis: the modules its own compilation would
@@ -574,61 +637,32 @@ impl<'a> Part<'a> {
 ///   functions may build a context per entry module, so several binaries share
 ///   one compilation.
 struct Shared {
-    analysis: crate::compiler::driver::Analysis,
-    shares: std::collections::BTreeMap<TargetId, Share>,
+    shared: crate::compiler::driver::Shared,
     index: std::rc::Rc<Index>,
-}
-
-struct Share {
-    holds: PerModule<bool>,
-    reported: Vec<Diagnostic>,
-    generated_rules: Vec<TargetId>,
 }
 
 impl Shared {
     fn of(session: &mut Session, targets: &[TargetId]) -> Option<Shared> {
-        let units: Vec<Unit> = targets
-            .iter()
-            .map(|t| Unit {
-                target: Some(*t),
-                platform: None,
-                entry: None,
-                with_tests: true,
-            })
-            .collect();
-        let shared = crate::compiler::driver::shared(
+        let units: Vec<Unit> = targets.iter().map(|t| unit(*t)).collect();
+        crate::compiler::driver::shared(
             &session.workspace,
             &mut session.map,
             &mut session.parsed,
             &units,
             crate::compiler::driver::Checking::Repository,
-        )?;
+        )
+        .map(Shared::over)
+    }
+
+    fn over(shared: crate::compiler::driver::Shared) -> Shared {
         let index = std::rc::Rc::new(Index::of(&shared.analysis));
-        let shares = shared
-            .shares
-            .into_iter()
-            .map(|(t, s)| {
-                (
-                    t,
-                    Share {
-                        holds: s.holds,
-                        reported: s.reported,
-                        generated_rules: s.generated_rules,
-                    },
-                )
-            })
-            .collect();
-        Some(Shared {
-            analysis: shared.analysis,
-            shares,
-            index,
-        })
+        Shared { shared, index }
     }
 
     fn part(&self, target: TargetId) -> Option<Part<'_>> {
-        let share = self.shares.get(&target)?;
+        let share = self.shared.shares.get(&(target, true))?;
         Some(Part {
-            whole: &self.analysis,
+            whole: &self.shared.analysis,
             holds: Some(&share.holds),
             reported: &share.reported,
             generated_rules: &share.generated_rules,

@@ -1,0 +1,5 @@
+// Both programs and the library beside them reach this module.
+export fn base(n: Int): Int {
+    let spare = n * 2
+    n + 40
+}

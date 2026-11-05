@@ -1,0 +1,9 @@
+// Only the catalogue reads a test source during a build.
+from "core/testing/assert" import * as assert;
+from "//lib/words" import { answer };
+
+test "answers" {
+    let unread = 3;
+    let wrong: Str = answer();
+    assert.equal(answer(), 42);
+}

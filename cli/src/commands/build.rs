@@ -103,13 +103,33 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         .filter(|t| asked.get(t).is_some_and(|(_, key)| key.is_some()))
         .map(|t| unit(*t))
         .collect();
-    let shared = crate::compiler::driver::shared(
-        &session.workspace,
-        &mut session.map,
-        &mut session.parsed,
-        &checked,
-        crate::compiler::driver::Checking::All,
-    );
+    // `check_during_build`: what the catalogue will analyse is checked here
+    // too, in the same compilation, so each module is checked once. Should
+    // the two not share one, the libraries are checked alone, and the
+    // catalogue checks its own once the build holds. Only the repository's
+    // bodies are checked: the standard library's report nothing.
+    let check_during_build = session.workspace.repo.lint.check_during_build;
+    let linting = check_during_build
+        .then(|| crate::commands::lint::Linting::before_build(&mut session, &targets, &args.flags))
+        .flatten();
+    let linted = linting
+        .as_ref()
+        .map(|l| l.units(&targets))
+        .unwrap_or_default();
+    let mut check = |units: &[crate::compiler::modules::Unit]| {
+        crate::compiler::driver::shared(
+            &session.workspace,
+            &mut session.map,
+            &mut session.parsed,
+            units,
+            crate::compiler::driver::Checking::Repository,
+        )
+    };
+    let mut shared = check(&[linted.as_slice(), &checked].concat());
+    let handed = shared.is_some() && !linted.is_empty();
+    if shared.is_none() && !linted.is_empty() {
+        shared = check(&checked);
+    }
     // Each binary's outputs are built side by side, on the pool's workers, and
     // everything is printed in target order however the builds finish. This
     // thread checks the libraries, asks the cache about each output, and
@@ -144,7 +164,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     let (mut diagnostics, key) = asked.remove(&target).unwrap_or_default();
                     let share = shared
                         .as_ref()
-                        .and_then(|s| Some((s, s.shares.get(&target)?)));
+                        .and_then(|s| Some((s, s.shares.get(&(target, false))?)));
                     if let (Some(key), Some((shared, share))) = (&key, share) {
                         if share.reported.is_empty() {
                             actions::record_clean_share(
@@ -238,8 +258,14 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     // `check_during_build`: the catalogue runs here too, but only over a build
     // that held — findings on code that does not compile are noise stacked on
     // top of the answer.
-    if !failed && session.workspace.repo.lint.check_during_build {
-        let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
+    if !failed && check_during_build {
+        let findings = match linting {
+            Some(linting) => {
+                let shared = shared.filter(|_| handed);
+                linting.finish(&mut session, &targets, Vec::new(), shared).0
+            }
+            None => crate::commands::lint::findings_for(&mut session, &targets, &args.flags),
+        };
         failed |= session.print(&findings);
         // Which rules this repository turned off, wherever the catalogue runs.
         // A build that reports nothing because a rule is off says so here, or

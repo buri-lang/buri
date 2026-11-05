@@ -326,7 +326,8 @@ pub enum Checking {
 /// Several targets checked as one compilation, and each one's share of it.
 pub struct Shared {
     pub analysis: Analysis,
-    pub shares: std::collections::BTreeMap<crate::build::workspace::TargetId, Share>,
+    /// By target, and by whether the share holds the target's tests.
+    pub shares: std::collections::BTreeMap<(TargetId, bool), Share>,
 }
 
 /// What one target's own compilation would have held and reported.
@@ -393,9 +394,17 @@ pub fn shared(
     if units.len() < 2 {
         return None;
     }
+    // A target asked about both with and without its tests loads once, with.
+    let mut loads: Vec<Unit> = Vec::new();
+    for unit in units {
+        match loads.iter_mut().find(|u| u.target == unit.target) {
+            Some(load) => load.with_tests |= unit.with_tests,
+            None => loads.push(unit.clone()),
+        }
+    }
     let loading = match bodies {
-        Checking::All => load_all(Some(ws), map, cache, units),
-        Checking::Repository => load_programs(Some(ws), map, cache, units),
+        Checking::All => load_all(Some(ws), map, cache, &loads),
+        Checking::Repository => load_programs(Some(ws), map, cache, &loads),
     };
     let loaded = loading.loaded();
 
@@ -439,9 +448,9 @@ pub fn shared(
     let mut shares = std::collections::BTreeMap::new();
     for unit in units {
         let target = unit.target?;
-        let (holds, generated_rules) = reach(ws, loaded, target)?;
+        let (holds, generated_rules) = reach(ws, loaded, target, unit.with_tests)?;
         shares.insert(
-            target,
+            (target, unit.with_tests),
             Share {
                 holds,
                 reported: Vec::new(),
@@ -495,13 +504,15 @@ pub(crate) fn imports(m: &ModuleData) -> impl Iterator<Item = &str> {
 /// The modules one target's own compilation holds, found in a compilation of
 /// several, and the rules whose generated code it loaded.
 ///
-/// What `Loader::load_unit` starts from, followed through every import. `None`
-/// where one of those starting points was loaded in a role other than the one
-/// this target gives it (see [`shared`]).
+/// What `Loader::load_unit` starts from, its test sources only `with_tests`,
+/// followed through every import. `None` where one of those starting points
+/// wasn't loaded, or was loaded in a role other than the one this target gives
+/// it (see [`shared`]).
 pub(crate) fn reach(
     ws: &crate::build::workspace::Workspace,
     loaded: &crate::compiler::modules::Loaded,
     target: TargetId,
+    with_tests: bool,
 ) -> Option<(PerModule<bool>, Vec<TargetId>)> {
     use crate::compiler::modules::Role;
     let pkg = ws.package(target.package);
@@ -553,7 +564,7 @@ pub(crate) fn reach(
                 starts.push((pkg.module_path("testing/lib.buri"), Some(Role::TestOnly)));
                 listed(&mut starts, &testing.sources, Role::TestOnly);
             }
-            if let Some(suite) = &lib.test {
+            if let Some(suite) = lib.test.as_ref().filter(|_| with_tests) {
                 listed(&mut starts, &suite.sources, Role::TestSource);
             }
         }
@@ -564,7 +575,7 @@ pub(crate) fn reach(
             }
             starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
             listed(&mut starts, &bin.sources, Role::Source);
-            if let Some(suite) = &bin.test {
+            if let Some(suite) = bin.test.as_ref().filter(|_| with_tests) {
                 listed(&mut starts, &suite.sources, Role::TestSource);
             }
         }
@@ -572,7 +583,7 @@ pub(crate) fn reach(
             generated(&mut starts);
             starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
             listed(&mut starts, &tool.sources, Role::Source);
-            if let Some(suite) = &tool.test {
+            if let Some(suite) = tool.test.as_ref().filter(|_| with_tests) {
                 listed(&mut starts, &suite.sources, Role::TestSource);
             }
         }
@@ -581,9 +592,7 @@ pub(crate) fn reach(
     let mut holds = loaded.modules.per_module(false);
     let mut queue: Vec<ModuleId> = Vec::new();
     for (path, role) in &starts {
-        let Some(id) = loaded.find(path) else {
-            continue;
-        };
+        let id = loaded.find(path)?;
         if role.is_some_and(|role| loaded.module(id).role != role) {
             return None;
         }

@@ -1,0 +1,7 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Circle",
+    "type": "object",
+    "properties": { "radius": { "type": "integer" } },
+    "required": ["radius"]
+}

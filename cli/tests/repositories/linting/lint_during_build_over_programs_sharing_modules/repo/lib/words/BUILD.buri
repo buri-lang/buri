@@ -1,0 +1,8 @@
+library {
+    dependencies: ["//lib/shared"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/words.buri"]
+    }
+}

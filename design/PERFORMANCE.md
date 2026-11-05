@@ -8312,6 +8312,35 @@ and 60 after, and retired 126 M instructions before and 23.5 M after. The
 test guards the block count. A test suite that encodes many records into one
 buffer used about 15% fewer instructions.
 
+### 6.92 A build that lints checks each module once, 2026-11-05
+
+Under `check_during_build`, `buri build` checked its libraries in one
+compilation, then lint loaded and checked every target again in a second one,
+libraries included.
+
+Now the build reads lint's records first, and adds the targets they can't
+answer to the libraries' compilation:
+
+```rust
+let mut shared = check(&[linted.as_slice(), &checked].concat());
+```
+
+`driver::shared` loads each target once, with its tests if any unit asks for
+them, and hands out two shares per target: with tests for lint, without for the
+build. Both check only the repository's bodies. If that compilation declines,
+the libraries are checked alone and lint compiles its own after the build, as
+before.
+
+A cold build that lints loads and checks each library once rather than twice.
+Lint still checks test sources and each binary's own modules alone, so its
+share of the build shrinks rather than goes. Peak memory grows, because the
+analysis lint reads is held through the build.
+
+`cli/tests/build/profile.rs` guards it: a cold build of libraries with test
+suites loads each module once. The `linting` case
+`lint_during_build_over_programs_sharing_modules` holds the findings and their
+order.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

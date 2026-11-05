@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_shared_27bb18/lib.buri:4:5
+  |
+4 |     , n + 40
+  |     ^
+  |
+  = expected: an expression
+  = actual: `,`
+  = fix: write a value here

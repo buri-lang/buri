@@ -1,0 +1,8 @@
+# Nothing the build names reaches this generator, so only the catalogue,
+# looking for stray files, has it run.
+library {
+    sources: []
+    generators: [
+        { tool: "json", inputs: ["circle.schema.json"] },
+    ]
+}

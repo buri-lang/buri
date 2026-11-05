@@ -1,0 +1,63 @@
+warning: `one` is bound and never used [unused-variable]
+ --> app/one/main.buri:6:9
+  |
+6 |     let one = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+
+    An unused local is usually one of three things:
+
+    - A result nobody consumes. Delete the computation, not just the binding.
+    - A leftover from a refactor.
+    - A value you meant to use and forgot to wire in. That's the real bug.
+
+    Decide which before deleting. If the right-hand side has side effects you
+    need, keep the call and drop the binding. If the value was meant to be
+    returned or passed on, finish that instead of silencing the warning.
+
+warning: `two` is bound and never used [unused-variable]
+ --> app/two/main.buri:6:9
+  |
+6 |     let two = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+warning: `spare` is bound and never used [unused-variable]
+ --> lib/shared/lib.buri:3:9
+  |
+3 |     let spare = n * 2;
+  |         ^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+error: expected `Str`, found `I64` [type-mismatch]
+ --> lib/words/test/words.buri:7:22
+  |
+7 |     let wrong: Str = answer();
+  |                      ^^^^^^^^ the annotation is `Str`
+  |
+  = expected: `Str`
+  = actual: `I64`
+
+    Numbers don't convert on their own
+    ──────────────────────────────────
+
+    There is no implicit widening or narrowing, so convert explicitly. A
+    widening conversion such as .toI64() on an I32 is exact. A narrowing one
+    returns a Result, because not every value fits.
+
+    A bare literal is reported as Int or Float when nothing pins its type.
+    Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+    of the same kind.
+
+    A .Variant is a variant
+    ───────────────────────
+
+    A leading dot takes its enum from its position, so a position that isn't an
+    enum can't resolve it. expected is the type to write instead. The found side
+    names the variant, not a type, because the compiler won't guess an enum from
+    the payload.
+

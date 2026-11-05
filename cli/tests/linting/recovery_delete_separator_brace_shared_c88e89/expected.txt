@@ -1,0 +1,15 @@
+warning: `spare` is bound and never used [unused-variable]
+ --> lib/recovery_delete_separator_brace_shared_c88e89/lib.buri:3:9
+  |
+3 |     let spare = n * 2
+  |         ^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+error: a statement ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_brace_shared_c88e89/lib.buri:3:22
+  |
+3 |     let spare = n * 2
+  |                      ^
+  |
+  = fix: write `;` here

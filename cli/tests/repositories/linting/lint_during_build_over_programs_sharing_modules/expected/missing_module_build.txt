@@ -1,0 +1,67 @@
+.buri/out/node/app/one/one.mjs (N bytes, cached)
+.buri/out/node/app/two/two.mjs (N bytes, cached)
+warning: `one` is bound and never used [unused-variable]
+ --> app/one/main.buri:6:9
+  |
+6 |     let one = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+
+    An unused local is usually one of three things:
+
+    - A result nobody consumes. Delete the computation, not just the binding.
+    - A leftover from a refactor.
+    - A value you meant to use and forgot to wire in. That's the real bug.
+
+    Decide which before deleting. If the right-hand side has side effects you
+    need, keep the call and drop the binding. If the value was meant to be
+    returned or passed on, finish that instead of silencing the warning.
+
+warning: `two` is bound and never used [unused-variable]
+ --> app/two/main.buri:6:9
+  |
+6 |     let two = base(1);
+  |         ^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+warning: `spare` is bound and never used [unused-variable]
+ --> lib/shared/lib.buri:3:9
+  |
+3 |     let spare = n * 2;
+  |         ^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+error: "//lib/gone" is in no package of this repository [unknown-module]
+ --> lib/words/test/words.buri:4:6
+  |
+4 | from "//lib/gone" import { gone };
+  |      ^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    There's no search path and no fallback, so a path never has two candidates.
+
+    Each rule is rooted at a file: a binary at main.buri, a library at lib.buri,
+    a tool at tool.buri and a platform at platform.buri. A missing one is
+    reported where a build file names the rule, or at a binary's own rule.
+
+warning: gone is imported but not used [unused-import]
+ --> lib/words/test/words.buri:4:28
+  |
+4 | from "//lib/gone" import { gone };
+  |                            ^^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import
+warning: `unread` is bound and never used [unused-variable]
+ --> lib/words/test/words.buri:7:9
+  |
+7 |     let unread = 3;
+  |         ^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place

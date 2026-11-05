@@ -774,6 +774,46 @@ fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
     );
 }
 
+/// **A build that lints loads each module once.** Under `check_during_build`,
+/// the catalogue loaded and checked every library the build had just checked a
+/// second time. A cold build of libraries with test suites loads each of their
+/// modules, and each test source, exactly once. PERFORMANCE.md §6.92.
+#[test]
+fn a_build_that_lints_loads_each_module_once() {
+    let scratch = Scratch::repo("profile-build-lints-once");
+    scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
+    library_chain(&scratch, 4);
+    for i in 0..4_usize {
+        scratch.write(
+            &format!("lib/p{i}/BUILD.buri"),
+            &format!(
+                "library {{\n{}    visibility: [\"//visibility:public\"]\n\n    \
+                 test {{\n        sources: [\"test/p{i}.buri\"]\n    }}\n}}\n",
+                i.checked_sub(1)
+                    .map(|b| format!("    dependencies: [\"//lib/p{b}\"]\n"))
+                    .unwrap_or_default()
+            ),
+        );
+        scratch.write(
+            &format!("lib/p{i}/test/p{i}.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\n\
+                 from \"//lib/p{i}\" import {{ total }};\n\n\
+                 test \"counts\" {{\n    assert.equal(total(), {});\n}}\n",
+                i + 1
+            ),
+        );
+    }
+    let run = scratch.run_with_env(&["build", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(
+        modules_loaded(&run.all()),
+        Some(8),
+        "{}",
+        indent(&run.all())
+    );
+}
+
 /// A library of `n` types, each with a method and a function that builds one.
 fn many_declarations(scratch: &Scratch, n: usize) {
     let items: String = (0..n)

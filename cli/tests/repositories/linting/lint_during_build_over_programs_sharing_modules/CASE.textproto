@@ -1,0 +1,65 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# Two programs and a library share `//lib/shared`. The library's test source
+# is linted and never built, and it holds a type error beside a finding.
+
+doc: "with check_during_build, a build of programs sharing modules reports what lint reports, in the same order, and a build that fails reports no findings"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 1
+  golden: "build.txt"
+}
+
+# The test source checks once its type error goes; its finding stays.
+edit {
+  file: "lib/words/test/words.buri"
+  replace: "    let wrong: Str = answer();\n"
+  with: ""
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+  golden: "clean_build.txt"
+}
+
+# A test source naming a module that isn't there is reported beside the
+# findings, and the build itself still holds.
+edit {
+  file: "lib/words/test/words.buri"
+  replace: "from \"//lib/words\" import { answer };\n"
+  with: "from \"//lib/words\" import { answer };\nfrom \"//lib/gone\" import { gone };\n"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 1
+  golden: "missing_module_build.txt"
+}
+
+edit {
+  file: "lib/words/test/words.buri"
+  replace: "from \"//lib/gone\" import { gone };\n"
+  with: ""
+}
+
+# A build that doesn't compile reports why, and none of the findings.
+edit {
+  file: "lib/shared/lib.buri"
+  replace: "    n + 40\n"
+  with: "    n + \"40\"\n"
+}
+
+run {
+  args: ["build", "//..."]
+  exit: 1
+  golden: "broken_build.txt"
+}
