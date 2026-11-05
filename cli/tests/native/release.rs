@@ -6,6 +6,7 @@
 //! too wide for registers. The conformance corpus covers the rest, and the files
 //! of it that `coverage_agrees` leaves on JavaScript run here.
 
+use crate::hang::CappedChild;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -460,5 +461,117 @@ fn spreading_functions_over_modules_compiles_their_release_code_once() {
         "eight modules took {spread:.0} M instructions to emit, {:.2} times the {joined:.0} M \
          that one module with the same functions took",
         spread / joined
+    );
+}
+
+/// A release program that drops a two-element list `n` times: of `Str`s with
+/// `lits`, of `Int`s with `ints`, and no list at all with any other mode.
+const DROPPED_LISTS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Environment, Stdout };
+
+fn lits(i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let xs = [if (i % 2 == 0) { "a" } else { "b" }, "c"];
+    lits(i + 1, n, acc + xs.length())
+  }
+}
+
+fn ints(i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let xs = [i, i + 1];
+    ints(i + 1, n, acc + xs.length())
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Environment: host.env, Stdout: host.stdout };
+  let n = 200000;
+  let answer = match (env.arguments(ctx).first()) {
+    .Some("lits") => lits(0, n, 0),
+    .Some("ints") => ints(0, n, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The instructions `binary` retires running `mode`, the fewer of two runs,
+/// or `None` where the kernel counts nothing, such as CI's virtual machines.
+fn retired(binary: &Path, mode: &str, prints: &str) -> Option<u64> {
+    let once = || {
+        let child = Command::new(binary)
+            .arg(mode)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let instructions = crate::shared::exited_instructions(child.id());
+        let out = child.capped_wait_with_output().unwrap();
+        assert!(
+            out.status.success() && out.stdout == prints.as_bytes(),
+            "{mode}: {}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        instructions.filter(|&n| n > 0)
+    };
+    Some(once()?.min(once()?))
+}
+
+/// **Release code that drops a list of strings costs little more than code
+/// that drops a list of numbers.** Dropping the strings is a short walk the
+/// optimizer can put in the loop that drops the list, rather than a call to
+/// code it cannot see. Counted in instructions, with the cost of a run that
+/// drops nothing taken off both.
+#[test]
+fn dropping_a_list_of_strings_in_release_code_costs_little_more_than_one_of_ints() {
+    skip_unless_executable!();
+    let repo = scratch("dropped-lists");
+    std::fs::create_dir_all(repo.join("cmd/app")).unwrap();
+    std::fs::write(repo.join("REPO.buri"), "").unwrap();
+    std::fs::write(
+        repo.join("cmd/app/BUILD.buri"),
+        "binary {\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n",
+    )
+    .unwrap();
+    std::fs::write(repo.join("cmd/app/main.buri"), DROPPED_LISTS).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+        .current_dir(&repo)
+        .args(["build", "--release", "//cmd/app"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let binary = repo.join(format!(".buri/out/native/{os}-{arch}/cmd/app/app"));
+    let (Some(none), Some(lits), Some(ints)) = (
+        retired(&binary, "none", "0\n"),
+        retired(&binary, "lits", "400000\n"),
+        retired(&binary, "ints", "400000\n"),
+    ) else {
+        return;
+    };
+    let (lits, ints) = (lits.saturating_sub(none), ints.saturating_sub(none));
+    assert!(
+        lits * 10 <= ints * 12,
+        "dropping 200,000 lists of two strings took {lits} instructions, {:.2} times the {ints} \
+         that as many lists of two numbers took",
+        lits as f64 / ints as f64
     );
 }

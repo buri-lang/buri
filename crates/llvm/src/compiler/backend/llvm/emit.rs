@@ -181,6 +181,9 @@ pub struct Unit<'ctx, 'a> {
     glue_home: GlueHome,
     /// The glue this unit asked for, each once, in the order it first did.
     asked: Vec<GlueAsk>,
+    /// [`GlueHome::Elsewhere`]'s glue with a body, which
+    /// [`Unit::keep_inlinable_glue`] keeps or declares.
+    inlinable: Vec<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
@@ -236,6 +239,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             env_copy: None,
             glue_home: GlueHome::Here,
             asked: Vec::new(),
+            inlinable: Vec::new(),
             pending: Vec::new(),
             bodies: Vec::new(),
             helpers: 0,
@@ -3946,9 +3950,8 @@ pub enum GlueHome {
     /// definition on Mach-O, a COMDAT on ELF. What a reader of one unit's IR
     /// sees.
     Here,
-    /// Another object's: the unit only declares it, as it does a function of
-    /// another unit's. With a body to inline, a copy per unit was a fifth of a
-    /// release build's LLVM time, and the inliner took it at 4% of the calls.
+    /// Another object's: the unit declares it, except for the small glue
+    /// [`Unit::keep_inlinable_glue`] keeps for the inliner.
     Elsewhere,
     /// This unit's, for every other unit of the program: the unit
     /// [`GlueHome::Elsewhere`] points at.
@@ -3981,6 +3984,32 @@ impl GlueAsk {
 /// A glue function's symbol.
 fn glue_name(f: FunctionValue<'_>) -> String {
     f.get_name().to_string_lossy().into_owned()
+}
+
+/// The most instructions a glue body may hold, before optimization, for
+/// [`Unit::keep_inlinable_glue`] to keep it in each unit.
+const INLINABLE_GLUE: usize = 64;
+
+/// Whether `f`'s body is at most [`INLINABLE_GLUE`] instructions and calls no
+/// glue function.
+fn small_leaf_glue(f: FunctionValue<'_>) -> bool {
+    f.get_basic_blocks()
+        .into_iter()
+        .flat_map(|b| b.get_instructions())
+        .enumerate()
+        .all(|(i, inst)| i < INLINABLE_GLUE && !calls_glue(inst))
+}
+
+/// Whether `inst` is a call of a glue function.
+fn calls_glue(inst: inkwell::values::InstructionValue<'_>) -> bool {
+    if inst.get_opcode() != inkwell::values::InstructionOpcode::Call {
+        return false;
+    }
+    // A call's callee is its last operand.
+    let callee = inst
+        .get_operand(inst.get_num_operands().saturating_sub(1))
+        .and_then(|o| o.value());
+    callee.is_some_and(|c| c.get_name().to_bytes().starts_with(b"buri.glue."))
 }
 
 /// A helper whose declaration exists and whose body does not yet.
@@ -4226,7 +4255,51 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 break;
             }
         }
+        self.keep_inlinable_glue();
         self.check_terminators();
+    }
+
+    /// Small glue that calls no other glue, like the walk over a `[Str]`, keeps
+    /// its body `available_externally` for the inliner. The rest is declared.
+    fn keep_inlinable_glue(&mut self) {
+        // Glue comes before the glue its body asks for, so glue only a
+        // declared body called is unused by its turn.
+        for f in std::mem::take(&mut self.inlinable) {
+            let unused = f
+                .as_global_value()
+                .as_pointer_value()
+                .get_first_use()
+                .is_none();
+            if unused {
+                self.glues.retain(|_, g| *g != f);
+                // SAFETY: nothing uses `f`, and `glues` no longer holds it.
+                unsafe { f.delete() };
+                continue;
+            }
+            if small_leaf_glue(f) {
+                f.set_linkage(Linkage::AvailableExternally);
+                continue;
+            }
+            let name = glue_name(f);
+            let declared = self.module.add_function(
+                &format!("{name}.declared"),
+                f.get_type(),
+                Some(Linkage::External),
+            );
+            declared
+                .as_global_value()
+                .set_visibility(inkwell::GlobalVisibility::Hidden);
+            attrs::set_convention(declared, attrs::C);
+            f.replace_all_uses_with(declared);
+            for glue in self.glues.values_mut() {
+                if *glue == f {
+                    *glue = declared;
+                }
+            }
+            // SAFETY: every use of `f`, `glues` included, is `declared` now.
+            unsafe { f.delete() };
+            declared.as_global_value().set_name(&name);
+        }
     }
 
     /// Every block ends in a terminator: the one structural fact a release
@@ -4354,7 +4427,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 ty: *ty,
             });
             if self.glue_home == GlueHome::Elsewhere {
-                return f;
+                self.inlinable.push(f);
             }
             self.pending.push(Job::Glue {
                 value: f,

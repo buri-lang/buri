@@ -8180,6 +8180,26 @@ as declaring it all, so the simpler rule stays.
 same wide record emit no more than 1.28× the instructions of one module that
 holds all eight functions. The ratio was 1.39 before.
 
+Release links don't use LTO, so a declared glue function can't be inlined.
+That cost the `strings` workload 1.0% more instructions at run time: its loop
+called the `[Str]` walk it had inlined before. So small glue that calls no
+other glue, at most 64 instructions before optimization, keeps its body in
+each unit as `available_externally`. Release binaries, instructions retired:
+
+| Workload | Before | Glue declared | Small glue kept |
+|---|---:|---:|---:|
+| `strings` | 1,987.7 M | 2,007.7 M | 1,987.8 M |
+| `lists` | 2,047.7 M | 2,042.0 M | 2,040.0 M |
+| records and a `Str`-keyed ordered map | 1,333.5 M | 1,327.1 M | 1,327.0 M |
+| code repo's cluster test | 119,044 M | 119,093 M | 119,122 M |
+
+The other instruction-gate workloads moved less than 0.5%, all down. The
+cluster package's `emit` went from 492.6 G to 421.9 G declared and 427.2 G
+with small glue kept, so the build keeps 93% of the win.
+
+`release.rs` guards it too: dropping lists of two `Str`s costs at most 1.2×
+dropping lists of two `Int`s. It was 1.12 inlined and 1.30 declared.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
