@@ -8201,6 +8201,44 @@ with small glue kept, so the build keeps 93% of the win.
 `release.rs` guards it too: dropping lists of two `Str`s costs at most 1.2×
 dropping lists of two `Int`s. It was 1.12 inlined and 1.30 declared.
 
+### 6.89 Release units aren't shared across programs, 2026-11-05
+
+The profiled monorepo builds 22 programs, most for both `macos-arm64` and
+`linux-x86_64`, from one set of libraries. Sharing their release units looked
+like 20–40 s of a 97 s cold `buri build --release //...`. It isn't there.
+
+Per-unit IR text, hashed the way `unit_hashes` does, over each program's
+macOS units:
+
+| Units alike across programs, by IR bytes | Share |
+|---|---:|
+| Whole unit, as keyed today | 0.13% |
+| Whole unit, closure numbers (`$fn44`) ignored | 0.20% |
+| Function by symbol | 18% |
+| Function body, instantiation tags ignored | 42% |
+
+The libraries are generic over the program's effect handler stack, so almost
+every library function is instantiated per program:
+`checkpointPath$45ra1p(World<SeededEntropy<a context>>, Path)` in one,
+`checkpointPath$vkurr4(Registrar<Volatile<Unsynced<a context>>>, Path)` in
+another. A unit holds a different set of instantiations in each program, so
+none match, and `Flights` already compiles a shared key once.
+
+A program's two targets lower to the same IR, about 20% of all IR bytes, but
+`default<O2>` and codegen both read the target, so they can't share either.
+
+Where `emit`'s 6,970 G instructions go:
+
+| Part | Instructions |
+|---|---:|
+| Lowering every unit to collect glue (§6.88) | 80 G |
+| Lowering and `default<O2>` | 3,125 G |
+| Instruction selection to object bytes | 3,770 G |
+
+The 42% row is what sharing could reach, and only by compiling one body for
+instantiations that differ in a handler they don't touch. That changes symbols
+and unit contents, so binaries would no longer match today's.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
