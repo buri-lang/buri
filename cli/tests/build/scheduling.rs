@@ -874,8 +874,11 @@ fn a_suite_waiting_on_nothing_lets_another_start() {
     );
 }
 
-/// `//lib/wait`'s tests: the first waits out a send's thirty seconds, in a
-/// mailbox its own step filled, and is the longer, so it's handed out first.
+/// `//lib/wait`'s tests: the first sends into a mailbox its own step filled,
+/// where nothing makes room, and waits there until a timer stops the actor
+/// eight seconds later. It's the longer, so it's handed out first. A process
+/// waiting on a send has no thread runnable, and the timer fires on the
+/// waiting thread, so the wait is idle and bounded.
 const WAIT_TESTS: &str = r#"enum Message<C> {
   Tick,
   Within(fn(C) => Int),
@@ -896,10 +899,10 @@ fn ticker<C: Allocator + Tasks>(): Actor<C, Int, Message<C>, Int> {
   }
 }
 
-test "a send into a mailbox its own step filled gives up after waiting" {
+test "a send into a mailbox its own step filled waits until a timer stops the actor" {
   let ctx = context {
     Allocator: alloc(),
-    Tasks: tasks(),
+    Tasks: testTasks(),
   };
   let ticks = actor.start(ctx, ticker());
   let inside = ticks.sendMessage(ctx, .Within(fn(c) => {
@@ -909,13 +912,14 @@ test "a send into a mailbox its own step filled gives up after waiting" {
         _ => sofar,
       }
     }, 0);
+    let _ = tasks.after(c, time.seconds(8), fn(c2) => ticks.stop(c2).ignore());
     match (ticks.sendMessage(c, .Tick)) {
-      .Err(.TimedOut) => filled,
+      .Err(.Stopped) => filled,
       _ => 0 - 1,
     }
   }));
   assert.equal(inside, .Ok(64));
-  assert.equal(ticks.sendMessage(ctx, .Tick), .Ok(65));
+  assert.equal(ticks.sendMessage(ctx, .Tick), .Err(.Stopped));
 }
 
 test "wait counts" {
@@ -923,7 +927,7 @@ test "wait counts" {
 }
 "#;
 
-/// Two suites, `//lib/wait`'s first test waiting out a send's deadline.
+/// Two suites, `//lib/wait`'s first test waiting on a timer.
 fn waiting(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
     let tests = [
@@ -949,26 +953,29 @@ fn waiting(name: &str) -> Scratch {
                  from \"core/actor\" import * as actor;\n\
                  from \"core/actor\" import {{ Actor, Stepped }};\n\
                  from \"core/list\" import * as list;\n\
+                 from \"core/tasks\" import * as tasks;\n\
+                 from \"core/time\" import * as time;\n\
                  from \"core/testing/assert\" import * as assert;\n\
                  from \"platform/effect\" import {{ Allocator, Tasks }};\n\
-                 from \"platform/effect/testing\" import {{ alloc, tasks }};\n\n{body}"
+                 from \"platform/effect/testing\" import {{ alloc, tasks as testTasks }};\n\n{body}"
             ),
         );
     }
     scratch
 }
 
-/// **A test waiting out a send's deadline lets another suite run meanwhile,
-/// and nothing it reports changes.** One job at a time, `//lib/quick` is
-/// handed its test while `//lib/wait` waits, rather than once `//lib/wait` is
-/// done; the send still gives up, and the report reads as it always has.
+/// **A test waiting on a timer lets another suite run meanwhile, and nothing
+/// it reports changes.** One job at a time, `//lib/quick` is handed its test
+/// while `//lib/wait` waits, rather than once `//lib/wait` is done; the send
+/// still ends when the timer stops the actor, and the report reads as it
+/// always has.
 #[test]
-fn a_test_waiting_out_a_deadline_lets_another_suite_run() {
+fn a_test_waiting_on_a_timer_lets_another_suite_run() {
     if let Some(gap) = ci::native_host_gap() {
         ci::skipped("build::scheduling", &gap);
         return;
     }
-    let scratch = waiting("idle-deadline");
+    let scratch = waiting("idle-timer");
     let run = scratch.run_with_env(
         &["test", "//...", "--jobs=1", "--verbose", "--color=never"],
         &[("BURI_PROFILE", "1")],
@@ -991,8 +998,8 @@ fn a_test_waiting_out_a_deadline_lets_another_suite_run() {
 //lib/quick  native  1 test  <time>  built with others
   ok    quick.buri  quick counts  <time>
 //lib/wait  native  2 tests  <time>  built with others
-  ok    wait.buri  a send into a mailbox its own step filled gives up after waiting  <time>
-  ok    wait.buri  wait counts                                                       <time>
+  ok    wait.buri  a send into a mailbox its own step filled waits until a timer stops the actor  <time>
+  ok    wait.buri  wait counts                                                                    <time>
 shared build  <time>
 
 3 passed, 0 failed, 0 skipped",
@@ -1006,7 +1013,7 @@ shared build  <time>
         .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
     assert_eq!(
         handed,
-        "//lib/wait \"a send into a mailbox its own step filled gives up after waiting\", \
+        "//lib/wait \"a send into a mailbox its own step filled waits until a timer stops the actor\", \
          //lib/quick \"quick counts\", //lib/wait \"wait counts\"",
         "{}",
         indent(&run.all())
