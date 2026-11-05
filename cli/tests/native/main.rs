@@ -357,6 +357,11 @@ mod wrapping;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod collection_costs;
+// A `match` on a value its function is done with, taken apart by every
+// shape of pattern: what each arm answers, under the heap check, on every
+// backend built in and on JavaScript, and what a step through one costs.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod match_moves;
 // What `core/hash`'s `crc32c` costs an octet against `fnv1a32`'s fold:
 // instructions counted rather than timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

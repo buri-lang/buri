@@ -409,6 +409,12 @@ pub struct FuncPlan {
     /// which whoever read them now releases. Sorted. Empty under
     /// [`Options::sharing`]. See [`Scan::update_dying`] and MEMORY.md §5.3.
     pub moved: Vec<(NodeId, FieldId)>,
+    /// The `match` arms, by their bodies' nodes, that take apart a scrutinee
+    /// the function is done with: each name the arm binds out of it holds the
+    /// count the scrutinee held for that value, and the scrutinee itself is
+    /// released by nobody. Nothing is placed for it, so this is what tells a
+    /// reader of the plan where those counts went. Sorted. See [`Scan::arm`].
+    pub taken_apart: Vec<NodeId>,
 }
 
 impl Default for FuncPlan {
@@ -424,6 +430,7 @@ impl Default for FuncPlan {
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
+            taken_apart: Vec::new(),
         }
     }
 }
@@ -762,6 +769,9 @@ impl Counted for Syntactic {
 /// name already covers everything under it, and a second name for one value is
 /// a second release.
 ///
+/// A `match` arm is named the same way, for the moves [`name_in`] describes;
+/// a literal it skips over keeps its test, under the name.
+///
 /// `counted` is the classifier the analysis will run with, built over this
 /// program by the caller.
 pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
@@ -772,17 +782,35 @@ pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
     }
 }
 
-/// Every `let` in `e` and everything under it.
+/// Every `let` in `e` and everything under it, and every unguarded arm of a
+/// `match` on a local.
+///
+/// An arm is named for [`Scan::arm`]'s moves: a scrutinee the function is done
+/// with is taken apart there, each name the arm reads keeping its count and
+/// each it doesn't released, so a position with no name would be released by
+/// nobody. A guarded arm may not be the one that runs, and a scrutinee that is
+/// not a local is never the function's to take apart; neither moves, so
+/// neither is named.
 fn name_in(locals: &mut typed::Locals, e: &mut Expr, counted: &mut dyn Counted) {
-    if let ExprKind::Block { stmts, .. } = &mut e.kind {
-        for s in stmts.iter_mut() {
-            let Stmt::Let { pattern, .. } = s else {
-                continue;
-            };
-            if binds_something(pattern) {
-                name_skipped(locals, pattern, counted);
+    match &mut e.kind {
+        ExprKind::Block { stmts, .. } => {
+            for s in stmts.iter_mut() {
+                let Stmt::Let { pattern, .. } = s else {
+                    continue;
+                };
+                if binds_something(pattern) {
+                    name_skipped(locals, pattern, counted);
+                }
             }
         }
+        ExprKind::Match { scrutinee, arms } if matches!(scrutinee.kind, ExprKind::Local(_)) => {
+            for a in arms.iter_mut().filter(|a| a.guard.is_none()) {
+                if binds_something(&a.pattern) {
+                    name_skipped(locals, &mut a.pattern, counted);
+                }
+            }
+        }
+        _ => {}
     }
     typed::children_mut(e, &mut |c| name_in(locals, c, counted));
 }
@@ -930,6 +958,7 @@ fn scan_func(
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
+            taken_apart: Vec::new(),
         };
         if let Some(body) = f.body() {
             let BodyIndex {
@@ -972,6 +1001,7 @@ fn scan_func(
                 moving: Vec::new(),
                 escape_except: Vec::new(),
                 moved: Vec::new(),
+                taken_apart: Vec::new(),
                 plain: f.params.iter().copied().collect(),
                 tries: Vec::new(),
                 escaped: HashSet::default(),
@@ -1045,6 +1075,8 @@ fn scan_func(
             plan.moved = scan.moved;
             plan.moved.sort_unstable();
             plan.moved.dedup();
+            plan.taken_apart = scan.taken_apart;
+            plan.taken_apart.sort_unstable();
             // By node, so `lower` can find one `?`'s list by a binary search
             // and so a plan reads the same way twice. `Scan` keeps the list
             // distinct as it fills it, which is what stops one block being
@@ -2305,6 +2337,8 @@ struct Scan<'a> {
     escape_except: Vec<(LocalId, u64)>,
     /// [`FuncPlan::moved`], as it is found.
     moved: Vec<(NodeId, FieldId)>,
+    /// [`FuncPlan::taken_apart`], as it fills.
+    taken_apart: Vec<NodeId>,
     /// The function's parameters and every local a `let` binds: the locals
     /// [`Scan::inline_read`] may read without using.
     plain: HashSet<LocalId>,
@@ -3941,7 +3975,22 @@ impl Scan<'_> {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
             }
         }
-        if let Some(t) = token {
+        // A scrutinee the arm is done with is taken apart: each name keeps the
+        // count the scrutinee held for it, and an unread name is released here.
+        // Not under a guard, whose names are lent and whose arm may not run.
+        let moves = token.is_some_and(|t| !live.contains(&t))
+            && !self.opts.sharing
+            && a.guard.is_none()
+            && binds_something(&a.pattern)
+            && self.takes_apart(&a.pattern);
+        if moves {
+            self.taken_apart.push(bid);
+            for b in &bound {
+                if !live.contains(b) && !fresh_bound.contains(b) && self.is_counted(*b) {
+                    self.push(bid, Position::Before, RcOp::DecRef, Target::Local(*b));
+                }
+            }
+        } else if let Some(t) = token {
             for b in used {
                 if self.is_counted(b) {
                     self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
@@ -3958,6 +4007,27 @@ impl Scan<'_> {
         }
         for b in &bound {
             live.remove(b);
+        }
+    }
+
+    /// Whether `p` gives every counted value under it exactly one name, read
+    /// straight out of the scrutinee's own value: what [`Scan::arm`] needs to
+    /// take a scrutinee apart instead of releasing it.
+    ///
+    /// A position with no name holds nothing counted. A boxed field is a
+    /// block of its own, which the scrutinee's release frees and no name
+    /// does. An array pattern reads elements out of a list's block, and an
+    /// alternative names what one side matched and not the other's.
+    fn takes_apart(&mut self, p: &Pattern) -> bool {
+        match &p.kind {
+            PatKind::Bind { sub: None, .. } => true,
+            PatKind::Bind { sub: Some(s), .. } => !binds_something(s),
+            PatKind::Tuple(ps) => ps.iter().all(|q| self.takes_apart(q)),
+            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
+                .iter()
+                .all(|f| !self.counted.boxes(&p.ty, &f.pattern.ty) && self.takes_apart(&f.pattern)),
+            PatKind::Array { .. } | PatKind::Or(_) | PatKind::Error => false,
+            _ => self.counted.counted(&p.ty) == Answer::No,
         }
     }
 

@@ -689,6 +689,7 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
+            taken_apart: Vec::new(),
         });
     }
 

@@ -196,6 +196,10 @@ struct Balance<'a> {
     /// §4.2): the count exists because the pattern called the allocator,
     /// so there is no site to read it from and the replay has to know.
     fresh_at: HashMap<NodeId, Vec<LocalId>>,
+    /// Arm bodies that take their scrutinee apart (`FuncPlan::taken_apart`),
+    /// with the scrutinee and the counted names the pattern binds: the
+    /// scrutinee's count becomes one count per name as the arm is entered.
+    taken_at: HashMap<NodeId, (LocalId, Vec<LocalId>)>,
     errors: Vec<String>,
 }
 
@@ -294,6 +298,12 @@ impl Balance<'_> {
         for l in self.fresh_at.get(&id).cloned().unwrap_or_default() {
             st.bump(l, 1);
         }
+        if let Some((t, names)) = self.taken_at.get(&id).cloned() {
+            st.bump(t, -1);
+            for l in names {
+                st.bump(l, 1);
+            }
+        }
         self.sites(id, Position::Before, st);
         match &e.kind {
             ExprKind::Local(l) => {
@@ -380,7 +390,8 @@ impl Balance<'_> {
                 // The scrutinee's own mode is decided by the plan: a drop
                 // of it at an arm entry is what "the match consumed it"
                 // looks like from outside.
-                let consumed = self.consumes_scrutinee(scrutinee);
+                let consumed = self.consumes_scrutinee(scrutinee)
+                    || self.takes_apart(id, arms.iter().map(|a| a.guard.is_some()));
                 // The same promotion the scan makes for a compound scrutinee.
                 let promoted = !consumed
                     && compound(scrutinee)
@@ -428,6 +439,15 @@ impl Balance<'_> {
                     fresh_bound.retain(|b| self.counted_local(*b));
                     if !fresh_bound.is_empty() {
                         self.fresh_at.insert(bid, fresh_bound);
+                    }
+                    if let (ExprKind::Local(t), true) = (
+                        &scrutinee.kind,
+                        self.plan.taken_apart.binary_search(&bid).is_ok(),
+                    ) {
+                        let mut names: Vec<LocalId> = Vec::new();
+                        a.pattern.binds(&mut names);
+                        names.retain(|b| self.counted_local(*b));
+                        self.taken_at.insert(bid, (*t, names));
                     }
                     branches.push((&a.body, bid, mode));
                     k += 1;
@@ -546,6 +566,25 @@ impl Balance<'_> {
         }
     }
 
+    /// Whether the plan says some arm of the match at `id` takes its
+    /// scrutinee apart, given which arms have guards.
+    fn takes_apart(&self, id: NodeId, guards: impl Iterator<Item = bool>) -> bool {
+        let mut k = 1usize;
+        for guarded in guards {
+            k += usize::from(guarded);
+            if self
+                .plan
+                .taken_apart
+                .binary_search(&self.child(id, k))
+                .is_ok()
+            {
+                return true;
+            }
+            k += 1;
+        }
+        false
+    }
+
     /// Whether the plan says the match consumed its scrutinee: a `DecRef`
     /// of the scrutinee's local at an arm entry.
     fn consumes_scrutinee(&self, scrutinee: &Expr) -> bool {
@@ -578,6 +617,7 @@ fn check_balance(program: &Program) -> Vec<String> {
             suppress: None,
             header: State::default(),
             fresh_at: HashMap::default(),
+            taken_at: HashMap::default(),
             errors: Vec::new(),
         };
         let mut st = State::default();
@@ -1467,11 +1507,11 @@ fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
 }
 
 /// The placement itself, on the shape the design argues about: the payloads
-/// that survive the arm are incremented out of the value, the value is
-/// dropped there, a borrow across a call is dropped after the call, and the
+/// that survive the arm are moved out of the value, which nothing releases
+/// after them, a borrow across a call is dropped after the call, and the
 /// branch that does not use a value drops it on entry.
 #[test]
-fn a_consuming_match_dups_what_it_keeps_and_drops_what_it_matched() {
+fn a_consuming_match_moves_what_it_keeps_and_drops_what_it_matched() {
     let program = compile(TREE);
     let i = find(&program, "label");
     let mut counted = Syntactic::new(&program);
@@ -1483,11 +1523,8 @@ fn a_consuming_match_dups_what_it_keeps_and_drops_what_it_matched() {
         vec![
             // `.Leaf => other`: the matched value dies at the arm entry.
             "dec t before n3",
-            // `.Node(name, kids)`: what the arm keeps is incremented out of
-            // it first, and then it dies.
-            "inc name before n4",
-            "inc kids before n4",
-            "dec t before n4",
+            // `.Node(name, kids)`: the arm keeps all of it, moved out by
+            // name, so nothing is placed for `t`.
             // `kids.len()` borrows, so the drop lands after the call.
             "dec kids after n6",
             // The branch that returns `name` has no use for `other`.
@@ -1571,10 +1608,8 @@ export fn main(host: NodeHost): Result<(), Str> {
     assert_eq!(
         named_sites(&program, i, fp),
         vec![
-            // `.Some(v) => v`: the payload is increfed out and the value
-            // dies at the entry, because the arm is done with it.
-            "inc v before n3",
-            "dec o before n3",
+            // `.Some(v) => v`: the arm is done with the value, so the
+            // payload is moved out of it and nothing is placed.
             // `.None => label("some", o)`: `label` borrows, so the drop is
             // after the call — and there is no second one at the entry.
             "dec o after n4",

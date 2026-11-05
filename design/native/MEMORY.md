@@ -418,6 +418,10 @@ On top of that, three local rules:
   the arm's entry. `ui/node`'s `.Computed(build) => nodeLines(ctx, state,
   build(scope), depth)` is why: `build` is a closure living inside the node the
   jump is about to replace.
+- **A matched value the function is done with is taken apart.** In
+  `match (g) { .Split(l, _, r) => join(l, r) }`, `l` and `r` keep the counts
+  `g` held for them, the `_` is released by name, and nothing releases `g`.
+  Not where the arm has a guard, reads `g` again, or binds a boxed field.
 
 ### 5.3 Reuse, which is where the copying goes
 
