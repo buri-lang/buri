@@ -61,7 +61,7 @@ static COUNTS: [AtomicU64; COUNTS_LEN] = [const { AtomicU64::new(0) }; COUNTS_LE
 /// Executables this run wrote as new files and has not started yet.
 static FRESH: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-/// The first [`HANDED_KEPT`] tests handed to a native test process, as
+/// The first [`HANDED_KEPT`] tests handed to a test process, as
 /// `<label> "<test>"`, in the order they were handed out.
 static HANDED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -137,8 +137,9 @@ pub fn started(program: &std::ffi::OsStr) {
     }
 }
 
-/// Notes that the test `name` of the suite `label` was handed to a native
-/// test process, which shows the order a run started its tests in.
+/// Notes that the test `name` of the suite `label` was handed to a
+/// test process, native or JavaScript, which shows the order a run started
+/// its tests in.
 pub fn handed(label: &str, name: &str) {
     if !crate::profile::enabled() {
         return;

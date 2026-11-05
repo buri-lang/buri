@@ -1727,6 +1727,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     if !platform.is_native() {
         let job = JsJob {
             slot,
+            label,
             program,
             tables,
             key,
@@ -2074,6 +2075,8 @@ fn snapshot_env(dir: &str, update: bool, sheet: Option<String>) -> Vec<(&'static
 /// One suite's JavaScript bundle: emit it, write it, run it.
 struct JsJob {
     slot: SlotId,
+    /// The suite's label.
+    label: String,
     program: monomorphize::Program,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
     key: crate::build::cache::ActionKey,
@@ -2088,6 +2091,7 @@ struct JsJob {
 fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     let JsJob {
         slot,
+        label,
         mut program,
         tables,
         key,
@@ -2116,6 +2120,7 @@ fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     drop(tables);
     drop(held);
     let run = JsRun {
+        label,
         key,
         path,
         limit,
@@ -2134,6 +2139,8 @@ fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
 
 /// How a bundle is run, whether it was emitted just now or by an earlier run.
 struct JsRun {
+    /// The suite's label.
+    label: String,
     key: crate::build::cache::ActionKey,
     path: BundlePath,
     limit: Option<u32>,
@@ -2261,7 +2268,10 @@ fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> u
 ///
 /// The second way is the native runner's ([`queue_members`]): jobs ranked by
 /// how many tests the suite has, each starting another process only if tests
-/// are still waiting when a worker reaches it.
+/// are still waiting when a worker reaches it, and the longest test waiting
+/// handed out first ([`starts_of`]). A process runs whichever test it's
+/// handed, so the suite's tests go out in that one order across all of its
+/// processes. Records are kept by test, so the report is in declared order.
 fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
     let processes = js_processes(suite.roots.len(), suite.run.limit, &shared.flags);
     if processes == 1 {
@@ -2273,10 +2283,12 @@ fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
         return answer_js(&suite, JsRan::NotRun(d), shared);
     }
     let tests = suite.roots.len();
+    let order = starts_of(&suite.roots, tests);
     let pulled = std::sync::Arc::new(JsPulled {
         suite,
         state: std::sync::Mutex::new(JsGathered {
             tests,
+            order,
             ..JsGathered::default()
         }),
     });
@@ -2298,8 +2310,10 @@ struct JsPulled {
 /// Which of a pulled suite's tests have been handed out, and what came back.
 #[derive(Default)]
 struct JsGathered {
-    /// How many tests have been handed to a process, in order.
+    /// How many tests have been handed to a process, in `order`.
     handed: usize,
+    /// The suite's tests, by number, in the order they're handed out.
+    order: Vec<usize>,
     /// The suite's processes still running.
     running: usize,
     /// How many tests the suite has.
@@ -2322,8 +2336,9 @@ impl JsGathered {
         if !self.waiting() {
             return None;
         }
+        let test = self.order.get(self.handed).copied()?;
         self.handed += 1;
-        Some(self.handed - 1)
+        Some(test)
     }
 }
 
@@ -2415,7 +2430,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
             // Nothing is claimed once the input is closed.
             match input
                 .as_mut()
-                .and_then(|pipe| Some((js_state(pulled).claim()?, pipe)))
+                .and_then(|pipe| Some((claim_js(pulled)?, pipe)))
             {
                 Some((test, pipe)) => {
                     // A write to a process that has just died fails, and
@@ -2444,6 +2459,19 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
         return Err(did_not_run(&stderr));
     }
     Ok(())
+}
+
+/// The next test to hand a process of a pulled suite, noted for the profile
+/// while the suite is still held, so the profile lists them in the order they
+/// were handed out whichever process took each.
+fn claim_js(pulled: &JsPulled) -> Option<usize> {
+    let mut state = js_state(pulled);
+    let test = state.claim()?;
+    if let Some(root) = pulled.suite.roots.get(test) {
+        crate::build::counted::handed(&pulled.suite.run.label, &root.name);
+    }
+    drop(state);
+    Some(test)
 }
 
 /// A `ran` line's test and record: `{"ran":<test>,"record":<record>}`.
@@ -3438,6 +3466,7 @@ fn rerun(
             Again::Linked(linked) => linked,
             Again::Bundled(bundled) => {
                 let run = JsRun {
+                    label: session.workspace.label(target),
                     key: slot.key.clone(),
                     path: bundle_path(session, target),
                     limit,

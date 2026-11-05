@@ -838,6 +838,114 @@ fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
     );
 }
 
+/// A suite `//lib/long` of forty tests, `t00` to `t39`, each one line longer
+/// than the one before, so `t39` is the longest. `t03` and `t37` fail.
+fn forty_tests(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    let tests: String = (0..40)
+        .map(|i| {
+            let lines: String = (0..i)
+                .map(|line| {
+                    let want = if line == 1 && (i == 3 || i == 37) {
+                        2
+                    } else {
+                        1
+                    };
+                    format!("  assert.equal(one(), {want});\n")
+                })
+                .collect();
+            format!("test \"t{i:02}\" {{\n{lines}}}\n\n")
+        })
+        .collect();
+    scratch.write(
+        "lib/long/BUILD.buri",
+        "library {\n  test { sources: [\"test/long.buri\"] }\n}\n",
+    );
+    scratch.write("lib/long/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write(
+        "lib/long/test/long.buri",
+        &format!(
+            "from \"//lib/long\" import {{ one }};\n\
+             from \"core/testing/assert\" import * as assert;\n\n{tests}"
+        ),
+    );
+    scratch
+}
+
+/// **A JavaScript suite run in several processes hands out its longest tests
+/// first**, as a native suite does. Every process takes the longest test still
+/// waiting, so `BURI_PROFILE` lists the first ten in order whichever process
+/// took each.
+#[test]
+fn a_javascript_suite_hands_out_its_longest_tests_first() {
+    let scratch = forty_tests("js-handed");
+    let run = scratch.run_with_env(
+        &["test", "//...", "--output=js", "--jobs=3"],
+        &[("BURI_PROFILE", "1")],
+    );
+    run.exits(1);
+    let handed = run
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("first tests handed out: "))
+        .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
+    let longest: Vec<String> = (30..40)
+        .rev()
+        .map(|i| format!("//lib/long \"t{i:02}\""))
+        .collect();
+    assert_eq!(handed, longest.join(", "), "{}", indent(&run.all()));
+}
+
+/// **A JavaScript suite run in several processes reports its tests in the
+/// order they're declared**, failures included, exactly as one process
+/// running them in order reports them.
+#[test]
+fn a_javascript_suite_reports_in_declared_order_whichever_ran_first() {
+    let report = |jobs: &str| {
+        let scratch = forty_tests(&format!("js-order{jobs}"));
+        let run = scratch.run(&[
+            "test",
+            "//...",
+            "--output=js",
+            "--verbose",
+            "--color=never",
+            jobs,
+        ]);
+        run.exits(1);
+        let lines: Vec<String> = run
+            .stdout
+            .lines()
+            .map(|l| {
+                if l.contains(" passed, ") {
+                    l.split(" (").next().unwrap_or(l).to_string()
+                } else {
+                    blank_test_time(l)
+                }
+            })
+            .collect();
+        (lines.join("\n"), run.stderr.clone())
+    };
+    let (alone, alone_err) = report("--jobs=1");
+    let (spread, spread_err) = report("--jobs=3");
+    assert_eq!((&spread, &spread_err), (&alone, &alone_err));
+    let listed: Vec<&str> = spread
+        .lines()
+        .filter(|l| l.starts_with("  ok  ") || l.starts_with("  FAIL  "))
+        .filter_map(|l| l.split_whitespace().nth(2))
+        .collect();
+    let declared: Vec<String> = (0..40).map(|i| format!("t{i:02}")).collect();
+    assert_eq!(listed, declared, "{spread}");
+    let failed: Vec<&str> = spread
+        .lines()
+        .filter_map(|l| l.strip_prefix("FAIL //lib/long  test/long.buri  "))
+        .collect();
+    assert_eq!(failed, ["\"t03\"", "\"t37\""], "{spread}");
+    assert!(
+        spread.ends_with("38 passed, 2 failed, 0 skipped"),
+        "{spread}"
+    );
+}
+
 /// **A suite whose process waits with nothing to run doesn't hold its job's
 /// place**, so another suite starts beside it. One job at a time, each suite's
 /// runtime waits until the other's has started: held, the first would wait
