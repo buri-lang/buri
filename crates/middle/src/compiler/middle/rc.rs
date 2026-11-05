@@ -361,8 +361,9 @@ pub enum Target {
     Node(NodeId),
     /// A struct local released **field by field, except the fields the mask
     /// names**: a dying update's base on the path a `?` leaves by, after the
-    /// update moved those fields out of it ([`moved_fields`]). Only ever a
-    /// [`RcOp::DecRef`] at [`Position::Escape`].
+    /// update moved those fields out of it ([`moved_fields`]), or a struct
+    /// whose last use took a field out of it ([`Scan::moved_from_dying`]).
+    /// Only ever a [`RcOp::DecRef`].
     LocalExcept(LocalId, u64),
 }
 
@@ -2742,6 +2743,28 @@ impl Scan<'_> {
         true
     }
 
+    /// The struct local and field mask an owning read `e` of `base.f` moves
+    /// `f` out of, on the native branch: `base` is a counted local this
+    /// function owns and nothing after the read uses.
+    fn moved_from_dying(
+        &mut self,
+        e: &Expr,
+        base: &Expr,
+        live: &Live,
+        mode: Mode,
+    ) -> Option<(LocalId, u64)> {
+        let (ExprKind::Field { index, .. }, ExprKind::Local(root)) = (&e.kind, &base.kind) else {
+            return None;
+        };
+        let moves = mode == Mode::Own
+            && !self.opts.sharing
+            && index.index() < 64
+            && self.owned.contains(root)
+            && !live.contains(root)
+            && self.counted_ty(&e.ty.clone());
+        moves.then(|| (*root, 1u64 << index.index()))
+    }
+
     /// The update and field index [`Scan::moves_out`] would record for `e`.
     fn movable(&mut self, e: &Expr, base: &Expr) -> Option<(NodeId, FieldId)> {
         let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
@@ -3569,6 +3592,21 @@ impl Scan<'_> {
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
                 if self.inline_read(e) {
+                    return;
+                }
+                // A field taken out of a struct this read is the last use of
+                // keeps the count the struct held for it, and the struct's
+                // other fields are released here, rather than a retain of the
+                // field and a release of the whole struct.
+                if let Some((root, mask)) = self.moved_from_dying(e, base, live, mode) {
+                    self.used.insert(root);
+                    self.enliven(live, root);
+                    self.push(
+                        id,
+                        Position::After,
+                        RcOp::DecRef,
+                        Target::LocalExcept(root, mask),
+                    );
                     return;
                 }
                 let bid = self.child(id, 0);

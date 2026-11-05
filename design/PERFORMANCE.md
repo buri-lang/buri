@@ -8347,6 +8347,34 @@ calls deep through a generic struct draws the graph once. The `ui` case
 `styles_shared_by_several_programs` holds two programs' classes and the style
 errors, in order.
 
+### 6.95 A field read out of a dying record is moved, 2026-11-05
+
+```buri
+fn read(c: Carry, other: Str, k: Int): Int {
+  if (k == 0) { c.kept.length() } else { read(carry(c.kept, other, k), other, k - 1) }
+}
+```
+
+`c.kept` is the last use of `c`, yet the field took a count of its own and
+then the whole record was released: one retain and one release more per step
+than a `match` that takes `c` apart.
+
+`Scan::moved_from_dying` in `middle/rc.rs` now spots an owning read of a
+counted field out of an owned local that nothing reads after. The field keeps
+the count the record held, and the record's other fields are released with
+`Target::LocalExcept`. A record with a boxed field can't be released field by
+field, so `release_except` in `middle/lower.rs` retains the moved field and
+releases the record whole there. JavaScript is unchanged.
+
+`cli/tests/native/field_moves.rs` guards the step: 87 instructions against
+the match's 59 on stencil before, 57 after; 31 against 19 on LLVM before, 18
+after. A large test suite retired about 0.8% fewer test-binary instructions.
+
+Pushing a tuple built for the push, `acc.push(ctx, (k, v))`, also retains
+each part twice and releases it once. Lending the tuple's parts to the push
+cut a step from 584 to 524 instructions, but the same large suite showed no
+change beyond noise, so it isn't in.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

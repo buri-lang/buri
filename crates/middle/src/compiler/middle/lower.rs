@@ -1241,11 +1241,15 @@ impl FnLower<'_> {
         let agg = (*self.env.get(l)).or_ice("a local `rc` releases is bound");
         let ty = self.locals.get(l).ty;
         let ids = ty.head().map(|c| self.tables.tycon(c).fields().ids());
+        let rec = self.record_of(&ty);
+        // A box is a block only the whole struct's release frees, so there a
+        // moved field takes a count of its own and the struct goes whole.
+        let boxed = self.has_boxed_field(&ty, rec);
         for i in ids.into_iter().flatten() {
-            if i.index() < 64 && moved & (1u64 << i.index()) != 0 {
+            let is_moved = i.index() < 64 && moved & (1u64 << i.index()) != 0;
+            if is_moved != boxed {
                 continue;
             }
-            let rec = self.record_of(&ty);
             let f = self.field_type(rec, i);
             let value = self.emit(f, |dest| Inst::GetField {
                 dest,
@@ -1253,7 +1257,14 @@ impl FnLower<'_> {
                 ty: rec,
                 field: i,
             });
-            self.push(Inst::DecRef { value });
+            self.push(if boxed {
+                Inst::IncRef { value }
+            } else {
+                Inst::DecRef { value }
+            });
+        }
+        if boxed {
+            self.push(Inst::DecRef { value: agg });
         }
     }
 
