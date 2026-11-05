@@ -38,6 +38,7 @@ pub mod query;
 pub mod run;
 pub mod serve;
 pub mod test;
+mod test_times;
 pub mod version;
 pub mod watch;
 

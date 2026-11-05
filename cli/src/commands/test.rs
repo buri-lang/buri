@@ -34,6 +34,7 @@ use crate::build::buildfile::Platform;
 use crate::build::session::{self, Session};
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
+use crate::commands::test_times;
 use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
 use crate::compiler::middle::monomorphize;
@@ -447,6 +448,7 @@ fn one_pass(
         painting: std::sync::Mutex::new(Vec::new()),
         workspace: std::sync::Arc::clone(&session.workspace),
         coverage,
+        times: test_times::Times::load(&session.root),
     };
     let width = if slots.iter().all(|s| s.answer.is_some()) {
         1
@@ -489,7 +491,9 @@ fn one_pass(
         listed,
         held,
         shared_build,
+        times,
     } = tally;
+    shared.times.save(&shared.root, times);
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
     // one nothing already stopped — a suite that could not be built has an
@@ -991,6 +995,8 @@ struct Tally {
     /// What the steps that served several suites took, in nanoseconds: `None`
     /// when no such step ran.
     shared_build: Option<u64>,
+    /// The tests this run timed, by suite, for the next run's order.
+    times: Vec<(String, std::collections::HashMap<String, u64>)>,
 }
 
 /// Loads every suite the cache did not answer, on this thread, and queues it;
@@ -1171,6 +1177,17 @@ fn report(
         return;
     }
     for (platform, outcome) in &runs {
+        let ran = outcome
+            .cases
+            .iter()
+            .filter(|c| c.provenance == Provenance::Ran);
+        let tests: std::collections::HashMap<String, u64> =
+            ran.filter_map(|c| Some((c.name.clone(), c.ns?))).collect();
+        if platform.is_native() && !tests.is_empty() {
+            tally
+                .times
+                .push((session.workspace.label(target).to_string(), tests));
+        }
         if flags.verbose {
             list_suite(session, target, *platform, outcome, out);
             tally.listed = true;
@@ -1316,6 +1333,8 @@ struct Shared {
     coverage: Option<crate::build::coverage::Run>,
     /// The suites whose binaries may take the shared runner file ([`sharing`]).
     sharing: Vec<SlotId>,
+    /// How long each test took when it last ran, which orders the runs.
+    times: test_times::Times,
 }
 
 /// Each platform's first suite to build, in the pass's order: the one binary
@@ -1947,13 +1966,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
     // Told before any process starts, so the report waits for the link's
     // `--explain` lines however soon an answer arrives.
     tell.tell(Done::Linking { slot });
-    queue_members(
-        binary,
-        written,
-        vec![(spec, seeds)],
-        queue,
-        jobs_of(&shared.flags),
-    );
+    queue_members(binary, written, vec![(spec, seeds)], queue, shared);
     Done::Built {
         slots: vec![slot],
         explain,
@@ -2285,7 +2298,7 @@ fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
         return answer_js(&suite, JsRan::NotRun(d), shared);
     }
     let tests = suite.roots.len();
-    let order = starts_of(&suite.roots, tests);
+    let order = starts_of(&suite.roots, tests, None);
     let pulled = std::sync::Arc::new(JsPulled {
         suite,
         state: std::sync::Mutex::new(JsGathered {
@@ -3646,7 +3659,7 @@ fn serve(job: ServedJob, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
     for (member, _) in &mut members {
         member.build = Some(build);
     }
-    queue_members(binary, sheet, members, queue, jobs_of(&shared.flags));
+    queue_members(binary, sheet, members, queue, shared);
     Done::Progress
 }
 
@@ -5047,7 +5060,7 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
             (m, std::sync::Arc::clone(&seeds))
         })
         .collect();
-    queue_members(binary, written, members, queue, jobs_of(&shared.flags));
+    queue_members(binary, written, members, queue, shared);
     Done::Built {
         slots: first,
         explain,
@@ -5066,11 +5079,14 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
 /// not pay a launch per few blocks.
 ///
 /// **The slowest work goes first**, so it doesn't start last and run on while
-/// every other slot is idle. Nothing has timed a cold run's tests, so size
-/// stands in for time: a member's jobs are ranked by how many tests it has, and
-/// each of its processes starts at its longest waiting test, by the length of
-/// the test's source ([`starts_of`]). Only the schedule moves. Each block keeps
-/// its number, so verdicts are reported in block order whichever ran first.
+/// every other slot is idle. The times each test took when it last ran
+/// ([`test_times`]) say which that is: a member's `k`th job is ranked by its
+/// `k`th slowest test, and each of its processes starts at its slowest
+/// waiting test ([`starts_of`]). A suite with no recorded times goes by size,
+/// ahead of every timed one: its jobs are ranked by how many tests it has,
+/// and start at the test with the longest source. Only the schedule moves.
+/// Each block keeps its number, so verdicts are reported in block order
+/// whichever ran first.
 ///
 /// A suite with a `timeout_seconds` has one job: a limit bounds the suite's
 /// one process, so it is not divided between several. So does a suite that
@@ -5082,9 +5098,10 @@ fn queue_members(
     sheet: Option<String>,
     members: Vec<(MemberSpec, std::sync::Arc<String>)>,
     queue: &Queue,
-    width: usize,
+    shared: &Shared,
 ) {
     let binary = std::sync::Arc::new(binary);
+    let width = jobs_of(&shared.flags);
     for (spec, seeds) in members {
         let ordered = spec.limit.is_some() || spec.paints;
         let blocks: Vec<usize> = spec
@@ -5092,17 +5109,35 @@ fn queue_members(
             .iter()
             .flat_map(|&(from, to)| from..to)
             .collect();
+        let recorded = shared.times.suite(&spec.label);
         let starts = if ordered {
             (0..blocks.len()).collect()
         } else {
-            starts_of(&spec.roots, blocks.len())
+            starts_of(&spec.roots, blocks.len(), recorded)
         };
         let jobs = if ordered {
             1
         } else {
             blocks.len().clamp(1, width.max(1))
         };
-        let rank = u64::try_from(blocks.len()).unwrap_or(u64::MAX);
+        // The time the test at `at` took, or the suite's size, above every
+        // time, for a suite with none recorded: one that has never run might
+        // be the slowest.
+        let rank = |at: usize| match recorded {
+            Some(times) => spec
+                .roots
+                .get(at)
+                .and_then(|r| times.get(&r.name))
+                .map_or(0, |&ns| ns.min(UNTIMED - 1)),
+            None => UNTIMED | u64::try_from(blocks.len()).unwrap_or(0),
+        };
+        // Job `k` by the `k`th test it'd start at, and a member run in order,
+        // one job, by its slowest test.
+        let ranks: Vec<u64> = if ordered {
+            vec![(0..blocks.len()).map(rank).max().unwrap_or(0)]
+        } else {
+            starts.iter().take(jobs).map(|&at| rank(at)).collect()
+        };
         let spec = std::sync::Arc::new(spec);
         let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
             taken: vec![false; blocks.len()],
@@ -5110,7 +5145,7 @@ fn queue_members(
             starts,
             ..Gathered::default()
         }));
-        for _ in 0..jobs {
+        for rank in ranks {
             let job = Job::Member(MemberJob {
                 binary: std::sync::Arc::clone(&binary),
                 seeds: std::sync::Arc::clone(&seeds),
@@ -5123,17 +5158,26 @@ fn queue_members(
     }
 }
 
-/// The positions of a member's `count` blocks, longest test first: by the
-/// length of the source of the test at that position in `roots`. Tests of one
-/// length keep their order.
-fn starts_of(roots: &[Root], count: usize) -> Vec<usize> {
-    let length = |at: usize| {
-        roots
-            .get(at)
-            .map_or(0, |r| r.span.end.saturating_sub(r.span.start))
+/// Ranks a job of a suite with no recorded times above every timed one.
+const UNTIMED: u64 = 1 << 63;
+
+/// The positions of a member's `count` blocks, slowest test first: by the
+/// times `recorded` for the tests at those positions in `roots`, or for a
+/// suite with none, by the length of their source. Tests of one estimate keep
+/// their order.
+fn starts_of(
+    roots: &[Root],
+    count: usize,
+    recorded: Option<&std::collections::HashMap<String, u64>>,
+) -> Vec<usize> {
+    let estimate = |at: usize| {
+        roots.get(at).map_or(0, |r| match recorded {
+            Some(times) => times.get(&r.name).copied().unwrap_or(0),
+            None => u64::from(r.span.end.saturating_sub(r.span.start)),
+        })
     };
     let mut starts: Vec<usize> = (0..count).collect();
-    starts.sort_by_key(|&at| std::cmp::Reverse(length(at)));
+    starts.sort_by_key(|&at| std::cmp::Reverse(estimate(at)));
     starts
 }
 

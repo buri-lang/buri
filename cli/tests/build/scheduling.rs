@@ -838,6 +838,169 @@ fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
     );
 }
 
+/// A test body that adds up a list of a million numbers: milliseconds of work
+/// in a few lines, where the other tests take microseconds.
+const SLOW_BODY: &str = "  let ctx = context { Allocator: alloc() };\n  \
+     assert.greaterThan(list.range(ctx, 0, 1000000).fold(fn(sum, i) => sum + i % 7, 0), 0);\n";
+
+/// `//lib/many`, three quick tests, and `//lib/slow`, two: "slow short", the
+/// shorter but the slow one ([`SLOW_BODY`]), then "quick longest".
+fn timed(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    let tests = [
+        (
+            "many",
+            "\ntest \"many one\" {\n  let two = one() + one();\n  let three = two + one();\n  \
+             assert.equal(three, 3);\n}\n\n\
+             test \"many two\" {\n  let two = one() + one();\n  assert.equal(two, 2);\n}\n\n\
+             test \"many three\" {\n  let two = one() + one();\n  let three = two + one();\n  \
+             assert.equal(three + one(), 4);\n}\n"
+                .to_string(),
+        ),
+        (
+            "slow",
+            format!(
+                "from \"core/list\" import * as list;\n\
+                 from \"platform/effect\" import {{ Allocator }};\n\
+                 from \"platform/effect/testing\" import {{ alloc }};\n\n\
+                 test \"slow short\" {{\n{SLOW_BODY}}}\n\n\
+                 test \"quick longest\" {{\n  let two = one() + one();\n  let three = two + one();\n  \
+                 let four = three + one();\n  let five = four + one();\n  let six = five + one();\n  \
+                 assert.equal(two, 2);\n  assert.equal(three, 3);\n  assert.equal(four, 4);\n  \
+                 assert.equal(five, 5);\n  assert.equal(six, 6);\n}}\n"
+            ),
+        ),
+    ];
+    for (lib, body) in tests {
+        scratch.write(
+            &format!("lib/{lib}/BUILD.buri"),
+            &format!("library {{\n  test {{ sources: [\"test/{lib}.buri\"] }}\n}}\n"),
+        );
+        scratch.write(
+            &format!("lib/{lib}/lib.buri"),
+            "export fn one(): Int { 1 }\n",
+        );
+        scratch.write(
+            &format!("lib/{lib}/test/{lib}.buri"),
+            &format!(
+                "from \"//lib/{lib}\" import {{ one }};\n\
+                 from \"core/testing/assert\" import * as assert;\n{body}"
+            ),
+        );
+    }
+    scratch
+}
+
+/// The `first tests handed out:` entries of a run under `BURI_PROFILE`.
+fn handed_out(run: &Run) -> Vec<String> {
+    let line = run
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("first tests handed out: "))
+        .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
+    line.split(", ").map(str::to_string).collect()
+}
+
+/// **A test that took longest last time is handed out first the next time**,
+/// and its suite before a suite with more tests, whatever the length of its
+/// source. The first run has no times, so it goes by test count and source
+/// length. One job at a time, `BURI_PROFILE` lists the order exactly.
+#[test]
+fn the_test_slowest_last_time_is_handed_out_first() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = timed("timed-handed");
+    let args = ["test", "//...", "--force", "--jobs=1"];
+    let first = scratch.run_with_env(&args, &[("BURI_PROFILE", "1")]);
+    first.heap_ok();
+    assert_eq!(
+        handed_out(&first),
+        [
+            "//lib/many \"many three\"",
+            "//lib/many \"many one\"",
+            "//lib/many \"many two\"",
+            "//lib/slow \"quick longest\"",
+            "//lib/slow \"slow short\"",
+        ],
+        "{}",
+        indent(&first.all())
+    );
+    let again = scratch.run_with_env(&args, &[("BURI_PROFILE", "1")]);
+    again.heap_ok();
+    let handed = handed_out(&again);
+    // `//lib/many`'s tests all take microseconds, so their order among
+    // themselves is whichever happened to be slowest.
+    let mut rest = handed[2..].to_vec();
+    rest.sort();
+    assert_eq!(
+        (&handed[..2], rest),
+        (
+            &[
+                "//lib/slow \"slow short\"".to_string(),
+                "//lib/slow \"quick longest\"".to_string()
+            ][..],
+            vec![
+                "//lib/many \"many one\"".to_string(),
+                "//lib/many \"many three\"".to_string(),
+                "//lib/many \"many two\"".to_string(),
+            ]
+        ),
+        "{}",
+        indent(&again.all())
+    );
+}
+
+/// **A run that goes by the last run's times reports exactly as the run
+/// before it did**: suites in label order, and each suite's tests in the order
+/// they're declared.
+#[test]
+fn a_run_ordered_by_last_times_reports_as_before() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = timed("timed-report");
+    let report = || {
+        let run = scratch.run(&[
+            "test",
+            "//...",
+            "--force",
+            "--verbose",
+            "--color=never",
+            "--jobs=2",
+        ]);
+        run.heap_ok();
+        let lines: Vec<String> = run
+            .stdout
+            .lines()
+            .map(|l| {
+                if l.contains(" passed, ") {
+                    l.split(" (").next().unwrap_or(l).to_string()
+                } else {
+                    blank_test_time(l)
+                }
+            })
+            .collect();
+        (lines.join("\n"), run.stderr.clone())
+    };
+    let list = "\
+//lib/many  native  3 tests  <time>  built with others
+  ok    many.buri  many one    <time>
+  ok    many.buri  many two    <time>
+  ok    many.buri  many three  <time>
+//lib/slow  native  2 tests  <time>  built with others
+  ok    slow.buri  slow short     <time>
+  ok    slow.buri  quick longest  <time>
+shared build  <time>
+
+5 passed, 0 failed, 0 skipped";
+    let first = report();
+    assert_eq!(first, (list.to_string(), String::new()));
+    assert_eq!(report(), first);
+}
+
 /// A suite `//lib/long` of forty tests, `t00` to `t39`, each one line longer
 /// than the one before, so `t39` is the longest. `t03` and `t37` fail.
 fn forty_tests(name: &str) -> Scratch {

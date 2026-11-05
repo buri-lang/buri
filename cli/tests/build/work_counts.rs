@@ -27,7 +27,8 @@ const PROFILED: [&str; 9] = [
     "test processes",
 ];
 
-/// Counted off the disk rather than printed.
+/// Counted off the disk rather than printed. A run that runs a native test
+/// also writes `.buri/test-times`, the times the next run is ordered by.
 const WRITTEN: &str = "files written";
 
 /// Three suites. `//lib/a` and `//lib/b` share `//lib/shared`; `//lib/c`
@@ -268,12 +269,12 @@ const LOADED_NATIVE: [&str; 8] = [
     "suites built 3, objects compiled 10, links 1, images linked 1, new executables launched 1, test processes 3",
     "suites reused 3, files written 0",
     "suites built 1, suites reused 2, objects compiled 2, objects restored 4, images linked 1, test processes 1, \
-     files written 5",
+     files written 6",
     "suites built 2, suites reused 1, objects compiled 3, objects restored 5, images linked 1, test processes 2, \
-     files written 8",
-    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 3",
-    "suites restored 1, test processes 1, files written 0",
+     files written 9",
     "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 4",
+    "suites restored 1, test processes 1, files written 1",
+    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 5",
     "suites reused 1, files written 0",
 ];
 
@@ -293,21 +294,21 @@ fn native(release: bool, linked: bool) -> [String; 8] {
         format!(
             "suites built 1, suites reused 2, objects compiled 2, objects restored 4, links 1, \
              new executables launched 1, test processes 1, files written {}",
-            6 + runner
+            7 + runner
         ),
         format!(
             "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
              new executables launched 1, test processes 2, files written {}",
-            9 + runner
+            10 + runner
         ),
         format!(
             "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched {filtered}, \
              test processes 1, files written {}",
-            4 + runner
+            5 + runner
         ),
-        "suites restored 1, test processes 1, files written 0".into(),
+        "suites restored 1, test processes 1, files written 1".into(),
         // The runner's bytes match the filtered run's, so it isn't a new file.
-        "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 5".into(),
+        "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 6".into(),
         "suites reused 1, files written 0".into(),
     ];
     if release {
@@ -588,21 +589,21 @@ const NATIVE_FAILING: [&str; 11] = [
     // The two runners share three units, which a run emits once.
     "suites built 5, objects compiled 13, objects restored 3, links 2, new executables launched 2, \
      test processes 5",
-    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites reused 3, suites restored 2, test processes 2, files written 1",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, links 1, \
      new executables launched 1, test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
      new executables launched 1, test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
      new executables launched 1, test processes 3",
-    "suites reused 2, suites restored 3, test processes 3, files written 0",
+    "suites reused 2, suites restored 3, test processes 3, files written 1",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
      new executables launched 1, test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
      new executables launched 1, test processes 3",
     "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, test processes 1",
-    "suites restored 1, test processes 1, files written 0",
-    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites restored 1, test processes 1, files written 1",
+    "suites reused 3, suites restored 2, test processes 2, files written 1",
 ];
 
 const JAVASCRIPT_FAILING: [&str; 11] = [
@@ -625,21 +626,21 @@ const JAVASCRIPT_FAILING: [&str; 11] = [
 const LOADED_FAILING: [&str; 11] = [
     "suites built 5, objects compiled 13, objects restored 3, links 1, images linked 2, \
      new executables launched 1, test processes 5",
-    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites reused 3, suites restored 2, test processes 2, files written 1",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, images linked 1, \
      test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
      test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
      test processes 3",
-    "suites reused 2, suites restored 3, test processes 3, files written 0",
+    "suites reused 2, suites restored 3, test processes 3, files written 1",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
      test processes 3",
     "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
      test processes 3",
     "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1",
-    "suites restored 1, test processes 1, files written 0",
-    "suites reused 3, suites restored 2, test processes 2, files written 0",
+    "suites restored 1, test processes 1, files written 1",
+    "suites reused 3, suites restored 2, test processes 2, files written 1",
 ];
 
 #[test]
