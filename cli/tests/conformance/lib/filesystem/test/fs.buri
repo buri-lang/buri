@@ -625,3 +625,118 @@ test "a call the plan failed is still a call the log has" {
     );
     assert.equal(files.calls(), [copyFile("a", "b")]);
 }
+
+// -----------------------------------------------------------------------------
+// Nested paths, and names that share a start
+// -----------------------------------------------------------------------------
+
+test "a listing holds what is under the directory and nothing whose name only starts the same" {
+    // `-`, `.` and `0` sort on either side of `/`, so a sibling named `a-b`,
+    // `a.c` or `a0` sits right beside what is under `a/`.
+    let files = disk().files([
+        ("a-b/y", "Y"),
+        ("a.c", "C"),
+        ("a/x", "X"),
+        ("a/deep/z", "Z"),
+        ("a0", "0"),
+        ("ab", "B"),
+    ]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
+    };
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "a"))), ["deep", "x"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "a/deep"))), ["z"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, ""))), [
+        "a",
+        "a-b",
+        "a.c",
+        "a0",
+        "ab",
+    ]);
+    assert.ok(fs.remove(ctx, path.of(ctx, "a/deep/z")));
+    assert.ok(fs.removeDir(ctx, path.of(ctx, "a/deep")));
+    assert.ok(fs.remove(ctx, path.of(ctx, "a/x")));
+    assert.ok(fs.removeDir(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "a-b")));
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, ""))), [
+        "a-b",
+        "a.c",
+        "a0",
+        "ab",
+    ]);
+}
+
+test "a listing is in UTF-16 order, whatever order the files were written in" {
+    // `ｚ` is past the surrogates and `😀` is two of them, so code-unit order
+    // puts the emoji first where byte order would not.
+    let files = disk();
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "d")));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/ｚ"), "1"));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/z"), "2"));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/😀"), "3"));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/Z"), "4"));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/é"), "5"));
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), [
+        "Z",
+        "z",
+        "é",
+        "😀",
+        "ｚ",
+    ]);
+}
+
+test "a file written, removed and written again is one entry with its last body" {
+    let files = disk().files([("d/f", "one")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
+    };
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/f"), "two"));
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), ["f"]);
+    assert.ok(fs.remove(ctx, path.of(ctx, "d/f")));
+    assert.equal(assert.err(fs.readText(ctx, path.of(ctx, "d/f"))), .NotFound);
+    assert.equal(assert.err(fs.remove(ctx, path.of(ctx, "d/f"))), .NotFound);
+    assert.isEmpty(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "d/f"), "three"));
+    assert.ok(fs.append(ctx, path.of(ctx, "d/f"), [33]));
+    assert.equal(assert.ok(fs.readText(ctx, path.of(ctx, "d/f"))), "three!");
+    assert.equal(files.snapshot(), [("d/f", "three!")]);
+}
+
+test "a missing file deep in a tree is NotFound, and every level still lists" {
+    let files = disk().files([("t/one/two/three/leaf", "L")]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: files,
+        FileSystemWrite: files,
+    };
+    assert.equal(
+        assert.err(fs.readText(ctx, path.of(ctx, "t/one/two/three/gone"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.metadata(ctx, path.of(ctx, "t/one/two/gone"))),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.writeText(ctx, path.of(ctx, "t/one/gone/f"), "F")),
+        .NotFound,
+    );
+    assert.equal(
+        assert.err(fs.writeText(ctx, path.of(ctx, "t/one/two/three/leaf/f"), "F")),
+        .NotADirectory,
+    );
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "t"))), ["one"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "t/one"))), ["two"]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "t/one/two/three"))), ["leaf"]);
+    assert.isTrue(fs.isDirectory(ctx, path.of(ctx, "t/one/two")));
+}

@@ -1251,3 +1251,81 @@ fn a_test_build_that_styles_a_node_draws_the_style_graph_once() {
         indent(&run.all())
     );
 }
+
+/// The instructions the test processes a `BURI_PROFILE=1` run of `buri test`
+/// waited for retired, in millions: the `run` row's child column, or `None`
+/// where the platform counts no child's instructions (Linux).
+fn test_process_instructions(report: &str) -> Option<f64> {
+    let line = report
+        .lines()
+        .find(|l| l.trim_start().starts_with("run "))?;
+    let words: Vec<&str> = line.split_whitespace().collect();
+    // `… <child instructions> M <child cpu> s` ends the row.
+    let count = words.len().checked_sub(4).and_then(|i| words.get(i))?;
+    let count = count.parse::<f64>().ok()?;
+    (count > 0.0).then_some(count)
+}
+
+/// A suite that writes, appends to, reads, renames, lists and removes `n`
+/// files in one directory of the testing filesystem.
+fn many_files_suite(n: usize) -> Scratch {
+    let scratch = Scratch::repo("profile-many-files");
+    scratch.write(
+        "lib/files/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/files.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/files/lib.buri", "export fn unused(): Int { 0 }\n");
+    scratch.write(
+        "lib/files/test/files.buri",
+        &format!(
+            "from \"core/fs\" import * as fs;\n\
+             from \"core/fs\" import {{ FileSystemRead, FileSystemWrite }};\n\
+             from \"core/path\" import * as path;\n\
+             from \"core/str\" import * as str;\n\
+             from \"core/testing/assert\" import * as assert;\n\
+             from \"platform/effect\" import {{ Allocator }};\n\
+             from \"platform/effect/testing\" import {{ alloc, fs as disk }};\n\n\
+             fn fill<C: Allocator + FileSystemRead + FileSystemWrite>(ctx: C, i: Int, n: Int): Int {{\n    \
+             if (i == n) {{\n        0\n    }} else {{\n        \
+             let at = path.of(ctx, str.format(ctx, \"d/f${{i}}\"));\n        \
+             assert.ok(fs.writeText(ctx, at, \"x\"));\n        \
+             assert.ok(fs.append(ctx, at, [33]));\n        \
+             assert.equal(assert.ok(fs.readText(ctx, at)), \"x!\");\n        \
+             assert.ok(fs.rename(ctx, at, path.of(ctx, str.format(ctx, \"d/g${{i}}\"))));\n        \
+             fill(ctx, i + 1, n) + 1\n    }}\n}}\n\n\
+             fn empty<C: Allocator + FileSystemWrite>(ctx: C, i: Int, n: Int): Int {{\n    \
+             if (i == n) {{\n        0\n    }} else {{\n        \
+             assert.ok(fs.remove(ctx, path.of(ctx, str.format(ctx, \"d/g${{i}}\"))));\n        \
+             empty(ctx, i + 1, n) + 1\n    }}\n}}\n\n\
+             test \"{n} files come and go\" {{\n    \
+             let files = disk();\n    \
+             let ctx = context {{\n        Allocator: alloc(),\n        \
+             FileSystemRead: files,\n        FileSystemWrite: files,\n    }};\n    \
+             assert.ok(fs.makeDir(ctx, path.of(ctx, \"d\")));\n    \
+             assert.equal(fill(ctx, 0, {n}), {n});\n    \
+             assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, \"d\"))).length(), {n});\n    \
+             assert.equal(empty(ctx, 0, {n}), {n});\n    \
+             assert.isEmpty(assert.ok(fs.listDir(ctx, path.of(ctx, \"d\"))));\n}}\n"
+        ),
+    );
+    scratch
+}
+
+/// **The testing filesystem is linear in the files it holds.** Every read,
+/// write and parent check scanned a list of every file, and a listing
+/// deduplicated against a list of every name, so a suite's filesystem work
+/// grew with the square of its files.
+#[test]
+fn the_test_filesystem_is_linear_in_its_files() {
+    grows_linearly(
+        "a suite over many files",
+        |n| {
+            let run =
+                many_files_suite(n).run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+            run.ok();
+            assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+            test_process_instructions(&run.all())
+        },
+        2000,
+    );
+}

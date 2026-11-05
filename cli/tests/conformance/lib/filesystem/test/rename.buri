@@ -196,6 +196,47 @@ test "a directory whose name only starts with the other's is not inside it" {
     assert.equal(disk.snapshot(), [("ab/x", "X")]);
 }
 
+test "a directory moves without its siblings whose names start the same" {
+    // `-` and `.` sort before `/`, and `0` after it, so these siblings sit on
+    // both sides of everything under `a/`.
+    let disk = testFs().files([
+        ("a-b/y", "Y"),
+        ("a.c", "C"),
+        ("a/deep/z", "Z"),
+        ("a/x", "X"),
+        ("a0/w", "W"),
+    ]);
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk,
+        FileSystemWrite: disk,
+    };
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/empty")));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a-b/kept")));
+    assert.ok(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "moved")));
+    assert.equal(disk.snapshot(), [
+        ("a-b/y", "Y"),
+        ("a.c", "C"),
+        ("a0/w", "W"),
+        ("moved/deep/z", "Z"),
+        ("moved/x", "X"),
+    ]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, ""))), [
+        "a-b",
+        "a.c",
+        "a0",
+        "moved",
+    ]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "moved"))), [
+        "deep",
+        "empty",
+        "x",
+    ]);
+    assert.equal(assert.ok(fs.listDir(ctx, path.of(ctx, "a-b"))), ["kept", "y"]);
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a/empty")));
+}
+
 test "a file renamed onto itself is still there" {
     let disk = testFs().files([("f", "F")]);
     let ctx = context {

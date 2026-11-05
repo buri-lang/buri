@@ -68,6 +68,9 @@
               bounds them"
 )]
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound;
+
 use crate::BURI_OK;
 use crate::sync::Mutex;
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
@@ -94,23 +97,20 @@ enum Slot {
         bytes: Option<Vec<u8>>,
         calls: Vec<StdinLog>,
     },
-    /// The file store — the files, in insertion order, and the directories
-    /// `makeDir` has been asked for.
+    /// The file store — the files, and the directories `makeDir` has been
+    /// asked for.
     ///
-    /// A `Vec` of pairs rather than a map, because the JavaScript side is an
-    /// object and `readDir` reads its keys: a map would be a second ordering to
-    /// reconcile, and there is no fixture large enough for the lookup cost to
-    /// be the interesting number.
+    /// Sorted by path, so a lookup is one search and everything under a
+    /// directory `d` is one run of keys: every one of them starts with `d/`.
+    /// Neither order is one a program sees, because `readDir` and `snapshot`
+    /// sort by UTF-16 code unit on the way out, as the JavaScript side does.
     ///
     /// **Octets**, not text: `writeFileBytes` must read back through
     /// `readFileBytes` unchanged, and a `String` cannot hold what is not UTF-8.
     /// `readFile` decodes lossily on the way out, which is what a real
     /// filesystem's does. The directories are separate because a flat map has
     /// no empty one otherwise, and `readDir` after `makeDir` has to see one.
-    Files {
-        entries: Vec<(String, Vec<u8>)>,
-        dirs: Vec<String>,
-    },
+    Files { entries: Entries, dirs: Dirs },
     /// `TestClock` — the current instant, in milliseconds.
     Clock(i64),
     /// `TestRandom` — the xorshift32 state.
@@ -564,19 +564,40 @@ const IO_NOT_A_DIRECTORY: i32 = 4;
 /// asserting on it reads the same on both backends.
 const IO_OTHER: i32 = 6;
 
-/// The bytes a store holds at `path`, or `None` where there is no file there.
+/// A store's files, by path.
+type Entries = BTreeMap<String, Vec<u8>>;
+
+/// A store's recorded directories, [`fs_clean`]ed.
+type Dirs = BTreeSet<String>;
+
+/// `f` of the bytes a store holds at `path`, or `None` where there is no file
+/// there. The bytes are lent rather than copied, so a caller that only measures
+/// or slices them pays for no copy.
 ///
 /// A handle that names no `Files` slot cannot arise from a program — `newFs` is
 /// the only constructor of one — so the fallback is "empty" rather than an
 /// abort, per [`with`]'s rule.
-fn fs_read(handle: i64, path: &str) -> Option<Vec<u8>> {
+fn fs_file<R>(handle: i64, path: &str, f: impl FnOnce(&[u8]) -> R) -> Option<R> {
     with(handle, None, |slot| match slot {
-        Slot::Files { entries, .. } => entries
-            .iter()
-            .find(|(k, _)| k == path)
-            .map(|(_, v)| v.clone()),
+        Slot::Files { entries, .. } => entries.get(path).map(|body| f(body)),
         _ => None,
     })
+}
+
+/// Every file path and then every directory a store holds that starts with
+/// `prefix`. Sorted keys keep those as one run each, beginning where `prefix`
+/// itself would go, so this reads what it answers and nothing else.
+fn fs_under<'a>(
+    entries: &'a Entries,
+    dirs: &'a Dirs,
+    prefix: &'a str,
+) -> impl Iterator<Item = &'a String> + 'a {
+    let from = (Bound::Included(prefix), Bound::Unbounded);
+    let under = move |k: &&String| k.starts_with(prefix);
+    let files = entries.range::<str, _>(from).map(|(k, _)| k);
+    files
+        .take_while(under)
+        .chain(dirs.range::<str, _>(from).take_while(under))
 }
 
 /// A path with its trailing slashes removed, which is how a directory is
@@ -595,10 +616,7 @@ fn fs_put(handle: i64, path: String, body: Vec<u8>) -> i32 {
         if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
             return tag;
         }
-        match entries.iter_mut().find(|(k, _)| *k == path) {
-            Some(entry) => entry.1 = body,
-            None => entries.push((path, body)),
-        }
+        entries.insert(path, body);
         BURI_OK
     })
 }
@@ -930,12 +948,7 @@ fn slot_plan(handle: i64) -> i64 {
 /// The order matters: the store is installed first so that a view's `store` is
 /// always an index below its own, which is what makes [`fs_view`] one lookup
 /// rather than a walk.
-fn fs_install(
-    entries: Vec<(String, Vec<u8>)>,
-    dirs: Vec<String>,
-    read_only: bool,
-    plan: i64,
-) -> i64 {
+fn fs_install(entries: Entries, dirs: Dirs, read_only: bool, plan: i64) -> i64 {
     let store = install(Slot::Files { entries, dirs });
     install(Slot::Fs {
         store,
@@ -946,10 +959,10 @@ fn fs_install(
 }
 
 /// This view's files and directories, copied.
-fn fs_contents(store: i64) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
-    with(store, (Vec::new(), Vec::new()), |slot| match slot {
+fn fs_contents(store: i64) -> (Entries, Dirs) {
+    with(store, (Entries::new(), Dirs::new()), |slot| match slot {
         Slot::Files { entries, dirs } => (entries.clone(), dirs.clone()),
-        _ => (Vec::new(), Vec::new()),
+        _ => (Entries::new(), Dirs::new()),
     })
 }
 
@@ -996,7 +1009,7 @@ fn list_of_pairs(items: &[(String, String)]) -> BuriList {
 /// plan and a plan is a list of Buri values this side cannot make.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_fs() -> i64 {
-    fs_install(Vec::new(), Vec::new(), false, -1)
+    fs_install(Entries::new(), Dirs::new(), false, -1)
 }
 
 /// `TestFileSystem::files` — a **new** filesystem holding this one's files and these as
@@ -1052,10 +1065,7 @@ fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) 
         if let Some((parent, _)) = fs_clean(&path).rsplit_once('/') {
             fs_record_dirs(&mut dirs, parent);
         }
-        match entries.iter_mut().find(|(k, _)| *k == path) {
-            Some(entry) => entry.1 = body,
-            None => entries.push((path, body)),
-        }
+        entries.insert(path, body);
     }
     fs_install(entries, dirs, read_only, plan)
 }
@@ -1134,10 +1144,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else {
+    let Some(value) = fs_file(store, &path, |body| str_of(&String::from_utf8_lossy(body))) else {
         return IO_NOT_FOUND;
     };
-    let value = str_of(&String::from_utf8_lossy(&body));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -1218,7 +1227,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file(
             view(bptr, blen).to_vec(),
         )
     };
-    let _recorded = recording_fs(handle, "writeFile", &path, &String::from_utf8_lossy(&body));
+    let _recorded = recording_fs(handle, "writeFile", &path, String::from_utf8_lossy(&body));
     if read_only {
         return IO_READ_ONLY;
     }
@@ -1242,9 +1251,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_file_exists(
     let _recorded = recording_fs(handle, "fileExists", &path, "");
     let (store, _) = fs_view(handle);
     let found = with(store, false, |slot| match slot {
-        Slot::Files { entries, dirs } => {
-            entries.iter().any(|(k, _)| *k == path) || dirs.contains(&path)
-        }
+        Slot::Files { entries, dirs } => entries.contains_key(&path) || dirs.contains(&path),
         _ => false,
     });
     u8::from(found)
@@ -1276,22 +1283,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_dir(
         format!("{}/", path.trim_end_matches('/'))
     };
     let (store, _) = fs_view(handle);
-    let mut names: Vec<String> = Vec::new();
-    with(store, (), |slot| {
-        if let Slot::Files { entries, dirs } = slot {
-            let keys = entries.iter().map(|(k, _)| k).chain(dirs.iter());
-            for key in keys {
-                let Some(rest) = key.strip_prefix(prefix.as_str()) else {
-                    continue;
-                };
-                let Some(first) = rest.split('/').next().filter(|s| !s.is_empty()) else {
-                    continue;
-                };
-                if !names.iter().any(|n| n == first) {
-                    names.push(first.to_string());
-                }
-            }
-        }
+    let mut names: Vec<String> = with(store, Vec::new(), |slot| {
+        let Slot::Files { entries, dirs } = slot else {
+            return Vec::new();
+        };
+        let firsts = fs_under(entries, dirs, &prefix).filter_map(|key| {
+            let rest = key.strip_prefix(prefix.as_str())?;
+            rest.split('/').next().filter(|s| !s.is_empty())
+        });
+        let unique: BTreeSet<&str> = firsts.collect();
+        unique.into_iter().map(str::to_string).collect()
     });
     names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
     let value = list_of_strs(&names);
@@ -1317,10 +1318,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file_bytes(
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let _recorded = recording_fs(handle, "readFileBytes", &path, "");
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else {
+    let Some(value) = fs_file(store, &path, list_of_bytes) else {
         return IO_NOT_FOUND;
     };
-    let value = list_of_bytes(&body);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -1353,7 +1353,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file_bytes(
         handle,
         "writeFileBytes",
         &path,
-        &String::from_utf8_lossy(&body),
+        String::from_utf8_lossy(&body),
     );
     if read_only {
         return IO_READ_ONLY;
@@ -1383,7 +1383,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
             view(bptr, blen).to_vec(),
         )
     };
-    let _recorded = recording_fs(handle, "appendFile", &path, &String::from_utf8_lossy(&body));
+    let _recorded = recording_fs(handle, "appendFile", &path, String::from_utf8_lossy(&body));
     if read_only {
         return IO_READ_ONLY;
     }
@@ -1394,10 +1394,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
         if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
             return tag;
         }
-        match entries.iter_mut().find(|(k, _)| *k == path) {
-            Some(entry) => entry.1.extend_from_slice(&body),
-            None => entries.push((path, body)),
-        }
+        entries.entry(path).or_default().extend_from_slice(&body);
         BURI_OK
     })
 }
@@ -1458,12 +1455,12 @@ enum Named {
     Nothing,
 }
 
-fn fs_named(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Named {
+fn fs_named(entries: &Entries, dirs: &Dirs, path: &str) -> Named {
     if path.is_empty() {
         Named::Directory
-    } else if entries.iter().any(|(k, _)| k == path) {
+    } else if entries.contains_key(path) {
         Named::File
-    } else if dirs.iter().any(|d| d == path) || fs_holds(entries, dirs, path) {
+    } else if dirs.contains(path) || fs_holds(entries, dirs, path) {
         Named::Directory
     } else {
         Named::Nothing
@@ -1471,12 +1468,13 @@ fn fs_named(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Named
 }
 
 /// Whether anything is stored under the directory `dir`.
-fn fs_holds(entries: &[(String, Vec<u8>)], dirs: &[String], dir: &str) -> bool {
-    entries
-        .iter()
-        .map(|(k, _)| k)
-        .chain(dirs)
-        .any(|k| fs_inside(k, dir))
+fn fs_holds(entries: &Entries, dirs: &Dirs, dir: &str) -> bool {
+    if dir.is_empty() {
+        // Everything is under the root but the root itself, and `""` is the
+        // least key there is.
+        return entries.keys().any(|k| !k.is_empty()) || !dirs.is_empty();
+    }
+    fs_under(entries, dirs, &format!("{dir}/")).next().is_some()
 }
 
 /// Whether `path` is strictly under the directory `dir`; everything is under the root.
@@ -1490,7 +1488,7 @@ fn fs_inside(path: &str, dir: &str) -> bool {
 /// Whether every directory on the way to `path` is there, as `open(2)` and
 /// `rename(2)` walk it: `.NotFound` at the first one missing, `.NotADirectory`
 /// at the first file.
-fn fs_parents(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Result<(), i32> {
+fn fs_parents(entries: &Entries, dirs: &Dirs, path: &str) -> Result<(), i32> {
     for (end, _) in path.match_indices('/') {
         match fs_named(entries, dirs, path.get(..end).unwrap_or_default()) {
             Named::Directory => {}
@@ -1513,8 +1511,8 @@ fn fs_parents(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Res
 ///
 /// `from` and `to` naming one thing is `.Ok` and changes nothing.
 fn fs_rename(
-    entries: &mut Vec<(String, Vec<u8>)>,
-    dirs: &mut Vec<String>,
+    entries: &mut Entries,
+    dirs: &mut Dirs,
     from: &str,
     to: &str,
 ) -> Result<(), (i32, &'static str)> {
@@ -1536,35 +1534,43 @@ fn fs_rename(
             Err((IO_OTHER, "directory not empty"))
         }
         (Named::Directory, _) => {
-            dirs.retain(|d| d != to);
-            let moved = |k: &str| {
-                let rest = if k == from {
-                    Some("")
-                } else {
-                    k.strip_prefix(from)
-                };
-                rest.filter(|r| r.is_empty() || r.starts_with('/'))
-                    .map(|r| format!("{to}{r}"))
-            };
-            let (going, staying): (Vec<_>, Vec<_>) =
-                entries.drain(..).partition(|(k, _)| moved(k).is_some());
-            entries.extend(staying);
-            entries.extend(going.into_iter().filter_map(|(k, v)| Some((moved(&k)?, v))));
-            let (going, staying): (Vec<_>, Vec<_>) =
-                dirs.drain(..).partition(|d| moved(d).is_some());
-            dirs.extend(staying);
-            dirs.extend(going.iter().filter_map(|d| moved(d)));
+            dirs.remove(to);
+            // `from` and the run of keys under `from/`. None lands on a key
+            // already there: `to` is absent or an empty directory, and is
+            // neither inside `from` nor, holding nothing, above it.
+            let under = format!("{from}/");
+            let after = (Bound::Included(under.as_str()), Bound::Unbounded);
+            let inside = |k: &&String| k.starts_with(&under);
+            let files: Vec<String> = (entries.get_key_value(from).map(|(k, _)| k).into_iter())
+                .chain(
+                    entries
+                        .range::<str, _>(after)
+                        .map(|(k, _)| k)
+                        .take_while(inside),
+                )
+                .cloned()
+                .collect();
+            let directories: Vec<String> = (dirs.get(from).into_iter())
+                .chain(dirs.range::<str, _>(after).take_while(inside))
+                .cloned()
+                .collect();
+            let moved = |k: &str| format!("{to}{}", k.strip_prefix(from).unwrap_or_default());
+            for k in files {
+                if let Some(body) = entries.remove(&k) {
+                    entries.insert(moved(&k), body);
+                }
+            }
+            for k in directories {
+                dirs.remove(&k);
+                dirs.insert(moved(&k));
+            }
             Ok(())
         }
         (_, _) => {
-            let Some(at) = entries.iter().position(|(k, _)| k == from) else {
+            let Some(body) = entries.remove(from) else {
                 return Err((IO_NOT_FOUND, ""));
             };
-            let (_, body) = entries.remove(at);
-            match entries.iter_mut().find(|(k, _)| k == to) {
-                Some(entry) => entry.1 = body,
-                None => entries.push((to.to_string(), body)),
-            }
+            entries.insert(to.to_string(), body);
             Ok(())
         }
     }
@@ -1593,11 +1599,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_file(
         let Slot::Files { entries, .. } = slot else {
             return IO_NOT_FOUND;
         };
-        let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
-            return IO_NOT_FOUND;
-        };
-        entries.remove(at);
-        BURI_OK
+        match entries.remove(&path) {
+            Some(_) => BURI_OK,
+            None => IO_NOT_FOUND,
+        }
     })
 }
 
@@ -1644,22 +1649,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_dir(
         let Slot::Files { entries, dirs } = slot else {
             return IO_NOT_FOUND;
         };
-        if entries.iter().any(|(k, _)| *k == clean) {
+        if entries.contains_key(&clean) {
             return IO_NOT_A_DIRECTORY;
         }
-        let Some(at) = dirs.iter().position(|d| *d == clean) else {
+        if !dirs.contains(&clean) {
             return IO_NOT_FOUND;
-        };
-        let prefix = format!("{clean}/");
-        let held = entries
-            .iter()
-            .map(|(k, _)| k)
-            .chain(dirs.iter())
-            .any(|k| k.starts_with(&prefix));
-        if held {
+        }
+        if fs_holds(entries, dirs, &clean) {
             return IO_OTHER;
         }
-        dirs.remove(at);
+        dirs.remove(&clean);
         BURI_OK
     });
     if answer == IO_OTHER {
@@ -1700,10 +1699,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
         let mut ancestors = clean
             .match_indices('/')
             .map(|(end, _)| clean.get(..end).unwrap_or_default());
-        if ancestors.any(|at| entries.iter().any(|(k, _)| k == at)) {
+        if ancestors.any(|at| entries.contains_key(at)) {
             return IO_NOT_A_DIRECTORY;
         }
-        if entries.iter().any(|(k, _)| *k == clean) {
+        if entries.contains_key(&clean) {
             return IO_ALREADY_EXISTS;
         }
         fs_record_dirs(dirs, &clean);
@@ -1712,14 +1711,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
 }
 
 /// Record `dir` and every directory above it.
-fn fs_record_dirs(dirs: &mut Vec<String>, dir: &str) {
+fn fs_record_dirs(dirs: &mut Dirs, dir: &str) {
     let ends = dir
         .match_indices('/')
         .map(|(end, _)| end)
         .chain([dir.len()]);
     for at in ends.filter_map(|end| dir.get(..end)) {
-        if !at.is_empty() && !dirs.iter().any(|d| d == at) {
-            dirs.push(at.to_string());
+        if !at.is_empty() && !dirs.contains(at) {
+            dirs.insert(at.to_string());
         }
     }
 }
@@ -1751,7 +1750,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_sync_file(
     let (store, _) = fs_view(handle);
     with(store, IO_NOT_FOUND, |slot| match slot {
         Slot::Files { entries, dirs } => {
-            let held = entries.iter().any(|(k, _)| *k == path) || dirs.contains(&clean);
+            let held = entries.contains_key(&path) || dirs.contains(&clean);
             if held { BURI_OK } else { IO_NOT_FOUND }
         }
         _ => IO_NOT_FOUND,
@@ -2771,13 +2770,13 @@ impl Drop for Recording {
 /// filesystem and `readOnly`'s new view each start with an empty log, and the
 /// calls a test reads back are the ones made through the value it put in the
 /// context.
-fn recording_fs(handle: i64, name: &'static str, path: &str, body: &str) -> Recording {
+fn recording_fs(handle: i64, name: &'static str, path: &str, body: impl Into<String>) -> Recording {
     Recording {
         handle,
         call: Some(Call::Fs(FsLog {
             name,
             path: path.to_string(),
-            body: body.to_string(),
+            body: body.into(),
         })),
     }
 }
@@ -2811,8 +2810,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_metadata(
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let _recorded = recording_fs(handle, "metadata", &path, "");
     let (store, _) = fs_view(handle);
-    if let Some(body) = fs_read(store, &path) {
-        let value = crate::host::metadata_of(0, body.len() as i64);
+    if let Some(size) = fs_file(store, &path, <[u8]>::len) {
+        let value = crate::host::metadata_of(0, size as i64);
         // SAFETY: the caller promises a writable, aligned destination.
         unsafe { out.write(value) };
         return BURI_OK;
@@ -2860,12 +2859,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_range(
         return IO_OTHER;
     }
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else {
+    let window = |body: &[u8]| {
+        let start = (at as usize).min(body.len());
+        let end = start.saturating_add(count as usize).min(body.len());
+        list_of_bytes(body.get(start..end).unwrap_or(&[]))
+    };
+    let Some(value) = fs_file(store, &path, window) else {
         return IO_NOT_FOUND;
     };
-    let start = (at as usize).min(body.len());
-    let end = start.saturating_add(count as usize).min(body.len());
-    let value = list_of_bytes(body.get(start..end).unwrap_or(&[]));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -2892,7 +2893,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_real_path(
     let _recorded = recording_fs(handle, "realPath", &path, "");
     let (store, _) = fs_view(handle);
     let clean = fs_clean(&path).to_string();
-    let there = fs_read(store, &path).is_some()
+    let there = fs_file(store, &path, |_| ()).is_some()
         || clean.is_empty()
         || with(store, false, |slot| match slot {
             Slot::Files { dirs, .. } => dirs.contains(&clean),
@@ -2937,7 +2938,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
     if read_only {
         return IO_READ_ONLY;
     }
-    let Some(body) = fs_read(store, &from) else {
+    let Some(body) = fs_file(store, &from, <[u8]>::to_vec) else {
         return IO_NOT_FOUND;
     };
     fs_put(store, to, body)
