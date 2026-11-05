@@ -131,6 +131,7 @@ fn switch(next: Option<Phase>) {
         })
         .ok()
         .flatten();
+    collect::crossed(before.map(|(p, _)| p), next);
     if let Some((phase, then)) = before {
         let moved = [
             now.instructions.saturating_sub(then.instructions),
@@ -142,6 +143,49 @@ fn switch(next: Option<Phase>) {
             total.fetch_add(by, Relaxed);
         }
     }
+}
+
+/// The source files this run lexed, each once, and their lines of code.
+static SOURCES: Mutex<Option<std::collections::HashSet<(u64, usize)>>> = Mutex::new(None);
+static SOURCE_LINES: AtomicU64 = AtomicU64::new(0);
+
+/// Counts `text`'s lines of code toward the report, once per distinct text
+/// however many times it's lexed. `spans` are its tokens' byte ranges. The
+/// counting is charged to `other`, so it doesn't inflate `lex+parse`. Call it
+/// only when [`enabled`].
+pub fn lexed(text: &str, spans: impl Iterator<Item = (u32, u32)>) {
+    let _counting = enter(Phase::Other);
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut h);
+        (h.finish(), text.len())
+    };
+    let new = SOURCES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(Default::default)
+        .insert(key);
+    if new {
+        SOURCE_LINES.fetch_add(code_lines(text, spans) as u64, Relaxed);
+    }
+}
+
+/// The lines of `text` that hold part of a token: blank lines and lines of
+/// nothing but comments don't count. `spans` are the tokens' byte ranges.
+pub fn code_lines(text: &str, spans: impl Iterator<Item = (u32, u32)>) -> usize {
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_of = |at: usize| starts.partition_point(|&s| s <= at).saturating_sub(1);
+    let mut code = vec![false; starts.len()];
+    for (start, end) in spans.filter(|(s, e)| s < e) {
+        let (first, last) = (line_of(start as usize), line_of(end as usize - 1));
+        for line in code.get_mut(first..=last).into_iter().flatten() {
+            *line = true;
+        }
+    }
+    code.iter().filter(|&&c| c).count()
 }
 
 /// Charges child `pid`'s instructions and CPU time to this thread's phase.
@@ -376,6 +420,10 @@ pub fn report(started: Instant) -> Option<String> {
         "wall {}\n",
         seconds(u64::try_from(started.elapsed().as_nanos()).unwrap_or(0))
     ));
+    out.push_str(&format!(
+        "source: {} lines of code lexed, each file once\n",
+        SOURCE_LINES.load(Relaxed)
+    ));
     if let Some(p) = os::process() {
         out.push_str(&format!(
             "process: {} instructions, {} cpu, {} runnable but not running, peak {} MB\n\
@@ -433,6 +481,96 @@ fn giga(n: u64) -> String {
 
 fn seconds(ns: u64) -> String {
     format!("{:.3} s", ns as f64 / 1e9)
+}
+
+/// `BURI_PROFILE_COLLECT=<group>`: callgrind counts only while a thread is in
+/// one of the group's phases, for `cargo bench --bench compiler -- --goals`
+/// (`design/PERFORMANCE.md` §6.82). Run under
+/// `valgrind --tool=callgrind --collect-atstart=no`, which starts every thread
+/// not counting. The groups are `parse`, `check` and `other`.
+mod collect {
+    use super::Phase;
+    use std::sync::OnceLock;
+
+    fn group() -> Option<&'static [Phase]> {
+        static GROUP: OnceLock<Option<&'static [Phase]>> = OnceLock::new();
+        *GROUP.get_or_init(
+            || match std::env::var("BURI_PROFILE_COLLECT").ok()?.as_str() {
+                "parse" => Some(&[Phase::Parse]),
+                "check" => Some(&[Phase::Check]),
+                "other" => Some(&[Phase::Other]),
+                _ => None,
+            },
+        )
+    }
+
+    /// Turns this thread's counting on or off as it moves from `from` to `to`.
+    pub fn crossed(from: Option<Phase>, to: Option<Phase>) {
+        let Some(group) = group() else {
+            return;
+        };
+        let inside = |p: Option<Phase>| p.is_some_and(|p| group.contains(&p));
+        if inside(from) != inside(to) {
+            toggle();
+        }
+    }
+
+    /// Callgrind's `CALLGRIND_TOGGLE_COLLECT`, which flips counting for the
+    /// calling thread. Outside valgrind the sequence changes no register and
+    /// does nothing.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn toggle() {
+        let request: [u64; 6] = [TOGGLE_COLLECT, 0, 0, 0, 0, 0];
+        // SAFETY: valgrind's client-request preamble. The four rotations
+        // total 128 bits, so `rdi` ends as it began, and `xchg rbx, rbx`
+        // swaps a register with itself. Valgrind reads `request` through
+        // `rax` and writes its answer to `rdx`.
+        unsafe {
+            std::arch::asm!(
+                "rol rdi, 3",
+                "rol rdi, 13",
+                "rol rdi, 61",
+                "rol rdi, 51",
+                "xchg rbx, rbx",
+                in("rax") request.as_ptr(),
+                inout("rdx") 0u64 => _,
+                options(nostack),
+            );
+        }
+    }
+
+    /// [`toggle`]'s arm64 form: the answer is in `x3`, the request in `x4`.
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    fn toggle() {
+        let request: [u64; 6] = [TOGGLE_COLLECT, 0, 0, 0, 0, 0];
+        // SAFETY: as for x86_64. The rotations of `x12` total 128 bits and
+        // `orr x10, x10, x10` writes `x10` back unchanged.
+        unsafe {
+            std::arch::asm!(
+                "ror x12, x12, #3",
+                "ror x12, x12, #13",
+                "ror x12, x12, #51",
+                "ror x12, x12, #61",
+                "orr x10, x10, x10",
+                in("x4") request.as_ptr(),
+                inout("x3") 0u64 => _,
+                options(nostack),
+            );
+        }
+    }
+
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    )))]
+    fn toggle() {}
+
+    /// `VG_USERREQ_TOOL_BASE('C', 'T') + 2`, from valgrind's `callgrind.h`.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    const TOGGLE_COLLECT: u64 = 0x4354_0002;
 }
 
 /// What the whole process did, from the kernel's own accounting.

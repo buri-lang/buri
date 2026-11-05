@@ -436,7 +436,7 @@ impl Params {
         Ok(())
     }
 
-    fn weights(&self) -> [u32; 7] {
+    pub fn weights(&self) -> [u32; 7] {
         [
             self.w_struct,
             self.w_enum,
@@ -678,9 +678,13 @@ pub fn profile(name: &str) -> Option<(Family, Params)> {
 /// SplitMix64. Four lines, no dependency, and the same sequence on every
 /// machine — which is the whole requirement: two runs of the suite must
 /// compile the same bytes, or the numbers are not comparable.
-struct Rng(u64);
+pub struct Rng(u64);
 
 impl Rng {
+    pub fn new(seed: u64) -> Rng {
+        Rng(seed)
+    }
+
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -691,7 +695,7 @@ impl Rng {
 
     /// A number below `n`. `n` is a small literal at every call site here, so
     /// the modulo bias is below one part in 2^60 and irrelevant to a shape.
-    fn below(&mut self, n: u64) -> u64 {
+    pub fn below(&mut self, n: u64) -> u64 {
         if n == 0 {
             0
         } else {
@@ -699,7 +703,7 @@ impl Rng {
         }
     }
 
-    fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
+    pub fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
         &xs[self.below(xs.len() as u64) as usize]
     }
 
@@ -747,7 +751,7 @@ impl Rng {
               is malformed, and there is no caller that could do anything else with the \
               answer — every path here runs before a timer starts and ends at a person."
 )]
-fn laid_out(path: &str, text: String) -> String {
+pub fn laid_out(path: &str, text: String) -> String {
     buri::formatting::source(&text).unwrap_or_else(|| {
         panic!("`{path}` is not source the formatter can read whole; that is a bug in generate.rs")
     })
@@ -998,15 +1002,7 @@ fn mixed_module(
             r -= *w;
         }
         let n = tag(counter, p);
-        match kind {
-            0 => chunk_record_struct(&mut s, index, &n, p, rng),
-            1 => chunk_enum(&mut s, index, &n, p, rng),
-            2 => chunk_generic_fn(&mut s, index, &n, p),
-            3 => chunk_arithmetic_fn(&mut s, index, &n, p, rng),
-            4 => chunk_match_fn(&mut s, index, &n, p, aux),
-            5 => chunk_string_fn(&mut s, index, &n, rng),
-            _ => chunk_list_fn(&mut s, index, &n, rng),
-        }
+        chunk(kind, &mut s, index, &n, p, rng, aux);
         probes.push(format!("probe{index}_{n}"));
         counter += 1;
     }
@@ -1035,6 +1031,30 @@ fn mixed_module(
     }
     s.push_str("}\n");
     s
+}
+
+/// One declaration group of the realistic mix, of construct `kind` (0 to 6,
+/// in [`Params::weights`]' order), ending in an exported
+/// `probe{index}_{name}<C: Allocator>(ctx: C): Int` that reaches the rest.
+/// `workspace.rs` builds its modules out of these too.
+pub fn chunk(
+    kind: usize,
+    out: &mut String,
+    index: usize,
+    name: &str,
+    p: &Params,
+    rng: &mut Rng,
+    aux: &mut Rng,
+) {
+    match kind {
+        0 => chunk_record_struct(out, index, name, p, rng),
+        1 => chunk_enum(out, index, name, p, rng),
+        2 => chunk_generic_fn(out, index, name, p),
+        3 => chunk_arithmetic_fn(out, index, name, p, rng),
+        4 => chunk_match_fn(out, index, name, p, aux),
+        5 => chunk_string_fn(out, index, name, rng),
+        _ => chunk_list_fn(out, index, name, rng),
+    }
 }
 
 /// The per-declaration name suffix.

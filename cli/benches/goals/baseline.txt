@@ -1,0 +1,12 @@
+# Per line of code, what each goal phase of a cold dev build costs under
+# callgrind: instructions, and instructions + 10 x L1 misses + 100 x last-level
+# misses. The gate fails when one grows by more than 1%, and `--bless` only
+# lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
+
+toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
+aarch64 ci check cost                       23199.2
+aarch64 ci check instructions               14527.8
+aarch64 ci dev-codegen cost                130807.2
+aarch64 ci dev-codegen instructions         86075.8
+aarch64 ci parse cost                        3575.0
+aarch64 ci parse instructions                2540.8

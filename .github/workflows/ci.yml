@@ -318,10 +318,12 @@ jobs:
           rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo bench -p buri --bench compiler --profile validate -- --validate --quick
 
-  # The throughput goals, counted (design/PERFORMANCE.md §6.82): instructions a
-  # line per phase against the budget each goal sets. Cachegrind's counts are
-  # exact, so this blocks. arm64, because the budgets come from an Apple core's
-  # instruction rate, and an arm64 count is what that core retires.
+  # The compile goals, counted (design/PERFORMANCE.md §6.82): a cold dev
+  # `buri build //...` of the generated workspace at its `ci` size, under
+  # callgrind's cache simulation with pinned cache sizes. Each goal phase's
+  # instructions and cache cost per line may not rise over
+  # `cli/benches/goals/baseline.txt` by more than 1%. Callgrind's counts are
+  # exact, so this blocks. arm64, the architecture the baseline is blessed on.
   # It runs in the flake's `perf` shell, as `instructions` does, which pins
   # rustc, clang, glibc and valgrind.
   goals-counted:
@@ -344,13 +346,15 @@ jobs:
           path: target/release/build
           key: goals-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: goals-buildscript-
-      # The corpora on disk. A stale copy can't be used: the gate checks each
-      # against its pinned digest and writes it again on a mismatch.
-      - uses: actions/cache@v6
+      - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count --size=ci
+      # This run's figures, at their lowest: the file to commit when a change
+      # lowers one, or when the toolchain moved.
+      - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          path: target/goals
-          key: goals-corpora-${{ runner.os }}-${{ hashFiles('cli/benches/pinned/mixed-1M.txt', 'cli/benches/pinned/mixed-100k.txt') }}
-      - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count
+          name: goals-baseline
+          path: target/goals/ci-count/baseline.txt
+          if-no-files-found: ignore
 
   # The native conformance set built by the release backend, with the heap check
   # stencil's run has (cli/tests/README.md, "The tree"). The `test` matrix runs
@@ -393,25 +397,6 @@ jobs:
       # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason: the shell's clang
       # would ask musl for fortify's `__*_chk`.
       - run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm --test native -- conformance::the_native_set_passes
-
-  # The throughput goals, timed: lines a second scaled to the reference core by a
-  # yardstick timed around each phase, so a slow runner can't fail it. Parse only
-  # warns, because its headroom is inside the yardstick's error.
-  goals-timed:
-    name: throughput goals, timed (macOS)
-    runs-on: macos-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: macos-goals
-      - uses: actions/cache@v6
-        with:
-          path: target/goals
-          key: goals-corpora-${{ runner.os }}-${{ hashFiles('cli/benches/pinned/mixed-1M.txt', 'cli/benches/pinned/mixed-100k.txt') }}
-      - run: cargo bench -p buri --bench compiler -- --goals=wall
 
   # The release backend, x86-64 only and ADVISORY: LLVM 21 is not in Ubuntu 24.04,
   # so this job depends on apt.llvm.org, and a red X caused by a 404 teaches

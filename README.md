@@ -9,7 +9,7 @@ Buri is safe, fast to run, fast to compile, and friendly, in that order:
 
 - **Safe**: a Buri program will not error. The language is purely functional, which rules out whole classes of logic bugs.
 - **Fast to run**: Buri makes expensive actions explicit, and its syntax leaves a compiler plenty of room to optimize.
-- **Fast to compile**: it typechecks a million lines a second and compiles tests 15 times faster than LLVM, on a build system built to scale to large repositories.
+- **Fast to compile**: it aims to typecheck a million lines a second, and compiles tests 15 times faster than LLVM, on a build system built to scale to large repositories.
 - **Friendly**: a clear type system, explicit syntax, and readable error messages. The linter pushes an AI to improve the architecture rather than patch the symptoms.
 
 ## What Buri is

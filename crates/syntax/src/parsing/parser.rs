@@ -148,6 +148,13 @@ fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
 
 fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<'_>) {
     let lexed = lex(text, file);
+    if buri_diagnostics::profile::enabled() {
+        let tokens = &lexed.tokens;
+        buri_diagnostics::profile::lexed(
+            text,
+            (0..tokens.len()).map(|i| (tokens.span(i).start, tokens.span(i).end)),
+        );
+    }
     let first_item = lexed.tokens.span(0).start;
     let mut p = Parser {
         src: text,

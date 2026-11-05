@@ -1,148 +1,105 @@
-//! The goals gate: the three throughput goals, checked two ways
+//! The throughput goals, measured on what a user's build does
 //! (`design/PERFORMANCE.md` §6.82).
 //!
 //! ```text
-//! cargo bench -p buri --bench compiler -- --goals=count   # instructions a line, against a budget
-//! cargo bench -p buri --bench compiler -- --goals=wall    # lines a second, against the goal
-//! cargo bench -p buri --bench compiler -- --goals=reference
+//! cargo bench -p buri --bench compiler -- --goals=time              # lines a CPU second, here
+//! cargo bench -p buri --bench compiler -- --goals=count --size=ci   # callgrind, against the baseline
+//! cargo bench -p buri --bench compiler -- --goals=count --size=ci --bless
 //! ```
 //!
-//! `count` reads the kernel's instruction counter on macOS and cachegrind's on
-//! Linux. Counts don't move with the machine's load, so it never flakes. `wall`
-//! times this machine and scales each phase to the reference core by a
-//! yardstick timed around it (`reference.rs`), so a slow runner doesn't fail it.
-//! `reference` prints the yardstick's time here, to record for the reference core.
+//! Both run a cold dev `buri build //...` of the workspace `workspace.rs`
+//! writes, through the real CLI, on one thread. `time` reads one profiled
+//! build's CPU time per phase, and its instructions where the machine counts
+//! them. `count` is Linux only: it runs the build under callgrind's cache
+//! simulation once per phase group and once whole, and holds each goal
+//! phase's instructions and cache cost per line to `goals/baseline.txt`.
+
+mod report;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
-use buri::diagnostics::{Diagnostics, FileId, SourceMap};
-use buri::parsing::parser;
+use report::{Baseline, Events, Measured, Profile};
 
-use crate::generate::Program;
-use crate::reference::{self, Sample, Yardstick, REFERENCE};
-use crate::{check, corpus, fail, load, TARGET_LOWER, TARGET_PARSE, TARGET_SEMA};
+use crate::workspace::{self, Size};
+use crate::{fail, TARGET_LOWER, TARGET_PARSE, TARGET_SEMA};
 
-/// One goal, and the corpora and budget it's checked with.
-struct Goal {
-    phase: &'static str,
-    /// Lines a second.
-    goal: f64,
-    /// Instructions a second one core of the reference machine, an M3 Pro,
-    /// retires in this phase's code. A phase over `rate / goal` instructions a
-    /// line can't meet its goal there.
-    rate: f64,
-    /// Where it's counted and where it's timed. Dev compile counts 100k
-    /// because cachegrind runs a 1M build for minutes.
-    counted_on: &'static str,
-    timed_on: &'static str,
-    /// Whether `wall` fails below the goal. Parse only warns: its headroom on
-    /// the reference core is under 1.5x, inside the yardstick's error.
-    blocking: bool,
-}
+const GOALS: [f64; 3] = [TARGET_PARSE, TARGET_SEMA, TARGET_LOWER];
 
-const GOALS: [Goal; 3] = [
-    Goal {
-        phase: "parse",
-        goal: TARGET_PARSE,
-        rate: 18e9,
-        counted_on: "mixed-1M",
-        timed_on: "mixed-1M",
-        blocking: false,
-    },
-    Goal {
-        phase: "check",
-        goal: TARGET_SEMA,
-        rate: 12e9,
-        counted_on: "mixed-1M",
-        timed_on: "mixed-1M",
-        blocking: true,
-    },
-    Goal {
-        phase: "dev compile",
-        goal: TARGET_LOWER,
-        rate: 8.5e9,
-        counted_on: "mixed-100k",
-        timed_on: "mixed-1M",
-        blocking: true,
-    },
-];
+/// Profiled builds `time` takes the fastest of, per phase.
+const RUNS: usize = 3;
 
-impl Goal {
-    /// Instructions a line.
-    fn budget(&self) -> f64 {
-        self.rate / self.goal
+pub fn run(mode: &str, size: Option<&str>, bless: bool) {
+    let default = if mode == "count" { "ci" } else { "full" };
+    let name = size.unwrap_or(default);
+    let size = workspace::SIZES
+        .into_iter()
+        .find(|s| s.name == name)
+        .unwrap_or_else(|| fail(&format!("no workspace size `{name}`: full, ci or tiny")));
+    match mode {
+        "time" => timed(size),
+        "count" => counted(size, bless),
+        _ => fail("--goals wants `time` or `count`"),
     }
 }
 
-pub fn run(mode: &str) {
-    let failures = match mode {
-        "count" => counted(),
-        "wall" => timed(),
-        "reference" => {
-            yardstick_here();
-            Vec::new()
-        }
-        _ => fail("--goals wants `count` or `wall`"),
-    };
-    if !failures.is_empty() {
-        eprintln!();
-        for f in &failures {
-            eprintln!("error: {f}");
-        }
-        eprintln!(
-            "design/PERFORMANCE.md §6.82 says what each number means and how a budget was set."
-        );
-        std::process::exit(1);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// The corpora, written out once
-// ---------------------------------------------------------------------------
-
-/// Where the corpora are written: `BURI_GOALS_DIR`, or `target/goals`.
+/// Where workspaces are written: `BURI_GOALS_DIR`, or `target/goals`.
 fn root() -> PathBuf {
     std::env::var_os("BURI_GOALS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/goals"))
+        .unwrap_or_else(|| {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .join("target/goals")
+        })
 }
 
-/// A pinned corpus as a repository on disk, and its program.
-///
-/// A copy left by an earlier run is kept when its bytes still match the pinned
-/// digest, so a cached directory can never be stale.
-fn repository(name: &str) -> (PathBuf, Program) {
-    let manifest_path = corpus::pinned_root().join(format!("{name}.txt"));
-    let manifest = corpus::pinned_manifest(&manifest_path).unwrap_or_else(|e| fail(&e));
-    let dir = root().join(name);
-    if let Ok(program) = corpus::load_repository(&dir) {
-        if corpus::digest(&program) == manifest.digest {
-            return (dir, program);
+/// The workspace at `size` in `dir`, written again only when its bytes moved,
+/// with a home of its own that one unmeasured build has warmed. The warm-up
+/// runs every time: a home a different `buri` warmed holds nothing this one
+/// reuses, and the first measured build would pay for it. Returns the home.
+fn prepared(size: &Size, dir: &Path) -> PathBuf {
+    let files = workspace::files(size);
+    let digest = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for f in &files {
+            f.path.hash(&mut h);
+            f.text.hash(&mut h);
         }
+        format!("{:016x}\n", h.finish())
+    };
+    let stamp = dir.join(".digest");
+    let home = dir.join(".home");
+    if std::fs::read_to_string(&stamp).ok().as_deref() != Some(digest.as_str()) {
+        let _ = std::fs::remove_dir_all(dir);
+        for f in &files {
+            let path = dir.join(&f.path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &f.text).unwrap();
+        }
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(&stamp, digest).unwrap();
     }
-    let (_, program) = corpus::load_pinned(&manifest_path).unwrap_or_else(|e| fail(&e));
-    corpus::write_repository(&dir, &program).unwrap_or_else(|e| fail(&e));
-    (dir, program)
+    build(dir, &home, &[]);
+    clean(dir, &home);
+    home
 }
 
-/// `7.78M lines/s`.
-fn lines_per_second(rate: f64) -> String {
-    format!(
-        "{} lines/s",
-        crate::rate(rate).trim().trim_end_matches("/s").trim()
-    )
-}
-
-fn buri(dir: &Path, args: &[&str]) -> Command {
+fn buri(dir: &Path, home: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.args(args).current_dir(dir).env_remove("BURI_PROFILE");
+    cmd.current_dir(dir)
+        .env("HOME", home)
+        .env("BURI_THREADS", "1")
+        .env_remove("BURI_PROFILE")
+        .env_remove("BURI_PROFILE_COLLECT");
     cmd
 }
 
-fn clean(dir: &Path) {
-    let ok = buri(dir, &["clean"])
+fn clean(dir: &Path, home: &Path) {
+    let ok = buri(dir, home)
+        .arg("clean")
         .stdout(Stdio::null())
         .status()
         .is_ok_and(|s| s.success());
@@ -151,400 +108,191 @@ fn clean(dir: &Path) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// count: instructions a line
-// ---------------------------------------------------------------------------
-
-/// On macOS a child counts its own thread around one phase and prints the
-/// count, which leaves out reading the corpus and the kernel's work for it.
-/// Elsewhere cachegrind counts the whole child, and `read` and `load` are the
-/// floors the parent subtracts.
-const COUNTS_ITSELF: bool = cfg!(target_os = "macos");
-
-/// One phase, once, in a process of its own.
-pub fn child(phase: &str, dir: &str) {
-    let program = corpus::load_repository(Path::new(dir)).unwrap_or_else(|e| fail(&e));
-    let mut map = SourceMap::new();
-    let mut cache = parser::Cache::new();
-    let mut diagnostics = Diagnostics::new();
-    let loaded = matches!(phase, "load" | "check")
-        .then(|| load(&program, &mut map, &mut cache, &mut diagnostics));
-    let before = buri::profile::thread_instructions();
-    match (phase, &loaded) {
-        ("read" | "load", _) => {}
-        ("parse", _) => {
-            for (i, m) in program.modules.iter().enumerate() {
-                std::hint::black_box(parser::parse(&m.text, FileId(i as u32)));
-            }
-        }
-        ("check", Some(loaded)) => {
-            std::hint::black_box(check(loaded, &mut Diagnostics::new()));
-        }
-        _ => fail(&format!("no goals phase `{phase}`")),
+/// One cold profiled build; its stderr.
+fn build(dir: &Path, home: &Path, env: &[(&str, &str)]) -> String {
+    clean(dir, home);
+    let out = buri(dir, home)
+        .args(["build", "//..."])
+        .env("BURI_PROFILE", "1")
+        .envs(env.iter().copied())
+        .output()
+        .unwrap_or_else(|e| fail(&e.to_string()));
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    if !out.status.success() {
+        fail(&format!(
+            "`buri build //...` failed in {}:\n{stderr}",
+            dir.display()
+        ));
     }
-    println!(
+    stderr
+}
+
+fn lines_of(profile: &Profile) -> u64 {
+    match profile.lines {
+        Some(n) if n > 0 => n,
+        _ => fail("the build's profile counted no lines of code"),
+    }
+}
+
+fn timed(size: &Size) {
+    let dir = root().join(size.name);
+    let home = prepared(size, &dir);
+    let mut lines = 0;
+    let mut best: Option<[(f64, Option<f64>); 4]> = None;
+    for _ in 0..RUNS {
+        let profile = Profile::read(&build(&dir, &home, &[]));
+        lines = lines_of(&profile);
+        let now = profile.phases();
+        best = Some(match best {
+            None => now,
+            Some(b) => std::array::from_fn(|i| {
+                let min = |x: Option<f64>, y: Option<f64>| match (x, y) {
+                    (Some(x), Some(y)) => Some(x.min(y)),
+                    _ => x.or(y),
+                };
+                (b[i].0.min(now[i].0), min(b[i].1, now[i].1))
+            }),
+        });
+    }
+    clean(&dir, &home);
+    let figures = best.unwrap().map(|(cpu, n)| (Some(cpu), n));
+    print!(
         "{}",
-        buri::profile::thread_instructions().saturating_sub(before)
+        Measured::new(size.name, lines, GOALS, figures, None).render()
     );
 }
 
-/// What a child that counts itself printed.
-fn own_count(cmd: &mut Command) -> Result<u64, String> {
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
-    }
-    match String::from_utf8_lossy(&out.stdout).trim().parse::<u64>() {
-        Ok(n) if n > 0 => Ok(n),
-        _ => Err(
-            "this machine counts no instructions, as in a virtual machine; \
-                  count on a Mac, or on Linux with valgrind"
-                .to_string(),
-        ),
-    }
-}
-
-/// Instructions `cmd` retires: macOS's own counter, or cachegrind's on Linux,
-/// there pinned to `core` so the toolchain starts no workers.
-fn instructions(cmd: &Command, core: usize) -> Result<u64, String> {
-    let program = cmd.get_program().to_owned();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_owned()).collect();
-    let mut counted = if cfg!(target_os = "macos") {
-        let mut c = Command::new("/usr/bin/time");
-        c.arg("-l");
-        c
-    } else {
-        let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-        let mut c = Command::new("taskset");
-        c.args([
-            "-c",
-            &(core % cores).to_string(),
-            "valgrind",
-            "--tool=cachegrind",
-            "--cache-sim=no",
-        ]);
-        c.arg("--cachegrind-out-file=/dev/null");
-        c
+/// The tools a count depends on besides this repository's code.
+fn toolchain() -> String {
+    let first_line = |program: &str, args: &[&str]| -> String {
+        Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().next().map(str::to_string))
+            .unwrap_or_else(|| format!("{program} ?"))
     };
-    counted.arg(&program).args(&args).stdout(Stdio::null());
-    if let Some(dir) = cmd.get_current_dir() {
-        counted.current_dir(dir);
-    }
-    for (k, v) in cmd.get_envs() {
-        match v {
-            Some(v) => counted.env(k, v),
-            None => counted.env_remove(k),
-        };
-    }
-    let out = counted
-        .output()
-        .map_err(|e| format!("{}: {e}", counted.get_program().to_string_lossy()))?;
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    if !out.status.success() {
-        return Err(format!("{} failed:\n{stderr}", program.to_string_lossy()));
-    }
-    let count = stderr.lines().find_map(|line| {
-        let line = line.trim();
-        // BSD `time -l`: "  123456  instructions retired".
-        // cachegrind: "==123== I refs:      1,234,567" (`I   refs:` before 3.21).
-        let digits = line.strip_suffix("instructions retired").or_else(|| {
-            line.split_once("I refs:")
-                .or_else(|| line.split_once("I   refs:"))
-                .map(|(_, n)| n)
-        })?;
-        digits.trim().replace(',', "").parse::<u64>().ok()
-    });
-    match count {
-        Some(n) if n > 0 => Ok(n),
-        _ => Err(format!(
-            "{} counted no instructions. macOS's counter reads nothing in a virtual machine; \
-             count on a Mac, or on Linux with valgrind",
-            counted.get_program().to_string_lossy()
-        )),
-    }
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    [
+        first_line("rustc", &["-V"]),
+        first_line(&cc, &["--version"]),
+        first_line("valgrind", &["--version"]),
+    ]
+    .join("; ")
 }
 
-fn counted() -> Vec<String> {
-    let exe = std::env::current_exe().unwrap_or_else(|e| fail(&e.to_string()));
-    // A label, the command, and the repository to clean before each run.
-    let mut jobs: Vec<(String, Command, Option<PathBuf>)> = Vec::new();
-    let mut lines = std::collections::BTreeMap::new();
-    for name in ["mixed-1M", "mixed-100k"] {
-        let (dir, program) = repository(name);
-        lines.insert(name, program.lines());
-        if GOALS
-            .iter()
-            .any(|g| g.counted_on == name && g.phase == "dev compile")
-        {
-            jobs.push((
-                format!("{name}/build"),
-                buri(&dir, &["build", "//bench"]),
-                Some(dir.clone()),
-            ));
-        }
-        if GOALS
-            .iter()
-            .any(|g| g.counted_on == name && g.phase != "dev compile")
-        {
-            let phases: &[&str] = if COUNTS_ITSELF {
-                &["parse", "check"]
-            } else {
-                &["read", "parse", "load", "check"]
-            };
-            for phase in phases {
-                let mut cmd = Command::new(&exe);
-                cmd.arg(format!("--goals-child={phase}"))
-                    .arg(format!("--from={}", dir.display()));
-                jobs.push((format!("{name}/{phase}"), cmd, None));
-            }
-        }
-    }
+/// The four callgrind runs: one per phase group, then the whole build and its
+/// children. Each is a workspace and home of its own, so they run side by side.
+const GROUPS: [&str; 4] = ["parse", "check", "other", "whole"];
 
-    // Side by side, each on its own core under cachegrind. macOS's counter also
-    // counts the kernel's page faults, which move with memory pressure, so
-    // there the fewest of three runs counts (design/PERFORMANCE.md §8).
-    let runs = if cfg!(target_os = "macos") { 3 } else { 1 };
-    let results: Vec<(String, Result<u64, String>)> = std::thread::scope(|scope| {
-        let handles: Vec<_> = jobs
-            .iter_mut()
+fn counted(size: &Size, bless: bool) {
+    if !cfg!(target_os = "linux") {
+        fail("--goals=count runs on Linux only: callgrind counts there (design/PERFORMANCE.md §6.82)");
+    }
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let base = root().join(format!("{}-count", size.name));
+    let results: Vec<(Events, String)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = GROUPS
+            .iter()
             .enumerate()
-            .map(|(i, (label, cmd, dirty))| {
+            .map(|(i, group)| {
+                let dir = base.join(group);
                 scope.spawn(move || {
-                    let fewest = (0..runs).try_fold(u64::MAX, |fewest, _| {
-                        if let Some(dir) = dirty {
-                            clean(dir);
+                    let home = prepared(size, &dir);
+                    let out = dir.join(".callgrind");
+                    let _ = std::fs::remove_dir_all(&out);
+                    std::fs::create_dir_all(&out).unwrap();
+                    clean(&dir, &home);
+                    let mut cmd = Command::new("taskset");
+                    cmd.args([
+                        "-c",
+                        &(i % cores).to_string(),
+                        "valgrind",
+                        "--tool=callgrind",
+                        "--cache-sim=yes",
+                    ])
+                    .args(report::CACHES)
+                    .arg(format!("--callgrind-out-file={}/out.%p", out.display()))
+                    .arg(format!("--log-file={}/log.%p", out.display()));
+                    if *group == "whole" {
+                        cmd.arg("--trace-children=yes");
+                    } else {
+                        cmd.arg("--collect-atstart=no")
+                            .env("BURI_PROFILE_COLLECT", group);
+                    }
+                    let run = cmd
+                        .arg(env!("CARGO_BIN_EXE_buri"))
+                        .args(["build", "//..."])
+                        .current_dir(&dir)
+                        .env("HOME", &home)
+                        .env("BURI_THREADS", "1")
+                        .env("BURI_PROFILE", "1")
+                        .output()
+                        .unwrap_or_else(|e| fail(&format!("valgrind: {e}")));
+                    let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
+                    if !run.status.success() {
+                        fail(&format!(
+                            "`buri build //...` under callgrind failed in {}:\n{stderr}",
+                            dir.display()
+                        ));
+                    }
+                    let mut events = Events::default();
+                    for entry in std::fs::read_dir(&out).unwrap() {
+                        let path = entry.unwrap().path();
+                        if path
+                            .file_name()
+                            .is_some_and(|n| n.to_string_lossy().starts_with("out."))
+                        {
+                            let text = std::fs::read_to_string(&path).unwrap();
+                            events = events.plus(
+                                Events::read(&text)
+                                    .unwrap_or_else(|e| fail(&format!("{}: {e}", path.display()))),
+                            );
                         }
-                        let n = if dirty.is_none() && COUNTS_ITSELF {
-                            own_count(cmd)
-                        } else {
-                            instructions(cmd, i)
-                        };
-                        n.map(|n| fewest.min(n))
-                    });
-                    (label.clone(), fewest)
+                    }
+                    clean(&dir, &home);
+                    (events, stderr)
                 })
             })
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("a counting thread"))
+            .map(|h| h.join().expect("a callgrind run"))
             .collect()
     });
-    // A built program is hundreds of megabytes that a cached corpus shouldn't carry.
-    for (_, _, dirty) in &jobs {
-        if let Some(dir) = dirty {
-            clean(dir);
-        }
-    }
-    let mut count = std::collections::BTreeMap::new();
-    for (label, result) in results {
-        match result {
-            Ok(n) => {
-                count.insert(label, n);
-            }
-            Err(e) => fail(&format!("counting {label}: {e}")),
-        }
-    }
-    let of = |label: String| count.get(&label).copied().unwrap_or(0);
+    let lines = lines_of(&Profile::read(&results[3].1));
+    let [parse, check, other, whole] = [0, 1, 2, 3].map(|i| results[i].0);
+    let codegen = whole.minus(parse).minus(check).minus(other);
+    let events = [parse, check, other, codegen];
+    let figures = events.map(|e| (None, Some(e.instructions)));
+    let measured = Measured::new(
+        size.name,
+        lines,
+        GOALS,
+        figures,
+        Some(events.map(|e| e.cost())),
+    );
+    print!("{}", measured.render());
 
-    println!(
-        "goals, counted: instructions a line against each budget (design/PERFORMANCE.md §6.82)"
-    );
-    println!();
-    println!(
-        "  {:<12} {:<12} {:>12} {:>9} {:>9}",
-        "phase", "corpus", "per line", "budget", "headroom"
-    );
-    let mut failures = Vec::new();
-    for g in &GOALS {
-        let name = g.counted_on;
-        let n = match g.phase {
-            "parse" => of(format!("{name}/parse")).saturating_sub(of(format!("{name}/read"))),
-            "check" => of(format!("{name}/check")).saturating_sub(of(format!("{name}/load"))),
-            _ => of(format!("{name}/build")),
-        };
-        let per_line = n as f64 / lines[name] as f64;
-        let headroom = g.budget() / per_line;
+    let arch = std::env::consts::ARCH;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/goals/baseline.txt");
+    let baseline = Baseline::read(&std::fs::read_to_string(&path).unwrap_or_default());
+    let verdict = baseline.check(arch, &toolchain(), &measured.figures(arch));
+    let written = base.join("baseline.txt");
+    std::fs::write(&written, verdict.next.render()).unwrap();
+    if bless {
+        std::fs::write(&path, verdict.next.render()).unwrap();
+        println!("\nwrote {}", path.display());
+        return;
+    }
+    println!("\n{}", verdict.report.trim_end());
+    if verdict.failed {
         println!(
-            "  {:<12} {:<12} {:>12} {:>9} {:>8.2}x",
-            g.phase,
-            name,
-            crate::commas(per_line),
-            crate::commas(g.budget()),
-            headroom
+            "\nIf the change is deliberate and lowers a figure, re-bless with `--bless`, or commit\n\
+             {} from this run as cli/benches/goals/baseline.txt (design/PERFORMANCE.md §6.82).",
+            written.display()
         );
-        if headroom < 1.0 {
-            failures.push(format!(
-                "{} retires {} instructions a line on pinned:{name}, over its budget of {}. At the \
-                 reference core's {:.0} G instructions a second that's {}, under the goal of {}.",
-                g.phase,
-                crate::commas(per_line),
-                crate::commas(g.budget()),
-                g.rate / 1e9,
-                lines_per_second(g.rate / per_line),
-                lines_per_second(g.goal),
-            ));
-        }
+        std::process::exit(1);
     }
-    failures
-}
-
-// ---------------------------------------------------------------------------
-// wall: lines a second
-// ---------------------------------------------------------------------------
-
-/// Cold `buri build`s for dev compile.
-const BUILDS: usize = 3;
-
-/// Parse and check run until both hold.
-const MIN_REPS: usize = 5;
-const MIN_TIME: Duration = Duration::from_secs(1);
-
-/// Runs `phase`, which returns the time it took, between yardstick runs.
-fn samples(
-    yardstick: &Yardstick,
-    reps: usize,
-    min_time: Duration,
-    mut phase: impl FnMut() -> Duration,
-) -> Vec<Sample> {
-    let run = || {
-        let started = Instant::now();
-        std::hint::black_box(yardstick.run());
-        started.elapsed()
-    };
-    run();
-    phase();
-    let started = Instant::now();
-    let mut out = Vec::new();
-    while out.len() < reps || started.elapsed() < min_time {
-        let before = run();
-        let phase = phase();
-        let after = run();
-        out.push(Sample {
-            before,
-            phase,
-            after,
-        });
-    }
-    out
-}
-
-fn timing(mut f: impl FnMut()) -> impl FnMut() -> Duration {
-    move || {
-        let started = Instant::now();
-        f();
-        started.elapsed()
-    }
-}
-
-/// `--goals=reference`: the yardstick's fastest run on this machine, which
-/// [`REFERENCE`] records for the reference core.
-fn yardstick_here() {
-    let yardstick = Yardstick::new();
-    let mut fastest = Duration::MAX;
-    let mut checksum = 0;
-    for _ in 0..50 {
-        let started = Instant::now();
-        checksum = yardstick.run();
-        fastest = fastest.min(started.elapsed());
-    }
-    println!("yardstick: fastest {} us", fastest.as_micros());
-    if checksum != reference::CHECKSUM {
-        println!("its checksum is now {checksum}: update CHECKSUM and REFERENCE together");
-    }
-}
-
-fn timed() -> Vec<String> {
-    println!(
-        "goals, timed: lines a second scaled to the reference core (design/PERFORMANCE.md §6.82)"
-    );
-    println!();
-    println!(
-        "  {:<12} {:<12} {:>10} {:>10} {:>10} {:>9}  on a miss",
-        "phase", "corpus", "here", "reference", "goal", "headroom"
-    );
-    let yardstick = Yardstick::new();
-    let mut failures = Vec::new();
-    for g in &GOALS {
-        let (dir, program) = repository(g.timed_on);
-        let samples = match g.phase {
-            "parse" => samples(
-                &yardstick,
-                MIN_REPS,
-                MIN_TIME,
-                timing(|| {
-                    for (i, m) in program.modules.iter().enumerate() {
-                        std::hint::black_box(parser::parse(&m.text, FileId(i as u32)));
-                    }
-                }),
-            ),
-            "check" => {
-                let mut map = SourceMap::new();
-                let mut cache = parser::Cache::new();
-                let mut diagnostics = Diagnostics::new();
-                let loaded = load(&program, &mut map, &mut cache, &mut diagnostics);
-                samples(
-                    &yardstick,
-                    MIN_REPS,
-                    MIN_TIME,
-                    timing(|| {
-                        std::hint::black_box(check(&loaded, &mut Diagnostics::new()));
-                    }),
-                )
-            }
-            _ => {
-                let samples = samples(&yardstick, BUILDS, Duration::ZERO, || cold_build(&dir));
-                clean(&dir);
-                samples
-            }
-        };
-        let lines = program.lines() as f64;
-        let here = lines / reference::median_phase(&samples).as_secs_f64();
-        let rate = lines / reference::on_reference(&samples, REFERENCE).as_secs_f64();
-        let headroom = rate / g.goal;
-        println!(
-            "  {:<12} {:<12} {:>10} {:>10} {:>10} {:>8.2}x  {}",
-            g.phase,
-            g.timed_on,
-            crate::rate(here),
-            crate::rate(rate),
-            crate::rate(g.goal),
-            headroom,
-            if g.blocking { "fails" } else { "warns" }
-        );
-        if headroom < 1.0 {
-            let what = format!(
-                "{} ran at {} on pinned:{}, scaled to the reference core, under the goal of {}.",
-                g.phase,
-                lines_per_second(rate),
-                g.timed_on,
-                lines_per_second(g.goal)
-            );
-            if g.blocking {
-                failures.push(what);
-            } else {
-                println!("warning: {what}");
-            }
-        }
-    }
-    failures
-}
-
-/// The wall time of one `buri build` from an empty cache: what a debug build
-/// and a cold `buri test` both do, up to a linked binary.
-fn cold_build(dir: &Path) -> Duration {
-    clean(dir);
-    let started = Instant::now();
-    let out = buri(dir, &["build", "//bench"])
-        .output()
-        .unwrap_or_else(|e| fail(&e.to_string()));
-    let took = started.elapsed();
-    if !out.status.success() {
-        fail(&format!(
-            "`buri build //bench` failed in {}:\n{}",
-            dir.display(),
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    took
 }

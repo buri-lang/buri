@@ -13,9 +13,10 @@ something:
 | Semantic analysis, type checking included | **1,000,000 lines/second** | 1 µs |
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
-All three hold on `mixed-1M` on an M3 Pro: parse at 1.27×, check at 4.19× and a
-cold debug build at 3.93× (§6.82). Two CI jobs fail when one stops holding, by
-instructions a line and by the clock. `cli/benches/compiler.rs` is what says so.
+None holds on a real build yet. A cold dev `buri build //...` of a generated
+262k-line workspace on an M3 Pro parses at 25% of its goal, checks at 15% and
+compiles at 34% (§6.82). CI holds each phase's instructions and cache cost per
+line to a baseline that only falls. `cli/benches/compiler.rs` measures both.
 
 ---
 
@@ -92,6 +93,10 @@ Four decisions, each of which could have gone the other way:
    and tokens/second in the same rows. Where the three diverge is the signal: a
    line rate is hostage to source density, a byte rate to identifier length, and
    only the token rate tracks what the lexer's inner loop does.
+
+The goals benchmark (§6.82) counts differently, because it measures a whole
+build: lines holding a token, comments left out, with the stdlib the build
+reaches counted once.
 
 ### The rest of the protocol
 
@@ -437,7 +442,9 @@ and the flags that select what runs:
   --rss             peak RSS and instructions per phase, untimed
   --calibrate       the speed-of-light ceilings, per corpus (§3.2)
   --alloc           allocations per line, per phase, untimed
-  --goals=<mode>    count | wall: the goals gate (§6.82)
+  --goals=<mode>    time | count: a cold `buri build //...` against the goals (§6.82)
+  --size=<name>     full | ci | tiny: the workspace --goals builds
+  --bless           with --goals=count, lower the baseline to this run
 ```
 
 `--alloc` needs the toolchain built with its counting global allocator, off by
@@ -7590,174 +7597,104 @@ looks at the first failing member's.
 pins one launch per edit, which varied between one and two before. §6.84
 fixes the first edit.
 
-### 6.82 The goals, gated on CI, 2026-10-09
+### 6.82 The goals, measured on a real build, 2026-11-05
 
 ```text
-cargo bench -p buri --bench compiler -- --goals=count   # instructions a line, against a budget
-cargo bench -p buri --bench compiler -- --goals=wall    # lines a second, against the goal
+cargo bench -p buri --bench compiler -- --goals=time                 # lines a CPU second, full size
+cargo bench -p buri --bench compiler -- --goals=count --size=ci      # callgrind, against the baseline (Linux)
+cargo bench -p buri --bench compiler -- --goals=count --size=ci --bless
 ```
 
-Two CI jobs hold the three goals, both on the pinned `mixed` corpora:
+Both run a cold dev `buri build //...` through the real CLI, with
+`BURI_THREADS=1`. The build includes the loader, lint, styles and the linker.
+The input is a workspace `cli/benches/workspace.rs` generates from fixed seeds.
+It has libraries with BUILD files, shared by native programs, pages and
+tests, plus generics used at several types, effects, records, enums and
+styles. Nothing big is checked in.
 
-| Job | Runs | Fails when | Blocks |
-|---|---|---|---|
-| `goals-counted` | `--goals=count` under cachegrind, arm64 Linux | a phase retires more instructions a line than its budget | always: counts don't move with load |
-| `goals-timed` | `--goals=wall` on the macOS runner | a phase, scaled to the reference core, runs below its goal | check and dev compile; parse only warns |
+| Size | Libraries | Programs | Pages | Lines of code | Runs in |
+|---|---:|---:|---:|---:|---|
+| `full` | 48 | 12 | 4 | 262,364 | `--goals=time`, 16 s a build on an M3 Pro |
+| `ci` | 8 | 3 | 1 | 25,838 | `goals-counted`, 4 to 6 min under callgrind |
+| `tiny` | 3 | 1 | 1 | 12,202 | the suite's `build::goals` |
 
-The gate checks absolute goals. §9's gate checks growth against a baseline.
+CI counts the `ci` size because the full one would take over an hour under
+callgrind. Check's cost per line grows with the workspace, so `ci` flatters
+check by about 3x against `full`.
 
-**What each phase is:**
+**A line** is a line holding part of a token, counted once per distinct file
+the build lexes: the workspace's sources and the stdlib they reach. Blank and
+comment lines don't count. `BURI_PROFILE=1` prints the count as
+`source: N lines of code lexed`.
 
-| Phase | Counted | Timed |
-|---|---|---|
-| parse | `parser::parse` over every module of `mixed-1M` | the same, at least 5 runs |
-| check | `Checker::resume` + `run` over `mixed-1M`, loaded beforehand | the same |
-| dev compile | the `buri` process of a cold `buri build` of `mixed-100k` | the wall time of a cold `buri build` of `mixed-1M`, 3 runs |
+**The phases** come from `BURI_PROFILE`'s per-thread accounting:
 
-Parse and check are §4's seams, so `--goals=wall` reads what the `lex+parse` and
-`sema` rows read. Dev compile is the real command: front end, middle, stencil
-codegen and link, to a native binary, which is what a cold `buri test` builds
-too. It counts 100k because cachegrind would take minutes over a 1M build, and
-100k costs slightly more a line than 1M (36,184 against 35,000). The linker is a
-separate process, so the count leaves it out and the wall time has it.
+- parse is `lex+parse`.
+- check is `check`: name resolution and type checking.
+- dev codegen is everything else up to a linked binary, the linker's child
+  process included.
+- other is the loader, lint, styles and the build cache. It's reported, not
+  held to a goal.
 
-**A budget is the goal at a reference core's instruction rate.** The reference
-is one performance core of the M3 Pro these goals were set on (§6), the same
-class as the macOS runner's M4:
+**Measured on an M3 Pro**, `--goals=time`, the fastest of 3 builds:
+
+| Phase | CPU | Lines/CPU s | Goal | Of goal | Instructions/line |
+|---|---:|---:|---:|---:|---:|
+| parse | 0.107 s | 2.45 M | 10 M | 25% | 4,177 |
+| check | 1.786 s | 147 k | 1 M | 15% | 48 k |
+| dev codegen | 7.665 s | 34.2 k | 100 k | 34% | 224 k |
+| other | 2.643 s | | | | |
+| whole build | 12.2 s | 21.5 k | | | |
+
+The in-memory corpora this replaced (`mixed-1M` under `parser::parse` and
+`Checker::run`) read 1.27x, 4.19x and 3.93x of the goals. A real build misses
+them because it parses and checks the stdlib it reaches, lints, and checks a
+workspace whose cost per line grows with its size.
+
+**The gate is a ratchet, not the goals.** `goals-counted`, on the arm64 Linux
+runner in the `perf` shell, runs the `ci` workspace under
+`valgrind --tool=callgrind --cache-sim=yes` with pinned caches:
 
 ```text
-budget (instructions a line) = rate (instructions a second, one core) / goal (lines a second)
+--I1=32768,8,64 --D1=32768,8,64 --LL=8388608,16,64
+cost = instructions + 10 x L1 misses + 100 x last-level misses
 ```
 
-The rate is each phase's own, measured as instructions a line times its fastest
-single-core lines a second, at load 3, then rounded down:
+L1 misses are `I1mr + D1mr + D1mw`, last-level misses `ILmr + DLmr + DLmw`.
+Pinning the caches keeps the figure the same on every runner. Branch
+simulation is off: the cost leaves it out.
 
-| Phase | Instructions a line | Fastest on one core | Measured rate | Rate used | Budget | Headroom |
-|---|---:|---:|---:|---:|---:|---:|
-| parse | 1,675 | 11.81 M lines/s | 19.8 G/s | 18 G/s | 1,800 | 1.07x |
+For each goal phase, the job holds instructions per line and cost per line to
+`cli/benches/goals/baseline.txt`. A figure more than 1% over its baseline
+fails, and so does a toolchain change, since rustc, clang and valgrind move the
+counts. `--bless` only ever lowers a figure. The job uploads this run's
+lowered file as `goals-baseline`, ready to commit. Run to run, instructions
+move by under 0.01% and cost by under 0.5%.
 
-Parse's row is from before §6.83. Since then it's 1,390 a line and 1.29x, and
-its budget stays at the goal: a ratchet that blocks any regression past it.
-| check | 3,393 | 4.19 M lines/s | 14.2 G/s | 12 G/s | 12,000 | 3.54x |
-| dev compile | 36,184 | 251 k lines/s | 8.8 G/s | 8.5 G/s | 85,000 | 2.35x |
+Callgrind, not cachegrind, because only callgrind can start and stop counting
+from inside the process. Four runs go side by side, each in its own copy of
+the workspace:
 
-Dev compile's single-core figure is lines over the whole process's CPU time,
-4.03 s for `mixed-1M`, and its rate is that process's instructions over it.
+- three with `--collect-atstart=no` and `BURI_PROFILE_COLLECT=parse`, `check`
+  or `other`, which turns collection on only while the thread is in that phase;
+- one of the whole build with `--trace-children=yes`.
 
-**Counts are per core, wall times are the whole machine.** Parse and check run
-on one thread per program, so for one build the two are the same. A cold build
-of `mixed-1M` uses 4.03 s of CPU in 2.62 s, 1.54x parallel on 12 cores, so a
-per-core budget only errs on the strict side. The wall time is what you wait
-for, so it's taken whole.
+Dev codegen is the whole build, children included, less the other three.
 
-**The slowest runner isn't the reference.** Its Ampere-1a cores are about a
-third of an M3's: PassMark single-thread 1,350 against the x86_64 runner's
-4,357, and the arm64 test leg measured 2.6x slower than x86_64. At its rate
-every budget is a third of the above, and parse and dev compile would fail
-today. They'd be right to: on that machine the goals don't hold. The goals
-describe a developer's machine.
+**The `ci` size's figures**, arm64 under callgrind, at the first bless:
 
-**Measured on this M3 Pro**, mixed-1M, single core except dev compile's wall:
+| Phase | Instructions/line | Cost/line |
+|---|---:|---:|
+| parse | 2,541 | 3,575 |
+| check | 14,528 | 23,199 |
+| dev codegen | 86,076 | 130,807 |
+| other | 17,722 | 27,515 |
 
-| Phase | Goal | Measured | Headroom | `wall` on a miss |
-|---|---:|---:|---:|---|
-| parse | 10 M lines/s | 11.81 M, 12.71 M after §6.83 | 1.18x, 1.27x after | warns |
-| check | 1 M lines/s | 4.19 M | 4.19x | fails |
-| dev compile | 100 k lines/s | 394 k whole machine, 251 k a core | 3.93x | fails |
-
-At load 3. Under load 11 they read 1.13x, 3.95x and 3.57x. The other shapes
-agree, with `generic-blowup` the worst at every phase: parse 10.9 M, check
-3.98 M and lowering 455 k lines/s, and 41,800 instructions a line through a cold
-build.
-
-Parse only warns because its headroom is inside run-to-run noise on a loaded
-machine, which took 1.18x to 1.05x once at load 37. Its count still blocks.
-
-**CI's first run**, after §6.83, both jobs green:
-
-| Job | parse | check | dev compile | Took |
-|---|---:|---:|---:|---:|
-| `goals-counted`, instructions a line | 1,373, 1.31x | 2,998, 4.00x | 24,594, 3.46x | 5.5 min, 3.9 of it building |
-| `goals-timed`, lines a second | 12.12 M, 1.21x | 3.67 M, 3.67x | 445 k, 4.45x | 2.4 min |
-
-Cachegrind's counts sit below macOS's, most of all for a build, since they
-leave out the kernel's work.
-
-**Estimated on the other runners**, scaled by single-core speed:
-
-| Runner | Core against an M3 | parse | check | dev compile, whole machine |
-|---|---:|---:|---:|---:|
-| macOS, 12 vCPU, M4 | 1.1–1.2x | 12–13 M | 4.4 M | 390–430 k |
-| x86_64, 4 vCPU, EPYC | 0.8–1.0x | 9–11 M | 3.2–4.0 M | 250–330 k |
-| arm64, 8 vCPU, Ampere-1a | 0.35x | 4 M | 1.4 M | 120–140 k |
-
-**Each layer catches a slowdown.** Two were injected and reverted:
-
-| Injected | `count` | `wall` |
-|---|---|---|
-| 100 spins a line in `parser::parse` | parse 2,313 a line, over 1,800: fails | parse 7.14 M lines/s: warns |
-| 1 M spins a module in `Checker::run` | check 17,278 a line, over 12,000: fails | check 850 k lines/s: fails |
-
-A failure names the phase, the corpus, the measured figure and the goal:
-
-```text
-error: check retires 17,278 instructions a line on pinned:mixed-1M, over its budget of 12,000. At the reference core's 12 G instructions a second that's 694.5k lines/s, under the goal of 1.00M lines/s.
-```
-
-How each counter works:
-
-- **macOS** counts a child's own thread around the phase
-  (`profile::thread_instructions`), so reading the corpus stays out. The
-  kernel's page faults stay in, which moves a count 1–2% with memory pressure,
-  so the fewest of three runs counts. The build's count is `time -l`'s.
-- **Linux** runs each child under cachegrind in §9's `perf` shell, pinned to
-  one core, so the compiler starts no workers. It counts user code only and is
-  exact. Reading the corpus is a child of its own, subtracted from parse, and
-  so is loading it, subtracted from check.
-- **A virtual machine counts nothing** on macOS, which is why the counted job
-  runs on Linux. The gate says so rather than reading zero.
-
-The corpora are written to `target/goals` (or `BURI_GOALS_DIR`) once and reused
-while their bytes match the pinned digest. CI caches that directory.
-
-**A yardstick scales the clock to the reference core.** The free macOS runner
-is a shared VM, several times slower than an M3 Pro and slower still when its
-host is busy. Run 39132864884 failed check at 0.57x and dev compile at 0.80x
-while the counted job, on the same commit, matched the run before to the
-instruction. So `wall` times a fixed workload, `cli/benches/reference.rs`,
-right before and right after every phase run:
-
-```text
-time on the reference core = median(phase / mean(yardstick before, after)) * 58.5 ms
-```
-
-58.5 ms is the yardstick's fastest run on the M3 Pro, from `--goals=reference`.
-A busy host slows the yardstick and the phase together, so the ratio holds. A
-slower compiler moves only the phase. The yardstick chases pointers through
-32 MB, fills and probes a hash map, and branches, using no compiler code. The
-median ignores a sample where the load changed midway. `cli/tests/ci.rs`
-checks all of this on made-up durations, and pins the yardstick's checksum so
-its reference time can't go stale.
-
-On the M3 Pro at load 14, then with 36 extra busy loops, then with check run
-three times over, injected and reverted:
-
-| Run | parse | check | dev compile | `wall` |
-|---|---:|---:|---:|---|
-| load 14 | 12.06 M here, 14.77 M scaled | 1.95 M, 2.65 M | 387 k, 424 k | passes |
-| 36 busy loops | 2.37 M, 12.66 M | 408 k, 2.30 M | 80 k, 247 k | passes |
-| check 3x, 36 busy loops | 2.29 M, 14.99 M | 117 k, 679 k | 51 k, 250 k | fails |
-| check 3x, no extra load | 12.16 M, 14.28 M | 698 k, 795 k | 377 k, 426 k | fails |
-
-Unscaled, the busy machine fails check and dev compile. Scaled, it reads close
-to the quiet one, a little low, which errs on the strict side. Dev compile
-drifts most: it's several processes and the yardstick is one thread.
-
-**Leads, measured and left:**
-
-- **A build's own `lex+parse` phase was 2.1x the parser's work**: 3,400
-  instructions a line on `mixed-1M`, against `parser::parse`'s 1,675. The goal
-  covers the parser, as §4's seam does. §6.83 takes both down.
+The suite's `build::goals` checks the generator is deterministic, that the
+tiny workspace builds lint-clean and its report names each goal phase, and
+that the report and baseline handle the cost figures. `build::profile` checks
+that the line count leaves out blank and comment lines and counts the stdlib
+once.
 
 ### 6.83 Parsing, and a build's lex+parse, 2026-10-09
 

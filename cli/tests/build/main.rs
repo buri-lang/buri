@@ -22,6 +22,7 @@
 //! | [`hermeticity`] | scratch | That a spawn is deterministic, that a perturbed environment changes neither bytes nor verdicts, and that concurrent builds leave the cache intact. |
 //! | [`generator_failures`] | scratch | What a build says when a tool process answers nothing, dies, says too much or needs files outside the repository; tools built from each other; contracts and request types the loader refuses. |
 //! | [`generators`] | scratch | That a generated module reaches the host's native backend and its linker, and that the generator the toolchain ships is compiled once per repository. |
+//! | [`goals`] | scratch | That the compile goals' generated workspace is the same every time and builds lint-clean, and that their report names each goal phase with its rate and cache cost, against a baseline that only falls. |
 //! | [`heap`] | scratch | That the heap check every suite here runs under is really on — in a `buri run` artifact and in the binary `buri test` spawns — and that a program which really leaks is really reported. |
 //! | [`host_files`] | `repositories/custom-platforms/cloudflare_kv/` | That a platform's `js` file is read for its exports however it is written, cut off or malformed, and that the module built from it still answers. |
 //! | [`json_patterns`] | scratch | What each regular expression a JSON schema's `pattern` holds matches, and why each refused one is refused. |
@@ -70,6 +71,10 @@ mod harness;
 #[allow(dead_code)]
 mod generate;
 
+// The compile goals' workspace, for `goals`.
+#[path = "../../benches/workspace.rs"]
+mod workspace;
+
 mod build_command;
 mod build_corners;
 mod build_driver;
@@ -89,6 +94,7 @@ mod fix_refusals;
 mod format_corners;
 mod generator_failures;
 mod generators;
+mod goals;
 mod heap;
 mod held;
 mod hermeticity;

@@ -84,7 +84,7 @@ mod calibrate;
 mod corpus;
 mod generate;
 mod goals;
-mod reference;
+mod workspace;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -160,9 +160,12 @@ usage: compiler [flags]
   --targets=<list>       js,macos-arm64,macos-x86_64,linux-x86_64,linux-arm64
   --record[=<name>]      write the corpus into cli/benches/corpora/ and exit
   --pin[=<name>]         write a digest-pinned manifest into cli/benches/pinned/
-  --goals=<count|wall>   the goals gate: instructions a line against a budget,
-                         or lines a second against the goal (PERFORMANCE.md §6.82)
-  --goals=reference      the yardstick's fastest run, to record as the reference
+  --goals=time           the goals on a cold `buri build //...` of a generated
+                         workspace: lines a CPU second per phase (PERFORMANCE.md §6.82)
+  --goals=count          the same under callgrind (Linux): instructions and cache
+                         cost a line, held to cli/benches/goals/baseline.txt
+  --size=<full|ci|tiny>  the workspace --goals builds (default: full; ci for count)
+  --bless                with --goals=count, lower the baseline to this run
 ";
 
 // ---------------------------------------------------------------------------
@@ -246,10 +249,8 @@ struct Args {
     record: Option<String>,
     pin: Option<String>,
     goals: Option<String>,
-    /// Set only in the child process `--goals=count` spawns: run this phase
-    /// over the repository at `from`, once.
-    goals_child: Option<String>,
-    from: Option<String>,
+    size: Option<String>,
+    bless: bool,
 }
 
 fn parse_args() -> Args {
@@ -273,8 +274,8 @@ fn parse_args() -> Args {
         record: None,
         pin: None,
         goals: None,
-        goals_child: None,
-        from: None,
+        size: None,
+        bless: false,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -292,6 +293,7 @@ fn parse_args() -> Args {
             "--list" => a.list = true,
             "--record" => a.record = Some(String::new()),
             "--pin" => a.pin = Some(String::new()),
+            "--bless" => a.bless = true,
             // `cargo bench` passes `--bench` to every target it runs; ignoring
             // it is what lets this file be a bench target at all.
             "--bench" => {}
@@ -351,10 +353,8 @@ fn parse_args() -> Args {
                     a.pin = Some(value(v));
                 } else if let Some(v) = arg.strip_prefix("--goals=") {
                     a.goals = Some(value(v));
-                } else if let Some(v) = arg.strip_prefix("--goals-child=") {
-                    a.goals_child = Some(value(v));
-                } else if let Some(v) = arg.strip_prefix("--from=") {
-                    a.from = Some(value(v));
+                } else if let Some(v) = arg.strip_prefix("--size=") {
+                    a.size = Some(value(v));
                 } else {
                     eprintln!("unknown argument {arg}");
                     eprintln!("{USAGE}");
@@ -731,17 +731,8 @@ fn run() {
         return;
     }
 
-    if let Some(phase) = &args.goals_child {
-        goals::child(
-            phase,
-            args.from
-                .as_deref()
-                .unwrap_or_else(|| fail("--goals-child needs --from")),
-        );
-        return;
-    }
     if let Some(mode) = &args.goals {
-        goals::run(mode);
+        goals::run(mode, args.size.as_deref(), args.bless);
         return;
     }
 

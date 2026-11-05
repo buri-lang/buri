@@ -1369,3 +1369,121 @@ fn the_test_filesystem_is_linear_in_its_files() {
         2000,
     );
 }
+
+/// The `source:` line's count of lines of code.
+fn source_lines(report: &str) -> u64 {
+    let line = report
+        .lines()
+        .find_map(|l| l.strip_prefix("source: "))
+        .unwrap_or_else(|| panic!("no `source:` line in\n{}", indent(report)));
+    line.split_whitespace().next().unwrap().parse().unwrap()
+}
+
+/// A cold profiled `buri build` of `target`, and its count of lines of code.
+fn lines_built(scratch: &Scratch, target: &str) -> u64 {
+    scratch.run(&["clean"]).ok();
+    let run = scratch.run_with_env(&["build", target], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    source_lines(&run.all())
+}
+
+/// A native program at `dir` printing `word`: eight lines of code.
+fn printing(scratch: &Scratch, dir: &str, word: &str) {
+    scratch.write(
+        &format!("{dir}/BUILD.buri"),
+        &format!(
+            "binary {{\n    outputs: [\n        {{ platform: \"native\", variant: \"{}\" }},\n    ]\n}}\n",
+            host_variant()
+        ),
+    );
+    scratch.write(
+        &format!("{dir}/main.buri"),
+        &format!(
+            "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+             from \"native\" import {{ NativeHost }};\n\
+             from \"core/io\" import * as io;\n\
+             export fn main(host: NativeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+             let _ = io.println(ctx, \"{word}\").ignore();\n    \
+             .Ok(())\n}}\n"
+        ),
+    );
+}
+
+/// **The report's lines of code leave out blank lines and comments.** The
+/// compile goals are rates per line of code, so a commented file is no
+/// faster to compile than the same code bare.
+#[test]
+fn the_line_count_leaves_out_blank_lines_and_comments() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let scratch = Scratch::repo("profile-lines");
+    printing(&scratch, "app", "hi");
+    let bare = lines_built(&scratch, "//app");
+    scratch.edit(
+        "app/main.buri",
+        "export fn main",
+        "\n\n// A plain comment.\n\n/// The program.\n/// It prints.\nexport fn main",
+    );
+    scratch.edit(
+        "app/main.buri",
+        "    .Ok(())",
+        "\n    // Done.\n    .Ok(())",
+    );
+    assert_eq!(
+        lines_built(&scratch, "//app"),
+        bare,
+        "blank or comment lines were counted as code"
+    );
+    scratch.edit(
+        "app/main.buri",
+        "    .Ok(())",
+        "    let _ = io.println(ctx, \"again\").ignore();\n    .Ok(())",
+    );
+    assert_eq!(lines_built(&scratch, "//app"), bare + 1);
+}
+
+/// **Two programs that share the standard library count it once.** Building
+/// both together counts the first's lines and the second's own source, and
+/// not the library again.
+#[test]
+fn the_line_count_counts_the_standard_library_once() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let scratch = Scratch::repo("profile-lines-once");
+    printing(&scratch, "p0", "zero");
+    printing(&scratch, "p1", "one");
+    let first = lines_built(&scratch, "//p0");
+    let both = lines_built(&scratch, "//...");
+    assert!(
+        first > 1000,
+        "the standard library went uncounted: {first} lines"
+    );
+    // `p1`'s build file is `p0`'s, word for word, so only its main is new.
+    assert_eq!(both, first + 8, "the standard library was counted twice");
+}
+
+/// **A build told to count one phase for callgrind builds as usual outside
+/// valgrind**, whatever the group: `BURI_PROFILE_COLLECT`'s requests do
+/// nothing there, and a group it doesn't know is ignored.
+#[test]
+fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let scratch = Scratch::repo("profile-collect");
+    printing(&scratch, "app", "hi");
+    for group in ["parse", "check", "other", "nonsense"] {
+        scratch.run(&["clean"]).ok();
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_PROFILE_COLLECT", group)],
+        );
+        run.ok().says("\n  lex+parse ").says("\n  check ");
+    }
+}
