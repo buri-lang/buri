@@ -5109,27 +5109,24 @@ mod tests {
     /// so far, which is quadratic in a file that produces a lot of them — and a
     /// truncated or generated file produces a lot of them.
     ///
-    /// Counted in this thread's instructions, the fewest of three parses, so
-    /// load can't move it: forty thousand errors cost 2.0 times twenty
-    /// thousand, and the scan made it 3.6. Off macOS hardware nothing counts,
-    /// and this checks only that the errors are reported.
+    /// Counted in this thread's instructions, the fewest of three parses after
+    /// one that warms up, so load can't move it: forty thousand errors cost 2.0
+    /// times twenty thousand, and the scan made it 3.6. Off macOS hardware
+    /// nothing counts, and this checks only that the errors are reported.
     #[test]
     fn a_file_full_of_errors_is_read_in_time_proportional_to_its_size() {
         let cost = |n: usize| {
             let src: String = (0..n).map(|_| "fn ;\n").collect();
-            let mut fewest = u64::MAX;
-            for _ in 0..3 {
-                let before = buri_diagnostics::profile::thread_instructions();
-                let p = parse(&src, FileId(0));
-                fewest = fewest
-                    .min(buri_diagnostics::profile::thread_instructions().saturating_sub(before));
+            buri_diagnostics::profile::fewest(3, |steps| {
+                let p = steps.step(|| parse(&src, FileId(0)));
                 assert!(
                     p.errors.len() >= n,
                     "{n} broken declarations reported {} errors",
                     p.errors.len()
                 );
-            }
-            fewest
+            })
+            .iter()
+            .sum::<u64>()
         };
         let (small, large) = (cost(20_000), cost(40_000));
         if small == 0 {

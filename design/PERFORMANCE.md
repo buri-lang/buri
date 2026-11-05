@@ -8275,6 +8275,13 @@ Instructions aren't exact, for two reasons:
   coverage run. On one thread it read 162.3–163.0 M beside sixteen busy loops.
   `BURI_THREADS=1` keeps whole-program work on one thread, for a count that
   has to hold still; `cli/tests/build/profile.rs` sets it.
+- **One thread's count includes the kernel's work on that thread.** A switch to
+  another thread costs about 11.7 k instructions and a page fault about 7 k.
+  Interrupts add more. Under memory pressure this work comes in bursts. A parse
+  of `mixed-few-files` read 48.7 M on most rounds, but every round in a burst
+  read 53–55 M, with no faults or switches counted. `buri::profile::fewest`
+  keeps each step's fewest over several rounds. `cli/tests/build/loading.rs`
+  runs every shape in each round, so one shape's rounds are 0.35 s apart.
 - **A compiled program's large blocks used to move with the machine.** macOS's
   `malloc` keeps a freed block past a few KB until the kernel reclaims it, on
   the kernel's schedule. A loop that dropped and remade a 288 KB list then got

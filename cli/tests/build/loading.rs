@@ -161,10 +161,11 @@ fn modules_read_side_by_side_load_as_they_would_one_at_a_time() {
 /// the benchmark's is: it resolves each import and parses, and reads no file.
 ///
 /// Counted rather than timed (`design/PERFORMANCE.md` §8), at 30,000 lines a
-/// shape, on this thread only, and the fewest of three runs. A load from disk
-/// isn't counted: opening files and reading ahead on other threads is kernel
-/// work, and under load it moved a whole-process count by a quarter. Each
-/// bound is a tenth over what was measured. §6.83 has the release build's
+/// shape, on this thread only, one module at a time: each module's fewest of
+/// five rounds after one that warms up ([`buri::profile::fewest`]). A load
+/// from disk isn't counted: opening files and reading ahead on other threads
+/// is kernel work, and under load it moved a whole-process count by a quarter.
+/// Each bound is a tenth over what was measured. §6.83 has the release build's
 /// figures.
 const BOUNDS: [(&str, u64, u64); 20] = [
     ("comment-free", 2310, 2690),
@@ -213,61 +214,63 @@ fn pinned_shape(name: &str) -> crate::generate::Program {
     crate::generate::program(&params)
 }
 
-/// The fewest instructions this thread retires over three runs of `work`, or
-/// `None` where the kernel counts none (Linux, and CI's virtual machines).
-/// The first run faults in the memory the others reuse, and the kernel's work
-/// only ever adds to a count, so the fewest is the work itself.
-fn counted<T>(mut work: impl FnMut() -> T) -> Option<u64> {
-    let mut fewest = u64::MAX;
-    for _ in 0..3 {
-        let before = buri::profile::thread_instructions();
-        std::hint::black_box(work());
-        fewest = fewest.min(buri::profile::thread_instructions().saturating_sub(before));
-    }
-    (fewest > 0).then_some(fewest)
-}
-
 /// What `parser::parse` over every module, and a load of the whole program,
-/// retire a line on the pinned point `name`.
-fn costs(name: &str) -> Option<(u64, u64)> {
+/// retire a line on each shape in [`BOUNDS`], in its order. A round takes
+/// every shape in turn, so one shape's rounds are 0.35 s apart, longer than a
+/// burst of the kernel's work (`design/PERFORMANCE.md` §8). `None` where the
+/// kernel won't say.
+fn costs() -> Option<Vec<(u64, u64)>> {
     use buri::compiler::modules::{Loader, Role};
     use buri::compiler::snapshot::{self, Opening};
     use buri::diagnostics::{Diagnostics, FileId, Severity, SourceMap};
-    let program = pinned_shape(name);
-    let lines = program.lines() as u64;
-    let parse = counted(|| {
-        let parse = |(i, m): (usize, &crate::generate::Module)| {
-            buri::parsing::parser::parse(&m.text, FileId(i as u32))
-        };
-        program
-            .modules
-            .iter()
-            .enumerate()
-            .map(parse)
-            .collect::<Vec<_>>()
-    })?;
+    let programs: Vec<_> = BOUNDS
+        .iter()
+        .map(|&(name, ..)| pinned_shape(name))
+        .collect();
     let snapshot = snapshot::of(Opening::Builtin, true);
-    let load = counted(|| {
-        let (mut map, mut diagnostics) = (SourceMap::new(), Diagnostics::new());
-        let mut cache = buri::parsing::parser::Cache::new();
-        let mut loader = Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, snapshot);
-        loader.load_builtin_modules();
-        let last = program.modules.len().saturating_sub(1);
-        for (i, m) in program.modules.iter().enumerate() {
-            let role = if i == last { Role::Entry } else { Role::Source };
-            loader.load_source_in(&m.path, role, m.text.clone(), None);
+    let fewest = buri::profile::fewest(5, |steps| {
+        for (program, (name, ..)) in programs.iter().zip(BOUNDS) {
+            for (i, m) in program.modules.iter().enumerate() {
+                steps.step(|| drop(buri::parsing::parser::parse(&m.text, FileId(i as u32))));
+            }
+            let (mut map, mut diagnostics) = (SourceMap::new(), Diagnostics::new());
+            let mut cache = buri::parsing::parser::Cache::new();
+            let mut loader = steps.step(|| {
+                let mut loader =
+                    Loader::seeded(None, &mut map, &mut diagnostics, &mut cache, snapshot);
+                loader.load_builtin_modules();
+                loader
+            });
+            let last = program.modules.len().saturating_sub(1);
+            for (i, m) in program.modules.iter().enumerate() {
+                let role = if i == last { Role::Entry } else { Role::Source };
+                steps.step(|| loader.load_source_in(&m.path, role, m.text.clone(), None));
+            }
+            steps.step(|| drop(loader.finish()));
+            assert!(
+                !diagnostics
+                    .items
+                    .iter()
+                    .any(|d| d.severity == Severity::Error),
+                "{name} does not load"
+            );
         }
-        let loaded = loader.finish();
-        assert!(
-            !diagnostics
-                .items
-                .iter()
-                .any(|d| d.severity == Severity::Error),
-            "{name} does not load"
-        );
-        loaded
-    })?;
-    Some((parse / lines, load / lines))
+    });
+    if fewest.iter().all(|&n| n == 0) {
+        return None;
+    }
+    // Each shape's steps: a parse of each module, then its load's.
+    let mut rest = &fewest[..];
+    let mut take = |n: usize| {
+        let (these, after) = rest.split_at(n);
+        rest = after;
+        these.iter().sum::<u64>()
+    };
+    let costs = programs.iter().map(|program| {
+        let (modules, lines) = (program.modules.len(), program.lines() as u64);
+        (take(modules) / lines, take(modules + 2) / lines)
+    });
+    Some(costs.collect())
 }
 
 /// **Parsing and loading stay within their budgets on every pinned shape.**
@@ -277,10 +280,10 @@ fn costs(name: &str) -> Option<(u64, u64)> {
 fn parsing_and_loading_each_pinned_shape_stay_within_their_instruction_bounds() {
     let mut over = Vec::new();
     let mut table = String::new();
-    for (name, parse_bound, load_bound) in BOUNDS {
-        let Some((parse, load)) = costs(name) else {
-            return;
-        };
+    let Some(costs) = costs() else {
+        return;
+    };
+    for ((name, parse_bound, load_bound), (parse, load)) in BOUNDS.into_iter().zip(costs) {
         table.push_str(&format!(
             "  {name:18} parse {parse:5} of {parse_bound:5}   load {load:5} of {load_bound:5}\n"
         ));

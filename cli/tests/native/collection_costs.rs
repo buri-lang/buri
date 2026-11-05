@@ -12,9 +12,11 @@ use crate::hang::CappedChild;
 use crate::shared::{exited_instructions, heap_checked, probed, ran_command, Ran};
 use std::path::Path;
 
-/// One run, with the fewer instructions of two, because a short process's
-/// count only ever gains noise (`design/PERFORMANCE.md` §8). `None` where the
-/// kernel counts nothing, such as CI's virtual machines.
+/// One run, with the fewest instructions of three, because a short process's
+/// count only ever gains noise (`design/PERFORMANCE.md` §8). An idle run's
+/// noise takes away from the work's count, and under memory pressure two runs
+/// in a row both gained it. `None` where the kernel counts nothing, such as
+/// CI's virtual machines.
 fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     let once = || {
         let mut cmd = std::process::Command::new(binary);
@@ -33,9 +35,11 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     };
     let (ran, first) = once();
     let (_, second) = once();
+    let (_, third) = once();
+    let fewest = first.zip(second).zip(third);
     (
         ran,
-        first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0),
+        fewest.map(|((a, b), c)| a.min(b).min(c)).filter(|&n| n > 0),
     )
 }
 

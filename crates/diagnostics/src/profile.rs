@@ -207,6 +207,48 @@ pub fn thread_instructions() -> u64 {
     os::thread_instructions()
 }
 
+/// The instructions each [`Steps::step`] of `round` retires on this thread,
+/// the fewest over `rounds` rounds after a first round that counts nothing. 0s
+/// where the kernel won't say.
+///
+/// The count includes the kernel's work on this thread, such as interrupts and
+/// switching threads, and that work only ever adds. The first round takes lazy
+/// setup and first touches, and a short step usually has one round the kernel
+/// left alone (`design/PERFORMANCE.md` §8).
+pub fn fewest(rounds: usize, mut round: impl FnMut(&mut Steps)) -> Vec<u64> {
+    let mut steps = Steps::default();
+    for counting in std::iter::once(false).chain(std::iter::repeat_n(true, rounds)) {
+        (steps.counting, steps.at) = (counting, 0);
+        round(&mut steps);
+    }
+    steps.fewest
+}
+
+/// One round of [`fewest`]: the steps it counts, in the same order each round.
+#[derive(Default)]
+pub struct Steps {
+    counting: bool,
+    at: usize,
+    fewest: Vec<u64>,
+}
+
+impl Steps {
+    /// Runs `work` as this round's next step.
+    pub fn step<T>(&mut self, work: impl FnOnce() -> T) -> T {
+        let before = thread_instructions();
+        let out = work();
+        let n = thread_instructions().saturating_sub(before);
+        if self.counting {
+            match self.fewest.get_mut(self.at) {
+                Some(fewest) => *fewest = (*fewest).min(n),
+                None => self.fewest.push(n),
+            }
+            self.at += 1;
+        }
+        out
+    }
+}
+
 /// The phase this thread is in, for a worker to start in.
 pub fn current() -> Option<Phase> {
     if !enabled() {
