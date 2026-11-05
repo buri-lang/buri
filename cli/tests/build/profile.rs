@@ -57,6 +57,45 @@ fn an_unprofiled_run_prints_no_profile() {
         .silent_about("buri profile");
 }
 
+/// **A toolchain built with `--features alloc-counter` counts each phase's
+/// allocations**, in a column of its own, and one built without it has no such
+/// column. The coverage job's release `buri` is the first kind and the suite's
+/// the second.
+#[test]
+fn an_allocation_counting_toolchain_reports_its_allocations() {
+    let scratch = repo();
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok().says("buri profile");
+    let report = run.all();
+    let header = report
+        .lines()
+        .find(|l| l.starts_with("buri profile"))
+        .unwrap();
+    if !cfg!(feature = "alloc-counter") {
+        assert!(!header.contains("allocations"), "{}", indent(&report));
+        return;
+    }
+    assert!(header.contains("allocations"), "{}", indent(&report));
+    for phase in ["check", "all phases"] {
+        let row = report
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("{phase} ")))
+            .unwrap();
+        // After the name: instructions (`-` or `<n> M`), cpu `<n> s`, busy
+        // `<n> s`, then the allocations.
+        let words: Vec<&str> = row[row.find(phase).unwrap() + phase.len()..]
+            .split_whitespace()
+            .collect();
+        let busy = words.iter().enumerate().filter(|(_, w)| **w == "s").nth(1);
+        let allocations: u64 = words[busy.unwrap().0 + 1].parse().unwrap();
+        assert!(
+            allocations > 0,
+            "{phase} allocated nothing:\n{}",
+            indent(&report)
+        );
+    }
+}
+
 /// The instructions one phase took, in millions, off a `BURI_PROFILE=1`
 /// report, or `None` where the platform has no per-thread counter (Linux, and
 /// CI's macOS virtual machines, read `-` or 0).

@@ -325,7 +325,9 @@ platform. CI's x86_64 Linux also measures a `buri` built in it, as
 `x86_64-unknown-linux-gnu+release` (`--release` on `--build` and `--shard`).
 A branch on `cfg!(debug_assertions)`, such as the stencil backend's IR check,
 then counts both ways. That build turns off link-time optimization, which
-changes how long it takes and not which branches it has.
+changes how long it takes and not which branches it has. It also has
+`alloc-counter`, so the allocations column of `BURI_PROFILE=1` counts both
+ways too.
 
 `coverage/compiler-branches.txt` names the platforms it merges on its `hosts`
 line, and a run is held to the baseline over those platforms alone. A

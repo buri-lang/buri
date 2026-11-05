@@ -16,8 +16,9 @@
 //! how platforms merge.
 //!
 //! `--release` measures a `buri` built in the release profile, without debug
-//! assertions, as one more platform: `<host>+release`. So a branch on
-//! `cfg!(debug_assertions)` counts both ways.
+//! assertions and with `alloc-counter`, as one more platform: `<host>+release`.
+//! So a branch on `cfg!(debug_assertions)` or on counted allocations counts
+//! both ways.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -248,6 +249,18 @@ impl Gate {
         }
     }
 
+    /// The features `buri` and the tests are built with. The release build
+    /// also counts allocations, so `BURI_PROFILE=1`'s allocations column
+    /// counts both ways. The allocator it swaps out is the runtime's, which
+    /// isn't counted.
+    fn features(&self) -> &'static str {
+        if self.release {
+            "backend-llvm,alloc-counter"
+        } else {
+            "backend-llvm"
+        }
+    }
+
     /// The instrumented `buri` the tests run.
     fn buri(&self) -> PathBuf {
         self.target.join("debug").join("buri")
@@ -276,7 +289,7 @@ impl Gate {
                 "--bin",
                 "buri",
                 "--features",
-                "backend-llvm,test-hooks",
+                &format!("test-hooks,{}", self.features()),
             ])
             .env("RUSTFLAGS", RUSTFLAGS)
             .env("CARGO_TARGET_DIR", &instrumented)
@@ -306,7 +319,7 @@ impl Gate {
                 "-p",
                 "buri",
                 "--features",
-                "backend-llvm",
+                self.features(),
                 "--archive-file",
             ])
             .arg(built.join("tests.tar.zst"))
