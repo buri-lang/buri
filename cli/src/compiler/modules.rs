@@ -137,7 +137,7 @@ impl<'a> Loader<'a> {
         // member but the target itself is a library.
         for member in ws.closure(target) {
             if member != target {
-                let span = ws.named_at(member).unwrap_or(Span::NONE);
+                let span = || ws.named_at(member).unwrap_or(Span::NONE);
                 self.check_root(ws, member.package, "lib.buri", "library", span);
             }
         }
@@ -200,13 +200,13 @@ impl<'a> Loader<'a> {
                 for output in ws.custom_platform_outputs(target) {
                     let platform = output.platform;
                     let span = output.label.span;
-                    if self.check_root(ws, platform.package, "platform.buri", "platform", span) {
+                    if self.check_root(ws, platform.package, "platform.buri", "platform", || span) {
                         self.load_path(&platform.label, Role::Source, Span::NONE);
                     }
                 }
                 // The binary's own rule names main.buri: nothing can depend on
                 // a binary, so nothing else does.
-                if self.check_root(ws, target.package, "main.buri", "binary", bin.span) {
+                if self.check_root(ws, target.package, "main.buri", "binary", || bin.span) {
                     self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
                 }
                 for src in &bin.sources {
@@ -279,7 +279,7 @@ impl<'a> Loader<'a> {
         root: &'static str,
         kind: &str,
     ) -> Option<ModuleId> {
-        let span = ws.named_at(target).unwrap_or(Span::NONE);
+        let span = || ws.named_at(target).unwrap_or(Span::NONE);
         let path = ws.package(target.package).module_path(root);
         self.check_root(ws, target.package, root, kind, span)
             .then(|| self.load_path(&path, Role::Source, Span::NONE))
@@ -287,14 +287,15 @@ impl<'a> Loader<'a> {
     }
 
     /// Whether `package` has the root file `root`. One that doesn't is
-    /// reported at `span`.
+    /// reported at `span`, which is only worked out then: finding where the
+    /// build files name a target walks every target's dependencies.
     fn check_root(
         &mut self,
         ws: &Workspace,
         package: crate::build::workspace::PackageId,
         root: &'static str,
         kind: &str,
-        span: Span,
+        span: impl FnOnce() -> Span,
     ) -> bool {
         let pkg = ws.package(package);
         if self.resolve(ws, &pkg.module_path(root)).is_ok() {
@@ -303,7 +304,7 @@ impl<'a> Loader<'a> {
         self.rootless.insert((pkg.label(), root));
         let (problem, fix) = ws.missing_root(package, root, kind);
         self.diags.push(
-            Diagnostic::templated("unknown-module", span)
+            Diagnostic::templated("unknown-module", span())
                 .with_bind("problem", problem)
                 .with_fix(fix),
         );

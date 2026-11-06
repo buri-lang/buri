@@ -518,9 +518,22 @@ pub fn find(path: &str) -> Option<&'static StdModule> {
 
 /// [`find`], answering with the module's position in [`MODULES`], which is
 /// what names its file (`diagnostics::FileId::standard`).
+///
+/// A binary search over the table's positions sorted by path, since this is
+/// asked several times for every import a build reads.
 pub fn find_index(path: &str) -> Option<usize> {
+    static SORTED: std::sync::OnceLock<Vec<(&'static str, usize)>> = std::sync::OnceLock::new();
     let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
-    MODULES.iter().position(|m| m.path == canonical)
+    let sorted = SORTED.get_or_init(|| {
+        let mut sorted: Vec<_> = MODULES.iter().map(|m| m.path).zip(0..).collect();
+        sorted.sort_unstable();
+        sorted
+    });
+    let at = sorted.partition_point(|&(p, _)| p < canonical);
+    sorted
+        .get(at)
+        .filter(|&&(p, _)| p == canonical)
+        .map(|&(_, i)| i)
 }
 
 /// The canonical spelling of a standard library path, or `None` when the

@@ -297,3 +297,123 @@ fn parsing_and_loading_each_pinned_shape_stay_within_their_instruction_bounds() 
         "instructions a line over their bounds on {over:?}:\n{table}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// What a workspace's bookkeeping costs a module
+// ---------------------------------------------------------------------------
+
+/// How many libraries [`chain`] writes.
+const CHAIN: usize = 120;
+
+/// `//app`, which prints what the last of [`CHAIN`] libraries returns:
+/// `//lib/l<i>` depends on `//lib/l<i-1>` and returns one more than it does.
+fn chain() -> Scratch {
+    let scratch = Scratch::repo("loading-chain");
+    for i in 0..CHAIN {
+        let (deps, import, body) = match i.checked_sub(1) {
+            None => (String::new(), String::new(), "1".to_string()),
+            Some(p) => (
+                format!("    dependencies: [\"//lib/l{p}\"]\n"),
+                format!("from \"//lib/l{p}\" import {{ v{p} }};\n\n"),
+                format!("v{p}() + 1"),
+            ),
+        };
+        scratch.write(
+            &format!("lib/l{i}/BUILD.buri"),
+            &format!("library {{\n    visibility: [\"//...\"]\n{deps}}}\n"),
+        );
+        scratch.write(
+            &format!("lib/l{i}/lib.buri"),
+            &format!("{import}export fn v{i}(): Int {{\n    {body}\n}}\n"),
+        );
+    }
+    let last = CHAIN - 1;
+    scratch.write(
+        "app/BUILD.buri",
+        &format!(
+            "binary {{\n    dependencies: [\"//lib/l{last}\"]\n    outputs: [{{ platform: \"node\" }}]\n}}\n"
+        ),
+    );
+    scratch.write(
+        "app/main.buri",
+        &format!(
+            "from \"node\" import {{ NodeHost }};\n\
+             from \"platform/effect\" import {{ Stdout }};\n\
+             from \"core/io\" import * as io;\n\
+             from \"//lib/l{last}\" import {{ v{last} }};\n\n\
+             export fn main(host: NodeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Stdout: host.stdout }};\n    \
+             let _ = io.println(ctx, \"${{v{last}()}}\").ignore();\n    \
+             .Ok(())\n}}\n"
+        ),
+    );
+    scratch
+}
+
+/// **A long chain of libraries builds**, and the binary at its end runs.
+#[test]
+fn a_long_chain_of_libraries_builds_and_runs() {
+    let scratch = chain();
+    scratch.run(&["build", "//..."]).ok();
+    scratch.exec_js("app").ok().says(&CHAIN.to_string());
+}
+
+/// The instructions a module that loading every target of [`chain`] at once
+/// may retire, on this thread, with every file already read and parsed: what
+/// is left is the loader's bookkeeping. Finding where the build files name a
+/// library walks every target's dependencies, and doing that for each library
+/// each target reaches grows with the cube of the chain: done every time, it
+/// cost 2.7 M a module here, and done only for a library that is missing its
+/// root, 0.23 M (`design/PERFORMANCE.md` §6.99). The bound is twice what was
+/// measured: a load still asks the disk whether each file is there, and that
+/// kernel work moved the count by an eighth while the whole suite ran.
+const BOOKKEEPING_BOUND: u64 = 460_000;
+
+/// **A workspace's bookkeeping stays within its bound a module**, however
+/// many targets reach a library.
+#[test]
+fn loading_every_target_of_a_long_chain_stays_within_its_instruction_bound() {
+    use buri::build::session;
+    use buri::commands::arguments::Flags;
+    use buri::compiler::driver;
+    use buri::compiler::modules::Unit;
+    let scratch = chain();
+    let mut open = session::open_at(&scratch.path(""), &Flags::default()).unwrap();
+    assert!(!open.diagnostics.has_errors(), "the chain does not open");
+    let units: Vec<Unit> = open
+        .workspace
+        .targets()
+        .into_iter()
+        .map(|target| Unit {
+            target: Some(target),
+            platform: None,
+            entry: None,
+            with_tests: true,
+        })
+        .collect();
+    let ws = Some(&*open.workspace);
+    let analysis = driver::analyze_all(ws, &mut open.map, &mut open.parsed, &units);
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "the chain does not load"
+    );
+    let fewest = buri::profile::fewest(5, |steps| {
+        steps.step(|| {
+            drop(driver::load_all(
+                ws,
+                &mut open.map,
+                &mut open.parsed,
+                &units,
+            ))
+        });
+    });
+    if fewest == [0] {
+        return;
+    }
+    let a_module = fewest[0] / (CHAIN as u64 + 1);
+    eprintln!("bookkeeping {a_module} instructions a module, of {BOOKKEEPING_BOUND}");
+    assert!(
+        a_module <= BOOKKEEPING_BOUND,
+        "bookkeeping {a_module} instructions a module, over {BOOKKEEPING_BOUND}"
+    );
+}

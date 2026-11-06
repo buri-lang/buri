@@ -27,7 +27,7 @@
 //! | [`host_files`] | `repositories/custom-platforms/cloudflare_kv/` | That a platform's `js` file is read for its exports however it is written, cut off or malformed, and that the module built from it still answers. |
 //! | [`json_patterns`] | scratch | What each regular expression a JSON schema's `pattern` holds matches, and why each refused one is refused. |
 //! | [`json_schema_suite`] | `json-schema/` | That `buri lint` holds JSON files to the official JSON Schema 2020-12 test suite. |
-//! | [`loading`] | scratch | That every import of a path is answered alike, however many modules write it. |
+//! | [`loading`] | scratch | That every import of a path is answered alike, however many modules write it, and that a workspace's bookkeeping stays within its bound a module. |
 //! | [`many_findings`] | scratch | That a file with thousands of findings publishes each once, where it is, across edits, and that `lint --fix` over a thousand of them leaves the program printing what it printed. |
 //! | [`monorepo`] | scratch | A large repository's shape, scaled down: what a warm run, a comment edit and a generator's input edit may not redo, and that a link does not start the C driver. |
 //! | [`profile`] | scratch | That `BURI_PROFILE=1` reports each phase a run went through, that a run without it prints nothing extra, and that checking and emitting large shapes is linear in their size. |

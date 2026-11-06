@@ -14,7 +14,8 @@ use crate::build::buildfile::{
     self, Backend, OutputPlatform, Platform, PlatformRef, RepoConfig, Spanned,
 };
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use crate::hash::Map as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 // The graph's vocabulary — packages, targets, labels, visibility, module
@@ -307,8 +308,8 @@ impl Workspace {
             by_path,
             generated: crate::build::generators::Store::default(),
             graph_keys: std::sync::Mutex::new(Vec::new()),
-            closures: std::sync::Mutex::new(HashMap::new()),
-            edges: std::sync::Mutex::new(HashMap::new()),
+            closures: std::sync::Mutex::new(HashMap::default()),
+            edges: std::sync::Mutex::new(HashMap::default()),
         };
         // Only once the build file it names has been read can a tool name be
         // resolved, so the references are checked here rather than by the
@@ -726,7 +727,7 @@ impl Workspace {
     /// The shortest dependency path from `from` to `to`, if there is one, with
     /// the span of the edge that introduced each step.
     pub fn dep_path(&self, from: TargetId, to: TargetId) -> Option<Vec<(TargetId, Option<Span>)>> {
-        let mut prev: HashMap<TargetId, (TargetId, Option<Span>)> = HashMap::new();
+        let mut prev: HashMap<TargetId, (TargetId, Option<Span>)> = HashMap::default();
         let mut queue = std::collections::VecDeque::from([from]);
         let mut seen = BTreeSet::from([from]);
         while let Some(cur) = queue.pop_front() {
@@ -1002,21 +1003,18 @@ impl Workspace {
     /// `BUILD.buri`.
     pub fn owning_package(&self, p: &Path) -> Option<PackageId> {
         let rel = self.rel_of(p);
-        let mut dir = rel
-            .rsplit_once('/')
-            .map(|(d, _)| d.to_string())
-            .unwrap_or_default();
+        let mut dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
         loop {
-            if let Some(id) = self.package_by_path(&dir) {
+            if let Some(id) = self.package_by_path(dir) {
                 return Some(id);
             }
             match dir.rsplit_once('/') {
-                Some((d, _)) => dir = d.to_string(),
+                Some((d, _)) => dir = d,
                 None => {
                     if dir.is_empty() {
                         return None;
                     }
-                    dir = String::new();
+                    dir = "";
                 }
             }
         }

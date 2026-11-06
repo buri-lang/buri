@@ -8510,6 +8510,38 @@ and free, and the large-block cache keeps the block, so no step reaches the
 platform allocator. A step went from 829 to 782 instructions on stencil and
 from 315 to 261 on LLVM.
 
+### 6.99 Loading spends less on the workspace's bookkeeping, 2026-11-05
+
+The goals build's parse phase is the whole load. Under callgrind on Linux
+it retired 1,888 instructions a line:
+
+- the parser, 52%, about 113 a token;
+- the lexer, 30%, about 65 a token;
+- the loader's bookkeeping, 17%.
+
+On macOS, opening files adds a sixth more, nearly all of it kernel work.
+
+The bookkeeping had one cost that grew faster than the workspace. Every
+unit asked, for each library it reaches, where the build files name it
+(`Workspace::named_at`), which walks every target's dependencies. Only a
+library missing its `lib.buri` needs that span, so `Loader::check_root`
+now takes it as a closure and works it out only then. Three smaller costs
+went too:
+
+- `standard_library::find_index` binary-searches a sorted copy of the table
+  instead of scanning 68 paths, several times an import;
+- the workspace's maps hash with Fx instead of SipHash;
+- `Workspace::owning_package` walks the path's parents as slices instead of
+  building a string for each.
+
+On the goals workspace, parse fell from 2,798 to about 2,560 instructions a
+line. `cli/tests/build/loading.rs` guards the growth: loading every target
+of a chain of 120 libraries, already read and parsed, cost 2.7 M
+instructions a module, and now costs 0.23 M.
+
+The lexer and parser are still four fifths of the phase, and §6.83's floor
+for both stands without a rewrite.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
