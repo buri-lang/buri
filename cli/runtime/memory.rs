@@ -669,20 +669,23 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 /// caller does not write every byte.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
-    match alloc_cached(payload) {
-        Some(p) => p,
-        None => alloc_uncached(payload),
-    }
+    alloc_cached::<false>(payload)
 }
 
-/// [`buri_rt_alloc`] past its fast path.
+/// [`buri_rt_alloc`], with the payload zeroed.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
+    alloc_cached::<true>(payload)
+}
+
+/// [`alloc_cached`] where the cache's fast path must not run: a scope is open,
+/// the heap check is on or undecided, or the cache can't be read without a
+/// call.
 #[inline(never)]
-fn alloc_uncached(payload: u64) -> *mut u8 {
-    // G5: a process that has opened a scope asks which one it is in; one that
-    // has not takes the two lines below, which are the two lines it took
-    // before this slice. [`scopes_exist`] is the whole of the difference.
+fn alloc_uncached(payload: u64, zeroed: bool) -> *mut u8 {
+    // G5: a process that has opened a scope asks which one it is in.
     if scopes_exist() {
-        if let Some(p) = scoped_alloc(payload, false) {
+        if let Some(p) = scoped_alloc(payload, zeroed) {
             return p;
         }
     } else {
@@ -690,31 +693,15 @@ fn alloc_uncached(payload: u64) -> *mut u8 {
         // visit to the thread-local. A hit is a block of exactly `payload`
         // usable bytes, so `finish` writes the same header it would have
         // written over a fresh one.
-        let hit = match cache_pop_counted(payload) {
-            None if payload > CACHE_MAX_PAYLOAD => big_take(payload),
-            hit => hit,
-        };
-        let raw = match hit {
-            // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
-            Some(p) => unsafe { p.sub(BURI_RT_HEADER) },
-            // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
-            None => unsafe { alloc(layout_for(payload)) },
-        };
-        return finish_uncounted(raw, payload, 0);
+        let hit = cache_pop_counted(payload).or_else(|| kept_big(payload));
+        return finish_uncounted(raw_block(hit, payload, zeroed), payload, 0);
     }
-    let layout = layout_for(payload);
-    let raw = match big_take_beside_scopes(payload) {
-        // SAFETY: `p` is a payload pointer, so `p - 16` is its block.
-        Some(p) => unsafe { p.sub(BURI_RT_HEADER) },
-        // SAFETY: `layout` has a non-zero size — the header alone is 16 bytes.
-        None => unsafe { alloc(layout) },
-    };
-    finish(raw, payload)
+    finish(raw_block(kept_big(payload), payload, zeroed), payload)
 }
 
-/// A kept large block for a platform allocation in a process that has opened
-/// a scope: the arm [`scoped_alloc`] falls through to, outside any arena.
-fn big_take_beside_scopes(payload: u64) -> Option<*mut u8> {
+/// A kept large block of `payload` bytes, if this thread has one. A small
+/// block is kept in the cache instead, so there is never one here.
+fn kept_big(payload: u64) -> Option<*mut u8> {
     if payload > CACHE_MAX_PAYLOAD {
         big_take(payload)
     } else {
@@ -722,55 +709,27 @@ fn big_take_beside_scopes(payload: u64) -> Option<*mut u8> {
     }
 }
 
-/// [`buri_rt_alloc`], with the payload zeroed.
-#[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_alloc_zeroed(payload: u64) -> *mut u8 {
-    if let Some(p) = alloc_cached(payload) {
-        // SAFETY: `p` has `payload` usable bytes.
-        unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
-        return p;
-    }
-    // G5: as in `buri_rt_alloc`, and an arena block needs no zeroing — it is a
-    // range of a fresh anonymous mapping handed out exactly once, because the
-    // window only moves forward and a released arena's pages are unmapped
-    // rather than reused, and POSIX guarantees `MAP_ANON` is zero.
-    if scopes_exist() {
-        if let Some(p) = scoped_alloc(payload, true) {
-            return p;
-        }
-    } else {
-        let hit = match cache_pop_counted(payload) {
-            None if payload > CACHE_MAX_PAYLOAD => big_take(payload),
-            hit => hit,
-        };
-        let raw = match hit {
-            // G2: a cached block holds whatever the last value in it held, so
-            // this one zeroes what `alloc_zeroed` would have got from the
-            // allocator.
-            //
-            // SAFETY: `p` is a payload pointer to a block with `payload`
-            // usable bytes, which is exactly the range written.
-            Some(p) => unsafe {
-                std::ptr::write_bytes(p, 0, payload as usize);
-                p.sub(BURI_RT_HEADER)
-            },
-            // SAFETY: as above.
-            None => unsafe { alloc_zeroed(layout_for(payload)) },
-        };
-        return finish_uncounted(raw, payload, 0);
-    }
-    let layout = layout_for(payload);
-    let raw = match big_take_beside_scopes(payload) {
+/// The raw block for `payload` bytes: `kept`'s, which a payload pointer names,
+/// or a fresh one from the platform allocator. `zeroed` zeroes the payload.
+#[inline(always)]
+fn raw_block(kept: Option<*mut u8>, payload: u64, zeroed: bool) -> *mut u8 {
+    match kept {
+        // A kept block holds whatever the last value in it held, so a zeroing
+        // caller is given what `alloc_zeroed` would have given it.
+        //
         // SAFETY: `p` is a payload pointer to a block with `payload` usable
         // bytes, which is exactly the range written.
         Some(p) => unsafe {
-            std::ptr::write_bytes(p, 0, payload as usize);
+            if zeroed {
+                std::ptr::write_bytes(p, 0, payload as usize);
+            }
             p.sub(BURI_RT_HEADER)
         },
+        // SAFETY: the layout has a non-zero size — the header alone is 16 bytes.
+        None if zeroed => unsafe { alloc_zeroed(layout_for(payload)) },
         // SAFETY: as above.
-        None => unsafe { alloc_zeroed(layout) },
-    };
-    finish(raw, payload)
+        None => unsafe { alloc(layout_for(payload)) },
+    }
 }
 
 fn finish(raw: *mut u8, payload: u64) -> *mut u8 {
@@ -1373,58 +1332,111 @@ mod heap_slot {
     }
 }
 
-/// [`buri_rt_alloc`]'s fast path: a block of exactly `payload` bytes from this
-/// thread's cache, finished. `None` changes nothing and leaves the call to the
-/// slow path, which asks every question again.
+/// [`buri_rt_alloc`]'s body: a block of exactly `payload` bytes from this
+/// thread's cache, finished, and zeroed if `ZEROED`.
 ///
-/// Nothing in it calls out, so the function needs no stack frame for it. A
-/// block in the cache means the cache is armed, so the tally is open.
+/// Nothing on the way to a hit calls out, so the function needs no stack frame
+/// for it. A block in the cache means the cache is armed, so the tally is open.
+/// Anything else goes on in [`alloc_missed`], which asks nothing this has
+/// answered.
 #[inline(always)]
-fn alloc_cached(payload: u64) -> Option<*mut u8> {
-    if scopes_exist() || !heap_check_off() {
-        return None;
-    }
-    let t = heap_fast();
-    if t.is_null() {
-        return None;
-    }
+fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
+    let t = if scopes_exist() || !heap_check_off() {
+        std::ptr::null()
+    } else {
+        heap_fast()
+    };
     // SAFETY: this thread's own heap, and nothing derived from it escapes.
-    let t = unsafe { &*t };
+    let Some(t) = (unsafe { t.as_ref() }) else {
+        return alloc_missed::<ZEROED>(payload, t);
+    };
     // SAFETY: as above.
-    let p = cache_take(unsafe { &mut *t.cache.get() }, payload)?;
+    let Some(p) = cache_take(unsafe { &mut *t.cache.get() }, payload) else {
+        return alloc_missed::<ZEROED>(payload, t);
+    };
     t.tally.add(&allocated(payload));
-    // SAFETY: `p` is the payload of a dead block with `payload` usable bytes.
+    if ZEROED {
+        // SAFETY: `p` has `payload` usable bytes.
+        unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
+    }
+    // SAFETY: as above.
+    unsafe { headed(p, payload) }
+}
+
+/// [`alloc_cached`] past the cache: with `t` null, where the cache's paths
+/// must not run, and otherwise once `t`'s cache had no block of `payload`
+/// bytes. A miss is a kept large block or a fresh one, counted, and with the
+/// heap check off there is nothing to trace.
+#[inline(never)]
+fn alloc_missed<const ZEROED: bool>(payload: u64, t: *const ThreadHeap) -> *mut u8 {
+    // SAFETY: as in `alloc_cached`.
+    let Some(t) = (unsafe { t.as_ref() }) else {
+        return alloc_uncached(payload, ZEROED);
+    };
+    t.tally.add(&allocated(payload));
+    if t.tally.state.get() != TALLY_OPEN {
+        settle_allocated(&t.tally, payload);
+    }
+    let raw = raw_block(kept_big(payload), payload, ZEROED);
+    if raw.is_null() {
+        buri_rt_abort_oom(payload);
+    }
+    // SAFETY: `raw` is a block of `BURI_RT_HEADER + payload` bytes, so its
+    // payload starts one past the header.
+    unsafe { headed(raw.add(BURI_RT_HEADER), payload) }
+}
+
+/// [`Tally::seen`] for one allocation of `payload` bytes, out of line, so the
+/// miss above doesn't build the deltas it almost never needs.
+#[cold]
+#[inline(never)]
+fn settle_allocated(tally: &Tally, payload: u64) {
+    tally.settle(&allocated(payload));
+}
+
+/// Write a live header for `payload` bytes over the block whose payload is at
+/// `p`, and return `p`.
+///
+/// # Safety
+/// `p` is the payload of a block with `payload` usable bytes that nothing holds.
+#[inline(always)]
+unsafe fn headed(p: *mut u8, payload: u64) -> *mut u8 {
+    // SAFETY: the caller promises the block.
     unsafe {
         header(p).write(Header {
             rc: 1,
             cap: payload | shared_mask(),
         });
     }
-    Some(p)
+    p
 }
 
-/// [`buri_rt_free`]'s fast path, with no heap check running: a small block
-/// into this thread's cache. `false` changes nothing.
+/// [`buri_rt_free`]'s body with no heap check running: a small block into this
+/// thread's cache. Anything else goes on in [`free_missed`], which asks
+/// nothing this has answered, or in [`free_uncached`].
 ///
 /// # Safety
 /// As [`buri_rt_free`], and `p` is not null.
 #[inline(always)]
-unsafe fn free_cached(p: *mut u8) -> bool {
+unsafe fn free_cached(p: *mut u8) {
     let t = heap_fast();
     if t.is_null() {
-        return false;
+        // SAFETY: forwarded.
+        return unsafe { free_uncached(p) };
     }
     // SAFETY: the caller promises a live payload pointer.
     let h = unsafe { &*header(p) };
     if h.rc == BURI_RT_IMMORTAL {
-        return true;
+        return;
     }
     let cap = h.cap & BURI_RT_CAP_MASK;
     if h.cap & BURI_RT_CAP_ARENA != 0 || crate::scalars::indexed(p) {
-        return false;
+        // SAFETY: forwarded.
+        return unsafe { free_uncached(p) };
     }
     // SAFETY: this thread's own heap, and nothing derived from it escapes.
     let t = unsafe { &*t };
+    t.tally.add(&freed(cap));
     // SAFETY: as above.
     let cache = unsafe { &mut *t.cache.get() };
     let bytes = slot_bytes(cap);
@@ -1432,9 +1444,9 @@ unsafe fn free_cached(p: *mut u8) -> bool {
         || cache.held + bytes > cache.limit
         || cache.since_sweep + 1 >= CACHE_SWEEP_OPS
     {
-        return false;
+        // SAFETY: forwarded; the reference into the cache has ended.
+        return unsafe { free_missed(t, p, cap) };
     }
-    t.tally.add(&freed(cap));
     #[expect(
         clippy::indexing_slicing,
         reason = "`cap <= CACHE_MAX_PAYLOAD` was checked above, and there are `CACHE_SLOTS` of them"
@@ -1446,7 +1458,22 @@ unsafe fn free_cached(p: *mut u8) -> bool {
     slot.head = p;
     cache.held += bytes;
     cache.since_sweep += 1;
-    true
+}
+
+/// [`free_cached`] once the cache's fast push refused a block of `cap` bytes:
+/// kept by the slow push or given back to the platform allocator. The free is
+/// already in the tally.
+///
+/// # Safety
+/// As [`cache_push_slow`].
+#[inline(never)]
+unsafe fn free_missed(t: &ThreadHeap, p: *mut u8, cap: u64) {
+    // SAFETY: forwarded.
+    if !unsafe { cache_push_slow(t, p, cap) } {
+        // SAFETY: `p - 16` is the allocation, and `layout_for(cap)` is the
+        // layout it was created with.
+        unsafe { dealloc(p.sub(BURI_RT_HEADER), layout_for(cap)) }
+    }
 }
 
 /// A dead block of exactly `payload` usable bytes from this thread's cache,
@@ -2024,10 +2051,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // and none of their registers saved on the way in.
     if heap_check_off() {
         // SAFETY: forwarded.
-        if !unsafe { free_cached(p) } {
-            // SAFETY: forwarded.
-            unsafe { free_uncached(p) }
-        }
+        unsafe { free_cached(p) }
     } else {
         // SAFETY: forwarded.
         unsafe { free_checked(p, heap_check()) }
@@ -2048,7 +2072,8 @@ pub unsafe extern "C" fn buri_rt_drop(p: *mut u8, drop_glue: extern "C" fn(*mut 
     unsafe { buri_rt_free(p) }
 }
 
-/// [`buri_rt_free`] past its fast path, with no heap check running.
+/// [`free_cached`] where the cache's fast path must not run: the block is an
+/// arena's or indexed, or the cache can't be read without a call.
 ///
 /// # Safety
 /// As [`buri_rt_free`], and `p` is not null.

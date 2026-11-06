@@ -15,8 +15,18 @@ use crate::shared::{heap_checked, probed, ran_command};
 /// instructions a step.
 const STEPS: u64 = 1_000_000;
 
-/// One short-lived block a step, built two ways: a list from `list.range`, and
-/// a list literal. `main` takes the mode and the number of steps.
+/// One short-lived block a step, built three ways: a list from `list.range`, a
+/// list literal, and a literal of [`LARGE`] `Int`s. `main` takes the mode and
+/// the number of steps.
+fn churn() -> String {
+    CHURN.replace("LARGE", &vec!["i"; LARGE as usize].join(", "))
+}
+
+/// The elements of a list one more than the small-block cache keeps: 1,032
+/// bytes against 1,024.
+const LARGE: u64 = 129;
+
+/// [`churn`]'s program, with `LARGE` for the large literal's elements.
 const CHURN: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -32,6 +42,10 @@ fn literals<C: Allocator>(ctx: C, i: Int, n: Int, acc: Int): Int {
   if (i >= n) { acc } else { literals(ctx, i + 1, n, acc + [i, i + 1].length()) }
 }
 
+fn larges<C: Allocator>(ctx: C, i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else { larges(ctx, i + 1, n, acc + [LARGE].length()) }
+}
+
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let args = env.arguments(ctx);
@@ -39,6 +53,7 @@ export fn main(host: NativeHost): Result<(), Str> {
   let answer = match (args.first()) {
     .Some("range") => ranges(ctx, 0, n, 0),
     .Some("literal") => literals(ctx, 0, n, 0),
+    .Some("large") => larges(ctx, 0, n, 0),
     _ => 0,
   };
   io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
@@ -49,15 +64,28 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// without a call.** On macOS both read it through dyld's thread-local lookup,
 /// about 35 instructions a pair. A `list.range` step went from 245 to 210
 /// instructions on stencil and from 198 to 164 on LLVM; a list literal step
-/// from 233 to 208 and from 141 to 109. Each bound sits about halfway.
+/// from 233 to 208 and from 141 to 109.
+///
+/// **A block too large for that cache asks nothing twice.** Its allocation
+/// misses the cache and its free can't go in, so both go past the cache's
+/// paths, which once asked again every question those had just answered. It
+/// is kept for large blocks, so no step reaches the platform allocator. A large
+/// literal step went from 829 to 782 instructions on stencil and from 315 to
+/// 261 on LLVM.
+///
+/// Each bound sits about halfway.
 #[test]
-fn allocating_and_freeing_a_small_block_costs_a_few_dozen_instructions() {
+fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
     let steps = STEPS.to_string();
-    let want = format!("{}\n", STEPS * 2);
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
-        let binary = build("alloc-churn", CHURN);
-        for (mode, stencil, llvm) in [("range", 228, 182), ("literal", 220, 126)] {
+        let binary = build("alloc-churn", &churn());
+        for (mode, length, stencil, llvm) in [
+            ("range", 2, 228, 182),
+            ("literal", 2, 220, 126),
+            ("large", LARGE, 805, 288),
+        ] {
+            let want = format!("{}\n", STEPS * length);
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step, {blocks} blocks");
             assert!(

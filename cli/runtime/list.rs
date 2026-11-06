@@ -98,6 +98,7 @@ pub(crate) unsafe fn copy_retaining(
 /// A fresh block of `count` elements, or the null descriptor when there are
 /// none. An empty `[T]` allocates nothing, which is what makes `list.empty`
 /// free.
+#[inline]
 pub(crate) fn block(count: usize, stride: usize) -> BuriList {
     if count == 0 || stride == 0 {
         return BuriList {

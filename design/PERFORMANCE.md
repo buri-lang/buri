@@ -8420,8 +8420,8 @@ asm!("mrs {}, tpidrro_el0", out(reg) base);       // the thread's own data
 - `Cache::arm` sets the key, and `CacheDrain` clears it first, so a free from
   a later destructor finds the cache closed.
 - `alloc_cached` and `free_cached` call nothing, so the cache paths need no
-  frame. Everything else tail-calls `alloc_uncached` or `free_uncached`,
-  which ask every question again.
+  frame. Everything else tail-calls out of line, without asking again
+  (§6.98).
 - Other targets read the thread-local inline already and share the same fast
   paths.
 
@@ -8475,6 +8475,40 @@ diagnostics.
 3 modules and draw 3 style graphs, where they loaded 9 and drew 4. Its other
 cases hold each artifact to the bytes it has built alone, a native one
 included, and the diagnostics to what each target reports alone.
+
+### 6.98 A cache miss carries on where the fast path stopped, 2026-11-05
+
+§6.96's slow paths started over: `alloc_uncached` asked again whether a scope
+was open, read the thread-local again, looked in the empty slot again.
+`free_uncached` redid every check `free_cached` had just passed. All 5.2 M of
+`run/tree`'s allocations miss, and CI's instruction gate read it 5.3% over.
+
+Now the fast paths hand what they know to the miss:
+
+```rust
+let Some(p) = cache_take(cache, payload) else {
+    return alloc_missed::<ZEROED>(payload, t);   // counts, then malloc
+};
+```
+
+- `alloc_missed` takes the thread's heap, counts, and allocates. Given null,
+  it goes to `alloc_uncached`, for a scope, a heap check or an unarmed cache.
+- `free_missed` takes a block the fast push refused, already counted, to
+  `cache_push_slow` and then the platform allocator.
+- `buri_rt_alloc_zeroed` shares `alloc_cached`, with zeroing as a const
+  parameter.
+- `list::block` is `#[inline]`, so `buri_rt_list_range` keeps the allocation
+  inline, as it had before.
+
+On an arm64 VM, `run/tree` went from 1,662 M to 1,547 M instructions, 0.7%
+under 736049330's 1,558 M. `run/maps` fell 0.25%, the rest within 0.06%. The
+macOS hit paths are the same instructions as before.
+
+`cli/tests/native/alloc_churn.rs` guards it on macOS with a literal of 129
+`Int`s, one word past the small-block cache. Every step misses on allocation
+and free, and the large-block cache keeps the block, so no step reaches the
+platform allocator. A step went from 829 to 782 instructions on stencil and
+from 315 to 261 on LLVM.
 
 ## 7. Profiling, on this platform
 
