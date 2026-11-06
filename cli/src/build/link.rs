@@ -21,8 +21,8 @@
 //!
 //! ```text
 //! linux   cc -fuse-ld=mold  -o A u0.o u1.o libburi_rt.a -Wl,--build-id=none -Wl,--gc-sections \
-//!            --target=aarch64-unknown-linux-musl -B musl/lib -L musl/lib -static-pie \
-//!            -unwindlib=none -lunwind
+//!            --target=aarch64-unknown-linux-musl -B musl/lib -L musl/lib \
+//!            -L /usr/lib/gcc/aarch64-linux-gnu/15 -static-pie -unwindlib=none -lunwind
 //!         cc -fuse-ld=lld   ...                          (mold absent)
 //!         cc                ...                          (neither present)
 //! macos   cc -fuse-ld=lld   -o A u0.o u1.o libburi_rt.a -Wl,-dead_strip
@@ -47,7 +47,9 @@
 //! glibc-only loader entry point from inside a binary that has just left glibc
 //! behind. `-unwindlib=none` drops it and `-lunwind` names the baked
 //! `libunwind.a`. `-lgcc` and `-lc` stay the driver's: `-lc` finds the staged
-//! `libc.a` because `-L musl/lib` is searched first, and `-lgcc` is compiler
+//! `libc.a` because `-L musl/lib` is searched first, and `-lgcc` finds the
+//! host's `libgcc.a` through a second `-L` the driver names
+//! (`-print-libgcc-file-name`, asked without `--target=`). It is compiler
 //! builtins — `__addtf3` and its family, arithmetic that knows nothing about a
 //! libc, and which **musl's own `libc.a` needs** in order to print a
 //! long double.
@@ -1064,6 +1066,15 @@ fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refu
             Libc::Glibc | Libc::Absent => Ok((driver, LibcMode::Glibc)),
         };
     }
+    musl_tier(target, driver, forced).map_err(|refused| forced.explain(refused))
+}
+
+/// [`libc_for`]'s two musl tiers, the ones `forced` leaves.
+fn musl_tier(
+    target: Target,
+    driver: PathBuf,
+    forced: Forced,
+) -> Result<(PathBuf, LibcMode), Refusal> {
     let triple = crate::compiler::backend::linux_triple(target.arch);
 
     // Tier 1. Bytes first, because the probe costs a process and the bytes
@@ -1078,17 +1089,21 @@ fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refu
         }
     }
     Err(refusal(&triple).with_note(match (forced, musl::BAKED) {
-        (Forced::Baked | Forced::Unset, false) => {
+        (Forced::Baked, false) => {
             "this toolchain baked no musl sysroot, so it has nothing to link against"
         }
         (Forced::Baked, true) => {
             "this toolchain baked a musl sysroot, but its C driver does not understand \
              `--target=` and so cannot be pointed at one"
         }
-        (Forced::System, _) => "`BURI_MUSL=system` was set and no musl driver is on PATH",
-        // `Forced::Off` returned above, and the remaining case is an unset
-        // variable on a toolchain that baked a sysroot its driver refused.
-        _ => "no musl driver is on PATH either",
+        (Forced::System, _) => "no musl driver is on PATH",
+        // `Forced::Off` returned above, so the variable is unset and both
+        // tiers were tried.
+        (_, false) => "this toolchain baked no musl sysroot, and no musl driver is on PATH either",
+        _ => {
+            "this toolchain's C driver does not understand `--target=`, and no musl driver is on \
+             PATH either"
+        }
     }))
 }
 
@@ -1109,6 +1124,25 @@ enum Forced {
     System,
     /// `off`. The glibc escape hatch, which is not a tier at all.
     Off,
+}
+
+impl Forced {
+    /// A musl refusal, with a note naming the tier a forced value skipped.
+    ///
+    /// Which tier failed, and why, depends on the machine: whether this rustc
+    /// had a musl standard library to bake from, and whether the driver is a
+    /// clang. That the force decided which tiers ran does not, so it is said
+    /// on every machine.
+    fn explain(self, refused: Refusal) -> Refusal {
+        match self {
+            Forced::Baked => {
+                refused.with_note("`BURI_MUSL=baked` was set, so no musl driver on PATH was tried")
+            }
+            Forced::System => refused
+                .with_note("`BURI_MUSL=system` was set, so the baked musl sysroot was not tried"),
+            Forced::Unset | Forced::Off => refused,
+        }
+    }
 }
 
 /// `BURI_MUSL`'s value, and a refusal for anything that is not one of the
@@ -1261,6 +1295,37 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
         .take()
         .map(|mut stdin| stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n"));
     child.wait().is_ok_and(|status| status.success())
+}
+
+/// The directory of the driver's own `libgcc.a`, asked without `--target=`.
+///
+/// clang looks for a GCC installation per target triple, and clang 21 finds
+/// none for a musl triple on a glibc distribution, so `-lgcc` on the musl link
+/// line was `library not found: gcc`. Asked for the host triple, the same
+/// driver names the `libgcc.a` it would link a glibc program with, and the
+/// builtins in it are libc-neutral. `None` when the driver names no absolute
+/// path, as a driver with no `libgcc` at all doesn't.
+///
+/// Memoized for the process, for [`accepts_target`]'s reason.
+fn builtins_dir(driver: &Path) -> Option<PathBuf> {
+    static ASKED: std::sync::Mutex<Vec<(PathBuf, Option<PathBuf>)>> =
+        std::sync::Mutex::new(Vec::new());
+    let mut asked = ASKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, answer)) = asked.iter().find(|(key, _)| key == driver) {
+        return answer.clone();
+    }
+    let answer = spawn::output(Command::new(driver).arg("-print-libgcc-file-name"))
+        .ok()
+        .and_then(|out| {
+            let file = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+            file.parent()
+                .filter(|dir| dir.is_absolute())
+                .map(Path::to_path_buf)
+        });
+    asked.push((driver.to_path_buf(), answer.clone()));
+    answer
 }
 
 /// The machine's own musl driver, if it has one.
@@ -1652,6 +1717,18 @@ impl CDriver {
                 flags.push("musl/lib".into());
                 flags.push("-L".into());
                 flags.push("musl/lib".into());
+                // Where the driver's own `libgcc.a` is, for `-lgcc` below. A
+                // clang that finds no GCC installation for the musl triple —
+                // clang 21 on Ubuntu 26.04 — still finds its host's, and the
+                // two are one architecture on this path. The path is
+                // absolute, and it names this machine's toolchain rather than
+                // the checkout, the same fact the driver's version already
+                // puts in the `link` key.
+                flags.extend(
+                    builtins_dir(&self.driver)
+                        .into_iter()
+                        .flat_map(|dir| ["-L".into(), dir.display().to_string()]),
+                );
                 flags.push("-static-pie".into());
                 // **The unwinder is the one library the driver must not
                 // choose**, and it is the narrowest place the rule in this
@@ -1668,8 +1745,9 @@ impl CDriver {
                 //
                 // `-lgcc` and `-lc` are left to the driver on purpose. `-lc`
                 // resolves to the staged `libc.a`, because `-L musl/lib` is
-                // searched first. `-lgcc` resolves to the host's, and that is
-                // correct rather than tolerated: it is the compiler builtins —
+                // searched first. `-lgcc` resolves to the host's, through the
+                // `-L` of [`builtins_dir`], and that is correct rather than
+                // tolerated: it is the compiler builtins —
                 // `__addtf3`, `__floatsitf`, `__fixunstfsi` — which are
                 // arithmetic and know nothing about a libc.
                 //

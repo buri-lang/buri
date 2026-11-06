@@ -1149,12 +1149,12 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
         (
             "baked",
             false,
-            "its C driver does not understand `--target=`",
+            "`BURI_MUSL=baked` was set, so no musl driver on PATH was tried",
         ),
         (
             "system",
             false,
-            "`BURI_MUSL=system` was set and no musl driver is on PATH",
+            "`BURI_MUSL=system` was set, so the baked musl sysroot was not tried",
         ),
     ] {
         let run = build(value);
@@ -1201,6 +1201,15 @@ fn a_c_driver_that_is_musl_s_own_links_the_program() {
         &["build", "//cmd/app"],
         &[("CC", &cc), ("BURI_MUSL", "system")],
     );
+    // A toolchain whose runtime was built against glibc links no musl
+    // program, through this driver or any other.
+    if built
+        .all()
+        .contains("this toolchain's runtime archive was built against glibc")
+    {
+        built.exits(1);
+        return;
+    }
     if musl.is_empty() {
         built.exits(1).says("error: the link failed (");
         return;
@@ -1211,6 +1220,40 @@ fn a_c_driver_that_is_musl_s_own_links_the_program() {
             &["run", "//cmd/app"],
             &[("CC", &cc), ("BURI_MUSL", "system")],
         )
+        .ok()
+        .says("native");
+}
+
+/// A C driver that finds no GCC installation for the musl triple, such as
+/// clang 21 on Ubuntu 26.04, still links the program. The build either runs or
+/// says why this toolchain can't link for musl, and never fails in the linker.
+#[test]
+fn a_c_driver_with_no_gcc_for_musl_links_the_program() {
+    let real = std::process::Command::new("sh")
+        .args(["-c", "command -v \"${CC:-cc}\""])
+        .capped_output()
+        .unwrap();
+    let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch
+        .write_executable(
+            "fake/cc",
+            &format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *--target=*-musl*) exec {real} \
+                 --gcc-toolchain=/nonexistent \"$@\" ;;\nesac\nexec {real} \"$@\"\n"
+            ),
+        )
+        .display()
+        .to_string();
+    let built = scratch.run_with_env(&["build", "//cmd/app"], &[("CC", &cc)]);
+    if built.code != 0 {
+        built
+            .exits(1)
+            .says("error: this toolchain cannot produce a hermetic Linux executable");
+        return;
+    }
+    scratch
+        .run_with_env(&["run", "//cmd/app"], &[("CC", &cc)])
         .ok()
         .says("native");
 }
@@ -1235,7 +1278,7 @@ fn a_c_driver_still_being_written_is_reported() {
 
 /// A glibc C driver that can't be pointed at musl, with no musl driver on
 /// `PATH`, links nothing. Unforced, the build says no musl driver was found
-/// either; `BURI_MUSL=baked` names the driver as the reason.
+/// either; `BURI_MUSL=baked` says it didn't look for one.
 #[cfg(target_os = "linux")]
 #[test]
 fn a_c_driver_that_cant_target_musl_links_nothing() {
@@ -1247,7 +1290,10 @@ fn a_c_driver_that_cant_target_musl_links_nothing() {
     let path = scratch.path("fake").display().to_string();
     for (musl, says) in [
         ("", "no musl driver is on PATH either"),
-        ("baked", "its C driver does not understand `--target=`"),
+        (
+            "baked",
+            "`BURI_MUSL=baked` was set, so no musl driver on PATH was tried",
+        ),
     ] {
         scratch
             .run_with_env(
