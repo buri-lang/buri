@@ -252,6 +252,8 @@ pub struct Restyled {
     pub consts: ConstMap,
     pub styles: Vec<crate::compiler::semantics::styles::StyleRule>,
     pub style_sources: crate::compiler::semantics::styles::Sources,
+    /// `ui/style`'s `Style`, where the program holds that module.
+    pub style_con: Option<TyConId>,
 }
 
 /// What a program is built from that style extraction rewrote: a
@@ -262,6 +264,9 @@ pub struct Extracted<'a> {
     pub consts: &'a ConstMap,
     pub styles: &'a [crate::compiler::semantics::styles::StyleRule],
     pub style_sources: &'a crate::compiler::semantics::styles::Sources,
+    /// `ui/style`'s `Style`, where what is built holds that module: no style
+    /// can reach a program that doesn't.
+    pub style_con: Option<TyConId>,
 }
 
 impl Checked {
@@ -272,6 +277,7 @@ impl Checked {
             consts: &self.consts,
             styles: &self.styles,
             style_sources: &self.style_sources,
+            style_con: self.style_con,
         }
     }
 
@@ -291,6 +297,9 @@ impl Checked {
     ) -> Option<Restyled> {
         let unstyled = self.unstyled.as_ref()?;
         let (mut bodies, mut consts) = (unstyled.bodies.layer(), unstyled.consts.layer());
+        let style_con = self
+            .style_con
+            .filter(|con| *within.get(self.tables.tycon(*con).module));
         let walked = Walked {
             only: None,
             within: Some(within),
@@ -311,6 +320,7 @@ impl Checked {
             consts,
             styles,
             style_sources,
+            style_con,
         })
     }
 }
@@ -323,6 +333,7 @@ impl Restyled {
             consts: &self.consts,
             styles: &self.styles,
             style_sources: &self.style_sources,
+            style_con: self.style_con,
         }
     }
 }

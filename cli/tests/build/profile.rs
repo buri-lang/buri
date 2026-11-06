@@ -1570,3 +1570,94 @@ fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
         run.ok().says("\n  lex+parse ").says("\n  check ");
     }
 }
+
+/// `buri build //...` of a repository holding a page, a node program of `n`
+/// small functions that imports nothing from `ui/`, or both, on one thread.
+/// Answers the fewest instructions monomorphizing took in three builds.
+fn page_and_program(page: bool, program: Option<usize>) -> Option<f64> {
+    let scratch = Scratch::repo("profile-page-and-program");
+    if page {
+        scratch.write(
+            "cmd/page/BUILD.buri",
+            "binary {\n    outputs: [{ platform: \"web\" }]\n}\n",
+        );
+        scratch.write(
+            "cmd/page/main.buri",
+            "from \"core/io\" import * as io;\n\
+             from \"platform/effect\" import { Allocator, Stdout, Ui, Watch };\n\
+             from \"ui/node\" import * as ui;\n\
+             from \"web\" import { WebHost };\n\n\
+             export fn main(host: WebHost): Result<(), Str> {\n    \
+             let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Ui: host.ui, Watch: host.watch };\n    \
+             let _ = io.println(ctx, \"page\").mapErr(fn(_e) => \"could not write\")?;\n    \
+             let app = ui.text({ content: .Const(\"app\") });\n    \
+             ui.mount(ctx, ui.stack({ styles: [.MinWidth(.Px(285))], children: [app] }), [])\n}\n",
+        );
+    }
+    if let Some(n) = program {
+        let steps: String = (0..n)
+            .map(|i| {
+                format!(
+                    "fn step{i}(x: Int): Int {{\n    let a = (x * {i} + x * 3 - x / 7 + (x % 11) * (x + 5) - (x * x) % 13) % 1013;\n    \
+                     let b = if (a > 500) {{ a - 7 }} else {{ a + 11 }};\n    \
+                     [a, b, x].length() + b\n}}\n\n"
+                )
+            })
+            .collect();
+        let calls: String = (0..n)
+            .map(|i| format!("    let t{} = (t{i} + step{i}(t{i})) % 100003;\n", i + 1))
+            .collect();
+        scratch.write(
+            "cmd/tool/BUILD.buri",
+            "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+        );
+        scratch.write(
+            "cmd/tool/main.buri",
+            &format!(
+                "from \"core/io\" import * as io;\n\
+                 from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+                 from \"node\" import {{ NodeHost }};\n\n{steps}\
+                 fn many(x: Int): Int {{\n    let t0 = x;\n{calls}    t{n}\n}}\n\n\
+                 export fn main(host: NodeHost): Result<(), Str> {{\n    \
+                 let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+                 io.println(ctx, \"${{many(2)}}\").mapErr(fn(_e) => \"could not write\")\n}}\n"
+            ),
+        );
+    }
+    // The kernel's work on the thread only ever adds, by up to a fifth here,
+    // so the fewest of three builds is the one it left alone.
+    (0..3)
+        .map(|_| {
+            let run = scratch.run_with_env(
+                &["build", "//...", "--force"],
+                &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+            );
+            run.ok();
+            phase_instructions(&run.all(), "monomorphize")
+        })
+        .collect::<Option<Vec<f64>>>()?
+        .into_iter()
+        .reduce(f64::min)
+}
+
+/// **A program with no styles pays nothing for a page built beside it.** One
+/// compilation checks both and holds `ui/style` for the page, and every
+/// function of the program was walked for styles none of its values can hold:
+/// monomorphizing the two together took 1.12 times what the two took apart, at
+/// 400 functions.
+#[test]
+fn a_program_with_no_styles_pays_nothing_for_a_page_beside_it() {
+    let n = 400;
+    let (Some(both), Some(page), Some(program)) = (
+        page_and_program(true, Some(n)),
+        page_and_program(true, None),
+        page_and_program(false, Some(n)),
+    ) else {
+        return;
+    };
+    assert!(
+        both <= (page + program) * 1.05,
+        "{both:.1} M instructions monomorphizing a page and a program together, \
+         against {page:.1} M and {program:.1} M apart"
+    );
+}

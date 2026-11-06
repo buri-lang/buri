@@ -57,6 +57,9 @@ struct Facts {
 /// Whether a type mentions parameter `j`, or `Self` or anything unsettled,
 /// which could stand for it.
 fn mentions(ty: &Ty, j: usize) -> bool {
+    if !(ty.has_params() | ty.has_vars() | ty.has_error()) {
+        return false;
+    }
     match ty.kind() {
         TyKind::Param(i) => *i as usize == j,
         TyKind::Con(_, args) | TyKind::Tuple(args) | TyKind::Ctx(_, args) => {
@@ -96,20 +99,24 @@ impl Monomorphizer<'_> {
         }
         let mask = self.erasable(f);
         let params = &self.tables().fn_info(f).params;
-        let mut out = targs.to_vec();
-        let mut changed = false;
-        for (j, (t, &erase)) in out.iter_mut().zip(mask.iter()).enumerate() {
-            // A callback typed by `j` is the caller's at its own `j`, so only
-            // a caller erased itself can call `f` erased.
-            let bare = params
-                .iter()
-                .all(|p| !mentions(&p.ty, j) || matches!(p.ty.kind(), TyKind::Param(_)));
-            if erase && bare && *t != Ty::UNIT {
-                *t = Ty::UNIT;
-                changed = true;
-            }
+        // A callback typed by `j` is the caller's at its own `j`, so only a
+        // caller erased itself can call `f` erased.
+        let erase = |j: usize, t: &Ty| {
+            mask.get(j) == Some(&true)
+                && *t != Ty::UNIT
+                && params
+                    .iter()
+                    .all(|p| !mentions(&p.ty, j) || matches!(p.ty.kind(), TyKind::Param(_)))
+        };
+        if !targs.iter().enumerate().any(|(j, t)| erase(j, t)) {
+            return None;
         }
-        changed.then_some(out)
+        let erased = targs.iter().enumerate();
+        Some(
+            erased
+                .map(|(j, t)| if erase(j, t) { Ty::UNIT } else { *t })
+                .collect(),
+        )
     }
 
     /// The arguments of a call to `f` once its type arguments are erased by
@@ -253,15 +260,17 @@ impl Monomorphizer<'_> {
             return facts;
         };
         // Only a parameter, of the function or of a lambda in it, may hold a
-        // value of the type, typed as it or as a callback that takes it.
-        let mut params = body.params.clone();
-        lambda_params(&body.expr, &mut params);
+        // value of the type, typed as it or as a callback that takes it. The
+        // lambdas' are found only for a local the function's own aren't.
+        let mut lambdas: Option<Vec<LocalId>> = None;
         for (id, local) in body.locals.entries() {
             for (j, ok) in facts.ok.iter_mut().enumerate() {
-                if mentions(&local.ty, j)
-                    && (!hands_on(&local.ty, &local.ty, j) || !params.contains(&id))
-                {
-                    *ok = false;
+                if *ok && mentions(&local.ty, j) {
+                    *ok = hands_on(&local.ty, &local.ty, j)
+                        && (body.params.contains(&id)
+                            || lambdas
+                                .get_or_insert_with(|| lambda_params(&body.expr))
+                                .contains(&id));
                 }
             }
         }
@@ -274,24 +283,29 @@ impl Monomorphizer<'_> {
     /// Rules out every parameter `e` uses other than by handing it on. `at`
     /// is the type wanted where `e` is a callee's argument, or a callback's.
     fn uses(&self, e: &typed::Expr, at: Option<&Ty>, locals: &typed::Locals, facts: &mut Facts) {
+        // Once every parameter is ruled out, nothing below can say more.
+        if !facts.ok.contains(&true) {
+            return;
+        }
         let rule_out = |ty: &Ty, facts: &mut Facts| {
             for (j, ok) in facts.ok.iter_mut().enumerate() {
-                if mentions(ty, j) {
+                if *ok && mentions(ty, j) {
                     *ok = false;
                 }
             }
         };
         let handed = matches!(e.kind, ExprKind::Local(_) | ExprKind::Lambda { .. });
         for (j, ok) in facts.ok.iter_mut().enumerate() {
-            if mentions(&e.ty, j) && !(handed && at.is_some_and(|to| hands_on(&e.ty, to, j))) {
+            if *ok && mentions(&e.ty, j) && !(handed && at.is_some_and(|to| hands_on(&e.ty, to, j)))
+            {
                 *ok = false;
             }
         }
         match &e.kind {
             ExprKind::CallFn { func, args } => {
                 for (t, targ) in func.targs.iter().enumerate() {
-                    for (j, deps) in facts.deps.iter_mut().enumerate() {
-                        if matches!(targ.kind(), TyKind::Param(k) if *k as usize == j) {
+                    for (j, (deps, ok)) in facts.deps.iter_mut().zip(&facts.ok).enumerate() {
+                        if *ok && matches!(targ.kind(), TyKind::Param(k) if *k as usize == j) {
                             deps.push((func.id, t));
                         }
                     }
@@ -324,13 +338,12 @@ impl Monomorphizer<'_> {
             ExprKind::Array { elem, .. } | ExprKind::Index { elem, .. } => rule_out(elem, facts),
             ExprKind::Lambda { captures, .. } => {
                 // A callback may be captured, since a function value's layout
-                // is one at every type.
+                // is one at every type. Every local still in the running
+                // already hands the type on.
                 for c in captures {
                     let ty = &locals.get(*c).ty;
                     for (j, ok) in facts.ok.iter_mut().enumerate() {
-                        if mentions(ty, j)
-                            && !(matches!(ty.kind(), TyKind::Fn(..)) && hands_on(ty, ty, j))
-                        {
+                        if *ok && mentions(ty, j) && !matches!(ty.kind(), TyKind::Fn(..)) {
                             *ok = false;
                         }
                     }
@@ -342,10 +355,15 @@ impl Monomorphizer<'_> {
     }
 }
 
-/// Adds the parameters of every lambda in `e` to `params`.
-fn lambda_params(e: &typed::Expr, params: &mut Vec<LocalId>) {
-    if let ExprKind::Lambda { params: ps, .. } = &e.kind {
-        params.extend(ps.iter().copied());
+/// The parameters of every lambda in `e`.
+fn lambda_params(e: &typed::Expr) -> Vec<LocalId> {
+    fn walk(e: &typed::Expr, params: &mut Vec<LocalId>) {
+        if let ExprKind::Lambda { params: ps, .. } = &e.kind {
+            params.extend(ps.iter().copied());
+        }
+        typed::children(e, &mut |c| walk(c, params));
     }
-    typed::children(e, &mut |c| lambda_params(c, params));
+    let mut params = Vec::new();
+    walk(e, &mut params);
+    params
 }

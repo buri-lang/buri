@@ -660,6 +660,9 @@ pub struct Monomorphizer<'a> {
     /// Each declaration's symbol before its instantiation tag, and its debug
     /// name, which every instantiation of it shares.
     names: HashMap<FnId, (String, String)>,
+    /// Each module's path as it starts a symbol, by the module's index: a
+    /// module declares many functions, and its path is most of each name.
+    module_symbols: HashMap<usize, String>,
     /// Each type argument's [`Mangled`] spelling, which a tag hashes.
     mangled: HashMap<Ty, String>,
     /// Whether a derive at a type reaches a hand-written `impl` of its trait,
@@ -741,6 +744,7 @@ fn run_on(
         locals: typed::Locals::new(),
         js_implemented: std::collections::BTreeSet::new(),
         names: HashMap::default(),
+        module_symbols: HashMap::default(),
         mangled: HashMap::default(),
         reaches: HashMap::default(),
         cell_equal: HashMap::default(),
@@ -806,12 +810,13 @@ fn run_on(
     // are about what the *artifact* can reach, which is what dead-code
     // elimination is about.
     //
-    // One walk answers every question, and costs nothing for a program that
-    // is not a user interface: no constructor exists, so nothing matches.
+    // One walk answers every question, and a program that doesn't hold
+    // `ui/style` skips it: no style can reach it, even where a compilation it
+    // shares with a user interface has the constructors.
     // Which elements a browser paints something on is asked here for the
     // same reason: a library's unused button must not put a rule in a sheet.
     let ui = crate::compiler::semantics::styles::UiTypes {
-        style: checked.style_con,
+        style: extracted.style_con,
         theme: checked.theme_con,
         node: checked.node_con,
         role: checked.role_con,
@@ -1283,13 +1288,14 @@ impl<'a> Monomorphizer<'a> {
     }
 
     /// A declaration's symbol with no instantiation tag, and its debug name.
-    fn base_name(&self, f: FnId) -> (String, String) {
-        let info = self.tables().fn_info(f);
+    fn base_name(&mut self, f: FnId) -> (String, String) {
+        let checked = self.checked;
+        let info = checked.tables.fn_info(f);
         let module = self
             .module_paths
             .get(info.module.index())
             .map_or("core", String::as_str);
-        let owner = info.self_ty.map(|c| self.tables().tycon(c).name.as_str());
+        let owner = info.self_ty.map(|c| checked.tables.tycon(c).name.as_str());
         let mut debug = String::with_capacity(
             module
                 .len()
@@ -1315,7 +1321,11 @@ impl<'a> Monomorphizer<'a> {
         // replace replaced as it is written, so the path's `/` and `.`
         // and the owner's `.` all come out as `_`.
         let mut symbol = String::with_capacity(debug.len());
-        symbol.extend(module.chars().map(symbol_char));
+        symbol.push_str(
+            self.module_symbols
+                .entry(info.module.index())
+                .or_insert_with(|| module.chars().map(symbol_char).collect()),
+        );
         symbol.push('$');
         if let Some(o) = owner {
             symbol.extend(o.chars().map(symbol_char));
@@ -1751,10 +1761,20 @@ impl Monomorphizer<'_> {
     /// same, or else the first seen. Two such contexts with equal bindings
     /// have one layout and resolve every effect call alike, so they are one
     /// type, one instance and one symbol.
+    ///
+    /// Inline, because almost every type has no such context and leaves at
+    /// the first test: a call per type substituted was most of the cost.
+    #[inline]
     fn canonical(&self, ty: Ty) -> Ty {
         if !ty.has_ctx_args() {
             return ty;
         }
+        self.canonical_held(ty)
+    }
+
+    /// [`Monomorphizer::canonical`] of a type that holds a context read at
+    /// type arguments.
+    fn canonical_held(&self, ty: Ty) -> Ty {
         match ty.kind() {
             TyKind::Ctx(id, _) => {
                 let tables = self.tables();
