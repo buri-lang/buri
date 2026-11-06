@@ -352,7 +352,9 @@ ways too.
 `coverage/compiler-branches.txt` names the platforms it merges on its `hosts`
 line, and a run is held to the baseline over those platforms alone. A
 baseline from before the merge names one `host`, so the first merged run
-compares x86_64 Linux's own numbers against it, and on main the ratchet then
-writes the merged baseline outright. A run missing a platform the baseline
-has fails in CI, and the ratchet never takes it. A local run measures one host,
+compares x86_64 Linux's own numbers against it. On main the ratchet then
+writes the merged baseline, unless its total or an area is lower: the ratchet
+never lowers either. A run missing a platform the baseline has fails in CI, and
+the ratchet never takes it. Per-file counts only warn, so the ratchet takes
+them as measured, deleted code included. A local run measures one host,
 so it prints its numbers and compares nothing.

@@ -169,7 +169,7 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) -> bool {
 
 /// The ratchet: raises the checked-in baseline to the last measurement
 /// wherever the total or an area rose, and takes its per-file counts and
-/// summary with it. A measurement that merges more platforms replaces it.
+/// summary with it.
 fn raise(root: &Path) {
     let checked_in = root.join("coverage").join("compiler-branches.txt");
     let measured = target(root).join("compiler-branches.txt");
@@ -178,24 +178,15 @@ fn raise(root: &Path) {
         Baseline::parse(&std::fs::read_to_string(&measured).unwrap_or_else(|e| {
             panic!("{} can't be read ({e}); measure first", measured.display())
         }));
-    let raised = if was.hosts == now.hosts {
-        let Some((raised, rose)) = ratchet(&was, &now) else {
-            println!("neither the total nor an area rose; the baseline stays");
-            return;
-        };
-        println!("raised the baseline of {}", rose.join(", "));
-        raised
-    } else {
-        let missing: Vec<&String> = was.hosts.difference(&now.hosts).collect();
-        if !missing.is_empty() {
-            println!(
-                "this run has no shard from {}; the baseline stays",
-                list(missing.iter().copied())
-            );
+    let raised = match raised(&was, &now) {
+        Ok((raised, said)) => {
+            println!("{said}");
+            raised
+        }
+        Err(why) => {
+            println!("{why}; the baseline stays");
             return;
         }
-        println!("raised the baseline to merge {}", list(&now.hosts));
-        now
     };
     std::fs::write(&checked_in, raised.render()).unwrap();
     std::fs::copy(
@@ -203,6 +194,37 @@ fn raise(root: &Path) {
         root.join("coverage").join("compiler.txt"),
     )
     .unwrap();
+}
+
+/// What the ratchet makes of `was` given `now`, and what to say of it, or why
+/// it stays. It never lowers the total or an area: a measurement that merges
+/// more platforms replaces the baseline only where neither falls.
+fn raised(was: &Baseline, now: &Baseline) -> Result<(Baseline, String), String> {
+    if was.hosts == now.hosts {
+        let (raised, rose) =
+            ratchet(was, now).ok_or("neither the total nor an area rose".to_string())?;
+        return Ok((
+            raised,
+            format!("raised the baseline of {}", rose.join(", ")),
+        ));
+    }
+    let missing: Vec<&String> = was.hosts.difference(&now.hosts).collect();
+    if !missing.is_empty() {
+        return Err(format!(
+            "this run has no shard from {}",
+            list(missing.iter().copied())
+        ));
+    }
+    if compare(was, now).failed {
+        return Err(format!(
+            "merging {} would lower the total or an area",
+            list(&now.hosts)
+        ));
+    }
+    Ok((
+        now.clone(),
+        format!("raised the baseline to merge {}", list(&now.hosts)),
+    ))
 }
 
 fn list<'a>(names: impl IntoIterator<Item = &'a String>) -> String {
@@ -1427,6 +1449,36 @@ mod tests {
         let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
         assert!(ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 10, 20)])).is_none());
         assert!(ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 0, 0)])).is_none());
+    }
+
+    #[test]
+    fn merging_more_platforms_replaces_the_baseline_only_where_nothing_falls() {
+        let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
+        let merged = |files: &[(&str, u64, u64)]| {
+            let mut now = baseline(files);
+            now.hosts.insert("h2".to_string());
+            now
+        };
+        // The other platform compiles lint branches no test takes.
+        let lower = merged(&[(SYNTAX, 6, 10), (LINT, 5, 12)]);
+        let why = raised(&was, &lower).err().unwrap();
+        assert_eq!(why, "merging h, h2 would lower the total or an area");
+
+        let higher = merged(&[(SYNTAX, 6, 10), (LINT, 6, 12)]);
+        let (raised, said) = raised(&was, &higher).unwrap();
+        assert_eq!(said, "raised the baseline to merge h, h2");
+        assert_eq!(raised.render(), higher.render());
+
+        let (_, said) = super::raised(&Baseline::parse(""), &lower).unwrap();
+        assert_eq!(said, "raised the baseline to merge h, h2");
+    }
+
+    #[test]
+    fn the_ratchet_never_takes_a_run_missing_a_platform() {
+        let mut was = baseline(&[(SYNTAX, 5, 10)]);
+        was.hosts.insert("h2".to_string());
+        let why = raised(&was, &baseline(&[(SYNTAX, 10, 10)])).err().unwrap();
+        assert_eq!(why, "this run has no shard from h2");
     }
 
     #[test]
