@@ -636,7 +636,13 @@ fn probe(programs: &[PathBuf]) -> String {
 /// `None` when a program cannot be examined or there is no home to keep the
 /// answer in, and then every process asks, as every process used to.
 fn probe_record(programs: &[PathBuf]) -> Option<PathBuf> {
-    let mut text = String::from("linker identity v1\0");
+    record_for("linker-identity", "linker identity v1", programs)
+}
+
+/// [`probe_record`]'s name, for an answer kept under `~/.buri/<dir>/` that
+/// `header` tells apart from every other.
+fn record_for(dir: &str, header: &str, programs: &[PathBuf]) -> Option<PathBuf> {
+    let mut text = format!("{header}\0");
     for program in programs {
         let meta = std::fs::metadata(program).ok()?;
         let resolved = std::fs::canonicalize(program).ok()?;
@@ -654,7 +660,7 @@ fn probe_record(programs: &[PathBuf]) -> Option<PathBuf> {
     Some(
         runtime_cross::buri_home()
             .ok()?
-            .join("linker-identity")
+            .join(dir)
             .join(hash_bytes(text.as_bytes())),
     )
 }
@@ -1283,12 +1289,31 @@ fn accepts_target(driver: &Path, triple: &str) -> bool {
     if let Some((_, answer)) = asked.iter().find(|(key, _)| *key == name) {
         return *answer;
     }
-    let answer = probe_target(driver, triple);
+    let answer = target_remembered(driver, triple);
     asked.push((name, answer));
     answer
 }
 
-/// [`accepts_target`] without the memo.
+/// [`probe_target`], **asked once per driver and triple, not once per
+/// process**, for [`probe`]'s reason: every `buri` that links for musl
+/// compiled a file to ask. A yes is kept under `~/.buri/target/`, named by
+/// [`record_for`], and read back while the driver is the same file it was. A
+/// no is asked again by the next process, since it is an error the user may
+/// fix without changing the driver.
+fn target_remembered(driver: &Path, triple: &str) -> bool {
+    let header = format!("target v1\0{triple}");
+    let record = record_for("target", &header, &[driver.to_path_buf()]);
+    if record.as_ref().is_some_and(|r| r.is_file()) {
+        return true;
+    }
+    let answer = probe_target(driver, triple);
+    if let Some(record) = record.filter(|_| answer) {
+        remember(&record, triple);
+    }
+    answer
+}
+
+/// [`accepts_target`] without either memo.
 fn probe_target(driver: &Path, triple: &str) -> bool {
     use std::io::Write as _;
     let spawned = spawn::start(
@@ -1317,19 +1342,34 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
 /// builtins in it are libc-neutral. `None` when the driver names no absolute
 /// path, as a driver with no `libgcc` at all doesn't.
 ///
-/// Memoized for the process, for [`accepts_target`]'s reason.
+/// Memoized for the process, for [`accepts_target`]'s reason, and **asked once
+/// per driver, not once per process**, for [`probe`]'s: every `buri` that
+/// links for musl asked. The answer is kept
+/// under `~/.buri/libgcc/`, named by [`record_for`], and read back while the
+/// driver is the same file it was and the file it named is still there.
 fn builtins_dir(driver: &Path) -> Option<PathBuf> {
     static ASKED: std::sync::Mutex<Vec<(String, Option<PathBuf>)>> =
         std::sync::Mutex::new(Vec::new());
     remembered(&ASKED, driver.display().to_string(), || {
-        spawn::output(Command::new(driver).arg("-print-libgcc-file-name"))
-            .ok()
-            .and_then(|out| {
-                let file = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-                file.parent()
-                    .filter(|dir| dir.is_absolute())
-                    .map(Path::to_path_buf)
-            })
+        let record = record_for("libgcc", "libgcc v1", &[driver.to_path_buf()]);
+        // A driver with no `libgcc` names a bare file name, which names no
+        // file here, so the next process asks again: one may be installed by
+        // then.
+        let file = record
+            .as_ref()
+            .and_then(|r| std::fs::read_to_string(r).ok())
+            .map(PathBuf::from)
+            .filter(|file| file.is_file())
+            .or_else(|| {
+                let out =
+                    spawn::output(Command::new(driver).arg("-print-libgcc-file-name")).ok()?;
+                let file = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                record.iter().for_each(|r| remember(r, &file));
+                Some(PathBuf::from(file))
+            })?;
+        file.parent()
+            .filter(|dir| dir.is_absolute())
+            .map(Path::to_path_buf)
     })
 }
 

@@ -650,8 +650,9 @@ fn count(log: &Path, needle: &str) -> usize {
         .count()
 }
 
-/// The C driver's version is asked once per toolchain, not once per `buri`
-/// process, and asked again when the driver changes.
+/// The C driver's version, whether it compiles for musl and where its `libgcc`
+/// is are asked once per toolchain, not once per `buri` process, and the
+/// version is asked again when the driver changes.
 ///
 /// The link key holds the driver's `--version` banner, so that two toolchains
 /// never share a linked executable. Asking for it costs a process or two per
@@ -685,6 +686,18 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
         asked, 1,
         "a second process asked the driver's version again"
     );
+    // A musl link asks whether the driver compiles for the triple and where
+    // its `libgcc` is, and those are facts about the toolchain too.
+    for (asks, what) in [
+        ("-x c -", "whether it compiles for musl"),
+        ("-print-libgcc-file-name", "where its libgcc is"),
+    ] {
+        let asked = count(&log, asks);
+        assert!(
+            asked <= 1,
+            "two processes asked the driver {what} {asked} times"
+        );
+    }
 
     // The same driver written again: its time moves, so it is asked again.
     std::thread::sleep(std::time::Duration::from_millis(20));
