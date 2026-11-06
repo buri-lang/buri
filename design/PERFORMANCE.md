@@ -8218,8 +8218,34 @@ only hands its allocator on, at two allocators, compiles as many functions
 as one that calls it at one. A function that calls its allocator compiles
 once per allocator.
 
-What still keeps an instantiation is mostly a closure typed `fn(C, …)`, as in
-`foldCtx(ctx, fn(c, a, child) => …)`, and a trait call on `ctx`.
+The rule also follows the context into callbacks:
+
+```buri
+fn doubled<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x * 2), [])
+}
+```
+
+- A parameter or lambda typed `fn(C, …) => R` may take `C` only as a whole
+  parameter, and `R` may not mention it. It can be called, handed to a callee
+  whose parameter has the same shape, or captured.
+- The open-coded list walks hand `ctx` to their step or don't read it, and so
+  do `zip`, `flatten`, `str.concat` and `str.format`. They count as erasable.
+- A callee that takes such a callback is called erased only by a caller that
+  is erased itself, since the caller's lambda is typed at the caller's `C`.
+
+So `doubled` and its step compile once for every allocator, and so does
+every helper built the same way. Run time doesn't move. The compile
+benchmark's generated workspace has no such callbacks: dev codegen
+instructions per line stay within noise.
+
+`cli/tests/native/release.rs` guards it: a function whose `foldCtx` step only
+hands its allocator on, through a callback it was handed, compiles as many
+functions at two allocators as at one. A step that calls its allocator
+compiles once per allocator.
+
+What still keeps an instantiation is a trait or effect call on `ctx`, such as
+a file system or a signal read.
 
 ### 6.91 A growth handed on takes the list it grew, 2026-11-05
 
