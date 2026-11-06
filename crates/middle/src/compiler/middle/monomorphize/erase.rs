@@ -213,7 +213,7 @@ impl Monomorphizer<'_> {
         };
         // A runtime operation, or a trait method with no body, which is already
         // diagnosed.
-        let Some(body) = self.checked.bodies.get(&f).filter(|_| !info.intrinsic) else {
+        let Some(body) = self.extracted.bodies.get(&f).filter(|_| !info.intrinsic) else {
             let key = info
                 .intrinsic
                 .then(|| self.runtime_key(info))

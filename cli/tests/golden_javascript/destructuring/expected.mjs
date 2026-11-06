@@ -4,7 +4,7 @@ const $k2=[1n,2n];
 const $k3=[3n,4n];
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
-  const $t1=__cmd_x_main_buri$readTuple$rh6hzk(ctx_1,2n);
+  const $t1=__cmd_x_main_buri$readTuple$rvjhys(ctx_1,2n);
   const b_3=$t1[1];
   const text_8=String($t1[0])+' '+String(b_3);
   const self_9=$host_HostStdout_println(ctx_1[1],text_8);
@@ -16,7 +16,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t4=__cmd_x_main_buri$readPair$rh6hzk(ctx_1,2n);
+  const $t4=__cmd_x_main_buri$readPair$rvjhys(ctx_1,2n);
   const right_5=$t4[1];
   const text_13=String($t4[0])+' '+String(right_5);
   const self_14=$host_HostStdout_println(ctx_1[1],text_13);
@@ -28,7 +28,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const whole_6=__cmd_x_main_buri$readTuple$rh6hzk(ctx_1,2n);
+  const whole_6=__cmd_x_main_buri$readTuple$rvjhys(ctx_1,2n);
   const text_18=String(whole_6[0])+' '+String(whole_6[1]);
   const self_19=$host_HostStdout_println(ctx_1[1],text_18);
   let $t7;
@@ -41,7 +41,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k1;
 }
-function __cmd_x_main_buri$readTuple$rh6hzk(ctx_0,depth_1){
+function __cmd_x_main_buri$readTuple$rvjhys(ctx_0,depth_1){
   while(true){
     if(depth_1>0n){
       depth_1=depth_1-1n;
@@ -60,7 +60,7 @@ function __cmd_x_main_buri$readTuple$rh6hzk(ctx_0,depth_1){
     }
   }
 }
-function __cmd_x_main_buri$readPair$rh6hzk(ctx_0,depth_1){
+function __cmd_x_main_buri$readPair$rvjhys(ctx_0,depth_1){
   while(true){
     if(depth_1>0n){
       depth_1=depth_1-1n;

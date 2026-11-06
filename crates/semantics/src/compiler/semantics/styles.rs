@@ -470,7 +470,10 @@ pub fn run(
     // node, and only such a program loads `classify`. A test build without
     // one still loads `ui/style` through the test platform, but no style can
     // reach a node there.
-    let Some((classify, classify_style)) = classifiers(loaded, scopes) else {
+    // So does one program among the several a compilation holds.
+    let Some((classify, classify_style)) = classifiers(loaded, scopes)
+        .filter(|(classify, _)| walked.holds(tables.fn_info(*classify).module))
+    else {
         return (Styled::default(), Some(style_con));
     };
 
@@ -1722,7 +1725,7 @@ impl<'a> Flow<'a> {
             seen: HashSet::default(),
             passing: HashSet::default(),
         };
-        for (id, body) in walked.unsettled(bodies) {
+        for (id, body) in walked.unsettled(tables, bodies) {
             let info = tables.fn_info(id);
             let ui = flow.in_ui_node(info.module);
             let kinds = body.params.iter().zip(&info.params).map(|(l, p)| {
@@ -1801,7 +1804,7 @@ impl<'a> Flow<'a> {
     /// keeps.
     fn graph(&self, walked: &Walked, drawn: impl Fn(Owner) -> bool) -> Edges {
         let mut edges = Edges::default();
-        let consts = walked.unsettled_constants(self.consts);
+        let consts = walked.unsettled_constants(self.tables, self.consts);
         for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
             self.edges(
                 Owner::Const(id),
@@ -1811,7 +1814,7 @@ impl<'a> Flow<'a> {
                 &mut edges,
             );
         }
-        let bodies = walked.unsettled(self.bodies);
+        let bodies = walked.unsettled(self.tables, self.bodies);
         for (id, body) in bodies.filter(|(id, _)| drawn(Owner::Fn(*id))) {
             if let Some((t, m)) = self.tables.fn_info(id).impl_of {
                 edges.add(Demand::Method(t, m), Demand::Ret(id), false);

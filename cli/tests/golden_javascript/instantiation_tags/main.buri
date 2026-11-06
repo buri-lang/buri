@@ -1,0 +1,47 @@
+// Two instantiations of one generic whose type arguments land on one
+// six-digit tag. The struct names are picked so that they do: the first keeps
+// its short symbol and the second takes the twelve-digit one, and each runs
+// its own body.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+trait Weight {
+    fn weight(self): Int;
+}
+
+struct Shape49884 {
+    n: Int,
+}
+
+struct Shape252020 {
+    m: Int,
+}
+
+impl Weight for Shape49884 {
+    fn weight(self): Int {
+        self.n * 10
+    }
+}
+
+impl Weight for Shape252020 {
+    fn weight(self): Int {
+        self.m * 100
+    }
+}
+
+fn total<T: Weight>(x: T, n: Int): Int {
+    if (n <= 0) { x.weight() } else { x.weight() + total(x, n - 1) }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let a = total(Shape49884 { n: 1 }, 1);
+    let b = total(Shape252020 { m: 2 }, 1);
+    let _ = io.println(ctx, "${a} ${b}").ignore();
+    .Ok(())
+}

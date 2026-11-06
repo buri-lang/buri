@@ -6,7 +6,7 @@ function $bind(m){
   $host_HostStdout_println=m.$host_HostStdout_println;
   $str_format=m.$str_format;
 }
-function __cmd_x_main_buri$report$l3wgis(ctx_0,n_1){
+function __cmd_x_main_buri$report$rvjhys(ctx_0,n_1){
   const ctx_2=0;
   const text_5=$str_format(ctx_2,'row '+$str_format(ctx_2,'['+String(n_1)+']'));
   const self_6=$host_HostStdout_println(ctx_0[1],text_5);
@@ -18,4 +18,4 @@ function __cmd_x_main_buri$report$l3wgis(ctx_0,n_1){
     $abort('no arm matched');
   }
 }
-export{$bind,__cmd_x_main_buri$report$l3wgis};
+export{$bind,__cmd_x_main_buri$report$rvjhys};

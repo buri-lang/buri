@@ -55,7 +55,7 @@ struct Lowered {
 }
 
 impl Lowered {
-    /// The IR's function for the entry point: `checked.started.get("main")` is the front
+    /// The IR's function for the entry point: `analysis.started(path, "main")` is the front
     /// end's `FnId`, and the *monomorphized* index is what the IR is indexed
     /// by — `Program::roots` is where monomorphization records it.
     fn entry(&self) -> FuncIdx {
@@ -92,9 +92,7 @@ fn lower(source: &str) -> Lowered {
         render(&analysis.diagnostics, &map)
     );
     let entry = analysis
-        .checked
-        .started
-        .get("main")
+        .started("main.buri", "main")
         .expect("the program exports no `main`");
     let module_paths: Vec<String> = analysis
         .loaded
@@ -2326,7 +2324,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         "{}",
         render(&analysis.diagnostics, &map)
     );
-    let entry = analysis.checked.started.get("main").unwrap();
+    let entry = analysis.started("main.buri", "main").unwrap();
     let module_paths: Vec<String> = analysis
         .loaded
         .modules
@@ -2398,7 +2396,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         "{}",
         render(&analysis.diagnostics, &map)
     );
-    let entry = analysis.checked.started.get("main").unwrap();
+    let entry = analysis.started("closure.buri", "main").unwrap();
     let module_paths: Vec<String> = analysis
         .loaded
         .modules

@@ -583,7 +583,10 @@ impl Batch {
             crate::compiler::driver::Checking::All,
         )?;
         let shares = shared.shares.into_iter().map(|((t, _), s)| (t, s));
-        Some(Batch::new(shared.analysis, shares.collect()))
+        Some(Batch::new(
+            std::sync::Arc::into_inner(shared.analysis)?,
+            shares.collect(),
+        ))
     }
 
     fn whole(analysis: Analysis) -> Batch {

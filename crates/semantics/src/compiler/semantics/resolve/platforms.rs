@@ -356,7 +356,7 @@ impl<'a> Checker<'a> {
             self.check_crossing_of(&want, skip, &format!("`{}`", custom.point));
         }
         if let Some(host) = host {
-            let production = self.start(name, fid, host, true);
+            let production = self.start(fid, host, true);
             self.check_host_fields(custom, production);
             if custom.backend == Backend::Js {
                 self.check_js_methods(platform);
@@ -364,7 +364,7 @@ impl<'a> Checker<'a> {
         } else if let Some(borrowed) = self.borrowed_host(&want.params) {
             // Another platform's struct is a host only where every field is a
             // production struct, and otherwise a parameter like any other.
-            self.start(name, fid, borrowed, false);
+            self.start(fid, borrowed, false);
         }
     }
 
@@ -415,7 +415,6 @@ impl<'a> Checker<'a> {
     /// host, and has nothing to fill a field with.
     pub(super) fn start(
         &mut self,
-        name: &str,
         func: FnId,
         host: TyConId,
         refuse: bool,
@@ -457,8 +456,7 @@ impl<'a> Checker<'a> {
         if whole {
             let fields = production.iter().map(|(_, con, _)| *con).collect();
             let host = Host { con: host, fields };
-            self.started
-                .insert(name.to_string(), Started { func, host });
+            self.started.insert(func, Started { func, host });
         }
         production
     }

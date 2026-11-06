@@ -138,9 +138,7 @@ fn lowered(
             .collect::<Vec<_>>()
     );
     let entry = analysis
-        .checked
-        .started
-        .get("main")
+        .started("main", "main")
         .expect("the snippet exports `main`");
     let paths: Vec<String> = analysis
         .loaded

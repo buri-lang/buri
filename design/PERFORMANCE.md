@@ -8438,6 +8438,44 @@ Skipping the zeroing of a stencil list literal whose elements fill its block
 saved about 30 instructions a literal, but the suite's hottest test showed no
 change, so it isn't in.
 
+### 6.97 A build checks each module once, programs included, 2026-11-05
+
+`buri build //...` checked the libraries in one compilation (§6.92), then
+loaded and checked each output's whole program again on its own. A library
+twenty programs reach was checked twenty-one times.
+
+Now `commands/build.rs` adds one unit per output to build to that
+compilation, and each output's job gets its clean share of it
+(`Program::Shared`). A share that reports anything is built on its own, so
+its diagnostics and their order don't change. A program's artifact must not
+depend on what else the build holds, which took three fixes:
+
+- instance symbols spell type arguments by module path and name
+  (`Mangled` in `middle/monomorphize.rs`), not by `TyConId`, whose value
+  depends on what the compilation loaded;
+- glue keys spell a niche enum's layout without its payload type, whose
+  `Debug` spells a `TyConId` too (`Layouts::write_glue_shape`);
+- style extraction gives a helper's `classify` table the classes of every
+  caller it sees, so a shared helper would carry other programs' classes.
+  `Checker::restylable` keeps the bodies extraction starts from, and
+  `Checked::restyle` runs extraction again over one program's modules
+  (`Walked::within`). Its outputs share the result (`Shared::restyle`).
+
+In a cold one-thread build of a large workspace, modules loaded fell from
+4,860 to 1,283, check from 12.8 G to 3.7 G instructions, and the process
+from 60.4 G to 52.7 G. Each artifact of a build of a few of its programs is
+byte for byte the full build's. On the goals workspace, check went from
+43.6 k to 6.7 k instructions a line, and the whole build from 352 k to 312 k.
+
+Each program still draws its own style graph: its classes come from its own
+callers. The check draws one more over everything, for the libraries'
+diagnostics.
+
+`cli/tests/build/shared_check.rs` guards it: two programs and a library load
+3 modules and draw 3 style graphs, where they loaded 9 and drew 4. Its other
+cases hold each artifact to the bytes it has built alone, a native one
+included, and the diagnostics to what each target reports alone.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

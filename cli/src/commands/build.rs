@@ -103,11 +103,33 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         .filter(|t| asked.get(t).is_some_and(|(_, key)| key.is_some()))
         .map(|t| unit(*t))
         .collect();
+    // Each output asks the cache first. By slot: an output's place among the
+    // outputs, in target order.
+    let mut prepared = Vec::new();
+    let mut slots = 0;
+    for &target in targets.iter().filter(|t| t.kind == RuleKind::Binary) {
+        for output in actions::selected_outputs(&session, target, &args.flags) {
+            let (front, explain) = crate::build::cache::holding_explain(|| {
+                actions::prepare_output(&session, target, &output, &args.flags)
+            });
+            prepared.push((slots, target, output, front, explain));
+            slots += 1;
+        }
+    }
+    // A program the cache doesn't answer is checked with the libraries, as
+    // any library is, whatever its outputs enter through: each module once,
+    // and once for every output. One unit per output, so that a single binary
+    // with two outputs to build is shared too.
+    let programs: Vec<crate::compiler::modules::Unit> = prepared
+        .iter()
+        .filter(|(_, _, _, front, _)| matches!(front, actions::Prepared::Front(_)))
+        .map(|(_, target, ..)| unit(*target))
+        .collect();
     // `check_during_build`: what the catalogue will analyse is checked here
     // too, in the same compilation, so each module is checked once. Should
     // the two not share one, the libraries are checked alone, and the
-    // catalogue checks its own once the build holds. Only the repository's
-    // bodies are checked: the standard library's report nothing.
+    // catalogue checks its own once the build holds. Only a program to build
+    // needs the standard library's bodies: they report nothing.
     let check_during_build = session.workspace.repo.lint.check_during_build;
     let linting = check_during_build
         .then(|| crate::commands::lint::Linting::before_build(&mut session, &targets, &args.flags))
@@ -116,19 +138,24 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         .as_ref()
         .map(|l| l.units(&targets))
         .unwrap_or_default();
+    let bodies = match programs.is_empty() {
+        true => crate::compiler::driver::Checking::Repository,
+        false => crate::compiler::driver::Checking::All,
+    };
+    let built = [checked.as_slice(), &programs].concat();
     let mut check = |units: &[crate::compiler::modules::Unit]| {
         crate::compiler::driver::shared(
             &session.workspace,
             &mut session.map,
             &mut session.parsed,
             units,
-            crate::compiler::driver::Checking::Repository,
+            bodies,
         )
     };
-    let mut shared = check(&[linted.as_slice(), &checked].concat());
+    let mut shared = check(&[linted.as_slice(), &built].concat());
     let handed = shared.is_some() && !linted.is_empty();
     if shared.is_none() && !linted.is_empty() {
-        shared = check(&checked);
+        shared = check(&built);
     }
     // Each binary's outputs are built side by side, on the pool's workers, and
     // everything is printed in target order however the builds finish. This
@@ -142,9 +169,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         flags: &args.flags,
     };
     let mut reports: Vec<Report> = Vec::new();
-    // By slot: an output's place among the outputs, in target order.
     let mut outcomes: BTreeMap<usize, Outcome> = BTreeMap::new();
-    let mut slots = 0;
+    let mut prepared = prepared.into_iter().peekable();
     let mut printing = Printing::default();
     let mut crossing = Vec::new();
     let release = args.flags.mode.is_release();
@@ -203,14 +229,13 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                 // built from it. Two outputs are two compilations of the same
                 // sources, so a helper that will not typecheck otherwise
                 // reports once per artifact.
-                let first = slots;
-                for output in actions::selected_outputs(&session, target, &args.flags) {
-                    let slot = slots;
-                    slots += 1;
-                    let (prepared, explain) = crate::build::cache::holding_explain(|| {
-                        actions::prepare_output(&session, target, &output, &args.flags)
-                    });
-                    match prepared {
+                let first = prepared.peek().map_or(slots, |(slot, ..)| *slot);
+                let mut last = first;
+                while let Some((slot, _, output, front, explain)) =
+                    prepared.next_if(|(_, t, ..)| *t == target)
+                {
+                    last = slot + 1;
+                    match front {
                         actions::Prepared::Done(built) => {
                             let outcome =
                                 outcome(&session, target, output, &args.flags, built, explain);
@@ -222,18 +247,34 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                             crossing.push((slot, target, output, front, explain));
                         }
                         actions::Prepared::Front(front) => {
-                            let (job, bytes) =
-                                load(&mut session, slot, target, output, front, explain, release);
+                            let (job, bytes) = load(
+                                &mut session,
+                                shared.as_mut(),
+                                slot,
+                                target,
+                                output,
+                                front,
+                                explain,
+                                release,
+                            );
                             queue.push(job, bytes);
                             printing.pending += 1;
                         }
                     }
                 }
-                reports.push(Report::Built(first..slots));
+                reports.push(Report::Built(first..last));
             }
             for (slot, target, output, front, explain) in crossing {
-                let (job, bytes) =
-                    load(&mut session, slot, target, output, front, explain, release);
+                let (job, bytes) = load(
+                    &mut session,
+                    shared.as_mut(),
+                    slot,
+                    target,
+                    output,
+                    front,
+                    explain,
+                    release,
+                );
                 queue.push(job, bytes);
                 printing.pending += 1;
             }
@@ -372,7 +413,7 @@ struct Job {
     target: TargetId,
     output: Output,
     front: Box<actions::Front>,
-    loading: crate::compiler::driver::Loading,
+    program: Program,
     /// The session's map as the load left it, which names every file the
     /// build can report on.
     map: std::sync::Arc<crate::diagnostics::SourceMap>,
@@ -380,10 +421,30 @@ struct Job {
     explain: String,
 }
 
-/// Loads the program `front` names, on the session's map, as a [`Job`] with
-/// the bytes it is expected to hold.
+/// A program as a worker is handed it.
+enum Program {
+    /// Loaded, to be checked on the worker.
+    Loaded(Box<crate::compiler::driver::Loading>),
+    /// Its share of the build's compilation, checked and clean.
+    Shared(
+        std::sync::Arc<crate::compiler::driver::Analysis>,
+        crate::compiler::driver::Share,
+    ),
+}
+
+/// The program `front` names as a [`Job`], with the bytes it is expected to
+/// hold: its clean share of `shared`, or else loaded on the session's map.
+///
+/// A share that reports anything is built on its own, so its diagnostics are
+/// its own compilation's, in their order. A clean one is built from its own
+/// styles, so its bytes don't depend on what else the build holds.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a job is these, and the two places that make one name each"
+)]
 fn load(
     session: &mut Session,
+    shared: Option<&mut crate::compiler::driver::Shared>,
     slot: usize,
     target: TargetId,
     output: Output,
@@ -391,23 +452,36 @@ fn load(
     explain: String,
     release: bool,
 ) -> (Job, u64) {
-    let loading = crate::compiler::driver::load_all(
-        Some(&session.workspace),
-        &mut session.map,
-        &mut session.parsed,
-        std::slice::from_ref(&front.unit),
-    );
-    let bytes = build_bytes(loading.source_bytes(&session.map), release);
+    let share = shared.and_then(|s| {
+        let share = s.restyle(target)?.clone();
+        Some((std::sync::Arc::clone(&s.analysis), share))
+    });
+    let (program, source) = match share {
+        Some((analysis, share)) => {
+            let source = share.source_bytes(&analysis, &session.map);
+            (Program::Shared(analysis, share), source)
+        }
+        None => {
+            let loading = crate::compiler::driver::load_all(
+                Some(&session.workspace),
+                &mut session.map,
+                &mut session.parsed,
+                std::slice::from_ref(&front.unit),
+            );
+            let source = loading.source_bytes(&session.map);
+            (Program::Loaded(Box::new(loading)), source)
+        }
+    };
     let job = Job {
         slot,
         target,
         output,
         front,
-        loading,
+        program,
         map: session.map.shared(),
         explain,
     };
-    (job, bytes)
+    (job, build_bytes(source, release))
 }
 
 /// Where a test holds `buri build` as a worker starts a program's front end
@@ -425,7 +499,7 @@ impl Job {
             target,
             output,
             front,
-            loading,
+            program,
             map,
             explain,
         } = self;
@@ -441,8 +515,18 @@ impl Job {
             rendering: workers.rendering,
         };
         drop(map);
-        let analysis =
-            crate::compiler::driver::check(loading, Some(&session.workspace), &session.map);
+        let (analysis, share) = match program {
+            Program::Loaded(loading) => {
+                let analysis = crate::compiler::driver::check(
+                    *loading,
+                    Some(&session.workspace),
+                    &session.map,
+                );
+                let share = analysis.whole();
+                (std::sync::Arc::new(analysis), share)
+            }
+            Program::Shared(analysis, share) => (analysis, share),
+        };
         let (built, finished) = crate::build::cache::holding_explain(|| {
             actions::finish_output(
                 &mut session,
@@ -450,10 +534,11 @@ impl Job {
                 &output,
                 workers.flags,
                 front,
-                analysis,
+                (&analysis, &share),
             )
         });
         // The program is gone by now; only its artifact and its report are left.
+        drop((analysis, share));
         drop(held);
         let explain = explain + &finished;
         let mut outcome = outcome(&session, target, output, workers.flags, built, explain);

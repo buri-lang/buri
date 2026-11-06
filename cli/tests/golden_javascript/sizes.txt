@@ -10,6 +10,7 @@ enum_payloadless: 2675 bytes artifact, 1111 generated
 enum_single_variant: 2448 bytes artifact, 336 generated
 generics: 2813 bytes artifact, 1176 generated
 guards: 2571 bytes artifact, 616 generated
+instantiation_tags: 2628 bytes artifact, 776 generated
 int_match: 2713 bytes artifact, 861 generated
 interpolation: 2714 bytes artifact, 1079 generated
 interpreter: 6212 bytes artifact, 7840 generated
@@ -43,5 +44,5 @@ ui_theme: 43552 bytes artifact, 12919 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 unused_closure: 2521 bytes artifact, 517 generated
 
-total: 495864 bytes artifact, 166687 generated
+total: 498492 bytes artifact, 167463 generated
 largest function: 10692 bytes, ui_animation/$tree_render

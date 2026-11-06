@@ -1691,7 +1691,15 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
                     &unit,
                 );
                 if !analysis.diagnostics.has_errors()
-                    && !analysis.checked.entries.contains_key(output.entry_name())
+                    && analysis
+                        .entry(
+                            &session
+                                .workspace
+                                .package(target.package)
+                                .module_path("main.buri"),
+                            output.entry_name(),
+                        )
+                        .is_none()
                 {
                     diagnostics.push(actions::missing_main(&session, target, &output));
                 }

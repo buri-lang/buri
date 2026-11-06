@@ -51,7 +51,8 @@ pub fn build_target(
                 &mut session.parsed,
                 &front.unit,
             );
-            finish_output(session, target, output, flags, front, analysis)
+            let share = analysis.whole();
+            finish_output(session, target, output, flags, front, (&analysis, &share))
         }
     }?;
     link_out_symlink(session, output);
@@ -284,14 +285,14 @@ pub fn prepare_output(
     }))
 }
 
-/// The rest of a [`Front`]'s build, from its program's `analysis`.
+/// The rest of a [`Front`]'s build, from its program, checked.
 pub fn finish_output(
     session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
     front: Box<Front>,
-    analysis: crate::compiler::driver::Analysis,
+    program: Checked<'_>,
 ) -> Result<Artifact, Diagnostics> {
     let Front {
         mut diagnostics,
@@ -308,15 +309,7 @@ pub fn finish_output(
                 cache,
                 path,
             };
-            return finish_native(
-                session,
-                target,
-                output,
-                flags,
-                native,
-                analysis,
-                diagnostics,
-            );
+            return finish_native(session, target, output, flags, native, program, diagnostics);
         }
         // As `prepare_native` would have, had the runtime been there: a
         // refusal or a record hit is the whole answer, and the checked program
@@ -341,18 +334,10 @@ pub fn finish_output(
                 cache,
                 path,
             };
-            return finish_native(
-                session,
-                target,
-                output,
-                flags,
-                native,
-                analysis,
-                diagnostics,
-            );
+            return finish_native(session, target, output, flags, native, program, diagnostics);
         }
     };
-    let compiled = compile_analyzed(session, target, output, flags, analysis, &mut diagnostics)?;
+    let compiled = compile_analyzed(session, target, output, flags, program, &mut diagnostics)?;
     let reads = encode_reads(session, &compiled.unkeyed);
     let parts = [&reads, &compiled.module, &compiled.stylesheet]
         .into_iter()
@@ -444,37 +429,53 @@ fn monomorphized_entry(
         &mut session.parsed,
         &entry_unit(target, output),
     );
-    monomorphized(session, analysis, target, output, handed, diagnostics)
+    let share = analysis.whole();
+    let program = monomorphized(
+        session,
+        (&analysis, &share),
+        target,
+        output,
+        handed,
+        diagnostics,
+    )?;
+    Ok((analysis, program))
 }
 
-/// [`monomorphized_entry`] over the entry's `analysis`, loaded and checked
+/// One program, checked: a compilation, and the program's share of it.
+pub type Checked<'a> = (
+    &'a crate::compiler::driver::Analysis,
+    &'a crate::compiler::driver::Share,
+);
+
+/// [`monomorphized_entry`] over the entry's program, loaded and checked
 /// already.
 fn monomorphized(
     session: &Session,
-    mut analysis: crate::compiler::driver::Analysis,
+    (analysis, share): Checked<'_>,
     target: TargetId,
     output: &Output,
     handed: bool,
     diagnostics: &mut Diagnostics,
-) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
-    let name = output.entry_name().to_string();
-    if analysis.diagnostics.has_errors() {
-        return Err(analysis.diagnostics);
+) -> Result<monomorphize::Program, Diagnostics> {
+    let name = output.entry_name();
+    if share.reported.iter().any(Diagnostic::is_error) {
+        let mut reported = Diagnostics::new();
+        reported.extend(share.reported.iter().cloned());
+        return Err(reported);
     }
-    diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
+    diagnostics.extend(share.reported.iter().cloned());
 
-    let checked = &analysis.checked;
-    let started = checked.started.get(&name);
+    let main = session
+        .workspace
+        .package(target.package)
+        .module_path("main.buri");
+    let started = analysis.started(&main, name);
     let roots = if handed {
         let point = output.entry_point();
         // A handed entry that takes a host was minted a `Started` too.
         let entry = match started {
             Some(entry) => Some(monomorphize::Handed::Hosted(entry)),
-            None => checked
-                .entries
-                .get(&name)
-                .copied()
-                .map(monomorphize::Handed::Bare),
+            None => analysis.entry(&main, name).map(monomorphize::Handed::Bare),
         };
         entry.map(|entry| monomorphize::Roots::Handed { entry, name: point })
     } else {
@@ -491,11 +492,21 @@ fn monomorphized(
         .iter()
         .map(|m| m.path.clone())
         .collect();
-    let program = monomorphize::run(&analysis.checked, module_paths, diagnostics, roots);
+    let extracted = share
+        .restyled
+        .as_ref()
+        .map_or_else(|| analysis.checked.extracted(), |r| r.extracted());
+    let program = monomorphize::run_extracted(
+        &analysis.checked,
+        extracted,
+        module_paths,
+        diagnostics,
+        roots,
+    );
     if diagnostics.has_errors() {
         return Err(std::mem::take(diagnostics));
     }
-    Ok((analysis, program))
+    Ok(program)
 }
 
 /// `missing-main`: the binary doesn't export the function its output enters
@@ -520,27 +531,41 @@ pub fn compile_artifact(
         &mut session.parsed,
         &entry_unit(target, output),
     );
-    compile_analyzed(session, target, output, flags, analysis, diagnostics)
+    let share = analysis.whole();
+    compile_analyzed(
+        session,
+        target,
+        output,
+        flags,
+        (&analysis, &share),
+        diagnostics,
+    )
 }
 
-/// [`compile_artifact`] over the entry's `analysis`.
+/// [`compile_artifact`] over the entry's program, checked.
 fn compile_analyzed(
     session: &mut Session,
     target: TargetId,
     output: &Output,
     flags: &Flags,
-    analysis: crate::compiler::driver::Analysis,
+    (analysis, share): Checked<'_>,
     diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
     let (module, js) = entry_js(output);
     let handed = js.is_some();
-    let (analysis, mut program) =
-        monomorphized(session, analysis, target, output, handed, diagnostics)?;
-    let unkeyed = unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new());
+    let mut program = monomorphized(
+        session,
+        (analysis, share),
+        target,
+        output,
+        handed,
+        diagnostics,
+    )?;
+    let unkeyed = share_reads(session, target, (analysis, share));
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
-    let host_file = host_file(session, output, &analysis, module, js, diagnostics)?;
+    let host_file = host_file(session, output, analysis, module, js, diagnostics)?;
     if let Some(file) = &host_file {
         program.hosted.ui = file.exports.ui;
     }
@@ -837,6 +862,22 @@ pub fn unkeyed_reads(
         &loaded.generated_rules,
         &modules,
         rule_paths,
+    )
+}
+
+/// [`unkeyed_reads`] for one program's share of a compilation.
+fn share_reads(
+    session: &Session,
+    target: TargetId,
+    (analysis, share): Checked<'_>,
+) -> Vec<PathBuf> {
+    let modules: Vec<&crate::compiler::modules::ModuleData> = share.modules(analysis).collect();
+    unkeyed_reads_over(
+        session,
+        target,
+        &share.generated_rules,
+        &modules,
+        &mut RulePaths::new(),
     )
 }
 
@@ -3147,7 +3188,7 @@ fn finish_native(
     output: &Output,
     flags: &Flags,
     native: Native,
-    analysis: crate::compiler::driver::Analysis,
+    (analysis, share): Checked<'_>,
     mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
     let Native {
@@ -3159,12 +3200,15 @@ fn finish_native(
         cache,
         path,
     } = native;
-    let (analysis, mut program) =
-        monomorphized(session, analysis, target, output, false, &mut diagnostics)?;
-    let reads = encode_reads(
+    let mut program = monomorphized(
         session,
-        &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()),
-    );
+        (analysis, share),
+        target,
+        output,
+        false,
+        &mut diagnostics,
+    )?;
+    let reads = encode_reads(session, &share_reads(session, target, (analysis, share)));
     let tables = &analysis.checked.tables;
     let objects = objects_of(
         session,

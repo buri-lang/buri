@@ -2335,9 +2335,7 @@ fn compiled(source: &str) -> buri::compiler::middle::monomorphize::Program {
             .collect::<Vec<_>>()
     );
     let entry = analysis
-        .checked
-        .started
-        .get("main")
+        .started("main", "main")
         .expect("the source exports `main`");
     let paths: Vec<String> = analysis
         .loaded

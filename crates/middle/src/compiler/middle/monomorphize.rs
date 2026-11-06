@@ -25,7 +25,9 @@
 
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::resolve::{Checked, Host, KnownIndexSet, Started, TestCase};
+use crate::compiler::semantics::resolve::{
+    Checked, Extracted, Host, KnownIndexSet, Started, TestCase,
+};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -621,6 +623,8 @@ enum Key {
 
 pub struct Monomorphizer<'a> {
     checked: &'a Checked,
+    /// The bodies and constants built from, and the styles they hold.
+    extracted: Extracted<'a>,
     diags: &'a mut Diagnostics,
     /// Every function requested so far. `enqueue` pushes a head, named and
     /// unbuilt, and each is built once, off `queue`.
@@ -689,9 +693,40 @@ pub fn run_erasing(
     roots: Roots<'_>,
     erase: bool,
 ) -> Program {
+    run_on(
+        checked,
+        checked.extracted(),
+        module_paths,
+        diags,
+        roots,
+        erase,
+    )
+}
+
+/// [`run`], building from `extracted` rather than `checked`'s own: one
+/// program's restyled bodies in a compilation several share.
+pub fn run_extracted(
+    checked: &Checked,
+    extracted: Extracted<'_>,
+    module_paths: Vec<String>,
+    diags: &mut Diagnostics,
+    roots: Roots<'_>,
+) -> Program {
+    run_on(checked, extracted, module_paths, diags, roots, true)
+}
+
+fn run_on(
+    checked: &Checked,
+    extracted: Extracted<'_>,
+    module_paths: Vec<String>,
+    diags: &mut Diagnostics,
+    roots: Roots<'_>,
+    erase: bool,
+) -> Program {
     let _phase = crate::profile::enter(crate::profile::Phase::Monomorphize);
     let mut m = Monomorphizer {
         checked,
+        extracted,
         diags,
         funcs: Dense::new(),
         index: HashMap::default(),
@@ -814,7 +849,7 @@ pub fn run_erasing(
                 crate::compiler::semantics::styles::survey(
                     body,
                     ui,
-                    &checked.style_sources,
+                    extracted.style_sources,
                     &unchecked,
                     &mut reached,
                 );
@@ -867,7 +902,7 @@ pub fn run_erasing(
         // Merged here rather than by each caller, so that `buri build` and
         // `buri test` cannot disagree about what a program's styles are.
         stylesheet: crate::compiler::semantics::styles::stylesheet(
-            &checked.styles,
+            extracted.styles,
             &reached.classes,
             reached.reset,
         ),
@@ -1335,7 +1370,7 @@ impl<'a> Monomorphizer<'a> {
                 hash.write(b", ");
             }
             if !self.mangled.contains_key(t) {
-                let spelled = format!("{:?}", Mangled(t, &self.checked.tables));
+                let spelled = format!("{:?}", Mangled(t, &self.checked.tables, &self.module_paths));
                 self.mangled.insert(*t, spelled);
             }
             hash.write(self.mangled.get(t).map_or("", String::as_str).as_bytes());
@@ -1616,7 +1651,7 @@ impl Monomorphizer<'_> {
             }
             return;
         }
-        let Some(body) = self.checked.bodies.get(&id) else {
+        let Some(body) = self.extracted.bodies.get(&id) else {
             // A trait method with no body and no impl: already diagnosed.
             return;
         };
@@ -2124,7 +2159,7 @@ impl Monomorphizer<'_> {
             ExprKind::Const(cid) => {
                 // A constant is inlined: it has no address and nothing can
                 // observe whether it was shared.
-                match self.checked.consts.get(&cid) {
+                match self.extracted.consts.get(&cid) {
                     Some(v) => {
                         let inlined = self.rewrite(v.clone(), &[]);
                         return inlined;
@@ -3574,40 +3609,56 @@ pub fn runtime_module_key(module: &str) -> String {
 }
 
 /// A type argument as an instantiation symbol hashes it: its `Debug` form,
-/// except that a context type is spelled by its bindings rather than by its
-/// `CtxTypeId`.
+/// except that a type or trait is spelled by its module and name, and a
+/// context type by its bindings, rather than by an id.
 ///
-/// A `CtxTypeId` comes from a counter over the whole check, so adding one
-/// `context { ... }` renumbers every context minted after it. Hashing the id
-/// renamed every instance reachable from those contexts, and every renamed
-/// symbol missed the `codegen` cache. The bindings move only when the context
-/// does.
-struct Mangled<'a>(&'a Ty, &'a Tables);
+/// An id comes from a counter over the whole check, so it depends on what
+/// else the compilation holds. Adding one `context { ... }` renumbered every
+/// context minted after it, and a program checked with others got other ids
+/// than one checked alone. Hashing the ids renamed every instance reachable
+/// from those types, so the program's bytes depended on what else was built,
+/// and every renamed symbol missed the `codegen` cache. A name moves only when
+/// the type does.
+struct Mangled<'a>(&'a Ty, &'a Tables, &'a [String]);
 
 impl<'a> std::fmt::Debug for Mangled<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let tables = self.1;
-        let each =
-            |xs: &'a [Ty]| -> Vec<Mangled<'a>> { xs.iter().map(|x| Mangled(x, tables)).collect() };
-        match self.0.kind() {
+        let Mangled(ty, tables, paths) = *self;
+        let each = |xs: &'a [Ty]| -> Vec<Mangled<'a>> {
+            xs.iter().map(|x| Mangled(x, tables, paths)).collect()
+        };
+        let path = |m: ModuleId| paths.get(m.index()).map_or("", String::as_str);
+        match ty.kind() {
             TyKind::Ctx(id) => {
-                let bindings: Vec<(TraitId, Mangled)> = tables
+                let bindings: Vec<(String, Mangled)> = tables
                     .ctx_type(*id)
                     .bindings
                     .iter()
-                    .map(|(t, ty)| (*t, Mangled(ty, tables)))
+                    .map(|(t, ty)| {
+                        let info = tables.trait_(*t);
+                        let name = format!("{}.{}", path(info.module), info.name);
+                        (name, Mangled(ty, tables, paths))
+                    })
                     .collect();
                 f.debug_tuple("Ctx").field(&bindings).finish()
             }
-            // The rest is `#[derive(Debug)]`'s output, so a symbol whose type
-            // arguments hold no context is the symbol it always was.
-            TyKind::Con(id, xs) => f.debug_tuple("Con").field(id).field(&each(xs)).finish(),
-            TyKind::Array(e) => f.debug_tuple("Array").field(&Mangled(e, tables)).finish(),
+            TyKind::Con(id, xs) => {
+                let con = tables.tycon(*id);
+                f.debug_tuple("Con")
+                    .field(&path(con.module))
+                    .field(&con.name)
+                    .field(&each(xs))
+                    .finish()
+            }
+            TyKind::Array(e) => f
+                .debug_tuple("Array")
+                .field(&Mangled(e, tables, paths))
+                .finish(),
             TyKind::Tuple(es) => f.debug_tuple("Tuple").field(&each(es)).finish(),
             TyKind::Fn(ps, r) => f
                 .debug_tuple("Fn")
                 .field(&each(ps))
-                .field(&Mangled(r, tables))
+                .field(&Mangled(r, tables, paths))
                 .finish(),
             other => other.fmt(f),
         }
@@ -3631,9 +3682,10 @@ fn symbol_char(c: char) -> char {
 /// function.
 ///
 /// It is taken over the `Debug` form of the type arguments ([`Mangled`]),
-/// which contains `TyConId`s: indices into this compilation's type table. Two
-/// builds of the same sources agree. Two builds under *different toolchains*
-/// need not, and `golden_javascript` re-records when that happens.
+/// which names each type by its module and name. Two builds of the same
+/// sources agree, whatever else each compilation holds. Two builds under
+/// *different toolchains* need not, and `golden_javascript` re-records when
+/// that happens.
 ///
 /// A context is spelled by its bindings, effects and bound types both, and not
 /// by `types::show`, which prints every context as `a context`. Two contexts

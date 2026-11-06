@@ -404,8 +404,10 @@ fn prepared(
     target: Target,
 ) -> monomorphize::Program {
     let entry = checked
-        .started
-        .get("main")
+        .entries
+        .values()
+        .find_map(|e| e.get("main"))
+        .and_then(|f| checked.started.get(f))
         .expect("the program exports `main`");
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(

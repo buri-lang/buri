@@ -25,13 +25,13 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$podn4b([[],[__cmd_x_main_buri$badge$podn4b($k2),__cmd_x_main_buri$badge$podn4b($k4)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([[],[__cmd_x_main_buri$badge$f6at44($k2),__cmd_x_main_buri$badge$f6at44($k4)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
-function __cmd_x_main_buri$badge$podn4b(look_0){
+function __cmd_x_main_buri$badge$f6at44(look_0){
   [$alloc_newCounter(-1n)];
-  return ui_node$stack$podn4b([[ui_style_classify$classifyOne$htol58(0,look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return ui_node$stack$f6at44([[ui_style_classify$classifyOne$htol58(0,look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
-function ui_node$stack$podn4b(config_0){
+function ui_node$stack$f6at44(config_0){
   const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
   let $t1;
   const $t2=config_0[3];

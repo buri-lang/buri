@@ -36,9 +36,7 @@ pub(crate) fn compile(src: &str) -> Program {
         .collect();
     assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
     let entry = analysis
-        .checked
-        .started
-        .get("main")
+        .started("rc_test.buri", "main")
         .expect("the snippet exports `main`");
     let mut diags = Diagnostics::new();
     let paths: Vec<String> = analysis

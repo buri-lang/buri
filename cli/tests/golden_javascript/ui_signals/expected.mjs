@@ -10,7 +10,7 @@ function __cmd_x_main_buri$main(){
     if(doubled_4[0]===0){
       $t1=doubled_4[1];
     }else if(doubled_4[0]===1){
-      $t1=ui_signal$Signal_get$99m8mi(doubled_4[1],s_5);
+      $t1=ui_signal$Signal_get$prr42g(doubled_4[1],s_5);
     }else if(doubled_4[0]===2){
       $t1=doubled_4[1](s_5);
     }else{
@@ -53,7 +53,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k1;
 }
-function ui_signal$Signal_get$99m8mi(self_0,ctx_1){
+function ui_signal$Signal_get$prr42g(self_0,ctx_1){
   return $effect_Scope_read(ctx_1,self_0[0]);
 }
 const $buri$program={main:async ()=>{

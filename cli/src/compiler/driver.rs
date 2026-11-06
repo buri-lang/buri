@@ -15,6 +15,34 @@ pub struct Analysis {
     pub diagnostics: Diagnostics,
 }
 
+impl Analysis {
+    /// The exported function `name` of the entry module at `path`.
+    pub fn entry(&self, path: &str, name: &str) -> Option<crate::compiler::semantics::types::FnId> {
+        let module = self.loaded.find(path)?;
+        self.checked.entries.get(&module)?.get(name).copied()
+    }
+
+    /// The same, where it starts by itself: see
+    /// [`Started`](crate::compiler::semantics::resolve::Started).
+    pub fn started(
+        &self,
+        path: &str,
+        name: &str,
+    ) -> Option<&crate::compiler::semantics::resolve::Started> {
+        self.checked.started.get(&self.entry(path, name)?)
+    }
+
+    /// All of this analysis as one program's share of it.
+    pub fn whole(&self) -> Share {
+        Share {
+            holds: self.loaded.modules.per_module(true),
+            reported: self.diagnostics.items.clone(),
+            generated_rules: self.loaded.generated_rules.clone(),
+            restyled: None,
+        }
+    }
+}
+
 /// Loads and checks one unit. The two halves are separate so that `lint` and
 /// `query` can stop after loading.
 pub fn analyze(
@@ -120,13 +148,16 @@ impl Loading {
     /// The bytes of repository source this load holds, which is what checking
     /// it grows with. The standard library is left out: every load has it.
     pub fn source_bytes(&self, map: &SourceMap) -> u64 {
-        self.loaded
-            .modules
-            .iter()
-            .filter(|m| m.pkg.is_some())
-            .map(|m| u64::try_from(map.get(m.file).text.len()).unwrap_or(u64::MAX))
-            .fold(0, u64::saturating_add)
+        source_bytes(self.loaded.modules.iter(), map)
     }
+}
+
+/// The bytes of repository source in `modules`.
+fn source_bytes<'m>(modules: impl Iterator<Item = &'m ModuleData>, map: &SourceMap) -> u64 {
+    modules
+        .filter(|m| m.pkg.is_some())
+        .map(|m| u64::try_from(map.get(m.file).text.len()).unwrap_or(u64::MAX))
+        .fold(0, u64::saturating_add)
 }
 
 /// The second half of [`analyze_all`]: checks what [`load_all`] loaded.
@@ -134,12 +165,23 @@ impl Loading {
 /// `map` only names files, to put the diagnostics in order. A copy taken
 /// after the load does.
 pub fn check(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
+    check_all(loading, ws, map, false)
+}
+
+/// [`check`], [`restylable`](Checker::restylable) where asked.
+fn check_all(
+    loading: Loading,
+    ws: Option<&Workspace>,
+    map: &SourceMap,
+    restylable: bool,
+) -> Analysis {
     check_on(
         loading,
         ws,
         map,
         snapshot::of(Opening::Builtin, true),
         Bodies::All,
+        restylable,
     )
 }
 
@@ -185,7 +227,7 @@ fn analyze_on(
         Scope::Repository => Bodies::In(repository_files(&loading.loaded)),
         Scope::Files(files) => Bodies::In(files.to_vec()),
     };
-    check_on(loading, ws, map, snapshot, bodies)
+    check_on(loading, ws, map, snapshot, bodies, false)
 }
 
 fn load_on(
@@ -217,6 +259,7 @@ fn check_on(
     map: &SourceMap,
     snapshot: &Snapshot,
     bodies: Bodies,
+    restylable: bool,
 ) -> Analysis {
     let _phase = crate::profile::enter(crate::profile::Phase::Check);
     let Loading {
@@ -231,6 +274,7 @@ fn check_on(
         &snapshot.base,
     )
     .checking(bodies)
+    .restylable(restylable)
     .run();
     diagnostics.sort(map);
     Analysis {
@@ -312,6 +356,7 @@ pub fn check_programs(loading: Loading, ws: Option<&Workspace>, map: &SourceMap)
         map,
         snapshot::of(Opening::Builtin, false),
         bodies,
+        false,
     )
 }
 
@@ -325,18 +370,43 @@ pub enum Checking {
 
 /// Several targets checked as one compilation, and each one's share of it.
 pub struct Shared {
-    pub analysis: Analysis,
+    /// Shared with the workers that build its programs.
+    pub analysis: std::sync::Arc<Analysis>,
     /// By target, and by whether the share holds the target's tests.
     pub shares: std::collections::BTreeMap<(TargetId, bool), Share>,
 }
 
 /// What one target's own compilation would have held and reported.
+#[derive(Clone)]
 pub struct Share {
     pub holds: PerModule<bool>,
     /// What its own compilation reports, in the order it sorts in.
     pub reported: Vec<Diagnostic>,
     /// The rules whose generated code it loaded.
     pub generated_rules: Vec<crate::build::workspace::TargetId>,
+    /// A program's own styles, once [`Shared::restyle`] has made them.
+    pub restyled: Option<std::sync::Arc<crate::compiler::semantics::resolve::Restyled>>,
+}
+
+impl Shared {
+    /// `target`'s share, where it reports nothing, with its program's own
+    /// styles: see [`Checked::restyle`](crate::compiler::semantics::resolve::Checked::restyle).
+    /// Made once, for every output of the program. A share whose styles
+    /// report anything is not clean, and is built on its own.
+    pub fn restyle(&mut self, target: TargetId) -> Option<&Share> {
+        let share = self.shares.get_mut(&(target, false))?;
+        if share.restyled.is_none() && share.reported.is_empty() {
+            let mut reported = Diagnostics::new();
+            let restyled = self.analysis.checked.restyle(
+                &self.analysis.loaded,
+                share.holds.clone(),
+                &mut reported,
+            )?;
+            share.reported = reported.items;
+            share.restyled = Some(std::sync::Arc::new(restyled));
+        }
+        Some(&*share).filter(|s| s.reported.is_empty())
+    }
 }
 
 impl Share {
@@ -350,6 +420,11 @@ impl Share {
             .modules
             .iter()
             .filter(|m| *self.holds.get(m.id))
+    }
+
+    /// [`Loading::source_bytes`] for this share.
+    pub fn source_bytes(&self, analysis: &Analysis, map: &SourceMap) -> u64 {
+        source_bytes(self.modules(analysis), map)
     }
 }
 
@@ -455,13 +530,14 @@ pub fn shared(
                 holds,
                 reported: Vec::new(),
                 generated_rules,
+                restyled: None,
             },
         );
     }
 
     let opening: crate::hash::Set<Said> = loading.opening().iter().map(said).collect();
     let analysis = match bodies {
-        Checking::All => check(loading, Some(ws), map),
+        Checking::All => check_all(loading, Some(ws), map, true),
         Checking::Repository => check_programs(loading, Some(ws), map),
     };
     let mut module_of: crate::hash::Map<FileId, ModuleId> = crate::hash::Map::default();
@@ -489,7 +565,10 @@ pub fn shared(
             .cloned()
             .collect();
     }
-    Some(Shared { analysis, shares })
+    Some(Shared {
+        analysis: std::sync::Arc::new(analysis),
+        shares,
+    })
 }
 
 /// The module paths a module imports and re-exports, as written.
@@ -603,7 +682,18 @@ pub(crate) fn reach(
         if std::mem::replace(seen, true) {
             continue;
         }
-        queue.extend(imports(loaded.module(id)).filter_map(|path| loaded.find(path)));
+        let module = loaded.module(id);
+        // As the loader does: a module of the program's own that imports from
+        // `ui/` loads `classify` too.
+        let own = !matches!(module.role, Role::Std | Role::Platform);
+        let classify = (own && imports(module).any(|path| path.starts_with("ui/")))
+            .then(|| loaded.find(crate::compiler::standard_library::CLASSIFY_MODULE))
+            .flatten();
+        queue.extend(
+            imports(module)
+                .filter_map(|path| loaded.find(path))
+                .chain(classify),
+        );
     }
     Some((holds, rules))
 }
@@ -837,7 +927,7 @@ pub fn compile_snippet_js_as(
         return Err(analysis.diagnostics);
     }
     let mut diags = Diagnostics::new();
-    let Some(entry) = analysis.checked.started.get("main") else {
+    let Some(entry) = analysis.started(name, "main") else {
         diags.push(Diagnostic::templated("example-missing-main", Span::NONE));
         return Err(diags);
     };

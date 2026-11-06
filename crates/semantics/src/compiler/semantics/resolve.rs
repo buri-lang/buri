@@ -174,15 +174,15 @@ pub struct Checked {
     pub consts: ConstMap,
     /// See [`ConstLocals`].
     pub const_locals: ConstLocals,
-    /// Every exported free function of the entry module, by name.
+    /// Every exported free function of each entry module, by name.
     ///
     /// A build looks its output's `entry` up here and monomorphizes from what
     /// it finds, so one `main.buri` holding a page's `main` and a worker's
     /// `fetch` produces two artifacts, each holding only what its own entry
-    /// reaches.
-    pub entries: HashMap<String, FnId>,
-    /// The entries a program starts at by itself, by name: see [`Started`].
-    pub started: HashMap<String, Started>,
+    /// reaches. By module, because several binaries can share one compilation.
+    pub entries: HashMap<ModuleId, HashMap<String, FnId>>,
+    /// The entries a program starts at by itself: see [`Started`].
+    pub started: HashMap<FnId, Started>,
     pub tests: Vec<TestCase>,
     /// The stylesheet rules this compilation's static `ui/style` literals
     /// extracted to, in walk order.
@@ -229,6 +229,135 @@ pub struct Checked {
     /// what `ctx-rebinding` reports, and the checker records it because the
     /// checker is the only pass that knows where the line falls (SPEC 11.3).
     pub ctx_rebindings: Vec<Span>,
+    /// What style extraction started from, where the checker was
+    /// [`restylable`](Checker::restylable).
+    unstyled: Option<Unstyled>,
+}
+
+/// The bodies and constants style extraction started from, and what it needs
+/// to run again over one program's.
+struct Unstyled {
+    bodies: BodyMap,
+    consts: ConstMap,
+    /// What extraction made of the base's, which is the same for every program.
+    base: Option<std::sync::Arc<crate::compiler::semantics::styles::Styled>>,
+    fns_from: usize,
+    consts_from: usize,
+}
+
+/// One program's bodies, constants and styles, as extraction over that
+/// program alone makes them: see [`Checked::restyle`].
+pub struct Restyled {
+    pub bodies: BodyMap,
+    pub consts: ConstMap,
+    pub styles: Vec<crate::compiler::semantics::styles::StyleRule>,
+    pub style_sources: crate::compiler::semantics::styles::Sources,
+}
+
+/// What a program is built from that style extraction rewrote: a
+/// compilation's own, or one program's [`Restyled`].
+#[derive(Clone, Copy)]
+pub struct Extracted<'a> {
+    pub bodies: &'a BodyMap,
+    pub consts: &'a ConstMap,
+    pub styles: &'a [crate::compiler::semantics::styles::StyleRule],
+    pub style_sources: &'a crate::compiler::semantics::styles::Sources,
+}
+
+impl Checked {
+    /// This compilation's own [`Extracted`].
+    pub fn extracted(&self) -> Extracted<'_> {
+        Extracted {
+            bodies: &self.bodies,
+            consts: &self.consts,
+            styles: &self.styles,
+            style_sources: &self.style_sources,
+        }
+    }
+
+    /// Style extraction again, over the one program whose modules are
+    /// `within`.
+    ///
+    /// Extraction gives a style the classes every caller in the compilation
+    /// styles it with, so in a compilation several programs share, a helper
+    /// would carry the others' classes too. Over one program's modules, it is
+    /// what that program's own compilation makes. `None` where the checker
+    /// wasn't [`restylable`](Checker::restylable).
+    pub fn restyle(
+        &self,
+        loaded: &Loaded,
+        within: crate::compiler::modules::PerModule<bool>,
+        diags: &mut Diagnostics,
+    ) -> Option<Restyled> {
+        let unstyled = self.unstyled.as_ref()?;
+        let (mut bodies, mut consts) = (unstyled.bodies.layer(), unstyled.consts.layer());
+        let walked = Walked {
+            only: None,
+            within: Some(within),
+            fns_from: unstyled.fns_from,
+            consts_from: unstyled.consts_from,
+        };
+        let (styles, style_sources, _) = extract(
+            loaded,
+            &self.tables,
+            &self.scopes,
+            (&mut bodies, &mut consts),
+            diags,
+            &walked,
+            unstyled.base.as_deref(),
+        );
+        Some(Restyled {
+            bodies,
+            consts,
+            styles,
+            style_sources,
+        })
+    }
+}
+
+impl Restyled {
+    /// This program's [`Extracted`].
+    pub fn extracted(&self) -> Extracted<'_> {
+        Extracted {
+            bodies: &self.bodies,
+            consts: &self.consts,
+            styles: &self.styles,
+            style_sources: &self.style_sources,
+        }
+    }
+}
+
+/// Style extraction over what `walked` names, rewriting `bodies` and `consts`,
+/// merged with what it made of the base's: the rules, the sources, and
+/// `ui/style`'s `Style`.
+fn extract(
+    loaded: &Loaded,
+    tables: &Tables,
+    scopes: &Scopes,
+    (bodies, consts): (&mut BodyMap, &mut ConstMap),
+    diags: &mut Diagnostics,
+    walked: &Walked,
+    base: Option<&crate::compiler::semantics::styles::Styled>,
+) -> (
+    Vec<crate::compiler::semantics::styles::StyleRule>,
+    crate::compiler::semantics::styles::Sources,
+    Option<TyConId>,
+) {
+    let (found, style_con) = crate::compiler::semantics::styles::run(
+        loaded, tables, scopes, bodies, consts, diags, walked,
+    );
+    let (styles, sources) = match base {
+        Some(base) => found.after(base, bodies, consts),
+        None => (
+            found
+                .const_rules
+                .into_iter()
+                .chain(found.body_rules)
+                .collect(),
+            found.sources,
+        ),
+    };
+    (styles, sources, style_con)
 }
 
 /// The traits `derive` can generate. Derivation is a fold over one type
@@ -365,20 +494,18 @@ pub struct Checker<'a> {
     pub bodies: BodyMap,
     pub const_values: ConstMap,
     pub const_locals: ConstLocals,
-    /// See [`Checked::entries`].
-    pub entries: HashMap<String, FnId>,
     /// See [`Checked::started`].
-    pub started: HashMap<String, Started>,
+    pub started: HashMap<FnId, Started>,
     /// Which of those an output actually enters through — plus `main`, which
     /// every analysis treats as one whether or not a build file was read.
     ///
-    /// [`Checker::entries`] is the wider table: it holds every exported
+    /// [`Checker::module_entries`] is the wider table: it holds every exported
     /// function of `main.buri`, so a build can look one up and say what it
     /// found. This one is the set that may build a context. Both this and
     /// [`Checker::module_entries`] are per entry module, so several binaries
     /// can share one compilation and each `main` builds its own context.
     pub entry_points: HashSet<(ModuleId, String)>,
-    /// Every exported free function of each entry module, by name.
+    /// See [`Checked::entries`].
     pub module_entries: HashMap<ModuleId, HashMap<String, FnId>>,
     pub tests: Vec<TestCase>,
     /// Per package, the set of names its `lib.buri` puts on the surface. A
@@ -446,6 +573,8 @@ pub struct Checker<'a> {
     /// What checking the compilation's leading standard library modules
     /// already settled, when this analysis starts from it. See [`Base`].
     base: Option<&'a Base>,
+    /// Whether [`Checked::restyle`] is to be asked of what this makes.
+    restylable: bool,
     /// Inference's per-body buffers, between bodies.
     pub(crate) scratch: crate::compiler::semantics::inference::Scratch<'a>,
 }
@@ -491,7 +620,7 @@ pub struct Base {
     /// The functions among these that wait on `core/lazy`'s `load`.
     waiting: HashSet<FnId>,
     /// What style extraction made of these modules' constants and bodies.
-    styled: crate::compiler::semantics::styles::Styled,
+    styled: std::sync::Arc<crate::compiler::semantics::styles::Styled>,
 }
 
 /// Which constants and bodies the passes after checking — icons, reactive
@@ -503,6 +632,9 @@ pub struct Base {
 /// in it, is the same whatever comes after.
 pub struct Walked {
     only: Option<Vec<FileId>>,
+    /// The modules of the one program a pass is about, among the several a
+    /// compilation holds: what it reads and walks are theirs alone.
+    within: Option<crate::compiler::modules::PerModule<bool>>,
     /// The functions and constants whose ids are below these were walked by
     /// the base.
     fns_from: usize,
@@ -512,18 +644,24 @@ pub struct Walked {
 impl Walked {
     /// The bodies the base didn't walk, in id order.
     pub fn unsettled<'m>(
-        &self,
+        &'m self,
+        tables: &'m Tables,
         bodies: &'m BodyMap,
     ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
-        bodies.iter_from(self.fns_from)
+        bodies
+            .iter_from(self.fns_from)
+            .filter(|(id, _)| self.holds(tables.fn_info(*id).module))
     }
 
     /// The constants the base didn't walk, in id order.
     pub fn unsettled_constants<'m>(
-        &self,
+        &'m self,
+        tables: &'m Tables,
         consts: &'m ConstMap,
     ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
-        consts.iter_from(self.consts_from)
+        consts
+            .iter_from(self.consts_from)
+            .filter(|(id, _)| self.holds(tables.const_(*id).module))
     }
 
     /// The bodies a pass walks, in id order.
@@ -532,7 +670,7 @@ impl Walked {
         tables: &'m Tables,
         bodies: &'m BodyMap,
     ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
-        self.unsettled(bodies)
+        self.unsettled(tables, bodies)
             .filter(|(id, _)| self.wants(tables.fn_info(*id).span.file))
     }
 
@@ -542,9 +680,15 @@ impl Walked {
         tables: &'m Tables,
         consts: &'m ConstMap,
     ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
-        consts
-            .iter_from(self.consts_from)
+        self.unsettled_constants(tables, consts)
             .filter(|(id, _)| self.wants(tables.const_(*id).span.file))
+    }
+
+    /// Whether `module` is one this pass reads.
+    pub fn holds(&self, module: ModuleId) -> bool {
+        self.within
+            .as_ref()
+            .is_none_or(|within| *within.get(module))
     }
 
     fn wants(&self, file: FileId) -> bool {
@@ -591,7 +735,6 @@ impl<'a> Checker<'a> {
             bodies: IdMap::default(),
             const_values: IdMap::default(),
             const_locals: IdMap::default(),
-            entries: HashMap::default(),
             started: HashMap::default(),
             entry_points: HashSet::default(),
             module_entries: HashMap::default(),
@@ -611,6 +754,7 @@ impl<'a> Checker<'a> {
             wanted: Bodies::All,
             ctx_decls_open: Vec::new(),
             base: None,
+            restylable: false,
             scratch: Default::default(),
         }
     }
@@ -679,7 +823,7 @@ impl<'a> Checker<'a> {
                 &walked,
             );
             // What the pass rewrote is what it wrote into its own layer.
-            styled = crate::compiler::semantics::styles::Styled {
+            styled = std::sync::Arc::new(crate::compiler::semantics::styles::Styled {
                 bodies: bodies
                     .written()
                     .map(|(id, body)| (id, std::sync::Arc::clone(body)))
@@ -689,7 +833,7 @@ impl<'a> Checker<'a> {
                     .map(|(id, init)| (id, init.clone()))
                     .collect(),
                 ..found
-            };
+            });
         }
         let prelude = self.prelude();
         Base {
@@ -770,26 +914,28 @@ impl<'a> Checker<'a> {
         let settled = self.base.filter(|b| b.bodies_checked);
         let waiting = settled.map(|b| b.waiting.clone()).unwrap_or_default();
         self.check_icons_and_builders(&walked, &waiting);
-        let (found, style_con) = crate::compiler::semantics::styles::run(
+        // What extraction starts from, shared rather than copied: it writes
+        // what it rewrites over these.
+        let unstyled = self.restylable.then(|| {
+            self.bodies.freeze();
+            self.const_values.freeze();
+            Unstyled {
+                bodies: self.bodies.layer(),
+                consts: self.const_values.layer(),
+                base: settled.map(|b| std::sync::Arc::clone(&b.styled)),
+                fns_from: walked.fns_from,
+                consts_from: walked.consts_from,
+            }
+        });
+        let (styles, style_sources, style_con) = extract(
             self.loaded,
             &self.tables,
             &self.scopes,
-            &mut self.bodies,
-            &mut self.const_values,
+            (&mut self.bodies, &mut self.const_values),
             self.diags,
             &walked,
+            settled.map(|b| &*b.styled),
         );
-        let (styles, style_sources) = match settled {
-            Some(base) => found.after(&base.styled, &mut self.bodies, &mut self.const_values),
-            None => (
-                found
-                    .const_rules
-                    .into_iter()
-                    .chain(found.body_rules)
-                    .collect(),
-                found.sources,
-            ),
-        };
         let classify_fns =
             crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
@@ -808,7 +954,7 @@ impl<'a> Checker<'a> {
             bodies: self.bodies,
             consts: self.const_values,
             const_locals: self.const_locals,
-            entries: self.entries,
+            entries: self.module_entries,
             started: self.started,
             tests: self.tests,
             styles,
@@ -822,7 +968,16 @@ impl<'a> Checker<'a> {
             index_set: self.index_set,
             surfaces: self.surfaces,
             ctx_rebindings: self.ctx_rebindings,
+            unstyled,
         }
+    }
+
+    /// Whether to keep what style extraction starts from, so that each
+    /// program a compilation is checked for can be
+    /// [restyled](Checked::restyle) on its own.
+    pub fn restylable(mut self, restylable: bool) -> Checker<'a> {
+        self.restylable = restylable;
+        self
     }
 
     /// What the passes after checking walk: the bodies this analysis asked
@@ -830,6 +985,7 @@ impl<'a> Checker<'a> {
     fn walked(&self) -> Walked {
         let settled = self.base.filter(|b| b.bodies_checked);
         Walked {
+            within: None,
             only: match &self.wanted {
                 Bodies::All => None,
                 Bodies::In(files) => Some(files.clone()),
@@ -1816,7 +1972,6 @@ impl<'a> Checker<'a> {
             return;
         }
         let name = self.tables.fn_info(fid).name.clone();
-        self.entries.insert(name.clone(), fid);
         self.module_entries
             .entry(module)
             .or_default()
@@ -2184,7 +2339,7 @@ impl<'a> Checker<'a> {
                             ));
                     }
                     (Some((host, _)), _) => {
-                        self.start(name, fid, host, true);
+                        self.start(fid, host, true);
                     }
                     (None, _) => {
                         self.templated("entry-signature-mismatch", param.span)

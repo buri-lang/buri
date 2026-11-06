@@ -118,6 +118,7 @@ mod repositories;
 mod reproducible_files;
 mod scheduling;
 mod serving;
+mod shared_check;
 mod stencil;
 mod test_corners;
 mod test_host;

@@ -1061,7 +1061,7 @@ fn compiles_fires(input: &str) -> Option<String> {
             indent(&errors.join(""))
         ));
     }
-    if !analysis.checked.started.contains_key("main") {
+    if analysis.started("main", "main").is_none() {
         return Some(String::from("the source exports no `main`"));
     }
     None
@@ -1230,7 +1230,7 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
             )
         ));
     }
-    let Some(entry) = analysis.checked.started.get("main") else {
+    let Some(entry) = analysis.started("main", "main") else {
         return Err(String::from("the program exports no `main`"));
     };
     let paths: Vec<String> = analysis
@@ -1577,7 +1577,7 @@ mod native {
         if analysis.diagnostics.has_errors() {
             return out;
         }
-        let Some(entry) = analysis.checked.started.get("main") else {
+        let Some(entry) = analysis.started("main", "main") else {
             return out;
         };
         let paths: Vec<String> = analysis
@@ -1655,7 +1655,7 @@ mod native {
         if analysis.diagnostics.has_errors() {
             return None;
         }
-        let entry = analysis.checked.started.get("main")?;
+        let entry = analysis.started("main", "main")?;
         let paths: Vec<String> = analysis
             .loaded
             .modules
@@ -2796,7 +2796,7 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
             indent(&errors.join("\n"))
         ));
     }
-    if !checked.started.contains_key("main") {
+    if !checked.entries.values().any(|e| e.contains_key("main")) {
         return Some(String::from("the program exports no `main`"));
     }
     None

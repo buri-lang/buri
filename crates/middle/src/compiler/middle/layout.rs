@@ -1150,7 +1150,19 @@ impl<'a> Layouts<'a> {
         let depth = path.len();
         path.push(*ty);
         let layout = self.shared(ty);
-        let mut inner = format!("{:?}", *layout);
+        // A niche's payload is a type, whose `Debug` spells its constructor by
+        // id, and ids depend on what else the compilation holds. The payload
+        // is walked below as its variant's field anyway.
+        let mut inner = match &layout.repr {
+            Repr::Enum {
+                repr: EnumRepr::Niche { null_at, .. },
+                variants,
+            } => format!(
+                "{} {} {} {:?} Niche({null_at:?}) {variants:?}",
+                layout.size, layout.align, layout.stride, layout.fields
+            ),
+            _ => format!("{:?}", *layout),
+        };
         let lists: Vec<Vec<Ty>> = match (&layout.repr, ty.kind()) {
             (Repr::List, TyKind::Array(elem)) => vec![vec![*elem]],
             (Repr::Aggregate, _) => vec![types::field_types(self.tables, ty)],

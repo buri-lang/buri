@@ -62,7 +62,7 @@ pub fn run(
     // The functions that, run, wait on a `load` — directly, or by calling one
     // that does. A lambda they write is not part of this: it is a separate
     // function value, called elsewhere, so `reaches` never crosses one.
-    let waiting = waiting_set(bodies, load, walked, waiting);
+    let waiting = waiting_set(tables, bodies, load, walked, waiting);
 
     for (_, body) in walked.functions(tables, bodies) {
         walk(&body.expr, &builders, load, &waiting, diags);
@@ -78,6 +78,7 @@ pub fn run(
 /// none of those again: they call nothing declared after them, so nothing
 /// read here can change it.
 fn waiting_set(
+    tables: &Tables,
     bodies: &BodyMap,
     load: FnId,
     walked: &Walked,
@@ -86,7 +87,7 @@ fn waiting_set(
     let mut set: HashSet<FnId> = known.clone();
     loop {
         let mut changed = false;
-        for (id, body) in walked.unsettled(bodies) {
+        for (id, body) in walked.unsettled(tables, bodies) {
             if !set.contains(&id) && reaches(&body.expr, load, &set).is_some() {
                 set.insert(id);
                 changed = true;
