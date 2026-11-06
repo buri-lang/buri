@@ -67,10 +67,10 @@ fn mentions(ty: &Ty, j: usize) -> bool {
     }
 }
 
-/// Whether a value of type `ty`, given where a `to` is wanted, hands `j` on
-/// and does nothing else with it: `j` itself at a bare type parameter, or a
-/// callback that takes `j` only as a whole parameter, at a callback type
-/// whose parameter there is bare.
+/// Whether a value of type `ty`, which mentions `j`, given where a `to` is
+/// wanted, hands `j` on and does nothing else with it: `j` itself at a bare
+/// type parameter, or a callback that takes `j` only as a whole parameter, at
+/// a callback type whose parameter there is bare.
 fn hands_on(ty: &Ty, to: &Ty, j: usize) -> bool {
     let bare = |t: &Ty| matches!(t.kind(), TyKind::Param(_));
     match (ty.kind(), to.kind()) {
@@ -81,7 +81,7 @@ fn hands_on(ty: &Ty, to: &Ty, j: usize) -> bool {
                     .zip(qs.iter())
                     .all(|(p, q)| !mentions(p, j) || bare(p) && bare(q))
         }
-        _ => !mentions(ty, j) || bare(ty) && bare(to),
+        _ => bare(ty) && bare(to),
     }
 }
 
@@ -214,16 +214,18 @@ impl Monomorphizer<'_> {
         // A runtime operation, or a trait method with no body, which is already
         // diagnosed.
         let Some(body) = self.checked.bodies.get(&f).filter(|_| !info.intrinsic) else {
-            let key = self.runtime_key(info);
-            let entry = runtime_table::entry(&key).filter(|_| info.intrinsic);
+            let key = info
+                .intrinsic
+                .then(|| self.runtime_key(info))
+                .unwrap_or_default();
+            let entry = runtime_table::entry(&key);
             // A list walk, which hands its context to its step or reads it
             // nowhere, and the open-coded operations that read it nowhere.
-            let walk = intrinsic_keys::list_call(&key).filter(|_| info.intrinsic);
-            let unread = info.intrinsic
-                && matches!(
-                    key.as_str(),
-                    "list.zip" | "list.flatten" | "str.concat" | "str.format"
-                );
+            let walk = intrinsic_keys::list_call(&key);
+            let unread = matches!(
+                key.as_str(),
+                "list.zip" | "list.flatten" | "str.concat" | "str.format"
+            );
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 let bounds = info
                     .generics
