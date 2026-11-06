@@ -100,7 +100,8 @@
 //!    copied to another machine, which is after every test in this repository
 //!    has passed.
 //!
-//! `BURI_MUSL=off` is the escape hatch, and it is the only path on which
+//! `BURI_MUSL=off` is the escape hatch for a toolchain whose runtime is glibc,
+//! and refused for one whose runtime is musl. It is the only path on which
 //! `-lpthread -ldl -lm` are still passed. They are dropped everywhere else, and
 //! that is a hard requirement rather than tidiness: musl folds all three into
 //! `libc.a` and ships no `libpthread.a` stub, so `-lpthread` against the baked
@@ -1048,11 +1049,20 @@ fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refu
     }
     let forced = forced_libc(&std::env::var("BURI_MUSL").unwrap_or_default())?;
     if forced == Forced::Off {
-        // The only path that keeps `-lpthread -ldl -lm`, and the only one that
-        // is not checked against the runtime archive's own libc: a toolchain
-        // whose archive is musl and whose link is glibc will fail in the
-        // linker, loudly, which is the answer this flag asked for.
-        return Ok((driver, LibcMode::Glibc));
+        // A musl archive linked against glibc often links cleanly and then
+        // crashes: musl's `pthread_attr_t` is 56 bytes on arm64, glibc's 64.
+        return match runtime_native::libc() {
+            Libc::MuslBaked | Libc::MuslSystem => Err(Refusal::new(
+                "`BURI_MUSL=off` links against glibc, but this toolchain's runtime was built \
+                 against musl",
+                "unset `BURI_MUSL` to link against musl",
+            )
+            .with_note(
+                "a musl runtime linked against glibc builds a program that crashes, because \
+                 the two libcs lay out their structs differently",
+            )),
+            Libc::Glibc | Libc::Absent => Ok((driver, LibcMode::Glibc)),
+        };
     }
     let triple = crate::compiler::backend::linux_triple(target.arch);
 
@@ -1179,7 +1189,7 @@ fn agrees(driver: PathBuf, mode: LibcMode, triple: &str) -> Result<(PathBuf, Lib
 /// the artifact would not have been portable, and only then which half of the
 /// toolchain is why.
 fn refusal(triple: &str) -> Refusal {
-    Refusal::new(
+    let refused = Refusal::new(
         "this toolchain cannot produce a hermetic Linux executable",
         format!(
             "`rustup target add {triple}` and rebuild the toolchain, or install `musl-tools` \
@@ -1189,11 +1199,15 @@ fn refusal(triple: &str) -> Refusal {
     .with_note(
         "Linux artifacts are statically linked against musl so that they run in any Linux \
          environment (design/native/ARCHITECTURE.md §9)",
-    )
-    .with_note(
-        "`BURI_MUSL=off` links against this machine's glibc instead, and the executable then \
-         runs only where that glibc does",
-    )
+    );
+    // A musl runtime can't link against glibc, so `off` is no way out there.
+    match runtime_native::libc() {
+        Libc::MuslBaked | Libc::MuslSystem => refused,
+        Libc::Glibc | Libc::Absent => refused.with_note(
+            "`BURI_MUSL=off` links against this machine's glibc instead, and the executable \
+             then runs only where that glibc does",
+        ),
+    }
 }
 
 /// Whether the driver can be pointed at a triple.

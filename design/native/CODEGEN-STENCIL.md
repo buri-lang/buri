@@ -1462,7 +1462,9 @@ choice the way `BURI_LINKER` forces the flavour:
 
 `BURI_MUSL=off` links glibc dynamically and is the escape hatch for a machine
 that has neither and wants a binary anyway; the executable it produces runs
-where that glibc does and nowhere older. The archive's own libc is checked
+where that glibc does and nowhere older. It's refused when the runtime archive
+is musl: that link often succeeds and then crashes, because musl and glibc lay
+out structs like `pthread_attr_t` differently. The archive's own libc is checked
 against the link's, so a glibc runtime archive on a musl command line is
 refused rather than discovered as `undefined reference to __libc_start_main`.
 

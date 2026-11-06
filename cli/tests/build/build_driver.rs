@@ -1112,7 +1112,8 @@ fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
 /// `BURI_MUSL` is a question about a Linux link. Elsewhere it's ignored. On
 /// Linux a value that isn't a libc is refused, `off` links against glibc
 /// through the dynamic loader, and `baked` and `system` each link with musl
-/// or say why they can't.
+/// or say why they can't. A toolchain that links with its baked musl has a
+/// musl runtime, and `off` refuses it rather than build a program that crashes.
 #[test]
 fn buri_musl_forces_the_libc_of_a_linux_link() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1132,9 +1133,19 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
         std::fs::read(scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"))).unwrap()
     };
     let interpreted = |bytes: &[u8]| bytes.windows(b"/ld-linux".len()).any(|w| w == b"/ld-linux");
-    // A glibc link of a musl runtime archive fails in the linker, as `off` asks.
+    let musl_runtime = build("baked").code == 0;
+    if musl_runtime {
+        build("off")
+            .exits(1)
+            .says("`BURI_MUSL=off` links against glibc, but this toolchain's runtime was built against musl")
+            .says("fix: unset `BURI_MUSL` to link against musl");
+    }
     for (value, glibc, refusal) in [
-        ("off", true, "error: the link failed ("),
+        (
+            "off",
+            true,
+            "this toolchain's runtime was built against musl",
+        ),
         (
             "baked",
             false,
