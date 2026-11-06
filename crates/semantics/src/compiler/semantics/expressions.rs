@@ -1607,7 +1607,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 found
             }
             // A context value satisfies exactly the effects it binds.
-            TyKind::Ctx(id) => {
+            TyKind::Ctx(id, _) => {
                 let bounds: Vec<TraitId> = self
                     .c
                     .tables
@@ -1802,7 +1802,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// the whole context is known; until then the receiver is the answer.
     fn implementing_ty(&self, recv: &Ty, tid: TraitId) -> Ty {
         match recv.kind() {
-            TyKind::Ctx(id) => self
+            TyKind::Ctx(id, _) => self
                 .c
                 .tables
                 .ctx_type(*id)
@@ -3613,7 +3613,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let base_span = t.span(base);
             let b = self.check_expr(base, None);
             match self.resolve(&b.ty).kind() {
-                TyKind::Ctx(id) => {
+                TyKind::Ctx(id, _) => {
                     // The inherited binding keeps the *implementing type* the
                     // base recorded. Without it monomorphization has nothing
                     // to dispatch on, and every effect a spread supplies is
@@ -3751,11 +3751,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .map(|(t, e)| (*t, self.subst.resolve(&e.ty)))
                 .collect(),
         };
+        // A binding of a type parameter's value is read at the instantiation's
+        // type, so the context carries the parameters for it to substitute.
+        let generic = ctx_ty.bindings.iter().any(|(_, ty)| ty.has_params());
         let id = self.c.tables.intern_ctx_type(ctx_ty);
+        let args = (0..self.generics.len()).filter(|_| generic);
         (
             typed::Expr::new(
                 typed::ExprKind::CtxLit { bindings, ctx: id },
-                Ty::ctx(id),
+                Ty::ctx_at(id, args.map(|i| Ty::param(i as u32))),
                 span,
             ),
             id,

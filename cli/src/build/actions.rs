@@ -2482,7 +2482,7 @@ fn layout_closure_signature(
                 stack.extend(ps.iter().cloned());
                 stack.push(*r);
             }
-            TyKind::Ctx(_) => stack.extend(types::field_types(tables, &ty)),
+            TyKind::Ctx(..) => stack.extend(types::field_types(tables, &ty)),
             _ => {}
         }
     }

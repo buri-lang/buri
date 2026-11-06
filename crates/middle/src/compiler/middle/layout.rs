@@ -785,13 +785,8 @@ impl<'a> Layouts<'a> {
                     repr,
                 }
             }
-            TyKind::Ctx(id) => {
-                let bindings: Vec<Ty> = tables
-                    .ctx_type(*id)
-                    .bindings
-                    .iter()
-                    .map(|(_, t)| *t)
-                    .collect();
+            TyKind::Ctx(..) => {
+                let bindings = types::field_types(tables, ty);
                 let (size, align, fields) = self.record(None, &bindings);
                 let repr = if size == 0 {
                     Repr::Zero
@@ -1017,13 +1012,8 @@ impl<'a> Layouts<'a> {
                 let elements: &[Ty] = elements;
                 self.niche_in(ty, elements)
             }
-            TyKind::Ctx(id) => {
-                let bindings: Vec<Ty> = tables
-                    .ctx_type(*id)
-                    .bindings
-                    .iter()
-                    .map(|(_, t)| *t)
-                    .collect();
+            TyKind::Ctx(..) => {
+                let bindings = types::field_types(tables, ty);
                 self.niche_in(ty, &bindings)
             }
             TyKind::Con(id, args) => match &tables.tycon(*id).def {
@@ -1294,7 +1284,7 @@ fn inline_cons(ty: &Ty, out: &mut Vec<TyConId>) {
         TyKind::Unit
         | TyKind::Var(_)
         | TyKind::Param(_)
-        | TyKind::Ctx(_)
+        | TyKind::Ctx(..)
         | TyKind::SelfTy
         | TyKind::Error => {}
     }
@@ -1413,7 +1403,7 @@ mod tests {
         /// is what a reader of a layout diff needs anyway.
         fn name(&self, ty: &Ty) -> String {
             match ty.kind() {
-                TyKind::Ctx(id) => {
+                TyKind::Ctx(id, _) => {
                     let names: Vec<&str> = self
                         .tables
                         .ctx_type(*id)
@@ -1433,7 +1423,7 @@ mod tests {
                 TyKind::Array(_) => vec!["ptr".into(), "len".into()],
                 TyKind::Fn(_, _) => vec!["code".into(), "env".into()],
                 TyKind::Tuple(elements) => (0..elements.len()).map(|i| i.to_string()).collect(),
-                TyKind::Ctx(id) => tables
+                TyKind::Ctx(id, _) => tables
                     .ctx_type(*id)
                     .bindings
                     .iter()

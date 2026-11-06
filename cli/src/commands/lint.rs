@@ -3157,7 +3157,7 @@ fn cons_in(
         TyKind::Var(_)
         | TyKind::Param(_)
         | TyKind::Unit
-        | TyKind::Ctx(_)
+        | TyKind::Ctx(..)
         | TyKind::SelfTy
         | TyKind::Error => {}
     }

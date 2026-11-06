@@ -1011,7 +1011,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn unify_at(&mut self, span: Span, actual: &Ty, expected: &Ty, what: &str) {
         if let Err((a, b)) = self.subst.unify(&self.c.tables, actual, expected) {
-            if let (TyKind::Ctx(found), TyKind::Ctx(wanted)) =
+            if let (TyKind::Ctx(found, _), TyKind::Ctx(wanted, _)) =
                 (self.resolve(&a).kind(), self.resolve(&b).kind())
             {
                 let (found, wanted) = (*found, *wanted);
@@ -1321,7 +1321,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let lacking = self.c.tables.trait_(missing).name.clone();
                     let condition =
                         format!("`{head}` implements `{trait_name}` only when `{name}` satisfies `{lacking}`");
-                    if let TyKind::Ctx(id) = arg.kind() {
+                    if let TyKind::Ctx(id, _) = arg.kind() {
                         // A context is the one argument whose fix is a
                         // binding rather than an `impl`.
                         let bound: Vec<String> = self
@@ -1435,7 +1435,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 held
             }
             TyKind::Error | TyKind::Var(_) => true,
-            TyKind::Ctx(id) => self.c.tables.ctx_type(*id).has(tr),
+            TyKind::Ctx(id, _) => self.c.tables.ctx_type(*id).has(tr),
             TyKind::SelfTy => true,
             // `[T]`, tuples and function types satisfy the structural traits
             // when their components do (SPEC 5.11).
@@ -1762,7 +1762,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     "give `{shown}` a `Show` bound, as in `{shown}: Show`, and call it in the hole, \
                      as in `${{x.show(ctx)}}`"
                 ));
-            } else if matches!(resolved.kind(), TyKind::Unit | TyKind::Ctx(_)) {
+            } else if matches!(resolved.kind(), TyKind::Unit | TyKind::Ctx(..)) {
                 d = d.with_fix("drop the hole: there's nothing in it to show");
             } else if undeclared {
                 d = d.with_fix(format!(

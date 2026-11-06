@@ -78,7 +78,13 @@ pub enum TyKindIn<'a> {
     Unit,
     /// The generated type of a `context { ... }` value. It has no name and is
     /// never written down (SPEC 11.3).
-    Ctx(CtxTypeId),
+    ///
+    /// The list is the type arguments its bindings are read at. A context
+    /// built in a generic body can bind a value of a type parameter, and its
+    /// bindings then spell `Param(i)`; the list starts as those parameters and
+    /// is substituted like a constructor's, so an instantiation knows what
+    /// each binding holds. A context whose bindings are closed has none.
+    Ctx(CtxTypeId, &'a [Ty]),
     /// `Self` inside a trait or impl body.
     SelfTy,
     /// Poison, so one type error does not produce ten. There is deliberately
@@ -104,6 +110,7 @@ const HAS_VAR: u8 = 1;
 const HAS_PARAM: u8 = 2;
 const HAS_SELF: u8 = 4;
 const HAS_ERROR: u8 = 8;
+const HAS_CTX_ARGS: u8 = 16;
 
 /// A type: a reference to its entry in the process-wide table.
 #[derive(Clone, Copy)]
@@ -168,7 +175,12 @@ impl Ty {
     }
 
     pub fn ctx(id: CtxTypeId) -> Ty {
-        intern(TyKindIn::Ctx(id))
+        intern(TyKindIn::Ctx(id, &[]))
+    }
+
+    /// A context whose bindings are read at `args`: see [`TyKindIn::Ctx`].
+    pub fn ctx_at(id: CtxTypeId, args: impl IntoIterator<Item = Ty>) -> Ty {
+        with_slice(args, |args| intern(TyKindIn::Ctx(id, args)))
     }
 
     pub fn array(elem: Ty) -> Ty {
@@ -217,6 +229,13 @@ impl Ty {
     #[inline]
     pub fn has_error(self) -> bool {
         self.0.flags & HAS_ERROR != 0
+    }
+
+    /// Whether a context read at type arguments occurs anywhere in this type:
+    /// one whose bindings came from a generic body.
+    #[inline]
+    pub fn has_ctx_args(self) -> bool {
+        self.0.flags & HAS_CTX_ARGS != 0
     }
 }
 
@@ -267,8 +286,10 @@ fn flags_of(kind: &TyKindIn<'_>) -> u8 {
         TyKindIn::Param(_) => HAS_PARAM,
         TyKindIn::SelfTy => HAS_SELF,
         TyKindIn::Error => HAS_ERROR,
-        TyKindIn::Unit | TyKindIn::Ctx(_) => 0,
+        TyKindIn::Unit => 0,
         TyKindIn::Con(_, args) | TyKindIn::Tuple(args) => children(args),
+        TyKindIn::Ctx(_, []) => 0,
+        TyKindIn::Ctx(_, args) => children(args) | HAS_CTX_ARGS,
         TyKindIn::Array(elem) => elem.0.flags,
         TyKindIn::Fn(params, ret) => children(params) | ret.0.flags,
     }
@@ -306,7 +327,7 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
         TyKindIn::Var(id) => TyKindIn::Var(id),
         TyKindIn::Param(i) => TyKindIn::Param(i),
         TyKindIn::Array(elem) => TyKindIn::Array(elem),
-        TyKindIn::Ctx(id) => TyKindIn::Ctx(id),
+        TyKindIn::Ctx(id, args) => TyKindIn::Ctx(id, leak(args)),
         TyKindIn::Unit => TyKindIn::Unit,
         TyKindIn::SelfTy => TyKindIn::SelfTy,
         TyKindIn::Error => TyKindIn::Error,

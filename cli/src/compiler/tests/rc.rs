@@ -1825,7 +1825,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let f = program.funcs.get(find(&program, "showFirst"));
     let [ctx_ty, opt_ty] = [0, 1].map(|i| f.locals.get(local_id(i)).ty);
     assert!(
-        matches!(ctx_ty.kind(), TyKind::Ctx(_)),
+        matches!(ctx_ty.kind(), TyKind::Ctx(..)),
         "the first parameter is the context"
     );
     // `host.alloc` and `host.stdout` are zero-sized markers, so the answer

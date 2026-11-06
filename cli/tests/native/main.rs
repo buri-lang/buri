@@ -303,6 +303,10 @@ mod own_scheduler;
 // JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod hand_written_impls;
+// A context built in a generic function, binding a value of its type
+// parameter, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod generic_context_binding;
 // A `?` whose payload goes straight to a reader (#276): a method's receiver, a
 // field, an index, an argument, a scrutinee, under the heap check, on every
 // backend built in and on JavaScript.

@@ -379,7 +379,7 @@ impl Monomorphizer<'_> {
             TyKind::Unit => structural,
             TyKind::Array(e) => structural && self.satisfies(trait_id, e, seen),
             TyKind::Tuple(es) => structural && es.iter().all(|e| self.satisfies(trait_id, e, seen)),
-            TyKind::Ctx(id) => self.tables().ctx_type(*id).has(trait_id),
+            TyKind::Ctx(id, _) => self.tables().ctx_type(*id).has(trait_id),
             TyKind::Con(con, _) => match self.tables().impls.get(&(trait_id, *con)) {
                 None => false,
                 Some(imp) if !imp.is_derived() => self.bounds_hold(imp, ty, seen),

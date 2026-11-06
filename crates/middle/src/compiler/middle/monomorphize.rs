@@ -513,7 +513,7 @@ impl Effects {
     /// `true` rather than guessing.
     pub fn carries(&self, ty: &Ty) -> bool {
         match ty.kind() {
-            TyKind::Ctx(_) => true,
+            TyKind::Ctx(..) => true,
             TyKind::Con(id, args) => match self.cons.get(id.index()) {
                 Some(row) => {
                     row.implements
@@ -672,6 +672,8 @@ pub struct Monomorphizer<'a> {
     erase: bool,
     /// Which of each declaration's type parameters are erasable.
     erasable: HashMap<FnId, std::rc::Rc<[bool]>>,
+    /// See [`Monomorphizer::canonical`].
+    ctx_canon: std::cell::RefCell<HashMap<Vec<(TraitId, Ty)>, Ty>>,
 }
 
 pub fn run(
@@ -744,6 +746,7 @@ fn run_on(
         cell_equal: HashMap::default(),
         erase,
         erasable: HashMap::default(),
+        ctx_canon: Default::default(),
     };
 
     let mut export = None;
@@ -1737,9 +1740,50 @@ impl Monomorphizer<'_> {
     /// [`Monomorphizer::rewrite_call_args`] for what replaced it and why.
     ///
     /// The checker already gives contexts with the same settled bindings one
-    /// type (`Tables::intern_ctx_type`), so context types pass through as they are.
+    /// type (`Tables::intern_ctx_type`). A context built in a generic body is
+    /// settled only here, so [`Monomorphizer::canonical`] does the same for it.
     fn sub(&self, ty: &Ty, targs: &[Ty]) -> Ty {
-        substitute(ty, targs, None)
+        self.canonical(substitute(ty, targs, None))
+    }
+
+    /// `ty` with each context read at type arguments replaced by the one type
+    /// for its bindings: the checker's, where it built a context binding the
+    /// same, or else the first seen. Two such contexts with equal bindings
+    /// have one layout and resolve every effect call alike, so they are one
+    /// type, one instance and one symbol.
+    fn canonical(&self, ty: Ty) -> Ty {
+        if !ty.has_ctx_args() {
+            return ty;
+        }
+        match ty.kind() {
+            TyKind::Ctx(id, _) => {
+                let tables = self.tables();
+                let bindings: Vec<(TraitId, Ty)> = tables
+                    .ctx_type(*id)
+                    .bindings
+                    .iter()
+                    .zip(field_types(tables, &ty))
+                    .map(|((t, _), b)| (*t, self.canonical(b)))
+                    .collect();
+                if let Some(found) = self.ctx_canon.borrow().get(&bindings) {
+                    return *found;
+                }
+                let closed = tables
+                    .ctx_types
+                    .entries()
+                    .find(|(_, c)| c.bindings.iter().eq(bindings.iter()))
+                    .map_or(ty, |(at, _)| Ty::ctx(at));
+                self.ctx_canon.borrow_mut().insert(bindings, closed);
+                closed
+            }
+            TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| self.canonical(*x))),
+            TyKind::Array(e) => Ty::array(self.canonical(*e)),
+            TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| self.canonical(*e))),
+            TyKind::Fn(ps, r) => {
+                Ty::func(ps.iter().map(|p| self.canonical(*p)), self.canonical(*r))
+            }
+            _ => ty,
+        }
     }
 
     /// Appends a local to the table of the body being rewritten and answers
@@ -1875,12 +1919,12 @@ impl Monomorphizer<'_> {
     ) -> (Vec<typed::Expr>, Option<typed::Stmt>) {
         let implementation = match (recv.kind(), recv_at.kind()) {
             // The front end had the row in hand and used it.
-            (TyKind::Ctx(_), _) => None,
-            (_, TyKind::Ctx(id)) => self
+            (TyKind::Ctx(..), _) => None,
+            (_, TyKind::Ctx(id, ctx_args)) => self
                 .tables()
                 .ctx_type(*id)
                 .get(trait_id)
-                .cloned()
+                .map(|imp| self.sub(imp, ctx_args))
                 .filter(|imp| imp != recv_at),
             _ => None,
         };
@@ -2434,7 +2478,7 @@ impl Monomorphizer<'_> {
     ) -> ExprKind {
         // A context value: read the implementation out of it, then dispatch on
         // that implementation's own type.
-        if let TyKind::Ctx(id) = recv.kind() {
+        if let TyKind::Ctx(id, ctx_args) = recv.kind() {
             // Checking already refused every call that could reach a context
             // without the effect: directly, through a bounded parameter, and
             // through a conditional `impl` such as `impl<C: Stdout> Stdout
@@ -2443,6 +2487,7 @@ impl Monomorphizer<'_> {
                 self.tables().ctx_type(*id).binding(trait_id).or_ice(
                     "checking proved every effect call's context binds the effect it calls",
                 );
+            let impl_ty = self.sub(&impl_ty, ctx_args);
             if let Some(first) = args.first_mut() {
                 let base =
                     std::mem::replace(first, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
@@ -3627,12 +3672,14 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
         };
         let path = |m: ModuleId| paths.get(m.index()).map_or("", String::as_str);
         match ty.kind() {
-            TyKind::Ctx(id) => {
+            TyKind::Ctx(id, _) => {
+                let bound = field_types(tables, ty);
                 let bindings: Vec<(String, Mangled)> = tables
                     .ctx_type(*id)
                     .bindings
                     .iter()
-                    .map(|(t, ty)| {
+                    .zip(&bound)
+                    .map(|((t, _), ty)| {
                         let info = tables.trait_(*t);
                         let name = format!("{}.{}", path(info.module), info.name);
                         (name, Mangled(ty, tables, paths))

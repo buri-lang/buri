@@ -184,7 +184,7 @@ fn classify_in(
                 _ => Err(*ty),
             }
         }
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => {
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(..) | TyKind::SelfTy => {
             Err(*ty)
         }
     }

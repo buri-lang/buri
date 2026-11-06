@@ -661,8 +661,14 @@ impl Syntactic {
             // zero-sized marker. Nothing writes a `Ty::Ctx` down, so no
             // literal in any body names one and the scans below never see it:
             // without the shapes every context in the program was `Unknown`.
-            TyKind::Ctx(id) => match self.shapes.ctxs.get(id.index()) {
-                Some(bindings) => self.join_of(&bindings.clone(), depth),
+            TyKind::Ctx(id, args) => match self.shapes.ctxs.get(id.index()) {
+                Some(bindings) => {
+                    let bindings: Vec<Ty> = bindings
+                        .iter()
+                        .map(|b| types::substitute(b, args, None))
+                        .collect();
+                    self.join_of(&bindings, depth)
+                }
                 None => Answer::Unknown,
             },
             TyKind::Con(con, args) => match self
@@ -1070,7 +1076,9 @@ fn scan_func(
                 }
             }
             plan.sites = scan.sites;
+            let mut named = HashSet::default();
             plan.unclassified = scan.unclassified;
+            plan.unclassified.retain(|ty| named.insert(*ty));
             plan.inherits = scan.inherits;
             plan.moved = scan.moved;
             plan.moved.sort_unstable();
@@ -2396,9 +2404,7 @@ impl Scan<'_> {
             Answer::Yes => true,
             Answer::No => false,
             Answer::Unknown => {
-                if !self.unclassified.contains(ty) {
-                    self.unclassified.push(*ty);
-                }
+                self.unclassified.push(*ty);
                 false
             }
         }

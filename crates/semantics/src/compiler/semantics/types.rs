@@ -1558,7 +1558,7 @@ impl Tables {
             TyKind::Param(i) => generics
                 .get(*i as usize)
                 .is_some_and(|g| g.bounds.iter().any(|b| self.trait_(*b).is_effect)),
-            TyKind::Ctx(_) => true,
+            TyKind::Ctx(..) => true,
             TyKind::Con(id, args) => {
                 self.con_carries_effect(*id)
                     || args
@@ -1631,7 +1631,7 @@ impl Tables {
                 Some(g) => !g.bounds.iter().any(|b| !self.trait_(*b).is_effect),
                 None => true,
             },
-            TyKind::Ctx(_) => true,
+            TyKind::Ctx(..) => true,
             TyKind::Con(id, args) => args
                 .iter()
                 .enumerate()
@@ -1997,11 +1997,11 @@ impl<L> Subst<L> {
 pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
     match ty.kind() {
         TyKind::Tuple(elements) => elements.to_vec(),
-        TyKind::Ctx(id) => tables
+        TyKind::Ctx(id, args) => tables
             .ctx_type(*id)
             .bindings
             .iter()
-            .map(|(_, t)| *t)
+            .map(|(_, t)| substitute(t, args, None))
             .collect(),
         TyKind::Con(id, args) => match &tables.tycon(*id).def {
             TyDef::Struct { fields, .. } => fields
@@ -2094,6 +2094,7 @@ pub fn substitute(ty: &Ty, args: &[Ty], self_ty: Option<&Ty>) -> Ty {
             ps.iter().map(|p| substitute(p, args, self_ty)),
             substitute(r, args, self_ty),
         ),
+        TyKind::Ctx(id, xs) => Ty::ctx_at(*id, xs.iter().map(|x| substitute(x, args, self_ty))),
         _ => *ty,
     }
 }
@@ -2297,7 +2298,7 @@ fn write_ty(
             write_ty(out, tables, subst, generics, r);
         }
         TyKind::Unit => out.push_str("()"),
-        TyKind::Ctx(_) => out.push_str("a context"),
+        TyKind::Ctx(..) => out.push_str("a context"),
         TyKind::SelfTy => out.push_str("Self"),
         TyKind::Error => out.push_str("<error>"),
     }

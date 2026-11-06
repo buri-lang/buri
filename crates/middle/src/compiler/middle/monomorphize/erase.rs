@@ -59,11 +59,13 @@ struct Facts {
 fn mentions(ty: &Ty, j: usize) -> bool {
     match ty.kind() {
         TyKind::Param(i) => *i as usize == j,
-        TyKind::Con(_, args) | TyKind::Tuple(args) => args.iter().any(|a| mentions(a, j)),
+        TyKind::Con(_, args) | TyKind::Tuple(args) | TyKind::Ctx(_, args) => {
+            args.iter().any(|a| mentions(a, j))
+        }
         TyKind::Array(e) => mentions(e, j),
         TyKind::Fn(ps, r) => ps.iter().any(|p| mentions(p, j)) || mentions(r, j),
         TyKind::SelfTy | TyKind::Var(_) | TyKind::Error => true,
-        TyKind::Unit | TyKind::Ctx(_) => false,
+        TyKind::Unit => false,
     }
 }
 

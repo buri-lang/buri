@@ -3786,7 +3786,7 @@ impl<'a> Checker<'a> {
             // Undecidable here, and checked where the arguments are known.
             TyKind::Param(_) | TyKind::Var(_) | TyKind::SelfTy | TyKind::Error => true,
             TyKind::Fn(..) => false,
-            TyKind::Ctx(_) => false,
+            TyKind::Ctx(..) => false,
             TyKind::Unit => true,
             TyKind::Array(e) => self.component_can_satisfy(e, tr, owner),
             TyKind::Tuple(es) => es.iter().all(|e| self.component_can_satisfy(e, tr, owner)),
