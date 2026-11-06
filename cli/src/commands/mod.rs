@@ -549,7 +549,9 @@ fn once(args: &Args, command: fn(&Args) -> i32) -> i32 {
 /// graph it walked ([`crate::build::workspace::graph_work`]), how many
 /// modules it loaded ([`crate::compiler::modules::modules_loaded`]), how many
 /// times it drew the graph styles flow through
-/// ([`crate::compiler::semantics::styles::graphs_drawn`]), and what
+/// ([`crate::compiler::semantics::styles::graphs_drawn`]), how many times
+/// it searched a type for a value
+/// ([`crate::compiler::semantics::resolve::values_searched`]), and what
 /// its build did ([`crate::build::counted`]): counts that, unlike
 /// instructions, no load can move.
 #[expect(
@@ -567,6 +569,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
         eprintln!(
             "style graphs drawn {}",
             crate::compiler::semantics::styles::graphs_drawn()
+        );
+        eprintln!(
+            "type values searched {}",
+            crate::compiler::semantics::resolve::values_searched()
         );
         eprint!("{}", crate::build::counted::lines());
         eprint!("{}", crate::build::runtime_cross::profile_lines());

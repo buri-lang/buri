@@ -26,10 +26,12 @@ pub(super) fn unconstructible<P: Copy>(
     decls: &[(TyConId, P)],
     refused: &HashSet<TyConId>,
 ) -> (Vec<TyConId>, Vec<(TyConId, P, Why)>) {
+    // One search for them all, so each type's values are found once.
+    let mut search = Search::new(tables, refused.clone());
     let unbuilt: Vec<(TyConId, P)> = decls
         .iter()
         .copied()
-        .filter(|&(c, _)| Search::new(tables, refused.clone()).declared(c).is_err())
+        .filter(|&(c, _)| search.declared(c).is_err())
         .collect();
     let none: Vec<TyConId> = unbuilt.iter().map(|&(c, _)| c).collect();
     let mut out = Vec::new();
@@ -87,6 +89,16 @@ fn mentioned(ty: &Ty, out: &mut Vec<TyConId>) {
     }
 }
 
+/// How many times this process searched a constructor for a value, under one
+/// set of arguments that have none. `BURI_PROFILE` prints it, because unlike
+/// instructions it is the same on every run.
+static SEARCHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`SEARCHED`].
+pub fn values_searched() -> u64 {
+    SEARCHED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A search for one value, over a constructor and which of its arguments have
 /// none. That pair is finite, so a constructor that grows its own argument,
 /// `Grow<Option<T>>` inside `Grow<T>`, still ends.
@@ -96,7 +108,10 @@ struct Search<'a> {
     assumed: HashSet<TyConId>,
     /// The pairs being searched. Meeting one again finds nothing: a value
     /// built from itself is no value.
-    open: Vec<(TyConId, Vec<u32>)>,
+    open: HashSet<(TyConId, Vec<u32>)>,
+    /// The pairs found to have a value. A value stays one whatever else is
+    /// being searched, so later searches reuse it.
+    built: HashSet<(TyConId, Vec<u32>)>,
 }
 
 impl<'a> Search<'a> {
@@ -104,39 +119,47 @@ impl<'a> Search<'a> {
         Search {
             tables,
             assumed,
-            open: Vec::new(),
+            open: HashSet::default(),
+            built: HashSet::default(),
         }
     }
 
     /// Whether a declaration has a value when each of its parameters does,
     /// and if not, why.
     fn declared(&mut self, c: TyConId) -> Result<(), Why> {
-        if self.assumed.contains(&c) {
+        if self.assumed.contains(&c) || self.built.contains(&(c, Vec::new())) {
             return Ok(());
         }
-        self.open.push((c, Vec::new()));
+        self.open.insert((c, Vec::new()));
         let found = self.values(c, &[]);
-        self.open.pop();
+        self.open.remove(&(c, Vec::new()));
+        if found.is_ok() {
+            self.built.insert((c, Vec::new()));
+        }
         found
     }
 
     /// Whether `c` has a value when the parameters in `lacking` have none.
     fn has(&mut self, c: TyConId, lacking: Vec<u32>) -> bool {
-        if self.assumed.contains(&c) {
+        let key = (c, lacking);
+        if self.assumed.contains(&c) || self.built.contains(&key) {
             return true;
         }
-        if self.open.iter().any(|(o, l)| (o, l) == (&c, &lacking)) {
+        if !self.open.insert(key.clone()) {
             return false;
         }
-        self.open.push((c, lacking.clone()));
-        let found = self.values(c, &lacking).is_ok();
-        self.open.pop();
+        let found = self.values(c, &key.1).is_ok();
+        self.open.remove(&key);
+        if found {
+            self.built.insert(key);
+        }
         found
     }
 
     /// Whether some value of `c` needs none of `lacking`, and if not, why: for
     /// a struct, the first field that can't be built.
     fn values(&mut self, c: TyConId, lacking: &[u32]) -> Result<(), Why> {
+        SEARCHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tables = self.tables;
         match &tables.tycon(c).def {
             TyDef::Prim(_) => Ok(()),

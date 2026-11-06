@@ -35,6 +35,7 @@ use std::collections::BTreeSet;
 mod constructible;
 mod endless;
 mod platforms;
+pub use constructible::values_searched;
 pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.

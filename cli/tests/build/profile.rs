@@ -1339,6 +1339,42 @@ fn a_style_handed_through_a_generic_struct_draws_the_style_graph_once() {
     );
 }
 
+/// The times a `BURI_PROFILE=1` run searched a type for a value (`type
+/// values searched` in the report).
+fn type_values_searched(all: &str) -> Option<u64> {
+    let line = all
+        .lines()
+        .find(|l| l.starts_with("type values searched "))?;
+    line.trim_start_matches("type values searched ")
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// **Finding that each of a chain of structs has a value searches each
+/// once.** Each struct holding the last inline was searched for a value from
+/// scratch, through every struct below it: a chain of five thousand took
+/// 129 G instructions to check, against 0.2 G now.
+#[test]
+fn a_chain_of_structs_each_holding_the_last_is_searched_for_values_once() {
+    let searched = |n: usize| {
+        let scratch = Scratch::repo("profile-struct-chain");
+        scratch.write("lib/chain/BUILD.buri", "library {}\n");
+        let mut source = String::from("export struct S0 {\n    export v: Int,\n}\n");
+        for i in 1..n {
+            let j = i - 1;
+            source.push_str(&format!(
+                "\nexport struct S{i} {{\n    export inner: S{j},\n}}\n"
+            ));
+        }
+        scratch.write("lib/chain/lib.buri", &source);
+        let run = scratch.run_with_env(&["build", "//..."], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        type_values_searched(&run.all()).map(|n| n as f64)
+    };
+    grows_linearly("a chain of structs, searching for values", searched, 300);
+}
+
 /// The instructions the test processes a `BURI_PROFILE=1` run of `buri test`
 /// waited for retired, in millions: the `run` row's child column, or `None`
 /// where the platform counts no child's instructions (Linux).
