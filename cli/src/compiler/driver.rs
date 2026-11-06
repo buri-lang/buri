@@ -537,7 +537,8 @@ pub fn shared(
         module_of.insert(m.file, m.id);
     }
     for d in &analysis.diagnostics.items {
-        if d.span.is_none() || !module_of.contains_key(&d.span.file) {
+        // A spanless diagnostic's file is `FileId::NONE`, which is no module's.
+        if !module_of.contains_key(&d.span.file) {
             return None;
         }
     }

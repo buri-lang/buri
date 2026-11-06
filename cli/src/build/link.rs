@@ -738,16 +738,27 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
             probe: std::sync::Mutex::new(started),
         })
     };
-    // Nothing panics while holding it, so it is never poisoned.
-    let mut table = PROBED
+    remembered(&PROBED, name, fresh)
+}
+
+/// The answer `table` holds for `name`, or else `fresh`'s, which it then holds.
+///
+/// The lock is held over `fresh`, so callers side by side ask once. Nothing
+/// panics while holding it, so it is never poisoned.
+fn remembered<T: Clone>(
+    table: &std::sync::Mutex<Vec<(String, T)>>,
+    name: String,
+    fresh: impl FnOnce() -> T,
+) -> T {
+    let mut table = table
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((_, ready)) = table.iter().find(|(key, _)| *key == name) {
-        return std::sync::Arc::clone(ready);
+    if let Some((_, answer)) = table.iter().find(|(key, _)| *key == name) {
+        return answer.clone();
     }
-    let ready = fresh();
-    table.push((name, std::sync::Arc::clone(&ready)));
-    ready
+    let answer = fresh();
+    table.push((name, answer.clone()));
+    answer
 }
 
 /// Waits for the identity probes this process started and never needed.
@@ -1308,24 +1319,18 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
 ///
 /// Memoized for the process, for [`accepts_target`]'s reason.
 fn builtins_dir(driver: &Path) -> Option<PathBuf> {
-    static ASKED: std::sync::Mutex<Vec<(PathBuf, Option<PathBuf>)>> =
+    static ASKED: std::sync::Mutex<Vec<(String, Option<PathBuf>)>> =
         std::sync::Mutex::new(Vec::new());
-    let mut asked = ASKED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((_, answer)) = asked.iter().find(|(key, _)| key == driver) {
-        return answer.clone();
-    }
-    let answer = spawn::output(Command::new(driver).arg("-print-libgcc-file-name"))
-        .ok()
-        .and_then(|out| {
-            let file = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
-            file.parent()
-                .filter(|dir| dir.is_absolute())
-                .map(Path::to_path_buf)
-        });
-    asked.push((driver.to_path_buf(), answer.clone()));
-    answer
+    remembered(&ASKED, driver.display().to_string(), || {
+        spawn::output(Command::new(driver).arg("-print-libgcc-file-name"))
+            .ok()
+            .and_then(|out| {
+                let file = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+                file.parent()
+                    .filter(|dir| dir.is_absolute())
+                    .map(Path::to_path_buf)
+            })
+    })
 }
 
 /// The machine's own musl driver, if it has one.

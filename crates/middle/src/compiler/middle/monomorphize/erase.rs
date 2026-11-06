@@ -213,14 +213,10 @@ impl Monomorphizer<'_> {
             ok: (0..n).map(|j| !mentions(&info.ret, j)).collect(),
             deps: vec![Vec::new(); n],
         };
-        // A runtime operation, or a trait method with no body, which is already
-        // diagnosed.
-        let Some(body) = self.extracted.bodies.get(&f).filter(|_| !info.intrinsic) else {
-            let key = if info.intrinsic {
-                self.runtime_key(info)
-            } else {
-                Default::default()
-            };
+        // Checking gives every function a build reaches its body, so one
+        // without is an operation the runtime supplies.
+        let Some(body) = self.extracted.bodies.get(&f) else {
+            let key = self.runtime_key(info);
             let entry = runtime_table::entry(&key);
             // A list walk, which hands its context to its step or reads it
             // nowhere, and the open-coded operations that read it nowhere.
