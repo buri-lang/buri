@@ -634,6 +634,9 @@ fn a_fold_whose_step_calls_its_allocator_is_compiled_for_each() {
 
 /// A release program that drops a two-element list `n` times: of `Str`s with
 /// `lits`, of `Int`s with `ints`, and no list at all with any other mode.
+/// Two million times, so the lists outweigh what launching the process costs,
+/// which moves with the machine's load: at 200,000 a move in it read as two
+/// instructions a list.
 const DROPPED_LISTS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -656,7 +659,7 @@ fn ints(i: Int, n: Int, acc: Int): Int {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Environment: host.env, Stdout: host.stdout };
-  let n = 200000;
+  let n = 2000000;
   let answer = match (env.arguments(ctx).first()) {
     .Some("lits") => lits(0, n, 0),
     .Some("ints") => ints(0, n, 0),
@@ -734,16 +737,16 @@ fn dropping_a_list_of_strings_in_release_code_costs_little_more_than_one_of_ints
     let binary = repo.join(format!(".buri/out/native/{os}-{arch}/cmd/app/app"));
     let (Some(none), Some(lits), Some(ints)) = (
         retired(&binary, "none", "0\n"),
-        retired(&binary, "lits", "400000\n"),
-        retired(&binary, "ints", "400000\n"),
+        retired(&binary, "lits", "4000000\n"),
+        retired(&binary, "ints", "4000000\n"),
     ) else {
         return;
     };
     let (lits, ints) = (lits.saturating_sub(none), ints.saturating_sub(none));
     assert!(
-        lits <= ints + 28 * 200_000,
-        "dropping 200,000 lists of two strings took {lits} instructions, {} a list more than the \
+        lits <= ints + 28 * 2_000_000,
+        "dropping 2,000,000 lists of two strings took {lits} instructions, {} a list more than the \
          {ints} that as many lists of two numbers took",
-        lits.saturating_sub(ints) / 200_000
+        lits.saturating_sub(ints) / 2_000_000
     );
 }

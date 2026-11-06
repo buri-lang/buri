@@ -9,7 +9,11 @@
 use crate::collection_costs::per_op;
 use crate::shared::{heap_checked, probed, ran_command};
 
-const STEPS: u64 = 100_000;
+/// Enough steps that the work, at least 110 M instructions, dwarfs the 15 M
+/// that launching any process costs. What launching costs moves with the
+/// machine's load: at 100,000 steps a 7% move in it read as 10 more
+/// instructions a step.
+const STEPS: u64 = 1_000_000;
 
 /// One short-lived block a step, built two ways: a list from `list.range`, and
 /// a list literal. `main` takes the mode and the number of steps.

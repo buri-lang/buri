@@ -45,6 +45,9 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
 
 /// The instructions one operation costs, from `ops` of them against none, and
 /// the blocks all of them allocated. `args` are the program's after its mode.
+///
+/// What the two runs share, launching the process included, moves with the
+/// machine's load, so `ops` should make the work several times the idle run.
 pub(crate) fn per_op(
     backend: &str,
     binary: &Path,
@@ -408,9 +411,10 @@ fn stepping_down_a_lent_chain_costs_less_than_reading_it_from_a_list() {
 }
 
 /// 2,000 records of four `Str`s, four `Int`s and a `[Str]`, #266's shape, and
-/// `mode` run over them 50 times: `map` and `filterMap` copy the list through
+/// `mode` run over them 250 times: `map` and `filterMap` copy the list through
 /// a lambda that keeps every element, and `values` reads them back out of a
-/// map.
+/// map. Enough times that the work outweighs what launching the process costs,
+/// which moves with the machine's load.
 const PROJECTIONS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -446,9 +450,9 @@ export fn main(host: NativeHost): Result<(), Str> {
   let xs = list.range(ctx, 0, 2000).mapCtx(ctx, fn(c, i) => wide(c, i));
   let m = orderedmap.of(ctx, xs.map(ctx, fn(w) => (w.e, w)));
   let answer = match (env.arguments(ctx).first()) {
-    .Some("map") => times(ctx, 50, 0, fn(c) => xs.map(c, fn(w) => w).length()),
-    .Some("filterMap") => times(ctx, 50, 0, fn(c) => xs.filterMap(c, fn(w) => .Some(w)).length()),
-    .Some("values") => times(ctx, 50, 0, fn(c) => m.values(c).length()),
+    .Some("map") => times(ctx, 250, 0, fn(c) => xs.map(c, fn(w) => w).length()),
+    .Some("filterMap") => times(ctx, 250, 0, fn(c) => xs.filterMap(c, fn(w) => .Some(w)).length()),
+    .Some("values") => times(ctx, 250, 0, fn(c) => m.values(c).length()),
     _ => 0,
   };
   io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
@@ -469,13 +473,13 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// lists into one block sized once.
 #[test]
 fn filter_map_and_values_cost_about_what_map_costs() {
-    let elems = 2000 * 50;
+    let elems = 2000 * 250;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("list-projections", PROJECTIONS);
         let mut cost = std::collections::BTreeMap::new();
         for mode in ["map", "filterMap", "values"] {
-            let (n, _blocks) = per_op(backend, &binary, mode, &[], elems, "100000\n");
+            let (n, _blocks) = per_op(backend, &binary, mode, &[], elems, &format!("{elems}\n"));
             eprintln!("{backend}, {mode}: {n:?} instructions an element");
             cost.insert(mode, n);
         }
@@ -837,9 +841,10 @@ fn contains_costs_what_a_scan_written_by_hand_does() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// `equal` asks 100,000 times whether a `Str` equals the very same `Str`,
+/// `equal` asks 1,000,000 times whether a `Str` equals the very same `Str`,
 /// held in a list so each comparison reads it afresh. The second argument is
-/// its length in bytes.
+/// its length in bytes. A million, so that the comparisons outweigh what
+/// launching the process costs, which moves with the machine's load.
 const SAME_TEXT: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -859,7 +864,7 @@ export fn main(host: NativeHost): Result<(), Str> {
   let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
   let text = "x".repeat(ctx, size);
   let answer = match (args.first()) {
-    .Some("equal") => equal([text, text], text, 0, 100000, 0),
+    .Some("equal") => equal([text, text], text, 0, 1000000, 0),
     _ => 0,
   };
   io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
@@ -873,9 +878,10 @@ fn text_equal_to_itself_costs_the_same_at_any_length() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("same-text", SAME_TEXT);
-        let want = format!("{LOOKUPS}\n");
-        let (short, _) = per_op(backend, &binary, "equal", &["8"], LOOKUPS, &want);
-        let (long, _) = per_op(backend, &binary, "equal", &["4096"], LOOKUPS, &want);
+        const EQUALS: u64 = 1_000_000;
+        let want = format!("{EQUALS}\n");
+        let (short, _) = per_op(backend, &binary, "equal", &["8"], EQUALS, &want);
+        let (long, _) = per_op(backend, &binary, "equal", &["4096"], EQUALS, &want);
         eprintln!("{backend}: 8 bytes {short:?}, 4096 bytes {long:?} instructions");
         let (Some(short), Some(long)) = (short, long) else {
             continue;
