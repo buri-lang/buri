@@ -3143,6 +3143,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state.b.to_end(after);
     }
 
+    /// Binds `dest`, the answer of a call that does not return, in the block
+    /// nothing reaches after it. It is bound because the IR that follows names
+    /// it, and in the form its type takes: a value held in memory is a buffer,
+    /// which an edge into a block copies from.
+    fn bind_unreached(&mut self, state: &mut Function<'ctx>, code: &ir::Code, dest: ir::ValueId) {
+        let value = self.constant(state.b, code.ty_of(dest), &ir::Const::Undef);
+        self.set(state, dest, value);
+    }
+
     // -----------------------------------------------------------------------
     // Reference counting — MEMORY.md §5.1, open-coded
     // -----------------------------------------------------------------------
@@ -6756,8 +6765,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ("testing_assert.failExpectedShown", &[kind, shown, ..]) => {
                 self.abort_strs(state, &[kind, shown], runtime::TEST_FAIL_EXPECTED);
                 self.after_abort(state);
-                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-                self.set(state, dest, want.const_zero());
+                self.bind_unreached(state, code, dest);
                 true
             }
             // Reached where the derive pass declined to generate a `Show` at
@@ -6786,8 +6794,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ("testing_assert.failExpected", &[kind, ..]) => {
                 self.abort_assert(state, kind);
                 self.after_abort(state);
-                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-                self.set(state, dest, want.const_zero());
+                self.bind_unreached(state, code, dest);
                 true
             }
             // `list.empty()` is `Inst::MakeArray` with no elements, and it goes

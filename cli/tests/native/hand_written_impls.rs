@@ -525,3 +525,88 @@ fn a_hand_written_impl_whose_bounds_fail_is_walked_by_shape_on_every_backend() {
         );
     }
 }
+
+const WIDE: &str = r#"from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+
+struct Secret {
+    value: Str,
+}
+
+impl Show for Secret {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        "***"
+    }
+}
+
+// Too wide to travel in registers, and reaching a hand-written `Show`.
+struct Wide {
+    secret: Secret,
+    a: Str,
+    b: Str,
+    c: Str,
+    d: Str,
+    e: Str,
+    f: Str,
+    g: Str,
+    h: Str,
+    i: Str,
+    j: Str,
+    k: Str,
+}
+
+fn wide(on: Bool): Option<Wide> {
+    if (on) {
+        .Some(Wide { secret: Secret { value: "hunter2" }, a: "a", b: "b", c: "c", d: "d", e: "e", f: "f", g: "g", h: "h", i: "i", j: "j", k: "k" })
+    } else {
+        .None
+    }
+}
+
+fn result(on: Bool): Result<Wide, Secret> {
+    match (wide(on)) {
+        .Some(w) => .Ok(w),
+        .None => .Err(Secret { value: "swordfish" }),
+    }
+}
+
+test "some" {
+    assert.equal(assert.some(wide(true)).k, "k");
+}
+
+test "ok" {
+    assert.equal(assert.ok(result(true)).a, "a");
+}
+
+test "none is not some" {
+    let _ = assert.some(wide(false));
+}
+
+test "an error is not ok" {
+    let _ = assert.ok(result(false));
+}
+"#;
+
+/// A value too wide for registers, whose type reaches a hand-written `Show`,
+/// comes out of `assert.some` and `assert.ok`, and their failures render
+/// through that `Show`.
+#[test]
+fn a_wide_value_reaching_a_hand_written_show_comes_out_of_an_assertion_on_every_backend() {
+    let repo = repository("wide", WIDE);
+    let expected = [
+        "  assert.some failed\n    actual:   .None\n",
+        "  assert.ok failed\n    actual:   ***\n",
+    ];
+    for (backend, status, stdout, stderr) in every_backend(&repo) {
+        let context = format!("{backend}:\n{stdout}\n{stderr}");
+        assert_eq!(status, 1, "{context}");
+        assert!(stdout.contains("2 passed, 2 failed"), "{context}");
+        assert!(!stdout.contains("swordfish"), "{context}");
+        for line in expected {
+            assert!(
+                stdout.contains(line),
+                "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}"
+            );
+        }
+    }
+}
