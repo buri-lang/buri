@@ -504,7 +504,9 @@ test "each letter is read or held, once" {
 }
 
 /// The last element of a list of one shared `Str`, carried through the walk,
-/// against the same walk carrying what it started with.
+/// against the same walk carrying what it started with. Each mode walks the
+/// same 1,000-element list as many times as its argument says, so the setup
+/// both runs share is small next to the walks.
 const LASTS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -525,6 +527,14 @@ fn skipped(xs: [Str], at: Int, seen: Str): Str {
     }
 }
 
+fn lasts(xs: [Str], k: Int, total: Int): Int {
+    if (k == 0) { total } else { lasts(xs, k - 1, total + last(xs, 0, "").length()) }
+}
+
+fn skippeds(xs: [Str], k: Int, total: Int): Int {
+    if (k == 0) { total } else { skippeds(xs, k - 1, total + skipped(xs, 0, "abc").length()) }
+}
+
 fn filled<C: Allocator>(ctx: C, x: Str, k: Int, acc: [Str]): [Str] {
     if (k == 0) { acc } else { filled(ctx, x, k - 1, acc.push(ctx, x)) }
 }
@@ -532,13 +542,13 @@ fn filled<C: Allocator>(ctx: C, x: Str, k: Int, acc: [Str]): [Str] {
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let args = env.arguments(ctx);
-  let ops = args[1].andThen(fn(s) => s.toInt()).withDefault(0);
+  let walks = args[1].andThen(fn(s) => s.toInt()).withDefault(0);
   let mode = args.first().withDefault("none");
-  let xs = filled(ctx, "ab".repeat(ctx, 2), ops, []);
+  let xs = filled(ctx, "ab".repeat(ctx, 2), 1000, []);
   let answer = if (mode == "last") {
-    last(xs, 0, "").length() * ops
+    lasts(xs, walks, 0)
   } else if (mode == "skipped") {
-    skipped(xs, 0, "abc").length() * ops
+    skippeds(xs, walks, 0)
   } else {
     0
   };
@@ -554,19 +564,21 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// either way.
 #[test]
 fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
-    const STEPS: u64 = 500_000;
+    // Steps are the elements walked: 500 walks of 1,000.
+    const WALKS: u64 = 500;
+    const STEPS: u64 = WALKS * 1000;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("lasts", LASTS);
-        let steps = STEPS.to_string();
-        let args = [steps.as_str()];
+        let walks = WALKS.to_string();
+        let args = [walks.as_str()];
         let (last, _) = per_op(
             backend,
             &binary,
             "last",
             &args,
             STEPS,
-            &format!("{}\n", STEPS * 4),
+            &format!("{}\n", WALKS * 4),
         );
         let (skipped, _) = per_op(
             backend,
@@ -574,7 +586,7 @@ fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
             "skipped",
             &args,
             STEPS,
-            &format!("{}\n", STEPS * 3),
+            &format!("{}\n", WALKS * 3),
         );
         eprintln!("{backend}: last {last:?}, skipped {skipped:?} instructions a step");
         let (Some(last), Some(skipped)) = (last, skipped) else {
