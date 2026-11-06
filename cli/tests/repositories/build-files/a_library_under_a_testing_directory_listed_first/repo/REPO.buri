@@ -1,0 +1,2 @@
+# A repository whose library under lib/testing sorts before the library
+# whose suite imports it.

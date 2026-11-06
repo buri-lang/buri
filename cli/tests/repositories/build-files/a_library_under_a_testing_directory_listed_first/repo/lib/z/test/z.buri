@@ -1,0 +1,7 @@
+from "core/testing/assert" import * as assert;
+from "//lib/testing" import { one };
+from "//lib/z" import { two };
+
+test "two is one more than one" {
+    assert.equal(two(), one() + 1);
+}

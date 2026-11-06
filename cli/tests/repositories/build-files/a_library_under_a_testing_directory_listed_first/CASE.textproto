@@ -1,0 +1,24 @@
+# The library at `lib/testing` sorts before `//lib/z`, so lint reaches it as
+# an ordinary library before `//lib/z`'s suite imports it as test-only code.
+# Linting both reports what linting `//lib/z` alone does.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a library under a testing directory, listed before its dependent, lints as it does alone"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/z"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["test", "//lib/z"]
+  exit: 0
+}

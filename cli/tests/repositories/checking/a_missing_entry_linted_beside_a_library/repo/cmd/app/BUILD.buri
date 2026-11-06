@@ -1,0 +1,8 @@
+binary {
+    dependencies: ["//lib/words"]
+    outputs: [
+        { platform: "node", entries: [
+            { name: "main", function: "serve" },
+        ] },
+    ]
+}

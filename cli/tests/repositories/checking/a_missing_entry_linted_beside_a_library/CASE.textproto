@@ -1,0 +1,20 @@
+# `//cmd/app`'s output enters through `serve`, which `main.buri` doesn't
+# export. The mistake is reported in the build file, not in a module, and
+# linting the binary beside its library reports it as linting the binary
+# alone does.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an entry function the binary doesn't export is reported once when lint checks its library too"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "refused.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}

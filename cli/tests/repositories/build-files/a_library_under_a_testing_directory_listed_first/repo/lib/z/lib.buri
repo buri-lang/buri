@@ -1,0 +1,10 @@
+// `spare` is filled in and read nowhere, so lint has a finding to report.
+struct Pair {
+    two: Int,
+    spare: Int,
+}
+
+export fn two(): Int {
+    let pair = Pair { two: 2, spare: 0 };
+    pair.two
+}
