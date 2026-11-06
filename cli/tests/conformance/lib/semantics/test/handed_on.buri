@@ -8,6 +8,7 @@
 // do look at their type parameter, and their answers differ with it.
 
 from "core/list" import * as list;
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "platform/effect" import { Allocator, Clock, Stdout };
@@ -49,6 +50,61 @@ fn noting<C: Stdout>(ctx: C, mark: Str): C {
 /// The clock's reading, appended to `countdown` from `n`.
 fn stamped<C: Allocator + Clock>(ctx: C, n: Int): [Int] {
     handOn(ctx, n).push(ctx, time.now(ctx).0)
+}
+
+/// `xs` doubled, folded through `ctx` by a step that hands `c` to `push`.
+fn doubled<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x * 2), [])
+}
+
+/// Each of `rows` doubled, then joined: a fold whose step folds.
+fn flattened<C: Allocator>(ctx: C, rows: [[Int]]): [Int] {
+    rows.foldCtx(ctx, fn(c, acc: [Int], row) => acc.concat(c, doubled(c, row)), [])
+}
+
+/// `xs` folded by `step`, which this function only hands on.
+fn foldedBy<C>(ctx: C, xs: [Int], step: fn(C, [Int], Int) => [Int]): [Int] {
+    xs.foldCtx(ctx, step, [])
+}
+
+/// Each of `xs` plus `extra`'s length, by a step that captures `extra`.
+fn offsetBy<C: Allocator>(ctx: C, xs: [Int], extra: [Str]): [Int] {
+    foldedBy(ctx, xs, fn(c, acc: [Int], x) => acc.push(c, x + extra.length()))
+}
+
+/// `xs` mapped by `f`, which a step that captures `f` calls with the context.
+fn mappedThrough<C: Allocator>(ctx: C, xs: [Int], f: fn(C, Int) => [Int]): [[Int]] {
+    xs.foldCtx(ctx, fn(c, acc: [[Int]], x) => acc.push(c, f(c, x)), [])
+}
+
+/// Each of `xs` followed by the clock's reading: a fold whose step reads the
+/// clock it is handed.
+fn clocked<C: Allocator + Clock>(ctx: C, xs: [Int]): [Int] {
+    xs.foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x).push(c, time.now(c).0), [])
+}
+
+/// `xs` through each list and text operation that builds with the context
+/// and doesn't read it, written out as one line.
+fn built<C: Allocator>(ctx: C, xs: [Int]): Str {
+    let doubled = xs.map(ctx, fn(x) => x * 2);
+    let kept = doubled.filter(ctx, fn(x) => x > 2);
+    let quarters = kept.filterMap(ctx, fn(x) => {
+        if (x % 4 == 0) { .Some(x / 4) } else { .None }
+    });
+    let down = kept.sortBy(ctx, fn(a, b) => b.compare(a));
+    let up = down.sort(ctx);
+    let pairs = up.zip(ctx, quarters);
+    let flat = [down, quarters, up].flatten(ctx);
+    let words = flat.mapCtx(ctx, fn(c, x) => str.format(c, "${x}"));
+    str.format(ctx, "${pairs.length()}:").concat(ctx, words.join(ctx, ","))
+}
+
+/// The row at `i`, or none.
+fn rowAt(rows: [[Int]], i: Int): [Int] {
+    match (rows.get(i)) {
+        .Some(row) => row,
+        .None => [],
+    }
 }
 
 struct Tagged<T> {
@@ -109,6 +165,93 @@ test "a value of a type the function never reads is handed along and released" {
     assert.equal(carried(["a", "b"], 3), 3);
     assert.equal(carried(Tagged { tag: "t", value: [[1], [2]] }, 3), 3);
     assert.equal(carried(fn(n: Int) => n + 1, 3), 3);
+}
+
+test "a fold that hands its context to its step answers the same at every context" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(doubled(alloc(), [1, 2, 3]), [2, 4, 6]);
+    assert.equal(doubled(ctx, [1, 2, 3]), [2, 4, 6]);
+    assert.equal(doubled(ReadOnly { inner: alloc() }, [4]), [8]);
+    assert.equal(doubled(Logged { inner: ctx, prefix: "p" }, []), []);
+}
+
+test "a fold under nested handlers answers the same as under one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let rows = [[1], [2, 3], []];
+    assert.equal(flattened(ctx, rows), [2, 4, 6]);
+    assert.equal(
+        flattened(ReadOnly { inner: Logged { inner: ctx, prefix: "x" } }, rows),
+        [2, 4, 6],
+    );
+    assert.equal(
+        flattened(
+            Logged { inner: ReadOnly { inner: alloc() }, prefix: "y".concat(ctx, "z") },
+            rows,
+        ),
+        [2, 4, 6],
+    );
+}
+
+test "a step that performs effects performs them in order through a fold that hands it on" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+    };
+    let noted = foldedBy(ctx, [1, 2, 3], fn(c, acc: [Int], x) => {
+        note(c, str.format(c, "${x}"));
+        acc.push(c, x)
+    });
+    assert.equal(noted, [1, 2, 3]);
+    let marked = mappedThrough(ctx, [4, 5], fn(c, x) => {
+        note(c, str.format(c, "<${x}>"));
+        [x, x]
+    });
+    assert.equal(marked, [[4, 4], [5, 5]]);
+    assert.equal(sink.captured(), "123<4><5>");
+}
+
+test "a step that captures counted values sees them at every context" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let extra = ["a", "b"];
+    assert.equal(offsetBy(ctx, [1, 2], extra), [3, 4]);
+    assert.equal(offsetBy(ReadOnly { inner: ctx }, [5], extra), [7]);
+    assert.equal(offsetBy(Logged { inner: alloc(), prefix: "q" }, [], ["c"]), []);
+    let rows = [[1], [2, 3]];
+    let echoed = mappedThrough(ReadOnly { inner: ctx }, [0, 1], fn(c, i) => {
+        doubled(c, rowAt(rows, i))
+    });
+    assert.equal(echoed, [[2], [4, 6]]);
+}
+
+test "a list built with a context it hands on is the same at every context" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let expected = "2:8,6,4,2,1,4,6,8";
+    assert.equal(built(ctx, [1, 4, 3, 2]), expected);
+    assert.equal(built(ReadOnly { inner: alloc() }, [1, 4, 3, 2]), expected);
+    assert.equal(built(Logged { inner: ctx, prefix: "w" }, [1, 4, 3, 2]), expected);
+    assert.equal(built(ReadOnly { inner: ctx }, []), "0:");
+}
+
+test "a fold whose step reads the clock answers with that clock" {
+    let early = context {
+        Allocator: alloc(),
+        Clock: clock().at(5),
+    };
+    let late = context {
+        Allocator: alloc(),
+        Clock: clock().at(9),
+    };
+    assert.equal(clocked(early, [1, 2]), [1, 5, 2, 5]);
+    assert.equal(clocked(late, [1]), [1, 9]);
 }
 
 test "a function that reads its context answers with that context" {

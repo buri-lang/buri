@@ -14,18 +14,26 @@
 //!
 //! A parameter `j` of a function is erasable when all of these hold:
 //!
-//! - Every local whose type mentions `j` is a parameter typed exactly `j`.
-//! - Every read of one is an argument of a direct call, at a parameter the
-//!   callee types as a bare type parameter, which is itself erasable.
-//! - No other expression, type argument, receiver or capture mentions `j`, and
-//!   the result type doesn't. So `j` reaches no layout, no glue, no trait or
-//!   effect call, no template, no closure and no derive.
+//! - Every local whose type mentions `j` is a parameter, of the function or of
+//!   a lambda in it, typed exactly `j` or as a callback `fn(j, …) => R` that
+//!   takes `j` only as a whole parameter and doesn't return it.
+//! - Every read of one, and every lambda of a callback's type, is handed on: an
+//!   argument of a direct call where the callee's parameter has the same
+//!   shape with a bare type parameter in `j`'s place, which is itself
+//!   erasable, or the callee or an argument of a callback call.
+//! - No other expression, type argument, receiver or capture mentions `j`,
+//!   except a captured callback, and the result type doesn't. So `j` reaches
+//!   no layout, no glue, no trait or effect call, no template and no derive.
 //! - A runtime operation is erasable at `j` only where `j` is bounded by
-//!   `Allocator` alone and every parameter typed `j` is one the runtime drops.
+//!   `Allocator` alone and every parameter typed `j` is one the runtime drops,
+//!   or one an open-coded list walk hands to its step or reads nowhere.
 //!   JavaScript reads a `Tasks` context's identity, so nothing else qualifies.
 //!
 //! The rule is the greatest fixed point over the call graph: a recursive
-//! function that only passes `ctx` to itself erases it.
+//! function that only passes `ctx` to itself erases it. A caller can only
+//! erase a callee that takes no callback typed by `j`, since its callback is
+//! typed by the caller's `j`. So `xs.foldCtx(ctx, fn(c, acc, x) => …)` keeps
+//! one body for its caller, and its step, when the step only hands `c` on.
 //!
 //! Debug names carry no type arguments, so backtraces and messages read the
 //! same. A function used as a value keeps its full instantiation, because its
@@ -33,7 +41,7 @@
 //! instantiation on its own.
 
 use super::Monomorphizer;
-use crate::compiler::backend::runtime_table;
+use crate::compiler::backend::{intrinsic_keys, runtime_table};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, Stmt};
 use crate::compiler::semantics::types::*;
 use crate::hash::Map as HashMap;
@@ -59,6 +67,24 @@ fn mentions(ty: &Ty, j: usize) -> bool {
     }
 }
 
+/// Whether a value of type `ty`, given where a `to` is wanted, hands `j` on
+/// and does nothing else with it: `j` itself at a bare type parameter, or a
+/// callback that takes `j` only as a whole parameter, at a callback type
+/// whose parameter there is bare.
+fn hands_on(ty: &Ty, to: &Ty, j: usize) -> bool {
+    let bare = |t: &Ty| matches!(t.kind(), TyKind::Param(_));
+    match (ty.kind(), to.kind()) {
+        (TyKind::Fn(ps, r), TyKind::Fn(qs, _)) => {
+            !mentions(r, j)
+                && ps
+                    .iter()
+                    .zip(qs.iter())
+                    .all(|(p, q)| !mentions(p, j) || bare(p) && bare(q))
+        }
+        _ => !mentions(ty, j) || bare(ty) && bare(to),
+    }
+}
+
 impl Monomorphizer<'_> {
     /// `f`'s type arguments with every erasable one replaced by `()`, or
     /// `None` where none changes.
@@ -67,10 +93,16 @@ impl Monomorphizer<'_> {
             return None;
         }
         let mask = self.erasable(f);
+        let params = &self.tables().fn_info(f).params;
         let mut out = targs.to_vec();
         let mut changed = false;
-        for (t, &erase) in out.iter_mut().zip(mask.iter()) {
-            if erase && *t != Ty::UNIT {
+        for (j, (t, &erase)) in out.iter_mut().zip(mask.iter()).enumerate() {
+            // A callback typed by `j` is the caller's at its own `j`, so only
+            // a caller erased itself can call `f` erased.
+            let bare = params
+                .iter()
+                .all(|p| !mentions(&p.ty, j) || matches!(p.ty.kind(), TyKind::Param(_)));
+            if erase && bare && *t != Ty::UNIT {
                 *t = Ty::UNIT;
                 changed = true;
             }
@@ -184,6 +216,14 @@ impl Monomorphizer<'_> {
         let Some(body) = self.checked.bodies.get(&f).filter(|_| !info.intrinsic) else {
             let key = self.runtime_key(info);
             let entry = runtime_table::entry(&key).filter(|_| info.intrinsic);
+            // A list walk, which hands its context to its step or reads it
+            // nowhere, and the open-coded operations that read it nowhere.
+            let walk = intrinsic_keys::list_call(&key).filter(|_| info.intrinsic);
+            let unread = info.intrinsic
+                && matches!(
+                    key.as_str(),
+                    "list.zip" | "list.flatten" | "str.concat" | "str.format"
+                );
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 let bounds = info
                     .generics
@@ -196,33 +236,43 @@ impl Monomorphizer<'_> {
                             == Some("platform/effect")
                 });
                 let dropped = info.params.iter().enumerate().all(|(i, p)| {
+                    let bare = matches!(p.ty.kind(), TyKind::Param(_));
                     !mentions(&p.ty, j)
-                        || (matches!(p.ty.kind(), TyKind::Param(_))
-                            && entry.is_some_and(|e| e.dropped(i)))
+                        || bare && (unread || entry.is_some_and(|e| e.dropped(i)))
+                        || walk.as_ref().is_some_and(|w| {
+                            if w.func == i {
+                                hands_on(&p.ty, &p.ty, j)
+                            } else {
+                                bare
+                            }
+                        })
                 });
                 *ok = *ok && allocator_only && dropped;
             }
             return facts;
         };
-        // Only a parameter may hold a value of the type, and only typed as it.
+        // Only a parameter, of the function or of a lambda in it, may hold a
+        // value of the type, typed as it or as a callback that takes it.
+        let mut params = body.params.clone();
+        lambda_params(&body.expr, &mut params);
         for (id, local) in body.locals.entries() {
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 if mentions(&local.ty, j)
-                    && (!matches!(local.ty.kind(), TyKind::Param(_)) || !body.params.contains(&id))
+                    && (!hands_on(&local.ty, &local.ty, j) || !params.contains(&id))
                 {
                     *ok = false;
                 }
             }
         }
         if facts.ok.iter().any(|ok| *ok) {
-            self.uses(&body.expr, false, &body.locals, &mut facts);
+            self.uses(&body.expr, None, &body.locals, &mut facts);
         }
         facts
     }
 
-    /// Rules out every parameter `e` uses other than by passing it on.
-    /// `passed` says `e` is an argument at a callee's bare type parameter.
-    fn uses(&self, e: &typed::Expr, passed: bool, locals: &typed::Locals, facts: &mut Facts) {
+    /// Rules out every parameter `e` uses other than by handing it on. `at`
+    /// is the type wanted where `e` is a callee's argument, or a callback's.
+    fn uses(&self, e: &typed::Expr, at: Option<&Ty>, locals: &typed::Locals, facts: &mut Facts) {
         let rule_out = |ty: &Ty, facts: &mut Facts| {
             for (j, ok) in facts.ok.iter_mut().enumerate() {
                 if mentions(ty, j) {
@@ -230,8 +280,11 @@ impl Monomorphizer<'_> {
                 }
             }
         };
-        if !(passed && matches!(e.kind, ExprKind::Local(_))) {
-            rule_out(&e.ty, facts);
+        let handed = matches!(e.kind, ExprKind::Local(_) | ExprKind::Lambda { .. });
+        for (j, ok) in facts.ok.iter_mut().enumerate() {
+            if mentions(&e.ty, j) && !(handed && at.is_some_and(|to| hands_on(&e.ty, to, j))) {
+                *ok = false;
+            }
         }
         match &e.kind {
             ExprKind::CallFn { func, args } => {
@@ -248,10 +301,14 @@ impl Monomorphizer<'_> {
                 }
                 let params = &self.tables().fn_info(func.id).params;
                 for (k, arg) in args.iter().enumerate() {
-                    let bare = params
-                        .get(k)
-                        .is_some_and(|p| matches!(p.ty.kind(), TyKind::Param(_)));
-                    self.uses(arg, bare, locals, facts);
+                    self.uses(arg, params.get(k).map(|p| &p.ty), locals, facts);
+                }
+                return;
+            }
+            // Each argument has the type the callback takes there.
+            ExprKind::CallValue { callee, args } => {
+                for c in std::iter::once(&**callee).chain(args) {
+                    self.uses(c, Some(&c.ty), locals, facts);
                 }
                 return;
             }
@@ -265,12 +322,29 @@ impl Monomorphizer<'_> {
             | ExprKind::Intrinsic { targs, .. } => targs.iter().for_each(|t| rule_out(t, facts)),
             ExprKind::Array { elem, .. } | ExprKind::Index { elem, .. } => rule_out(elem, facts),
             ExprKind::Lambda { captures, .. } => {
+                // A callback may be captured, since a function value's layout
+                // is one at every type.
                 for c in captures {
-                    rule_out(&locals.get(*c).ty, facts);
+                    let ty = &locals.get(*c).ty;
+                    for (j, ok) in facts.ok.iter_mut().enumerate() {
+                        if mentions(ty, j)
+                            && !(matches!(ty.kind(), TyKind::Fn(..)) && hands_on(ty, ty, j))
+                        {
+                            *ok = false;
+                        }
+                    }
                 }
             }
             _ => {}
         }
-        typed::children(e, &mut |c| self.uses(c, false, locals, facts));
+        typed::children(e, &mut |c| self.uses(c, None, locals, facts));
     }
+}
+
+/// Adds the parameters of every lambda in `e` to `params`.
+fn lambda_params(e: &typed::Expr, params: &mut Vec<LocalId>) {
+    if let ExprKind::Lambda { params: ps, .. } = &e.kind {
+        params.extend(ps.iter().copied());
+    }
+    typed::children(e, &mut |c| lambda_params(c, params));
 }

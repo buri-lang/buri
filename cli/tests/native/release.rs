@@ -477,6 +477,26 @@ export fn grow<C: Allocator>(ctx: C, n: Int): Int {
     let _ = alloc.allocate(ctx, n);
     n
 }
+
+export fn folded<C: Allocator>(ctx: C, n: Int): Int {
+    let xs = upTo(ctx, n, []);
+    foldedBy(ctx, xs, fn(c, acc: [Int], x) => acc.push(c, x)).length()
+}
+
+fn foldedBy<C: Allocator>(ctx: C, xs: [Int], step: fn(C, [Int], Int) => [Int]): [Int] {
+    xs.foldCtx(ctx, fn(c, acc: [Int], x) => step(c, acc, x), [])
+}
+
+export fn foldGrows<C: Allocator>(ctx: C, n: Int): Int {
+    upTo(ctx, n, []).foldCtx(ctx, fn(c, acc: Int, x) => {
+        let _ = alloc.allocate(c, x);
+        acc + 1
+    }, 0)
+}
+
+fn upTo<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
+    if (n == 0) { acc } else { upTo(ctx, n - 1, acc.push(ctx, n)) }
+}
 "#;
 
 /// A program printing `CALL` of `//lib/store` at the host's allocator, plus
@@ -581,6 +601,31 @@ fn a_function_that_calls_its_allocator_is_compiled_for_each() {
     skip_unless_executable!();
     let one = context_program("called-once", "grow", false);
     let two = context_program("called-twice", "grow", true);
+    // Counted first, while every object is still to compile.
+    assert!(functions_compiled(&one) < functions_compiled(&two));
+    assert_eq!(run_app(&one), "5\n");
+    assert_eq!(run_app(&two), "12\n");
+}
+
+/// **A fold whose step only hands its allocator on is compiled once,** with
+/// its step and a function the step was handed.
+#[test]
+fn a_fold_that_only_passes_its_allocator_on_is_compiled_once() {
+    skip_unless_executable!();
+    let one = context_program("folded-once", "folded", false);
+    let two = context_program("folded-twice", "folded", true);
+    // Counted first, while every object is still to compile.
+    assert_eq!(functions_compiled(&one), functions_compiled(&two));
+    assert_eq!(run_app(&one), "5\n");
+    assert_eq!(run_app(&two), "12\n");
+}
+
+/// **A fold whose step calls its allocator is compiled once per allocator.**
+#[test]
+fn a_fold_whose_step_calls_its_allocator_is_compiled_for_each() {
+    skip_unless_executable!();
+    let one = context_program("fold-grows-once", "foldGrows", false);
+    let two = context_program("fold-grows-twice", "foldGrows", true);
     // Counted first, while every object is still to compile.
     assert!(functions_compiled(&one) < functions_compiled(&two));
     assert_eq!(run_app(&one), "5\n");
