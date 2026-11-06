@@ -3,23 +3,23 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15177 15285 99.29%
+total 15213 15321 99.30%
 area cli/build 1700 1707 99.59%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
-area cli/lint 571 572 99.83%
-area cli/other 565 576 98.09%
+area cli/lint 573 574 99.83%
+area cli/other 569 580 98.10%
 area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
 area cli/test 509 524 97.14%
 area crates/backend 68 68 100.00%
-area crates/diagnostics 213 214 99.53%
+area crates/diagnostics 219 220 99.55%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 995 1020 97.55%
 area crates/llvm 580 580 100.00%
-area crates/middle 1959 1988 98.54%
+area crates/middle 1979 2008 98.56%
 area crates/project 1335 1338 99.78%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -49,13 +49,13 @@ area crates/syntax 1268 1268 100.00%
 0 0 cli/src/commands/add/mod.rs
 8 8 cli/src/commands/add/skills.rs
 43 44 cli/src/commands/arguments.rs
-116 116 cli/src/commands/build.rs
+122 122 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 98 98 cli/src/commands/format.rs
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-543 544 cli/src/commands/lint.rs
+545 546 cli/src/commands/lint.rs
 28 28 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 38 38 cli/src/commands/query.rs
@@ -67,7 +67,7 @@ area crates/syntax 1268 1268 100.00%
 34 34 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
-48 54 cli/src/compiler/driver.rs
+46 52 cli/src/compiler/driver.rs
 199 200 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 4 4 cli/src/documentation/assemble.rs
@@ -110,7 +110,7 @@ area crates/syntax 1268 1268 100.00%
 98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
 42 42 crates/diagnostics/src/parallel.rs
-29 30 crates/diagnostics/src/profile.rs
+35 36 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 18 18 crates/docs/src/documentation/frontmatter.rs
 0 0 crates/docs/src/documentation/lints.rs
@@ -149,13 +149,13 @@ area crates/syntax 1268 1268 100.00%
 68 68 crates/middle/src/compiler/middle/inline.rs
 66 66 crates/middle/src/compiler/middle/ir.rs
 48 48 crates/middle/src/compiler/middle/layout.rs
-138 138 crates/middle/src/compiler/middle/lower.rs
+142 142 crates/middle/src/compiler/middle/lower.rs
 46 46 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 159 168 crates/middle/src/compiler/middle/monomorphize.rs
 56 56 crates/middle/src/compiler/middle/monomorphize/erase.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-632 638 crates/middle/src/compiler/middle/rc.rs
+648 654 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 178 178 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
@@ -189,7 +189,7 @@ area crates/syntax 1268 1268 100.00%
 16 16 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 150 150 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-332 332 crates/semantics/src/compiler/semantics/styles.rs
+334 334 crates/semantics/src/compiler/semantics/styles.rs
 22 22 crates/semantics/src/compiler/semantics/typed.rs
 112 112 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
@@ -213,5 +213,5 @@ area crates/syntax 1268 1268 100.00%
 20 20 crates/syntax/src/parsing/flat.rs
 170 170 crates/syntax/src/parsing/lexer.rs
 0 0 crates/syntax/src/parsing/mod.rs
-610 610 crates/syntax/src/parsing/parser.rs
+612 612 crates/syntax/src/parsing/parser.rs
 2 2 crates/syntax/src/parsing/tree.rs
