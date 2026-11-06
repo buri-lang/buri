@@ -531,7 +531,7 @@ fn emit_selected(
             |worker: &mut Option<Worker>, _, &(index, unit)| {
                 worker_for(worker)?;
                 let worker = worker.as_ref().or_ice("made above");
-                emit_unit(&shared, worker, index, unit, None)
+                crate::parallel::on_a_core(|| emit_unit(&shared, worker, index, unit, None))
             },
         );
         let mut asked: Vec<emit::GlueAsk> = Vec::new();
@@ -571,11 +571,11 @@ fn emit_selected(
         |worker: &mut Option<Worker>, _, &(index, unit)| {
             worker_for(worker)?;
             let worker = worker.as_ref().or_ice("made above");
-            match unit {
+            crate::parallel::on_a_core(|| match unit {
                 Some(unit) => emit_unit(&shared, worker, index, unit, Some(render))
                     .map(|(object, _)| object.or_ice("a rendered unit has an object")),
                 None => emit_glue(&shared, worker, &asked, render),
-            }
+            })
         },
     );
 

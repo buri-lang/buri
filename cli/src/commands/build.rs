@@ -293,6 +293,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if crate::profile::enabled() {
         let (programs, bytes) = most_held;
         eprintln!("programs held at once {programs}, expected {bytes} of {budget} bytes");
+        let units = crate::parallel::most_on_cores();
+        eprintln!("units optimized at once {units}");
     }
     let Printing { built, failed, .. } = printing;
     let mut failed = failed | !ran;

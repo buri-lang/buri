@@ -235,3 +235,107 @@ fn a_program_that_does_not_fit_waits() {
     assert!(child.wait().unwrap().success(), "{}", held.printed());
     assert_eq!(expected(&held.printed()), (1, one, one));
 }
+
+/// Modules in each of [`many_units`]'s programs: a codegen unit each.
+const MODULES: usize = 12;
+
+/// Four native programs of [`MODULES`] modules each, every module a function
+/// `main` adds up.
+fn many_units(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    for program in ["a", "b", "c", "d"] {
+        let mut main = String::from(
+            "from \"core/io\" import * as io;\nfrom \"native\" import { NativeHost };\n\
+             from \"platform/effect\" import { Allocator, Stdout };\n",
+        );
+        let mut sources = Vec::new();
+        for i in 0..MODULES {
+            scratch.write(
+                &format!("cmd/{program}/m{i}.buri"),
+                &format!(
+                    "export fn run{i}(n: Int): Int {{\n    if (n <= 0) {{ {i} }} else {{ run{i}(n - 1) }}\n}}\n"
+                ),
+            );
+            main.push_str(&format!(
+                "from \"//cmd/{program}/m{i}.buri\" import {{ run{i} }};\n"
+            ));
+            sources.push(format!("\"m{i}.buri\""));
+        }
+        let total: Vec<String> = (0..MODULES).map(|i| format!("run{i}(2)")).collect();
+        main.push_str(&format!(
+            "\nexport fn main(host: NativeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+             io.println(ctx, \"${{{}}}\").mapErr(fn(_e) => \"no stdout\")\n}}\n",
+            total.join(" + ")
+        ));
+        scratch.write(&format!("cmd/{program}/main.buri"), &main);
+        scratch.write(
+            &format!("cmd/{program}/BUILD.buri"),
+            &format!(
+                "binary {{\n    sources: [{}]\n    outputs: [{{ platform: \"native\" }}]\n}}\n",
+                sources.join(", ")
+            ),
+        );
+    }
+    scratch
+}
+
+/// Release programs built side by side optimize no more units at once than
+/// there are cores between them, so a build of many programs holds a core's
+/// worth of LLVM modules rather than a core's worth for each program. All
+/// four programs start together, each with more units than cores, and each
+/// still builds and runs. A toolchain without the optimizing backend refuses
+/// them.
+#[test]
+fn programs_built_side_by_side_optimize_a_unit_per_core() {
+    let scratch = many_units("programs-at-once-units");
+    let first = scratch.run(&["build", "--release", "//cmd/a"]);
+    if first.stderr.contains("built without `backend-llvm`") {
+        first.exits(1);
+        return;
+    }
+    first.ok();
+    std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
+    let held = Held::new("programs-at-once-units");
+    for n in 1..=4 {
+        held.hold("building", n);
+    }
+    let mut child = held.start_with_env(
+        &scratch,
+        &["build", "--release", "//..."],
+        &[("BURI_THREADS", "4"), ("BURI_PROFILE", "1")],
+    );
+    let holding: Vec<_> = (1..=4).map(|n| held.reached("building", n)).collect();
+    for h in holding {
+        h.go();
+    }
+    let status = child.wait().unwrap();
+    let printed = held.printed();
+    assert!(status.success(), "{printed}");
+    let units: usize = printed
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("units optimized at once "))
+        .unwrap_or_else(|| panic!("no profile line in\n{printed}"))
+        .parse()
+        .unwrap();
+    assert!(
+        (1..=4).contains(&units),
+        "{units} units at once:\n{printed}"
+    );
+    let want = format!("{}\n", (0..MODULES).sum::<usize>());
+    for program in ["a", "b", "c", "d"] {
+        let artifact = std::fs::read_dir(scratch.path(".buri/out/native"))
+            .unwrap()
+            .map(|variant| {
+                variant
+                    .unwrap()
+                    .path()
+                    .join(format!("cmd/{program}/{program}"))
+            })
+            .find(|path| path.exists())
+            .unwrap_or_else(|| panic!("no artifact for {program}:\n{printed}"));
+        let ran = std::process::Command::new(&artifact).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), want, "{program}");
+    }
+}

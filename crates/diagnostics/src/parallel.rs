@@ -73,6 +73,51 @@ pub fn cores() -> usize {
     })
 }
 
+/// Runs `f` once fewer than [`cores`] calls of this are running in the whole
+/// process.
+///
+/// It's for work that holds much memory while it runs, such as optimizing one
+/// LLVM module. `buri build` builds programs side by side and each spreads its
+/// units over every core, so without it a dozen programs would hold a dozen
+/// cores' worth of modules each. The cores were busy either way, so it costs
+/// no processor time.
+pub fn on_a_core<R>(f: impl FnOnce() -> R) -> R {
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            let mut on = on_cores();
+            on.0 = on.0.saturating_sub(1);
+            FREED.notify_one();
+        }
+    }
+    let mut on = on_cores();
+    while on.0 >= cores() {
+        on = FREED
+            .wait(on)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    }
+    on.0 = on.0.saturating_add(1);
+    on.1 = on.1.max(on.0);
+    drop(on);
+    let _running = Running;
+    f()
+}
+
+/// The [`on_a_core`] calls running, and the most there have been at once.
+static ON_CORES: std::sync::Mutex<(usize, usize)> = std::sync::Mutex::new((0, 0));
+static FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+fn on_cores() -> std::sync::MutexGuard<'static, (usize, usize)> {
+    ON_CORES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The most [`on_a_core`] calls that have run at once.
+pub fn most_on_cores() -> usize {
+    on_cores().1
+}
+
 /// Frees `value` on a thread of its own.
 ///
 /// The whole-program values a build produces are large — a monomorphized
