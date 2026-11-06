@@ -4,7 +4,7 @@ function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
   const fs_2=__cmd_x_main_buri$adders$htol58(0,0n,[]);
   const gs_3=__cmd_x_main_buri$scalers$htol58(0,7n,0n,[]);
-  const text_10=String($list_length($list_map(fs_2,ctx_1,f_4=>f_4(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
+  const text_10=String($list_length($list_map(fs_2,0,f_4=>f_4(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
   const self_11=$host_HostStdout_println(ctx_1[1],text_10);
   let $t1;
   if(self_11[0]===0){

@@ -57,7 +57,7 @@ function $eqD3(a,b){
 }
 function __cmd_x_main_buri$main(){
   const ctx_1=[$k0[0],$k0[1]];
-  const text_8=core_json$stringify$3qb9ap(ctx_1,$json_of($k1,$D1));
+  const text_8=core_json$stringify$htol58(0,$json_of($k1,$D1));
   const self_9=$host_HostStdout_println(ctx_1[1],text_8);
   let $t1;
   if(self_9[0]===0){
@@ -67,7 +67,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_15=core_json$stringify$3qb9ap(ctx_1,$json_of($k2,$D5));
+  const text_15=core_json$stringify$htol58(0,$json_of($k2,$D5));
   const self_16=$host_HostStdout_println(ctx_1[1],text_15);
   let $t3;
   if(self_16[0]===0){
@@ -77,7 +77,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_22=core_json$stringify$3qb9ap(ctx_1,$json_of($k3,$D5));
+  const text_22=core_json$stringify$htol58(0,$json_of($k3,$D5));
   const self_23=$host_HostStdout_println(ctx_1[1],text_22);
   let $t5;
   if(self_23[0]===0){
@@ -100,7 +100,7 @@ function __cmd_x_main_buri$main(){
   }
   return $k4;
 }
-function core_json$stringify$3qb9ap(ctx_0,value_1){
+function core_json$stringify$htol58(ctx_0,value_1){
   switch(value_1[0]){
     case 0:
       {
@@ -112,19 +112,19 @@ function core_json$stringify$3qb9ap(ctx_0,value_1){
       }
     case 2:
       {
-        const s_17=$str_fromFloat(0,value_1[1]);
+        const s_17=$str_fromFloat(ctx_0,value_1[1]);
         return $str_endsWith(s_17,'.0')?$str_slice(s_17,0n,$str_length(s_17)-2n):s_17;
       }
     case 3:
       {
-        return core_json$quote$3qb9ap(ctx_0,value_1[1]);
+        return core_json$quote$htol58(ctx_0,value_1[1]);
       }
     case 4:
       {
         const items_5=value_1[1];
         $share(items_5);
-        const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json$stringify$3qb9ap(c_6,item_7));
-        return $str_format(ctx_0,'['+$list_join(parts_8,0,',')+']');
+        const parts_8=$list_mapCtx(items_5,ctx_0,(c_6,item_7)=>core_json$stringify$htol58(c_6,item_7));
+        return $str_format(ctx_0,'['+$list_join(parts_8,ctx_0,',')+']');
       }
     case 5:
       {
@@ -134,9 +134,9 @@ function core_json$stringify$3qb9ap(ctx_0,value_1){
           const k_12=e_11[0];
           const item_13=e_11[1];
           $fromShared(e_11,item_13);
-          return $str_format(c_10,core_json$quote$3qb9ap(c_10,k_12)+':'+core_json$stringify$3qb9ap(c_10,item_13));
+          return $str_format(c_10,core_json$quote$htol58(c_10,k_12)+':'+core_json$stringify$htol58(c_10,item_13));
         });
-        return $str_format(ctx_0,'{'+$list_join(parts_14,0,',')+'}');
+        return $str_format(ctx_0,'{'+$list_join(parts_14,ctx_0,',')+'}');
       }
     default:
       {
@@ -145,8 +145,8 @@ function core_json$stringify$3qb9ap(ctx_0,value_1){
       break;
   }
 }
-function core_json$quote$3qb9ap(ctx_0,text_1){
-  const inner_4=$list_join($list_mapCtx($str_chars(text_1,0),ctx_0,(c_2,ch_3)=>{
+function core_json$quote$htol58(ctx_0,text_1){
+  const inner_4=$list_join($list_mapCtx($str_chars(text_1,ctx_0),ctx_0,(c_2,ch_3)=>{
     if(ch_3==='"'){
       return '\\"';
     }else if(ch_3==='\\'){
@@ -161,8 +161,8 @@ function core_json$quote$3qb9ap(ctx_0,text_1){
       const n_7=BigInt($character_toU32(ch_3));
       return $str_format(c_2,'\\u00'+$str_slice('0123456789abcdef',n_7/16n,n_7/16n+1n)+$str_slice('0123456789abcdef',n_7%16n,n_7%16n+1n));
     }else{
-      return $str_fromChars(0,[ch_3]);
+      return $str_fromChars(c_2,[ch_3]);
     }
-  }),0,'');
+  }),ctx_0,'');
   return $str_format(ctx_0,'"'+inner_4+'"');
 }

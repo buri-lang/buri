@@ -28,7 +28,8 @@ function __cmd_x_main_buri$main(){
   return $ui_node_mount(ctx_1,ui_node$stack$podn4b([[],[__cmd_x_main_buri$badge$podn4b($k2),__cmd_x_main_buri$badge$podn4b($k4)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$badge$podn4b(look_0){
-  return ui_node$stack$podn4b([[ui_style_classify$classifyOne$nc9115([$alloc_newCounter(-1n)],look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  [$alloc_newCounter(-1n)];
+  return ui_node$stack$podn4b([[ui_style_classify$classifyOne$htol58(0,look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
 function ui_node$stack$podn4b(config_0){
   const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
@@ -65,8 +66,8 @@ function ui_node$stack$podn4b(config_0){
 function ui_style$extracted(pairs_0){
   return [5,[pairs_0]];
 }
-function ui_style_classify$classifyOne$nc9115(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6){
-  const $t1=ui_style_classify$found$nc9115(ctx_0,[$share(style_1)],known_2,state_5,screen_6);
+function ui_style_classify$classifyOne$htol58(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6){
+  const $t1=ui_style_classify$found$htol58(ctx_0,[$share(style_1)],known_2,state_5,screen_6);
   switch($t1[0]){
     case 0:
       {
@@ -75,11 +76,11 @@ function ui_style_classify$classifyOne$nc9115(ctx_0,style_1,known_2,strict_3,mak
     case 1:
       {
         $ui_style_classify_unextracted(strict_3,$t1[1]);
-        return ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6);
+        return ui_style_classify$within$htol58(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6);
       }
     case 2:
       {
-        return ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6);
+        return ui_style_classify$within$htol58(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6);
       }
     default:
       {
@@ -88,18 +89,17 @@ function ui_style_classify$classifyOne$nc9115(ctx_0,style_1,known_2,strict_3,mak
       break;
   }
 }
-function ui_style_classify$found$nc9115(ctx_0,styles_1,known_2,state_3,screen_4){
-  const $t1=ui_style_classify$atomsIn$nc9115(ctx_0,styles_1,state_3,screen_4,[]);
+function ui_style_classify$found$htol58(ctx_0,styles_1,known_2,state_3,screen_4){
+  const $t1=ui_style_classify$atomsIn$htol58(ctx_0,styles_1,state_3,screen_4,[]);
   if($t1===void 0){
     return $k9;
   }else if($t1!==void 0){
-    return ui_style_classify$named$htol58(0,$list_foldCtx($t1,ctx_0,(c_6,out_7,a_8)=>{
-      const ctx_9=0;
+    return ui_style_classify$named$htol58(ctx_0,$list_foldCtx($t1,ctx_0,(c_6,out_7,a_8)=>{
       const $t2=$list_findIndex(out_7,o_12=>o_12[0]===a_8[0]);
       if($t2!==void 0){
-        return $list_replaceAt(out_7,ctx_9,$t2,a_8);
+        return $list_replaceAt(out_7,c_6,$t2,a_8);
       }else if($t2===void 0){
-        return $list_push(out_7,ctx_9,a_8);
+        return $list_push(out_7,c_6,a_8);
       }else{
         $abort('no arm matched');
       }
@@ -108,20 +108,20 @@ function ui_style_classify$found$nc9115(ctx_0,styles_1,known_2,state_3,screen_4)
     $abort('no arm matched');
   }
 }
-function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6){
+function ui_style_classify$within$htol58(ctx_0,style_1,known_2,strict_3,make_4,state_5,screen_6){
   switch(style_1[0]){
     case 0:
       {
         const items_7=style_1[1];
         $share(items_7);
-        return [0,ui_style_classify$classifyList$nc9115(ctx_0,items_7,known_2,strict_3,make_4,state_5,screen_6)];
+        return [0,ui_style_classify$classifyList$htol58(ctx_0,items_7,known_2,strict_3,make_4,state_5,screen_6)];
       }
     case 1:
       {
         const on_8=style_1[1];
         const items_9=style_1[2];
         $share(items_9);
-        return [0,ui_style_classify$classifyList$nc9115(ctx_0,items_9,known_2,strict_3,make_4,ui_style_classify$stateIndex(on_8),screen_6)];
+        return [0,ui_style_classify$classifyList$htol58(ctx_0,items_9,known_2,strict_3,make_4,ui_style_classify$stateIndex(on_8),screen_6)];
       }
     case 2:
       {
@@ -156,7 +156,7 @@ function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,s
             }
             break;
         }
-        return [0,ui_style_classify$classifyList$nc9115(ctx_0,items_11,known_2,strict_3,make_4,state_5,$t2)];
+        return [0,ui_style_classify$classifyList$htol58(ctx_0,items_11,known_2,strict_3,make_4,state_5,$t2)];
       }
     case 3:
       {
@@ -165,7 +165,7 @@ function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,s
         const otherwise_14=style_1[3];
         $share(then_13);
         $share(otherwise_14);
-        return [3,condition_12,ui_style_classify$classifyList$nc9115(ctx_0,then_13,$share(known_2),strict_3,make_4,state_5,screen_6),ui_style_classify$classifyList$nc9115(ctx_0,otherwise_14,known_2,strict_3,make_4,state_5,screen_6)];
+        return [3,condition_12,ui_style_classify$classifyList$htol58(ctx_0,then_13,$share(known_2),strict_3,make_4,state_5,screen_6),ui_style_classify$classifyList$htol58(ctx_0,otherwise_14,known_2,strict_3,make_4,state_5,screen_6)];
       }
     case 4:
       {
@@ -178,8 +178,8 @@ function ui_style_classify$within$nc9115(ctx_0,style_1,known_2,strict_3,make_4,s
       }
   }
 }
-function ui_style_classify$classifyList$nc9115(ctx_0,styles_1,known_2,strict_3,make_4,state_5,screen_6){
-  const $t1=ui_style_classify$found$nc9115(ctx_0,styles_1,known_2,state_5,screen_6);
+function ui_style_classify$classifyList$htol58(ctx_0,styles_1,known_2,strict_3,make_4,state_5,screen_6){
+  const $t1=ui_style_classify$found$htol58(ctx_0,styles_1,known_2,state_5,screen_6);
   switch($t1[0]){
     case 0:
       {
@@ -197,11 +197,11 @@ function ui_style_classify$classifyList$nc9115(ctx_0,styles_1,known_2,strict_3,m
     case 1:
       {
         $ui_style_classify_unextracted(strict_3,$t1[1]);
-        return $list_mapCtx(styles_1,ctx_0,(c_9,s_10)=>ui_style_classify$classifyOne$nc9115(c_9,s_10,$share(known_2),strict_3,make_4,state_5,screen_6));
+        return $list_mapCtx(styles_1,ctx_0,(c_9,s_10)=>ui_style_classify$classifyOne$htol58(c_9,s_10,$share(known_2),strict_3,make_4,state_5,screen_6));
       }
     case 2:
       {
-        return $list_mapCtx(styles_1,ctx_0,(c_11,s_12)=>ui_style_classify$classifyOne$nc9115(c_11,s_12,$share(known_2),strict_3,make_4,state_5,screen_6));
+        return $list_mapCtx(styles_1,ctx_0,(c_11,s_12)=>ui_style_classify$classifyOne$htol58(c_11,s_12,$share(known_2),strict_3,make_4,state_5,screen_6));
       }
     default:
       {
@@ -248,13 +248,14 @@ function ui_style_classify$stateIndex(state_0){
   }
 }
 function ui_style_classify$classify(styles_0,known_1,strict_2,make_3){
-  return ui_style_classify$classifyList$nc9115([$alloc_newCounter(-1n)],styles_0,known_1,strict_2,make_3,-1n,-1n);
+  [$alloc_newCounter(-1n)];
+  return ui_style_classify$classifyList$htol58(0,styles_0,known_1,strict_2,make_3,-1n,-1n);
 }
-function ui_style_classify$atomsIn$nc9115(ctx_0,styles_1,state_2,screen_3,acc_4){
+function ui_style_classify$atomsIn$htol58(ctx_0,styles_1,state_2,screen_3,acc_4){
   return $list_foldCtx(styles_1,ctx_0,(c_5,sofar_6,style_7)=>{
     if(sofar_6!==void 0){
       $share(sofar_6);
-      return ((inner_8,atoms_9)=>ui_style_classify$atomsOf$nc9115(inner_8,$share(style_7),state_2,screen_3,atoms_9))(c_5,sofar_6);
+      return ((inner_8,atoms_9)=>ui_style_classify$atomsOf$htol58(inner_8,$share(style_7),state_2,screen_3,atoms_9))(c_5,sofar_6);
     }else if(sofar_6===void 0){
       return void 0;
     }else{
@@ -283,12 +284,12 @@ function ui_style_classify$named$htol58(ctx_0,atoms_1,known_2,at_3,acc_4){
     }
   }
 }
-function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
-  const $t1=ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3);
+function ui_style_classify$atomsOf$htol58(ctx_0,style_1,state_2,screen_3,acc_4){
+  const $t1=ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3);
   switch($t1[0]){
     case 1:
       {
-        return ui_style_classify$atomsIn$nc9115(ctx_0,$t1[1],$t1[2],$t1[3],acc_4);
+        return ui_style_classify$atomsIn$htol58(ctx_0,$t1[1],$t1[2],$t1[3],acc_4);
       }
     case 2:
       {
@@ -300,8 +301,8 @@ function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
         const sub_9=$t1[2];
         const abbreviation_10=$t1[3];
         const key_11=$t1[4];
-        const $t2=variant_8===15n?$list_push(acc_4,0,ui_style_classify$atom$nc9115(ctx_0,15n,4n,state_2,screen_3,'pin','out')):acc_4;
-        return $list_push($t2,0,ui_style_classify$atom$nc9115(ctx_0,variant_8,sub_9,state_2,screen_3,abbreviation_10,key_11));
+        const $t2=variant_8===15n?$list_push(acc_4,ctx_0,ui_style_classify$atom$htol58(ctx_0,15n,4n,state_2,screen_3,'pin','out')):acc_4;
+        return $list_push($t2,ctx_0,ui_style_classify$atom$htol58(ctx_0,variant_8,sub_9,state_2,screen_3,abbreviation_10,key_11));
       }
     default:
       {
@@ -310,7 +311,7 @@ function ui_style_classify$atomsOf$nc9115(ctx_0,style_1,state_2,screen_3,acc_4){
       break;
   }
 }
-function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
+function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
   switch(style_1[0]){
     case 0:
       {
@@ -398,15 +399,15 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
               $share(tracks_78);
               const columns_81=$list_join($list_mapCtx(tracks_78,ctx_0,(c_79,track_80)=>{
                 if(track_80[0]===0){
-                  return $str_format(c_79,$str_fromInt(0,track_80[1])+'fr');
+                  return $str_format(c_79,$str_fromInt(c_79,track_80[1])+'fr');
                 }else if(track_80[0]===1){
-                  return ui_style_classify$lengthCss$nc9115(c_79,track_80[1]);
+                  return ui_style_classify$lengthCss$htol58(c_79,track_80[1]);
                 }else if(track_80[0]===2){
                   return 'auto';
                 }else{
                   $abort('no arm matched');
                 }
-              }),0,' ');
+              }),ctx_0,' ');
               $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_81));
             }
             break;
@@ -484,15 +485,15 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 12:
       {
-        return [0,12n,0n,'grow',ui_style_classify$integerKey$nc9115(ctx_0,style_1[1])];
+        return [0,12n,0n,'grow',ui_style_classify$integerKey$htol58(ctx_0,style_1[1])];
       }
     case 13:
       {
-        return [0,13n,0n,'shrink',ui_style_classify$integerKey$nc9115(ctx_0,style_1[1])];
+        return [0,13n,0n,'shrink',ui_style_classify$integerKey$htol58(ctx_0,style_1[1])];
       }
     case 14:
       {
-        return [0,14n,0n,'span',ui_style_classify$integerKey$nc9115(ctx_0,style_1[1])];
+        return [0,14n,0n,'span',ui_style_classify$integerKey$htol58(ctx_0,style_1[1])];
       }
     case 15:
       {
@@ -526,7 +527,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        return [0,15n,$t15,'pin',ui_style_classify$edgeKey$nc9115(ctx_0,edge_18,length_19)];
+        return [0,15n,$t15,'pin',ui_style_classify$edgeKey$htol58(ctx_0,edge_18,length_19)];
       }
     case 16:
       {
@@ -563,27 +564,27 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 17:
       {
-        return [0,17n,0n,'gap',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,17n,0n,'gap',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 18:
       {
-        return [0,18n,0n,'gapx',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,18n,0n,'gapx',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 19:
       {
-        return [0,19n,0n,'gapy',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,19n,0n,'gapy',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 20:
       {
-        return [0,20n,0n,'p',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,20n,0n,'p',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 21:
       {
-        return [0,21n,0n,'px',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,21n,0n,'px',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 22:
       {
-        return [0,22n,0n,'py',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,22n,0n,'py',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 23:
       {
@@ -617,47 +618,47 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        return [0,23n,$t19,'pe',ui_style_classify$edgeKey$nc9115(ctx_0,edge_27,length_28)];
+        return [0,23n,$t19,'pe',ui_style_classify$edgeKey$htol58(ctx_0,edge_27,length_28)];
       }
     case 24:
       {
-        return [0,24n,0n,'w',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,24n,0n,'w',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 25:
       {
-        return [0,25n,0n,'h',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,25n,0n,'h',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 26:
       {
-        return [0,26n,0n,'minw',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,26n,0n,'minw',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 27:
       {
-        return [0,27n,0n,'maxw',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,27n,0n,'maxw',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 28:
       {
-        return [0,28n,0n,'minh',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,28n,0n,'minh',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 29:
       {
-        return [0,29n,0n,'maxh',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,29n,0n,'maxh',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 30:
       {
-        return [0,30n,0n,'ar',ui_style_classify$numberKey$htol58(0,style_1[1])];
+        return [0,30n,0n,'ar',ui_style_classify$numberKey$htol58(ctx_0,style_1[1])];
       }
     case 31:
       {
-        return [0,31n,0n,'bg',ui_style_classify$colorKey$nc9115(ctx_0,style_1[1])];
+        return [0,31n,0n,'bg',ui_style_classify$colorKey$htol58(ctx_0,style_1[1])];
       }
     case 32:
       {
-        return [0,32n,0n,'fg',ui_style_classify$colorKey$nc9115(ctx_0,style_1[1])];
+        return [0,32n,0n,'fg',ui_style_classify$colorKey$htol58(ctx_0,style_1[1])];
       }
     case 33:
       {
-        return [0,33n,0n,'bw',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,33n,0n,'bw',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 34:
       {
@@ -691,11 +692,11 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        return [0,34n,$t21,'be',ui_style_classify$edgeKey$nc9115(ctx_0,edge_39,length_40)];
+        return [0,34n,$t21,'be',ui_style_classify$edgeKey$htol58(ctx_0,edge_39,length_40)];
       }
     case 35:
       {
-        return [0,35n,0n,'bc',ui_style_classify$colorKey$nc9115(ctx_0,style_1[1])];
+        return [0,35n,0n,'bc',ui_style_classify$colorKey$htol58(ctx_0,style_1[1])];
       }
     case 36:
       {
@@ -727,7 +728,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 37:
       {
-        return [0,37n,0n,'r',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,37n,0n,'r',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 38:
       {
@@ -763,22 +764,22 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
         }
         const index_46=$t25[0];
         const name_47=$t25[1];
-        return [0,38n,index_46,'rc',$str_format(ctx_0,name_47+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,length_45))];
+        return [0,38n,index_46,'rc',$str_format(ctx_0,name_47+'-'+ui_style_classify$lengthKey$htol58(ctx_0,length_45))];
       }
     case 39:
       {
-        return [0,39n,0n,'op',ui_style_classify$numberKey$htol58(0,style_1[1])];
+        return [0,39n,0n,'op',ui_style_classify$numberKey$htol58(ctx_0,style_1[1])];
       }
     case 40:
       {
-        const text_86=ui_style_classify$shadowCss$nc9115(ctx_0,style_1[1]);
+        const text_86=ui_style_classify$shadowCss$htol58(ctx_0,style_1[1]);
         return [0,40n,0n,'sh',$str_format(ctx_0,'#'+text_86)];
       }
     case 41:
       {
         const layers_50=style_1[1];
         $share(layers_50);
-        const text_88=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$nc9115(c_51,layer_52)),0,',');
+        const text_88=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$htol58(c_51,layer_52)),ctx_0,',');
         return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_88)];
       }
     case 42:
@@ -817,7 +818,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 43:
       {
-        return [0,43n,0n,'fs',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,43n,0n,'fs',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 44:
       {
@@ -867,11 +868,11 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 46:
       {
-        return [0,46n,0n,'lh',ui_style_classify$numberKey$htol58(0,style_1[1])];
+        return [0,46n,0n,'lh',ui_style_classify$numberKey$htol58(ctx_0,style_1[1])];
       }
     case 47:
       {
-        return [0,47n,0n,'ls',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,47n,0n,'ls',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 48:
       {
@@ -972,7 +973,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
         let $t39;
         const $t40=lines_64>0n;
         if($t40){
-          $t39=ui_style_classify$integerKey$nc9115(ctx_0,lines_64);
+          $t39=ui_style_classify$integerKey$htol58(ctx_0,lines_64);
         }else if(!$t40){
           $t39='0';
         }else{
@@ -1073,12 +1074,12 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        return [0,55n,$t45,'bleed',ui_style_classify$edgeKey$nc9115(ctx_0,edge_67,length_68)];
+        return [0,55n,$t45,'bleed',ui_style_classify$edgeKey$htol58(ctx_0,edge_67,length_68)];
       }
     case 56:
       {
         const y_70=style_1[2];
-        return [0,56n,0n,'tr',$str_format(ctx_0,ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,y_70))];
+        return [0,56n,0n,'tr',$str_format(ctx_0,ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])+'-'+ui_style_classify$lengthKey$htol58(ctx_0,y_70))];
       }
     case 57:
       {
@@ -1108,11 +1109,11 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       }
     case 59:
       {
-        return [0,59n,0n,'bdblur',ui_style_classify$lengthKey$nc9115(ctx_0,style_1[1])];
+        return [0,59n,0n,'bdblur',ui_style_classify$lengthKey$htol58(ctx_0,style_1[1])];
       }
     case 60:
       {
-        return [0,60n,0n,'caret',ui_style_classify$colorKey$nc9115(ctx_0,style_1[1])];
+        return [0,60n,0n,'caret',ui_style_classify$colorKey$htol58(ctx_0,style_1[1])];
       }
     case 61:
       {
@@ -1138,7 +1139,7 @@ function ui_style_classify$declared$nc9115(ctx_0,style_1,state_2,screen_3){
       break;
   }
 }
-function ui_style_classify$atom$nc9115(ctx_0,variant_1,sub_2,state_3,screen_4,abbreviation_5,key_6){
+function ui_style_classify$atom$htol58(ctx_0,variant_1,sub_2,state_3,screen_4,abbreviation_5,key_6){
   return [((variant_1===41n?40n:variant_1)*5n+sub_2)*40n+(state_3+1n)*5n+screen_4+1n,$str_format(ctx_0,(screen_4===0n?'sm_':screen_4===1n?'md_':screen_4===2n?'lg_':screen_4===3n?'xl_':'')+(state_3===0n?'hover_':state_3===1n?'focus_':state_3===2n?'focuswithin_':state_3===3n?'active_':state_3===4n?'disabled_':state_3===5n?'checked_':state_3===6n?'invalid_':'')+abbreviation_5+'-'+key_6)];
 }
 function ui_style_classify$alignKey(align_0){
@@ -1178,17 +1179,17 @@ function ui_style_classify$alignKey(align_0){
       break;
   }
 }
-function ui_style_classify$integerKey$nc9115(ctx_0,n_1){
+function ui_style_classify$integerKey$htol58(ctx_0,n_1){
   const $t1=n_1<0n;
   if($t1){
-    return $str_format(ctx_0,'n'+$str_fromInt(0,0n-n_1));
+    return $str_format(ctx_0,'n'+$str_fromInt(ctx_0,0n-n_1));
   }else if(!$t1){
-    return $str_fromInt(0,n_1);
+    return $str_fromInt(ctx_0,n_1);
   }else{
     $abort('no arm matched');
   }
 }
-function ui_style_classify$edgeKey$nc9115(ctx_0,edge_1,length_2){
+function ui_style_classify$edgeKey$htol58(ctx_0,edge_1,length_2){
   let $t1;
   switch(edge_1){
     case 0:
@@ -1218,25 +1219,25 @@ function ui_style_classify$edgeKey$nc9115(ctx_0,edge_1,length_2){
       break;
   }
   const name_3=$t1;
-  return $str_format(ctx_0,name_3+'-'+ui_style_classify$lengthKey$nc9115(ctx_0,length_2));
+  return $str_format(ctx_0,name_3+'-'+ui_style_classify$lengthKey$htol58(ctx_0,length_2));
 }
-function ui_style_classify$lengthKey$nc9115(ctx_0,length_1){
+function ui_style_classify$lengthKey$htol58(ctx_0,length_1){
   switch(length_1[0]){
     case 0:
       {
-        return ui_style_classify$integerKey$nc9115(ctx_0,length_1[1]);
+        return ui_style_classify$integerKey$htol58(ctx_0,length_1[1]);
       }
     case 1:
       {
-        return $str_format(ctx_0,'r'+ui_style_classify$numberKey$htol58(0,length_1[1]));
+        return $str_format(ctx_0,'r'+ui_style_classify$numberKey$htol58(ctx_0,length_1[1]));
       }
     case 2:
       {
-        return $str_format(ctx_0,'e'+ui_style_classify$numberKey$htol58(0,length_1[1]));
+        return $str_format(ctx_0,'e'+ui_style_classify$numberKey$htol58(ctx_0,length_1[1]));
       }
     case 3:
       {
-        return $str_format(ctx_0,'pc'+ui_style_classify$numberKey$htol58(0,length_1[1]));
+        return $str_format(ctx_0,'pc'+ui_style_classify$numberKey$htol58(ctx_0,length_1[1]));
       }
     case 4:
       {
@@ -1256,24 +1257,24 @@ function ui_style_classify$lengthKey$nc9115(ctx_0,length_1){
 function ui_style_classify$numberKey$htol58(ctx_0,n_1){
   return $str_replace($str_replace(ui_style_classify$number$htol58(ctx_0,n_1),ctx_0,'.','_'),ctx_0,'-','n');
 }
-function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
+function ui_style_classify$colorKey$htol58(ctx_0,color_1){
   switch(color_1[0]){
     case 0:
       {
         const g_3=color_1[2];
         const b_4=color_1[3];
-        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_3)+ui_style_classify$hex$nc9115(ctx_0,b_4));
+        return $str_format(ctx_0,ui_style_classify$hex$htol58(ctx_0,color_1[1])+ui_style_classify$hex$htol58(ctx_0,g_3)+ui_style_classify$hex$htol58(ctx_0,b_4));
       }
     case 1:
       {
         const g_6=color_1[2];
         const b_7=color_1[3];
         const a_8=color_1[4];
-        return $str_format(ctx_0,ui_style_classify$hex$nc9115(ctx_0,color_1[1])+ui_style_classify$hex$nc9115(ctx_0,g_6)+ui_style_classify$hex$nc9115(ctx_0,b_7)+'a'+ui_style_classify$numberKey$htol58(0,a_8));
+        return $str_format(ctx_0,ui_style_classify$hex$htol58(ctx_0,color_1[1])+ui_style_classify$hex$htol58(ctx_0,g_6)+ui_style_classify$hex$htol58(ctx_0,b_7)+'a'+ui_style_classify$numberKey$htol58(ctx_0,a_8));
       }
     case 2:
       {
-        return ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1]);
+        return ui_style_classify$tokenKey$htol58(ctx_0,color_1[1]);
       }
     case 3:
       {
@@ -1286,7 +1287,7 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
     case 5:
       {
         const a_11=color_1[2];
-        return $str_format(ctx_0,ui_style_classify$tokenKey$nc9115(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$htol58(0,a_11));
+        return $str_format(ctx_0,ui_style_classify$tokenKey$htol58(ctx_0,color_1[1])+'a'+ui_style_classify$numberKey$htol58(ctx_0,a_11));
       }
     default:
       {
@@ -1295,21 +1296,21 @@ function ui_style_classify$colorKey$nc9115(ctx_0,color_1){
       break;
   }
 }
-function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
-  const offset_2=$str_format(ctx_0,ui_style_classify$lengthCss$nc9115(ctx_0,shadow_1[0])+' '+ui_style_classify$lengthCss$nc9115(ctx_0,shadow_1[1]));
-  const size_3=$str_format(ctx_0,ui_style_classify$lengthCss$nc9115(ctx_0,shadow_1[2])+' '+ui_style_classify$lengthCss$nc9115(ctx_0,shadow_1[3]));
+function ui_style_classify$shadowCss$htol58(ctx_0,shadow_1){
+  const offset_2=$str_format(ctx_0,ui_style_classify$lengthCss$htol58(ctx_0,shadow_1[0])+' '+ui_style_classify$lengthCss$htol58(ctx_0,shadow_1[1]));
+  const size_3=$str_format(ctx_0,ui_style_classify$lengthCss$htol58(ctx_0,shadow_1[2])+' '+ui_style_classify$lengthCss$htol58(ctx_0,shadow_1[3]));
   let $t1;
   const $t2=shadow_1[4];
   switch($t2[0]){
     case 0:
       {
-        $t1=$str_format(ctx_0,'rgb('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+')');
+        $t1=$str_format(ctx_0,'rgb('+ui_style_classify$channels$htol58(ctx_0,$t2[1],$t2[2],$t2[3])+')');
       }
       break;
     case 1:
       {
         const a_12=$t2[4];
-        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$nc9115(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$htol58(0,a_12)+')');
+        $t1=$str_format(ctx_0,'rgba('+ui_style_classify$channels$htol58(ctx_0,$t2[1],$t2[2],$t2[3])+','+ui_style_classify$number$htol58(ctx_0,a_12)+')');
       }
       break;
     case 2:
@@ -1331,7 +1332,7 @@ function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
     case 5:
       {
         const token_14=$t2[1];
-        const percent_16=ui_style_classify$number$htol58(0,$t2[2]*100);
+        const percent_16=ui_style_classify$number$htol58(ctx_0,$t2[2]*100);
         $t1=$str_format(ctx_0,'color-mix(in srgb,var(--'+token_14[0]+'-'+token_14[1]+') '+percent_16+'%,transparent)');
       }
       break;
@@ -1343,23 +1344,23 @@ function ui_style_classify$shadowCss$nc9115(ctx_0,shadow_1){
   }
   return $str_format(ctx_0,offset_2+' '+size_3+' '+$t1);
 }
-function ui_style_classify$lengthCss$nc9115(ctx_0,length_1){
+function ui_style_classify$lengthCss$htol58(ctx_0,length_1){
   switch(length_1[0]){
     case 0:
       {
-        return $str_format(ctx_0,$str_fromInt(0,length_1[1])+'px');
+        return $str_format(ctx_0,$str_fromInt(ctx_0,length_1[1])+'px');
       }
     case 1:
       {
-        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'rem');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(ctx_0,length_1[1])+'rem');
       }
     case 2:
       {
-        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'em');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(ctx_0,length_1[1])+'em');
       }
     case 3:
       {
-        return $str_format(ctx_0,ui_style_classify$number$htol58(0,length_1[1])+'%');
+        return $str_format(ctx_0,ui_style_classify$number$htol58(ctx_0,length_1[1])+'%');
       }
     case 4:
       {
@@ -1376,8 +1377,8 @@ function ui_style_classify$lengthCss$nc9115(ctx_0,length_1){
       break;
   }
 }
-function ui_style_classify$channels$nc9115(ctx_0,r_1,g_2,b_3){
-  return $str_format(ctx_0,$str_fromInt(0,r_1)+','+$str_fromInt(0,g_2)+','+$str_fromInt(0,b_3));
+function ui_style_classify$channels$htol58(ctx_0,r_1,g_2,b_3){
+  return $str_format(ctx_0,$str_fromInt(ctx_0,r_1)+','+$str_fromInt(ctx_0,g_2)+','+$str_fromInt(ctx_0,b_3));
 }
 function ui_style_classify$number$htol58(ctx_0,n_1){
   const text_2=$str_fromFloat(ctx_0,n_1);
@@ -1390,7 +1391,7 @@ function ui_style_classify$number$htol58(ctx_0,n_1){
     $abort('no arm matched');
   }
 }
-function ui_style_classify$hex$nc9115(ctx_0,n_1){
+function ui_style_classify$hex$htol58(ctx_0,n_1){
   const digits_2='0123456789abcdef';
   if(n_1>=0n&&n_1<256n){
     const high_3=$str_slice(digits_2,n_1/16n,n_1/16n+1n);
@@ -1400,9 +1401,9 @@ function ui_style_classify$hex$nc9115(ctx_0,n_1){
     return '?';
   }
 }
-function ui_style_classify$tokenKey$nc9115(ctx_0,token_1){
-  const $t1=ui_style_classify$plain$htol58(0,token_1[0]);
-  const $t2=[$t1,ui_style_classify$plain$htol58(0,token_1[1])];
+function ui_style_classify$tokenKey$htol58(ctx_0,token_1){
+  const $t1=ui_style_classify$plain$htol58(ctx_0,token_1[0]);
+  const $t2=[$t1,ui_style_classify$plain$htol58(ctx_0,token_1[1])];
   if($t2[0]&&$t2[1]){
     return $str_format(ctx_0,'t_'+token_1[0]+'_'+token_1[1]);
   }else{

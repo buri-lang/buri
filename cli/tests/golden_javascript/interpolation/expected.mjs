@@ -32,7 +32,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const joined_5=$str_format(ctx_1,'n='+String(n_3));
+  const joined_5=$str_format(0,'n='+String(n_3));
   const self_23=$host_HostStdout_println(ctx_1[1],joined_5+joined_5);
   let $t7;
   if(self_23[0]===0){

@@ -9,7 +9,7 @@ async function __cmd_x_main_buri$main(){
   return $k1;
 }
 function __cmd_x_main_buri$eager$l3wgis(ctx_0,n_1){
-  const text_5=$str_format(ctx_0,'['+String(n_1)+']');
+  const text_5=$str_format(0,'['+String(n_1)+']');
   const self_6=$host_HostStdout_println(ctx_0[1],text_5);
   if(self_6[0]===0){
     return 0;

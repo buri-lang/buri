@@ -1810,7 +1810,8 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-export fn showFirst<C: Allocator>(ctx: C, o: Option<Str>): Str {
+export fn showFirst<C: Allocator + Stdout>(ctx: C, o: Option<Str>): Str {
+  let _ = io.println(ctx, "shown").ignore();
   match (o) { .Some(v) => str.format(ctx, "S${v}"), .None => "N" }
 }
 
