@@ -129,14 +129,6 @@ impl Loading {
         &self.loaded
     }
 
-    /// What the opening's snapshot carried in, which every load starts with.
-    pub fn opening(&self) -> &[Diagnostic] {
-        self.diagnostics
-            .items
-            .get(..self.opening)
-            .unwrap_or_default()
-    }
-
     /// What loading reported, after the opening's own diagnostics.
     pub fn reported(&self) -> &[Diagnostic] {
         self.diagnostics
@@ -456,7 +448,8 @@ fn said(d: &Diagnostic) -> Said {
 ///   read it, so a test source that something also imports could come out
 ///   differently.
 /// - **Every diagnostic lands in a module's file**, which is how it is handed
-///   to the targets whose closure holds that module.
+///   to the targets whose closure holds that module. Every target holds the
+///   standard library modules each load opens with, so it gets theirs.
 pub fn shared(
     ws: &Workspace,
     map: &mut SourceMap,
@@ -535,7 +528,6 @@ pub fn shared(
         );
     }
 
-    let opening: crate::hash::Set<Said> = loading.opening().iter().map(said).collect();
     let analysis = match bodies {
         Checking::All => check_all(loading, Some(ws), map, true),
         Checking::Repository => check_programs(loading, Some(ws), map),
@@ -545,9 +537,7 @@ pub fn shared(
         module_of.insert(m.file, m.id);
     }
     for d in &analysis.diagnostics.items {
-        if !opening.contains(&said(d))
-            && (d.span.is_none() || !module_of.contains_key(&d.span.file))
-        {
+        if d.span.is_none() || !module_of.contains_key(&d.span.file) {
             return None;
         }
     }
@@ -557,10 +547,9 @@ pub fn shared(
             .items
             .iter()
             .filter(|d| {
-                opening.contains(&said(d))
-                    || module_of
-                        .get(&d.span.file)
-                        .is_some_and(|i| *share.holds.get(*i))
+                module_of
+                    .get(&d.span.file)
+                    .is_some_and(|i| *share.holds.get(*i))
             })
             .cloned()
             .collect();

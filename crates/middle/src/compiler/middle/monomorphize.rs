@@ -1570,7 +1570,9 @@ impl Monomorphizer<'_> {
     fn build_fn(&mut self, id: FnId, targs: Vec<Ty>, f: &mut Func) {
         let checked = self.checked;
         let info = checked.tables.fn_info(id);
-        if info.intrinsic {
+        // Checking gives every function a build reaches its body, so one
+        // without is an operation the runtime supplies.
+        let Some(body) = self.extracted.bodies.get(&id) else {
             let key = self.intrinsic_key(info, &targs);
             // The instantiated parameter types, which only the descriptor
             // choice below reads. They used to live on `Func` as a second
@@ -1649,10 +1651,6 @@ impl Monomorphizer<'_> {
                 let desc = self.descriptor(&t);
                 f.desc = Some(desc);
             }
-            return;
-        }
-        let Some(body) = self.extracted.bodies.get(&id) else {
-            // A trait method with no body and no impl: already diagnosed.
             return;
         };
         let mut b = typed::Body::clone(body);
