@@ -216,10 +216,11 @@ impl Monomorphizer<'_> {
         // A runtime operation, or a trait method with no body, which is already
         // diagnosed.
         let Some(body) = self.extracted.bodies.get(&f).filter(|_| !info.intrinsic) else {
-            let key = info
-                .intrinsic
-                .then(|| self.runtime_key(info))
-                .unwrap_or_default();
+            let key = if info.intrinsic {
+                self.runtime_key(info)
+            } else {
+                Default::default()
+            };
             let entry = runtime_table::entry(&key);
             // A list walk, which hands its context to its step or reads it
             // nowhere, and the open-coded operations that read it nowhere.
