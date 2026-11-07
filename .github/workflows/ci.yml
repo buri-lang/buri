@@ -175,7 +175,11 @@ jobs:
       # `cli/tests/` tomorrow runs on the day it is added.
       # `cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole` holds that, and
       # holds this to being a derivation rather than a list. `buri-rt-tests` is
-      # the runtime's unit tests (`runtime-tests`).
+      # the runtime's unit tests (`runtime-tests`). `website` is in the set
+      # because it adds no feature to `buri` that the set does not. On its own,
+      # `cargo test -p website` resolved `buri` without `test-hooks` and
+      # compiled it again: 60 s of each Linux leg and 178 s of macOS (run
+      # 42365863889).
       #
       # Every unit runs whatever happens — this is `--no-fail-fast` by
       # construction, since `xargs` starts what is queued regardless — and each
@@ -196,7 +200,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p target/units
-          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage -p buri-compiler-coverage --no-run --message-format=json-render-diagnostics \
+          cargo test -p buri-rt-tests -p buri -p buri-hash -p buri-stdlib -p buri-docs -p buri-diagnostics -p buri-syntax -p buri-project -p buri-semantics -p buri-middle -p buri-backend -p buri-js -p buri-stencil -p buri-stdlib-coverage -p buri-compiler-coverage -p website --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
           test -s target/units.txt
           slowest="$(grep -E '/language-[0-9a-f]+$' target/units.txt)"
@@ -211,7 +215,7 @@ jobs:
           wait "$first" || status=$?
           tail -n +1 -- target/units/*.log
           touch target/units.printed
-          cargo test -p buri --doc
+          cargo test -p buri -p website --doc
           exit "$status"
       - if: failure()
         name: The units' logs, when the suite was stopped
@@ -230,9 +234,6 @@ jobs:
         run: |
           cargo test -p buri-rt-tests
           cargo test -p buri --test native -- runtime:: float_parity::
-      # The last member of the workspace: `website` depends on `buri` by path,
-      # so it links the rlib the step above already built and costs seconds.
-      - run: cargo test -p website
       # The runtime's other feature, on one job of the whole workflow. `net-h3`
       # is off by default (`cli/runtime/manifest.toml` argues why); what has to
       # stay true is that it compiles, that the archive stays inside the same
