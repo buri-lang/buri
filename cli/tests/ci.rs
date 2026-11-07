@@ -799,6 +799,32 @@ fn the_release_build_keeps_its_measured_settings() {
     );
 }
 
+/// The nightly's PGO training runs its suites no wider than the machine.
+///
+/// Each suite run apart opens a pool of cases as wide as the machine, and six
+/// at once starved the 3-core macOS runner until it lost its connection (run
+/// 42387323533). One shared run name gives them one pool, and `xargs` starts
+/// at most a core's worth of suites.
+#[test]
+fn the_pgo_training_runs_no_wider_than_the_machine() {
+    let script = std::fs::read_to_string(repo_root().join(".github/pgo.sh")).unwrap();
+    let training: Vec<&str> = script
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#') && l.contains("xargs"))
+        .collect();
+    assert_eq!(training.len(), 1, "pgo.sh starts its suites in one `xargs`");
+    let line = training[0];
+    assert!(
+        line.contains("NEXTEST_RUN_ID="),
+        "pgo.sh's suites each open their own pool; give them one run name: {line}"
+    );
+    assert!(
+        line.contains("-P \"$cores\"") && script.contains("cores=$(getconf _NPROCESSORS_ONLN)"),
+        "pgo.sh starts more suites at once than the machine has cores: {line}"
+    );
+}
+
 /// The local runner's config only schedules tests: it never kills, retries or
 /// filters one.
 ///
