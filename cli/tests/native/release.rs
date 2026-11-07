@@ -90,6 +90,45 @@ fn a_program_fans_out_wide_values_on_the_host() {
     );
 }
 
+/// **A release program prints the same at each LLVM level `BURI_LLVM_OPT`
+/// picks**, built one after another in one repository, so no level is served
+/// another's objects. The instruction-count gate measures these levels
+/// (design/PERFORMANCE.md §9).
+#[test]
+fn a_release_program_runs_the_same_at_every_llvm_level() {
+    skip_unless_executable!();
+    let repo = scratch("levels");
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
+        &repo,
+    );
+    for level in ["0", "1", "2"] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+        cmd.current_dir(&repo).env("BURI_LLVM_OPT", level).args([
+            "run",
+            "--release",
+            "//cmd/fanout",
+            "--explain",
+        ]);
+        let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+        let explained: Vec<&str> = ran.stdout.lines().collect();
+        assert_eq!(
+            (ran.status, explained.last().copied()),
+            (0, Some("a2 b5 c8")),
+            "BURI_LLVM_OPT={level}: {}\n{}",
+            ran.stdout,
+            ran.stderr
+        );
+        assert!(
+            explained
+                .iter()
+                .any(|l| l.starts_with("run ") && l.contains(" link //cmd/fanout ")),
+            "BURI_LLVM_OPT={level} linked nothing new:\n{}",
+            ran.stdout
+        );
+    }
+}
+
 /// **A program fans a context that owns a count out over the host's
 /// threads**, and every task's count on it is given back.
 #[test]

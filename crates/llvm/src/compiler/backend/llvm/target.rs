@@ -77,10 +77,30 @@ pub fn machine(triple_text: &str, profile: Profile) -> Result<TargetMachine, Str
 /// `-O0` in debug and `-O2` in release, for the *machine*'s own choices
 /// (register allocation, scheduling). The IR-level pipeline is [`optimize`].
 fn optimization(profile: Profile) -> OptimizationLevel {
-    match profile {
-        Profile::Debug => OptimizationLevel::None,
-        Profile::Release => OptimizationLevel::Default,
+    match (profile, release_level()) {
+        (Profile::Debug, _) | (Profile::Release, 0) => OptimizationLevel::None,
+        (Profile::Release, 1) => OptimizationLevel::Less,
+        (Profile::Release, _) => OptimizationLevel::Default,
     }
+}
+
+/// The variable that sets a release build's LLVM level.
+pub const LEVEL_VARIABLE: &str = "BURI_LLVM_OPT";
+
+/// A release build's LLVM level: `2`, or `0` or `1` when [`LEVEL_VARIABLE`]
+/// says so.
+///
+/// It's for measurement only: the instruction-count gate builds its programs
+/// at `-O0` to hold the stencil backend to them (design/PERFORMANCE.md §9).
+/// The level is part of [`Llvm`](super::Llvm)'s identity, so an object built
+/// at one level is never served to a build at another.
+pub fn release_level() -> u8 {
+    static LEVEL: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *LEVEL.get_or_init(|| match std::env::var(LEVEL_VARIABLE).as_deref() {
+        Ok("0") => 0,
+        Ok("1") => 1,
+        _ => 2,
+    })
 }
 
 /// The pass pipeline: `default<O2>`, as a pipeline string.
@@ -120,13 +140,15 @@ pub fn optimize(
     // No `verify_each`. `mod.rs` verifies our IR once, before this, in a
     // developer build. Verifying after every pass checks LLVM's passes rather
     // than our IR, and it made `opt` seven times the work on `mixed-10k`.
-    let pipeline = match profile {
-        Profile::Release => "default<O2>",
+    let pipeline = match (profile, release_level()) {
+        (Profile::Release, 0) => "default<O0>",
+        (Profile::Release, 1) => "default<O1>",
+        (Profile::Release, _) => "default<O2>",
         // A debug build still runs a pipeline, because this backend is only
         // ever selected for `--release` (`backend::select`) — the string is
         // here so that a debug run of the emitter for a *test* produces IR a
         // human can read against the source.
-        Profile::Debug => "default<O0>",
+        (Profile::Debug, _) => "default<O0>",
     };
     module
         .run_passes(pipeline, machine, options)

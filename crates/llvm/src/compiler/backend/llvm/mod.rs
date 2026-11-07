@@ -142,6 +142,12 @@ impl Backend for Llvm {
     fn identity(&self) -> String {
         let (major, minor, patch) = inkwell::support::get_llvm_version();
         let mut id = format!("llvm {major}.{minor}.{patch} inkwell 0.10");
+        // Only a level other than the default names itself, so the default
+        // build's key stays where it was.
+        let level = target::release_level();
+        if level != 2 {
+            id.push_str(&format!(" O{level}"));
+        }
         // Derived from the platform list rather than written out beside it, so
         // that a fifth platform cannot leave this naming four. The
         // JavaScript ones render no triple and drop out here, which is the

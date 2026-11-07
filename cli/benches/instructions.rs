@@ -6,6 +6,7 @@
 //! cargo bench -p buri --features backend-llvm --bench instructions -- --bless    # rewrite the baseline
 //! cargo bench -p buri --features backend-llvm --bench instructions -- --runs=3   # and show the spread
 //! cargo bench -p buri --features backend-llvm --bench instructions -- run/       # only names containing `run/`
+//! cargo bench -p buri --features backend-llvm --bench instructions -- --levels   # stencils against LLVM's levels
 //! ```
 //!
 //! Linux only. Every measured process is pinned to one core, so the compiler
@@ -70,6 +71,10 @@ fn main() {
         std::process::exit(2);
     }
     let gate = Gate::new();
+    if args.iter().any(|a| a == "--levels") {
+        let passed = levels(&gate, &filter);
+        std::process::exit(i32::from(!passed));
+    }
     let arch = std::env::consts::ARCH;
     let toolchain = toolchain();
 
@@ -171,8 +176,8 @@ struct Gate {
     buri: PathBuf,
     taskset: PathBuf,
     valgrind: PathBuf,
-    /// The release builds of [`PROGRAMS`], made once and run by each `run/` workload.
-    built: std::cell::OnceCell<PathBuf>,
+    /// The builds of [`PROGRAMS`], one per [`Level`] asked for, made once each.
+    built: std::cell::RefCell<BTreeMap<&'static str, PathBuf>>,
 }
 
 impl Gate {
@@ -199,7 +204,7 @@ impl Gate {
             buri: PathBuf::from(env!("CARGO_BIN_EXE_buri")),
             taskset: need("taskset"),
             valgrind: need("valgrind"),
-            built: std::cell::OnceCell::new(),
+            built: std::cell::RefCell::default(),
         };
         // The first native build on a machine records the linker's identity
         // and its command under `~/.buri`. A user pays that once, so no
@@ -209,7 +214,7 @@ impl Gate {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/instructions/programs"),
             &prime,
         );
-        gate.unmeasured(&gate.buri, &["build", "//..."], &prime);
+        gate.unmeasured(&gate.buri, &["build", "//..."], &prime, &[]);
         gate
     }
 
@@ -248,7 +253,7 @@ impl Gate {
             ),
             "test/one-edit" => {
                 let repo = fresh(&benches.join("instructions/tested"));
-                self.unmeasured(buri, &["test", "//..."], &repo);
+                self.unmeasured(buri, &["test", "//..."], &repo, &[]);
                 let file = repo.join("lib/money/test/cents.buri");
                 let text = std::fs::read_to_string(&file).unwrap();
                 std::fs::write(&file, text + EDIT).unwrap();
@@ -258,20 +263,34 @@ impl Gate {
                 let program = name
                     .strip_prefix("run/")
                     .unwrap_or_else(|| panic!("no workload {name}"));
-                let built = self.built.get_or_init(|| {
-                    let repo = Path::new(ROOT).join("work/programs-release");
-                    copy(&benches.join("instructions/programs"), &repo);
-                    self.unmeasured(buri, &["build", "--release", "//..."], &repo);
-                    repo.join(".buri/out/native").join(host_variant())
-                });
-                self.counted(
-                    name,
-                    &built.join(program).join(program),
-                    &[],
-                    Path::new(ROOT),
-                )
+                self.run_program(name, &RELEASE, program)
             }
         }
+    }
+
+    /// Counts `program` from [`PROGRAMS`] as `level` builds it.
+    fn run_program(&self, name: &str, level: &Level, program: &str) -> u64 {
+        let built = self
+            .built
+            .borrow_mut()
+            .entry(level.name)
+            .or_insert_with(|| {
+                let repo = Path::new(ROOT).join(format!("work/programs-{}", level.name));
+                let benches = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches");
+                copy(&benches.join("instructions/programs"), &repo);
+                let mut args = vec!["build"];
+                args.extend(level.flags);
+                args.push("//...");
+                self.unmeasured(&self.buri, &args, &repo, level.env);
+                repo.join(".buri/out/native").join(host_variant())
+            })
+            .clone();
+        self.counted(
+            name,
+            &built.join(program).join(program),
+            &[],
+            Path::new(ROOT),
+        )
     }
 
     /// Runs `program` under cachegrind, on one core, and returns the
@@ -290,7 +309,7 @@ impl Gate {
         argv.push(format!("--cachegrind-out-file={}", out.display()).into());
         argv.push(program.into());
         argv.extend(args.iter().map(OsString::from));
-        let ran = run(&self.taskset, &argv, cwd);
+        let ran = run(&self.taskset, &argv, cwd, &[]);
         // `buri lint` exits 1 when it has findings, and the generated corpus has some.
         if !(name.starts_with("lint/") && ran.status.code() == Some(1)) {
             checked(ran, name);
@@ -304,18 +323,107 @@ impl Gate {
     }
 
     /// Setup: the same pinning and environment, without the count.
-    fn unmeasured(&self, program: &Path, args: &[&str], cwd: &Path) {
+    fn unmeasured(&self, program: &Path, args: &[&str], cwd: &Path, env: &[(&str, &str)]) {
         let mut argv: Vec<OsString> = vec!["--cpu-list".into(), "0".into(), program.into()];
         argv.extend(args.iter().map(OsString::from));
         checked(
-            run(&self.taskset, &argv, cwd),
+            run(&self.taskset, &argv, cwd, env),
             &format!("{} {}", program.display(), args.join(" ")),
         );
     }
 }
 
+/// One way of building [`PROGRAMS`]: `buri build`'s flags and the environment
+/// it gets.
+struct Level {
+    name: &'static str,
+    flags: &'static [&'static str],
+    env: &'static [(&'static str, &'static str)],
+}
+
+/// What `run/` measures: `--release`, which is LLVM at its default level.
+const RELEASE: Level = Level {
+    name: "release",
+    flags: &["--release"],
+    env: &[],
+};
+
+/// What `--levels` compares: the debug build's stencils, LLVM at `-O0` and
+/// `-O1` through `BURI_LLVM_OPT`, and the release build.
+const LEVELS: [Level; 4] = [
+    Level {
+        name: "stencil",
+        flags: &[],
+        env: &[],
+    },
+    Level {
+        name: "O0",
+        flags: &["--release"],
+        env: &[("BURI_LLVM_OPT", "0")],
+    },
+    Level {
+        name: "O1",
+        flags: &["--release"],
+        env: &[("BURI_LLVM_OPT", "1")],
+    },
+    RELEASE,
+];
+
+/// `--levels`: each program's count at every one of [`LEVELS`], worst
+/// stencil-to-`-O0` ratio first. Fails when a stencil build runs more
+/// instructions than LLVM's `-O0` build of the same program.
+fn levels(gate: &Gate, filter: &str) -> bool {
+    let mut rows: Vec<(&str, Vec<u64>)> = PROGRAMS
+        .iter()
+        .filter(|p| p.contains(filter))
+        .map(|&program| {
+            let counts = LEVELS
+                .iter()
+                .map(|level| {
+                    let name = format!("{}/{program}", level.name);
+                    let count = gate.run_program(&name, level, program);
+                    eprintln!("measured {name}: {count}");
+                    count
+                })
+                .collect();
+            (program, counts)
+        })
+        .collect();
+    let ratio = |counts: &[u64], of: usize| counts[0] as f64 / counts[of] as f64;
+    rows.sort_by(|a, b| ratio(&b.1, 1).total_cmp(&ratio(&a.1, 1)));
+    println!(
+        "{:<8} {:>14} {:>14} {:>14} {:>14} {:>11} {:>11}",
+        "program", "stencil", "-O0", "-O1", "release", "stencil/O0", "stencil/O1"
+    );
+    let mut over = Vec::new();
+    for (program, counts) in &rows {
+        let mark = if counts[0] > counts[1] {
+            over.push(*program);
+            "  OVER -O0"
+        } else {
+            ""
+        };
+        println!(
+            "{program:<8} {:>14} {:>14} {:>14} {:>14} {:>11.3} {:>11.3}{mark}",
+            counts[0],
+            counts[1],
+            counts[2],
+            counts[3],
+            ratio(counts, 1),
+            ratio(counts, 2)
+        );
+    }
+    if !over.is_empty() {
+        println!(
+            "\nThe stencil build runs more instructions than LLVM's -O0 build of: {}",
+            over.join(", ")
+        );
+    }
+    over.is_empty()
+}
+
 /// One environment for every process the gate starts, whatever the shell's.
-fn run(program: &Path, args: &[OsString], cwd: &Path) -> Output {
+fn run(program: &Path, args: &[OsString], cwd: &Path, env: &[(&str, &str)]) -> Output {
     let root = Path::new(ROOT);
     Command::new(program)
         .args(args)
@@ -324,6 +432,7 @@ fn run(program: &Path, args: &[OsString], cwd: &Path) -> Output {
         .env("PATH", root.join("bin"))
         .env("HOME", root.join("home"))
         .env("CC", root.join("bin/cc"))
+        .envs(env.iter().copied())
         .output()
         .unwrap_or_else(|e| panic!("cannot start {}: {e}", program.display()))
 }

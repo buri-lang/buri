@@ -8847,6 +8847,28 @@ commit the `aarch64` lines; CI checks x86_64 only.
 - `-- --runs=3` measures each workload three times and reports the spread.
 - `-- run/` runs only the workloads whose names contain `run/`.
 
+### Stencils against LLVM's levels
+
+A debug build's stencils should run no more instructions than LLVM's `-O0`
+build of the same program, and ideally no more than `-O1`'s:
+
+```text
+nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions -- --levels
+```
+
+```text
+program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
+sort         2169204279     1542149937      279617144      316375673       1.407       7.758  OVER -O0
+maps         2835007060     3034942898     1981808264     1980619887       0.934       1.431
+```
+
+- It counts each program four ways: `buri build`, `--release` with
+  `BURI_LLVM_OPT=0` and with `BURI_LLVM_OPT=1`, and plain `--release`, which is
+  `-O2`. `BURI_LLVM_OPT` exists only for this.
+- It fails when any program's stencil count is over its `-O0` count. It isn't
+  in CI yet, because some programs are.
+- It reads no baseline, so it runs on any architecture.
+
 ### Why x86_64 only
 
 Valgrind's amd64 port shows the program one of a few fixed CPUs, so glibc and
