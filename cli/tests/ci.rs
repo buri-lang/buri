@@ -2673,3 +2673,137 @@ fn executable_under(dir: &Path) -> Option<PathBuf> {
     }
     found
 }
+
+/// **A toolchain build reuses the runtime another build compiled, unless
+/// something the runtime is compiled from changed.**
+///
+/// `cli/build.rs` compiles the runtime archive with a cargo of its own, and
+/// that build is the critical path of a cold toolchain build. A second checkout,
+/// a second profile or a second shell should reuse the archive, so a terminal,
+/// a shell or an agent session that differs only in its own variables must not
+/// pay for it again. A changed C flag must.
+///
+/// The script is run the way cargo runs it, from a package of its own, with
+/// `BURI_RUNTIME_CARGO` naming a stand-in that records each compile. Each build
+/// gets a fresh target directory and the same home, which is how two checkouts
+/// on one machine meet.
+#[test]
+fn a_toolchain_build_reuses_the_runtime_unless_its_inputs_changed() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = repo_root();
+    let fixture = Path::new(env!("CARGO_TARGET_TMPDIR")).join("toolchain-build-reuse");
+    let _ = std::fs::remove_dir_all(&fixture);
+    let pkg = fixture.join("pkg");
+    std::fs::create_dir_all(pkg.join("src")).unwrap();
+    std::fs::write(pkg.join("src/lib.rs"), "").unwrap();
+    std::fs::copy(root.join("cli/build.rs"), pkg.join("build.rs")).unwrap();
+    std::os::unix::fs::symlink(root.join("cli/runtime"), pkg.join("runtime")).unwrap();
+    std::fs::write(
+        pkg.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"toolchain-build\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+             [build-dependencies]\nburi-hash = {{ path = {:?} }}\n\n[workspace]\n",
+            root.join("crates/hash")
+        ),
+    )
+    .unwrap();
+
+    // The stand-in answers what the script asks of a cargo: its version, a
+    // fetch, and a compile, which it records and answers with an archive where
+    // cargo would leave one.
+    let log = fixture.join("compiles.log");
+    let stand_in = fixture.join("cargo");
+    std::fs::write(
+        &stand_in,
+        format!(
+            "#!/bin/sh\n\
+             case \"$1\" in\n\
+             -V) echo 'cargo 0.0.0 (stand-in)' ;;\n\
+             rustc)\n\
+             \x20 echo compiled >> '{}'\n\
+             \x20 while [ $# -gt 0 ]; do\n\
+             \x20   case \"$1\" in --target) target=$2 ;; --target-dir) dir=$2 ;; esac\n\
+             \x20   shift\n\
+             \x20 done\n\
+             \x20 mkdir -p \"$dir/$target/release/deps\"\n\
+             \x20 printf runtime > \"$dir/$target/release/deps/libburi_rt.a\" ;;\n\
+             esac\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&stand_in, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // A home of the test's own, so that no archive an earlier build on this
+    // machine kept is reused. Cargo and rustup keep the real ones, so that the
+    // toolchain running this test is the one that builds.
+    let real_home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let cargo_home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| real_home.join(".cargo"));
+    let rustup_home = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| real_home.join(".rustup"));
+    let home = fixture.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"));
+    let mut builds = 0;
+    // Builds the package in a fresh target directory and answers how many
+    // runtime compiles there have been so far.
+    let mut build = |args: &[&str], env: &[(&str, &str)]| -> usize {
+        builds += 1;
+        let out = std::process::Command::new(&cargo)
+            .arg("build")
+            .arg("--offline")
+            .args(args)
+            .current_dir(&pkg)
+            .env("CARGO_TARGET_DIR", fixture.join(format!("target-{builds}")))
+            .env("HOME", &home)
+            .env("CARGO_HOME", &cargo_home)
+            .env("RUSTUP_HOME", &rustup_home)
+            .env("BURI_RUNTIME_CARGO", &stand_in)
+            .env("BURI_RUNTIME_NET", "0")
+            .env("BURI_RUNTIME_CRYPTO", "0")
+            .envs(env.iter().copied())
+            .capped_output()
+            .expect("cargo could not be run");
+        assert!(
+            out.status.success(),
+            "the toolchain build failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+
+    assert_eq!(build(&[], &[]), 1, "the first build compiled no runtime");
+    assert_eq!(
+        build(
+            &[],
+            &[
+                ("PWD", "/elsewhere"),
+                ("SHLVL", "7"),
+                ("TERM_PROGRAM", "another-terminal"),
+                ("WINDOWID", "42"),
+                ("AGENT_SESSION_ID", "another-session"),
+            ],
+        ),
+        1,
+        "a build that differs only in variables the runtime is not compiled from compiled the \
+         runtime again"
+    );
+    assert_eq!(
+        build(&["--release"], &[]),
+        1,
+        "a release build of the toolchain compiled the runtime again, though the runtime is \
+         compiled with one profile whichever profile the toolchain is built with"
+    );
+    assert_eq!(
+        build(&[], &[("CFLAGS", "-DBURI_TEST_FLAG")]),
+        2,
+        "a build with different C flags reused a runtime compiled without them"
+    );
+}

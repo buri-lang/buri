@@ -88,8 +88,8 @@
 //!   `libburi_rt.a.stamp` is a digest of everything the nested build reads,
 //!   written beside the archive after a build that succeeded and compared
 //!   before the next one: the sources, the assembled package, the toolchain,
-//!   the C compiler, the target, the features, the baked sysroot, the whole
-//!   environment the nested cargo will inherit, its command line, and this
+//!   the C compiler, the target, the features, the baked sysroot, the
+//!   environment the nested cargo is given (it is given no other), its command line, and this
 //!   script's own bytes. `stamp_of` is where the list is argued, and the rule
 //!   it is built on is that a term nobody can enumerate confidently abandons
 //!   the stamp rather than being left out of it — a stale archive is a
@@ -171,7 +171,7 @@
 //!   PIE's problem — and the 64-bit absolute relocations only in
 //!   `.data.rel.ro`, which is the section a PIE turns into `R_*_RELATIVE`.
 //!   Rust's musl targets set `static_position_independent_executables` and the
-//!   object files agree, so `nested`'s empty `RUSTFLAGS` stays empty.
+//!   object files agree, so `nested` passes no `RUSTFLAGS`.
 //!
 //! * **A dependency tree that cannot be resolved degrades; one that cannot be
 //!   compiled does not.** The second half of the same clause, and the two
@@ -860,11 +860,17 @@ fn copy_tree(from: &Path, to: &Path) {
     }
 }
 
-/// A `cargo` for the assembled package, with the parent invocation's state
-/// taken out of its environment.
+/// A `cargo` for the assembled package, given only the variables [`passed`]
+/// names and none of the parent invocation's state.
 ///
-/// **Every `CARGO_*` variable but one, removed.** A build script runs inside a
-/// cargo invocation and inherits its whole state: `CARGO_ENCODED_RUSTFLAGS`
+/// **The environment is cleared, then filled from a list.** That makes the
+/// stamp exact: a variable the nested build never sees cannot reach the
+/// archive, so the stamp hashes what the child is given and nothing else
+/// ([`hash_environment`]). A terminal's, a shell's or an agent session's own
+/// variables then cost no rebuild without anyone having to list them.
+///
+/// **No `CARGO_*` variable but `CARGO_HOME` is passed.** A build script runs
+/// inside a cargo invocation and inherits its state: `CARGO_ENCODED_RUSTFLAGS`
 /// would silently outrank `RUSTFLAGS` (it is the one Cargo reads first),
 /// `CARGO_MAKEFLAGS` hands over a jobserver whose tokens this process is
 /// holding, and `CARGO_TARGET_DIR` would point the nested build at the
@@ -877,17 +883,15 @@ fn copy_tree(from: &Path, to: &Path) {
 /// `CARGO_HOME` is the exception, and it is deliberate: it is not build state,
 /// it is *where cargo lives*. A sandboxed build — `nix build`'s
 /// `buildRustPackage` is the one that matters here — points it at a writable
-/// vendored directory precisely because `$HOME` is not writable, so clearing it
-/// would turn a hermetic build into a failure. It cannot cause the deadlock
-/// this loop exists to prevent: it names no target directory and carries no
-/// jobserver.
+/// vendored directory precisely because `$HOME` is not writable, so withholding
+/// it would turn a hermetic build into a failure. It cannot cause the deadlock
+/// above: it names no target directory and carries no jobserver.
 ///
-/// `RUSTFLAGS` is **emptied** rather than left alone. A contributor's ambient
-/// flags would make the archive a different archive on every machine, and the
-/// flags this build does need go to the runtime crate alone
-/// ([`RUNTIME_RUSTC_ARGS`]).
+/// **No `RUSTFLAGS` is passed either.** A contributor's ambient flags would
+/// make the archive a different archive on every machine, and the flags this
+/// build does need go to the runtime crate alone ([`RUNTIME_RUSTC_ARGS`]).
 ///
-/// **It stays empty for the musl build, and that is a measurement rather than
+/// **None for the musl build either, and that is a measurement rather than
 /// an oversight.** `-static-pie` is the point of the musl product triple, and
 /// the obvious worry is that it needs `-Crelocation-model=pic` pinned here —
 /// which would sit awkwardly with the rule above, since a flag pinned as a
@@ -902,14 +906,13 @@ fn copy_tree(from: &Path, to: &Path) {
 /// reproducibility, and a flag this file chooses is reproducible.
 fn nested(cargo: &str, rustc: &str) -> Command {
     let mut command = Command::new(cargo);
-    for (name, _) in std::env::vars() {
-        if name.starts_with("CARGO_") && name != "CARGO_HOME" {
-            command.env_remove(&name);
+    command.env_clear();
+    for (name, value) in std::env::vars_os() {
+        if name.to_str().is_some_and(passed) {
+            command.env(name, value);
         }
     }
-    command.env_remove("CARGO");
     command.env("RUSTC", rustc);
-    command.env("RUSTFLAGS", "");
     command
 }
 
@@ -984,8 +987,8 @@ const STAMP: &str = "buri-runtime-stamp 2";
 /// * **Anything that could reach the bytes is a term.** The runtime's sources,
 ///   the assembled package (manifest and lockfile included), the compiler and
 ///   `cargo` that will run, the C compiler `ring` compiles through, the target
-///   triple, the feature set, the baked sysroot's digest, the whole environment
-///   the nested `cargo` will inherit, its command line, and the bytes of this
+///   triple, the feature set, the baked sysroot's digest, the environment
+///   the nested `cargo` is given (it is given no other), its command line, and the bytes of this
 ///   script and of the hash it shares with the toolchain.
 /// * **Anything that cannot be enumerated confidently abandons the stamp.** A
 ///   directory that will not list, a file that will not read, a `rustc` that
@@ -1162,107 +1165,130 @@ fn tool_version(program: &str, args: &[&str]) -> Option<String> {
     String::from_utf8(out.stdout).ok()
 }
 
-/// Hashes the environment the nested `cargo` will actually see.
+/// Hashes the variables the nested `cargo` is given.
 ///
-/// Computed rather than listed, and that is the whole point. A build script
-/// inherits its parent invocation's environment, and cargo, rustc and `cc-rs`
-/// between them read a set of variables nobody can enumerate confidently —
-/// `RUSTC_WRAPPER`, `CARGO_HOME`, `PATH`, `SDKROOT`, `AR`, `CFLAGS`, and
-/// whatever the next release adds. So the term is the child's *whole*
-/// environment: this process's variables, with [`nested`]'s removals and
-/// overrides applied, exactly as `Command` will apply them.
-///
-/// The cost is a stamp that misses when something irrelevant moves — a
-/// different `-j` in `NUM_JOBS`, a `CARGO_HOME` that was spelled two ways. That
-/// costs one nested build, which is what every build cost before this existed.
-/// The alternative cost is an input nobody thought of and an archive that is
-/// silently the wrong one, and those two are not the same size.
-///
-/// [`SHELL_BOOKKEEPING`] is the one concession, and it is a short list for a
-/// reason.
+/// [`nested`] clears the child's environment and passes only what [`passed`]
+/// names, so `get_envs` is the whole of what the child sees. Every one of them
+/// is hashed except [`UNKEYED`], which reach the build without reaching its
+/// output.
 fn hash_environment(h: &mut sha256::Sha256, command: &Command, out_dir: &Path) {
-    use std::collections::BTreeMap;
-    use std::ffi::OsString;
-    let mut env: BTreeMap<OsString, Option<OsString>> =
-        std::env::vars_os().map(|(k, v)| (k, Some(v))).collect();
-    for (key, value) in command.get_envs() {
-        env.insert(key.to_owned(), value.map(|v| v.to_owned()));
-    }
+    let mut env: Vec<_> = command
+        .get_envs()
+        .filter_map(|(key, value)| Some((key, value?)))
+        .filter(|(key, _)| !key.to_str().is_some_and(|key| UNKEYED.contains(&key)))
+        .collect();
+    env.sort();
     h.text("env");
     for (key, value) in env {
-        let Some(value) = value else { continue };
-        let skip = SHELL_BOOKKEEPING
-            .iter()
-            .chain(SET_FOR_EVERY_SCRIPT)
-            .chain(SCRATCH);
-        if skip.into_iter().any(|name| key == *name) {
-            continue;
-        }
         h.field(key.as_encoded_bytes());
-        h.field(&portable(&value, out_dir));
+        h.field(&portable(value, out_dir));
     }
 }
 
-/// What Cargo sets for every build script it runs. The nested cargo sets its
-/// own for each script it runs and reads none of these itself, so they reach
-/// nothing. Leaving them out lets a test build and a dev build share a key.
-const SET_FOR_EVERY_SCRIPT: &[&str] = &[
-    "OUT_DIR",
-    "TARGET",
-    "HOST",
-    "NUM_JOBS",
-    "OPT_LEVEL",
-    "DEBUG",
-    "PROFILE",
+/// Whether the nested build is given `name` from this process's environment.
+///
+/// Everything else is withheld, so every variable here is one the build needs
+/// in order to run or one that decides what it produces. All of them but
+/// [`UNKEYED`] are in the stamp, and the reason each one is passed is the
+/// reason it is a key.
+fn passed(name: &str) -> bool {
+    KEYED.contains(&name)
+        || UNKEYED.contains(&name)
+        || c_toolchain(name)
+        || (name.starts_with("NIX_") && !NIX_WITHHELD.contains(&name))
+}
+
+/// Passed and hashed, each for a reason of its own.
+const KEYED: &[&str] = &[
+    // Where cargo finds the linker for the dependencies' build scripts, and
+    // where `cc-rs` finds `cc` and `ar` for `ring` when nothing names them.
+    "PATH",
+    // Where the dependencies are unpacked: `CARGO_HOME`, which defaults to a
+    // directory under `HOME`. Their absolute paths are in the archive, in the
+    // panic locations rustc bakes into the dependencies.
+    "HOME",
+    "CARGO_HOME",
+    // Which toolchain answers when `cargo` or `rustc` is a rustup proxy.
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+    // A program in front of every `rustc` call. It is usually sccache, but
+    // whatever it is stands between the sources and the bytes.
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    // Which SDK the macOS compiler and linker use, and the oldest macOS the
+    // objects say they run on.
+    "SDKROOT",
+    "DEVELOPER_DIR",
+    "MACOSX_DEPLOYMENT_TARGET",
+    // The timestamps the C compiler and the archiver write into objects.
+    // `nix develop` sets both.
+    "SOURCE_DATE_EPOCH",
+    "ZERO_AR_DATE",
 ];
 
-/// Scratch directories. `nix develop` names a fresh one on every invocation,
-/// so hashing them made every rerun of this script a nested build. Compilers
-/// write temporary files there and nothing from it reaches the archive.
-const SCRATCH: &[&str] = &["TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"];
-
-/// The variables [`hash_environment`] leaves out, and the whole of the
-/// judgement in this file that is not "hash it".
-///
-/// Each one is written by the *shell* or the terminal rather than by a build,
-/// each changes between two invocations that are identical in every way that
-/// matters, and none of them is read by `cargo`, by `rustc` or by `cc-rs`:
-///
-/// * `_` is the shell's record of the last argument, rewritten before every
-///   command; `SHLVL` is how deep the shell is nested. A `cargo build` typed in
-///   a terminal and the same `cargo build` from a script differ in both, which
-///   without this list is a twenty-second rebuild for the difference between
-///   two shells.
-/// * `PWD` and `OLDPWD` are the shell's record of where it stands. The child's
-///   actual working directory is inherited from this process, which Cargo has
-///   already set to the package root; these two are a description of the
-///   *parent's* and reach nothing.
-/// * `TERM`, `TERM_SESSION_ID`, `COLUMNS`, `LINES` and `SSH_TTY` describe the
-///   terminal. They decide whether Cargo colours its own output and nothing
-///   else; a new window changes them.
-/// * `out` is where `nix develop` would install a `nix build` of this
-///   checkout: `<checkout>/outputs/out`. Only the stdenv's own install phase
-///   reads it, and nothing here runs that phase. Hashing it gave every
-///   checkout its own key, so a new worktree couldn't reuse an archive another
-///   one built ([`SharedArchive`]).
-///
-/// The list errs towards being too short rather than too long: every variable
-/// not named here is hashed, including ones that are probably irrelevant.
-/// Being wrong about one of these is an archive built with the wrong flags and
-/// a stamp that says it is fine — so a name only belongs here when it can be
-/// argued to reach *nothing*, not merely when it looks harmless.
-const SHELL_BOOKKEEPING: &[&str] = &[
-    "_",
-    "SHLVL",
-    "PWD",
-    "OLDPWD",
-    "TERM",
-    "TERM_SESSION_ID",
-    "COLUMNS",
-    "LINES",
-    "SSH_TTY",
-    "out",
+/// Passed and not hashed, because neither kind can change a byte of the
+/// archive.
+const UNKEYED: &[&str] = &[
+    // Scratch directories. `nix develop` names a fresh one for every shell.
+    // Compilers write temporary files there and nothing from it reaches the
+    // archive.
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "TEMPDIR",
+    // Downloads only. The lockfile pins every dependency and cargo checks
+    // each download against its checksum, so how a crate arrived cannot change
+    // what it compiles to.
+    "http_proxy",
+    "HTTP_PROXY",
+    "https_proxy",
+    "HTTPS_PROXY",
+    "all_proxy",
+    "ALL_PROXY",
+    "no_proxy",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
 ];
+
+/// The C compiler and archiver `cc-rs` drives for `ring`, the linker for the
+/// dependencies' build scripts, and their flags. Each is passed bare (`CC`),
+/// per target (`CC_aarch64_unknown_linux_musl`) and per side (`TARGET_CC`,
+/// `HOST_CFLAGS`), the spellings `cc-rs` reads. `flake.nix` sets the
+/// per-target pair for the musl build, and [`musl_cc_env`] sets it when
+/// nothing else has.
+const C_TOOLCHAIN: &[&str] = &[
+    "CC",
+    "CXX",
+    "AR",
+    "RANLIB",
+    "LD",
+    "CFLAGS",
+    "CXXFLAGS",
+    "CPPFLAGS",
+    "LDFLAGS",
+    "ARFLAGS",
+    "CRATE_CC_NO_DEFAULTS",
+];
+
+/// Whether `name` is one of [`C_TOOLCHAIN`] in any of its spellings.
+fn c_toolchain(name: &str) -> bool {
+    let base = name
+        .strip_prefix("TARGET_")
+        .or_else(|| name.strip_prefix("HOST_"))
+        .unwrap_or(name);
+    C_TOOLCHAIN.iter().any(|tool| {
+        base.strip_prefix(tool)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))
+    })
+}
+
+/// nix's compiler and linker wrappers take their flags, their SDK and their
+/// hardening from `NIX_*` variables (`NIX_CFLAGS_COMPILE`, `NIX_LDFLAGS`,
+/// `NIX_HARDENING_ENABLE` and others), so every `NIX_*` variable is passed but
+/// these two. They name a shell's scratch directory and its core count, and
+/// the first changes with every `nix develop`.
+const NIX_WITHHELD: &[&str] = &["NIX_BUILD_TOP", "NIX_BUILD_CORES"];
 
 /// Where the stamp is written: beside the archive, like its digest and its
 /// feature list, and for the reason those are there — one run of this script
@@ -1715,8 +1741,8 @@ fn runtime_archive(manifest: &Path) {
 ///
 /// The stamp serves as the key in both, because it is path-independent: it
 /// writes `OUT_DIR` and the target directory as placeholders ([`portable`])
-/// and leaves out the variables that only name a checkout
-/// (`SHELL_BOOKKEEPING`). The bytes are path-independent too:
+/// and hashes only the variables the nested build is given ([`passed`]). The
+/// bytes are path-independent too:
 /// the nested build remaps the runtime's own paths, its dependencies come from
 /// `CARGO_HOME`, and two checkouts of one commit produce one digest.
 struct SharedArchive {
