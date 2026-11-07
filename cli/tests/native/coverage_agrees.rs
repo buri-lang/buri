@@ -105,23 +105,51 @@ fn verdicts(repo: &Path, flags: &[&str], coverage: &[&str]) -> (i32, Vec<String>
 }
 
 /// The corpus on one backend, in each mode, each in a copy of its own.
+///
+/// **The modes run at once.** Each run's wall clock is its slowest test
+/// process, so one after another, most of each run was one process on a
+/// four-core runner. Under memcheck this test then ran alone for the last 11
+/// minutes of its 28 (`memcheck (modules, x86_64)`, run 42417368643), and
+/// LLVM's was the longest test of every coverage shard, at 222-270 s (CI run
+/// 42417368638). Each thread carries the test's name, which a hang report and
+/// a Valgrind issue name the test by. On a 12-core mac LLVM's took 43-50 s
+/// one after another and 38 s at once.
 pub(crate) fn agrees(backend: &str, native: bool, flags: &[&str]) {
-    let plain = verdicts(
-        &corpus(&format!("{backend}-plain"), native),
-        flags,
-        MODES[0],
-    );
+    let test = std::thread::current().name().map(str::to_string);
+    let runs = std::thread::scope(|scope| {
+        let started: Vec<_> = MODES
+            .iter()
+            .map(|mode| {
+                let name = match mode.first() {
+                    None => format!("{backend}-plain"),
+                    Some(flag) => {
+                        format!(
+                            "{backend}{}",
+                            flag.trim_start_matches('-').replace('=', "-")
+                        )
+                    }
+                };
+                let mut thread = std::thread::Builder::new();
+                if let Some(test) = &test {
+                    thread = thread.name(test.clone());
+                }
+                thread
+                    .spawn_scoped(scope, move || verdicts(&corpus(&name, native), flags, mode))
+                    .unwrap()
+            })
+            .collect();
+        started
+            .into_iter()
+            .map(|run| run.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect::<Vec<_>>()
+    });
+    let (plain, covered) = runs.split_first().unwrap();
     assert!(
         plain.0 == 0,
         "{backend}: the corpus fails without coverage: {}",
         plain.2
     );
-    for mode in &MODES[1..] {
-        let name = format!(
-            "{backend}{}",
-            mode[0].trim_start_matches('-').replace('=', "-")
-        );
-        let covered = verdicts(&corpus(&name, native), flags, mode);
+    for (mode, covered) in MODES[1..].iter().zip(covered) {
         let (was, now): (BTreeSet<&String>, BTreeSet<&String>) =
             (plain.1.iter().collect(), covered.1.iter().collect());
         let differs: Vec<String> = was
