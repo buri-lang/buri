@@ -458,6 +458,49 @@ fn suites_with_a_timeout_run_again_from_their_binary() {
         .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
 }
 
+/// A suite with a timeout whose process writes more than a pipe holds passes.
+/// Each block writes a line, and three thousand of them fill a pipe several
+/// times over, so a runner that read only after the process ended would leave
+/// it stuck writing until the timeout killed it.
+#[test]
+fn a_suite_with_a_timeout_and_more_output_than_a_pipe_holds_passes() {
+    let scratch = Scratch::repo("corners-timeout-output");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 120\n",
+        &blocks("a", 3000),
+    );
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("3000 passed, 0 failed, 0 skipped");
+}
+
+/// A suite with a timeout whose process sleeps, rather than spins, is still
+/// stopped at its timeout and reported as a spinning one is. The process is a
+/// shell waiting on a `sleep` that holds its output pipes, so the run ends at
+/// the timeout and not when the `sleep` would.
+#[test]
+fn a_suite_with_a_timeout_whose_process_sleeps_is_stopped_at_it() {
+    let scratch = Scratch::repo("corners-timeout-asleep");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 1\n",
+        &blocks("a", 1),
+    );
+    let asleep = scratch.write_executable("asleep", "#!/bin/sh\nsleep 600\n");
+    scratch
+        .run_with_env(
+            &["test", "//lib/a"],
+            &[("BURI_TEST_RUNNER", &asleep.display().to_string()), LINKED],
+        )
+        .exits(1)
+        .says("error: //lib/a's test suite ran longer than 1s [test-timeout]")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+}
+
 /// A suite with a timeout that takes a snapshot records it under `--update`,
 /// and passes against it after.
 #[test]

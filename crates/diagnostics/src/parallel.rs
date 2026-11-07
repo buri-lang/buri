@@ -550,50 +550,127 @@ const QUIET_LOOKS: u32 = 10;
 /// on macOS a busy thread that never yields can leave its time unread for
 /// seconds, and it's runnable throughout.
 ///
+/// One thread looks at every watched process, and sleeps while there is none,
+/// so a run of many short processes starts no thread per process and wakes
+/// once a look rather than once a look per process.
+///
 /// Outside a pool job it does nothing.
 #[must_use = "dropping it at once stops the watch"]
 pub fn aside_while_idle(pid: u32) -> Aside {
     let place = PLACE.with(|p| p.borrow().clone());
-    let (stop, stopped) = std::sync::mpsc::channel::<()>();
-    let watcher = place.clone().and_then(|place| {
-        std::thread::Builder::new()
-            .name("buri-idle".into())
-            .stack_size(64 * 1024)
-            .spawn(move || {
-                let mut quiet = 0u32;
-                while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
-                    stopped.recv_timeout(LOOK)
-                {
-                    quiet = if os::runs(pid) {
-                        0
-                    } else {
-                        quiet.saturating_add(1)
-                    };
-                    place.count(quiet < QUIET_LOOKS);
-                }
-            })
-            .ok()
+    let id = place.map(|place| {
+        static WATCHER: std::sync::Once = std::sync::Once::new();
+        WATCHER.call_once(|| {
+            let _ = std::thread::Builder::new()
+                .name("buri-idle".into())
+                .stack_size(64 * 1024)
+                .spawn(watch);
+        });
+        let mut watched = watched();
+        watched.next = watched.next.wrapping_add(1);
+        let id = watched.next;
+        watched.all.push(Watched {
+            id,
+            pid,
+            place,
+            quiet: 0,
+        });
+        drop(watched);
+        WATCHING.added.notify_one();
+        id
     });
-    Aside {
-        stop: Some(stop),
-        watcher,
-        place,
+    Aside { id }
+}
+
+/// The processes [`aside_while_idle`] watches, and word that one was added.
+struct Watching {
+    watched: std::sync::Mutex<WatchedAll>,
+    added: std::sync::Condvar,
+}
+
+struct WatchedAll {
+    /// The last id handed out.
+    next: u64,
+    all: Vec<Watched>,
+}
+
+/// One watched process: its job's place, and how many looks in a row have
+/// found it with no thread runnable.
+struct Watched {
+    id: u64,
+    pid: u32,
+    place: std::sync::Arc<Place>,
+    quiet: u32,
+}
+
+static WATCHING: Watching = Watching {
+    watched: std::sync::Mutex::new(WatchedAll {
+        next: 0,
+        all: Vec::new(),
+    }),
+    added: std::sync::Condvar::new(),
+};
+
+fn watched() -> std::sync::MutexGuard<'static, WatchedAll> {
+    WATCHING
+        .watched
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The watching thread: every [`LOOK`], each watched process is looked at and
+/// its job's place counted or set aside. A process is looked at without the
+/// lock held, and only a watch still there afterwards is changed, under it,
+/// so a watch that ended meanwhile keeps the count its end gave it.
+fn watch() {
+    let mut all = watched();
+    let mut looked = std::time::Instant::now();
+    loop {
+        if all.all.is_empty() {
+            all = WATCHING
+                .added
+                .wait(all)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            looked = std::time::Instant::now();
+            continue;
+        }
+        let waited = looked.elapsed();
+        if waited < LOOK {
+            all = WATCHING
+                .added
+                .wait_timeout(all, LOOK.saturating_sub(waited))
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+            continue;
+        }
+        looked = std::time::Instant::now();
+        let pids: Vec<(u64, u32)> = all.all.iter().map(|w| (w.id, w.pid)).collect();
+        drop(all);
+        let runs: Vec<(u64, bool)> = pids.iter().map(|&(id, pid)| (id, os::runs(pid))).collect();
+        all = watched();
+        for (id, runs) in runs {
+            if let Some(w) = all.all.iter_mut().find(|w| w.id == id) {
+                w.quiet = if runs { 0 } else { w.quiet.saturating_add(1) };
+                w.place.count(w.quiet < QUIET_LOOKS);
+            }
+        }
     }
 }
 
 /// [`aside_while_idle`]'s watch. Dropping it ends the watch and counts the
 /// job's place again.
 pub struct Aside {
-    stop: Option<std::sync::mpsc::Sender<()>>,
-    watcher: Option<std::thread::JoinHandle<()>>,
-    place: Option<std::sync::Arc<Place>>,
+    id: Option<u64>,
 }
 
 impl Drop for Aside {
     fn drop(&mut self) {
-        drop(self.stop.take());
-        let _ = self.watcher.take().map(std::thread::JoinHandle::join);
-        let _ = self.place.as_ref().map(|place| place.count(true));
+        let Some(id) = self.id else { return };
+        let mut all = watched();
+        let at = all.all.iter().position(|w| w.id == id);
+        let ended = at.map(|at| all.all.swap_remove(at));
+        drop(all);
+        let _ = ended.map(|w| w.place.count(true));
     }
 }
 

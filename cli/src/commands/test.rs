@@ -5139,12 +5139,15 @@ fn queue_members(
             starts.iter().take(jobs).map(|&at| rank(at)).collect()
         };
         let spec = std::sync::Arc::new(spec);
-        let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
-            taken: vec![false; blocks.len()],
-            blocks,
-            starts,
-            ..Gathered::default()
-        }));
+        let gathered = std::sync::Arc::new(Gathering {
+            state: std::sync::Mutex::new(Gathered {
+                taken: vec![false; blocks.len()],
+                blocks,
+                starts,
+                ..Gathered::default()
+            }),
+            changed: std::sync::Condvar::new(),
+        });
         for rank in ranks {
             let job = Job::Member(MemberJob {
                 binary: std::sync::Arc::clone(&binary),
@@ -5188,7 +5191,7 @@ struct MemberJob {
     seeds: std::sync::Arc<String>,
     sheet: Option<String>,
     spec: std::sync::Arc<MemberSpec>,
-    gathered: std::sync::Arc<std::sync::Mutex<Gathered>>,
+    gathered: std::sync::Arc<Gathering>,
 }
 
 /// One member's blocks: which have been handed to a process, and what the
@@ -5266,8 +5269,16 @@ impl Gathered {
     }
 }
 
-fn gathered_of(gathered: &std::sync::Mutex<Gathered>) -> std::sync::MutexGuard<'_, Gathered> {
+/// A member's [`Gathered`], and word for the jobs waiting on its first
+/// process that the process has reached a block or ended.
+struct Gathering {
+    state: std::sync::Mutex<Gathered>,
+    changed: std::sync::Condvar,
+}
+
+fn gathered_of(gathered: &Gathering) -> std::sync::MutexGuard<'_, Gathered> {
     gathered
+        .state
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -5293,15 +5304,16 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     }
     // Until the first process reaches a block, or shows the binary cannot
     // start. That takes milliseconds, and the wait ends with the process.
-    loop {
-        let mut all = gathered_of(&job.gathered);
-        if !(all.launched && !all.started && all.waiting()) {
-            all.launched = true;
-            break;
-        }
-        drop(all);
-        std::thread::sleep(Duration::from_millis(1));
+    let mut all = gathered_of(&job.gathered);
+    while all.launched && !all.started && all.waiting() {
+        all = job
+            .gathered
+            .changed
+            .wait(all)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
     }
+    all.launched = true;
+    drop(all);
     let MemberJob {
         binary,
         seeds,
@@ -5325,6 +5337,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
             }
             let ran = run_pulled(&program, &spec, &gathered, &seeds, &snapshots);
             gathered_of(&gathered).take(ran);
+            gathered.changed.notify_all();
         }
     }
     if spec.paints {
@@ -5365,7 +5378,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
 fn run_limited(
     program: &str,
     spec: &MemberSpec,
-    gathered: &std::sync::Mutex<Gathered>,
+    gathered: &Gathering,
     seeds: &str,
     snapshots: &[(&str, String)],
 ) {
@@ -5398,11 +5411,7 @@ fn run_limited(
 }
 
 /// The member's answer, from whichever of its jobs finishes last.
-fn answer_member(
-    gathered: &std::sync::Mutex<Gathered>,
-    spec: &MemberSpec,
-    shared: &Shared,
-) -> Done {
+fn answer_member(gathered: &Gathering, spec: &MemberSpec, shared: &Shared) -> Done {
     // Nothing waits once [`run_member`] has run: blocks are only ever handed
     // out, and a failure or a timeout stays.
     let mut all = gathered_of(gathered);
@@ -5503,7 +5512,7 @@ enum Pulled {
 fn run_pulled(
     program: &str,
     spec: &MemberSpec,
-    gathered: &std::sync::Mutex<Gathered>,
+    gathered: &Gathering,
     seeds: &str,
     snapshots: &[(&str, String)],
 ) -> Pulled {
@@ -5550,6 +5559,7 @@ fn run_pulled(
         if value.get("started").is_some() {
             reached = true;
             gathered_of(gathered).started = true;
+            gathered.changed.notify_all();
             idle = Some(crate::parallel::aside_while_idle(child.id()));
         } else if value.get("next").is_some() {
             asked = true;
@@ -6060,9 +6070,9 @@ enum Execution {
 ///
 /// A test cannot block on I/O — every effect it can reach is one the runner
 /// supplied — so the only way to run forever is a loop with no exit, and the
-/// only thing to do about one is to stop it. The wait is a poll rather than a
-/// thread because the suite is the only child and there is nothing else for
-/// this process to do while it runs.
+/// only thing to do about one is to stop it. The wait blocks until the
+/// process ends or the deadline passes ([`crate::build::spawn::finish_within`]),
+/// so a long run costs this process nothing while it lasts.
 ///
 /// **The clock starts here, at the spawn.** Compiling and linking the suite
 /// happened before this call and are not on the budget, which is what makes
@@ -6118,7 +6128,7 @@ fn execute(
             cmd.env(name, value);
         }
     }
-    let mut child =
+    let child =
         crate::build::spawn::start_runner(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let _idle = crate::parallel::aside_while_idle(child.id());
@@ -6127,20 +6137,10 @@ fn execute(
     };
     // `timeout_seconds` comes from a build file, so the deadline is computed
     // from a number this process did not choose. One too large for the clock to
-    // represent is one no run could reach anyway, and it means no deadline
-    // rather than an instant one.
-    let deadline = Instant::now().checked_add(Duration::from_secs(u64::from(limit)));
-    loop {
-        if child.try_wait()?.is_some() {
-            return Ok(Execution::Finished(child.wait_with_output()?));
-        }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Ok(Execution::TimedOut);
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    // represent is one no run could reach anyway, and the wait then has no
+    // deadline rather than an instant one.
+    let within = crate::build::spawn::finish_within(child, Duration::from_secs(u64::from(limit)))?;
+    Ok(within.map_or(Execution::TimedOut, Execution::Finished))
 }
 
 /// The runner's one JSON array of records, as `$run` writes it and as the

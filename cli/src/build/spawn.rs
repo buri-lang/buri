@@ -353,6 +353,73 @@ pub fn finish(mut child: Child) -> std::io::Result<Output> {
     })
 }
 
+/// [`finish`] with a deadline: `None` once `limit` has passed with the child
+/// still running, which kills and reaps it.
+///
+/// The wait blocks rather than polls. A thread reads the output to its end and
+/// then waits for the child to exit *without reaping it*, and this thread waits
+/// for that thread's word or for the deadline, whichever comes first. Only this
+/// thread reaps, so the pid a kill names is still the child's. Both outputs are
+/// read as the child writes them, so a child that writes more than a pipe holds
+/// never waits on a reader that isn't reading.
+///
+/// After a kill the readers are left to end on their own, once the pipes close:
+/// a process the child started may hold them, and the wait is over anyway.
+pub fn finish_within(mut child: Child, limit: Duration) -> std::io::Result<Option<Output>> {
+    drop(child.stdin.take());
+    let pid = child.id();
+    let errors = child.stderr.take();
+    let output = child.stdout.take();
+    let reading_err = std::thread::spawn(move || read_all(errors));
+    let (exited, ended) = std::sync::mpsc::channel();
+    let reading_out = std::thread::spawn(move || {
+        let bytes = read_all(output);
+        exited_unreaped(pid);
+        let _ = exited.send(());
+        bytes
+    });
+    if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = ended.recv_timeout(limit) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(None);
+    }
+    let gone = || std::io::Error::other("a reader of a child's output panicked");
+    let stdout = reading_out.join().map_err(|_| gone())??;
+    let stderr = reading_err.join().map_err(|_| gone())??;
+    Ok(Some(Output {
+        status: child.wait()?,
+        stdout,
+        stderr,
+    }))
+}
+
+/// Everything `pipe` holds until its end, or nothing for no pipe.
+fn read_all(pipe: Option<impl std::io::Read>) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    pipe.map(|mut p| p.read_to_end(&mut bytes)).transpose()?;
+    Ok(bytes)
+}
+
+/// Returns once child `pid` has exited, leaving it for its `Child` to reap.
+fn exited_unreaped(pid: u32) {
+    unsafe extern "C" {
+        fn waitid(idtype: i32, id: u32, info: *mut [u64; 16], options: i32) -> i32;
+    }
+    const P_PID: i32 = 1;
+    const WEXITED: i32 = 4;
+    #[cfg(target_os = "macos")]
+    const WNOWAIT: i32 = 0x20;
+    #[cfg(not(target_os = "macos"))]
+    const WNOWAIT: i32 = 0x0100_0000;
+    let mut info = [0u64; 16];
+    // SAFETY: `info` is 128 bytes, the size of Linux's `siginfo_t` and more
+    // than macOS's 104. A wait a signal interrupts is asked again; any other
+    // failure means there is no child to wait for.
+    while unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) } != 0
+        && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+    {}
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
