@@ -120,7 +120,10 @@ jobs:
   # `backends` 1164 s and `agreement` 142 s; `stencil-debug` 436 s,
   # `llvm-release` 375 s, `llvm-debug` 253 s and `e2e` 207 s; `runtime` 366 s
   # with its build. So no shard runs much longer than `modules`, which cannot
-  # be split below its longest test. `cli/tests/ci.rs`'s
+  # be split below its longest test. An x86_64 runner can be 1.7 times slower
+  # than another: the same `runtime` run took 500 s in run 42412545472 and
+  # 270 s in 42417368643, and `modules` 1041 s and 1786 s the other way
+  # round. `cli/tests/ci.rs`'s
   # `every_memcheck_run_is_in_exactly_one_shard` holds the lists to naming
   # each run once.
   memcheck:
@@ -162,8 +165,14 @@ jobs:
           name: tests-memcheck-${{ matrix.arch }}
       - run: tar -I zstd -xf memcheck-tests.tar.zst && rm memcheck-tests.tar.zst
       # Each run as `cargo test` would start it: from `cli/`, the package's
-      # directory. Every run is started whatever happened to the one before it,
-      # and writes its own log, named for the run, which `failed` reads below.
+      # directory. Every run writes its own log, named for the run, which
+      # `failed` reads below, and the logs are printed once every run has
+      # ended.
+      #
+      # **A shard's runs run at once.** Each run ends on one long program
+      # with the other cores idle: in run 42417368643 each conformance build's
+      # last 2-5 minutes were `shard_0` alone, holding `data/unicode.buri`
+      # (428 s under memcheck), three times over in a 23-minute step.
       #
       # `modules` is every other `native::` module, less `float_parity` and
       # `differential`, which run what they build themselves, and `cross`,
@@ -175,13 +184,14 @@ jobs:
           set -uo pipefail
           mkdir -p "$BURI_MEMCHECK/logs" target/tmp
           native="$PWD/$(cat target/memcheck-tests/native)"
-          status=0
-          # run <log> <directory> [VAR=value]... <program> [arguments]
+          started=()
+          # run <log> <directory> [VAR=value]... <program> [arguments], in the background
           run() {
             local log=$1 dir=$2
             shift 2
             nix develop .#perf -c env -C "$dir" NIX_HARDENING_ENABLE= "$@" \
-              2>&1 | tee "$BURI_MEMCHECK/logs/$log.log" || status=1
+              > "$BURI_MEMCHECK/logs/$log.log" 2>&1 &
+            started+=("$!")
           }
           for r in $RUNS; do
             case $r in
@@ -203,6 +213,9 @@ jobs:
               *) echo "no run is called $r" >&2; exit 1 ;;
             esac
           done
+          status=0
+          for pid in "${started[@]}"; do wait "$pid" || status=1; done
+          tail -n +1 -- "$BURI_MEMCHECK"/logs/*.log
           exit "$status"
       # A test that failed on its own, apart from any Valgrind error: its own
       # draft issue, and a red step that says so.
