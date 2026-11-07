@@ -713,6 +713,52 @@ fn every_job_declares_a_timeout() {
     println!("{found} job(s), each with a `timeout-minutes` of its own");
 }
 
+/// The released `buri` keeps the build settings its speed was measured with:
+/// fat LTO, one codegen unit, `panic = "abort"`, and a profile-guided build of
+/// every nightly target.
+#[test]
+fn the_release_build_keeps_its_measured_settings() {
+    let read = |path: &str| std::fs::read_to_string(repo_root().join(path)).unwrap();
+    let manifest = read("Cargo.toml");
+    let release: Vec<&str> = manifest
+        .lines()
+        .skip_while(|l| *l != "[profile.release]")
+        .skip(1)
+        .take_while(|l| !l.starts_with('['))
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .filter(|l| !l.is_empty())
+        .collect();
+    let mut want = [
+        "opt-level = 3",
+        "lto = true",
+        "codegen-units = 1",
+        "panic = \"abort\"",
+    ];
+    want.sort_unstable();
+    let mut have = release.clone();
+    have.sort_unstable();
+    assert_eq!(have, want, "Cargo.toml's [profile.release] changed");
+
+    let nightly = read(".github/workflows/nightly.yml");
+    let steps: Vec<&str> = nightly
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .collect();
+    assert!(
+        !steps.iter().any(|l| l.contains("cargo build --release")),
+        "nightly.yml builds `buri` without its profile; build through `.github/pgo.sh`"
+    );
+    assert_eq!(
+        steps
+            .iter()
+            .filter(|l| l.contains("sh .github/pgo.sh"))
+            .count(),
+        2,
+        "nightly.yml's macOS and Linux builds both go through `.github/pgo.sh`"
+    );
+}
+
 /// The local runner's config only schedules tests: it never kills, retries or
 /// filters one.
 ///

@@ -130,7 +130,8 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
     runs-on: ${{ matrix.os }}
     # ~20 min cold compile per leg with the LLVM backend on larger runners, and the
-    # free runners have three to four cores; 150 leaves headroom for setup and the pull.
+    # free runners have three to four cores; PGO compiles twice more and runs half
+    # the e2e suites. 150 leaves headroom for setup and the pull.
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
@@ -190,10 +191,11 @@ jobs:
           perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
 
-      # --- macOS native build with the optimizing backend (not optional here).
+      # --- macOS native build with the optimizing backend (not optional here),
+      # profile-guided: `.github/pgo.sh` trains on half the e2e suites first.
       - if: runner.os == 'macOS'
-        name: build buri --release --features backend-llvm
-        run: cargo build --release --features backend-llvm -p buri --target "${{ matrix.target }}"
+        name: build buri --release --features backend-llvm, with PGO
+        run: sh .github/pgo.sh "${{ matrix.target }}"
 
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
       # bind-mounted so the checked-out source (with the version already bumped on
@@ -209,7 +211,8 @@ jobs:
       # yields a static-PIE executable — verified on the host below. The closing
       # `chmod` makes the root-owned build outputs readable by the host user that
       # packages them. libffi/ncurses are not in the static system-libs set but
-      # are cheap insurance across LLVM configs.
+      # are cheap insurance across LLVM configs. findutils gives `.github/pgo.sh`
+      # an `xargs -P`.
       - if: runner.os == 'Linux'
         name: build buri in Alpine (musl-native LLVM 21)
         run: |
@@ -222,7 +225,7 @@ jobs:
                 rustup build-base musl-dev clang21 lld \
                 llvm21-dev llvm21-static \
                 libffi-dev zlib-dev zlib-static zstd-dev zstd-static \
-                libxml2-dev libxml2-static ncurses-dev ncurses-static
+                libxml2-dev libxml2-static ncurses-dev ncurses-static findutils
               ver="$(llvm21-config --version)"
               case "$ver" in
                 21.*) ;;
@@ -233,7 +236,7 @@ jobs:
               rustup-init -y --profile minimal --default-toolchain none --no-modify-path
               . "$HOME/.cargo/env"
               rustup toolchain install
-              cargo build --release --features backend-llvm -p buri --target "$TARGET"
+              sh .github/pgo.sh "$TARGET"
               chmod -R a+rX "target/$TARGET/release"
             '
 
