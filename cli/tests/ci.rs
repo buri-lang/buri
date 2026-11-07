@@ -1129,6 +1129,66 @@ fn a_test_whose_child_swells_fails_naming_itself() {
     gone(id);
 }
 
+/// **Memory a tree shares is counted once.** A forked child shares its
+/// parent's pages until one of them writes, and every process mapping one
+/// binary shares its code. A build with 96 tools running at once held about
+/// 1 GiB, but adding up what each process had resident counted each shared
+/// page once per process and said 5 GiB, so the build was killed for a ceiling
+/// it never reached. Here the shell builds a 64 MiB string and forks four
+/// subshells that hold it, so a sum that counted it per process would say five
+/// times what the shell held alone.
+#[test]
+fn memory_a_tree_shares_is_counted_once() {
+    use std::io::{BufRead as _, Write as _};
+
+    let mut child = std::process::Command::new("sh")
+        .arg("-c")
+        // Fd 3 is the input, since a child started with `&` reads nothing
+        // otherwise. The `:` keeps each subshell, and its copy of the string,
+        // from being replaced by `read`. Every process ends with the input.
+        .arg(
+            r#"s=x; i=0; while [ "$i" -lt 26 ]; do s="$s$s"; i=$((i+1)); done
+            exec 3<&0; echo built; read _
+            for i in 1 2 3 4; do (read _ <&3; :) & done; echo forked; read _; wait"#,
+        )
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("`sh` is on PATH");
+    let id = child.id();
+    let mut lines = std::io::BufReader::new(child.stdout.take().expect("piped")).lines();
+    let mut next = |want: &str| {
+        let line = lines.next().and_then(Result::ok);
+        assert_eq!(line.as_deref(), Some(want), "the shell stopped early");
+    };
+    let mut input = child.stdin.take().expect("piped");
+    let look = || hang::look(id).expect("this host reports what a process holds");
+
+    next("built");
+    let alone = look();
+    writeln!(input).expect("the shell reads its input");
+    next("forked");
+    let forked = look();
+    drop(input);
+    child
+        .capped_wait()
+        .expect("the shell exits once its input ends");
+
+    assert!(
+        alone.memory >= 64 << 20,
+        "the shell held {} MiB, less than its own string",
+        alone.memory >> 20
+    );
+    assert!(
+        forked.memory < alone.memory * 2,
+        "the shell held {} MiB alone and its tree {} MiB once it had forked four subshells \
+         sharing those pages, so shared pages were counted once per process",
+        alone.memory >> 20,
+        forked.memory >> 20
+    );
+}
+
 /// Kills its pid when dropped, so a failed assertion leaves no spinner behind.
 struct Killing(u32);
 

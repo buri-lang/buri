@@ -743,7 +743,8 @@ const TREE_LIMIT: usize = 4096;
 /// One file per process carries both halves of the question — the state letter
 /// and the four time fields — so one pass over `/proc` answers it. The subtree
 /// is walked in memory afterwards, because a second pass per generation would
-/// be a different set of processes each time.
+/// be a different set of processes each time. Memory is read from each
+/// member's `smaps_rollup` instead, for the reason [`proportional`] gives.
 ///
 /// **`R` and `D` both count as running.** `R` is on a core or queued for one.
 /// `D` is a process inside a syscall the kernel expects to finish — a read from
@@ -770,7 +771,7 @@ fn reading(pid: u32) -> Option<Look> {
     unsafe extern "C" {
         fn sysconf(name: i32) -> i64;
     }
-    // `_SC_PAGESIZE`: `rss` is a count of pages.
+    // `_SC_PAGESIZE`: `rss`, counted where `Pss` can't be read, is in pages.
     const SC_PAGESIZE: i32 = 30;
     let hz = u64::try_from(unsafe { sysconf(SC_CLK_TCK) })
         .ok()
@@ -779,10 +780,11 @@ fn reading(pid: u32) -> Option<Look> {
 
     let rows = rows()?;
     let members = walk(&rows, pid);
-    let (mut total, mut pages, mut runnable) = (0u64, 0u64, false);
+    let (mut total, mut memory, mut runnable) = (0u64, 0u64, false);
     for row in rows.iter().filter(|r| members.contains(&r.id)) {
         total = total.saturating_add(row.spent);
-        pages = pages.saturating_add(row.pages);
+        let resident = row.pages.saturating_mul(page);
+        memory = memory.saturating_add(proportional(row.id).unwrap_or(resident));
         runnable |= row.runnable;
     }
     // Only when no main thread said so: one directory per process, read on a
@@ -791,8 +793,34 @@ fn reading(pid: u32) -> Option<Look> {
     Some(Look {
         runnable,
         spent: scaled(total, 1_000_000_000, hz)?,
-        memory: pages.saturating_mul(page),
+        memory,
     })
+}
+
+/// What `pid` holds, in bytes, with each page it shares divided among the
+/// processes that share it: `Pss` in `/proc/<pid>/smaps_rollup`.
+///
+/// Not `rss`, which counts a shared page in full in every process that maps
+/// it. A forked child shares its parent's pages until one of them writes, and
+/// every process running one binary shares its code. So a tree's `rss` adds up
+/// to more than it holds: 5 GiB for a build whose 96 tools held 1 GiB. `None`
+/// for a process that is gone or a kernel older than 4.14, and the caller
+/// counts its `rss` instead, which is never less than what it holds.
+///
+/// Reading it walks the process's page tables: 10 ms for 96 tools, once a
+/// second.
+#[cfg(target_os = "linux")]
+fn proportional(pid: u32) -> Option<u64> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).ok()?;
+    let kib = text
+        .lines()
+        .find_map(|line| line.strip_prefix("Pss:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(kib.saturating_mul(1024))
 }
 
 /// Whether any thread of `pid` is `R` or `D`, from `/proc/<pid>/task/*/stat`.
