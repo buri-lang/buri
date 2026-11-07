@@ -827,13 +827,9 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
     // is answered before the identity probe: the term in the `link` key has to
     // be the version of the program that will actually run.
     let (driver, libc) = libc_for(target, driver)?;
-    let flavour = choose(target.platform);
+    let (flavour, linker) = choose(target.platform);
     let mut programs = vec![driver.clone()];
-    programs.extend(
-        flavour
-            .program(Some(target.platform))
-            .and_then(spawn::resolve),
-    );
+    programs.extend(linker);
     let version = identity_of(flavour, programs);
     Ok(CDriver {
         dir: PathBuf::new(),
@@ -936,8 +932,9 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
     })
 }
 
-/// The flavour for a platform, honouring `BURI_LINKER` and otherwise probing.
-fn choose(platform: Platform) -> Flavour {
+/// The flavour for a platform, honouring `BURI_LINKER` and otherwise probing,
+/// with its linker as found on `PATH`.
+fn choose(platform: Platform) -> (Flavour, Option<PathBuf>) {
     let forced = std::env::var("BURI_LINKER").unwrap_or_default();
     let candidates: &[Flavour] = match platform {
         // mold is ELF-only and refuses macOS by name; `sold`, the Mach-O fork,
@@ -950,21 +947,21 @@ fn choose(platform: Platform) -> Flavour {
         // linked; nothing reaches this with one, and now nothing can.
         Platform::Js | Platform::Web => &[],
     };
-    match forced.as_str() {
-        "cc" | "system" => return Flavour::System,
-        "mold" => return Flavour::Mold,
-        "lld" => return Flavour::Lld,
-        _ => {}
-    }
-    for flavour in candidates {
-        let present = flavour
-            .program(Some(platform))
-            .is_some_and(|p| spawn::resolve(p).is_some());
-        if present {
-            return *flavour;
+    let found = |flavour: Flavour| flavour.program(Some(platform)).and_then(spawn::resolve);
+    let flavour = match forced.as_str() {
+        "cc" | "system" => Flavour::System,
+        "mold" => Flavour::Mold,
+        "lld" => Flavour::Lld,
+        _ => {
+            for &flavour in candidates {
+                if let Some(linker) = found(flavour) {
+                    return (flavour, Some(linker));
+                }
+            }
+            Flavour::System
         }
-    }
-    Flavour::System
+    };
+    (flavour, found(flavour))
 }
 
 /// A program's `--version`, hashed into the linker's identity.
@@ -1542,8 +1539,9 @@ fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
 fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let fresh = beside(dest);
     let written = std::fs::write(&fresh, bytes).and_then(|()| std::fs::rename(&fresh, dest));
-    // Gone already unless the write or the rename failed.
-    let _ = std::fs::remove_file(&fresh);
+    if written.is_err() {
+        let _ = std::fs::remove_file(&fresh);
+    }
     written
 }
 
@@ -3425,7 +3423,7 @@ mod tests {
         if std::env::var_os("BURI_LINKER").is_some() {
             return;
         }
-        assert_ne!(choose(Platform::Macos), Flavour::Mold);
+        assert_ne!(choose(Platform::Macos).0, Flavour::Mold);
     }
 
     /// The cross rule ARCHITECTURE.md §9 fixes: any host links any Linux

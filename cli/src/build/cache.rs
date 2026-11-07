@@ -288,7 +288,6 @@ pub struct Cache {
 impl Cache {
     pub fn open(root: &Path) -> Cache {
         let dir = root.join(".buri/cache");
-        let _ = std::fs::create_dir_all(&dir);
         reconcile_toolchain(&dir);
         Cache { dir }
     }
@@ -376,11 +375,17 @@ impl Cache {
 
     fn put_tagged(&self, key: &ActionKey, data: &[u8], tag: &[u8]) {
         let p = self.path(key);
-        crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
-        if std::fs::write(&tmp, data).is_ok() {
+        // The entry's directory is made only when the write finds it missing.
+        let written = std::fs::write(&tmp, data).is_ok() || {
+            crate::build::create_parent(&p);
+            std::fs::write(&tmp, data).is_ok()
+        };
+        if written {
             tag::set(&tmp, tag);
-            let _ = std::fs::rename(&tmp, &p);
+            if std::fs::rename(&tmp, &p).is_ok() {
+                return;
+            }
         }
         let _ = std::fs::remove_file(&tmp);
     }
@@ -414,19 +419,25 @@ impl Cache {
     /// correct answer.
     pub fn put_file(&self, key: &ActionKey, src: &Path) {
         let p = self.path(key);
-        crate::build::create_parent(&p);
         let tmp = p.with_extension(temporary_extension());
         // Read before the move: `src` stops being there, and `tmp` is this
         // process's own file.
         let len = std::fs::metadata(src).map_or(0, |meta| meta.len());
+        // The entry's directory is made only when the move finds it missing.
         let staged = std::fs::rename(src, &tmp).is_ok()
+            || {
+                crate::build::create_parent(&p);
+                std::fs::rename(src, &tmp).is_ok()
+            }
             || (std::fs::copy(src, &tmp).is_ok() && {
                 let _ = std::fs::remove_file(src);
                 true
             });
         if staged {
             tag::set(&tmp, &len.to_le_bytes());
-            let _ = std::fs::rename(&tmp, &p);
+            if std::fs::rename(&tmp, &p).is_ok() {
+                return;
+            }
         }
         let _ = std::fs::remove_file(&tmp);
     }
@@ -594,6 +605,7 @@ fn reconcile_toolchain(dir: &Path) {
             return;
         }
         reconciled.push(dir.to_path_buf());
+        let _ = std::fs::create_dir_all(dir);
         set_aside_another_toolchains(dir)
     };
     // Removed once nothing waits on it. What is in it was moved out from under

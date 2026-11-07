@@ -501,6 +501,51 @@ fn a_suite_with_a_timeout_whose_process_sleeps_is_stopped_at_it() {
         .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
 }
 
+/// A run after `.buri/cache` is deleted builds again into a fresh cache, and
+/// leaves no half-written entry behind.
+#[test]
+fn a_run_after_the_cache_is_deleted_builds_a_fresh_one() {
+    let scratch = Scratch::repo("corners-cache-deleted");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 2),
+    );
+    library(
+        &scratch,
+        "b",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 60\n",
+        &blocks("b", 2),
+    );
+    scratch
+        .run_with_env(&["test", "//..."], &[LINKED])
+        .ok()
+        .says("4 passed, 0 failed, 0 skipped");
+    std::fs::remove_dir_all(scratch.path(".buri/cache")).expect("the cache is there");
+    scratch
+        .run_with_env(&["test", "//..."], &[LINKED])
+        .ok()
+        .says("4 passed, 0 failed, 0 skipped");
+    let mut entries = 0;
+    let mut partial = Vec::new();
+    let mut dirs = vec![scratch.path(".buri/cache")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("the cache is a directory").flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().is_dir() {
+                dirs.push(entry.path());
+            } else if name.contains("tmp") {
+                partial.push(name);
+            } else {
+                entries += 1;
+            }
+        }
+    }
+    assert!(entries > 0, "the second run cached nothing");
+    assert!(partial.is_empty(), "half-written entries: {partial:?}");
+}
+
 /// A suite with a timeout that takes a snapshot records it under `--update`,
 /// and passes against it after.
 #[test]
