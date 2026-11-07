@@ -1058,6 +1058,35 @@ fn memcheck_binaries_do_not_read_the_cargo_registry() {
     );
 }
 
+/// **No build script looks for a dependency's source in the cargo registry.**
+///
+/// Cargo can take a crate from elsewhere: `nix build` vendors every crate into
+/// the store, and `CARGO_HOME` there has no `registry/src`. A build script that
+/// needs a dependency's source asks cargo where it is, the way
+/// `runtime-tests/build.rs` asks `cargo metadata` for graviola's.
+#[test]
+fn build_scripts_do_not_assume_the_cargo_registry() {
+    let root = repo_root();
+    let mut found = Vec::new();
+    for path in rust_sources() {
+        if path.file_name().is_none_or(|name| name != "build.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (number, line) in text.lines().enumerate() {
+            if code(line).contains("registry/src") {
+                let relative = path.strip_prefix(&root).unwrap_or(&path);
+                found.push(format!("{}:{}", relative.display(), number + 1));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "these build scripts look for a crate under the cargo registry, which a vendored \
+         build does not have: {found:?}"
+    );
+}
+
 /// **The protobuf conformance runner is cached under its derivation's path.**
 ///
 /// Building it was most of the `proto-conformance` job. The `.drv` path
