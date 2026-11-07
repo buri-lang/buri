@@ -2844,6 +2844,10 @@ fn a_toolchain_build_reuses_the_runtime_unless_its_inputs_changed() {
                 ("TERM_PROGRAM", "another-terminal"),
                 ("WINDOWID", "42"),
                 ("AGENT_SESSION_ID", "another-session"),
+                // A loader's variable, which cargo also sets for every build
+                // script it runs, to a path under the target directory and
+                // the profile.
+                ("LD_LIBRARY_PATH", "/elsewhere"),
             ],
         ),
         1,

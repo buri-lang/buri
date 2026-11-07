@@ -1077,9 +1077,9 @@ fn stamp_of(
     // `--locked` (which is `relock`, already a term) and `--offline` (which is
     // not about the bytes, see the header).
     //
-    // `OUT_DIR` and the target directory are written as placeholders, here and
-    // in the environment, so that every `OUT_DIR` in every target directory
-    // shares one key ([`SharedArchive`]).
+    // `OUT_DIR` is written as a placeholder, here and in the environment, so
+    // that every `OUT_DIR` in every target directory shares one key
+    // ([`SharedArchive`]).
     h.field(command.get_program().as_encoded_bytes());
     for arg in command.get_args() {
         h.field(&portable(arg, out_dir));
@@ -1092,32 +1092,19 @@ fn stamp_of(
     Some(h.finish())
 }
 
-/// `value` with every occurrence of `out_dir` replaced by `$OUT_DIR`, and of
-/// the target directory holding it by `$TARGET_DIR`.
-///
-/// The second is for `DYLD_FALLBACK_LIBRARY_PATH` (`LD_LIBRARY_PATH` on
-/// Linux), which cargo points at `<target-dir>/<profile>/deps` for every
-/// build script it runs. The nested build has a target directory of its own
-/// and loads nothing from the outer one, and hashing the path gave every
-/// target directory its own key ([`SharedArchive`]).
+/// `value` with every occurrence of `out_dir` replaced by `$OUT_DIR`.
 fn portable(value: &std::ffi::OsStr, out_dir: &Path) -> Vec<u8> {
-    let target = target_dir_of(out_dir).unwrap_or(Path::new(""));
-    let swaps: [(&[u8], &[u8]); 2] = [
-        (out_dir.as_os_str().as_encoded_bytes(), b"$OUT_DIR"),
-        (target.as_os_str().as_encoded_bytes(), b"$TARGET_DIR"),
-    ];
+    let from = out_dir.as_os_str().as_encoded_bytes();
     let mut portable = Vec::with_capacity(value.len());
     let mut rest = value.as_encoded_bytes();
-    'scan: while let Some((&first, tail)) = rest.split_first() {
-        for (from, to) in swaps.iter().filter(|(from, _)| !from.is_empty()) {
-            if let Some(after) = rest.strip_prefix(*from) {
-                portable.extend_from_slice(to);
-                rest = after;
-                continue 'scan;
-            }
+    while let Some((&first, tail)) = rest.split_first() {
+        if let Some(after) = rest.strip_prefix(from).filter(|_| !from.is_empty()) {
+            portable.extend_from_slice(b"$OUT_DIR");
+            rest = after;
+        } else {
+            portable.push(first);
+            rest = tail;
         }
-        portable.push(first);
-        rest = tail;
     }
     portable
 }
@@ -1277,14 +1264,27 @@ const C_TOOLCHAIN: &[&str] = &[
 ];
 
 /// Whether `name` is one of [`C_TOOLCHAIN`] in any of its spellings.
+///
+/// The per-target suffix is a triple, and triples are lower-case. That is what
+/// keeps the loader's `LD_LIBRARY_PATH` and `LD_PRELOAD` out: they start with
+/// `LD_` and are not the linker. Cargo points `LD_LIBRARY_PATH` at the outer
+/// target directory and its profile for every build script it runs, so passing
+/// it made a release build of the toolchain miss the archive a dev build kept.
+/// The nested build loads nothing from there.
 fn c_toolchain(name: &str) -> bool {
     let base = name
         .strip_prefix("TARGET_")
         .or_else(|| name.strip_prefix("HOST_"))
         .unwrap_or(name);
+    let triple = |rest: &str| {
+        !rest.is_empty()
+            && rest
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_-.".contains(&b))
+    };
     C_TOOLCHAIN.iter().any(|tool| {
         base.strip_prefix(tool)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))
+            .is_some_and(|rest| rest.is_empty() || rest.strip_prefix('_').is_some_and(triple))
     })
 }
 
@@ -1738,7 +1738,7 @@ fn runtime_archive(manifest: &Path) {
 ///   sandboxed build has no writable home and builds as it always did.
 ///
 /// The stamp serves as the key in both, because it is path-independent: it
-/// writes `OUT_DIR` and the target directory as placeholders ([`portable`])
+/// writes `OUT_DIR` as a placeholder ([`portable`])
 /// and hashes only the variables the nested build is given ([`passed`]). The
 /// bytes are path-independent too:
 /// the nested build remaps the runtime's own paths, its dependencies come from
