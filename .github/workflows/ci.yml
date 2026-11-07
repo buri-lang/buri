@@ -869,7 +869,7 @@ jobs:
   # The standard library's MC/DC from the conformance corpus on JavaScript,
   # JavaScript --release, the stencil backend and LLVM --release, which must
   # never fall, in total or in any module (coverage/stdlib/src/main.rs). x86_64
-  # Linux, the baseline's host. The backends must also count alike.
+  # Linux, the baseline's host. The backends must also cover alike.
   stdlib-coverage:
     name: stdlib coverage
     runs-on: ubuntu-24.04

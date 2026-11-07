@@ -53,7 +53,7 @@ const JAVASCRIPT_ONLY: [&str; 7] = [
     "web_unstyled",
 ];
 
-/// Pairs of runs that run the same suites, so count alike.
+/// Pairs of runs that run the same suites, so cover alike.
 const ALIKE: [(usize, usize); 2] = [(0, 1), (2, 3)];
 
 /// How many modules `stdlib.txt` lists as having the most unshown conditions.
@@ -87,7 +87,7 @@ fn main() {
     print!("{}", summary(&merged));
     if !disagreements.is_empty() {
         eprintln!(
-            "\nThe backends counted differently, which is a coverage bug:\n  {}",
+            "\nThe backends covered differently, which is a coverage bug:\n  {}",
             disagreements.join("\n  ")
         );
         std::process::exit(1);
@@ -266,12 +266,18 @@ fn copy(from: &Path, to: &Path) {
     }
 }
 
-/// One module's records: each branch with how often it ran, `None` where its
+/// One module's records: each branch with whether it ran, `None` where its
 /// decision was never reached; and each condition, by line, place in the
 /// line's group and text, with whether it was shown.
+///
+/// Whether, not how often: coverage is which outcomes happened, and the
+/// count is up to the engine. JavaScript's `Array.prototype.sort` calls a
+/// comparator a different number of times for one list as the engine's
+/// optimizing compiler warms up, so two runs of one suite count its branches
+/// differently while taking the same ones.
 #[derive(Default, PartialEq, Eq, Debug)]
 struct Module {
-    branches: BTreeMap<(u64, u64, String), Option<u64>>,
+    branches: BTreeMap<(u64, u64, String), Option<bool>>,
     conditions: BTreeMap<(u64, u64, String), bool>,
 }
 
@@ -301,7 +307,7 @@ fn parse(lcov: &str) -> Modules {
             let taken = if taken == "-" {
                 None
             } else {
-                Some(taken.parse().unwrap())
+                Some(taken.parse::<u64>().unwrap() > 0)
             };
             m.branches.insert(
                 (
@@ -327,8 +333,9 @@ fn parse(lcov: &str) -> Modules {
     modules
 }
 
-/// Where two runs counted a module differently, record by record: the
-/// module's totals, then the first few branches whose counts differ.
+/// Where two runs covered a module differently, record by record: the
+/// module's totals, then the first few branches one took and the other
+/// didn't.
 fn disagree((one, a): &(&str, Modules), (two, b): &(&str, Modules)) -> Vec<String> {
     const SHOWN: usize = 20;
     let names: BTreeSet<&String> = a.keys().chain(b.keys()).collect();
@@ -339,7 +346,8 @@ fn disagree((one, a): &(&str, Modules), (two, b): &(&str, Modules)) -> Vec<Strin
             let (ma, mb) = (a.get(module), b.get(module));
             let (x, y) = (ma.map(Stats::of), mb.map(Stats::of));
             let count = |m: Option<&Module>, key| match m.and_then(|m| m.branches.get(key)) {
-                Some(Some(n)) => n.to_string(),
+                Some(Some(true)) => "taken".to_string(),
+                Some(Some(false)) => "untaken".to_string(),
                 Some(None) => "-".to_string(),
                 None => "nothing".to_string(),
             };
@@ -389,7 +397,7 @@ fn merge<'a>(runs: impl Iterator<Item = &'a Modules>) -> BTreeMap<String, Stats>
             for (key, taken) in &m.branches {
                 let n = into.branches.entry(key.clone()).or_insert(None);
                 *n = match (*n, *taken) {
-                    (Some(a), Some(b)) => Some(a + b),
+                    (Some(a), Some(b)) => Some(a || b),
                     (a, b) => a.or(b),
                 };
             }
@@ -429,11 +437,7 @@ impl Stats {
             conditions: m.conditions.len() as u64,
             decided: decisions.values().filter(|d| **d).count() as u64,
             decisions: decisions.len() as u64,
-            hit: m
-                .branches
-                .values()
-                .filter(|t| t.is_some_and(|n| n > 0))
-                .count() as u64,
+            hit: m.branches.values().filter(|t| **t == Some(true)).count() as u64,
             branches: m.branches.len() as u64,
         }
     }
@@ -722,13 +726,26 @@ mod tests {
 
     #[test]
     fn a_disagreement_names_the_records_that_differ() {
-        let a = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,4\n");
-        let b = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,6\n");
+        let a = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,0\nBRDA:9,1,More,-\n");
+        let b = parse("SF:core/order\nBRDA:3,0,0,1\nBRDA:9,1,Less,6\nBRDA:9,1,More,0\n");
         let said = disagree(&("one", a), &("two", b));
         assert!(
-            said[0].contains("line 9, block 1, branch Less: one 4 and two 6"),
+            said[0].contains("line 9, block 1, branch Less: one untaken and two taken"),
+            "{said:?}"
+        );
+        assert!(
+            said[0].contains("line 9, block 1, branch More: one - and two untaken"),
             "{said:?}"
         );
         assert!(!said[0].contains("line 3"), "{said:?}");
+    }
+
+    /// A comparator's branches, as two runs of one suite count them when the
+    /// engine's sort calls it a different number of times each run.
+    #[test]
+    fn runs_that_call_a_comparator_more_often_cover_alike() {
+        let a = parse("SF:core/order\nBRDA:7,0,0,54400\nBRDA:7,0,1,43200\nBRDA:7,1,1,0\nMCDC:7,1,t,1,0,'a < b'\n");
+        let b = parse("SF:core/order\nBRDA:7,0,0,61021\nBRDA:7,0,1,48877\nBRDA:7,1,1,0\nMCDC:7,1,t,1,0,'a < b'\n");
+        assert_eq!(disagree(&("one", a), &("two", b)), Vec::<String>::new());
     }
 }

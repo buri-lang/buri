@@ -1,19 +1,32 @@
-# `buri test --coverage --output=js`: a comparator is called the same number of
-# times on every run. The count is a function of the list alone, so a report
-# that moves between runs of one suite is one no gate can hold a floor against.
+# `buri test --coverage=mcdc`: what a sort's comparator covered, whichever
+# backend runs it. An engine's sort may call the comparator a different number
+# of times for the same list from one run to the next, as JavaScript's does
+# while its compiler warms up, so the hit counts in `lcov.info` are the
+# engine's. Which outcomes happened is the suite's: every run shows the same
+# branches and conditions, `rank`'s `.Equal` never taken, on JavaScript with
+# and without `--release` and natively.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
-doc: "--coverage counts a sort's comparator calls the same however long the suite has been running"
+doc: "--coverage=mcdc reports the same coverage of a sort's comparator however often the engine calls it"
 
 run {
-  args: ["test", "//lib/ranking", "--coverage", "--output=js"]
+  args: ["test", "//lib/ranking", "--coverage=mcdc", "--output=js"]
   exit: 0
-  golden: "covered.txt"
+  golden: "mcdc.txt"
   stream: OUT
 }
 
-file {
-  path: ".buri/coverage/lcov.info"
-  golden: "lcov.info"
+run {
+  args: ["test", "//lib/ranking", "--coverage=mcdc", "--output=js", "--release"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+run {
+  args: ["test", "//lib/ranking", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
 }

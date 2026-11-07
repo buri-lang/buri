@@ -1,6 +1,0 @@
-1 passed, 0 failed, 0 skipped (0.0s)
-
-branch coverage
-  lib/ranking/ranking.buri  3/4   75.0%
-  total                     3/4   75.0%
-lcov: .buri/coverage/lcov.info
