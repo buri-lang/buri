@@ -1,7 +1,7 @@
 // core/char — the classifiers a scalar answers for itself.
 //
 // `isPunctuation` and `isPrintable` read the General Category table
-// `unicode_tables.py` writes into `char.buri` at Unicode 16.0, so the cases
+// `unicode_tables.py` writes into `char.buri` at Unicode 17.0, so the cases
 // below say which category is being asked about rather than sampling it: a
 // symbol that is not punctuation, a format character that is not a control, an
 // unassigned code point that is neither.
@@ -320,8 +320,8 @@ test "the classifiers count the whole of the General Category" {
     let ctx = context {
         Allocator: alloc(),
     };
-    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPunctuation()), 855);
+    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPunctuation()), 856);
     assert.equal(counted(ctx, 0xe0000, 0x110000, fn(c) => c.isPunctuation()), 0);
-    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPrintable()), 145439);
+    assert.equal(counted(ctx, 0, 0x30000, fn(c) => c.isPrintable()), 145944);
     assert.equal(counted(ctx, 0xe0000, 0x110000, fn(c) => c.isPrintable()), 240);
 }

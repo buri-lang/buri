@@ -159,7 +159,7 @@ at zero, where it keeps `-0.0` and `0.0` `.Equal`, as `==` does.
   four forms, and `caseFold` is **full** case folding, so `"ß"` folds to `"ss"`
   where `equalsIgnoreCase`'s simple folding says the two differ.
 
-  These read tables generated at **Unicode 16.0** by
+  These read tables generated at **Unicode 17.0** by
   `crates/stdlib/src/compiler/standard_library/unicode_tables.py`, which is checked in
   beside the sources it writes, so a build needs no network. The tables are Buri
   string literals — 139 thousand characters in `core/str` and 7 thousand in

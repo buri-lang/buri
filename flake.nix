@@ -59,6 +59,49 @@
         };
         inherit (pkgs) lib;
 
+        # The bun CI's `oven-sh/setup-bun` installs, read from the same
+        # `.bun-version`, so `nix develop` and CI run the suite on one engine
+        # and one Unicode version; nixpkgs' own bun lags behind it. The
+        # hashes are that release's `SHASUMS256.txt`, so a new version needs
+        # new ones.
+        bunVersion = lib.trim (builtins.readFile ./.bun-version);
+        bunAsset =
+          {
+            aarch64-darwin = {
+              name = "darwin-aarch64";
+              sha256 = "c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510";
+            };
+            x86_64-darwin = {
+              name = "darwin-x64";
+              sha256 = "50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e";
+            };
+            aarch64-linux = {
+              name = "linux-aarch64";
+              sha256 = "baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e";
+            };
+            x86_64-linux = {
+              name = "linux-x64";
+              sha256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c";
+            };
+          }
+          .${system};
+        bun = pkgs.bun.overrideAttrs {
+          version = bunVersion;
+          src = pkgs.fetchurl {
+            name = "bun-${bunAsset.name}.zip";
+            url = "https://github.com/oven-sh/bun/releases/download/bun-v${bunVersion}/bun-${bunAsset.name}.zip";
+            inherit (bunAsset) sha256;
+          };
+          sourceRoot = "bun-${bunAsset.name}";
+          # On macOS bun maps case, normalizes and segments with the system's
+          # ICU, and nixpkgs relinks it against its own, which is two Unicode
+          # versions older than macOS 26's (ICU 78, Unicode 17.0). The release
+          # as published runs on the system's, as `setup-bun`'s does, so it is
+          # left unpatched; it is already signed, and nothing reads the shell
+          # completions the original hook writes.
+          postPhases = [ ];
+        };
+
         # The triple the Linux half of this package is *about*.
         #
         # A substring replacement over the host's own config triple, which is
@@ -645,7 +688,7 @@
               # rather than one after another. `.config/nextest.toml` has the
               # limits, and cli/tests/README.md the command.
               cargoNextest
-              pkgs.bun
+              bun
               # `elan`, not `lean4`: elan honours `formal/lean-toolchain`, which
               # is how a Lean project pins its compiler. It fetches that
               # toolchain on first use, so the Lean shell is not hermetic the

@@ -946,10 +946,10 @@ test "isAlpha rejects digits and punctuation" {
 // A letter from each of four scripts Unicode 17.0 added: Tai Yo, Sidetic,
 // Tolong Siki and Beria Erfe. Every backend knows them, or none of them does.
 test "isAlpha accepts the letters Unicode 17.0 added" {
-    assert.isTrue('\u{1e6c0}'.isAlpha());
-    assert.isTrue('\u{10940}'.isAlpha());
-    assert.isTrue('\u{11db0}'.isAlpha());
-    assert.isTrue('\u{16ea0}'.isAlpha());
+    assert.isTrue('𞛀'.isAlpha());
+    assert.isTrue('𐥀'.isAlpha());
+    assert.isTrue('𑶰'.isAlpha());
+    assert.isTrue('𖺠'.isAlpha());
 }
 
 test "isAlphanumeric accepts both letters and digits" {

@@ -193,8 +193,12 @@ mod valgrind;
 
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
+// `core/character` and `core/str`'s Unicode answers, pinned at one version
+// on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod endless;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod unicode;
 // The end-to-end tier: whole programs, a real process, a real socket. Gated
 // like `agreement` — it needs *a* native backend and does not care which — and
 // its module doc is `cli/tests/README.md`'s "The trust ordering" applied.

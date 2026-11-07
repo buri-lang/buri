@@ -1,19 +1,21 @@
-"""Writes the Unicode tables `core/char`, `core/str` and `core/buri/ast` read.
+r"""Writes the Unicode tables `core/char`, `core/str`, `core/buri/ast` and the
+native runtime's `isAlpha` read.
 
 The tables are checked in, so a build needs no network and no Unicode
 installation. This script is how they were made, and running it again is how
 they move to a new Unicode version.
 
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/CaseFolding.txt
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/CompositionExclusions.txt
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/DerivedCoreProperties.txt
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakProperty.txt
-    curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/emoji/emoji-data.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/UnicodeData.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/CompositionExclusions.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/auxiliary/GraphemeBreakProperty.txt
+    curl -sSLO https://www.unicode.org/Public/17.0.0/ucd/emoji/emoji-data.txt
     python3 crates/stdlib/src/compiler/standard_library/unicode_tables.py --ucd <that directory>
 
-**Unicode 16.0**. `cli/runtime/character.rs`'s letter table is not one of
-these: it is what the JavaScript engine answers, so it moves with the engine.
+**Unicode 17.0**, the version `rustc`'s `std` maps case with and the one
+`bun` answers `\p{L}`, case and `Intl.Segmenter` with, so every backend says
+the same thing about a character.
 
 Every table is an ASCII string of fixed-width fields, and a code point is four
 base-36 digits -- 36^4 is 1679616, which covers U+10FFFF with room to spare, and
@@ -32,6 +34,9 @@ D36 = "0123456789abcdefghijklmnopqrstuvwxyz"
 CHAR_FILE = "sources/character.buri"
 STR_FILE = "sources/str.buri"
 AST_FILE = "sources/buri_ast.buri"
+# From this directory, the native runtime's `core/character`.
+RUNTIME_FILE = "../../../../../cli/runtime/character.rs"
+VERSION = "17.0"
 START = "// --- Generated Unicode tables"
 END = "// --- End of the generated Unicode tables"
 
@@ -275,7 +280,11 @@ def build(ucd):
     )
     compose_values = "".join(b36(composition[pair], 4) for pair in sorted(composition))
 
+    def letter(cp):
+        return 0 if category.get(cp, "Cn").startswith("L") else None
+
     return {
+        RUNTIME_FILE: to_ranges(letter),
         CHAR_FILE: [
             (
                 "PUNCTUATION",
@@ -333,7 +342,7 @@ def build(ucd):
 
 def render(tables, category):
     out = [
-        START + " (Unicode 16.0) ---------------------------",
+        START + f" (Unicode {VERSION}) ---------------------------",
         "//",
         "// Written by `crates/stdlib/src/compiler/standard_library/unicode_tables.py`, which",
         "// says what the fields are. Regenerate rather than edit.",
@@ -347,6 +356,24 @@ def render(tables, category):
         if len(line) > 88:
             line = f"let {name}: Str =\n    {quote(text, category)};"
         out.append(line)
+    out.append("")
+    out.append(END + " -------------------")
+    return "\n".join(out) + "\n"
+
+
+def render_rust(ranges):
+    """`LETTER`, the way `rustfmt` lays out a slice of pairs."""
+    out = [
+        START + f" (Unicode {VERSION}) ---------------------------",
+        "//",
+        "// Written by `crates/stdlib/src/compiler/standard_library/unicode_tables.py`.",
+        "// Regenerate rather than edit.",
+        "",
+        "/// General Category `L`, as sorted, disjoint, inclusive code-point ranges.",
+        "static LETTER: &[(u32, u32)] = &[",
+    ]
+    out += [f"    (0x{lo:04X}, 0x{hi:04X})," for lo, hi, _ in ranges]
+    out.append("];")
     out.append("")
     out.append(END + " -------------------")
     return "\n".join(out) + "\n"
@@ -372,7 +399,12 @@ def main():
     tables = build(args.ucd)
     category = read_unicode_data(args.ucd)[0]
     for relative, entries in tables.items():
-        splice(os.path.join(here, relative), render(entries, category))
+        path = os.path.normpath(os.path.join(here, relative))
+        if relative == RUNTIME_FILE:
+            splice(path, render_rust(entries))
+            print(f"{relative}: {len(entries)} ranges", file=sys.stderr)
+            continue
+        splice(path, render(entries, category))
         total = sum(len(text) for _, _, text in entries)
         print(f"{relative}: {total} characters", file=sys.stderr)
         for name, _, text in entries:

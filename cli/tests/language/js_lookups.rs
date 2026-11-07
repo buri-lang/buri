@@ -130,7 +130,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
 
 /// What every lookup above answers, computed outside Buri.
-const ANSWERS: &str = "855 145439 674 694 400 404 400\n";
+const ANSWERS: &str = "856 145944 674 694 400 404 400\n";
 
 /// The lookups `PROGRAM` makes: two classifiers over 0x30000 scalars, and five
 /// string operations over 400.

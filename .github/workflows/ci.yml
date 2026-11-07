@@ -75,7 +75,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, arch: arm64 }
+          # macOS 26 by name, not `macos-latest`: bun maps case, normalizes and
+          # segments with the system's ICU there, and macOS 26's (ICU 78) is
+          # the Unicode 17.0 every other backend answers with.
+          - { os: macos-26, arch: arm64 }
           - { os: ubuntu-24.04, arch: x86_64 }
           # GitHub's free runners: four cores on Linux, three on macOS. The arm64
           # leg was measured at 23 minutes on four cores (run 34121595426).
@@ -535,7 +538,7 @@ jobs:
         include:
           - { platform: x86_64-linux, os: ubuntu-24.04 }
           - { platform: arm64-linux, os: ubuntu-24.04-arm, cc: CC=/usr/bin/clang }
-          - { platform: arm64-macos, os: macos-latest }
+          - { platform: arm64-macos, os: macos-26 }
           - { platform: x86_64-linux-release, os: ubuntu-24.04, release: --release }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
@@ -624,7 +627,7 @@ jobs:
   coverage-macos:
     name: coverage shard (arm64-macos)
     needs: coverage-build
-    runs-on: macos-latest
+    runs-on: macos-26
     # Twice the runner's three cores.
     env:
       NEXTEST_TEST_THREADS: 6
