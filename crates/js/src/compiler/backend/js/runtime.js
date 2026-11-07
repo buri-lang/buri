@@ -1215,13 +1215,14 @@ function $chars(s) {
 // `length`, `charAt` and `slice` get asked of one long string over and over —
 // the `core/buri/ast` lexer slices its whole source once per token, and the
 // ordinary `for i in 0..s.length() { s.charAt(i) }` scan asks once per scalar
-// — so the answer for the last long string asked about is kept: its table, or
-// `null` when it holds no surrogate. Without that, every question about a
-// string with one emoji in it cost a pass and an allocation as long as the
-// string. The key is compared with `===`, which on strings compares the
-// characters, so a different string never reads another's table; and the
-// table is never handed out, so nothing but this can change it. A short string
-// is cheap to measure again, and is not kept, so it cannot push out a long one.
+// — so the answers for the last eight long strings asked about are kept: each
+// one's table, or `null` when it holds no surrogate. Without that, every
+// question about a string with one emoji in it cost a pass and an allocation
+// as long as the string. Eight, because `normalize` reads four tables in turn
+// for each scalar. A key is compared with `===`, which on strings compares the
+// characters, so a different string never reads another's table; and a table
+// is never handed out, so nothing but this can change it. A short string is
+// cheap to measure again, and is not kept, so it cannot push out a long one.
 const $surrogate = /[\uD800-\uDFFF]/;
 
 function $wide(s) {
@@ -1229,15 +1230,19 @@ function $wide(s) {
 }
 
 const $startsKept = 256;
-let $startsKey = "";
-let $startsTable = null;
+const $startsKeys = ["", "", "", "", "", "", "", ""];
+const $startsTables = [null, null, null, null, null, null, null, null];
+let $startsNext = 0;
 
 function $starts(s) {
-  if (s === $startsKey) return $startsTable;
+  for (let i = 0; i < 8; i++) {
+    if (s === $startsKeys[i]) return $startsTables[i];
+  }
   const t = $wide(s) ? $scalarStarts(s) : null;
   if (s.length >= $startsKept) {
-    $startsKey = s;
-    $startsTable = t;
+    $startsKeys[$startsNext] = s;
+    $startsTables[$startsNext] = t;
+    $startsNext = ($startsNext + 1) % 8;
   }
   return t;
 }

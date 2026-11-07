@@ -8627,6 +8627,34 @@ On Linux the parse phase is now nine tenths parser. Its profile is flat: no
 production or helper retires more than a tenth of it, and allocation is
 under a twentieth.
 
+### 6.102 The Unicode tables count in `U32`, 2026-11-06
+
+The table lookups in `core/character`, `core/str` and `core/buri/ast` counted
+in `Int`, so on JavaScript every digit they read was `BigInt` arithmetic. They
+count in `U32` now, a plain number there:
+
+```text
+fn digitAt(table: Str, at: U32): U32 {
+    match (table.charAt(at.toI64())) {
+```
+
+Two smaller fixes on JavaScript go with it:
+
+- `charAt(x.toI64())` hands `x` to `$str_charAt` as it is, since the runtime
+  reads it with `Number` anyway.
+- The runtime remembers the last eight long strings it checked for astral
+  scalars, not one. `normalize` reads four tables per scalar and each read
+  pushed out the last, so every read rescanned its table.
+
+The five slow `unicode.buri` and `characters.buri` tests went from 18.3 to
+2.2 seconds on `bun`. `buri test //lib/data` on JavaScript went from 20.9 to
+4.7 CPU-seconds and natively from 8.9 to 7.5, at load 15–17. There are eight
+such JavaScript runs in a suite, so it saves about 130 CPU-seconds.
+
+`cli/tests/language/js_lookups.rs` guards it with counts: about two `BigInt`s
+built per lookup, where it was dozens, and 23 checks for astral scalars where
+it was 5,752.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

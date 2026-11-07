@@ -2277,12 +2277,13 @@ fn isTagSpec(ch: Char): Bool {
 }
 
 fn isPictographic(ch: Char): Bool {
-    inRanges(PICTOGRAPHIC, ch.toU32().toI64(), 0, PICTOGRAPHIC.length() / 8)
+    inRanges(PICTOGRAPHIC, ch.toU32(), 0, PICTOGRAPHIC.length().wrapToU32() / 8)
 }
 
 /// Whether `cp` is inside one of `table`'s ranges, eight base-36 digits each.
-/// `core/character` carries the same three helpers for its own tables.
-fn inRanges(table: Str, cp: Int, lo: Int, hi: Int): Bool {
+/// `core/character` carries the same three helpers for its own tables, and
+/// says why they count in `U32`.
+fn inRanges(table: Str, cp: U32, lo: U32, hi: U32): Bool {
     if (lo >= hi) {
         false
     } else {
@@ -2298,7 +2299,7 @@ fn inRanges(table: Str, cp: Int, lo: Int, hi: Int): Bool {
 }
 
 /// The four base-36 digits at `at`, as a number.
-fn codeAt(table: Str, at: Int): Int {
+fn codeAt(table: Str, at: U32): U32 {
     digitAt(table, at) * 46656
         + digitAt(table, at + 1) * 1296
         + digitAt(table, at + 2) * 36
@@ -2307,10 +2308,10 @@ fn codeAt(table: Str, at: Int): Int {
 
 /// A table is written in `0` to `9` and then `a` to `z`, so a digit's value is
 /// how far its character is past the start of whichever run it is in.
-fn digitAt(table: Str, at: Int): Int {
-    match (table.charAt(at)) {
+fn digitAt(table: Str, at: U32): U32 {
+    match (table.charAt(at.toI64())) {
         .Some(c) => {
-            let code = c.toU32().toI64();
+            let code = c.toU32();
             if (code < 97) { code - 48 } else { code - 87 }
         },
         .None => 0,

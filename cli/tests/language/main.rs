@@ -16,6 +16,7 @@
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths? |
 //! | [`parsing`] | scratch programs | Does the parser read operands, types and bindings as written, and spend its nesting and chain budgets the same at their limits? |
+//! | [`js_lookups`] | one generated program | Do the standard library's Unicode lookups answer as `unicodedata` does while building no `BigInt` per digit and checking each table for astral scalars once? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
 //! | [`js_wrapping`] | one generated program | Does a loop of 32-bit wrapping arithmetic give the low bits of the exact answer with `BigInt` taken away? |
 //! | [`pages`] | pages built for `web` | Does a mounted page show, hide and move what the headless double says it does, when a browser drives it? |
@@ -61,6 +62,7 @@ mod coverage_builtins;
 mod debug_suite;
 mod golden_javascript;
 mod grammar;
+mod js_lookups;
 mod js_streams;
 mod js_wrapping;
 mod lexing;

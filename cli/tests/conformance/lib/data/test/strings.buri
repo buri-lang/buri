@@ -1869,6 +1869,40 @@ test "a long ASCII string is indexed the same way" {
     assert.equal(assert.some(text.indexOf("cab")), 2);
 }
 
+/// Whether `text` answers `charAt` and `slice` at `i` with what `chars` holds.
+fn readsOwn(pair: (Str, [Char]), i: Int): Bool {
+    let (text, chars) = pair;
+    text.charAt(i) == chars.get(i) && text.slice(i, i + 1).charAt(0) == chars.get(i)
+}
+
+// Nine long strings of one length, read in turn at every index, so whatever a
+// runtime remembers about the last few it read is asked about each of them
+// over and over. Every other one holds astral scalars, and one holds them only
+// at its very end.
+test "long strings read in turn each answer with their own scalars" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let texts = [
+        "ab".repeat(ctx, 150),
+        "a😀".repeat(ctx, 150),
+        "cd".repeat(ctx, 150),
+        "é😀".repeat(ctx, 150),
+        "ef".repeat(ctx, 150),
+        "語😀".repeat(ctx, 150),
+        "gh".repeat(ctx, 150),
+        "xy".repeat(ctx, 149).concat(ctx, "😀😀"),
+        "ij".repeat(ctx, 150),
+    ];
+    let chars = texts.mapCtx(ctx, fn(c, t) => t.chars(c));
+    let indices = list.range(ctx, 0, 300);
+    let pairs = texts.zip(ctx, chars);
+    assert.isTrue(texts.all(fn(t) => t.length() == 300));
+    assert.isTrue(indices.all(fn(i) => pairs.all(fn(pair) => readsOwn(pair, i))));
+    assert.equal(assert.some(assert.some(texts.get(7)).charAt(299)), '😀');
+    assert.equal(assert.some(assert.some(texts.get(7)).charAt(297)), 'y');
+}
+
 // A string built onto a short slice of a longer one can reuse the longer one's
 // bytes. Whatever a runtime knew about those bytes is about the old text.
 test "a string grown from a slice of a long one reads its own scalars" {

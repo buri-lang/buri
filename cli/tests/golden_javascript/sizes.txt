@@ -14,7 +14,7 @@ instantiation_tags: 2628 bytes artifact, 776 generated
 int_match: 2713 bytes artifact, 861 generated
 interpolation: 2714 bytes artifact, 1079 generated
 interpreter: 6212 bytes artifact, 7840 generated
-json_derive: 12000 bytes artifact, 4368 generated
+json_derive: 12172 bytes artifact, 4368 generated
 lazy_load: 2955 bytes artifact, 746 generated
 list_pattern_reused: 3937 bytes artifact, 2166 generated
 literals: 3388 bytes artifact, 940 generated
@@ -24,7 +24,7 @@ option_result: 4029 bytes artifact, 2538 generated
 or_patterns: 2685 bytes artifact, 1068 generated
 rebound_scrutinee: 2556 bytes artifact, 631 generated
 shared_constants: 2736 bytes artifact, 1312 generated
-stdlib_chain: 4616 bytes artifact, 1158 generated
+stdlib_chain: 4788 bytes artifact, 1158 generated
 str_match: 2668 bytes artifact, 748 generated
 structs: 3133 bytes artifact, 803 generated
 tail_closure: 4285 bytes artifact, 2838 generated
@@ -39,10 +39,10 @@ ui_counter: 40263 bytes artifact, 10675 generated
 ui_signals: 10583 bytes artifact, 6319 generated
 ui_styles: 47062 bytes artifact, 9205 generated
 ui_styles_dynamic: 46130 bytes artifact, 7664 generated
-ui_styles_handed: 51077 bytes artifact, 39786 generated
+ui_styles_handed: 51249 bytes artifact, 39786 generated
 ui_theme: 43552 bytes artifact, 12919 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 unused_closure: 2521 bytes artifact, 517 generated
 
-total: 498492 bytes artifact, 167463 generated
+total: 499008 bytes artifact, 167463 generated
 largest function: 10692 bytes, ui_animation/$tree_render

@@ -859,7 +859,7 @@ impl Str {
         match (cs.get(0)) {
             .None => list.empty<Str>(),
             .Some(c) => {
-                let first = advance(freshBoundary(), classOf(c.toU32().toI64()), true);
+                let first = advance(freshBoundary(), classOf(c.toU32()), true);
                 clustersFrom(ctx, self, cs, 1, 0, first, list.empty<Str>())
             },
         }
@@ -872,7 +872,7 @@ impl Str {
         match (self.charAt(0)) {
             .None => 0,
             .Some(c) => {
-                let first = advance(freshBoundary(), classOf(c.toU32().toI64()), true);
+                let first = advance(freshBoundary(), classOf(c.toU32()), true);
                 clusterCount(self, 1, 1, first)
             },
         }
@@ -1122,7 +1122,7 @@ fn clustersFrom<C: Allocator>(
     match (cs.get(at)) {
         .None => acc.push(ctx, text.slice(start, at)),
         .Some(c) => {
-            let next = classOf(c.toU32().toI64());
+            let next = classOf(c.toU32());
             let broke = breaksBefore(state, next);
             let pieces = if (broke) {
                 acc.push(ctx, text.slice(start, at))
@@ -1147,7 +1147,7 @@ fn clusterCount(text: Str, at: Int, seen: Int, state: Boundary): Int {
     match (text.charAt(at)) {
         .None => seen,
         .Some(c) => {
-            let next = classOf(c.toU32().toI64());
+            let next = classOf(c.toU32());
             let broke = breaksBefore(state, next);
             let total = if (broke) { seen + 1 } else { seen };
             clusterCount(text, at + 1, total, advance(state, next, broke))
@@ -1162,7 +1162,7 @@ fn allBelow(cs: [Char], bound: Int): Bool {
 
 /// The packed grapheme class of the first 128 scalars, which the table never
 /// has to be opened for: controls but for the two line breaks, then `Other`.
-fn asciiClass(cp: Int): Option<Int> {
+fn asciiClass(cp: U32): Option<Int> {
     if (cp >= 0x20 && cp < 0x7f) {
         .Some(0)
     } else if (cp == 0x0a) {
@@ -1176,21 +1176,23 @@ fn asciiClass(cp: Int): Option<Int> {
     }
 }
 
-fn classOf(cp: Int): Int {
+fn classOf(cp: U32): Int {
     match (asciiClass(cp)) {
         .Some(known) => known,
-        .None => rangeValue(GRAPHEME_CLASS, cp, 1, GRAPHEME_CLASS.length() / 10),
+        .None => {
+            rangeValue(GRAPHEME_CLASS, cp, 1, GRAPHEME_CLASS.length().wrapToU32() / 10)
+        },
     }
 }
 
 fn combiningClass(c: Char): Int {
-    let cp = c.toU32().toI64();
+    let cp = c.toU32();
     // Nothing below U+0300 combines, which is every character a Latin text is
     // made of.
     if (cp < 0x300) {
         0
     } else {
-        rangeValue(COMBINING_CLASS, cp, 1, COMBINING_CLASS.length() / 10)
+        rangeValue(COMBINING_CLASS, cp, 1, COMBINING_CLASS.length().wrapToU32() / 10)
     }
 }
 
@@ -1203,7 +1205,10 @@ fn combiningClass(c: Char): Int {
 /// The search starts with `lo` at 1, not 0: each caller asks only about a code
 /// point at or past its table's first range. `GRAPHEME_CLASS` starts at U+0000,
 /// and `COMBINING_CLASS` at U+0300, below which `combiningClass` doesn't ask.
-fn rangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
+///
+/// It counts in `U32`, a plain number on JavaScript, where an `Int` is a
+/// `BigInt`.
+fn rangeValue(table: Str, cp: U32, lo: U32, hi: U32): Int {
     if (lo < hi) {
         let mid = lo + (hi - lo) / 2;
         if (cp < codeAt(table, mid * 10)) {
@@ -1216,14 +1221,14 @@ fn rangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
         // them is the only one that can hold it.
         let at = (lo - 1) * 10;
         if (cp <= codeAt(table, at + 4)) {
-            digitAt(table, at + 8) * 36 + digitAt(table, at + 9)
+            (digitAt(table, at + 8) * 36 + digitAt(table, at + 9)).toI64()
         } else {
             0
         }
     }
 }
 
-fn codeAt(table: Str, at: Int): Int {
+fn codeAt(table: Str, at: U32): U32 {
     digitAt(table, at) * 46656
         + digitAt(table, at + 1) * 1296
         + digitAt(table, at + 2) * 36
@@ -1232,10 +1237,10 @@ fn codeAt(table: Str, at: Int): Int {
 
 /// A table is written in `0` to `9` and then `a` to `z`, so a digit's value is
 /// how far its character is past the start of whichever run it is in.
-fn digitAt(table: Str, at: Int): Int {
-    match (table.charAt(at)) {
+fn digitAt(table: Str, at: U32): U32 {
+    match (table.charAt(at.toI64())) {
         .Some(c) => {
-            let code = c.toU32().toI64();
+            let code = c.toU32();
             if (code < 97) { code - 48 } else { code - 87 }
         },
         .None => 0,
@@ -1245,8 +1250,8 @@ fn digitAt(table: Str, at: Int): Int {
 /// The character at code point `cp`, which is a scalar value: every code in
 /// the generated tables is one, and so is every answer of the Hangul
 /// arithmetic.
-fn scalar(cp: Int): Char {
-    charOf(cp.wrapToU32())
+fn scalar(cp: U32): Char {
+    charOf(cp)
 }
 
 /// A code point as a `Char`, unchecked.
@@ -1255,7 +1260,7 @@ fn scalar(cp: Int): Char {
 fn charOf(code: U32): Char;
 
 /// Where `cp` sits in a table of four-digit keys, or `.None`.
-fn keyIndex(keys: Str, cp: Int, lo: Int, hi: Int): Option<Int> {
+fn keyIndex(keys: Str, cp: U32, lo: U32, hi: U32): Option<U32> {
     if (lo >= hi) {
         .None
     } else {
@@ -1272,7 +1277,7 @@ fn keyIndex(keys: Str, cp: Int, lo: Int, hi: Int): Option<Int> {
 }
 
 /// Where the pair `(a, b)` sits in a table of eight-digit keys, or `.None`.
-fn pairIndex(keys: Str, a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
+fn pairIndex(keys: Str, a: U32, b: U32, lo: U32, hi: U32): Option<U32> {
     if (lo >= hi) {
         .None
     } else {
@@ -1291,8 +1296,8 @@ fn pairIndex(keys: Str, a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
 
 /// `acc` with what `cp` maps to on the end, or `.None` when the table says
 /// nothing about it.
-fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int, acc: [Char]): Option<[Char]> {
-    match (keyIndex(table.keys, cp, 0, table.keys.length() / 4)) {
+fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: U32, acc: [Char]): Option<[Char]> {
+    match (keyIndex(table.keys, cp, 0, table.keys.length().wrapToU32() / 4)) {
         .None => .None,
         .Some(found) => {
             let at = codeAt(table.offsets, found * 4);
@@ -1306,8 +1311,8 @@ fn mapped<C: Allocator>(ctx: C, table: Mapping, cp: Int, acc: [Char]): Option<[C
 fn valuesFrom<C: Allocator>(
     ctx: C,
     values: Str,
-    at: Int,
-    end: Int,
+    at: U32,
+    end: U32,
     acc: [Char],
 ): [Char] {
     if (at >= end) {
@@ -1328,7 +1333,7 @@ fn foldFrom<C: Allocator>(
     match (cs.get(at)) {
         .None => acc,
         .Some(c) => {
-            let next = match (mapped(ctx, table, c.toU32().toI64(), acc)) {
+            let next = match (mapped(ctx, table, c.toU32(), acc)) {
                 .None => acc.push(ctx, c),
                 .Some(grown) => grown,
             };
@@ -1347,7 +1352,7 @@ fn decomposeFrom<C: Allocator>(
     match (cs.get(at)) {
         .None => acc,
         .Some(c) => {
-            let cp = c.toU32().toI64();
+            let cp = c.toU32();
             let next = if (cp >= 0xac00 && cp <= 0xd7a3) {
                 hangulParts(ctx, acc, cp - 0xac00)
             } else {
@@ -1363,7 +1368,7 @@ fn decomposeFrom<C: Allocator>(
 
 /// `acc` with a Hangul syllable's two or three jamo on the end, by the
 /// arithmetic in UAX #15 §3.12.
-fn hangulParts<C: Allocator>(ctx: C, acc: [Char], index: Int): [Char] {
+fn hangulParts<C: Allocator>(ctx: C, acc: [Char], index: U32): [Char] {
     let trailing = index % 28;
     let pair = acc
         .push(ctx, scalar(0x1100 + index / 588))
@@ -1447,8 +1452,8 @@ fn composeFrom<C: Allocator>(
 /// The one character `a` and `b` compose to, or `.None`. Hangul is arithmetic
 /// and everything else is a lookup.
 fn primaryComposite(a: Char, b: Char): Option<Char> {
-    let x = a.toU32().toI64();
-    let y = b.toU32().toI64();
+    let x = a.toU32();
+    let y = b.toU32();
     if (x >= 0x1100 && x <= 0x1112 && y >= 0x1161 && y <= 0x1175) {
         .Some(scalar(0xac00 + ((x - 0x1100) * 21 + (y - 0x1161)) * 28))
     } else if (
@@ -1460,7 +1465,9 @@ fn primaryComposite(a: Char, b: Char): Option<Char> {
     ) {
         .Some(scalar(x + (y - 0x11a7)))
     } else {
-        match (pairIndex(COMPOSE_KEYS, x, y, 0, COMPOSE_KEYS.length() / 8)) {
+        match (
+            pairIndex(COMPOSE_KEYS, x, y, 0, COMPOSE_KEYS.length().wrapToU32() / 8)
+        ) {
             .None => .None,
             .Some(found) => .Some(scalar(codeAt(COMPOSE_VALUES, found * 4))),
         }

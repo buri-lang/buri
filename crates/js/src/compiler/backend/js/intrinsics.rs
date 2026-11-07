@@ -59,6 +59,15 @@ impl<'a> Gen<'a> {
                 ],
             ));
         }
+        // `$str_charAt` reads its position with `Number`, so `BigInt(x)` can
+        // go in as `x`: the Unicode tables read every digit that way.
+        let unwidened;
+        let args = if key == "str.charAt" {
+            unwidened = args.iter().map(unwiden).collect::<Vec<_>>();
+            &unwidened[..]
+        } else {
+            args
+        };
         // Everything else is a runtime function of the same name — or, where
         // this instantiation's **step waits**, of the same name with `Await`
         // after it.
@@ -511,6 +520,18 @@ impl<'a> Gen<'a> {
             ],
         )
     }
+}
+
+/// `x` for `BigInt(x)`, and anything else as it is.
+fn unwiden(e: &Expr) -> Expr {
+    let inner = match e {
+        Expr::Call { callee, args } => match (callee.as_ref(), args.as_slice()) {
+            (Expr::Ident(name), [x]) if name == "BigInt" => x,
+            _ => e,
+        },
+        _ => e,
+    };
+    inner.clone()
 }
 
 /// The same value, written the way the target type is written. A widening is
