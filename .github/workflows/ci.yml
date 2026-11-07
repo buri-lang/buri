@@ -944,7 +944,33 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v23
         with:
           determinate: false
+      # **The runner is cached under its derivation's path**, because building
+      # it took 254-486 s of this job (runs 42330592979 to 42365863889). The
+      # key is exactly right. A `.drv` path hashes every input of the build:
+      # the source tarball's hash, the build script and flags, the system, and
+      # every dependency's own `.drv`, compiler and abseil included. So any
+      # change that could change the runner, a `flake.lock` bump among them,
+      # is a new key, and nothing else is: an edit elsewhere in `flake.nix`
+      # leaves the path alone, where `hashFiles('flake.nix')` would miss. The
+      # output path is a function of that same derivation, so whatever is
+      # stored under a key is a build of exactly it. The cache holds the
+      # runner and its run-time closure, as a `file://` binary cache.
+      - id: runner
+        run: |
+          set -euo pipefail
+          echo "drv=$(basename "$(nix eval --raw .#conformance-runner.drvPath)" .drv)" >> "$GITHUB_OUTPUT"
+          echo "out=$(nix eval --raw .#conformance-runner.outPath)" >> "$GITHUB_OUTPUT"
+      - id: runner-cache
+        uses: actions/cache@v6
+        with:
+          path: proto-runner
+          key: proto-conformance-runner-${{ steps.runner.outputs.drv }}
+      # Unsigned, because this job wrote it; the runner user is trusted.
+      - if: steps.runner-cache.outputs.cache-hit == 'true'
+        run: nix copy --from "file://$PWD/proto-runner" --no-check-sigs '${{ steps.runner.outputs.out }}'
       - run: nix build .#conformance-runner -o runner
+      - if: steps.runner-cache.outputs.cache-hit != 'true'
+        run: nix copy --to "file://$PWD/proto-runner?compression=zstd" ./runner
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: oven-sh/setup-bun@v2

@@ -1003,6 +1003,34 @@ fn every_memcheck_run_is_in_exactly_one_shard() {
     );
 }
 
+/// **The protobuf conformance runner is cached under its derivation's path.**
+///
+/// Building it was most of the `proto-conformance` job. The `.drv` path
+/// hashes every input of the build, so it changes exactly when the runner
+/// could. A key made of anything else, like a hash of `flake.lock` or
+/// `flake.nix`, either misses on edits that can't change the runner or hits
+/// on a stale one.
+#[test]
+fn the_conformance_runner_is_cached_by_its_derivation() {
+    let text = workflow();
+    let body = jobs(&text)
+        .remove("proto-conformance")
+        .unwrap_or_else(|| panic!("ci.yml has no `proto-conformance` job"));
+    assert!(
+        body.contains("nix eval --raw .#conformance-runner.drvPath"),
+        "the `proto-conformance` job no longer reads the runner's derivation path"
+    );
+    let keys: Vec<&str> = body
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("key: "))
+        .collect();
+    assert!(
+        keys == ["proto-conformance-runner-${{ steps.runner.outputs.drv }}"],
+        "the `proto-conformance` job's cache key is {keys:?}; it must be the runner's \
+         derivation path and nothing else"
+    );
+}
+
 /// **Every job that caches a build directory prunes it first.**
 ///
 /// Unpruned, those caches kept every variant ever built and every workspace
