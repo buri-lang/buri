@@ -47,6 +47,36 @@ pub fn run_name() -> String {
     std::env::var("NEXTEST_RUN_ID").unwrap_or_else(|_| std::process::id().to_string())
 }
 
+/// What `compute` answers, computed once per test run however many processes
+/// ask, in `<name>-<run>` under the scratch root.
+///
+/// The first process to take the directory's lock computes and leaves the
+/// answer beside it; every later one waits for the lock and reads it. A
+/// `compute` that panics leaves no answer, so the next process to ask
+/// computes again and panics the same way.
+pub fn once_per_run(name: &str, compute: impl FnOnce() -> String) -> String {
+    once();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{name}-{}", run_name()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = std::fs::File::options()
+        .create(true)
+        .append(true)
+        .open(dir.join("lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    let answer = dir.join("answer");
+    if let Ok(said) = std::fs::read_to_string(&answer) {
+        return said;
+    }
+    let said = compute();
+    // Renamed into place, so a process killed while writing leaves no half
+    // of an answer for the next one to read.
+    let partial = dir.join("answer.partial");
+    std::fs::write(&partial, &said).unwrap();
+    std::fs::rename(&partial, &answer).unwrap();
+    said
+}
+
 /// Sweeps once per test binary, whenever it is called.
 ///
 /// Best effort throughout: a tree another process is deleting at the same
@@ -210,6 +240,29 @@ mod sweep_tests {
         assert!(root.join("loose-file").is_file());
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A second ask in the same run reads the first one's answer and computes
+    /// nothing. The second ask goes past the process's own memory to the
+    /// file, so it is the ask another process makes.
+    #[test]
+    fn a_run_computes_an_answer_once() {
+        let name = format!("once-per-run-test-{}", std::process::id());
+        let computed = std::cell::Cell::new(0);
+        let ask = |answer: &str| {
+            once_per_run(&name, || {
+                computed.set(computed.get() + 1);
+                answer.to_string()
+            })
+        };
+        let first = ask("é 🙂\nover two lines");
+        let second = ask("another answer");
+        assert_eq!(computed.get(), 1, "the second ask computed again");
+        assert_eq!(first, "é 🙂\nover two lines");
+        assert_eq!(second, first, "the second ask read something else");
+        let _ = std::fs::remove_dir_all(
+            Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{name}-{}", run_name())),
+        );
     }
 
     /// The kept trees are never taken whole. A stale program in the store is

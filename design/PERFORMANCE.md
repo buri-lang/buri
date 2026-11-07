@@ -8542,6 +8542,52 @@ instructions a module, and now costs 0.23 M.
 The lexer and parser are still four fifths of the phase, and §6.83's floor
 for both stands without a rewrite.
 
+### 6.100 The suite's CPU, and one conformance run per test run, 2026-11-06
+
+Measured at `b06447ddb` on a 12-core M3 Pro at load 9–19, with a nextest
+target runner that wraps each test process in `/usr/bin/time`:
+
+- **Cold build of every test binary:** 807 CPU-seconds (781 user, 26 sys).
+  After touching `cli/src/lib.rs` it's 245, and about 150 of that is the 13
+  integration-test crates, which all rebuild.
+- **Test run:** 1,134 CPU-seconds (893 user, 241 sys) for 3,142 tests.
+  `native` is 402 of them, `language` 319 and `build` 202.
+
+Six tests are 445 CPU-seconds. Each runs `buri test //...` over the
+conformance corpus on JavaScript, and `bun` is 36 of each run's 40 seconds.
+Five `unicode.buri` and `characters.buri` tests are about 30 of those 36.
+They walk every scalar below U+30000 through `normalize` or a classifier,
+and each table lookup decodes base-36 digits with `BigInt` arithmetic:
+`isPunctuation` costs 10 µs a call on `bun`.
+
+Three of the six asked for the same run, `debug_suite::unmodified_conformance_run`,
+and its `OnceLock` only shared it within a process. nextest gives each test a
+process, so the run happened three times. It now goes through
+`sweep::once_per_run`, which leaves the answer on disk for the rest of the
+test run, the way `checking.rs` shares its corpus. The three tests went from
+201 to 121 CPU-seconds. `sweep::a_run_computes_an_answer_once` counts the
+computations.
+
+Measured and left:
+
+- **Dependencies at `opt-level = 0` in the test profile.** The runtime's
+  test build fell from 171 to 83 CPU-seconds, but its tests rose from 11 to
+  30. Shared generics made `allocator::blocks_freed_on_other_threads_are_reused_intact`
+  run std's collections from an unoptimized dependency: 2.1 s became 16.8 s.
+- **Dependencies without line tables** saved 13 CPU-seconds a cold build.
+- **The harness's 28 tests run in each of 10 binaries.** All 280 processes
+  together cost 0.1 CPU-seconds.
+
+What's left, largest first:
+
+- **The Unicode tables on JavaScript**, about 30 CPU-seconds in each of the
+  eight JavaScript conformance runs. Either `Int` gets a `number` fast path
+  or the tables' lookups stop doing arithmetic per digit.
+- **Nine small integration-test binaries** (`adversarial`, `checking`, `ci`,
+  `failing`, `formatting`, `fuzz`, `linting`, `recovery`, `vectors`) each
+  compile the harness and link the toolchain. Folding them into one would
+  save about 35 CPU-seconds of every rebuild.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

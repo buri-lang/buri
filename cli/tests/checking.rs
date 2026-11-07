@@ -386,32 +386,18 @@ fn write_corpus(picks: &[(Chosen, bool, String)]) {
 /// Once, because the analysis behind it is two CPU-minutes and four tests ask
 /// for it — and because a blessing run must have finished writing before any
 /// of them reads the tree. nextest runs each test in a process of its own, so
-/// the first process to take the run's lock computes it and leaves it on disk
-/// for the rest (`sweep::run_name`), the way `native/shared.rs` leaves the
-/// runtime archive.
+/// the first process to ask computes it and leaves it on disk for the rest
+/// (`sweep::once_per_run`).
 fn corpus() -> &'static [(Chosen, bool, String)] {
     static CORPUS: std::sync::OnceLock<Vec<(Chosen, bool, String)>> = std::sync::OnceLock::new();
     CORPUS.get_or_init(|| {
-        harness::sweep::once();
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join(format!("checking-corpus-{}", harness::sweep::run_name()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let lock = std::fs::File::options()
-            .create(true)
-            .append(true)
-            .open(dir.join("lock"))
-            .unwrap();
-        lock.lock().unwrap();
-        let path = dir.join("corpus");
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            return read_back(&text);
-        }
-        let picks = picks();
-        if std::env::var_os("BURI_BLESS").is_some() {
-            write_corpus(&picks);
-        }
-        std::fs::write(&path, written(&picks)).unwrap();
-        picks
+        read_back(&harness::sweep::once_per_run("checking-corpus", || {
+            let picks = picks();
+            if std::env::var_os("BURI_BLESS").is_some() {
+                write_corpus(&picks);
+            }
+            written(&picks)
+        }))
     })
 }
 
