@@ -804,6 +804,65 @@ fn the_runner_config_never_kills_retries_or_filters_a_test() {
     );
 }
 
+/// **No more macOS jobs than a free account runs at once.**
+///
+/// GitHub's free plan runs at most five macOS jobs at a time. A sixth waits for
+/// one of them to finish, so the run gets longer while each job's own time
+/// says nothing about it. A job runs on macOS either by name or through a
+/// matrix `include` row whose `os` is macOS, and a matrix multiplies it by
+/// the length of each of its list dimensions.
+#[test]
+fn the_workflow_runs_at_most_five_macos_jobs() {
+    let text = workflow();
+    let mut counted: Vec<String> = Vec::new();
+    let mut total = 0;
+    for (name, body) in jobs(&text) {
+        let runs_on = body
+            .lines()
+            .find_map(|line| line.strip_prefix("    runs-on: "))
+            .unwrap_or("")
+            .trim();
+        let dimensions: Vec<usize> = body
+            .lines()
+            .filter(|line| line.starts_with("        ") && !line.starts_with("         "))
+            .filter_map(|line| line.split_once(": [").map(|(_, list)| list))
+            .map(|list| list.trim_end_matches(']').split(',').count())
+            .collect();
+        let jobs = if runs_on.starts_with("macos") {
+            dimensions.iter().product()
+        } else if runs_on == "${{ matrix.os }}" {
+            let rows = body
+                .lines()
+                .filter(|line| line.trim_start().starts_with("- {") && line.contains("os: macos"))
+                .count();
+            assert!(
+                rows == 0 || dimensions.is_empty(),
+                "the `{name}` job runs on macOS through an `include` row of a matrix that also has \
+                 list dimensions, and this test cannot tell how many jobs that makes"
+            );
+            rows
+        } else {
+            0
+        };
+        if jobs > 0 {
+            counted.push(format!("{name}: {jobs}"));
+            total += jobs;
+        }
+    }
+    assert!(
+        total <= 5,
+        "ci.yml runs {total} macOS jobs, and a free account runs five at once:\n  {}",
+        counted.join("\n  ")
+    );
+    assert!(
+        total >= 3,
+        "only {total} macOS job(s) were counted, and there were five when this was written; \
+         the reading above has stopped seeing them:\n  {}",
+        counted.join("\n  ")
+    );
+    println!("{total} macOS job(s): {}", counted.join(", "));
+}
+
 /// **Every job that caches a build directory prunes it first.**
 ///
 /// Unpruned, those caches kept every variant ever built and every workspace

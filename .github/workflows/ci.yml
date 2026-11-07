@@ -585,9 +585,10 @@ jobs:
   # `cfg!(debug_assertions)` counts both ways.
   # `coverage-build` builds each platform's instrumented `buri` and tests once,
   # so every shard of it runs the same `buri`. On Linux each shard runs a
-  # quarter of the tests; macOS runs them all in one job, `coverage-macos`,
-  # because a free account runs at most five macOS jobs at once. `coverage`
-  # merges every shard and gates.
+  # quarter of the tests; macOS runs a third in each of three, `coverage-macos`,
+  # because a free account runs at most five macOS jobs at once and this
+  # workflow's other two are the `test` leg and this build. `coverage` merges
+  # every shard and gates.
   coverage-build:
     name: coverage build (${{ matrix.platform }})
     strategy:
@@ -681,16 +682,22 @@ jobs:
           path: target/coverage/shard
           retention-days: 7
 
-  # Every test in one shard, `1/1`, which measures what four quarters did: the
-  # merge adds a platform's shards, and one shard's profile is that same sum.
+  # macOS in three shards rather than Linux's four: with the `test` leg and
+  # the macOS build, three makes the five macOS jobs a free account runs at
+  # once (`cli/tests/ci.rs` counts them). In one shard it was the critical
+  # path, 26 minutes after a 14-minute build (run 42361847351).
   coverage-macos:
-    name: coverage shard (arm64-macos)
+    name: coverage shard (arm64-macos, ${{ matrix.shard }}/3)
     needs: coverage-build
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     runs-on: macos-26
     # Twice the runner's three cores.
     env:
       NEXTEST_TEST_THREADS: 6
-    timeout-minutes: 180
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -703,10 +710,10 @@ jobs:
         with:
           name: coverage-build-arm64-macos
           path: target/coverage/build
-      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=1/1
+      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/3
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-shard-arm64-macos-1
+          name: coverage-shard-arm64-macos-${{ matrix.shard }}
           path: target/coverage/shard
           retention-days: 7
 
