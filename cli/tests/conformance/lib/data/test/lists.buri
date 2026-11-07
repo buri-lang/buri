@@ -502,6 +502,21 @@ test "sortBy is stable when every key is equal" {
     ]);
 }
 
+// Long enough that no engine sorts it as a short list.
+test "sortBy is stable on a long list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = list.range(ctx, 0, 200).map(ctx, fn(k) => (k % 3, k));
+    let zeros = xs.filter(ctx, fn(x) => x.0 == 0);
+    let ones = xs.filter(ctx, fn(x) => x.0 == 1);
+    let twos = xs.filter(ctx, fn(x) => x.0 == 2);
+    assert.equal(
+        xs.sortBy(ctx, fn(a, b) => order.int(a.0, b.0)),
+        zeros.concat(ctx, ones).concat(ctx, twos),
+    );
+}
+
 // JavaScript's own sort moves `undefined` to the end without asking the
 // comparator, and `None` is `undefined` there.
 test "sortBy orders None by the comparator" {
