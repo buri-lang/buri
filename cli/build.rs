@@ -1195,7 +1195,8 @@ fn passed(name: &str) -> bool {
     KEYED.contains(&name)
         || UNKEYED.contains(&name)
         || c_toolchain(name)
-        || (name.starts_with("NIX_") && !NIX_WITHHELD.contains(&name))
+        // nix's `cc` wrapper takes its flags, SDK and hardening from these.
+        || name.starts_with("NIX_")
 }
 
 /// Passed and hashed, each for a reason of its own.
@@ -1236,6 +1237,10 @@ const UNKEYED: &[&str] = &[
     "TMP",
     "TEMP",
     "TEMPDIR",
+    // A nix build's scratch directory and its core count. The first changes
+    // with every `nix develop`, and nix's `cc` wrapper fails without it.
+    "NIX_BUILD_TOP",
+    "NIX_BUILD_CORES",
     // Downloads only. The lockfile pins every dependency and cargo checks
     // each download against its checksum, so how a crate arrived cannot change
     // what it compiles to.
@@ -1282,13 +1287,6 @@ fn c_toolchain(name: &str) -> bool {
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))
     })
 }
-
-/// nix's compiler and linker wrappers take their flags, their SDK and their
-/// hardening from `NIX_*` variables (`NIX_CFLAGS_COMPILE`, `NIX_LDFLAGS`,
-/// `NIX_HARDENING_ENABLE` and others), so every `NIX_*` variable is passed but
-/// these two. They name a shell's scratch directory and its core count, and
-/// the first changes with every `nix develop`.
-const NIX_WITHHELD: &[&str] = &["NIX_BUILD_TOP", "NIX_BUILD_CORES"];
 
 /// Where the stamp is written: beside the archive, like its digest and its
 /// feature list, and for the reason those are there — one run of this script
