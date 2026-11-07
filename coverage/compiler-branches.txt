@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15259 15361 99.34%
-area cli/build 1700 1707 99.59%
+total 15283 15385 99.34%
+area cli/build 1704 1711 99.59%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
@@ -14,12 +14,12 @@ area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
 area cli/test 509 524 97.14%
 area crates/backend 68 68 100.00%
-area crates/diagnostics 219 220 99.55%
+area crates/diagnostics 221 222 99.55%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 995 1020 97.55%
 area crates/llvm 580 580 100.00%
-area crates/middle 2010 2038 98.63%
+area crates/middle 2026 2054 98.64%
 area crates/project 1335 1338 99.78%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -33,7 +33,7 @@ area crates/syntax 1268 1268 100.00%
 166 166 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
 30 30 cli/src/build/image.rs
-159 164 cli/src/build/link.rs
+163 168 cli/src/build/link.rs
 0 0 cli/src/build/mod.rs
 0 0 cli/src/build/musl.rs
 36 37 cli/src/build/programs.rs
@@ -109,7 +109,7 @@ area crates/syntax 1268 1268 100.00%
 0 0 crates/backend/src/compiler/backend/task_thread.rs
 98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
-42 42 crates/diagnostics/src/parallel.rs
+44 44 crates/diagnostics/src/parallel.rs
 35 36 crates/diagnostics/src/profile.rs
 0 0 crates/docs/src/documentation/errors.rs
 18 18 crates/docs/src/documentation/frontmatter.rs
@@ -129,7 +129,7 @@ area crates/syntax 1268 1268 100.00%
 58 58 crates/llvm/src/compiler/backend/llvm/attrs.rs
 10 10 crates/llvm/src/compiler/backend/llvm/build.rs
 432 432 crates/llvm/src/compiler/backend/llvm/emit.rs
-14 14 crates/llvm/src/compiler/backend/llvm/mod.rs
+16 16 crates/llvm/src/compiler/backend/llvm/mod.rs
 44 44 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/route.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
@@ -153,7 +153,7 @@ area crates/syntax 1268 1268 100.00%
 46 46 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 162 170 crates/middle/src/compiler/middle/monomorphize.rs
-86 86 crates/middle/src/compiler/middle/monomorphize/erase.rs
+102 102 crates/middle/src/compiler/middle/monomorphize/erase.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 646 652 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
