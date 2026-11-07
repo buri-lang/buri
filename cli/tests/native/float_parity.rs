@@ -426,6 +426,8 @@ fn the_runtimes_own_unit_tests_pass() {
         .arg("--test")
         .args(["--edition", "2024"])
         .args(["-C", "opt-level=1"])
+        // As in `[profile.test]`: the in-crate ThinLTO pass was a quarter of the CPU.
+        .args(["-C", "lto=off"])
         .arg("-o")
         .arg(&binary)
         .arg(&lib)
