@@ -1538,11 +1538,12 @@ fn stage_from(src: &Path, dest: &Path) -> std::io::Result<()> {
 /// it would rewrite that entry in place.
 fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let fresh = beside(dest);
-    let written = std::fs::write(&fresh, bytes).and_then(|()| std::fs::rename(&fresh, dest));
-    if written.is_err() {
-        let _ = std::fs::remove_file(&fresh);
-    }
-    written
+    // The temporary is left only by a failure.
+    std::fs::write(&fresh, bytes)
+        .and_then(|()| std::fs::rename(&fresh, dest))
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&fresh);
+        })
 }
 
 // ---------------------------------------------------------------------------

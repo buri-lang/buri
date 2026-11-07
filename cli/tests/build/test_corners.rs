@@ -531,7 +531,10 @@ fn a_run_after_the_cache_is_deleted_builds_a_fresh_one() {
     let mut partial = Vec::new();
     let mut dirs = vec![scratch.path(".buri/cache")];
     while let Some(dir) = dirs.pop() {
-        for entry in std::fs::read_dir(&dir).expect("the cache is a directory").flatten() {
+        for entry in std::fs::read_dir(&dir)
+            .expect("the cache is a directory")
+            .flatten()
+        {
             let name = entry.file_name().to_string_lossy().into_owned();
             if entry.path().is_dir() {
                 dirs.push(entry.path());

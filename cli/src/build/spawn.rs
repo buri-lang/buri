@@ -413,11 +413,9 @@ fn exited_unreaped(pid: u32) {
     const WNOWAIT: i32 = 0x0100_0000;
     let mut info = [0u64; 16];
     // SAFETY: `info` is 128 bytes, the size of Linux's `siginfo_t` and more
-    // than macOS's 104. A wait a signal interrupts is asked again; any other
-    // failure means there is no child to wait for.
-    while unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) } != 0
-        && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
-    {}
+    // than macOS's 104. A failure means there is no child to wait for: the
+    // handlers buri installs are `signal`'s, which restart an interrupted wait.
+    let _ = unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) };
 }
 
 #[cfg(test)]

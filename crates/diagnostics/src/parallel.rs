@@ -649,7 +649,7 @@ fn watch() {
         let runs: Vec<(u64, bool)> = pids.iter().map(|&(id, pid)| (id, os::runs(pid))).collect();
         all = watched();
         for (id, runs) in runs {
-            if let Some(w) = all.all.iter_mut().find(|w| w.id == id) {
+            for w in all.all.iter_mut().filter(|w| w.id == id) {
                 w.quiet = if runs { 0 } else { w.quiet.saturating_add(1) };
                 w.place.count(w.quiet < QUIET_LOOKS);
             }
@@ -665,11 +665,11 @@ pub struct Aside {
 
 impl Drop for Aside {
     fn drop(&mut self) {
-        let Some(id) = self.id else { return };
-        let mut all = watched();
-        let at = all.all.iter().position(|w| w.id == id);
-        let ended = at.map(|at| all.all.swap_remove(at));
-        drop(all);
+        let ended = self.id.and_then(|id| {
+            let mut all = watched();
+            let at = all.all.iter().position(|w| w.id == id);
+            at.map(|at| all.all.swap_remove(at))
+        });
         let _ = ended.map(|w| w.place.count(true));
     }
 }

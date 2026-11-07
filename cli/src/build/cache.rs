@@ -377,17 +377,17 @@ impl Cache {
         let p = self.path(key);
         let tmp = p.with_extension(temporary_extension());
         // The entry's directory is made only when the write finds it missing.
-        let written = std::fs::write(&tmp, data).is_ok() || {
-            crate::build::create_parent(&p);
-            std::fs::write(&tmp, data).is_ok()
-        };
-        if written {
-            tag::set(&tmp, tag);
-            if std::fs::rename(&tmp, &p).is_ok() {
-                return;
-            }
-        }
-        let _ = std::fs::remove_file(&tmp);
+        let stored = std::fs::write(&tmp, data)
+            .or_else(|_| {
+                crate::build::create_parent(&p);
+                std::fs::write(&tmp, data)
+            })
+            .and_then(|()| {
+                tag::set(&tmp, tag);
+                std::fs::rename(&tmp, &p)
+            });
+        // The temporary is left only by a failure.
+        let _ = stored.or_else(|_| std::fs::remove_file(&tmp));
     }
 
     /// [`Cache::put`] for bytes that are already a file: stores the entry by
@@ -424,20 +424,20 @@ impl Cache {
         // process's own file.
         let len = std::fs::metadata(src).map_or(0, |meta| meta.len());
         // The entry's directory is made only when the move finds it missing.
-        let staged = std::fs::rename(src, &tmp).is_ok()
-            || {
-                crate::build::create_parent(&p);
-                std::fs::rename(src, &tmp).is_ok()
-            }
+        let moved = std::fs::rename(src, &tmp).or_else(|_| {
+            crate::build::create_parent(&p);
+            std::fs::rename(src, &tmp)
+        });
+        let staged = moved.is_ok()
             || (std::fs::copy(src, &tmp).is_ok() && {
                 let _ = std::fs::remove_file(src);
                 true
             });
         if staged {
             tag::set(&tmp, &len.to_le_bytes());
-            if std::fs::rename(&tmp, &p).is_ok() {
-                return;
-            }
+            // The temporary is left only by a failure.
+            let _ = std::fs::rename(&tmp, &p).or_else(|_| std::fs::remove_file(&tmp));
+            return;
         }
         let _ = std::fs::remove_file(&tmp);
     }

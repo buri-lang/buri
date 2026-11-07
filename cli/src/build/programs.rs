@@ -83,9 +83,8 @@ fn settle_in(store: &Path, binary: &Path) {
             // The runner's first start is now the kept file's: a new file only
             // when this process just made the entry from it.
             super::counted::moved(binary, created.then_some(kept.as_path()));
-            if std::fs::rename(&partial, binary).is_err() {
-                let _ = std::fs::remove_file(&partial);
-            }
+            // The temporary is left only by a failure.
+            let _ = std::fs::rename(&partial, binary).or_else(|_| std::fs::remove_file(&partial));
         }
         return;
     }

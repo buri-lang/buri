@@ -5608,12 +5608,12 @@ fn run_pulled(
     crate::profile::reaped(child.id());
     let status = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
-    let Ok(status) = status else {
+    let Some(status) = status
+        .ok()
+        .filter(|status| status.code() != Some(HEAP_CHECK_STATUS))
+    else {
         return Pulled::Broken;
     };
-    if status.code() == Some(HEAP_CHECK_STATUS) {
-        return Pulled::Broken;
-    }
     let mut notes = String::new();
     if let Some(line) = heap_check_said(&stderr) {
         notes.push_str(line);
