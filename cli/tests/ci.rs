@@ -1003,6 +1003,35 @@ fn every_memcheck_run_is_in_exactly_one_shard() {
     );
 }
 
+/// **Memcheck's test binaries never read the cargo registry at run time.**
+///
+/// `memcheck.yml` builds the native suite and the runtime's unit tests in one
+/// job and runs them in another, which has the checkout but not `~/.cargo`. A
+/// test that needs a dependency's source reads it at compile time instead, the
+/// way `runtime-tests/build.rs` hands `tls.rs` graviola's `cpu.rs`.
+#[test]
+fn memcheck_binaries_do_not_read_the_cargo_registry() {
+    let root = repo_root();
+    let mut found = Vec::new();
+    for path in rust_sources() {
+        let relative = path.strip_prefix(&root).unwrap_or(&path);
+        if !(relative.starts_with("cli/runtime") || relative.starts_with("cli/tests/native")) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (number, line) in text.lines().enumerate() {
+            let line = code(line);
+            if line.contains("CARGO_HOME") || line.contains("registry/src") {
+                found.push(format!("{}:{}", relative.display(), number + 1));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "these lines look for the cargo registry, which memcheck's shards do not have: {found:?}"
+    );
+}
+
 /// **The protobuf conformance runner is cached under its derivation's path.**
 ///
 /// Building it was most of the `proto-conformance` job. The `.drv` path
