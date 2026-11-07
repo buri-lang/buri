@@ -1,16 +1,17 @@
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
-from "//lib/ranking" import { ranked };
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
+from "//lib/ranking" import { ranked };
 
 test "every shift ranks the digits best first" {
     let ctx = context {
         Allocator: alloc(),
     };
-    let wrong = list.range(ctx, 0, 4000).filterCtx(
-        ctx,
-        fn(c, shift) => ranked(c, shift) != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-    );
+    let wrong = list
+        .range(ctx, 0, 4000)
+        .filterCtx(ctx, fn(c, shift) => {
+            ranked(c, shift) != [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        });
     assert.isEmpty(wrong);
 }

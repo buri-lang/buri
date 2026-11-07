@@ -19,7 +19,7 @@ lazy_load: 2955 bytes artifact, 746 generated
 list_pattern_reused: 3937 bytes artifact, 2166 generated
 literals: 3388 bytes artifact, 940 generated
 nested_match: 2752 bytes artifact, 1195 generated
-nested_option: 8495 bytes artifact, 6713 generated
+nested_option: 8737 bytes artifact, 6713 generated
 option_result: 4029 bytes artifact, 2538 generated
 or_patterns: 2685 bytes artifact, 1068 generated
 rebound_scrutinee: 2556 bytes artifact, 631 generated
@@ -44,5 +44,5 @@ ui_theme: 43552 bytes artifact, 12919 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 unused_closure: 2521 bytes artifact, 517 generated
 
-total: 499008 bytes artifact, 167463 generated
+total: 499250 bytes artifact, 167463 generated
 largest function: 10692 bytes, ui_animation/$tree_render
