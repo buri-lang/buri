@@ -1800,3 +1800,74 @@ fn a_server_whose_directory_is_gone_serves_nothing_and_still_answers() {
         "the shutdown went unanswered:\n{out}"
     );
 }
+
+/// A server started from a shell in a directory reached through a symlink
+/// serves the repository under the path the shell was in, which is the path
+/// the client names its files by.
+///
+/// The process's own working directory is the symlink resolved, as on macOS,
+/// where `/tmp` is `/private/tmp`. A client that names no folder gets the
+/// directory it started the server in, and a hover in a file named under the
+/// symlink once answered `null`, because the file's repository was not the
+/// one being served.
+#[test]
+fn a_server_started_through_a_symlink_serves_the_path_it_was_started_at() {
+    use std::io::{Read, Write};
+    let scratch = Scratch::repo("lsp-symlinked-start");
+    scratch.write(
+        "lib/stock/BUILD.buri",
+        "library {\n    sources: [\"shelf.buri\"]\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    let shelf = "/// How many items one shelf holds.\nexport fn size(): I64 {\n    12\n}\n";
+    scratch.write("lib/stock/shelf.buri", shelf);
+    let link = scratch.root.with_file_name(format!(
+        "{}-link",
+        scratch.root.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&scratch.root, &link).unwrap();
+
+    let mut process = buri_command()
+        .arg("lsp")
+        .env("BURI_LSP_ANALYSIS", "synchronous")
+        // What a shell sets on the way to starting a program in `link`.
+        .env("PWD", &link)
+        .current_dir(&link)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the language server did not start");
+    let uri = format!("file://{}/lib/stock/shelf.buri", link.display());
+    let mut input = process.stdin.take().unwrap();
+    for message in [
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":null}}"#.to_string(),
+        r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#.to_string(),
+        format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{{"textDocument":{{"uri":"{uri}","languageId":"buri","version":1,"text":{}}}}}}}"#,
+            quoted(shelf)
+        ),
+        format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{uri}"}},"position":{{"line":1,"character":11}}}}}}"#
+        ),
+        r#"{"jsonrpc":"2.0","id":3,"method":"shutdown"}"#.to_string(),
+        r#"{"jsonrpc":"2.0","method":"exit"}"#.to_string(),
+    ] {
+        write!(input, "Content-Length: {}\r\n\r\n{message}", message.len()).unwrap();
+    }
+    drop(input);
+    let mut out = String::new();
+    process
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    let status = process.capped_wait().unwrap();
+    let _ = std::fs::remove_file(&link);
+    assert!(status.success(), "the server exited {status}:\n{out}");
+    assert!(
+        out.contains(r#"{"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn size(): I64\n```\n\nHow many items one shelf holds."}"#),
+        "the hover did not answer from the repository the server was started in:\n{out}"
+    );
+}

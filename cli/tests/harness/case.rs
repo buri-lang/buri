@@ -1212,6 +1212,11 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
         // next. A session that wants the worker says so in its
         // `initializationOptions`; see `language_server::sweep`.
         .env("BURI_LSP_ANALYSIS", "synchronous")
+        // Started in the copied repository the way a shell starts a program
+        // there, under the path the session names its files by: under a target
+        // directory reached through a symlink, the working directory alone is
+        // the symlink resolved.
+        .env("PWD", dir)
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -779,7 +779,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 state.trace = level;
             }
             if named.is_empty() && !client_has_folders {
-                if let Ok(cwd) = std::env::current_dir() {
+                if let Some(cwd) = started_in() {
                     state.add_root(&cwd);
                 }
             }
@@ -2016,6 +2016,23 @@ fn client_response(state: &mut State, msg: &Value) -> Vec<Value> {
         return vec![response(&command, applied)];
     }
     Vec::new()
+}
+
+/// The directory the server was started in, spelled the way the shell that
+/// started it spelled it.
+///
+/// The process's own working directory has every symlink resolved — on macOS
+/// `/tmp` reads back as `/private/tmp` — while the client names its files by
+/// the path it was in, which a shell keeps in `PWD`. A file named under one
+/// spelling is not in a repository served under the other, so `PWD` is the
+/// answer whenever it is still the same directory, and the resolved path is
+/// the answer otherwise.
+fn started_in() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    let spelled = std::env::var_os("PWD")
+        .map(PathBuf::from)
+        .filter(|pwd| std::fs::canonicalize(pwd).is_ok_and(|real| real == cwd));
+    Some(spelled.unwrap_or(cwd))
 }
 
 /// The folders in a `WorkspaceFolder[]`, wherever one appears: `initialize`
