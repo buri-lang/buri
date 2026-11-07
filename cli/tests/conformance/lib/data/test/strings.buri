@@ -943,6 +943,15 @@ test "isAlpha rejects digits and punctuation" {
     assert.isFalse('_'.isAlpha());
 }
 
+// A letter from each of four scripts Unicode 17.0 added: Tai Yo, Sidetic,
+// Tolong Siki and Beria Erfe. Every backend knows them, or none of them does.
+test "isAlpha accepts the letters Unicode 17.0 added" {
+    assert.isTrue('\u{1e6c0}'.isAlpha());
+    assert.isTrue('\u{10940}'.isAlpha());
+    assert.isTrue('\u{11db0}'.isAlpha());
+    assert.isTrue('\u{16ea0}'.isAlpha());
+}
+
 test "isAlphanumeric accepts both letters and digits" {
     assert.isTrue('a'.isAlphanumeric());
     assert.isTrue('7'.isAlphanumeric());
@@ -988,6 +997,19 @@ test "char toUpper uppercases a letter" {
 test "char toUpper leaves a non-letter alone" {
     assert.equal('1'.toUpper(), '1');
     assert.equal('A'.toUpper(), 'A');
+}
+
+// A `Char` is one scalar, so where the full case mapping is two, `toUpper` and
+// `toLower` answer its first: `ß` uppercases to `SS`, and `'ß'.toUpper()` is
+// `'S'`. `str.toUpper` is the one that answers `SS`.
+test "char toUpper of a letter whose uppercase is two scalars is the first" {
+    assert.equal('ß'.toUpper(), 'S');
+    assert.equal('ﬀ'.toUpper(), 'F');
+    assert.equal('ŉ'.toUpper(), 'ʼ');
+}
+
+test "char toLower of a letter whose lowercase is two scalars is the first" {
+    assert.equal('İ'.toLower(), 'i');
 }
 
 test "toU32 yields the code point" {

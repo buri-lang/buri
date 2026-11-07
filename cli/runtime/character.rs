@@ -47,12 +47,13 @@
 //! }
 //! ```
 //!
-//! **Unicode 16.0**, which is what `bun` 1.2.13 answers — checked by the two
-//! scripts that version added, Todhri (U+105C0) and Kirat Rai (U+16D40), both of
-//! which the table contains. That is a version and not a guess, and it is the
+//! **Unicode 17.0**, which is what `bun` 1.3 and 1.4 answer — checked by
+//! scripts that version added, Tai Yo (U+1E6C0) and Beria Erfe (U+16EA0), both
+//! of which the table contains. That is a version and not a guess, and it is the
 //! one number a reader has to know to regenerate it: a newer engine adds
 //! letters, and the difference is exactly the characters that Unicode version
-//! added.
+//! added. It is not the stdlib tables' version: `unicode_tables.py` writes those
+//! at 16.0, and this table follows the engine rather than them.
 //!
 //! Two things this deliberately does *not* do:
 //!
@@ -67,6 +68,9 @@
 //!     `isLower`, `toUpper` and `toLower` here are that same trust applied one
 //!     scalar at a time. `isAlpha` was never that: `is_alphabetic` and `\p{L}` are
 //!     different *properties*, not two implementations of one.
+//!     Rust's mappings and the engine's are at one version, too: `rustc`
+//!     1.99's `std` is Unicode 17.0, and so is the ICU (78.1) `bun` 1.4 maps
+//!     case with.
 //!
 //! ## 2. The other seven are transcriptions
 //!
@@ -77,30 +81,19 @@
 //! c === c.toUpperCase()` — with Rust's mappings in place of the engine's.
 //! `toDigit` is `parseInt(c, radix)`.
 //!
-//! ## 3. `toUpper` and `toLower` answer one scalar, and JavaScript does not
+//! ## 3. `toUpper` and `toLower` answer one scalar
 //!
 //! `character.buri` declares `toUpper(self): Char`, and a `Char` is one Unicode
 //! scalar value. Some full case mappings are not one scalar: `"ß".toUpperCase()`
-//! is `"SS"`, and the JavaScript backend hands that back as a `Char` holding two
-//! characters — a value the type does not have.
+//! is `"SS"`.
 //!
-//! There is no single scalar equal to `"SS"`, so this cannot be transcribed and
-//! the choice has to be made rather than inherited. It is **the first scalar of
-//! the full mapping**, and the reason is agreement rather than tidiness. The
-//! tidier answer was the *simple* case mapping — the full mapping where it is
-//! one scalar and the character unchanged where it is not, which is the
-//! operation Unicode defines for exactly this signature — and it was measured
-//! against the other backend and rejected: `'ß'.toUpper().toU32()` is `83` on
-//! JavaScript, because `codePointAt(0)` of `"SS"` is `S`, and the simple
-//! mapping answers `223`. The first scalar answers `83` and the two backends
-//! agree at every use that reads the `Char` as a scalar.
-//!
-//! What is left over is a real divergence and it is one line wide: rendering
-//! the whole `Char` gives `"SS"` there and `"S"` here.
-//! `design/native/VALUE-MODEL.md` §12 carries the row, and the reason the row
-//! is not a bug to fix is that the JavaScript side is producing a value outside
-//! the type — this backend has no two-scalar `Char` to be wrong in the same
-//! way.
+//! There is no single scalar equal to `"SS"`, so the answer is **the first
+//! scalar of the full mapping**, on both backends: `runtime.js` takes
+//! `codePointAt(0)` of the engine's mapping and this file takes the first of
+//! Rust's. The *simple* case mapping — the character unchanged where the full
+//! one is not one scalar — was the other candidate, and neither engine offers
+//! it, so `'ß'.toUpper()` is `'S'` everywhere. `str.toUpper` is the one that
+//! answers `"SS"`.
 //!
 //! `isUpper` and `isLower` use the **full** mappings, because that is what
 //! `runtime.js` compares and their answer is a `Bool` with nothing to
@@ -115,7 +108,7 @@ use crate::BURI_OK;
 
 /// General Category `L`, as sorted, disjoint, inclusive code-point ranges.
 ///
-/// Generated at Unicode 16.0 — see the module header for the generator and for
+/// Generated at Unicode 17.0 — see the module header for the generator and for
 /// why the source is a JavaScript engine rather than `std`.
 static LETTER: &[(u32, u32)] = &[
     (0x0041, 0x005A),
@@ -168,7 +161,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x0840, 0x0858),
     (0x0860, 0x086A),
     (0x0870, 0x0887),
-    (0x0889, 0x088E),
+    (0x0889, 0x088F),
     (0x08A0, 0x08C9),
     (0x0904, 0x0939),
     (0x093D, 0x093D),
@@ -234,7 +227,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x0C2A, 0x0C39),
     (0x0C3D, 0x0C3D),
     (0x0C58, 0x0C5A),
-    (0x0C5D, 0x0C5D),
+    (0x0C5C, 0x0C5D),
     (0x0C60, 0x0C61),
     (0x0C80, 0x0C80),
     (0x0C85, 0x0C8C),
@@ -243,7 +236,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x0CAA, 0x0CB3),
     (0x0CB5, 0x0CB9),
     (0x0CBD, 0x0CBD),
-    (0x0CDD, 0x0CDE),
+    (0x0CDC, 0x0CDE),
     (0x0CE0, 0x0CE1),
     (0x0CF1, 0x0CF2),
     (0x0D04, 0x0D0C),
@@ -427,11 +420,8 @@ static LETTER: &[(u32, u32)] = &[
     (0xA6A0, 0xA6E5),
     (0xA717, 0xA71F),
     (0xA722, 0xA788),
-    (0xA78B, 0xA7CD),
-    (0xA7D0, 0xA7D1),
-    (0xA7D3, 0xA7D3),
-    (0xA7D5, 0xA7DC),
-    (0xA7F2, 0xA801),
+    (0xA78B, 0xA7DC),
+    (0xA7F1, 0xA801),
     (0xA803, 0xA805),
     (0xA807, 0xA80A),
     (0xA80C, 0xA822),
@@ -546,6 +536,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x108F4, 0x108F5),
     (0x10900, 0x10915),
     (0x10920, 0x10939),
+    (0x10940, 0x10959),
     (0x10980, 0x109B7),
     (0x109BE, 0x109BF),
     (0x10A00, 0x10A00),
@@ -568,7 +559,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x10D6F, 0x10D85),
     (0x10E80, 0x10EA9),
     (0x10EB0, 0x10EB1),
-    (0x10EC2, 0x10EC4),
+    (0x10EC2, 0x10EC7),
     (0x10F00, 0x10F1C),
     (0x10F27, 0x10F27),
     (0x10F30, 0x10F45),
@@ -661,6 +652,7 @@ static LETTER: &[(u32, u32)] = &[
     (0x11D67, 0x11D68),
     (0x11D6A, 0x11D89),
     (0x11D98, 0x11D98),
+    (0x11DB0, 0x11DDB),
     (0x11EE0, 0x11EF2),
     (0x11F02, 0x11F02),
     (0x11F04, 0x11F10),
@@ -684,14 +676,17 @@ static LETTER: &[(u32, u32)] = &[
     (0x16B7D, 0x16B8F),
     (0x16D40, 0x16D6C),
     (0x16E40, 0x16E7F),
+    (0x16EA0, 0x16EB8),
+    (0x16EBB, 0x16ED3),
     (0x16F00, 0x16F4A),
     (0x16F50, 0x16F50),
     (0x16F93, 0x16F9F),
     (0x16FE0, 0x16FE1),
     (0x16FE3, 0x16FE3),
-    (0x17000, 0x187F7),
-    (0x18800, 0x18CD5),
-    (0x18CFF, 0x18D08),
+    (0x16FF2, 0x16FF3),
+    (0x17000, 0x18CD5),
+    (0x18CFF, 0x18D1E),
+    (0x18D80, 0x18DF2),
     (0x1AFF0, 0x1AFF3),
     (0x1AFF5, 0x1AFFB),
     (0x1AFFD, 0x1AFFE),
@@ -746,6 +741,12 @@ static LETTER: &[(u32, u32)] = &[
     (0x1E4D0, 0x1E4EB),
     (0x1E5D0, 0x1E5ED),
     (0x1E5F0, 0x1E5F0),
+    (0x1E6C0, 0x1E6DE),
+    (0x1E6E0, 0x1E6E2),
+    (0x1E6E4, 0x1E6E5),
+    (0x1E6E7, 0x1E6ED),
+    (0x1E6F0, 0x1E6F4),
+    (0x1E6FE, 0x1E6FF),
     (0x1E7E0, 0x1E7E6),
     (0x1E7E8, 0x1E7EB),
     (0x1E7ED, 0x1E7EE),
@@ -787,14 +788,13 @@ static LETTER: &[(u32, u32)] = &[
     (0x1EEA5, 0x1EEA9),
     (0x1EEAB, 0x1EEBB),
     (0x20000, 0x2A6DF),
-    (0x2A700, 0x2B739),
-    (0x2B740, 0x2B81D),
-    (0x2B820, 0x2CEA1),
+    (0x2A700, 0x2B81D),
+    (0x2B820, 0x2CEAD),
     (0x2CEB0, 0x2EBE0),
     (0x2EBF0, 0x2EE5D),
     (0x2F800, 0x2FA1D),
     (0x30000, 0x3134A),
-    (0x31350, 0x323AF),
+    (0x31350, 0x33479),
 ];
 
 /// Whether a scalar is in [`LETTER`], by binary search over the ranges.
@@ -965,9 +965,9 @@ mod tests {
             );
         }
         assert!('\u{2167}'.is_alphabetic() && '\u{0903}'.is_alphabetic());
-        // Unicode 16.0, checked by the two scripts that version added.
-        assert_eq!(buri_rt_character_is_alpha(0x105C0), 1, "Todhri");
-        assert_eq!(buri_rt_character_is_alpha(0x16D40), 1, "Kirat Rai");
+        // Unicode 17.0, checked by two scripts that version added.
+        assert_eq!(buri_rt_character_is_alpha(0x1E6C0), 1, "Tai Yo");
+        assert_eq!(buri_rt_character_is_alpha(0x16EA0), 1, "Beria Erfe");
     }
 
     /// `\s` is ECMA-262's set and not a Unicode property, so the two

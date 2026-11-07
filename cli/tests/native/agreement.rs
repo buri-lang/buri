@@ -1218,20 +1218,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// Row 15: `character.toUpper` where the full case mapping is not one scalar.
 ///
-/// `"ß".toUpperCase()` is `"SS"`, and JavaScript hands that back as a `Char` —
-/// a value of two scalars, which the type does not have. Natively a `Char` is
-/// one scalar and there is nothing equal to `"SS"` to answer, so the answer is
-/// the **first** scalar of the full mapping, which is what `codePointAt(0)`
-/// reads out of the JavaScript one.
-///
-/// So the two agree wherever the result is read as a scalar — `toU32`, `==`,
-/// `compare` — and part company only where the whole `Char` is *rendered*,
-/// which is the case this test pins. `cli/runtime/character.rs` §3 is the
-/// argument; this is the measurement.
+/// `"ß".toUpperCase()` is `"SS"`, and a `Char` is one scalar, so both backends
+/// answer the **first** scalar of the full mapping. JavaScript used to hand
+/// back the whole `"SS"`, a `Char` of two scalars, which only rendering the
+/// whole `Char` shows — the case this test pins. `cli/runtime/character.rs` §3
+/// is the argument.
 #[test]
 fn row_15_char_case_of_a_multi_scalar_mapping() {
     rows_or_skip!();
-    diverge(
+    agree(
         "row 15",
         r#"
 from "native" import { NativeHost };
@@ -1246,7 +1241,6 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#,
-        "SS 83 FF A\n",
         "S 83 F A\n",
     );
 }

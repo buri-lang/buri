@@ -12,9 +12,8 @@ they move to a new Unicode version.
     curl -sSLO https://www.unicode.org/Public/16.0.0/ucd/emoji/emoji-data.txt
     python3 crates/stdlib/src/compiler/standard_library/unicode_tables.py --ucd <that directory>
 
-**Unicode 16.0**, which is the version `cli/runtime/char.rs`'s General Category
-table names too. Both have to move together: they are one library's answers
-about one set of characters.
+**Unicode 16.0**. `cli/runtime/character.rs`'s letter table is not one of
+these: it is what the JavaScript engine answers, so it moves with the engine.
 
 Every table is an ASCII string of fixed-width fields, and a code point is four
 base-36 digits -- 36^4 is 1679616, which covers U+10FFFF with room to spare, and

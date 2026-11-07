@@ -1508,12 +1508,13 @@ function $character_isLower(c) {
   return c !== c.toUpperCase() && c === c.toLowerCase();
 }
 
+// A `Char` is one scalar, so a mapping to two (`"ß"` to `"SS"`) answers its first.
 function $character_toLower(c) {
-  return c.toLowerCase();
+  return String.fromCodePoint(c.toLowerCase().codePointAt(0));
 }
 
 function $character_toUpper(c) {
-  return c.toUpperCase();
+  return String.fromCodePoint(c.toUpperCase().codePointAt(0));
 }
 
 function $character_toU32(c) {
