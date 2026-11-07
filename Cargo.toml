@@ -199,9 +199,22 @@ opt-level = 1
 # debugger reads. Measured on a cold `cargo nextest run -p buri --no-run`, it is
 # 175 s and 655 CPU-seconds with full debug information, 146 s and 559 with
 # line tables.
+#
+# No LTO, not even the ThinLTO across one crate's codegen units that rustc
+# runs by default above `opt-level = 0`. It was over a third of the CPU in each
+# optimized crate. A rebuild after touching `cli/src/lib.rs` went from about
+# 260 to 180 CPU-seconds, and the suite's run measured the same.
+#
+# The parser is the one place that lost speed. Its codegen units relied on
+# that pass to inline into each other, and parsing a line took 12% more
+# instructions (`cli/tests/build/loading.rs` bounds that count). One codegen
+# unit gives the same inlining without the pass.
 [profile.test]
 opt-level = 1
 debug = "line-tables-only"
+lto = "off"
+[profile.test.package.buri-syntax]
+codegen-units = 1
 
 [profile.release]
 opt-level = 3
