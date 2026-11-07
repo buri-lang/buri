@@ -505,7 +505,29 @@ jobs:
             *) echo "::error::apt.llvm.org served $(llvm-config-21 --version), not 21.x"; exit 1 ;;
           esac
           echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
-      - run: cargo test -p buri -p buri-llvm --features buri/backend-llvm --no-fail-fast
+      # The suite with its binaries overlapped, as in the `test` job, which
+      # says why the set is cargo's and why twice the cores. `cargo test` ran
+      # them one at a time: 516 s, 311 of them `native` (run 42361847351).
+      # Each binary keeps libtest's default width, as it had here.
+      - name: The release suite, with its binaries overlapped
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          mkdir -p target/units
+          cargo test -p buri -p buri-llvm --features buri/backend-llvm --no-run --message-format=json-render-diagnostics \
+            | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
+          test -s target/units.txt
+          status=0
+          xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
+            sh -c 'exec "$0" > "target/units/$(basename "$0").log" 2>&1' < target/units.txt \
+            || status=$?
+          tail -n +1 -- target/units/*.log
+          touch target/units.printed
+          cargo test -p buri -p buri-llvm --features buri/backend-llvm --doc
+          exit "$status"
+      - if: failure()
+        name: The units' logs, when the suite was stopped
+        run: test -e target/units.printed || tail -n +1 -- target/units/*.log
 
   # The language server's 50 ms bar, and the bars on a whole-repository
   # `buri test //...`. `cli/tests/build/repositories.rs`'s two `BURI_PERF`

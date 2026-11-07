@@ -524,14 +524,13 @@ fn nothing_in_the_workflow_asks_for_part_of_the_suite() {
 
 /// The `run:` block of the step that runs the suite with its binaries
 /// overlapped, from its `- name:` to the next step at the same indentation.
-fn overlapped_step(text: &str) -> String {
-    let marker = "- name: The suite, with its binaries overlapped";
-    let Some(at) = text.find(marker) else {
+fn overlapped_step(text: &str, name: &str) -> String {
+    let marker = format!("- name: {name}");
+    let Some(at) = text.find(&marker) else {
         panic!(
-            "ci.yml has no step called `The suite, with its binaries overlapped`. That step is \
-             where the whole suite is run on every `test` leg; a workflow without it is a \
-             workflow whose longest job runs no tests, or one where the step was renamed and \
-             this file stopped reading it."
+            "ci.yml has no step called `{name}`. That step is where a job runs the whole suite; \
+             a workflow without it is one whose job runs no tests, or one where the step was \
+             renamed and this file stopped reading it."
         )
     };
     let body = &text[at..];
@@ -544,6 +543,65 @@ fn overlapped_step(text: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// The test domains, as the directory says they are: a `.rs` file directly
+/// under `cli/tests/` or a directory holding a `main.rs`.
+fn domains() -> Vec<String> {
+    let tests = repo_root().join("cli").join("tests");
+    let mut domains: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&tests).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.path().is_file() {
+            if let Some(stem) = name.strip_suffix(".rs") {
+                domains.push(stem.to_string());
+            }
+        } else if entry.path().join("main.rs").exists() {
+            domains.push(name);
+        }
+    }
+    assert!(
+        domains.len() >= 10,
+        "only {} test binaries were found under {}, and there have been more than ten since \
+         `vectors` landed — this test is asserting nothing",
+        domains.len(),
+        tests.display()
+    );
+    domains
+}
+
+/// **The release job's suite is cargo's set too.**
+///
+/// The `release` job starts its binaries together for the reason the `test`
+/// job does, and the same rule holds it: the set is derived, every member of
+/// it is started, the doctests are asked for, and no domain is named.
+#[test]
+fn the_release_suite_is_asked_for_as_a_whole() {
+    let text = workflow();
+    let step = overlapped_step(&text, "The release suite, with its binaries overlapped");
+    for (needle, why) in [
+        (
+            "--no-run --message-format=json",
+            "asks cargo which test executables exist",
+        ),
+        (".profile.test", "selects on the artifact's profile"),
+        ("xargs", "starts what it derived"),
+        ("--doc", "asks for the doctests"),
+        ("--features buri/backend-llvm", "builds the release backend"),
+    ] {
+        assert!(
+            step.contains(needle),
+            "the release suite's step no longer {why} (`{needle}`).\n--- the step ---\n{step}"
+        );
+    }
+    for domain in domains() {
+        assert!(
+            !step.contains(&format!("--test {domain}"))
+                && !step.contains(&format!("/{domain}-[0-9a-f]")),
+            "the release suite's step names `{domain}`; its set is cargo's, never a \
+             list.\n--- the step ---\n{step}"
+        );
+    }
 }
 
 /// **The suite's set of binaries is cargo's answer, never a list.**
@@ -574,7 +632,7 @@ fn overlapped_step(text: &str) -> String {
 #[test]
 fn the_suite_is_asked_for_as_a_whole() {
     let text = workflow();
-    let step = overlapped_step(&text);
+    let step = overlapped_step(&text, "The suite, with its binaries overlapped");
 
     assert!(
         step.contains("--no-run --message-format=json"),
@@ -609,25 +667,7 @@ fn the_suite_is_asked_for_as_a_whole() {
     // `cli/tests/` or a directory holding a `main.rs`. If any of their names
     // reaches the step, the derivation has been replaced by a list wearing its
     // clothes.
-    let tests = repo_root().join("cli").join("tests");
-    let mut domains: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(&tests).unwrap().flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if entry.path().is_file() {
-            if let Some(stem) = name.strip_suffix(".rs") {
-                domains.push(stem.to_string());
-            }
-        } else if entry.path().join("main.rs").exists() {
-            domains.push(name);
-        }
-    }
-    assert!(
-        domains.len() >= 10,
-        "only {} test binaries were found under {}, and there have been more than ten since \
-         `vectors` landed — this test is asserting nothing",
-        domains.len(),
-        tests.display()
-    );
+    let domains = domains();
     // The scheduling hint, as the step writes it: the executable's name up to
     // cargo's hash. At most one, and the one that is named is still run and
     // waited for.
