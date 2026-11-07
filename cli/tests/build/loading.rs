@@ -168,26 +168,26 @@ fn modules_read_side_by_side_load_as_they_would_one_at_a_time() {
 /// Each bound is a tenth over what was measured. §6.83 has the release build's
 /// figures.
 const BOUNDS: [(&str, u64, u64); 20] = [
-    ("comment-free", 2310, 2690),
-    ("comment-heavy", 1370, 1660),
-    ("derive-heavy", 1850, 2250),
-    ("enum-heavy", 1850, 2190),
-    ("generic-blowup", 2130, 2470),
-    ("generic-free", 1890, 2230),
-    ("impl-heavy", 1730, 2060),
-    ("list-heavy", 1970, 2320),
-    ("long-bodies", 1870, 2220),
-    ("long-idents", 1750, 2090),
-    ("match-heavy", 1790, 2140),
-    ("mixed", 1920, 2270),
-    ("mixed-deep-graph", 1920, 2260),
-    ("mixed-few-files", 1770, 2010),
-    ("mixed-libs", 1930, 2270),
-    ("mixed-many-files", 2270, 3190),
-    ("mixed-wide-graph", 1980, 2460),
-    ("string-heavy", 2110, 2470),
-    ("struct-heavy", 1460, 1790),
-    ("struct-light", 1940, 2290),
+    ("comment-free", 2210, 2540),
+    ("comment-heavy", 1320, 1580),
+    ("derive-heavy", 1760, 2120),
+    ("enum-heavy", 1770, 2070),
+    ("generic-blowup", 2130, 2440),
+    ("generic-free", 1800, 2100),
+    ("impl-heavy", 1650, 1940),
+    ("list-heavy", 1910, 2210),
+    ("long-bodies", 1810, 2110),
+    ("long-idents", 1680, 1970),
+    ("match-heavy", 1720, 2020),
+    ("mixed", 1840, 2140),
+    ("mixed-deep-graph", 1840, 2130),
+    ("mixed-few-files", 1750, 1960),
+    ("mixed-libs", 1850, 2140),
+    ("mixed-many-files", 2240, 3020),
+    ("mixed-wide-graph", 1900, 2320),
+    ("string-heavy", 2030, 2340),
+    ("struct-heavy", 1410, 1690),
+    ("struct-light", 1870, 2170),
 ];
 
 /// The pinned point `name`, regenerated from its manifest at 30,000 lines.
@@ -364,10 +364,13 @@ fn a_long_chain_of_libraries_builds_and_runs() {
 /// library walks every target's dependencies, and doing that for each library
 /// each target reaches grows with the cube of the chain: done every time, it
 /// cost 2.7 M a module here, and done only for a library that is missing its
-/// root, 0.23 M (`design/PERFORMANCE.md` §6.99). The bound is twice what was
-/// measured: a load still asks the disk whether each file is there, and that
-/// kernel work moved the count by an eighth while the whole suite ran.
-const BOOKKEEPING_BOUND: u64 = 460_000;
+/// root, 0.23 M (`design/PERFORMANCE.md` §6.99). Asking each unit whether
+/// every library it reaches has its root grew with the square: 0.23 M here and
+/// 0.18 M at half the chain. Asked once a library, it is 0.11 M at both
+/// (§6.101). The bound is twice that: a load still asks the disk whether each
+/// file is there, and that kernel work moved the count by an eighth while the
+/// whole suite ran.
+const BOOKKEEPING_BOUND: u64 = 225_000;
 
 /// **A workspace's bookkeeping stays within its bound a module**, however
 /// many targets reach a library.

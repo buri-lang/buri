@@ -704,10 +704,13 @@ impl Tree {
     /// about a tenth: 0.26 expression nodes, 0.09 names, 0.08 types, 0.05
     /// patterns and so on down. A file denser than that grows an arena once;
     /// one sparser holds a tenth more than it needs rather than half. The
-    /// arenas that corpus writes less than one entry per hundred tokens into
-    /// start empty, so a file with no `context` pays nothing for one. The
     /// declaration lists follow the same rule: 0.023 parameters and 0.010
-    /// generics per token, and the rest under one in a hundred.
+    /// generics per token. So do the small arenas a typical file still
+    /// writes to — struct literal fields, lambda parameters, template parts,
+    /// declared fields, variants, methods and specs, one entry per 145 to 555
+    /// tokens — since growing one from empty costs a handful of copies per
+    /// file (§6.101). Arenas that only some files touch, such as `context`
+    /// bindings, start empty.
     pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
         let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
@@ -717,32 +720,32 @@ impl Tree {
             spans: Vec::with_capacity(per(9, 32)),
             pnodes: Vec::with_capacity(per(1, 18)),
             pspans: Vec::with_capacity(per(1, 18)),
-            kids: Vec::with_capacity(per(1, 18)),
+            kids: Vec::with_capacity(per(1, 16)),
             pkids: Vec::with_capacity(per(1, 40)),
             tkids: Vec::with_capacity(per(1, 36)),
             names: Vec::with_capacity(per(1, 10)),
             blocks: Vec::with_capacity(per(1, 40)),
             stmts: Vec::with_capacity(per(1, 56)),
             arms: Vec::with_capacity(per(1, 80)),
-            inits: Vec::new(),
+            inits: Vec::with_capacity(per(1, 130)),
             fpats: Vec::new(),
-            lparams: Vec::new(),
-            parts: Vec::new(),
+            lparams: Vec::with_capacity(per(1, 220)),
+            parts: Vec::with_capacity(per(1, 135)),
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
             ppay: Vec::with_capacity(per(1, 96)),
             types: Vec::with_capacity(per(1, 12)),
             ints: Vec::with_capacity(per(1, 28)),
             floats: Vec::new(),
-            cooked: String::new(),
+            cooked: String::with_capacity(per(1, 20)),
             strs: Vec::with_capacity(per(1, 90)),
             generics: Vec::with_capacity(per(1, 90)),
             params: Vec::with_capacity(per(1, 40)),
-            fields: Vec::new(),
+            fields: Vec::with_capacity(per(1, 190)),
             tfields: Vec::new(),
-            variants: Vec::new(),
-            methods: Vec::new(),
-            specs: Vec::new(),
+            variants: Vec::with_capacity(per(1, 220)),
+            methods: Vec::with_capacity(per(1, 500)),
+            specs: Vec::with_capacity(per(1, 250)),
             docs: Vec::new(),
         }
     }

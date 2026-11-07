@@ -8588,6 +8588,45 @@ What's left, largest first:
   compile the harness and link the toolchain. Folding them into one would
   save about 35 CPU-seconds of every rebuild.
 
+### 6.101 Loading asks once whether a library has its root, 2026-11-06
+
+`Loader::check_root` ran for every library each unit reaches, and each run
+resolved the library's root module again. A batch's units share one loader,
+so a chain of libraries paid for that with the square of its length. The
+loader now remembers each package found to have its root. A missing root is
+still reported by each unit that reaches it, as before. `load_unit` also
+walks `Workspace::shared_closure` instead of copying each target's closure.
+
+The parse phase's arenas grew from empty in a typical file. Under DHAT,
+nearly a third of the parser's 74,000 allocations a round over the goals
+workspace were growth: string tables, doc comments, struct literal fields, lambda
+parameters, template parts, declared fields, variants, methods and specs.
+`Tree::new` and `Tokens::new` now size those from the token or byte count,
+at what the goals workspace writes, rounded up by about a tenth.
+
+Measured:
+
+- parsing the goals workspace's files under callgrind on Linux fell from
+  432.7 M to 422.6 M instructions, 2.3%;
+- the `ci` goals count's parse phase fell from 1,879 to 1,848 instructions
+  a line, 1.7%;
+- the chain of 120 libraries in `cli/tests/build/loading.rs` fell from
+  0.23 M instructions a module to 0.11 M, and holds at 0.11 M at half the
+  chain.
+
+The loading test's per-shape bounds and the chain's bound moved down to
+hold these.
+
+Not done:
+
+- `lint` lexes each package module a second time through `Lexes::of`. That
+  is about half a percent of a build, and keeping every file's tokens to
+  save it would cost 12 bytes a token for every file parsed.
+
+On Linux the parse phase is now nine tenths parser. Its profile is flat: no
+production or helper retires more than a tenth of it, and allocation is
+under a twentieth.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

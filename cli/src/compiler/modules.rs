@@ -33,6 +33,9 @@ pub struct Loader<'a> {
     /// The packages, by label, whose missing root file this compilation has
     /// reported, with the file: an import of one says nothing more.
     rootless: std::collections::BTreeSet<(String, &'static str)>,
+    /// The packages found to have a root file, with the file: each unit of a
+    /// batch asks about every library it reaches.
+    rooted: crate::hash::Set<(crate::build::workspace::PackageId, &'static str)>,
     /// See [`Loaded::platform`].
     platform: Option<Platform>,
     /// See [`Loaded::entry`].
@@ -68,6 +71,7 @@ impl<'a> Loader<'a> {
             by_path: HashMap::default(),
             generated_rules: std::collections::BTreeSet::new(),
             rootless: std::collections::BTreeSet::new(),
+            rooted: Default::default(),
             test_sources: Vec::new(),
             platform: None,
             entry: None,
@@ -135,7 +139,7 @@ impl<'a> Loader<'a> {
         // Before anything can import one: a library this target depends on,
         // however far down, is part of it whether imported or not. Every
         // member but the target itself is a library.
-        for member in ws.closure(target) {
+        for &member in ws.shared_closure(target).iter() {
             if member != target {
                 let span = || ws.named_at(member).unwrap_or(Span::NONE);
                 self.check_root(ws, member.package, "lib.buri", "library", span);
@@ -297,8 +301,12 @@ impl<'a> Loader<'a> {
         kind: &str,
         span: impl FnOnce() -> Span,
     ) -> bool {
+        if self.rooted.contains(&(package, root)) {
+            return true;
+        }
         let pkg = ws.package(package);
         if self.resolve(ws, &pkg.module_path(root)).is_ok() {
+            self.rooted.insert((package, root));
             return true;
         }
         self.rootless.insert((pkg.label(), root));
@@ -477,7 +485,7 @@ impl<'a> Loader<'a> {
     /// generator failed has to say so wherever it is compiled into something,
     /// not only when that library is the target named on the command line.
     fn load_closure_generators(&mut self, ws: &Workspace, target: TargetId) {
-        for member in ws.closure(target) {
+        for &member in ws.shared_closure(target).iter() {
             self.load_generators(ws, member);
         }
     }

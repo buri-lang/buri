@@ -740,16 +740,18 @@ impl<'a> Tokens<'a> {
         // Buri source runs about four bytes to the token, comments included,
         // so this is the buffer the file needs rather than the first of a
         // dozen doublings — each of which copied everything written so far.
+        // The side tables follow the goals workspace (§6.101): a token in 27
+        // is an integer, one in 64 a string, and a string cooks to 5 bytes.
         let n = src.len().wrapping_div(4).saturating_add(1);
         Tokens {
             src,
             file,
             records: Vec::with_capacity(n),
             wide: Vec::new(),
-            ints: Vec::new(),
+            ints: Vec::with_capacity(n / 32),
             floats: Vec::new(),
-            cooked: String::new(),
-            strs: Vec::new(),
+            cooked: String::with_capacity(n / 12),
+            strs: Vec::with_capacity(n / 64),
             unterminated: Vec::new(),
         }
     }
@@ -1034,7 +1036,8 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         errors: Vec::new(),
         holes: Vec::new(),
         has_trivia: false,
-        docs: Vec::new(),
+        // About one `///` line in every 190 bytes, as the goals workspace has.
+        docs: Vec::with_capacity(text.len() / 180),
         pending_docs: 0,
         pending_docs_blank: false,
         pending_comments: Vec::new(),
