@@ -499,3 +499,60 @@ test "every rotate leaves zero and an all-ones word alone at every count" {
     assert.equal(bits.rotateLeft(-1, 63), -1);
     assert.equal(bits.rotateRight(0, 63), 0);
 }
+
+// --- Sixty-four bits across the middle --------------------------------------------
+//
+// A word is sixty-four bits whatever a backend holds it in, so a bit that
+// moves from the low thirty-two to the high thirty-two, or the other way, has
+// to arrive, and a turn by exactly thirty-two swaps the halves.
+
+test "a 64-bit rotate by thirty-two swaps the halves" {
+    let wide: U64 = 81985529216486895;
+    assert.equal(bits.rotateLeftU64(wide, 32), 9920249030613615975);
+    assert.equal(bits.rotateRightU64(wide, 32), 9920249030613615975);
+    assert.equal(bits.rotateLeft(-2, 32), -4294967297);
+    assert.equal(bits.rotateLeft(number.minValue<I64>(), 32), 2147483648);
+}
+
+test "a 64-bit rotate either side of thirty-two carries bits across the middle" {
+    let wide: U64 = 81985529216486895;
+    let low: U64 = 2147483648;
+    let high: U64 = 4294967296;
+    assert.equal(bits.rotateLeftU64(low, 1), high);
+    assert.equal(bits.rotateRightU64(high, 1), low);
+    assert.equal(bits.rotateLeftU64(wide, 31), 14183496552161583795);
+    assert.equal(bits.rotateLeftU64(wide, 33), 1393753987517680335);
+    assert.equal(bits.rotateRightU64(wide, 31), 1393753987517680335);
+    assert.equal(bits.rotateRightU64(wide, 33), 14183496552161583795);
+}
+
+test "a signed 64-bit rotate turns a negative word's bits, not its magnitude" {
+    assert.equal(bits.rotateRight(-2, 31), -8589934593);
+    assert.equal(bits.rotateLeft(-81985529216486895, 33), -1393753978927745744);
+    assert.equal(bits.rotateRight(-81985529216486895, 32), 8526495047390902936);
+}
+
+test "a byte reversal moves the top byte to the bottom and back" {
+    let topByte: U32 = 4278190080;
+    let topWide: U64 = 9223372036854775808;
+    let lowWide: U64 = 255;
+    assert.equal(bits.byteSwapU32(128), 2147483648);
+    assert.equal(bits.byteSwapU32(topByte), 255);
+    assert.equal(bits.byteSwapU64(topWide), 128);
+    assert.equal(bits.byteSwapU64(lowWide), 18374686479671623680);
+}
+
+test "the 64-bit counts see both halves" {
+    let lowHalf: U64 = 4294967295;
+    let bit32: U64 = 4294967296;
+    let bit31: U64 = 2147483648;
+    assert.equal(bits.popCountU64(lowHalf), 32);
+    assert.equal(bits.popCountU64(bit32), 1);
+    assert.equal(bits.leadingZerosU64(lowHalf), 32);
+    assert.equal(bits.leadingZerosU64(bit32), 31);
+    assert.equal(bits.trailingZerosU64(bit32), 32);
+    assert.equal(bits.trailingZerosU64(bit31), 31);
+    assert.equal(bits.popCount(-4294967296), 32);
+    assert.equal(bits.leadingZeros(4294967296), 31);
+    assert.equal(bits.trailingZeros(-4294967296), 32);
+}

@@ -93,6 +93,36 @@ test "charAt past a non-BMP string is None" {
     assert.none("😀".charAt(1));
 }
 
+// Long strings asked about in turn, as a scan over two tables does: each
+// answer is the string's own, however recently the other was read. `wide` and
+// `turned` are the same length in every unit and differ only in where their
+// non-BMP characters sit.
+test "charAt, length and slice answer for each of several long strings in turn" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let plain = "ab".repeat(ctx, 200);
+    let wide = "😀b".repeat(ctx, 200);
+    let turned = "b😀".repeat(ctx, 200);
+    assert.equal(assert.some(plain.charAt(1)), 'b');
+    assert.equal(assert.some(wide.charAt(1)), 'b');
+    assert.equal(assert.some(plain.charAt(1)), 'b');
+    assert.equal(assert.some(wide.charAt(398)), '😀');
+    assert.equal(assert.some(turned.charAt(398)), 'b');
+    assert.equal(assert.some(wide.charAt(398)), '😀');
+    assert.equal(assert.some(turned.charAt(399)), '😀');
+    assert.none(wide.charAt(400));
+    assert.none(turned.charAt(-1));
+    assert.equal(plain.length(), 400);
+    assert.equal(wide.length(), 400);
+    assert.equal(turned.length(), 400);
+    assert.equal(wide.slice(398, 400), "😀b");
+    assert.equal(turned.slice(398, 400), "b😀");
+    assert.equal(plain.slice(398, 400), "ab");
+    assert.none("".charAt(0));
+    assert.equal(assert.some(wide.charAt(0)), '😀');
+}
+
 // --- slice --------------------------------------------------------------------
 
 test "slice takes a half-open range" {

@@ -64,6 +64,7 @@ mod golden_javascript;
 mod grammar;
 mod js_lookups;
 mod js_streams;
+mod js_words;
 mod js_wrapping;
 mod lexing;
 mod pages;

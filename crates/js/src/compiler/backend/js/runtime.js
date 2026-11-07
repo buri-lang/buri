@@ -1223,6 +1223,12 @@ function $chars(s) {
 // characters, so a different string never reads another's table; and a table
 // is never handed out, so nothing but this can change it. A short string is
 // cheap to measure again, and is not kept, so it cannot push out a long one.
+//
+// The string last found is asked about first, because a scan asks about one
+// string again and again: a binary search over a `core/str` table reads its
+// digits one `charAt` at a time, tens of millions in a conformance run, and
+// one comparison there in place of up to eight cuts that run's instructions by
+// a quarter.
 const $surrogate = /[\uD800-\uDFFF]/;
 
 function $wide(s) {
@@ -1233,10 +1239,16 @@ const $startsKept = 256;
 const $startsKeys = ["", "", "", "", "", "", "", ""];
 const $startsTables = [null, null, null, null, null, null, null, null];
 let $startsNext = 0;
+let $startsLast = "";
+let $startsLastTable = null;
 
 function $starts(s) {
+  if (s === $startsLast) return $startsLastTable;
   for (let i = 0; i < 8; i++) {
-    if (s === $startsKeys[i]) return $startsTables[i];
+    if (s === $startsKeys[i]) {
+      $startsLast = s;
+      return ($startsLastTable = $startsTables[i]);
+    }
   }
   const t = $wide(s) ? $scalarStarts(s) : null;
   if (s.length >= $startsKept) {
@@ -1658,34 +1670,61 @@ function $ctz32(n) {
   return n === 0 ? 32 : 31 - Math.clz32(n & -n);
 }
 
+// A 64-bit word as two 32-bit halves, high half first, through one native
+// view. `setBigUint64` takes the low sixty-four bits of any `BigInt`, a
+// negative one included, so the signed words and the unsigned ones share it;
+// the halves are `number`s, so the counts, the rotates and the byte reversals
+// do no `BigInt` arithmetic, which allocates at every step.
+const $word = new DataView(new ArrayBuffer(8));
+
 function $bits_popCount(x) {
-  const v = BigInt.asUintN(64, x);
-  if (v <= 0xffffffffn) return $ints[$pop32(Number(v))];
-  return $ints[$pop32(Number(v & 0xffffffffn)) + $pop32(Number(v >> 32n))];
+  $word.setBigUint64(0, x);
+  return $ints[$pop32($word.getUint32(0)) + $pop32($word.getUint32(4))];
 }
 
 function $bits_leadingZeros(x) {
-  const v = BigInt.asUintN(64, x);
-  const hi = Number(v >> 32n);
-  return $ints[hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32(Number(v & 0xffffffffn))];
+  $word.setBigUint64(0, x);
+  const hi = $word.getUint32(0);
+  return $ints[hi !== 0 ? Math.clz32(hi) : 32 + Math.clz32($word.getUint32(4))];
 }
 
 function $bits_trailingZeros(x) {
-  const v = BigInt.asUintN(64, x);
-  const lo = Number(v & 0xffffffffn);
-  return $ints[lo !== 0 ? $ctz32(lo) : 32 + $ctz32(Number(v >> 32n))];
+  $word.setBigUint64(0, x);
+  const lo = $word.getUint32(4);
+  return $ints[lo !== 0 ? $ctz32(lo) : 32 + $ctz32($word.getUint32(0))];
+}
+
+// A left turn of the word by `k`, left in `$word` for the caller to read
+// signed or unsigned. A count of thirty-two or more swaps the halves first,
+// and what is left of it moves bits across from each half into the other. A
+// right turn by `k` is a left one by `64 - k`, and by none at zero.
+function $rotate64(x, k) {
+  $word.setBigUint64(0, x);
+  let hi = $word.getUint32(0);
+  let lo = $word.getUint32(4);
+  if (k >= 32) {
+    const t = hi;
+    hi = lo;
+    lo = t;
+    k -= 32;
+  }
+  if (k !== 0) {
+    const h = (hi << k) | (lo >>> (32 - k));
+    lo = (lo << k) | (hi >>> (32 - k));
+    hi = h;
+  }
+  $word.setUint32(0, hi);
+  $word.setUint32(4, lo);
 }
 
 function $bits_rotateLeft(x, n) {
-  const k = $shiftCount(n, 64);
-  const v = BigInt.asUintN(64, x);
-  return BigInt.asIntN(64, (v << k) | (v >> (64n - k)));
+  $rotate64(x, $shiftBy(n, 64));
+  return $word.getBigInt64(0);
 }
 
 function $bits_rotateRight(x, n) {
-  const k = $shiftCount(n, 64);
-  const v = BigInt.asUintN(64, x);
-  return BigInt.asIntN(64, (v >> k) | (v << (64n - k)));
+  $rotate64(x, (64 - $shiftBy(n, 64)) & 63);
+  return $word.getBigInt64(0);
 }
 
 // The narrow widths, where the value is a `number` and only the count is not.
@@ -1708,19 +1747,6 @@ function $bits_shiftLeftU64(x, n) {
 }
 function $bits_shiftRightU64(x, n) {
   return x >> $shiftCount(n, 64);
-}
-
-// The rotates at the three unsigned widths. Each wraps inside its **own** width,
-// so the count is checked against that width and the value is masked to it.
-// `x << k | x >> (w - k)` is the whole rotate; at `k === 0` the second shift is
-// by the full width, which a BigInt handles as a plain shift rather than as the
-// undefined behaviour a machine word would have.
-function $rotate(x, n, bits, left) {
-  const k = $shiftCount(n, bits);
-  const v = BigInt.asUintN(bits, $toBig(x));
-  const w = $ints[bits];
-  const spun = left ? (v << k) | (v >> (w - k)) : (v >> k) | (v << (w - k));
-  return BigInt.asUintN(bits, spun);
 }
 
 // At eight and thirty-two bits the value is a `number`, and so is the rotate.
@@ -1746,42 +1772,28 @@ function $bits_rotateRightU32(x, n) {
   return $rotateNarrow(x, n, 32, false);
 }
 function $bits_rotateLeftU64(x, n) {
-  return $rotate(x, n, 64, true);
+  $rotate64(x, $shiftBy(n, 64));
+  return $word.getBigUint64(0);
 }
 function $bits_rotateRightU64(x, n) {
-  return $rotate(x, n, 64, false);
+  $rotate64(x, (64 - $shiftBy(n, 64)) & 63);
+  return $word.getBigUint64(0);
 }
 
-// The byte reversals. One byte at a time from the bottom, which is what a
-// `bswap` instruction does and what a BigInt can say without a typed array.
-function $swapBytes(x, bytes) {
-  let v = BigInt.asUintN(bytes * 8, $toBig(x));
-  let out = 0n;
-  for (let i = 0; i < bytes; i++) {
-    out = (out << 8n) | (v & 0xffn);
-    v >>= 8n;
-  }
-  return out;
-}
-
+// The byte reversals: the word written big-endian and read back little-endian.
 function $bits_byteSwapU32(x) {
-  return Number($swapBytes(x, 4));
+  $word.setUint32(0, x);
+  return $word.getUint32(0, true);
 }
 function $bits_byteSwapU64(x) {
-  return $swapBytes(x, 8);
+  $word.setBigUint64(0, x);
+  return $word.getBigUint64(0, true);
 }
 
-// The three counts at `U64`. The signed counts read the word unsigned anyway,
-// so they take a `U64` as it is.
-function $bits_popCountU64(x) {
-  return $bits_popCount($toBig(x));
-}
-function $bits_leadingZerosU64(x) {
-  return $bits_leadingZeros($toBig(x));
-}
-function $bits_trailingZerosU64(x) {
-  return $bits_trailingZeros($toBig(x));
-}
+// The three counts at `U64`, which is the same sixty-four bits as an `Int`.
+const $bits_popCountU64 = $bits_popCount;
+const $bits_leadingZerosU64 = $bits_leadingZeros;
+const $bits_trailingZerosU64 = $bits_trailingZeros;
 
 // --- Conversions ---------------------------------------------------------------------
 
