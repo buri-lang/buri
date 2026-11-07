@@ -2005,6 +2005,9 @@ pub fn prepare(
     let opts = middle::Options {
         split_lazy: !target.platform.is_native(),
     };
+    if !target.platform.is_native() {
+        middle::use_engine(program);
+    }
     middle::run(program, &opts);
     // The native branch is chosen by what the artifact *is*, and a WEB artifact
     // is JavaScript: closure conversion and reference counting are the same

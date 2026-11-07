@@ -662,6 +662,7 @@ mod tests {
             chunks: Vec::new(),
             hosted: Default::default(),
             instances: Default::default(),
+            engine: Vec::new(),
         }
     }
 

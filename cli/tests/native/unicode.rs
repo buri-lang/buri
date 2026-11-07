@@ -164,6 +164,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// Devanagari conjunct, a skin tone, and three 17.0 changes — a Myanmar
 /// conjunct, which 17.0 joins through its virama, a combining mark 17.0
 /// added, and a ZWJ sequence that starts with a 17.0 emoji.
+///
+/// And two private-use scalars, which are two clusters: the ICU in macOS
+/// joins U+F870 to U+F89F to what comes before them, as marks, so its
+/// `Intl.Segmenter` is not what answers these on JavaScript.
 #[test]
 fn graphemes_agree_at_unicode_17() {
     rows_or_skip!();
@@ -192,6 +196,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     "\u{1000}\u{1039}\u{1001}",
     "a\u{1acf}",
     "\u{1fac8}\u{200d}\u{1f525}",
+    "\u{f870}\u{f870}",
     "",
   ];
   let lines = inputs.map(host.alloc, fn(s) => clusters(host, s));
@@ -210,6 +215,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 1: 3
 1: 2
 1: 3
+2: 1 1
 0: \n",
     );
 }

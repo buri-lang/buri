@@ -225,3 +225,16 @@ fn reading_tables_in_turn_checks_each_for_astral_scalars_once() {
         "{checks} checks of a long string for astral scalars, over {TABLES} tables"
     );
 }
+
+/// The JavaScript engine normalizes and classifies at the version the tables
+/// are, so a program that does both ships none of their tables.
+#[test]
+fn a_javascript_artifact_carries_no_unicode_tables() {
+    let scratch = Scratch::repo("js-lookups-size");
+    scratch.binary_package("cmd/lookups", &PROGRAM.replace("MARK", "\u{301}"));
+    scratch.run(&["build", "//cmd/lookups", "--release"]).ok();
+    let size = std::fs::metadata(scratch.artifact_in("node", "cmd/lookups"))
+        .expect("the artifact was written")
+        .len();
+    assert!(size < 64 * 1024, "the artifact is {size} bytes");
+}

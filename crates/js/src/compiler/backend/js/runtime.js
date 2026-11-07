@@ -1452,6 +1452,12 @@ function $str_repeat(s, c, n) {
   return s.repeat(Math.max(0, Number(n)));
 }
 
+// `Normalization`'s variants, in the order they are declared.
+const $str_forms = ["NFC", "NFD", "NFKC", "NFKD"];
+function $str_normalize(s, c, form) {
+  return s.normalize($str_forms[form]);
+}
+
 function $str_toUpper(s, c) {
   return s.toUpperCase();
 }
@@ -1492,8 +1498,36 @@ function $character_isDigit(c) {
   return c >= "0" && c <= "9";
 }
 
+// A Unicode property's answer for each ASCII character, read off its own
+// expression once: most text is ASCII, and indexing is about twice as fast as
+// matching.
+function $ascii(property) {
+  const answers = new Uint8Array(128);
+  for (let i = 0; i < 128; i++) answers[i] = property.test(String.fromCharCode(i)) ? 1 : 0;
+  return answers;
+}
+
+const $letter = /^\p{L}$/u;
+const $letterAscii = $ascii($letter);
 function $character_isAlpha(c) {
-  return /^\p{L}$/u.test(c);
+  const k = c.charCodeAt(0);
+  return k < 128 ? $letterAscii[k] === 1 : $letter.test(c);
+}
+
+const $punctuation = /^\p{P}$/u;
+const $punctuationAscii = $ascii($punctuation);
+function $character_isPunctuation(c) {
+  const k = c.charCodeAt(0);
+  return k < 128 ? $punctuationAscii[k] === 1 : $punctuation.test(c);
+}
+
+// Everything outside General Categories `C` and `Z`, and the space: `\x20`,
+// because `strip` reads a regex as code and would drop a literal space.
+const $printable = /^[^\p{C}\p{Z}]$|^\x20$/u;
+const $printableAscii = $ascii($printable);
+function $character_isPrintable(c) {
+  const k = c.charCodeAt(0);
+  return k < 128 ? $printableAscii[k] === 1 : $printable.test(c);
 }
 
 function $character_isSpace(c) {

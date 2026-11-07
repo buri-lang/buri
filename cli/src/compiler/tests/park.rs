@@ -203,6 +203,7 @@ fn hand_built(funcs: Vec<Func>) -> Program {
         chunks: Vec::new(),
         hosted: Default::default(),
         instances: Default::default(),
+        engine: Vec::new(),
     }
 }
 

@@ -87,6 +87,17 @@ pub struct Options {
     pub split_lazy: bool,
 }
 
+/// Makes each function [`Program::engine`] names the runtime function of its
+/// key, for a JavaScript build: the engine answers it itself.
+///
+/// Before [`run`], so no body is inlined anywhere first, and dead-code
+/// elimination then drops the tables only those bodies read.
+pub fn use_engine(program: &mut Program) {
+    for (slot, key) in std::mem::take(&mut program.engine) {
+        program.funcs.get_mut(slot).kind = monomorphize::FuncKind::Intrinsic(key);
+    }
+}
+
 /// Layer A: the passes every backend's input has been through.
 ///
 /// Called once per compilation, on the monomorphized program, before any

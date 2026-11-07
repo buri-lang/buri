@@ -380,6 +380,11 @@ pub struct Program {
     /// `buri test --coverage=mcdc` reads it, to name the instantiation a branch
     /// ran in and to read decisions off the code the probes go in.
     pub instances: HashMap<FuncIdx, (FnId, Vec<Ty>)>,
+    /// The standard-library functions with a body that a JavaScript engine
+    /// answers itself, by slot and with their runtime key: see [`ENGINE_KEYS`].
+    /// [`crate::compiler::middle::use_engine`] is what makes each an
+    /// intrinsic, for the JavaScript build only.
+    pub engine: Vec<(FuncIdx, String)>,
 }
 
 /// A program built for a repository platform, as far as its `js` file is
@@ -657,6 +662,8 @@ pub struct Monomorphizer<'a> {
     locals: typed::Locals,
     /// See [`Hosted::js_implemented`].
     js_implemented: std::collections::BTreeSet<String>,
+    /// See [`Program::engine`].
+    engine: Vec<(FuncIdx, String)>,
     /// Each declaration's symbol before its instantiation tag, and its debug
     /// name, which every instantiation of it shares.
     names: HashMap<FnId, (String, String)>,
@@ -743,6 +750,7 @@ fn run_on(
         taken: HashMap::default(),
         locals: typed::Locals::new(),
         js_implemented: std::collections::BTreeSet::new(),
+        engine: Vec::new(),
         names: HashMap::default(),
         module_symbols: HashMap::default(),
         mangled: HashMap::default(),
@@ -900,6 +908,7 @@ fn run_on(
         .collect();
     Program {
         instances,
+        engine: m.engine,
         funcs,
         roots: program_roots,
         descriptors: m.descriptors.into_values().collect(),
@@ -1430,7 +1439,13 @@ fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, has
 impl Monomorphizer<'_> {
     fn build(&mut self, key: Key, slot: FuncIdx, f: &mut Func) {
         match key {
-            Key::Fn(id, targs) => self.build_fn(id, targs, f),
+            Key::Fn(id, targs) => {
+                self.build_fn(id, targs, f);
+                let key = self.runtime_key(self.checked.tables.fn_info(id));
+                if f.body().is_some() && ENGINE_KEYS.contains(&key.as_str()) {
+                    self.engine.push((slot, key));
+                }
+            }
             Key::CtxCtor(_, ctor) => {
                 let body = self
                     .checked
@@ -3326,6 +3341,22 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 pub const CELL_VALUE_KEYS: &[&str] = &[
     "host_testing.Headless.signal",
     "host_testing.Headless.write",
+];
+
+/// The standard-library functions a JavaScript engine answers itself, by
+/// runtime key. Each has a body, which the native backends compile, and a
+/// runtime function of the same name, which the JavaScript build calls in its
+/// place: the engine's `String.prototype.normalize` and `\p{…}` say what the
+/// body says at the same Unicode version, faster and without the body's
+/// tables in the artifact.
+///
+/// Not `graphemes`: the ICU in macOS joins private-use U+F870 to U+F89F to
+/// the scalar before them, so its `Intl.Segmenter` disagrees with the UCD's
+/// rules there.
+pub const ENGINE_KEYS: &[&str] = &[
+    "str.normalize",
+    "character.isPunctuation",
+    "character.isPrintable",
 ];
 
 /// The intrinsic keys that write a reactive cell, on every platform that has

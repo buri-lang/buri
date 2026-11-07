@@ -164,7 +164,10 @@ at zero, where it keeps `-0.0` and `0.0` `.Equal`, as `==` does.
   beside the sources it writes, so a build needs no network. The tables are Buri
   string literals — 139 thousand characters in `core/str` and 7 thousand in
   `core/character` — and a program that never calls these carries none of them.
-  Everything here walks the string and probes a table per scalar; the three that
+  On JavaScript, `normalize`, `isPunctuation` and `isPrintable` use the
+  engine's `String.prototype.normalize` and `\p{…}` instead, which answer at
+  the same version, so only `graphemes` and `caseFold` ship tables there.
+  Elsewhere these walk the string and probe a table per scalar; the three that
   take a context unpack each table once per call, and `graphemeCount` is pure
   and cannot, so `graphemes(ctx).length()` is the cheaper count where a context is
   at hand.
