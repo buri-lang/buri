@@ -747,9 +747,9 @@
               '')
               coverageToolchain
               cargoNextest
-              # No `bun` or `node`: the suite's goldens are the ones CI's
-              # `oven-sh/setup-bun` and the runner's node print, and nixpkgs'
-              # bun fails a copy of a file onto itself on Linux.
+              # The default shell's `bun`, so the suite's goldens match it
+              # rather than whatever older `bun` is on `PATH`.
+              bun
               llvm.dev
               llvm
               pkgs.libffi
