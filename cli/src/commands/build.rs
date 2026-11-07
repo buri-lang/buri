@@ -68,7 +68,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
 
     // Each library's own contribution to a check key, read once.
     let mut members = std::collections::HashMap::new();
-    let mut rule_paths = actions::RulePaths::new();
+    let mut rule_paths = actions::RulePaths::default();
     // What each library or tool asks before it is checked, and which of them
     // are checked: those are checked together below, each module once.
     let mut asked = std::collections::HashMap::new();

@@ -877,7 +877,7 @@ fn share_reads(
         target,
         &share.generated_rules,
         &modules,
-        &mut RulePaths::new(),
+        &mut RulePaths::default(),
     )
 }
 
@@ -893,7 +893,7 @@ fn unkeyed_reads_over(
     let workspace = &session.workspace;
     let mut members: std::collections::HashSet<TargetId> =
         workspace.closure(target).into_iter().collect();
-    let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut extra: crate::hash::Set<PathBuf> = crate::hash::Set::default();
     for platform in workspace.custom_platforms(target) {
         let (files, platform_members) = platform_inputs(workspace, &platform);
         let dir = &workspace.package(platform.package).dir;
@@ -927,7 +927,7 @@ pub fn suite_unkeyed_reads(
         members.extend(workspace.closure(dep));
     }
     let package = workspace.package(target.package);
-    let extra: std::collections::HashSet<PathBuf> = package
+    let extra: crate::hash::Set<PathBuf> = package
         .test_suite(target.kind)
         .map(|suite| {
             suite
@@ -1040,14 +1040,14 @@ pub fn tool_unkeyed_reads<'p>(
     let members: std::collections::HashSet<TargetId> =
         workspace.closure(tool).into_iter().collect();
     let files = read.map(|p| (p.to_path_buf(), workspace.owning_package(p)));
-    let none = std::collections::HashSet::new();
+    let none = crate::hash::Set::default();
     unlisted(
         session,
         &members,
         &none,
         files,
         Vec::new(),
-        &mut RulePaths::new(),
+        &mut RulePaths::default(),
     )
 }
 
@@ -1099,7 +1099,7 @@ fn worked_out_over<'m>(
 fn unlisted(
     session: &Session,
     members: &std::collections::HashSet<TargetId>,
-    extra: &std::collections::HashSet<PathBuf>,
+    extra: &crate::hash::Set<PathBuf>,
     files: impl Iterator<Item = (PathBuf, Option<crate::build::workspace::PackageId>)>,
     worked: Vec<PathBuf>,
     rule_paths: &mut RulePaths,
@@ -1174,7 +1174,7 @@ pub fn held_record<'b>(root: &Path, record: &'b [u8]) -> Option<(String, &'b [u8
 
 /// Each rule's files as paths, worked out once for the [`unkeyed_reads`] of
 /// one command.
-pub type RulePaths = std::collections::HashMap<TargetId, std::collections::HashSet<PathBuf>>;
+pub type RulePaths = crate::hash::Map<TargetId, crate::hash::Set<PathBuf>>;
 
 /// [`unkeyed_reads`] as an entry records them: each file's repository-relative
 /// path and the digest of its bytes, one per line.
@@ -1525,7 +1525,7 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
 /// Below this many files a key reads them on its own thread.
 const SERIAL_READS: usize = 32;
 
-type Reads = std::collections::HashMap<(PathBuf, Content), Option<std::sync::Arc<Vec<u8>>>>;
+type Reads = crate::hash::Map<(PathBuf, Content), Option<std::sync::Arc<Vec<u8>>>>;
 
 /// Every source a key has read, by path and reading, once [`remember_reads`]
 /// has been called.
@@ -1541,7 +1541,7 @@ pub fn remember_reads() {
     let mut memo = READS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    memo.get_or_insert_with(Reads::new);
+    memo.get_or_insert_with(Reads::default);
 }
 
 /// Every file one rule names, package-relative and sorted: its entry module,
@@ -2716,7 +2716,7 @@ struct Claimed<'a> {
     flights: Vec<std::sync::Arc<Flight>>,
 }
 
-type FlightMap = std::collections::HashMap<PathBuf, std::sync::Arc<Flight>>;
+type FlightMap = crate::hash::Map<PathBuf, std::sync::Arc<Flight>>;
 
 impl Flights {
     fn map() -> std::sync::MutexGuard<'static, FlightMap> {

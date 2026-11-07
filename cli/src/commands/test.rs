@@ -2959,7 +2959,7 @@ fn note_reads(
 thread_local! {
     /// Each rule's files as paths, for one pass's [`note_reads`]: emptied when
     /// [`drive`] starts, since a pass may run against a new graph.
-    static RULE_PATHS: std::cell::RefCell<actions::RulePaths> = std::cell::RefCell::new(actions::RulePaths::new());
+    static RULE_PATHS: std::cell::RefCell<actions::RulePaths> = std::cell::RefCell::new(actions::RulePaths::default());
 }
 
 /// Stores a verdict with its reads, which the suite's load or its recalled

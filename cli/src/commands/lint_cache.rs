@@ -87,7 +87,7 @@ pub struct Store {
     /// Every file named this run, by repository-relative name, as a number.
     ids: std::collections::HashMap<String, u32>,
     names: Vec<String>,
-    paths: std::collections::HashMap<PathBuf, u32>,
+    paths: crate::hash::Map<PathBuf, u32>,
     /// Each named file's hash now, by number.
     hashes: Vec<Option<u64>>,
     /// Each closure node asked about, by key: the node when it still holds.
@@ -154,7 +154,7 @@ impl Store {
             explain: flags.explain,
             ids: std::collections::HashMap::new(),
             names: Vec::new(),
-            paths: std::collections::HashMap::new(),
+            paths: crate::hash::Map::default(),
             hashes: Vec::new(),
             holds: std::collections::HashMap::new(),
             nodes: std::collections::HashMap::new(),
