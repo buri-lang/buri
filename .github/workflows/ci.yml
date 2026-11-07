@@ -119,7 +119,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: target/debug/build
-          key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: buildscript-${{ matrix.os }}-${{ matrix.arch }}-
       # **The suite, with its binaries overlapped**, because `cargo test` runs
       # them ONE AT A TIME and on a four-core runner that is the whole of this
@@ -245,6 +245,61 @@ jobs:
         run: |
           cargo test -p buri --test ci the_runtime_archive_is_real
           cargo test -p buri --test native runtime::the_networking_features_agree_across_the_abi
+      # **What a build directory cache keeps.** Every job that caches `build/`
+      # runs this step last, and the other jobs name it by its anchor. A cache
+      # saved unpruned grew with every run and every variant: up to 1.9 GB per
+      # coverage platform, about 10 GB in all, which is GitHub's cap, so each
+      # save evicted another job's cache (run 42361847351).
+      #
+      # A unit counts as used if it holds a file newer than `Cargo.toml`: the
+      # checkout wrote that file, the cache restores older mtimes, and cargo
+      # never writes it. Two kinds of unit go:
+      #
+      # * Units that weren't used, of a package that has a unit this run
+      #   wrote: a variant a dependency bump or a feature change left behind.
+      #   Each copy of the runtime's build is 330 MB.
+      # * A workspace member's units that aren't a build script. The checkout
+      #   gives every source a new mtime, so cargo compiles each member again
+      #   whatever is cached. The nightly's `build/<pkg>/<hash>` layout keeps
+      #   them here, and they were most of a coverage cache.
+      #
+      # A workspace member is a package with no `source` in `Cargo.lock`. A
+      # registry crate nothing rebuilt is never touched.
+      - &prune
+        name: Prune the build directories before they are cached
+        run: |
+          set -euo pipefail
+          members="$(awk '/^\[\[package\]\]/ { if (n != "" && !s) print n; n = ""; s = 0 }
+            /^name = / { n = $3 } /^source = / { s = 1 }
+            END { if (n != "" && !s) print n }' Cargo.lock | tr -d '"')"
+          for build in target/debug/build target/release/build target/*/debug/build target/*/release/build; do
+            if [ ! -d "$build" ]; then continue; fi
+            # `<pkg>-<hash>` in cargo's layout, `<pkg>/<hash>` in the nightly's.
+            units="$(for e in "$build"/*; do
+              if [ ! -d "$e" ]; then continue; fi
+              n="$(basename "$e")"
+              if [[ $n =~ ^(.+)-[0-9a-f]{16}$ ]]; then
+                echo "${BASH_REMATCH[1]} $e"
+              else
+                for u in "$e"/*; do if [ -d "$u" ]; then echo "$n $u"; fi; done
+              fi
+            done)"
+            used() { [ -n "$(find "$1" -newer Cargo.toml -print -quit)" ]; }
+            written="$(echo "$units" | while read -r pkg unit; do
+              if [ -n "$unit" ] && used "$unit"; then echo "$pkg"; fi
+            done | sort -u)"
+            echo "$units" | while read -r pkg unit; do
+              if [ -z "$unit" ]; then continue; fi
+              if ! used "$unit"; then
+                if echo "$written" | grep -qxF -- "$pkg"; then rm -rf "$unit"; fi
+              elif echo "$members" | grep -qxF -- "$pkg" \
+                && [ ! -e "$unit/run" ] && [ ! -e "$unit/out/build_script_build" ] \
+                && [ ! -e "$unit/output" ] && [ ! -e "$unit/build-script-build" ]; then
+                rm -rf "$unit"
+              fi
+            done
+            du -sh "$build"
+          done
       # A failing test's scratch tree is its evidence (cli/tests/README.md). A
       # panicking test keeps its own; `BURI_KEEP` is not set, because it would
       # also keep every passing suite's and that is the 14 GB that filled a disk.
@@ -347,9 +402,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: target/release/build
-          key: goals-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          key: goals-buildscript-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: goals-buildscript-
       - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count --size=ci
+      - *prune
       # This run's figures, at their lowest: the file to commit when a change
       # lowers one, or when the toolchain moved.
       - uses: actions/upload-artifact@v7
@@ -391,7 +447,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: target/debug/build
-          key: llvm-conformance-buildscript-${{ matrix.arch }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          key: llvm-conformance-buildscript-${{ matrix.arch }}-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: llvm-conformance-buildscript-${{ matrix.arch }}-
       # The `.proto` generator runs under a JavaScript runtime.
       - uses: oven-sh/setup-bun@v2
@@ -400,6 +456,7 @@ jobs:
       # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason: the shell's clang
       # would ask musl for fortify's `__*_chk`.
       - run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm --test native -- conformance::the_native_set_passes
+      - *prune
 
   # The release backend, x86-64 only and ADVISORY: LLVM 21 is not in Ubuntu 24.04,
   # so this job depends on apt.llvm.org, and a red X caused by a 404 teaches
@@ -504,11 +561,12 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: target/release/build
-          key: instructions-buildscript-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          key: instructions-buildscript-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: instructions-buildscript-
       # Twice each, so a count that stops being repeatable fails here rather
       # than passing or failing by chance later.
       - run: nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions -- --runs=2
+      - *prune
       # What this run measured, as a baseline file: commit it to re-bless,
       # after a failure or after a pass that says some counts improved.
       - if: always()
@@ -561,7 +619,7 @@ jobs:
             target/coverage/debug/build
             target/coverage-buri/debug/build
             target/coverage-buri/release/build
-          key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
+          key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'flake.nix', 'Cargo.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: coverage-buildscript-${{ matrix.platform }}-
       # On arm64 the shell's clang wrapper adds `-target-cpu armv8-a` to every
       # compile, which an x86_64 target refuses, so `cli/build.rs` would write
@@ -577,6 +635,7 @@ jobs:
           name: coverage-build-${{ matrix.platform }}
           path: target/coverage/build
           retention-days: 7
+      - *prune
 
   coverage-shard:
     name: coverage shard (${{ matrix.platform }}, ${{ matrix.shard }}/4)

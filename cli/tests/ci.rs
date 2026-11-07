@@ -804,6 +804,39 @@ fn the_runner_config_never_kills_retries_or_filters_a_test() {
     );
 }
 
+/// **Every job that caches a build directory prunes it first.**
+///
+/// Unpruned, those caches kept every variant ever built and every workspace
+/// unit the next checkout recompiles anyway, and together they filled
+/// GitHub's 10 GB cap, so each save evicted another job's cache. The step
+/// is written once, in the `test` job, and the other jobs name its anchor.
+#[test]
+fn every_cached_build_directory_is_pruned() {
+    let text = workflow();
+    let mut caching = 0;
+    for (name, body) in jobs(&text) {
+        let caches_build = body.contains("uses: actions/cache@")
+            && body.lines().any(|line| {
+                let line = line.trim().trim_start_matches("path:").trim();
+                line.starts_with("target/") && line.ends_with("/build")
+            });
+        if !caches_build {
+            continue;
+        }
+        caching += 1;
+        assert!(
+            body.contains("- &prune") || body.contains("- *prune"),
+            "the `{name}` job caches a `build/` directory and never prunes it. Add `- *prune` as \
+             its last step, after everything that builds."
+        );
+    }
+    assert!(
+        caching >= 5,
+        "only {caching} job(s) were found caching a `build/` directory, and there were five \
+         when this was written; the reading above has stopped seeing them"
+    );
+}
+
 /// **The coverage jobs download the local test runner; they never build it.**
 ///
 /// Every coverage job enters the flake's `coverage` shell, and no binary cache
