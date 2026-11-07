@@ -903,6 +903,106 @@ fn the_workflow_runs_at_most_five_macos_jobs() {
     println!("{total} macOS job(s): {}", counted.join(", "));
 }
 
+/// **Every memcheck run is in exactly one shard.**
+///
+/// `memcheck.yml` builds its test binaries once per architecture, and each
+/// shard runs a list of runs: one `cargo test` invocation each, as the run's
+/// `case` arm spells it. The lists are balanced by hand on measured times.
+/// Moving a run between them must not drop it from every shard or put it in
+/// two. A run no list names is a set of tests memcheck stopped checking, and
+/// one named twice is twice the runner time.
+#[test]
+fn every_memcheck_run_is_in_exactly_one_shard() {
+    let path = repo_root().join(".github/workflows/memcheck.yml");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
+    // `- { shard: backends, runs: backends agreement }`
+    let mut lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(row) = line
+            .strip_prefix("- { shard: ")
+            .and_then(|r| r.strip_suffix(" }"))
+        else {
+            continue;
+        };
+        let Some((shard, runs)) = row.split_once(", runs: ") else {
+            continue;
+        };
+        lists.insert(
+            shard.to_string(),
+            runs.split_whitespace().map(str::to_string).collect(),
+        );
+    }
+    // `shard: [modules, backends, conformance, runtime]`
+    let shards: Vec<String> = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("shard: ["))
+        .unwrap_or_else(|| panic!("memcheck.yml has no `shard: [...]` matrix dimension"))
+        .trim_end_matches(']')
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let unlisted: Vec<&String> = shards.iter().filter(|s| !lists.contains_key(*s)).collect();
+    assert!(
+        unlisted.is_empty(),
+        "memcheck.yml's shards {unlisted:?} have no `runs` row, so they run nothing"
+    );
+    // The `case` arms of the step that starts the runs: `llvm-debug | llvm-release)`.
+    let step = text
+        .split("- name: The runs")
+        .nth(1)
+        .and_then(|rest| rest.split("\n      - ").next())
+        .unwrap_or_else(|| panic!("memcheck.yml has no step named `The runs`"));
+    let mut arms: Vec<String> = Vec::new();
+    for line in step.lines() {
+        let line = line.trim();
+        let Some((head, _)) = line.split_once(')') else {
+            continue;
+        };
+        let names: Vec<&str> = head.split('|').map(str::trim).collect();
+        if names.iter().all(|n| {
+            !n.is_empty()
+                && n.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        }) {
+            arms.extend(names.iter().map(|n| n.to_string()));
+        }
+    }
+    assert!(
+        arms.len() >= 8,
+        "only {} run(s) were read from memcheck.yml's `case`, and there were eight when this was \
+         written; the reading above has stopped seeing them: {arms:?}",
+        arms.len()
+    );
+    for run in &arms {
+        let holders: Vec<&String> = lists
+            .iter()
+            .filter(|(_, runs)| runs.contains(run))
+            .map(|(shard, _)| shard)
+            .collect();
+        assert!(
+            holders.len() == 1,
+            "memcheck.yml's run `{run}` is in {} shard(s), {holders:?}; every run belongs to \
+             exactly one",
+            holders.len()
+        );
+    }
+    for (shard, runs) in &lists {
+        for run in runs {
+            assert!(
+                arms.contains(run),
+                "memcheck.yml's shard `{shard}` lists `{run}`, which no `case` arm runs"
+            );
+        }
+    }
+    println!(
+        "{} memcheck run(s) over {} shard(s)",
+        arms.len(),
+        lists.len()
+    );
+}
+
 /// **Every job that caches a build directory prunes it first.**
 ///
 /// Unpruned, those caches kept every variant ever built and every workspace

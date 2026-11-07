@@ -14,6 +14,9 @@ name: Memcheck
 # * **`--features valgrind`** builds a runtime that, under memcheck, takes
 #   every block from the system allocator one at a time, annotated where
 #   memcheck can't see `malloc` (`cli/runtime/valgrind.rs`).
+# * **Built once per architecture.** The `build` job compiles the test
+#   binaries and the shards run them. Each shard used to build them itself:
+#   about 200 s of each of 15 jobs (run 42365863930).
 # * **A test's own failure is its own issue.** Valgrind's errors never change
 #   a program's exit status, so a failed test is the test's, and `failed`
 #   drafts it from the step's output.
@@ -44,26 +47,22 @@ env:
   BURI_CI: 1
 
 jobs:
-  memcheck:
-    name: memcheck (${{ matrix.shard }}, ${{ matrix.arch }})
+  # The test binaries, as plain libtest executables rather than a nextest
+  # archive. The shards run them as `cargo test` would, one process per
+  # binary: the native suite shares builds between its tests in one process
+  # (`conformance.rs`'s `BUILT`, `shared.rs`'s runtime archive), and
+  # `valgrind failed` reads libtest's output. A shard has the same checkout
+  # path, so every path a binary baked in at compile time still holds.
+  build:
+    name: build (${{ matrix.arch }})
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64]
-        shard: [stencil-debug, llvm-debug, llvm-release, agreement, e2e, backends, modules, runtime]
         include:
           - { arch: x86_64, os: ubuntu-24.04 }
           - { arch: arm64, os: ubuntu-24.04-arm }
-        # On arm64, LLVM turns some branches into a `csel` keyed on a field
-        # that is unset but whose value can't change the answer. Memcheck
-        # reports that, about 120 sites (tokio, taffy, tiny-skia, paint). At
-        # opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
-        exclude:
-          - { arch: arm64, shard: runtime }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
-    env:
-      BURI_MEMCHECK: ${{ github.workspace }}/target/memcheck
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -80,66 +79,143 @@ jobs:
           path: target/debug/build
           key: memcheck-buildscript-${{ matrix.arch }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: memcheck-buildscript-${{ matrix.arch }}-
+      # `NIX_HARDENING_ENABLE=` everywhere: the C probes some rows link beside a
+      # program are compiled by the shell's clang, whose fortify asks musl for
+      # `__*_chk`, and a step that changed it would rebuild the runtime.
+      #
+      # The tool is built in the tests' profile, so it reuses their build of
+      # the library instead of compiling the workspace a second time (65 s).
+      # `target/memcheck-tests/` lists each test executable, relative to the
+      # checkout. The runtime's tests run on x86_64 only (the `memcheck` job's
+      # `exclude` says why).
+      - name: Build
+        run: |
+          set -euo pipefail
+          mkdir -p target/memcheck-tests
+          executables() { jq -r --arg root "$PWD/" 'select(.profile.test == true) | .executable | select(. != null) | ltrimstr($root)'; }
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --no-run --message-format=json-render-diagnostics \
+            | executables > target/memcheck-tests/native
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build --profile test -p buri --features backend-llvm,valgrind --example valgrind
+          if [ "${{ matrix.arch }}" = x86_64 ]; then
+            nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
+              | executables > target/memcheck-tests/runtime
+          fi
+          test "$(wc -l < target/memcheck-tests/native)" = 1
+          mapfile -t tests < <(cat target/memcheck-tests/*)
+          tar -I 'zstd -T0' -cf memcheck-tests.tar.zst target/memcheck-tests target/debug/buri target/debug/examples/valgrind "${tests[@]}"
+          ls -l memcheck-tests.tar.zst
+      # Not `memcheck-*`: the `file` job reads those for issues.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tests-memcheck-${{ matrix.arch }}
+          path: memcheck-tests.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  # **Each shard is a list of runs**, and each run is one of the invocations
+  # below, in `runs`. The lists are balanced on the runs' times in run
+  # 42365863930, x86_64 first: `modules` 1355 s, held up by
+  # `coverage_agrees::coverage_changes_no_verdict_on_stencil` (1274 s);
+  # `backends` 1164 s and `agreement` 142 s; `stencil-debug` 436 s,
+  # `llvm-release` 375 s, `llvm-debug` 253 s and `e2e` 207 s; `runtime` 366 s
+  # with its build. So no shard runs much longer than `modules`, which cannot
+  # be split below its longest test. `cli/tests/ci.rs`'s
+  # `every_memcheck_run_is_in_exactly_one_shard` holds the lists to naming
+  # each run once.
+  memcheck:
+    name: memcheck (${{ matrix.shard }}, ${{ matrix.arch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm64]
+        shard: [modules, backends, conformance, runtime]
+        include:
+          - { arch: x86_64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+          - { shard: modules, runs: modules }
+          - { shard: backends, runs: backends agreement }
+          - { shard: conformance, runs: stencil-debug llvm-release llvm-debug e2e }
+          - { shard: runtime, runs: runtime }
+        # On arm64, LLVM turns some branches into a `csel` keyed on a field
+        # that is unset but whose value can't change the answer. Memcheck
+        # reports that, about 120 sites (tokio, taffy, tiny-skia, paint). At
+        # opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
+        exclude:
+          - { arch: arm64, shard: runtime }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      BURI_MEMCHECK: ${{ github.workspace }}/target/memcheck
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
       # The agreement rows compare each native answer with JavaScript's.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
-      # `NIX_HARDENING_ENABLE=` everywhere: the C probes some rows link beside a
-      # program are compiled by the shell's clang, whose fortify asks musl for
-      # `__*_chk`, and a step that changed it would rebuild the runtime.
-      - name: Build
-        run: |
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --no-run
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build -p buri --features backend-llvm,valgrind --example valgrind
-      - name: The conformance set, ${{ matrix.shard }}
-        if: startsWith(matrix.shard, 'stencil') || startsWith(matrix.shard, 'llvm')
+      - uses: actions/download-artifact@v8
+        with:
+          name: tests-memcheck-${{ matrix.arch }}
+      - run: tar -I zstd -xf memcheck-tests.tar.zst && rm memcheck-tests.tar.zst
+      # Each run as `cargo test` would start it: from `cli/`, the package's
+      # directory. Every run is started whatever happened to the one before it,
+      # and writes its own log, named for the run, which `failed` reads below.
+      #
+      # `modules` is every other `native::` module, less `float_parity` and
+      # `differential`, which run what they build themselves, and `cross`,
+      # which runs its program in a container.
+      - name: The runs, ${{ matrix.runs }}
         env:
-          BURI_CONFORMANCE_BUILD: ${{ matrix.shard == 'stencil-debug' && 'stencil' || matrix.shard }}
+          RUNS: ${{ matrix.runs }}
         run: |
-          set -euo pipefail
-          mkdir -p "$BURI_MEMCHECK"
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- conformance::the_native_set_passes \
-            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
-      - name: The agreement and at-scale rows
-        if: matrix.shard == 'agreement'
-        run: |
-          set -euo pipefail
-          mkdir -p "$BURI_MEMCHECK"
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale:: \
-            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
-      # Every other `native::` module, less `float_parity` and `differential`,
-      # which run what they build themselves, and `cross`, which runs its
-      # program in a container.
-      - name: The other native modules, ${{ matrix.shard }}
-        if: matrix.shard == 'e2e' || matrix.shard == 'backends' || matrix.shard == 'modules'
-        env:
-          FILTERS: "${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential:: --skip cross::' }}"
-        run: |
-          set -euo pipefail
-          mkdir -p "$BURI_MEMCHECK"
-          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- $FILTERS \
-            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
-      - name: The runtime's unit tests
-        if: matrix.shard == 'runtime'
-        env:
-          # Ten thousand parked tasks' stacks are more address space than
-          # Valgrind gives a program; a thousand still asks the same question.
-          BURI_B9_PARKED: "1000"
-        run: |
-          set -euo pipefail
-          mkdir -p "$BURI_MEMCHECK"
-          tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
-            | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
-          nix develop .#perf -c target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' "$tests" --test-threads=1 \
-            2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
+          set -uo pipefail
+          mkdir -p "$BURI_MEMCHECK/logs" target/tmp
+          native="$PWD/$(cat target/memcheck-tests/native)"
+          status=0
+          # run <log> <directory> [VAR=value]... <program> [arguments]
+          run() {
+            local log=$1 dir=$2
+            shift 2
+            nix develop .#perf -c env -C "$dir" NIX_HARDENING_ENABLE= "$@" \
+              2>&1 | tee "$BURI_MEMCHECK/logs/$log.log" || status=1
+          }
+          for r in $RUNS; do
+            case $r in
+              stencil-debug) run "$r" cli BURI_CONFORMANCE_BUILD=stencil "$native" conformance::the_native_set_passes ;;
+              llvm-debug | llvm-release) run "$r" cli BURI_CONFORMANCE_BUILD="$r" "$native" conformance::the_native_set_passes ;;
+              agreement) run "$r" cli "$native" agreement:: at_scale:: ;;
+              e2e) run "$r" cli "$native" e2e:: ;;
+              backends) run "$r" cli "$native" llvm:: stencil:: ;;
+              modules)
+                run "$r" cli "$native" --skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: \
+                  --skip stencil:: --skip float_parity:: --skip differential:: --skip cross::
+                ;;
+              # Ten thousand parked tasks' stacks are more address space than
+              # Valgrind gives a program; a thousand still asks the same question.
+              runtime)
+                run "$r" . BURI_B9_PARKED=1000 target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' \
+                  "$(cat target/memcheck-tests/runtime)" --test-threads=1
+                ;;
+              *) echo "no run is called $r" >&2; exit 1 ;;
+            esac
+          done
+          exit "$status"
       # A test that failed on its own, apart from any Valgrind error: its own
       # draft issue, and a red step that says so.
       - name: Tests that failed on their own
         if: always()
         run: |
-          [ -e "$BURI_MEMCHECK/tests.log" ] || exit 0
-          nix develop .#perf -c target/debug/examples/valgrind failed memcheck "$BURI_MEMCHECK" '${{ matrix.shard }}' \
-            "$BURI_MEMCHECK/tests.log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          status=0
+          for log in "$BURI_MEMCHECK"/logs/*.log; do
+            [ -e "$log" ] || continue
+            nix develop .#perf -c target/debug/examples/valgrind failed memcheck "$BURI_MEMCHECK" "$(basename "$log" .log)" \
+              "$log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || status=1
+          done
+          exit "$status"
       - name: Report
         if: always()
         run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_MEMCHECK"
