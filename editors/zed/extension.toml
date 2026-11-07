@@ -24,7 +24,7 @@ path = "editors/tree-sitter-buri"
 # `BUILD.buri` goes on working because the other grammar's pin still matches its
 # queries. So the pin moves with the grammar, and
 # `editors/tree-sitter-buri/check.sh` fails when it has not.
-commit = "2425acf9493616beb1981f8a30884dc68bfdd6fb"
+commit = "1452779f7b85bea4f3bba502fca7d7a867febcfb"
 # The digest of `grammar.js` and `src/scanner.c` as of that commit — the two
 # files that decide which node types a query may name. `check.sh` compares it
 # against the working tree, so a grammar change that leaves the pin behind is
@@ -41,7 +41,7 @@ path = "editors/tree-sitter-buri-build"
 # Pinned to the commit that lands the grammar. Zed fetches it from GitHub, so
 # the extension builds only once that commit is pushed, and it moves with the
 # grammar for the reason spelled out above.
-commit = "aa8e4284abe768cf2d90dc9113a76ae060f27857"
+commit = "49cb443eabedef013a42add6d2397e1c57cbe538"
 # grammar-sha256 = "c1f1aeddae43d925619e5a79d877d40dc269beb7eafad11cd5407d9b7f97958b"
 
 [language_servers.buri]
