@@ -887,7 +887,13 @@ fn formatting_the_corpus_preserves_what_it_means() {
                 changed > 10,
                 "formatting rewrote only {changed} of the suite's files"
             );
-            let after = formatted.run(&["test", "//...", "--force"]);
+            // Shared with any run of a tree holding the same bytes, so when
+            // formatting gives back the corpus as checked in, this is the
+            // "before" run's answer and not a second run of the same inputs.
+            let after = crate::debug_suite::conformance_run(&formatted.root, || {
+                harness::Scratch::copy_of("meaning-formatted-run", &formatted.root)
+            })
+            .unwrap_or_else(|said| panic!("the formatted suite could not be run:\n{said}"));
             (formatted, after, changed)
         },
     );
