@@ -156,27 +156,48 @@
         # on macOS, so a test started between them inherits a sibling's pipe and
         # nextest reports the sibling as leaky (design/PERFORMANCE.md §6.35).
         # `.config/nextest.toml` refuses an older one.
-        cargoNextest = rustPlatform.buildRustPackage (finalAttrs: {
-          pname = "cargo-nextest";
-          version = "0.9.146";
-          src = pkgs.fetchFromGitHub {
-            owner = "nextest-rs";
-            repo = "nextest";
-            tag = "cargo-nextest-${finalAttrs.version}";
-            hash = "sha256-2ndrHZ1pmu1oBZGlq5pyv0vhSEUf23gNRyyenNw0fdk=";
+        #
+        # nextest's own release binary, not a build from source: built here it
+        # was the slowest step of every CI coverage job, eight minutes of the
+        # macOS shard and four of a Linux one, because no binary cache has it.
+        # The Linux tarballs hold a static musl executable and the macOS one a
+        # universal Mach-O, so there is nothing to patch.
+        cargoNextest =
+          let
+            version = "0.9.146";
+            target =
+              {
+                x86_64-linux = "x86_64-unknown-linux-musl";
+                aarch64-linux = "aarch64-unknown-linux-musl";
+                aarch64-darwin = "universal-apple-darwin";
+                x86_64-darwin = "universal-apple-darwin";
+              }
+              .${system};
+          in
+          pkgs.stdenvNoCC.mkDerivation {
+            pname = "cargo-nextest";
+            inherit version;
+            src = pkgs.fetchurl {
+              url = "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-${version}/cargo-nextest-${version}-${target}.tar.gz";
+              sha256 =
+                {
+                  x86_64-unknown-linux-musl = "b64617e8640624e8f9ba99819e37d7971154e97836d7ae4774fed4715501a6aa";
+                  aarch64-unknown-linux-musl = "62ae8b4ad034704f67417f8ed8b897566d82359ab44952729b925fb37eeb7622";
+                  universal-apple-darwin = "39785160b3c2f6ed9a765049cf4fa79f3b39aa02eb7598a5a0e2a1a0b9ffb9a8";
+                }
+                .${target};
+            };
+            # The tarball is a single `cargo-nextest` at top level.
+            sourceRoot = ".";
+            dontConfigure = true;
+            dontBuild = true;
+            dontStrip = true;
+            dontPatchELF = true;
+            installPhase = ''
+              install -Dm755 cargo-nextest "$out/bin/cargo-nextest"
+            '';
+            meta.mainProgram = "cargo-nextest";
           };
-          cargoHash = "sha256-ZW0/JQ9RECxfDn479ww4bO4ixoMGaM+GtGUOCWy2Cyg=";
-          # nixpkgs' `no-dtrace-macos.patch`: its DTrace probes need a `dtrace`
-          # that Nix doesn't build on macOS.
-          postPatch = lib.optionalString pkgs.stdenv.isDarwin ''
-            substituteInPlace nextest-runner/Cargo.toml nextest-runner/src/usdt.rs \
-              --replace-fail 'any(target_os = "macos", target_os = "freebsd"' 'any(target_os = "freebsd"'
-          '';
-          cargoBuildFlags = [ "-p" "cargo-nextest" ];
-          # Its own suite, which nixpkgs runs; this shell only needs the binary.
-          doCheck = false;
-          meta.mainProgram = "cargo-nextest";
-        });
 
         # The version is read rather than written down. `buri version` prints
         # `CARGO_PKG_VERSION`, so a version repeated here is a second place to

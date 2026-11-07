@@ -804,6 +804,50 @@ fn the_runner_config_never_kills_retries_or_filters_a_test() {
     );
 }
 
+/// **The coverage jobs download the local test runner; they never build it.**
+///
+/// Every coverage job enters the flake's `coverage` shell, and no binary cache
+/// holds a runner the flake builds itself. Built from source, it was the
+/// slowest step of the slowest job: eight minutes of the macOS shard and four
+/// of every Linux one (run 42361847351). So the flake fetches the release
+/// tarball, at a version `.config/` still accepts.
+///
+/// Assembled rather than written, for the reason the test above gives.
+#[test]
+fn the_flake_downloads_the_test_runner_at_an_accepted_version() {
+    let runner = format!("next{}", "est");
+    let flake = std::fs::read_to_string(repo_root().join("flake.nix")).unwrap();
+    let marker = format!("cargoN{} =", &runner[1..]);
+    let at = flake
+        .find(&marker)
+        .unwrap_or_else(|| panic!("flake.nix no longer defines `{marker}`; this test reads it"));
+    let block = &flake[at..at + flake[at..].find("\n\n").unwrap_or(flake.len() - at)];
+    assert!(
+        block.contains("fetchurl") && !block.contains("buildRustPackage"),
+        "flake.nix builds the test runner instead of fetching its release binary. That build \
+         runs in every coverage job, eight minutes on macOS.\n--- the block ---\n{block}"
+    );
+    let triple = |text: &str| -> Vec<u32> {
+        text.split('.')
+            .map(|part| part.trim_matches(|c: char| !c.is_ascii_digit()))
+            .map(|part| part.parse().unwrap())
+            .collect()
+    };
+    let quoted_after = |text: &str, key: &str| -> String {
+        let rest = &text[text.find(key).unwrap_or_else(|| panic!("no `{key}`")) + key.len()..];
+        rest.split('"').nth(1).unwrap().to_string()
+    };
+    let fetched = triple(&quoted_after(block, "version ="));
+    let config =
+        std::fs::read_to_string(repo_root().join(".config").join(format!("{runner}.toml")))
+            .unwrap();
+    let required = triple(&quoted_after(&config, "required ="));
+    assert!(
+        fetched >= required,
+        "flake.nix fetches {runner} {fetched:?}, older than the {required:?} .config/ requires"
+    );
+}
+
 /// **The cap can tell a child that is working from one that is stuck.**
 ///
 /// The discriminator itself, asked of two real processes and nothing else. A
