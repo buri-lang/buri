@@ -1305,6 +1305,26 @@ fn a_c_driver_that_cant_target_musl_links_nothing() {
     }
 }
 
+/// A C driver that fails even to say what it targets is not musl's own, so
+/// with no musl driver on `PATH` the build links nothing and says so.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_c_driver_that_cant_say_what_it_targets_links_nothing() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch
+        .write_executable("fake/cc", "#!/bin/sh\nexit 1\n")
+        .display()
+        .to_string();
+    let path = scratch.path("fake").display().to_string();
+    scratch
+        .run_with_env(
+            &["build", "//cmd/app"],
+            &[("CC", &cc), ("PATH", &path), ("BURI_MUSL", "")],
+        )
+        .exits(1)
+        .says("no musl driver is on PATH either");
+}
+
 /// A `buri` whose linker wrote no build id knows itself by the hash of its
 /// bytes, remembered under `XDG_CACHE_HOME`. Its builds are cached like any
 /// other's, whether the remembered hash is damaged or can't be written.

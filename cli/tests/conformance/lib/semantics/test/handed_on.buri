@@ -35,6 +35,14 @@ fn carried<T>(held: T, n: Int): Int {
     if (n == 0) { 0 } else { carried(held, n - 1) + 1 }
 }
 
+/// `carried` from `n`, by a closure that captures `held` and hands it on. Its
+/// bound is what lets a closure capture it, since an `Equal` is never a
+/// context.
+fn carriedByClosure<T: Equal>(held: T, n: Int): Int {
+    let count = fn(m: Int) => carried(held, m);
+    count(n)
+}
+
 /// `handOn` at `ctx`, then at `ctx` wrapped.
 fn both<C: Allocator>(ctx: C, n: Int): [Int] {
     handOn(ctx, n).concat(ctx, handOn(ReadOnly { inner: ctx }, n))
@@ -165,6 +173,13 @@ test "a value of a type the function never reads is handed along and released" {
     assert.equal(carried(["a", "b"], 3), 3);
     assert.equal(carried(Tagged { tag: "t", value: [[1], [2]] }, 3), 3);
     assert.equal(carried(fn(n: Int) => n + 1, 3), 3);
+}
+
+test "a closure that captures a value it hands along answers the same at every type" {
+    assert.equal(carriedByClosure(1, 3), 3);
+    assert.equal(carriedByClosure("text", 2), 2);
+    assert.equal(carriedByClosure([[1], [2]], 1), 1);
+    assert.equal(carriedByClosure(["a", "b"], 0), 0);
 }
 
 test "a fold that hands its context to its step answers the same at every context" {
