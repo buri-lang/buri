@@ -1,0 +1,19 @@
+# `buri test --coverage --output=js`: a comparator is called the same number of
+# times on every run. The count is a function of the list alone, so a report
+# that moves between runs of one suite is one no gate can hold a floor against.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage counts a sort's comparator calls the same however long the suite has been running"
+
+run {
+  args: ["test", "//lib/ranking", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}

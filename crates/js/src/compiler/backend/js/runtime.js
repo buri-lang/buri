@@ -1062,21 +1062,32 @@ function $list_reverse(xs, c) {
 }
 
 // Stable, so a tie-break the comparator does not decide keeps source order.
-// `Array.prototype.sort` is stable, and `Order`'s tags are 0, 1 and 2, so the
-// tag less one is the comparator's answer. A `None` is `undefined`, which the
-// built-in sort moves to the end unasked, so a list holding one sorts pairs.
+// A merge sort of its own rather than `Array.prototype.sort`: the engine's
+// calls the comparator a different number of times for the same list as its
+// optimizing compiler warms up, and a coverage report counts those calls. A
+// `None` is `undefined`, which the built-in sort moves to the end unasked, so
+// it could not have had the comparator decide a list holding one.
 function $list_sortBy(xs, c, order) {
   $shareEach(xs);
-  if (!xs.includes(undefined)) return $own(xs.slice().sort((a, b) => order(a, b) - 1));
-  return $own(
-    xs
-      .map((v, i) => [v, i])
-      .sort((a, b) => {
-        const o = order(a[0], b[0]);
-        return o === 1 ? a[1] - b[1] : o === 0 ? -1 : 1;
-      })
-      .map((p) => p[0]),
-  );
+  const n = xs.length;
+  let from = xs.slice();
+  let into = new Array(n);
+  for (let width = 1; width < n; width *= 2) {
+    for (let lo = 0; lo < n; lo += 2 * width) {
+      const mid = Math.min(lo + width, n);
+      const hi = Math.min(lo + 2 * width, n);
+      let left = lo;
+      let right = mid;
+      let at = lo;
+      while (left < mid && right < hi) {
+        into[at++] = order(from[left], from[right]) > 1 ? from[right++] : from[left++];
+      }
+      while (left < mid) into[at++] = from[left++];
+      while (right < hi) into[at++] = from[right++];
+    }
+    [from, into] = [into, from];
+  }
+  return $own(from);
 }
 
 // `core/map`'s splices of a node's children. Natively they write into a list

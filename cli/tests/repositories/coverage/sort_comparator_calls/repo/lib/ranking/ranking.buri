@@ -1,0 +1,13 @@
+from "core/list" import * as list;
+from "core/order" import { Order };
+from "platform/effect" import { Allocator };
+
+/// Which of two numbers ranks first.
+export fn rank(a: Int, b: Int): Order {
+    if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+}
+
+/// The ten digits in the order `shift` picks, best first.
+export fn ranked<C: Allocator>(ctx: C, shift: Int): [Int] {
+    list.range(ctx, 0, 10).map(ctx, fn(k) => (k * 7 + shift * 3) % 10).sortBy(ctx, rank)
+}

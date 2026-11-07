@@ -1,0 +1,7 @@
+library {
+    sources: ["ranking.buri"]
+
+    test {
+        sources: ["test/ranking.buri"]
+    }
+}
