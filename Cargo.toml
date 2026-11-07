@@ -145,6 +145,14 @@ dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 
+# `[profile.test]`'s `lto = "off"`, for the reason given there, in
+# `cargo build` and `cargo run` too. A cold `cargo build -p buri` went from
+# 206 to 150 CPU-seconds. Nothing times a dev build: the timed rows
+# are `cargo bench` under `[profile.release]`, and the instruction counts are
+# taken under `[profile.test]`, which sets its own.
+[profile.dev]
+lto = "off"
+
 # The toolchain compiles itself out of a `cargo test` run: every suite but the
 # unit tests drives the real `buri` binary, so an unoptimized compiler is a slow
 # *suite* rather than merely a slow build. `buri docs <topic>` is 54 ms at
