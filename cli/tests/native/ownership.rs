@@ -1019,3 +1019,130 @@ export fn main(host: NativeHost): Result<(), Str> {
         );
     }
 }
+
+/// An ordered map of a thousand keys, built, then overwritten `n` times: on
+/// its own, and kept in a record's field.
+fn overwrites(n: u32) -> String {
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+
+struct Store {{ name: Str, m: OrderedMap<Int, Int> }}
+
+fn build<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == 1000) {{ m }} else {{ build(ctx, m.insert(ctx, (i * 7919) % 1000, i), i + 1) }}
+}}
+
+fn overwrite<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == {n}) {{ m }} else {{ overwrite(ctx, m.insert(ctx, (i * 31) % 1000, 1), i + 1) }}
+}}
+
+fn stored<C: Allocator>(ctx: C, s: Store, i: Int): Store {{
+  if (i == {n}) {{ s }} else {{ stored(ctx, Store {{ ..s, m: s.m.insert(ctx, (i * 17) % 1000, 1) }}, i + 1) }}
+}}
+
+fn total(m: OrderedMap<Int, Int>): Int {{
+  m.fold(fn(acc, _k, v) => acc + v, 0)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let m = overwrite(ctx, build(ctx, orderedmap.empty<Int, Int>(), 0), 0);
+  let s = stored(ctx, Store {{ name: "s", m: build(ctx, orderedmap.empty<Int, Int>(), 0) }}, 0);
+  let _ = io.println(host.stdout, "${{m.length()}} ${{total(m)}} ${{s.m.length()}} ${{total(s.m)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Ten thousand overwrites of keys already in an ordered map, on its own and
+/// through a record's field. Nothing else holds the map, so every node on the
+/// path down is unshared and written in place: the overwrites allocate
+/// nothing the building did not.
+#[test]
+fn overwriting_an_unshared_ordered_map_writes_in_place() {
+    let idle = run_each("overwrite-ordered-map-idle", &overwrites(0));
+    let busy = run_each("overwrite-ordered-map", &overwrites(10_000));
+    for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+        assert_eq!(
+            idle.stdout, "1000 499500 1000 499500\n",
+            "{backend}: {}",
+            idle.stderr
+        );
+        assert_eq!(
+            busy.stdout, "1000 1000 1000 1000\n",
+            "{backend}: {}",
+            busy.stderr
+        );
+        let (built, idle_live) = probed(&idle.stderr);
+        let (blocks, live) = probed(&busy.stderr);
+        assert!(
+            blocks < built + 20,
+            "{backend}: twenty thousand overwrites allocated {} blocks beyond the {built} \
+             building took: an overwrite copied the path to its key",
+            blocks.saturating_sub(built)
+        );
+        assert_eq!(
+            (idle_live, live),
+            (0, 0),
+            "{backend}: blocks still live at exit"
+        );
+    }
+}
+
+/// Two thousand rounds that each replace an element of a record's list in a
+/// `match` arm that binds nothing of what it matched, an element of that same
+/// list. Nothing the arm reads points into the record, so the record can go
+/// at the arm's entry and the replace finds its list unique.
+#[test]
+fn a_match_arm_binding_nothing_replaces_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Bag { xs: [Int] }
+
+fn bumped<C: Allocator>(ctx: C, b: Bag, i: Int): Bag {
+  match (b.xs[i]) {
+    .Some(_) => Bag { xs: b.xs.replaceAt(ctx, i, i * 2) },
+    .None => b,
+  }
+}
+
+fn churn<C: Allocator>(ctx: C, b: Bag, left: Int): Bag {
+  if (left == 0) { b } else { churn(ctx, bumped(ctx, b, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let start = Bag { xs: list.range(ctx, 0, 2000) };
+  let b = churn(ctx, start, 2000);
+  let _ = io.println(host.stdout, "${b.xs.get(0)} ${b.xs.get(1)} ${b.xs.get(1999)} ${b.xs.length()}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("match-binding-nothing", source) {
+        assert_eq!(
+            r.stdout, ".Some(0) .Some(2) .Some(3998) 2000\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 50,
+            "{backend}: two thousand replaces allocated {blocks} blocks: the arm's replace \
+             found the list shared with the record it matched on, and copied it"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}

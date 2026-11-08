@@ -682,18 +682,35 @@ fn insertInto<K: Ordered, V, C: Allocator>(
                 (overfull(ctx, added), true)
             }
         },
-        .Some(child) => {
-            let (grown, added) = insertInto(ctx, child, key, value);
-            match (grown) {
-                .Fit(one) => (.Fit(placed(ctx, n, at, one)), added),
-                .Split(left, up, right) => {
-                    let wider = branch(
-                        insertAt(ctx, n.keys, at, up),
-                        splitAt(ctx, n.children, at, left, right),
-                    );
-                    (overfull(ctx, wider), added)
-                },
-            }
+        .Some(_) => descend(ctx, n.keys, n.children, at, key, value),
+    }
+}
+
+/// The insert into a branch's child `at`.
+///
+/// The child is taken out of `children` before the insert reaches it, and an
+/// empty leaf, which allocates nothing, holds its place. So a tree nothing
+/// else shares hands every node on the path down unshared, and each one is
+/// written in place rather than copied.
+fn descend<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    keys: [K],
+    children: [Node<K, V>],
+    at: Int,
+    key: K,
+    value: V,
+): (Grown<K, V>, Bool) {
+    let child = children.getOr(at, leaf([], []));
+    let rest = replaceAt(ctx, children, at, leaf([], []));
+    let (grown, added) = insertInto(ctx, child, key, value);
+    match (grown) {
+        .Fit(one) => (.Fit(branch(keys, replaceAt(ctx, rest, at, one))), added),
+        .Split(left, up, right) => {
+            let wider = branch(
+                insertAt(ctx, keys, at, up),
+                splitAt(ctx, rest, at, left, right),
+            );
+            (overfull(ctx, wider), added)
         },
     }
 }

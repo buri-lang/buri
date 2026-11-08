@@ -1334,6 +1334,29 @@ test "replacing in both lists of a record leaves every other name for them alone
     assert.equal((same.left, same.right, xs), ([5, 8], [7, 6], [7, 8]));
 }
 
+fn replaceIfThere<C: Allocator>(ctx: C, t: Two, at: Int): Two {
+    match (t.left[at]) {
+        .Some(_) => Two { ..t, left: t.left.replaceAt(ctx, at, 0) },
+        .None => t,
+    }
+}
+
+test "replacing in a match arm that binds nothing leaves every other name alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Two { left: [1].concat(ctx, [2]), right: [3].concat(ctx, [4]) };
+    let left = base.left;
+    let replaced = replaceIfThere(ctx, base, 1);
+    assert.equal((replaced.left, replaced.right), ([1, 0], [3, 4]));
+    assert.equal(left, [1, 2]);
+    assert.equal(base.left, [1, 2]);
+    let missing = replaceIfThere(ctx, base, 2);
+    assert.equal(missing.left, [1, 2]);
+    let alone = replaceIfThere(ctx, Two { left: [5].concat(ctx, [6]), right: [] }, 0);
+    assert.equal(alone.left, [0, 6]);
+}
+
 fn swapGrow<C: Allocator>(ctx: C, t: Two): Two {
     Two { ..t, left: t.right.push(ctx, 7), right: t.left.push(ctx, 8) }
 }

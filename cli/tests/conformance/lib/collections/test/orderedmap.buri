@@ -2226,3 +2226,113 @@ test "an ordered map of lists that grows a level keeps every list" {
         (n, .Some([50]), .Some([40])),
     );
 }
+
+// --- writes in place ---------------------------------------------------------------
+//
+// An insert writes the nodes on its path in place when nothing else holds the
+// map. These are the cases where something does, and each must answer what a
+// copy would.
+
+/// A store whose map is one field among others.
+struct Shelf {
+    label: Str,
+    stock: OrderedMap<Int, Int>,
+}
+
+/// Inserts `keys`, stopping at the first negative one.
+fn insertAll<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, Int>,
+    keys: [Int],
+): Result<OrderedMap<Int, Int>, Str> {
+    match (keys) {
+        [] => .Ok(m),
+        [k, ..rest] => {
+            let checked: Result<Int, Str> = if (k < 0) {
+                .Err("negative")
+            } else {
+                .Ok(k)
+            };
+            let key = checked?;
+            insertAll(ctx, m.insert(ctx, key, 0), rest)
+        },
+    }
+}
+
+test "a map folded into itself reads only its own entries while the copy grows" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = scattered(ctx, 100);
+    let doubled = m.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Int>, k, v) => acc.insert(c, k + 1000, v),
+        m,
+    );
+    assert.equal(doubled.length(), 200);
+    assert.equal((doubled.get(1050), doubled.get(50)), (.Some(100), .Some(100)));
+    assert.equal(m.length(), 100);
+    assert.equal(m.keys(ctx), list.range(ctx, 0, 100));
+}
+
+test "overwriting a map a record still holds leaves the record's map alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let shelf = Shelf { label: "a", stock: scattered(ctx, 100) };
+    let keys = list.range(ctx, 0, 100);
+    let restocked = keys.foldCtx(
+        ctx,
+        fn(c, s: Shelf, k) => Shelf { ..s, stock: s.stock.insert(c, k, -k) },
+        shelf,
+    );
+    assert.equal((restocked.stock.get(7), shelf.stock.get(7)), (.Some(-7), .Some(14)));
+    assert.equal(shelf.stock.values(ctx), keys.map(ctx, fn(k) => k * 2));
+}
+
+test "a map a closure captured is unchanged by overwrites made after it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = scattered(ctx, 100);
+    let look = fn(k) => m.get(k);
+    let overwritten = list
+        .range(ctx, 0, 100)
+        .foldCtx(ctx, fn(c, acc: OrderedMap<Int, Int>, k) => acc.insert(c, k, 0), m);
+    assert.equal((look(42), overwritten.get(42)), (.Some(84), .Some(0)));
+    assert.equal(
+        list.range(ctx, 0, 100).map(ctx, fn(k) => look(k)).get(99),
+        .Some(.Some(198)),
+    );
+}
+
+test "an insert loop that returns early leaves the map it was given alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = scattered(ctx, 50);
+    let failed = insertAll(ctx, m, [1, 2, 3, -1, 4]);
+    let done = insertAll(ctx, m, [1, 2, 3, 77]);
+    assert.isTrue(failed.isErr());
+    assert.equal(m.get(2), .Some(4));
+    assert.equal(m.length(), 50);
+    assert.equal(done.map(fn(d) => (d.get(2), d.length())), .Ok((.Some(0), 51)));
+}
+
+test "every version a chain of overwrites made keeps its own value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let versions = list
+        .range(ctx, 1, 40)
+        .foldCtx(
+            ctx,
+            fn(c, acc: [OrderedMap<Int, Int>], i) => {
+                let last = assert.some(acc.get(acc.length() - 1));
+                acc.push(c, last.insert(c, 17, i))
+            },
+            [scattered(ctx, 64)],
+        );
+    let seen = versions.map(ctx, fn(v) => assert.some(v.get(17)));
+    assert.equal(seen, [34].concat(ctx, list.range(ctx, 1, 40)));
+}

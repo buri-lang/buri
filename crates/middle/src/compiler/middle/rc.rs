@@ -3742,11 +3742,16 @@ impl Scan<'_> {
         // construct instead, which is [`Scan::children`]'s deferral verbatim.
         // An uncounted scrutinee read out of the local's own value
         // ([`Scan::inline_read`]) binds no words of any block, so there is
-        // nothing for the arms to keep alive.
+        // nothing for the arms to keep alive, and neither do arms that bind
+        // nothing and have no guard: `.Some(_) => update(xs)` may then take
+        // `xs` unshared.
         let inline = self.inline_read(scrutinee);
+        let reads_words = arms
+            .iter()
+            .any(|a| a.guard.is_some() || binds_something(&a.pattern));
         let kept = match token {
             Some(_) => None,
-            None if inline => None,
+            None if inline || !reads_words => None,
             None => borrowed_root(scrutinee)
                 .filter(|r| self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)),
         };
