@@ -1,6 +1,6 @@
 //! The live block `buri test` and `buri build` draw below their results while
-//! work is running: a line of counts, then a row per build, link, generator or
-//! test suite in progress, each with a timer.
+//! they run: a line of counts, then a row per build, link, generator or test
+//! suite in progress, each with a timer.
 //!
 //! ```text
 //! [Building 41/52 · Testing 18/30 · 1 failed]
@@ -14,9 +14,9 @@
 //! [`hold`], which erases the block first and keeps the thread from drawing
 //! until the write is done. So a result never lands inside a half-drawn block.
 //!
-//! The block is drawn only when standard error or standard output is a
-//! terminal. Otherwise nothing is drawn, and work that runs for a minute is
-//! named once a minute instead: `still running: test //x (1:00)`.
+//! The block is drawn only when standard error is a terminal. Otherwise
+//! nothing is drawn, and work that runs for a minute is named once a minute
+//! instead: `still running: test //x (1:00)`.
 //!
 //! With no reporter started, every call here is one load of a flag.
 #![allow(
@@ -27,7 +27,8 @@
 )]
 
 use std::io::Write as _;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering::Relaxed};
+use std::num::NonZeroU16;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -66,20 +67,18 @@ pub fn hook(hooks: Hooks) {
     let _ = HOOKS.set(hooks);
 }
 
+fn hooks() -> Hooks {
+    HOOKS.get().copied().unwrap_or(Hooks {
+        clock: || None,
+        starting: |_, _, _| {},
+    })
+}
+
 /// Time since the process began, or the test's own clock.
 fn now() -> Duration {
     static BEGAN: OnceLock<Instant> = OnceLock::new();
     let began = *BEGAN.get_or_init(Instant::now);
-    HOOKS
-        .get()
-        .and_then(|h| (h.clock)())
-        .unwrap_or_else(|| began.elapsed())
-}
-
-fn starting(kind: Kind, label: &str, begun: bool) {
-    if let Some(h) = HOOKS.get() {
-        (h.starting)(kind, label, begun);
-    }
+    (hooks().clock)().unwrap_or_else(|| began.elapsed())
 }
 
 /// Which row a call is about: one piece of work, or one test suite by its
@@ -107,8 +106,10 @@ struct State {
     builds_total: usize,
     /// Builds queued and not yet finished, by suite or program.
     pending: Vec<usize>,
-    /// Suites done and in all, for `buri test`.
-    suites: Option<(usize, usize)>,
+    /// Whether this is `buri test`, whose summary counts suites.
+    testing: bool,
+    /// Suites done and in all.
+    suites: (usize, usize),
     failed: usize,
 }
 
@@ -118,7 +119,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     builds_done: 0,
     builds_total: 0,
     pending: Vec::new(),
-    suites: None,
+    testing: false,
+    suites: (0, 0),
     failed: 0,
 });
 
@@ -126,26 +128,16 @@ fn state() -> MutexGuard<'static, State> {
     STATE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Where the block goes.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    /// To this descriptor, a terminal.
-    Live(i32),
-    /// Nowhere: `still running` lines on standard error instead.
-    Piped,
-}
-
+/// The terminal, which the thread draws under and [`hold`] holds.
 struct Term {
-    mode: Mode,
+    /// Whether standard error is a terminal. If not, the block isn't drawn.
+    live: bool,
     color: bool,
-    /// Lines of the block on the screen now.
-    drawn: usize,
 }
 
 static TERM: Mutex<Term> = Mutex::new(Term {
-    mode: Mode::Piped,
+    live: false,
     color: false,
-    drawn: 0,
 });
 
 fn term() -> MutexGuard<'static, Term> {
@@ -158,10 +150,9 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Set once the block must never be drawn again: the run is ending.
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
-/// The block's lines on the screen and where, for the signal handler, which
-/// can't take a lock.
+/// Lines of the block on the screen now. An atomic, so the signal handler,
+/// which can't take a lock, can erase them.
 static DRAWN: AtomicUsize = AtomicUsize::new(0);
-static DRAWN_FD: AtomicI32 = AtomicI32::new(2);
 
 fn active() -> bool {
     ACTIVE.load(Relaxed)
@@ -169,98 +160,89 @@ fn active() -> bool {
 
 /// The running reporter. Dropping it erases the block and stops the thread.
 pub struct Reporter {
-    thread: Option<std::thread::JoinHandle<()>>,
+    _running: (),
 }
 
 /// Starts the reporter. `testing` adds the suites' counts to the summary.
 pub fn start(color: bool, testing: bool) -> Reporter {
     use std::io::IsTerminal as _;
-    let mode = if std::io::stderr().is_terminal() {
-        Mode::Live(2)
-    } else if std::io::stdout().is_terminal() {
-        Mode::Live(1)
-    } else {
-        Mode::Piped
-    };
     {
         let mut s = state();
         s.rows.clear();
         s.pending.clear();
         s.builds_done = 0;
         s.builds_total = 0;
-        s.suites = testing.then_some((0, 0));
+        s.testing = testing;
+        s.suites = (0, 0);
         s.failed = 0;
     }
     {
         let mut t = term();
-        t.mode = mode;
+        t.live = std::io::stderr().is_terminal();
         t.color = color;
-        t.drawn = 0;
     }
-    if let Mode::Live(fd) = mode {
-        DRAWN_FD.store(fd, Relaxed);
-        interrupt::listen();
-    }
+    DRAWN.store(0, Relaxed);
+    interrupt::listen();
     STOPPED.store(false, Relaxed);
     ACTIVE.store(true, Relaxed);
-    let thread = std::thread::Builder::new()
-        .name("buri-progress".into())
-        .spawn(|| {
-            while !STOPPED.load(Relaxed) {
-                std::thread::park_timeout(Duration::from_millis(100));
-                tick();
-            }
-        })
-        .ok();
-    Reporter { thread }
+    std::thread::spawn(|| {
+        while !STOPPED.load(Relaxed) {
+            std::thread::sleep(Duration::from_millis(100));
+            tick();
+        }
+    });
+    Reporter { _running: () }
 }
 
 impl Drop for Reporter {
     fn drop(&mut self) {
         STOPPED.store(true, Relaxed);
-        if let Some(thread) = self.thread.take() {
-            thread.thread().unpark();
-            let _ = thread.join();
-        }
-        erase(&mut term());
+        // Under the terminal's lock, so a redraw that began before the stop
+        // is finished first; every redraw after it sees the stop.
+        let _t = term();
+        erase();
         ACTIVE.store(false, Relaxed);
         interrupt::restore();
-        let mut s = state();
-        s.rows.clear();
-        s.suites = None;
+        state().rows.clear();
     }
 }
 
 /// Erases the block for good, for a run ending in an error: a panic, or an
-/// internal error. Never waits, so a panic inside [`hold`] can't hang on it.
+/// internal error. Takes no lock, so a panic inside [`hold`] can't hang on it.
 pub fn abandon() {
-    if !active() {
-        return;
-    }
     STOPPED.store(true, Relaxed);
-    if let Ok(mut t) = TERM.try_lock() {
-        erase(&mut t);
-    }
+    erase();
 }
 
-/// Erases whatever block is on the screen.
-fn erase(t: &mut Term) {
-    if let (Mode::Live(fd), true) = (t.mode, t.drawn > 0) {
-        let text = format!("\r\x1b[{}A\x1b[J", t.drawn);
-        write_to(fd, &text);
-    }
-    t.drawn = 0;
-    DRAWN.store(0, Relaxed);
+unsafe extern "C" {
+    fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
 }
 
-fn write_to(fd: i32, text: &str) {
-    let _ = if fd == 1 {
-        let mut out = std::io::stdout().lock();
-        out.write_all(text.as_bytes()).and_then(|()| out.flush())
-    } else {
-        let mut err = std::io::stderr().lock();
-        err.write_all(text.as_bytes()).and_then(|()| err.flush())
-    };
+/// Erases whatever block is on the screen. Async-signal-safe: an atomic swap
+/// and a `write`.
+fn erase() {
+    let (bytes, len) = erasing(DRAWN.swap(0, Relaxed));
+    // SAFETY: at most all of `bytes`, to standard error.
+    unsafe { write(2, bytes.as_ptr().cast(), len.min(bytes.len())) };
+}
+
+/// The bytes that erase a block `n` lines tall, below 1000, and how many of
+/// them to write: none when `n` is 0. A count may have leading zeros.
+fn erasing(n: usize) -> ([u8; 10], usize) {
+    let digit = |d: usize| b'0' + u8::try_from(d % 10).unwrap_or(0);
+    let bytes = [
+        b'\r',
+        0x1b,
+        b'[',
+        digit(n / 100),
+        digit(n / 10),
+        digit(n),
+        b'A',
+        0x1b,
+        b'[',
+        b'J',
+    ];
+    (bytes, bytes.len() * usize::from(n > 0))
 }
 
 /// Holds the terminal for one write: the block is erased, and not drawn again
@@ -270,8 +252,8 @@ pub fn hold() -> Hold {
     if !active() || HOLDING.with(std::cell::Cell::get) {
         return Hold { term: None };
     }
-    let mut t = term();
-    erase(&mut t);
+    let t = term();
+    erase();
     HOLDING.with(|h| h.set(true));
     Hold { term: Some(t) }
 }
@@ -326,11 +308,14 @@ pub fn begin(kind: Kind, label: &str) -> Work {
 
 /// Makes a reserved row visible, from now, with the test's hooks around it.
 fn show(key: Key, kind: Kind, label: &str) {
+    let starting = hooks().starting;
     starting(kind, label, false);
     let at = now();
-    if let Some(row) = state().rows.iter_mut().find(|r| r.key == key) {
-        row.since = Some(at);
-    }
+    state()
+        .rows
+        .iter_mut()
+        .filter(|r| r.key == key)
+        .for_each(|r| r.since = Some(at));
     starting(kind, label, true);
 }
 
@@ -340,16 +325,17 @@ impl Work {
         let Some(id) = self.id else {
             return;
         };
-        let label = {
-            let mut s = state();
-            let Some(row) = s.rows.iter_mut().find(|r| r.key == Key::Work(id)) else {
-                return;
-            };
-            row.kind = kind;
-            row.since = None;
-            row.told = 0;
-            row.label.clone()
-        };
+        let label = state()
+            .rows
+            .iter_mut()
+            .find(|r| r.key == Key::Work(id))
+            .map(|row| {
+                row.kind = kind;
+                row.since = None;
+                row.told = 0;
+                row.label.clone()
+            })
+            .unwrap_or_default();
         show(Key::Work(id), kind, &label);
     }
 }
@@ -394,7 +380,7 @@ pub fn suites(total: usize, done: usize) {
     if !active() {
         return;
     }
-    state().suites = Some((done, total));
+    state().suites = (done, total);
 }
 
 /// Suite `n`'s tests are running. Its row stays until [`answered`].
@@ -427,16 +413,11 @@ pub fn answered(n: usize) {
     let mut s = state();
     built_in(&mut s, n);
     s.rows.retain(|r| r.key != Key::Suite(n));
-    if let Some((done, _)) = &mut s.suites {
-        *done += 1;
-    }
+    s.suites.0 += 1;
 }
 
 /// Suite `n` goes back to be built again: its row goes, and it isn't done.
 pub fn sent_back(n: usize) {
-    if !active() {
-        return;
-    }
     state().rows.retain(|r| r.key != Key::Suite(n));
 }
 
@@ -450,55 +431,45 @@ pub fn failed(n: usize) {
 
 /// One redraw.
 fn tick() {
-    let mut t = term();
+    let t = term();
     if STOPPED.load(Relaxed) {
         return;
     }
     let at = now();
-    match t.mode {
-        Mode::Live(fd) => {
-            let (cols, lines) = size(fd);
-            let block = render(&state(), at, cols, lines, t.color);
-            if block.is_empty() && t.drawn == 0 {
-                return;
-            }
-            let mut text = String::new();
-            if t.drawn > 0 {
-                text.push_str(&format!("\r\x1b[{}A\x1b[J", t.drawn));
-            }
-            for line in &block {
-                text.push_str(line);
-                text.push('\n');
-            }
-            write_to(fd, &text);
-            t.drawn = block.len();
-            DRAWN.store(block.len(), Relaxed);
+    if t.live {
+        let (cols, lines) = size();
+        let block = render(&state(), at, cols, lines, t.color);
+        let (erasing, len) = erasing(DRAWN.load(Relaxed));
+        let mut text = erasing.get(..len).unwrap_or_default().to_vec();
+        for line in &block {
+            text.extend_from_slice(line.as_bytes());
+            text.push(b'\n');
         }
-        Mode::Piped => {
-            let mut text = String::new();
-            for row in &mut state().rows {
-                let Some(since) = row.since else {
-                    continue;
-                };
-                let minutes = at.saturating_sub(since).as_secs() / 60;
-                if minutes > row.told {
-                    row.told = minutes;
-                    text.push_str(&format!(
-                        "still running: {} {} ({minutes}:00)\n",
-                        row.kind.name(),
-                        row.label
-                    ));
-                }
-            }
-            if !text.is_empty() {
-                write_to(2, &text);
+        let _ = std::io::stderr().lock().write_all(&text);
+        DRAWN.store(block.len(), Relaxed);
+    } else {
+        let mut text = String::new();
+        for row in &mut state().rows {
+            let minutes = row
+                .since
+                .map_or(0, |since| at.saturating_sub(since).as_secs() / 60);
+            if minutes > row.told {
+                row.told = minutes;
+                text.push_str(&format!(
+                    "still running: {} {} ({minutes}:00)\n",
+                    row.kind.name(),
+                    row.label
+                ));
             }
         }
+        let _ = std::io::stderr().lock().write_all(text.as_bytes());
     }
 }
 
-/// The terminal's columns and lines, or 80 by 24 when it won't say.
-fn size(fd: i32) -> (usize, usize) {
+/// Standard error's columns and lines, or 80 by 24 when it won't say. The
+/// lines are kept between 4, room for one row, and 999, which [`erasing`]
+/// can spell.
+fn size() -> (usize, usize) {
     #[repr(C)]
     #[derive(Default)]
     struct Winsize {
@@ -516,18 +487,19 @@ fn size(fd: i32) -> (usize, usize) {
         0x4008_7468
     };
     let mut w = Winsize::default();
-    // SAFETY: `TIOCGWINSZ` writes one `winsize`, which `w` is.
-    let ok = unsafe { ioctl(fd, TIOCGWINSZ, &mut w as *mut Winsize) } == 0;
-    let cols = if ok && w.cols > 0 { w.cols } else { 80 };
-    let rows = if ok && w.rows > 0 { w.rows } else { 24 };
-    (usize::from(cols), usize::from(rows))
+    // SAFETY: `TIOCGWINSZ` writes one `winsize`, which `w` is. On failure `w`
+    // stays zero.
+    unsafe { ioctl(2, TIOCGWINSZ, &mut w as *mut Winsize) };
+    let cols = NonZeroU16::new(w.cols).map_or(80, NonZeroU16::get);
+    let rows = NonZeroU16::new(w.rows).map_or(24, NonZeroU16::get);
+    (usize::from(cols), usize::from(rows).clamp(4, 999))
 }
 
 /// Work that has run this long is shown in yellow.
 const SLOW: Duration = Duration::from_secs(30);
 
-/// The block's lines for a terminal `cols` wide and `lines` tall: none when no
-/// work is running.
+/// The block's lines for a terminal `cols` wide and `lines` tall, at least 4:
+/// none when no work is running.
 fn render(s: &State, at: Duration, cols: usize, lines: usize, color: bool) -> Vec<String> {
     let mut rows: Vec<(&Row, Duration)> =
         s.rows.iter().filter_map(|r| Some((r, r.since?))).collect();
@@ -539,7 +511,8 @@ fn render(s: &State, at: Duration, cols: usize, lines: usize, color: bool) -> Ve
     rows.sort_by_key(|(_, since)| *since);
     let width = cols.saturating_sub(1).max(1);
     let mut summary = format!("[Building {}/{}", s.builds_done, s.builds_total);
-    if let Some((done, total)) = s.suites {
+    if s.testing {
+        let (done, total) = s.suites;
         summary.push_str(&format!(" · Testing {done}/{total}"));
     }
     if s.failed > 0 {
@@ -547,15 +520,15 @@ fn render(s: &State, at: Duration, cols: usize, lines: usize, color: bool) -> Ve
     }
     summary.push(']');
     let mut out = vec![String::new(), cut(&summary, width)];
-    // The block leaves the terminal's last line for the cursor.
-    let room = lines.saturating_sub(1).saturating_sub(out.len());
-    let (shown, more) = if rows.len() <= room {
-        (rows.len(), 0)
-    } else if room == 0 {
-        (0, 0)
+    // The block leaves the terminal's last line for the cursor, so there is
+    // room for at least one line below the summary.
+    let room = lines - 1 - out.len();
+    let shown = if rows.len() <= room {
+        rows.len()
     } else {
-        (room - 1, rows.len() - (room - 1))
+        room - 1
     };
+    let more = rows.len() - shown;
     // The kind, the label, at least two dots, the timer, and the spaces
     // between them.
     const FIXED: usize = 18;
@@ -605,89 +578,42 @@ fn cut(line: &str, width: usize) -> String {
     line.chars().take(width).collect()
 }
 
-/// Ctrl-C while the block is up: erase it, then end the way the signal would
-/// have ended the process.
+/// Ctrl-C while the block is up: erase it, then let the signal do what it
+/// did before the reporter started.
 mod interrupt {
-    use super::{DRAWN, DRAWN_FD, STOPPED};
+    use super::{erase, STOPPED};
     use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
     unsafe extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;
         fn raise(sig: i32) -> i32;
-        fn write(fd: i32, buf: *const std::ffi::c_void, count: usize) -> isize;
     }
 
     const SIGINT: i32 = 2;
-    const SIG_DFL: usize = 0;
 
-    /// A store, a `write`, `signal` and `raise`, all async-signal-safe. The
-    /// sequence is spelled into a buffer on the stack.
+    /// The handler [`listen`] replaced, at first the default one.
+    static BEFORE: AtomicUsize = AtomicUsize::new(0);
+
+    /// A store, an erase, `signal` and `raise`, all async-signal-safe.
     extern "C" fn erased(sig: i32) {
         STOPPED.store(true, Relaxed);
-        let n = DRAWN.swap(0, Relaxed);
-        if n > 0 {
-            let mut buf = [0u8; 32];
-            let mut len = 0;
-            let mut put = |b: u8| {
-                if let Some(slot) = buf.get_mut(len) {
-                    *slot = b;
-                    len += 1;
-                }
-            };
-            for &b in b"\r\x1b[" {
-                put(b);
-            }
-            let mut digits = [0u8; 20];
-            let mut d = 0;
-            let mut m = n;
-            while m > 0 || d == 0 {
-                if let Some(slot) = digits.get_mut(d) {
-                    *slot = b'0' + (m % 10) as u8;
-                }
-                d += 1;
-                m /= 10;
-            }
-            while d > 0 {
-                d -= 1;
-                put(digits.get(d).copied().unwrap_or(b'0'));
-            }
-            for &b in b"A\x1b[J" {
-                put(b);
-            }
-            // SAFETY: `len` bytes of `buf`, to the block's descriptor.
-            unsafe { write(DRAWN_FD.load(Relaxed), buf.as_ptr().cast(), len) };
-        }
-        // SAFETY: the default disposition back, then the signal again.
+        erase();
+        // SAFETY: the handler from before back, then the signal again.
         unsafe {
-            signal(sig, SIG_DFL);
+            signal(sig, BEFORE.load(Relaxed));
             raise(sig);
         }
     }
 
-    const SIG_IGN: usize = 1;
-
-    /// The handler [`listen`] replaced, or `NONE`.
-    static BEFORE: AtomicUsize = AtomicUsize::new(NONE);
-    const NONE: usize = usize::MAX;
-
-    /// Takes `SIGINT`, unless the process was started with it ignored.
     pub fn listen() {
         // SAFETY: an ordinary `signal` call with a function this module owns.
         let before = unsafe { signal(SIGINT, erased as *const () as usize) };
-        if before == SIG_IGN {
-            // SAFETY: the ignored disposition back, as it was.
-            unsafe { signal(SIGINT, SIG_IGN) };
-        } else {
-            BEFORE.store(before, Relaxed);
-        }
+        BEFORE.store(before, Relaxed);
     }
 
     /// Puts back what [`listen`] replaced.
     pub fn restore() {
-        let before = BEFORE.swap(NONE, Relaxed);
-        if before != NONE {
-            // SAFETY: the handler that was there before, back.
-            unsafe { signal(SIGINT, before) };
-        }
+        // SAFETY: the handler that was there before, back.
+        unsafe { signal(SIGINT, BEFORE.load(Relaxed)) };
     }
 }

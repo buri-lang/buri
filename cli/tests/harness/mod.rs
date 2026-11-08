@@ -435,8 +435,11 @@ pub fn normalise(text: &str, root: &Path) -> String {
     // time does, and are normalised the same way.
     s = s.replace(env!("CARGO_PKG_VERSION"), "<version>");
     s = scrub_explain_keys(&s);
+    // Work that ran a minute says so, and how long a step takes is the
+    // machine's business, not the golden's.
     s = s
         .split('\n')
+        .filter(|line| !line.starts_with("still running: "))
         .map(blank_test_time)
         .collect::<Vec<_>>()
         .join("\n");

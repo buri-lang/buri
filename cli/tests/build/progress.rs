@@ -696,6 +696,30 @@ fn a_build_and_a_link_have_rows() {
     assert!(status.success(), "{}", indent(&screen.text()));
 }
 
+/// Between one piece of work ending and the next starting, nothing is running
+/// and no block is on the screen.
+#[test]
+fn the_block_goes_while_nothing_runs() {
+    if !native() {
+        return;
+    }
+    let scratch = Scratch::repo("progress-between");
+    suite(&scratch, "a", 1);
+    let held = Held::new("progress-between");
+    clock(&held, 0);
+    held.hold("begun", "link-lib_a");
+    held.hold("begin", "test-lib_a");
+    let term = Terminal::start(&held, &scratch, &["test"], &[], ROOMY);
+    held.at("begun", "link-lib_a", || {
+        term.shows("  link   //lib/a .. 00:00");
+    });
+    held.at("begin", "test-lib_a", || {
+        term.until("no block", |s| !s.has_block());
+    });
+    let (status, screen) = term.finish();
+    assert!(status.success(), "{}", indent(&screen.text()));
+}
+
 /// `buri build` draws the block too, without a suite count.
 #[test]
 fn buri_build_shows_its_builds() {
