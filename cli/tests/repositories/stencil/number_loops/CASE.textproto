@@ -1,0 +1,14 @@
+# A number method whose answer is handed back as its own next operand, the
+# shape of a loop variable, keeps its value: wrapping, saturating and checked
+# arithmetic at their bounds, a sign, and a conversion. Both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a number method's answer handed back as its own operand keeps its value"
+
+run {
+  args: ["test", "//lib/count", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

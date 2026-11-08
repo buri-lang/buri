@@ -1276,7 +1276,8 @@ impl<'a> Jit<'a> {
             //
             // A key with no row in `runtime.rs`'s table is `str.length`,
             // `number.<T>.<op>` and the rest, whose bodies `runtime_body`
-            // generates from the signature; those are called.
+            // generates from the signature; those are called, but for the
+            // short ones below.
             if let route::Body::Row(entry) = *self.routes.bodies.get(r.key) {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
@@ -1300,6 +1301,12 @@ impl<'a> Jit<'a> {
                         Jump::Cont0.to(V::Fall),
                     ],
                 );
+            }
+            // The bodies that are a stencil or two, emitted here for the same
+            // reason: the call around them was most of their cost.
+            let body = *self.routes.bodies.get(r.key);
+            if self.open_body(prog, code, st, dest, (body, r.answer), args) {
+                return;
             }
             // `compare` at a number, a `Bool` or a `Char`, emitted here for the
             // same reason: the body is one stencil, and the call around it
@@ -1354,6 +1361,72 @@ impl<'a> Jit<'a> {
         );
         let n = self.slot_bytes_of(prog, code.ty_of(dest));
         self.mv(st.at(dest), base + RET, n);
+    }
+
+    /// A trivial `Body::Runtime` body at its call site, reading the caller's
+    /// own slots. Answers whether it was emitted; where it was not, the call
+    /// stands.
+    ///
+    /// A body reads its parameters from slots nothing else writes, and a
+    /// caller's destination can share a slot with one of its operands, the
+    /// loop variable that `i = i.wrappingAdd(1)` hands back. So an operation
+    /// that writes its answer before it has read every operand is emitted here
+    /// only where the destination overlaps none of them; the ones that read
+    /// first are emitted either way.
+    fn open_body(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &mut Fn2,
+        dest: ir::ValueId,
+        (body, answer): (route::Body<'_>, ir::Answer),
+        args: &[ir::ValueId],
+    ) -> bool {
+        let d = st.at(dest);
+        let at = |i: usize| args.get(i).map_or(0, |v| st.at(*v));
+        match body {
+            route::Body::ListLength => self.mv(d, at(0) + 8, 8),
+            route::Body::ListEmpty => {
+                self.imm_to(d, 0);
+                self.imm_to(d + 8, 0);
+            }
+            route::Body::Alloc => self.imm_to(d, 0),
+            route::Body::Allocate => self.mv(d, at(1), 8),
+            route::Body::Number(num, op) => {
+                let reads_first = match (op, answer) {
+                    (route::Number::Convert(_), ir::Answer::InlineRes(_)) => false,
+                    (
+                        route::Number::Bin(_)
+                        | route::Number::Negate
+                        | route::Number::Wrapping(_)
+                        | route::Number::Bound(_)
+                        | route::Number::Convert(_),
+                        _,
+                    ) => true,
+                    (
+                        route::Number::Checked(_)
+                        | route::Number::Saturating(..)
+                        | route::Number::AbsSignum(_),
+                        _,
+                    ) => false,
+                    (route::Number::Show | route::Number::Hash | route::Number::Compare, _) => {
+                        return false;
+                    }
+                };
+                let dn = self.slot_bytes_of(prog, code.ty_of(dest));
+                let mut apart = true;
+                for a in args {
+                    let (o, n) = (st.at(*a), self.slot_bytes_of(prog, code.ty_of(*a)));
+                    apart &= o + n <= d || d + dn <= o;
+                }
+                if !reads_first && !apart {
+                    return false;
+                }
+                self.number_at(prog, st, num.scalar(), (op, answer), (at(0), at(1)), d);
+            }
+            _ => return false,
+        }
+        true
     }
 
     fn call_indirect(
@@ -2103,6 +2176,45 @@ impl<'a> Jit<'a> {
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
         match (op, answer) {
             (route::Number::Show, _) => self.show_prim(st, prim.prim(), p(0), ret0, true),
+            // `Hash::hash` takes no accumulator, so it is the seeded form
+            // (`cli/runtime/hash.rs`), and a float hashes through the double
+            // it widens to.
+            (route::Number::Hash, _) => {
+                let seed = fs.param_end;
+                self.imm_to(seed, runtime::HASH_SEED);
+                self.hash_prim(st, prim.prim(), seed, p(0), ret0);
+            }
+            // `Ordered::compare` answers an `Order`, which is an enum and not a
+            // register.
+            (route::Number::Compare, _) => match self.ret_tag(prog, fi) {
+                Some(w) => self.compare_prim(st, prim, p(0), p(1), ret0, w),
+                None => crate::diagnostics::ice(&format!(
+                    "stencil: number.{}.compare into a destination that is not a tag",
+                    prim.name()
+                )),
+            },
+            _ => self.number_at(prog, st, prim, (op, answer), (p(0), p(1)), ret0),
+        }
+    }
+
+    /// The `number.<T>.<op>` operations that read their operands at `a` and
+    /// `b` and write their answer at `d`, wherever those are: a body's own
+    /// parameter slots, or a caller's. `show`, `hash` and `compare` are
+    /// [`Jit::number_body`]'s.
+    fn number_at(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        prim: Scalar,
+        (op, answer): (route::Number, ir::Answer),
+        (a, b): (u32, u32),
+        ret0: u32,
+    ) {
+        let p = |i: usize| if i == 0 { a } else { b };
+        match (op, answer) {
+            (route::Number::Show | route::Number::Hash | route::Number::Compare, _) => {
+                crate::diagnostics::ice("stencil: number_at reached for show, hash or compare")
+            }
             // `Bounded::minValue` and `Bounded::maxValue`. The type comes from
             // the key — `middle::lower`'s `bounded_key` puts it there, because
             // the methods take no argument and the IR type of the result has
@@ -2132,14 +2244,6 @@ impl<'a> Jit<'a> {
                     self.convert(st, prim, to, p(0), ret0);
                 }
             }
-            // `Hash::hash` takes no accumulator, so it is the seeded form
-            // (`cli/runtime/hash.rs`), and a float hashes through the double
-            // it widens to.
-            (route::Number::Hash, _) => {
-                let seed = fs.param_end;
-                self.imm_to(seed, runtime::HASH_SEED);
-                self.hash_prim(st, prim.prim(), seed, p(0), ret0);
-            }
             // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`, which
             // `core/number` declares without a body and every backend
             // open-codes. `llvm/emit.rs::numeric` is the twin, and the bound
@@ -2160,15 +2264,6 @@ impl<'a> Jit<'a> {
             // frame slot holds the answer re-truncated.
             (route::Number::Wrapping(kind), _) => self.wrapping(prim, kind, p(0), p(1), ret0),
             (route::Number::AbsSignum(abs), _) => self.abs_signum(st, prim, abs, p(0), ret0),
-            // `Ordered::compare` answers an `Order`, which is an enum and not a
-            // register.
-            (route::Number::Compare, _) => match self.ret_tag(prog, fi) {
-                Some(w) => self.compare_prim(st, prim, p(0), p(1), ret0, w),
-                None => crate::diagnostics::ice(&format!(
-                    "stencil: number.{}.compare into a destination that is not a tag",
-                    prim.name()
-                )),
-            },
             // A number operator answers `Self`, one result.
             (route::Number::Bin(name), _) => {
                 let (tag, _, _) = prim_tag(prim);

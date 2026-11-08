@@ -1,0 +1,73 @@
+from "core/testing/assert" import * as assert;
+
+// Each step hands its answer back as the next step's operand.
+fn wrapped(x: U8, n: Int): U8 {
+    if (n == 0) { x } else { wrapped(x.wrappingAdd(100), n - 1) }
+}
+
+fn below(x: I64, n: Int): I64 {
+    if (n == 0) { x } else { below(x.wrappingSubtract(3), n - 1) }
+}
+
+fn doubled(x: U8, n: Int): U8 {
+    if (n == 0) { x } else { doubled(x.saturatingMultiply(2), n - 1) }
+}
+
+fn drained(x: U8, n: Int): U8 {
+    if (n == 0) { x } else { drained(x.saturatingSubtract(7), n - 1) }
+}
+
+fn summed(x: Int, n: Int): Option<Int> {
+    if (n == 0) {
+        .Some(x)
+    } else {
+        match (x.checkedAdd(x)) {
+            .Some(y) => summed(y, n - 1),
+            .None => .None,
+        }
+    }
+}
+
+fn flipped(x: Int, n: Int): Int {
+    if (n == 0) { x } else { flipped((-x).abs().negate(), n - 1) }
+}
+
+fn signs(x: Int, n: Int): Int {
+    if (n == 0) { x } else { signs((x - 5).signum() * 7, n - 1) }
+}
+
+fn narrowed(x: I64, n: Int): I64 {
+    if (n == 0) { x } else { narrowed(x.wrapToU8().toI64() + 200, n - 1) }
+}
+
+test "a wrapping step handed back to itself wraps at its width" {
+    assert.equal(wrapped(0, 3), 44);
+    assert.equal(wrapped(200, 1), 44);
+    assert.equal(below(-9223372036854775806, 1), 9223372036854775807);
+    assert.equal(below(10, 4), -2);
+}
+
+test "a saturating step handed back to itself stops at the bound" {
+    assert.equal(doubled(3, 2), 12);
+    assert.equal(doubled(3, 9), 255);
+    assert.equal(drained(20, 2), 6);
+    assert.equal(drained(20, 3), 0);
+}
+
+test "a checked step handed back to itself fails at the overflow" {
+    assert.equal(summed(1, 10), .Some(1024));
+    assert.equal(summed(1, 62), .Some(4611686018427387904));
+    assert.equal(summed(1, 63), .None);
+    assert.equal(summed(-1, 63), .Some(-4611686018427387904 * 2));
+}
+
+test "a sign and a conversion handed back to themselves keep their values" {
+    assert.equal(flipped(5, 3), -5);
+    assert.equal(flipped(-5, 2), -5);
+    assert.equal(signs(9, 1), 7);
+    assert.equal(signs(9, 2), 7);
+    assert.equal(signs(0, 2), -7);
+    assert.equal(narrowed(0, 1), 200);
+    assert.equal(narrowed(0, 2), 400);
+    assert.equal(narrowed(0, 3), 344);
+}
