@@ -350,7 +350,7 @@ impl<'a> Jit<'a> {
                     }
                     let off = at.bytes();
                     if self.boxes(owner, t) {
-                        self.box_into(st, d + off, st.at(*f), w);
+                        self.box_into(d + off, st.at(*f), w);
                         continue;
                     }
                     self.store_w(d + off, st.at(*f), w);
@@ -607,7 +607,7 @@ impl<'a> Jit<'a> {
             for ((f, o), t) in fields.iter().zip(offs.iter().copied()).zip(ftys) {
                 let w = s.width_of(prog, code.ty_of(*f));
                 if s.boxes(owner, t) {
-                    s.box_into(st, d + o.bytes(), st.at(*f), w);
+                    s.box_into(d + o.bytes(), st.at(*f), w);
                     continue;
                 }
                 s.store_w(d + o.bytes(), st.at(*f), w);
@@ -729,26 +729,45 @@ impl<'a> Jit<'a> {
     /// be, for the field that would otherwise make the owner recursive
     /// (`Layouts::boxes`). So writing one is an allocation, a copy and a store
     /// of the pointer — the shape a boxed `counts::Field` releases.
-    fn box_into(&mut self, st: &mut Fn2, dest: u32, src: u32, size: u32) {
-        let (ptr, one) = (st.scratch, st.scratch + 8);
-        self.imm_to(one, 1);
+    fn box_into(&mut self, dest: u32, src: u32, size: u32) {
+        let key = key!["box/", size];
+        if self.has(&key) {
+            self.emit(
+                &key,
+                &[
+                    Lit::D.of(u64::from(dest)),
+                    Lit::A.of(u64::from(src)),
+                    Jump::Cont0.to(V::Fall),
+                ],
+            );
+            return;
+        }
         self.emit(
-            "elemalloc",
+            "box/n",
             &[
-                Lit::D.of(u64::from(ptr)),
-                Lit::A.of(u64::from(one)),
-                Lit::P.of(u64::from(size)),
+                Lit::D.of(u64::from(dest)),
+                Lit::A.of(u64::from(src)),
+                Lit::N.of(u64::from(size)),
                 Jump::Cont0.to(V::Fall),
             ],
         );
-        self.imm_to(one, 0);
-        self.elem_store(src, ptr, one, 8, size);
-        self.mv(dest, ptr, 8);
     }
 
     /// Reading one back: the field holds the block's pointer, and the value is
     /// the bytes it names.
     fn unbox_from(&mut self, st: &mut Fn2, dest: u32, at: u32, size: u32) {
+        let key = key!["unbox/", size];
+        if self.has(&key) {
+            self.emit(
+                &key,
+                &[
+                    Lit::D.of(u64::from(dest)),
+                    Lit::A.of(u64::from(at)),
+                    Jump::Cont.to(V::Fall),
+                ],
+            );
+            return;
+        }
         let zero = st.scratch + 8;
         self.imm_to(zero, 0);
         self.elem_load(dest, at, zero, 8, size);

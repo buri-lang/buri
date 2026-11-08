@@ -180,3 +180,59 @@ test "a chain, in an option, equals itself and not None" {
     };
     assert.isTrue(variants.optionsCompare(link(ctx, 3)));
 }
+
+/// Recursive enums whose boxes are each a different width: a bare successor,
+/// a byte beside the link, and six words beside it, wider than any fixed copy.
+enum Peano {
+    Zero,
+    Succ(Peano),
+}
+
+enum Bytes {
+    End,
+    Byte(U8, Bytes),
+}
+
+enum Wide {
+    Stop,
+    Step(Int, Int, Int, Int, Int, Int, Wide),
+}
+
+fn peano(n: Int): Peano {
+    if (n == 0) { .Zero } else { .Succ(peano(n - 1)) }
+}
+
+fn count(p: Peano): Int {
+    match (p) {
+        .Zero => 0,
+        .Succ(q) => 1 + count(q),
+    }
+}
+
+fn bytes(n: U8): Bytes {
+    if (n == 0) { .End } else { .Byte(n, bytes(n - 1)) }
+}
+
+fn byteSum(b: Bytes): Int {
+    match (b) {
+        .End => 0,
+        .Byte(v, rest) => v.toI64() + byteSum(rest),
+    }
+}
+
+fn wide(n: Int): Wide {
+    if (n == 0) { .Stop } else { .Step(n, n * 2, n * 3, n * 4, n * 5, n * 6, wide(n - 1)) }
+}
+
+fn wideSum(w: Wide): Int {
+    match (w) {
+        .Stop => 0,
+        .Step(a, b, c, d, e, f, rest) => a + b + c + d + e + f + wideSum(rest),
+    }
+}
+
+test "every width of box reads back what was put in it" {
+    assert.equal(count(peano(300)), 300);
+    assert.equal(byteSum(bytes(255)), 32640);
+    assert.equal(wideSum(wide(100)), 106050);
+}

@@ -740,6 +740,39 @@ fn moves(o: &mut Out) {
          : (uint64_t)0; TAIL0; }"
             .into(),
     );
+    // A box (`emit::box_into`): a block of exactly the value's width, written
+    // whole, so it needs neither `elemalloc`'s zeroing nor its index. And the
+    // read back (`emit::unbox_from`), from the block's first byte.
+    for n in ELEM_WIDTHS {
+        o.push(
+            &format!("box/{n}"),
+            format!(
+                "void $NAME(ARGS0) {{ uint64_t p = buri_rt_alloc({n}); \
+                 memcpy((void *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), {n}); \
+                 AT(uint64_t, _JIT_D) = p; TAIL0; }}"
+            ),
+        );
+        let read = match n {
+            1 | 2 | 4 => format!(
+                "AT(uint64_t, _JIT_D) = (uint64_t)*(const uint{}_t *)(uintptr_t)AT(uint64_t, _JIT_A);",
+                n * 8
+            ),
+            _ => format!(
+                "memcpy((char *)fp + OFF(_JIT_D), (const char *)(uintptr_t)AT(uint64_t, _JIT_A), {n});"
+            ),
+        };
+        o.push(
+            &format!("unbox/{n}"),
+            format!("void $NAME(ARGS) {{ {read} TAIL; }}"),
+        );
+    }
+    o.push(
+        "box/n",
+        "void $NAME(ARGS0) { uint64_t p = buri_rt_alloc(OFF(_JIT_N)); \
+         memcpy((void *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), OFF(_JIT_N)); \
+         AT(uint64_t, _JIT_D) = p; TAIL0; }"
+            .into(),
+    );
     // The discriminant of a niche-encoded enum: VALUE-MODEL.md §6's second
     // niche, where `.None` is a null pointer and the tag is a comparison.
     o.push(
