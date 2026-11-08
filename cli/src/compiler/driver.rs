@@ -4,7 +4,7 @@ use crate::build::actions;
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{Packages, Rule, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Loader, ModuleData, PerModule, Unit};
-use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
+use crate::compiler::semantics::resolve::{Bodies, Checked, Checker, Restyling};
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::snapshot::{self, Opening, Snapshot};
 use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
@@ -157,7 +157,7 @@ fn source_bytes<'m>(modules: impl Iterator<Item = &'m ModuleData>, map: &SourceM
 /// `map` only names files, to put the diagnostics in order. A copy taken
 /// after the load does.
 pub fn check(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
-    check_all(loading, ws, map, false)
+    check_all(loading, ws, map, Restyling::No)
 }
 
 /// [`check`], [`restylable`](Checker::restylable) where asked.
@@ -165,7 +165,7 @@ fn check_all(
     loading: Loading,
     ws: Option<&Workspace>,
     map: &SourceMap,
-    restylable: bool,
+    restylable: Restyling,
 ) -> Analysis {
     check_on(
         loading,
@@ -219,7 +219,7 @@ fn analyze_on(
         Scope::Repository => Bodies::In(repository_files(&loading.loaded)),
         Scope::Files(files) => Bodies::In(files.to_vec()),
     };
-    check_on(loading, ws, map, snapshot, bodies, false)
+    check_on(loading, ws, map, snapshot, bodies, Restyling::No)
 }
 
 fn load_on(
@@ -251,7 +251,7 @@ fn check_on(
     map: &SourceMap,
     snapshot: &Snapshot,
     bodies: Bodies,
-    restylable: bool,
+    restylable: Restyling,
 ) -> Analysis {
     let _phase = crate::profile::enter(crate::profile::Phase::Check);
     let Loading {
@@ -348,15 +348,17 @@ pub fn check_programs(loading: Loading, ws: Option<&Workspace>, map: &SourceMap)
         map,
         snapshot::of(Opening::Builtin, false),
         bodies,
-        false,
+        Restyling::No,
     )
 }
 
 /// Which bodies a [`shared`] compilation checks: all of them, as a build's
-/// [`analyze`] does, or the repository's, as [`analyze_program`] does.
+/// [`analyze`] does, or the repository's, as [`analyze_program`] does. A
+/// test build checks all of them and is [remembering](Restyling::Remembering).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Checking {
     All,
+    Tests,
     Repository,
 }
 
@@ -493,7 +495,7 @@ pub fn shared(
         }
     }
     let loading = match bodies {
-        Checking::All => load_all(Some(ws), map, cache, &loads),
+        Checking::All | Checking::Tests => load_all(Some(ws), map, cache, &loads),
         Checking::Repository => load_programs(Some(ws), map, cache, &loads),
     };
     let loaded = loading.loaded();
@@ -551,7 +553,8 @@ pub fn shared(
     }
 
     let analysis = match bodies {
-        Checking::All => check_all(loading, Some(ws), map, true),
+        Checking::All => check_all(loading, Some(ws), map, Restyling::Afresh),
+        Checking::Tests => check_all(loading, Some(ws), map, Restyling::Remembering),
         Checking::Repository => check_programs(loading, Some(ws), map),
     };
     let mut module_of: crate::hash::Map<FileId, ModuleId> = crate::hash::Map::default();

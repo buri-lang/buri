@@ -2913,7 +2913,7 @@ fn check_once(
         &mut session.map,
         &mut session.parsed,
         &units,
-        crate::compiler::driver::Checking::All,
+        crate::compiler::driver::Checking::Tests,
     );
     if let Some(shared) = shared {
         let tables = std::sync::Arc::new(shared.analysis.checked.tables.clone());

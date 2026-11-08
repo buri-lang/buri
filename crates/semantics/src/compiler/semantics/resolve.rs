@@ -234,6 +234,19 @@ pub struct Checked {
     unstyled: Option<Unstyled>,
 }
 
+/// Whether each program a compilation is checked for is to be
+/// [restyled](Checked::restyle) on its own, and whether the first run keeps
+/// what it found for those runs to take.
+///
+/// Keeping costs the first run more than it saves a few restyles, so only a
+/// test build, which restyles every suite, keeps it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Restyling {
+    No,
+    Afresh,
+    Remembering,
+}
+
 /// The bodies and constants style extraction started from, and what it needs
 /// to run again over one program's.
 struct Unstyled {
@@ -243,6 +256,9 @@ struct Unstyled {
     base: Option<std::sync::Arc<crate::compiler::semantics::styles::Styled>>,
     fns_from: usize,
     consts_from: usize,
+    /// What extraction over every program found, for each program's to take
+    /// what answers the same there.
+    remembered: crate::compiler::semantics::styles::Remembered,
 }
 
 /// One program's bodies, constants and styles, as extraction over that
@@ -313,7 +329,10 @@ impl Checked {
             (&mut bodies, &mut consts),
             diags,
             &walked,
-            unstyled.base.as_deref(),
+            (
+                unstyled.base.as_deref(),
+                crate::compiler::semantics::styles::Memory::Replay(&unstyled.remembered),
+            ),
         );
         Some(Restyled {
             bodies,
@@ -348,14 +367,23 @@ fn extract(
     (bodies, consts): (&mut BodyMap, &mut ConstMap),
     diags: &mut Diagnostics,
     walked: &Walked,
-    base: Option<&crate::compiler::semantics::styles::Styled>,
+    (base, memory): (
+        Option<&crate::compiler::semantics::styles::Styled>,
+        crate::compiler::semantics::styles::Memory<'_>,
+    ),
 ) -> (
     Vec<crate::compiler::semantics::styles::StyleRule>,
     crate::compiler::semantics::styles::Sources,
     Option<TyConId>,
 ) {
     let (found, style_con) = crate::compiler::semantics::styles::run(
-        loaded, tables, scopes, bodies, consts, diags, walked,
+        loaded,
+        tables,
+        scopes,
+        (bodies, consts),
+        diags,
+        walked,
+        memory,
     );
     let (styles, sources) = match base {
         Some(base) => found.after(base, bodies, consts),
@@ -585,7 +613,7 @@ pub struct Checker<'a> {
     /// already settled, when this analysis starts from it. See [`Base`].
     base: Option<&'a Base>,
     /// Whether [`Checked::restyle`] is to be asked of what this makes.
-    restylable: bool,
+    restylable: Restyling,
     /// Inference's per-body buffers, between bodies.
     pub(crate) scratch: crate::compiler::semantics::inference::Scratch<'a>,
 }
@@ -765,7 +793,7 @@ impl<'a> Checker<'a> {
             wanted: Bodies::All,
             ctx_decls_open: Vec::new(),
             base: None,
-            restylable: false,
+            restylable: Restyling::No,
             scratch: Default::default(),
         }
     }
@@ -828,10 +856,10 @@ impl<'a> Checker<'a> {
                 self.loaded,
                 &self.tables,
                 &self.scopes,
-                &mut bodies,
-                &mut consts,
+                (&mut bodies, &mut consts),
                 self.diags,
                 &walked,
+                crate::compiler::semantics::styles::Memory::Off,
             );
             // What the pass rewrote is what it wrote into its own layer.
             styled = std::sync::Arc::new(crate::compiler::semantics::styles::Styled {
@@ -927,7 +955,8 @@ impl<'a> Checker<'a> {
         self.check_icons_and_builders(&walked, &waiting);
         // What extraction starts from, shared rather than copied: it writes
         // what it rewrites over these.
-        let unstyled = self.restylable.then(|| {
+        let remembering = self.restylable == Restyling::Remembering;
+        let mut unstyled = (self.restylable != Restyling::No).then(|| {
             self.bodies.freeze();
             self.const_values.freeze();
             Unstyled {
@@ -936,8 +965,15 @@ impl<'a> Checker<'a> {
                 base: settled.map(|b| std::sync::Arc::clone(&b.styled)),
                 fns_from: walked.fns_from,
                 consts_from: walked.consts_from,
+                remembered: Default::default(),
             }
         });
+        let memory = match &mut unstyled {
+            Some(unstyled) if remembering => {
+                crate::compiler::semantics::styles::Memory::Record(&mut unstyled.remembered)
+            }
+            _ => crate::compiler::semantics::styles::Memory::Off,
+        };
         let (styles, style_sources, style_con) = extract(
             self.loaded,
             &self.tables,
@@ -945,7 +981,7 @@ impl<'a> Checker<'a> {
             (&mut self.bodies, &mut self.const_values),
             self.diags,
             &walked,
-            settled.map(|b| &*b.styled),
+            (settled.map(|b| &*b.styled), memory),
         );
         let classify_fns =
             crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
@@ -986,7 +1022,7 @@ impl<'a> Checker<'a> {
     /// Whether to keep what style extraction starts from, so that each
     /// program a compilation is checked for can be
     /// [restyled](Checked::restyle) on its own.
-    pub fn restylable(mut self, restylable: bool) -> Checker<'a> {
+    pub fn restylable(mut self, restylable: Restyling) -> Checker<'a> {
         self.restylable = restylable;
         self
     }

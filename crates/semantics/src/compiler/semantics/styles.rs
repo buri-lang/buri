@@ -453,10 +453,10 @@ pub fn run(
     loaded: &Loaded,
     tables: &Tables,
     scopes: &Scopes,
-    bodies: &mut BodyMap,
-    consts: &mut ConstMap,
+    (bodies, consts): (&mut BodyMap, &mut ConstMap),
     diags: &mut Diagnostics,
     walked: &Walked,
+    memory: Memory<'_>,
 ) -> (Styled, Option<TyConId>) {
     // `ui/style` declares all three, so a program has all or none.
     let (Some(style_con), Some(classes_con), Some(extracted)) = (
@@ -485,6 +485,19 @@ pub fn run(
     // Copying the maps instead held a second `Arc` to every body, which made
     // the rewrite deep-copy what it changed anyway, and deep-copied every
     // constant whether it changed or not.
+    let (drawn, scanned, walks) = match memory {
+        Memory::Off => (Side::Off, Side::Off, Side::Off),
+        Memory::Record(r) => (
+            Side::Record(&mut r.drawn),
+            Side::Record(&mut r.scanned),
+            Side::Record(&mut r.walks),
+        ),
+        Memory::Replay(r) => (
+            Side::Replay(&r.drawn),
+            Side::Replay(&r.scanned),
+            Side::Replay(&r.walks),
+        ),
+    };
     let flow = Flow::of(
         tables,
         style_con,
@@ -492,6 +505,7 @@ pub fn run(
         walked,
         bodies,
         consts,
+        drawn,
     );
     let mut ex = Extractor {
         style_con,
@@ -516,6 +530,10 @@ pub fn run(
         extra: Edges::default(),
         wrapped: Vec::new(),
         leafy: HashSet::default(),
+        scanned,
+        walks,
+        did: None,
+        first_leaf: 0,
     };
 
     // In id order, which is the order the maps walk in, so the sheet's rule
@@ -530,16 +548,14 @@ pub fn run(
     // nothing, and leaving it alone keeps it shared rather than copied.
     let mut new_consts: Vec<(ConstId, typed::Expr)> = Vec::new();
     for (id, init) in walked.constants(tables, consts) {
-        ex.alphas(init);
-        if ex.mentions_style(init) {
+        if ex.scan(Owner::Const(id), init) {
             new_consts.push((id, init.clone()));
         }
     }
-    let mut new_bodies: Vec<(FnId, typed::Body)> = Vec::new();
+    let mut new_bodies: Vec<(FnId, std::sync::Arc<typed::Body>)> = Vec::new();
     for (id, body) in walked.functions(tables, bodies) {
-        ex.alphas(&body.expr);
-        if ex.mentions_style(&body.expr) {
-            new_bodies.push((id, typed::Body::clone(body)));
+        if ex.scan(Owner::Fn(id), &body.expr) {
+            new_bodies.push((id, std::sync::Arc::clone(body)));
         }
     }
     ex.walk(&mut new_consts, &mut new_bodies, true);
@@ -556,7 +572,7 @@ pub fn run(
         consts.insert(id, init);
     }
     for (id, body) in new_bodies {
-        bodies.insert(id, std::sync::Arc::new(body));
+        bodies.insert(id, body);
     }
     (styled, Some(style_con))
 }
@@ -570,6 +586,126 @@ static GRAPHS_DRAWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64
 /// See [`GRAPHS_DRAWN`].
 pub fn graphs_drawn() -> u64 {
     GRAPHS_DRAWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How many declarations this process's runs walked rather than took from
+/// [`Remembered`]. `BURI_PROFILE` prints it.
+static WALKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`WALKED`].
+pub fn declarations_walked() -> u64 {
+    WALKED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// What a run over a compilation several programs share found about each
+/// declaration, so that a run over one of those programs does again only
+/// what answers differently there.
+///
+/// A declaration's part of the graph, and each walk of it, read the
+/// program only through a few questions: which functions the run reads,
+/// which parameters escape, what a node reads and which declarations a
+/// style extracted where it stands touches. Everything else they read —
+/// the bodies, the tables, what a style folds to — is the same in every
+/// program. So each is kept with the questions it asked and their answers,
+/// and taken again wherever every answer is the same.
+#[derive(Default)]
+pub struct Remembered {
+    drawn: HashMap<Owner, Vec<Drawn>>,
+    scanned: HashMap<Owner, Scanned>,
+    walks: HashMap<(Owner, bool), Walk>,
+}
+
+/// Whether a run keeps what it finds, takes what another kept, or neither.
+pub enum Memory<'m> {
+    Off,
+    Record(&'m mut Remembered),
+    Replay(&'m Remembered),
+}
+
+/// One part of [`Memory`].
+enum Side<'m, T> {
+    Off,
+    Record(&'m mut T),
+    Replay(&'m T),
+}
+
+impl<T> Side<'_, T> {
+    fn kept(&self) -> Option<&T> {
+        match self {
+            Side::Off => None,
+            Side::Record(m) => Some(&**m),
+            Side::Replay(m) => Some(*m),
+        }
+    }
+}
+
+/// A question the graph or a walk asked of the program.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Query {
+    /// Whether the run reads the function's body.
+    Read(FnId),
+    /// Whether a parameter is [`Flow::escaping`].
+    Escapes(FnId, LocalId),
+    Demanded(Demand),
+    Reached(Demand),
+    Touched(Owner),
+}
+
+/// Each question asked once, with its answer.
+type Asked = Vec<(Query, bool)>;
+
+/// One declaration's part of the graph, as drawn where it asked `asked`.
+struct Drawn {
+    asked: Asked,
+    edges: Edges,
+}
+
+/// What [`Extractor::alphas`] reported in one declaration, and whether it
+/// mentions a style.
+struct Scanned {
+    diags: Vec<Diagnostic>,
+    mentions: bool,
+}
+
+/// One walk of one declaration.
+struct Walk {
+    asked: Asked,
+    did: Did,
+}
+
+/// What a walk of one declaration changed, each leaf numbered from the
+/// first that walk wrapped.
+#[derive(Default)]
+struct Did {
+    diags: Vec<Diagnostic>,
+    /// Each rule it put in the sheet or found already there, once.
+    rules: Vec<StyleRule>,
+    tainted: Vec<Demand>,
+    directs: Vec<(Demand, Vec<(String, String)>)>,
+    sources: Vec<(Span, Vec<String>)>,
+    extra: Vec<(Demand, Demand, bool)>,
+    wrapped: Vec<Demand>,
+    /// What the rewriting walk made of it, before [`Extractor::fill`].
+    rewritten: Option<Rewritten>,
+}
+
+enum Rewritten {
+    Const(typed::Expr),
+    Body(std::sync::Arc<typed::Body>),
+}
+
+/// `d`, with a leaf numbered `from` on renumbered `to`.
+fn renumbered(d: Demand, from: usize, to: usize) -> Demand {
+    match d {
+        Demand::Leaf(n) => Demand::Leaf(n.saturating_sub(from).saturating_add(to)),
+        d => d,
+    }
+}
+
+/// `asked` with each question once, in the order first asked.
+fn once(asked: Asked) -> Asked {
+    let mut seen: HashSet<Query> = HashSet::default();
+    asked.into_iter().filter(|(q, _)| seen.insert(*q)).collect()
 }
 
 /// `ui/style/classify`'s `classify` and `classifyStyle`: what a style a node is
@@ -625,6 +761,12 @@ struct Extractor<'a> {
     wrapped: Vec<Demand>,
     /// The declarations holding one.
     leafy: HashSet<Owner>,
+    scanned: Side<'a, HashMap<Owner, Scanned>>,
+    walks: Side<'a, HashMap<(Owner, bool), Walk>>,
+    /// What the walk under way changed, while it is kept.
+    did: Option<Did>,
+    /// The first leaf the walk under way wrapped.
+    first_leaf: usize,
 }
 
 /// What a walk does with the styles it reaches.
@@ -671,9 +813,34 @@ impl<'a> Extractor<'a> {
         if self.mode == Mode::Quiet {
             return;
         }
-        self.diags
-            .items
-            .push(Diagnostic::templated("style-not-static", span).with_bind("problem", message));
+        let diag = Diagnostic::templated("style-not-static", span).with_bind("problem", message);
+        if let Some(did) = &mut self.did {
+            did.diags.push(diag.clone());
+        }
+        self.diags.items.push(diag);
+    }
+
+    /// Whether `e`, `owner`'s value, mentions a style, once
+    /// [`Extractor::alphas`] has reported in it.
+    fn scan(&mut self, owner: Owner, e: &typed::Expr) -> bool {
+        let kept = match self.scanned {
+            Side::Replay(kept) => kept.get(&owner),
+            _ => None,
+        };
+        if let Some(kept) = kept {
+            self.diags.items.extend(kept.diags.iter().cloned());
+            return kept.mentions;
+        }
+        let from = self.diags.items.len();
+        self.alphas(e);
+        let mentions = self.mentions_style(e);
+        if let Side::Record(kept) = &mut self.scanned {
+            let diags = (self.diags.items.get(from..))
+                .map(<[Diagnostic]>::to_vec)
+                .unwrap_or_default();
+            kept.insert(owner, Scanned { diags, mentions });
+        }
+        mentions
     }
 
     /// Refuses every colour whose alpha is outside `0.0..=1.0`.
@@ -759,10 +926,19 @@ impl<'a> Extractor<'a> {
     fn opaque(&mut self, e: &typed::Expr, s: Sink) {
         let unseen = match &e.kind {
             ExprKind::Intrinsic { .. } => true,
-            ExprKind::CallFn { func, .. } => !self.flow.params.contains_key(&func.id),
+            ExprKind::CallFn { func, .. } => self.flow.read(func.id).is_none(),
             _ => false,
         };
-        self.tainted.extend(unseen.then_some(s.to));
+        if unseen {
+            self.taint(s.to);
+        }
+    }
+
+    fn taint(&mut self, d: Demand) {
+        if let Some(did) = &mut self.did {
+            did.tainted.push(renumbered(d, self.first_leaf, 0));
+        }
+        self.tainted.insert(d);
     }
 
     /// Walks every declaration that mentions a style, and answers the rules
@@ -770,31 +946,105 @@ impl<'a> Extractor<'a> {
     fn walk(
         &mut self,
         consts: &mut [(ConstId, typed::Expr)],
-        bodies: &mut [(FnId, typed::Body)],
+        bodies: &mut [(FnId, std::sync::Arc<typed::Body>)],
         checking: bool,
     ) -> (Vec<StyleRule>, Vec<StyleRule>) {
         for (id, init) in consts.iter_mut() {
-            let module = self.tables.const_(*id).module;
-            self.declaration(
-                Owner::Const(*id),
-                Demand::Const(*id),
-                module,
-                init,
-                checking,
-            );
+            let owner = Owner::Const(*id);
+            match self.replayed(owner, checking) {
+                Some(Some(Rewritten::Const(kept))) => *init = kept.clone(),
+                Some(_) => {}
+                None => {
+                    let module = self.tables.const_(*id).module;
+                    self.keeping(owner, checking, |ex| {
+                        ex.declaration(owner, Demand::Const(*id), module, init, checking);
+                        (!checking && ex.did.is_some()).then(|| Rewritten::Const(init.clone()))
+                    });
+                }
+            }
         }
         let const_rules = std::mem::take(&mut self.rules);
         for (id, body) in bodies.iter_mut() {
-            let module = self.tables.fn_info(*id).module;
-            self.declaration(
-                Owner::Fn(*id),
-                Demand::Ret(*id),
-                module,
-                &mut body.expr,
-                checking,
-            );
+            let owner = Owner::Fn(*id);
+            match self.replayed(owner, checking) {
+                Some(Some(Rewritten::Body(kept))) => *body = std::sync::Arc::clone(kept),
+                Some(_) => {}
+                None => {
+                    let module = self.tables.fn_info(*id).module;
+                    self.keeping(owner, checking, |ex| {
+                        let expr = &mut std::sync::Arc::make_mut(body).expr;
+                        ex.declaration(owner, Demand::Ret(*id), module, expr, checking);
+                        (!checking && ex.did.is_some())
+                            .then(|| Rewritten::Body(std::sync::Arc::clone(body)))
+                    });
+                }
+            }
         }
         (const_rules, std::mem::take(&mut self.rules))
+    }
+
+    /// What another run's walk of `owner` changed, made again here, where
+    /// every question it asked answers the same: `None` where it doesn't,
+    /// and otherwise what the rewriting walk made of `owner`.
+    fn replayed(&mut self, owner: Owner, checking: bool) -> Option<Option<&'a Rewritten>> {
+        let walk = match self.walks {
+            Side::Replay(walks) => walks.get(&(owner, checking)),
+            _ => None,
+        };
+        let did = &walk.filter(|walk| self.flow.answers(&walk.asked))?.did;
+        let first = self.wrapped.len();
+        let leaf = |d: Demand| renumbered(d, 0, first);
+        self.diags.items.extend(did.diags.iter().cloned());
+        for rule in &did.rules {
+            if self.recorded.insert(rule.class.clone()) {
+                self.rules.push(rule.clone());
+            }
+        }
+        self.tainted.extend(did.tainted.iter().map(|d| leaf(*d)));
+        for (d, pairs) in &did.directs {
+            let to = self.directs.entry(leaf(*d)).or_default();
+            to.extend(pairs.iter().cloned());
+        }
+        for (span, classes) in &did.sources {
+            self.sources.insert(*span, classes.clone());
+        }
+        for (from, to, stopped) in &did.extra {
+            self.extra.add(leaf(*from), leaf(*to), *stopped);
+        }
+        self.wrapped.extend(did.wrapped.iter().map(|d| leaf(*d)));
+        if !did.wrapped.is_empty() {
+            self.leafy.insert(owner);
+        }
+        Some(did.rewritten.as_ref())
+    }
+
+    /// Runs `walk`, the walk of `owner`, keeping the questions it asks and
+    /// what it changes where this run is recorded.
+    fn keeping(
+        &mut self,
+        owner: Owner,
+        checking: bool,
+        walk: impl FnOnce(&mut Self) -> Option<Rewritten>,
+    ) {
+        let walks = match std::mem::replace(&mut self.walks, Side::Off) {
+            Side::Record(walks) => walks,
+            other => {
+                self.walks = other;
+                walk(self);
+                return;
+            }
+        };
+        self.did = Some(Did::default());
+        self.first_leaf = self.wrapped.len();
+        self.flow.asking();
+        let rewritten = walk(self);
+        let asked = self.flow.asked();
+        let mut did = self.did.take().unwrap_or_default();
+        did.rewritten = rewritten;
+        let mut ruled = HashSet::default();
+        did.rules.retain(|rule| ruled.insert(rule.class.clone()));
+        walks.insert((owner, checking), Walk { asked, did });
+        self.walks = Side::Record(walks);
     }
 
     /// One declaration, whose value goes to `top`.
@@ -812,7 +1062,7 @@ impl<'a> Extractor<'a> {
         checking: bool,
     ) {
         let top = Pos::At(Some(top));
-        let touched = self.flow.touched.contains(&owner)
+        let touched = self.flow.ask(Query::Touched(owner))
             || self.flow.reaches(owner, &top, false, true)
                 != self.flow.reaches(owner, &top, false, false);
         self.mode = match (checking, touched) {
@@ -821,6 +1071,7 @@ impl<'a> Extractor<'a> {
             (false, true) => Mode::Quiet,
             (false, false) => Mode::Rewrite,
         };
+        WALKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.owner = owner;
         self.wraps = !checking && !self.flow.in_ui_node(module);
         let sink = self.flow.sink(owner, &top, None, false, checking);
@@ -910,7 +1161,7 @@ impl<'a> Extractor<'a> {
             // and takes the class.
             Some(variant) => {
                 self.variable_rule(variant);
-                self.tainted.insert(s.to);
+                self.taint(s.to);
                 self.descend(e, Some(s), cond);
             }
             None => self.leaf_or_descend(e, s, cond, self.classify_style),
@@ -939,14 +1190,19 @@ impl<'a> Extractor<'a> {
             ExprKind::Const(c) => self.original_consts.get(&c),
             _ => None,
         };
+        let mut sources = Vec::new();
         if let Some(init) = init {
-            self.sources.insert(init.span, classes.clone());
+            sources.push((init.span, classes.clone()));
         }
-        self.sources.insert(e.span, classes);
-        self.directs
-            .entry(s.to)
-            .or_default()
-            .extend(atoms.into_iter().map(|a| (a.name, a.class)));
+        sources.push((e.span, classes));
+        let pairs: Vec<(String, String)> = atoms.into_iter().map(|a| (a.name, a.class)).collect();
+        if let Some(did) = &mut self.did {
+            did.sources.extend(sources.iter().cloned());
+            did.directs
+                .push((renumbered(s.to, self.first_leaf, 0), pairs.clone()));
+        }
+        self.sources.extend(sources);
+        self.directs.entry(s.to).or_default().extend(pairs);
     }
 
     /// A style a node is given whose value isn't known here: through
@@ -963,8 +1219,20 @@ impl<'a> Extractor<'a> {
             return;
         }
         let to = Demand::Leaf(self.wrapped.len());
-        self.flow
-            .edges(self.owner, e, Some(to), false, &mut self.extra);
+        if let Some(did) = &mut self.did {
+            let mut extra = Edges::default();
+            self.flow.edges(self.owner, e, Some(to), false, &mut extra);
+            let local = |d| renumbered(d, self.first_leaf, 0);
+            for (from, reads) in extra.reads {
+                for (read, stopped) in reads {
+                    did.extra.push((local(from), local(read), stopped));
+                    self.extra.add(from, read, stopped);
+                }
+            }
+        } else {
+            self.flow
+                .edges(self.owner, e, Some(to), false, &mut self.extra);
+        }
         self.descend(e, Some(Sink { to, site: false }), cond);
         let span = e.span;
         let ty = e.ty;
@@ -986,6 +1254,9 @@ impl<'a> Extractor<'a> {
             ty,
             span,
         );
+        if let Some(did) = &mut self.did {
+            did.wrapped.push(renumbered(to, self.first_leaf, 0));
+        }
         self.wrapped.push(to);
         self.leafy.insert(self.owner);
     }
@@ -998,7 +1269,11 @@ impl<'a> Extractor<'a> {
 
     /// Writes into each `classify` the names a value reaching it can have,
     /// and whether the compiler saw every one of those values.
-    fn fill(&self, consts: &mut [(ConstId, typed::Expr)], bodies: &mut [(FnId, typed::Body)]) {
+    fn fill(
+        &self,
+        consts: &mut [(ConstId, typed::Expr)],
+        bodies: &mut [(FnId, std::sync::Arc<typed::Body>)],
+    ) {
         let mut slots = Vec::new();
         for (_, init) in
             (consts.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Const(*id)))
@@ -1007,7 +1282,7 @@ impl<'a> Extractor<'a> {
         }
         for (_, body) in (bodies.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
         {
-            self.slots_in(&mut body.expr, &mut slots);
+            self.slots_in(&mut std::sync::Arc::make_mut(body).expr, &mut slots);
         }
         for ((names, strictness), leaf) in slots.into_iter().zip(&self.wrapped) {
             let (known, strict) = self.names(*leaf);
@@ -1022,7 +1297,7 @@ impl<'a> Extractor<'a> {
         }
         for (_, body) in (bodies.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
         {
-            self.unwrap_unknown(&mut body.expr);
+            self.unwrap_unknown(&mut std::sync::Arc::make_mut(body).expr);
         }
     }
 
@@ -1166,7 +1441,7 @@ impl<'a> Extractor<'a> {
             return;
         };
         let class = format!("{abbreviation}-var");
-        if !self.recorded.insert(class.clone()) {
+        if self.recorded.contains(&class) && self.did.is_none() {
             return;
         }
         let folded = if variant == STYLE_SHADOWS {
@@ -1174,13 +1449,25 @@ impl<'a> Extractor<'a> {
         } else {
             variant
         };
-        self.rules.push(StyleRule {
+        self.put(StyleRule {
             class,
             property: u16::try_from(folded).unwrap_or(0),
             state: None,
             screen: None,
             blocks: vec![("", format!("{property}:var(--buri-{abbreviation})"))],
         });
+    }
+
+    /// Puts `rule` in the sheet unless it is there already, noting it for
+    /// the walk under way.
+    fn put(&mut self, rule: StyleRule) {
+        if let Some(did) = &mut self.did {
+            did.rules.push(rule.clone());
+        }
+        if !self.recorded.contains(&rule.class) {
+            self.recorded.insert(rule.class.clone());
+            self.rules.push(rule);
+        }
     }
 
     /// Descends one composition variant, the `Style` literal at `span`.
@@ -1357,9 +1644,7 @@ impl<'a> Extractor<'a> {
         let atoms = atoms
             .into_iter()
             .map(|(atom, rule)| {
-                if self.recorded.insert(rule.class.clone()) {
-                    self.rules.push(rule);
-                }
+                self.put(rule);
                 atom
             })
             .collect();
@@ -1549,6 +1834,22 @@ impl Edges {
         self.stops.retain(|owner| !owners.contains(owner));
         self.stops.extend(fresh.stops);
     }
+
+    /// Adds what `other` reads, after what this does.
+    fn merge(&mut self, other: &Edges) {
+        for (from, reads) in &other.reads {
+            let to = self.reads.entry(*from).or_default();
+            to.extend(reads.iter().copied());
+        }
+        self.stops.extend(other.stops.iter().copied());
+        self.called.extend(other.called.iter().copied());
+        self.referenced.extend(other.referenced.iter().copied());
+        self.bound.extend(other.bound.iter().copied());
+        for (f, callers) in &other.callers {
+            let to = self.callers.entry(*f).or_default();
+            to.extend(callers.iter().copied());
+        }
+    }
 }
 
 /// Everything `from` reads in `graphs`, past the marked reads; [`reach`]
@@ -1696,6 +1997,9 @@ struct Flow<'a> {
     seen: HashSet<(Owner, LocalId)>,
     /// The functions with a parameter that is `Param::Passed`.
     passing: HashSet<FnId>,
+    /// The questions [`Remembered`] keeps, as they are asked, while it is
+    /// keeping them.
+    asked: RefCell<Option<Asked>>,
 }
 
 impl<'a> Flow<'a> {
@@ -1706,6 +2010,7 @@ impl<'a> Flow<'a> {
         walked: &Walked,
         bodies: &'a BodyMap,
         consts: &'a ConstMap,
+        mut drawn: Side<'_, HashMap<Owner, Vec<Drawn>>>,
     ) -> Flow<'a> {
         let mut flow = Flow {
             tables,
@@ -1724,6 +2029,7 @@ impl<'a> Flow<'a> {
             edges: Edges::default(),
             seen: HashSet::default(),
             passing: HashSet::default(),
+            asked: RefCell::default(),
         };
         for (id, body) in walked.unsettled(tables, bodies) {
             let info = tables.fn_info(id);
@@ -1748,7 +2054,7 @@ impl<'a> Flow<'a> {
         // anything differently. That can send one of theirs further, so this
         // runs until nothing more does.
         GRAPHS_DRAWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let mut edges = flow.graph(walked, |_| true);
+        let mut edges = flow.graph(walked, |_| true, &mut drawn);
         loop {
             let (reached, roots) = reach(&edges, &flow.passing);
             let grown = flow.escaping(&edges, roots);
@@ -1762,9 +2068,9 @@ impl<'a> Flow<'a> {
                 .flatten()
                 .copied()
                 .collect();
-            let stale = flow.graph(walked, |o| owners.contains(&o));
+            let stale = flow.graph(walked, |o| owners.contains(&o), &mut drawn);
             flow.escaping.extend(grown);
-            let fresh = flow.graph(walked, |o| owners.contains(&o));
+            let fresh = flow.graph(walked, |o| owners.contains(&o), &mut drawn);
             edges.redraw(&owners, stale, fresh);
         }
         flow.demanded = closure(Demand::Node, &[&edges]);
@@ -1802,32 +2108,119 @@ impl<'a> Flow<'a> {
 
     /// What reads what, across the declarations this run reads that `drawn`
     /// keeps.
-    fn graph(&self, walked: &Walked, drawn: impl Fn(Owner) -> bool) -> Edges {
+    fn graph(
+        &self,
+        walked: &Walked,
+        drawn: impl Fn(Owner) -> bool,
+        kept: &mut Side<'_, HashMap<Owner, Vec<Drawn>>>,
+    ) -> Edges {
         let mut edges = Edges::default();
         let consts = walked.unsettled_constants(self.tables, self.consts);
         for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
-            self.edges(
-                Owner::Const(id),
-                init,
-                Some(Demand::Const(id)),
-                false,
-                &mut edges,
-            );
+            let owner = Owner::Const(id);
+            self.draw(owner, kept, &mut edges, |out| {
+                self.edges(owner, init, Some(Demand::Const(id)), false, out);
+            });
         }
         let bodies = walked.unsettled(self.tables, self.bodies);
         for (id, body) in bodies.filter(|(id, _)| drawn(Owner::Fn(*id))) {
-            if let Some((t, m)) = self.tables.fn_info(id).impl_of {
-                edges.add(Demand::Method(t, m), Demand::Ret(id), false);
-            }
-            self.edges(
-                Owner::Fn(id),
-                &body.expr,
-                Some(Demand::Ret(id)),
-                false,
-                &mut edges,
-            );
+            let owner = Owner::Fn(id);
+            self.draw(owner, kept, &mut edges, |out| {
+                if let Some((t, m)) = self.tables.fn_info(id).impl_of {
+                    out.add(Demand::Method(t, m), Demand::Ret(id), false);
+                }
+                self.edges(owner, &body.expr, Some(Demand::Ret(id)), false, out);
+            });
         }
         edges
+    }
+
+    /// `owner`'s part of the graph, added to `into`: as `kept` has it where
+    /// every question it was drawn asking answers the same here, and drawn
+    /// by `draw` otherwise.
+    fn draw(
+        &self,
+        owner: Owner,
+        kept: &mut Side<'_, HashMap<Owner, Vec<Drawn>>>,
+        into: &mut Edges,
+        draw: impl FnOnce(&mut Edges),
+    ) {
+        let found = kept
+            .kept()
+            .and_then(|kept| kept.get(&owner))
+            .and_then(|drawn| drawn.iter().find(|d| self.answers(&d.asked)));
+        if let Some(found) = found {
+            into.merge(&found.edges);
+            return;
+        }
+        let Side::Record(kept) = kept else {
+            draw(into);
+            return;
+        };
+        let mut own = Edges::default();
+        self.asking();
+        draw(&mut own);
+        let asked = self.asked();
+        into.merge(&own);
+        kept.entry(owner)
+            .or_default()
+            .push(Drawn { asked, edges: own });
+    }
+
+    /// Starts keeping the questions asked.
+    fn asking(&self) {
+        *self.asked.borrow_mut() = Some(Vec::new());
+    }
+
+    /// The questions asked since [`Flow::asking`], each once.
+    fn asked(&self) -> Asked {
+        once(self.asked.borrow_mut().take().unwrap_or_default())
+    }
+
+    /// The answer to `q`, kept where questions are.
+    fn ask(&self, q: Query) -> bool {
+        let answer = self.answer(q);
+        self.note(q, answer);
+        answer
+    }
+
+    /// Keeps `q`'s answer where questions are.
+    fn note(&self, q: Query, answer: bool) {
+        if let Some(asked) = self.asked.borrow_mut().as_mut() {
+            asked.push((q, answer));
+        }
+    }
+
+    fn answer(&self, q: Query) -> bool {
+        match q {
+            Query::Read(f) => self.params.contains_key(&f),
+            Query::Escapes(f, l) => !self.escaping.is_empty() && self.escaping.contains(&(f, l)),
+            Query::Demanded(d) => self.demanded.contains(&d),
+            Query::Reached(d) => self.reached.contains(&d),
+            Query::Touched(o) => self.touched.contains(&o),
+        }
+    }
+
+    /// Whether every question in `asked` answers the same here.
+    fn answers(&self, asked: &Asked) -> bool {
+        asked.iter().all(|(q, a)| self.answer(*q) == *a)
+    }
+
+    /// The parameters of `f`, where this run reads its body.
+    fn read(&self, f: FnId) -> Option<&Vec<(LocalId, Param)>> {
+        let params = self.params.get(&f);
+        self.note(Query::Read(f), params.is_some());
+        params
+    }
+
+    /// Whether `d` is in what a node reads, through a style extracted where
+    /// it's given too when `all`.
+    fn holds(&self, all: bool, d: Demand) -> bool {
+        self.ask(if all {
+            Query::Reached(d)
+        } else {
+            Query::Demanded(d)
+        })
     }
 
     /// The parameters of a generic type, not yet escaping, that a node reads
@@ -1876,7 +2269,7 @@ impl<'a> Flow<'a> {
     fn follows(&self, f: FnId, l: LocalId, kind: Param) -> bool {
         match kind {
             Param::Fixed => true,
-            Param::Passed => !self.escaping.is_empty() && self.escaping.contains(&(f, l)),
+            Param::Passed => self.ask(Query::Escapes(f, l)),
             Param::Opaque => false,
         }
     }
@@ -1988,7 +2381,7 @@ impl<'a> Flow<'a> {
                 ExprKind::Const(c) => Some(Demand::Const(*c)),
                 ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
                     let f = func.id;
-                    self.params.contains_key(&f).then_some(Demand::Ret(f))
+                    self.read(f).is_some().then_some(Demand::Ret(f))
                 }
                 ExprKind::CallTrait {
                     trait_id, method, ..
@@ -2024,13 +2417,12 @@ impl<'a> Flow<'a> {
     /// Whether a child at `pos` reaches a node, given whether its parent's
     /// value does: through a style extracted where it's given too when `all`.
     fn reaches(&self, owner: Owner, pos: &Pos, sink: bool, all: bool) -> bool {
-        let set = if all { &self.reached } else { &self.demanded };
         match pos {
             Pos::Same => sink,
-            Pos::At(d) => d.is_some_and(|d| set.contains(&d)),
+            Pos::At(d) => d.is_some_and(|d| self.holds(all, d)),
             Pos::Bound(locals) => locals
                 .first()
-                .is_some_and(|l| set.contains(&Demand::Local(owner, *l))),
+                .is_some_and(|l| self.holds(all, Demand::Local(owner, *l))),
         }
     }
 
@@ -2046,20 +2438,19 @@ impl<'a> Flow<'a> {
         carries: bool,
         all: bool,
     ) -> Option<Sink> {
-        let set = if all { &self.reached } else { &self.demanded };
         match pos {
             Pos::Same => parent.map(|p| Sink {
                 to: p.to,
                 site: p.site && carries,
             }),
-            Pos::At(d) => d.filter(|d| set.contains(d)).map(|to| Sink {
+            Pos::At(d) => d.filter(|d| self.holds(all, *d)).map(|to| Sink {
                 to,
                 site: to == Demand::Node,
             }),
             Pos::Bound(locals) => locals
                 .first()
                 .map(|l| Demand::Local(owner, *l))
-                .filter(|d| set.contains(d))
+                .filter(|d| self.holds(all, *d))
                 .map(|to| Sink { to, site: false }),
         }
     }
@@ -2091,7 +2482,7 @@ impl<'a> Flow<'a> {
                 if self.in_ui_node(info.module) {
                     return all(Pos::At(Some(Demand::Node)), args.len());
                 }
-                match self.params.get(&f) {
+                match self.read(f) {
                     // A parameter whose type is generic carries every caller's
                     // values, so where only its result reads it, it can't say
                     // which of them reach a node. It passes this call's on,
