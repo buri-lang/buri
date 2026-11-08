@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:20:48
+   |
+20 |     assert.isFalse(document.contains("<style>");
+   |                                                ^
+   |
+  --> main.buri:20:19
+   |
+20 |     assert.isFalse(document.contains("<style>");
+   |                   ^ opened here
+   |
+   = fix: write `)` here

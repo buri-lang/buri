@@ -16,8 +16,9 @@
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths? |
 //! | [`parsing`] | scratch programs | Does the parser read operands, types and bindings as written, and spend its nesting and chain budgets the same at their limits? |
-//! | [`js_lookups`] | one generated program | Do the standard library's Unicode lookups answer as `unicodedata` does while building no `BigInt` per digit and checking each table for astral scalars once? |
+//! | [`js_lookups`] | two generated programs | Do the standard library's Unicode lookups answer as `unicodedata` does while building no `BigInt` per digit and checking each table, and each string a scan reads, for astral scalars once? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
+//! | [`js_words`] | two generated programs | Do rotates, shifts, byte reversals and bit counts of a word answer exactly while doing no `BigInt` arithmetic, and converting no literal count? |
 //! | [`js_wrapping`] | one generated program | Does a loop of 32-bit wrapping arithmetic give the low bits of the exact answer with `BigInt` taken away? |
 //! | [`pages`] | pages built for `web` | Does a mounted page show, hide and move what the headless double says it does, when a browser drives it? |
 //! | [`round_trip`] | `conformance/`, `example/`'s generated modules | Does `core/buri/ast`'s `parse` read back what the compiler reads — the whole corpus rewritten by `parse` then `print`, and run — and is printing a fixed point? |

@@ -1,0 +1,11 @@
+// CRASH: shift out of range
+// Sixty-four, written as a literal, is past the last turn a `U64` rotate takes.
+from "core/bits" import * as bits;
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let wide: U64 = 81985529216486895;
+  let _ = io.println(host.stdout, "${bits.rotateLeftU64(wide, 64)}").ignore();
+  .Ok(())
+}

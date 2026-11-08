@@ -232,3 +232,79 @@ test "chars of a long astral string is its own list" {
     assert.equal(long.chars(ctx).get(1), .Some('😀'));
     assert.equal(str.fromChars(ctx, long.chars(ctx)), long);
 }
+
+// --- short strings asked in turn --------------------------------------------------
+//
+// A loop over one string's scalars that looks each one up in a second string
+// asks about the two in turn, scalar after scalar. These alternate between
+// short strings of one length, with a surrogate pair in a different place in
+// each or in none, and check every answer is the asked string's own.
+
+test "short strings of one length asked in turn each answer for themselves" {
+    let first = "😀bc";
+    let second = "ab😀";
+    let plain = "abcd";
+    assert.equal(first.charAt(0), .Some('😀'));
+    assert.equal(second.charAt(0), .Some('a'));
+    assert.equal(first.charAt(1), .Some('b'));
+    assert.equal(second.charAt(2), .Some('😀'));
+    assert.equal(plain.charAt(2), .Some('c'));
+    assert.equal(first.charAt(2), .Some('c'));
+    assert.equal(second.charAt(1), .Some('b'));
+    assert.equal(plain.charAt(3), .Some('d'));
+    assert.equal(first.charAt(3), .None);
+    assert.equal(second.charAt(3), .None);
+    assert.equal(first.length(), 3);
+    assert.equal(second.length(), 3);
+    assert.equal(plain.length(), 4);
+    assert.equal(first.slice(0, 2), "😀b");
+    assert.equal(second.slice(1, 3), "b😀");
+    assert.equal(plain.slice(1, 3), "bc");
+    assert.equal(first.indexOf("c"), .Some(2));
+    assert.equal(second.indexOf("😀"), .Some(2));
+    assert.equal(plain.indexOf("d"), .Some(3));
+}
+
+test "a string built at run time answers as the literal with its characters does" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let built = "😀".concat(ctx, "bc");
+    assert.equal(built.charAt(1), .Some('b'));
+    assert.equal("😀bc".charAt(1), .Some('b'));
+    assert.equal("ab😀".charAt(2), .Some('😀'));
+    assert.equal(built.charAt(0), .Some('😀'));
+    assert.equal(built.length(), 3);
+    assert.equal("ab😀".length(), 3);
+}
+
+test "every scalar of one string looked up in another, as a scan does" {
+    assert.equal(matched("a😀b日😀", "x😀y日😀", 0, 0), 3);
+    assert.equal(matched("😀😀😀", "😀a😀", 0, 0), 2);
+    assert.equal(matched("abc", "", 0, 0), 0);
+    assert.equal(matched("", "abc", 0, 0), 0);
+}
+
+/// How many of `text`'s scalars, read one `charAt` at a time, `table` holds at
+/// the same index.
+fn matched(text: Str, table: Str, at: Int, n: Int): Int {
+    match (text.charAt(at)) {
+        .None => n,
+        .Some(c) => {
+            matched(text, table, at + 1, if (table.charAt(at) == .Some(c)) {
+                n + 1
+            } else {
+                n
+            })
+        },
+    }
+}
+
+test "a prefix check reads whole scalars" {
+    assert.isTrue("😀a".startsWith("😀"));
+    assert.isTrue("😀a".startsWith(""));
+    assert.isFalse("a".startsWith("😀"));
+    assert.isFalse("😀".startsWith("😀a"));
+    assert.isTrue("a😀".endsWith("😀"));
+    assert.isTrue("".endsWith(""));
+}

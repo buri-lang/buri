@@ -178,8 +178,15 @@ RegExp.prototype.test = function (s) {
 
 /// The program's answers, and the count `counted` gave.
 fn counted_run(name: &str, counted: &str) -> usize {
+    let (stdout, count) = counted_program(name, &PROGRAM.replace("MARK", "\u{301}"), counted);
+    assert_eq!(stdout, ANSWERS);
+    count
+}
+
+/// What `program` printed, and the count `counted` gave.
+fn counted_program(name: &str, program: &str, counted: &str) -> (String, usize) {
     let scratch = Scratch::repo(name);
-    scratch.binary_package("cmd/lookups", &PROGRAM.replace("MARK", "\u{301}"));
+    scratch.binary_package("cmd/lookups", program);
     scratch.run(&["build", "//cmd/lookups", "--force"]).ok();
     let artifact = scratch.artifact_in("node", "cmd/lookups");
     let preload = scratch.write("counting.mjs", &preload(counted));
@@ -194,12 +201,12 @@ fn counted_run(name: &str, counted: &str) -> usize {
         "the lookups failed:\n{}",
         indent(&stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&out.stdout), ANSWERS);
-    stderr
+    let count = stderr
         .lines()
         .find_map(|l| l.strip_prefix("count "))
         .and_then(|n| n.parse().ok())
-        .unwrap_or_else(|| panic!("no count in:\n{}", indent(&stderr)))
+        .unwrap_or_else(|| panic!("no count in:\n{}", indent(&stderr)));
+    (String::from_utf8_lossy(&out.stdout).into_owned(), count)
 }
 
 /// Counting a digit in `Int` builds at least one `BigInt` for each of the
@@ -223,6 +230,64 @@ fn reading_tables_in_turn_checks_each_for_astral_scalars_once() {
     assert!(
         checks <= 2 * TABLES,
         "{checks} checks of a long string for astral scalars, over {TABLES} tables"
+    );
+}
+
+/// Counts the clusters and scalars of short strings, each built at run time.
+/// `graphemeCount` reads its string one `charAt` at a time and looks each
+/// scalar up in a table in between, so it asks about the two in turn.
+const SCAN: &str = r#"
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn counted<C: Allocator>(ctx: C, i: Int, end: Int, n: Int): Int {
+    if (i == end) {
+        n
+    } else {
+        let text = str.format(ctx, "${i} cafe\u{301} 😀 👍🏽 a\u{308}b ${i}");
+        counted(ctx, i + 1, end, n + text.graphemeCount() + text.length())
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${counted(ctx, 0, STRINGS, 0)}").ignore();
+    .Ok(())
+}
+"#;
+
+/// The strings `SCAN` counts.
+const STRINGS: usize = 300;
+
+/// Every regular-expression test of a string, whatever its length.
+const EVERY_CHECK: &str = r#"
+const test = RegExp.prototype.test;
+RegExp.prototype.test = function (s) {
+  if (typeof s === "string") count++;
+  return test.call(this, s);
+};
+"#;
+
+/// The runtime remembered only the one long string it last found, and never a
+/// short one, so each `charAt` of a short string checked all of it for astral
+/// scalars again. It remembers the last two strings asked about now, short or
+/// long, so a scan checks its string once.
+#[test]
+fn a_scan_that_asks_about_two_strings_in_turn_checks_each_once() {
+    let program = SCAN.replace("STRINGS", &STRINGS.to_string());
+    let (stdout, checks) = counted_program("js-lookups-scan", &program, EVERY_CHECK);
+    // Around its two numbers, each string is 13 clusters and 16 scalars; each
+    // digit is one of both, and there are two of each number.
+    let digits: usize = (0..STRINGS).map(|i| i.to_string().len()).sum();
+    assert_eq!(stdout, format!("{}\n", STRINGS * (13 + 16) + 4 * digits));
+    assert!(
+        checks <= 3 * STRINGS,
+        "{checks} checks of a string for astral scalars, for {STRINGS} strings"
     );
 }
 

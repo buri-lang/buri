@@ -1,0 +1,9 @@
+error: expected `:`, found `,` [unexpected-token]
+ --> main.buri:2:10
+  |
+2 |   Show>(x, : T): T {
+  |          ^
+  |
+  = expected: `:`
+  = actual: `,`
+  = fix: write `:` here

@@ -92,3 +92,43 @@ test "a list a wide update carried over is not grown under the original" {
     assert.equal(w.notes, ["n0", "n1"]);
     assert.equal(next.notes, ["n0", "n1", "later"]);
 }
+
+/// Both halves of a pair that holds `s` twice, the first grown from its copy.
+fn twice<C: Allocator>(ctx: C, s: Narrow): (Narrow, Narrow) {
+    let pair = (s, s);
+    let (left, right) = pair;
+    (noted(ctx, left), right)
+}
+
+test "a struct shared twice and then grown through one name leaves the other alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = Narrow { at: 0, notes: grown(ctx, 2) };
+    let (grew, kept) = twice(ctx, s);
+    assert.equal(grew.notes, ["n0", "n1", "later"]);
+    assert.equal(kept.notes, ["n0", "n1"]);
+    assert.equal(s.notes, ["n0", "n1"]);
+    // Shared again after it was already shared, then grown again.
+    let (again, still) = twice(ctx, kept);
+    assert.equal(again.notes, ["n0", "n1", "later"]);
+    assert.equal(still.notes, ["n0", "n1"]);
+    assert.equal(noted(ctx, still).notes, ["n0", "n1", "later"]);
+    assert.equal(still.notes, ["n0", "n1"]);
+}
+
+test "a list shared into a list of lists and grown through one leaves the rest alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let notes = grown(ctx, 2);
+    let all = [notes, notes, notes];
+    let first = match (all.get(0)) {
+        .Some(n) => n.push(ctx, "first"),
+        .None => [],
+    };
+    assert.equal(first, ["n0", "n1", "first"]);
+    assert.equal(all, [["n0", "n1"], ["n0", "n1"], ["n0", "n1"]]);
+    assert.equal(notes.push(ctx, "own"), ["n0", "n1", "own"]);
+    assert.equal(all.get(2), .Some(["n0", "n1"]));
+}

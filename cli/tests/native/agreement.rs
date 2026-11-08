@@ -2661,6 +2661,40 @@ export fn main(host: NativeHost): Result<(), Str> {
         "",
         "shift out of range",
     );
+    // A count written as a literal, on either side of the range.
+    abort_agrees(
+        "row 14 literal rotate",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let word: U32 = 305419896;
+  let _ = io.println(host.stdout, "${bits.rotateLeftU32(word, 31)}").ignore();
+  let _ = io.println(host.stdout, "${bits.rotateLeftU32(word, 32)}").ignore();
+  .Ok(())
+}
+"#,
+        "152709948\n",
+        "shift out of range",
+    );
+    abort_agrees(
+        "row 14 negative literal rotate",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${bits.rotateRight(5, 0)}").ignore();
+  let _ = io.println(host.stdout, "${bits.rotateRight(5, -1)}").ignore();
+  .Ok(())
+}
+"#,
+        "5\n",
+        "shift out of range",
+    );
 }
 
 /// The `.Err` path, which is not an abort: `main` returning `.Err(msg)`

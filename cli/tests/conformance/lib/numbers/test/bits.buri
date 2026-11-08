@@ -477,6 +477,47 @@ test "every rotate at one below its own width turns the other way by one" {
     assert.equal(bits.rotateLeft(-3, 63), bits.rotateRight(-3, 1));
 }
 
+/// A count that is a parameter rather than a literal, so a call through these
+/// reads its count at run time.
+fn turnU32(w: U32, n: Int): U32 {
+    bits.rotateLeftU32(w, n)
+}
+
+fn turnU64(w: U64, n: Int): U64 {
+    bits.rotateRightU64(w, n)
+}
+
+fn turn(w: Int, n: Int): Int {
+    bits.rotateLeft(w, n)
+}
+
+fn pushed(w: U32, n: Int): U32 {
+    bits.shiftLeftU32(w, n)
+}
+
+/// The count as a `U32` widened to `Int`, as a narrow loop counter reaches one.
+fn turnBy(w: U32, n: U32): U32 {
+    bits.rotateRightU32(w, n.toI64())
+}
+
+test "a literal count and the same count read at run time turn alike" {
+    let word: U32 = 3735928559;
+    let wide: U64 = 1311768467463790320;
+    assert.equal(bits.rotateLeftU32(word, 0), turnU32(word, 0));
+    assert.equal(bits.rotateLeftU32(word, 7), turnU32(word, 7));
+    assert.equal(bits.rotateLeftU32(word, 31), turnU32(word, 31));
+    assert.equal(bits.rotateRightU64(wide, 0), turnU64(wide, 0));
+    assert.equal(bits.rotateRightU64(wide, 41), turnU64(wide, 41));
+    assert.equal(bits.rotateRightU64(wide, 63), turnU64(wide, 63));
+    assert.equal(bits.rotateLeft(-3, 0), turn(-3, 0));
+    assert.equal(bits.rotateLeft(-3, 63), turn(-3, 63));
+    assert.equal(bits.shiftLeftU32(word, 31), pushed(word, 31));
+    assert.equal(bits.rotateRightU32(word, 13), turnBy(word, 13));
+    assert.equal(bits.rotateRightU32(word, 0), turnBy(word, 0));
+    assert.equal(turnU32(word, 7), 1457485807);
+    assert.equal(turnBy(word, 13), 4152292717);
+}
+
 test "every rotate leaves zero and an all-ones word alone at every count" {
     // Nothing to move: whichever way the bits go they land on the same value,
     // at every count the width takes.

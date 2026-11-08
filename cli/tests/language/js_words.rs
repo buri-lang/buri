@@ -88,6 +88,90 @@ const { pathToFileURL } = await import("node:url");
 await import(pathToFileURL(process.argv[2]).href);
 "#;
 
+/// Rotates and shifts by counts written as literals, at every width, and one
+/// by a `U32` count widened to `Int`, a thousand times each.
+const LITERAL_COUNTS: &str = r#"
+from "platform/effect" import { Stdout };
+from "node" import { NodeHost };
+from "core/bits" import * as bits;
+from "core/io" import * as io;
+
+fn narrow(w: U32, b: U8, i: U32): U32 {
+    if (i == 1000) {
+        w ^ b.toU32()
+    } else {
+        let turned = bits.rotateLeftU32(w, 7) ^ bits.rotateRightU32(w, 13) ^ bits.shiftRightU32(w, 3);
+        let spun = bits.rotateLeftU8(b, 3) ^ bits.shiftLeftU8(b, 1);
+        narrow(turned ^ bits.rotateLeftU32(w, (i % 32).toI64()), spun, i + 1)
+    }
+}
+
+fn wide(x: U64, s: Int, i: U32): Int {
+    if (i == 1000) {
+        s ^ bits.popCountU64(x)
+    } else {
+        let turned = bits.rotateRightU64(x, 41) ^ bits.shiftLeftU64(x, 5);
+        wide(turned, bits.rotateLeft(s, 13) ^ bits.shiftRight(s, 2), i + 1)
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let _ = io.println(host.stdout, "${narrow(305419896, 77, 0)} ${wide(81985529216486895, -81985529216486895, 0)}").ignore();
+    .Ok(())
+}
+"#;
+
+/// Runs the module with `Number` counting each call it is handed a `BigInt`.
+const NUMBER_FROM_BIGINT: &str = r#"
+let count = 0;
+const real = Number;
+const counting = function (v) { if (typeof v === "bigint") count++; return real(v); };
+for (const k of Object.getOwnPropertyNames(real)) {
+  if (k !== "length" && k !== "name") Object.defineProperty(counting, k, Object.getOwnPropertyDescriptor(real, k));
+}
+globalThis.Number = counting;
+process.on("exit", () => process.stderr.write("count " + count + "\n"));
+const { pathToFileURL } = await import("node:url");
+await import(pathToFileURL(process.argv[2]).href);
+"#;
+
+/// A count is an `Int`, a `BigInt` here, and the runtime reads it as a
+/// `number` with `Number`, which on a `BigInt` is a call into the engine. A
+/// literal count, or a `U32` one widened, goes in as the `number` it already
+/// is, so the 10,000 rotates and shifts this program makes convert none.
+#[test]
+fn a_rotate_or_shift_by_a_literal_count_converts_no_bigint() {
+    let scratch = Scratch::repo("js-words-counts");
+    scratch.binary_package("cmd/counts", LITERAL_COUNTS);
+    scratch.run(&["build", "//cmd/counts", "--force"]).ok();
+    let artifact = scratch.artifact_in("node", "cmd/counts");
+    let preload = scratch.write("counting.mjs", NUMBER_FROM_BIGINT);
+    let out = std::process::Command::new(js_runtime())
+        .arg(&preload)
+        .arg(&artifact)
+        .capped_output()
+        .expect("the javascript runtime runs");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "the counts failed:\n{}",
+        indent(&stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "92396152 -5337059898134375286\n"
+    );
+    let converted: usize = stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("count "))
+        .and_then(|n| n.parse().ok())
+        .unwrap_or_else(|| panic!("no count in:\n{}", indent(&stderr)));
+    assert!(
+        converted <= 16,
+        "{converted} BigInt counts converted to numbers; a literal count should need none"
+    );
+}
+
 /// The 1,024 small `Int`s the runtime builds once when it loads, which every
 /// count answers from.
 const AT_LOAD: usize = 1024;

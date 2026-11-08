@@ -61,9 +61,20 @@ impl<'a> Gen<'a> {
         }
         // `$str_charAt` reads its position with `Number`, so `BigInt(x)` can
         // go in as `x`: the Unicode tables read every digit that way.
+        //
+        // A shift or rotate reads its count the same way, so a widened count
+        // goes in as it was, and a literal count as a `number`: converting a
+        // `BigInt` is a call into the engine, and hashing rotates by literals.
         let unwidened;
         let args = if key == "str.charAt" {
             unwidened = args.iter().map(unwiden).collect::<Vec<_>>();
+            &unwidened[..]
+        } else if key.starts_with("bits.shift") || key.starts_with("bits.rotate") {
+            unwidened = args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| if i == 1 { count(a) } else { a.clone() })
+                .collect::<Vec<_>>();
             &unwidened[..]
         } else {
             args
@@ -532,6 +543,18 @@ fn unwiden(e: &Expr) -> Expr {
         _ => e,
     };
     inner.clone()
+}
+
+/// A shift or rotate count as a `number` where it is one already or is a
+/// literal small enough to be exact; anything else as it is.
+fn count(e: &Expr) -> Expr {
+    match unwiden(e) {
+        Expr::BigInt(d) => match d.parse::<i32>() {
+            Ok(v) => Expr::Num(f64::from(v)),
+            Err(_) => Expr::BigInt(d),
+        },
+        other => other,
+    }
 }
 
 /// The same value, written the way the target type is written. A widening is

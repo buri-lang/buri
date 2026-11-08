@@ -1,0 +1,11 @@
+// CRASH: shift out of range
+// A negative literal count is refused like a negative computed one: the count
+// is a distance, and the wide rotate takes 0 to 63.
+from "core/bits" import * as bits;
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${bits.rotateRight(5, -1)}").ignore();
+  .Ok(())
+}

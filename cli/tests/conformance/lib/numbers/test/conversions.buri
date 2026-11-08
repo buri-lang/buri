@@ -369,6 +369,18 @@ test "U32 into Char succeeds for a scalar value" {
     assert.equal(assert.ok(d.toChar()), '\u{10ffff}');
 }
 
+test "U32 into Char succeeds on either side of the surrogate range and of the astral line" {
+    let below: U32 = 55295;
+    assert.equal(assert.ok(below.toChar()), '\u{d7ff}');
+    let above: U32 = 57344;
+    assert.equal(assert.ok(above.toChar()), '\u{e000}');
+    let last: U32 = 65535;
+    let first: U32 = 65536;
+    assert.equal(assert.ok(last.toChar()).toU32(), 65535);
+    assert.equal(assert.ok(first.toChar()), '𐀀');
+    assert.equal(assert.ok(first.toChar()).toU32(), 65536);
+}
+
 test "U32 into Char fails for a surrogate or a value past the last scalar" {
     let lo: U32 = 55296;
     assert.equal(assert.err(lo.toChar()).target, "Char");

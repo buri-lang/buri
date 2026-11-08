@@ -726,14 +726,16 @@ const $sharedFrozen = new WeakSet();
 // puts a value back, because the cost of an over-set mark is one copy and the
 // cost of a cleared one is an aliasing bug.
 //
-// The mark is asked about first because most calls find it: an aggregate is
-// marked once and then shared again and again, and a list never carries it, so
-// asking first answers the common case with one property read instead of two.
+// `$u` is asked about first. A list carries it and never carries the mark, so
+// a list, shared or not, is answered with one property read; only an
+// aggregate that is not a list goes on to read the mark. Asking the mark first
+// cost a list two reads, and lists are about half of what a collections run
+// shares: this order retires 4% fewer instructions there.
 function $share(v) {
-  if (v !== null && typeof v === "object" && v[$shared] !== true) {
+  if (typeof v === "object" && v !== null) {
     const u = v.$u;
     if (u === true) v.$u = false;
-    else if (u === undefined) {
+    else if (u === undefined && v[$shared] !== true) {
       if (Object.isExtensible(v)) v[$shared] = true;
       else $sharedFrozen.add(v);
     }
@@ -1224,11 +1226,15 @@ function $chars(s) {
 // is never handed out, so nothing but this can change it. A short string is
 // cheap to measure again, and is not kept, so it cannot push out a long one.
 //
-// The string last found is asked about first, because a scan asks about one
-// string again and again: a binary search over a `core/str` table reads its
-// digits one `charAt` at a time, tens of millions in a conformance run, and
-// one comparison there in place of up to eight cuts that run's instructions by
-// a quarter.
+// The two strings last asked about are asked about first, short or long,
+// because a scan asks about the same strings again and again: a binary search
+// over a `core/str` table reads its digits one `charAt` at a time, tens of
+// millions in a conformance run, and `graphemeCount` reads its string a
+// `charAt` at a time with a table lookup between each two, so it asks about
+// the string and the table in turn. A short string used to be checked again at
+// every one of those. The last one is asked in a function of its own, small
+// enough for the engine to put in line at every caller; that alone cuts a
+// sixth of the `charAt`-heavy run's instructions.
 const $surrogate = /[\uD800-\uDFFF]/;
 
 function $wide(s) {
@@ -1241,21 +1247,37 @@ const $startsTables = [null, null, null, null, null, null, null, null];
 let $startsNext = 0;
 let $startsLast = "";
 let $startsLastTable = null;
+let $startsPrev = "";
+let $startsPrevTable = null;
 
 function $starts(s) {
-  if (s === $startsLast) return $startsLastTable;
-  for (let i = 0; i < 8; i++) {
-    if (s === $startsKeys[i]) {
-      $startsLast = s;
-      return ($startsLastTable = $startsTables[i]);
+  return s === $startsLast ? $startsLastTable : $startsAsked(s);
+}
+
+// Any string but the last one asked about: the one before it, a kept long
+// one, or one measured now. Whichever it is becomes the last.
+function $startsAsked(s) {
+  let t;
+  if (s === $startsPrev) {
+    t = $startsPrevTable;
+  } else {
+    let i = 0;
+    while (i < 8 && s !== $startsKeys[i]) i++;
+    if (i < 8) {
+      t = $startsTables[i];
+    } else {
+      t = $wide(s) ? $scalarStarts(s) : null;
+      if (s.length >= $startsKept) {
+        $startsKeys[$startsNext] = s;
+        $startsTables[$startsNext] = t;
+        $startsNext = ($startsNext + 1) % 8;
+      }
     }
   }
-  const t = $wide(s) ? $scalarStarts(s) : null;
-  if (s.length >= $startsKept) {
-    $startsKeys[$startsNext] = s;
-    $startsTables[$startsNext] = t;
-    $startsNext = ($startsNext + 1) % 8;
-  }
+  $startsPrev = $startsLast;
+  $startsPrevTable = $startsLastTable;
+  $startsLast = s;
+  $startsLastTable = t;
   return t;
 }
 
@@ -1970,10 +1992,13 @@ function $convChecked(v, lo, hi, target, flt, big) {
 }
 
 // Not every U32 is a Unicode scalar value: the surrogate range and anything
-// above U+10FFFF have no `Char`.
+// above U+10FFFF have no `Char`. Below the surrogates a scalar is one code
+// unit, and `fromCharCode` builds it for less than `fromCodePoint`, which
+// checks its argument again.
 function $toChar(n) {
   const v = n;
-  if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff)) return $rangeErr(n, "Char", false);
+  if (v < 0xd800) return $ok(String.fromCharCode(v));
+  if (v > 0x10ffff || v <= 0xdfff) return $rangeErr(n, "Char", false);
   return $ok(String.fromCodePoint(v));
 }
 

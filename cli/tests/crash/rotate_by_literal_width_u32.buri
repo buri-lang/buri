@@ -1,0 +1,12 @@
+// CRASH: shift out of range
+// A count written as a literal is held to the same range as one computed at
+// run time: thirty-two is past the last turn a `U32` rotate takes.
+from "core/bits" import * as bits;
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let word: U32 = 305419896;
+  let _ = io.println(host.stdout, "${bits.rotateLeftU32(word, 32)}").ignore();
+  .Ok(())
+}
