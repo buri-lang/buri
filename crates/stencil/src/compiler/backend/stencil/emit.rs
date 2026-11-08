@@ -38,7 +38,7 @@ enum RSrc {
 use super::glue::Helper;
 use super::jit::{copyless_test, Bind, Fn2, Jit, Label, Plan, RET, V};
 use super::route;
-use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
+use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
@@ -1284,6 +1284,23 @@ impl<'a> Jit<'a> {
                 self.rt_call(prog, st, (entry, r.answer), dest, &list, Vec::new());
                 return;
             }
+            // `str.length`, emitted here for the same reason: the `strlen`
+            // stencil reads the count straight out of the caller's `Str` where
+            // the ASCII flag is set, which is most text, and calls the runtime
+            // only where it is not. The call it replaces copied the `Str` into
+            // a frame whose body then called the runtime every time.
+            if let (route::Body::StrLength, [s]) = (*self.routes.bodies.get(r.key), args) {
+                let s = st.at(*s);
+                return self.emit(
+                    "strlen",
+                    &[
+                        Lit::A.of(u64::from(s + STR_LEN)),
+                        Lit::B.of(u64::from(s + STR_PTR)),
+                        Lit::D.of(u64::from(st.at(dest))),
+                        Jump::Cont0.to(V::Fall),
+                    ],
+                );
+            }
             // `compare` at a number, a `Bool` or a `Char`, emitted here for the
             // same reason: the body is one stencil, and the call around it
             // was three times its length. The operands and the tag go where
@@ -2022,14 +2039,17 @@ impl<'a> Jit<'a> {
             }
             route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, (entry, answer), fs, st),
             // `str.length` is the number of Unicode scalar values
-            // (VALUE-MODEL.md §3.1), which `cli/runtime/text.rs` answers for
-            // both the ASCII and the multibyte case. Not in the table because
-            // it has no `Ret` shape of its own: the count comes straight back
-            // in a register.
-            route::Body::StrLength => {
-                let (sp, sl) = self.str_arg(p(0), fs.param_end);
-                self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i");
-            }
+            // (VALUE-MODEL.md §3.1): the `strlen` stencil, as `call` emits it
+            // in place. This body is reached only through a function value.
+            route::Body::StrLength => self.emit(
+                "strlen",
+                &[
+                    Lit::A.of(u64::from(p(0) + STR_LEN)),
+                    Lit::B.of(u64::from(p(0) + STR_PTR)),
+                    Lit::D.of(u64::from(ret0)),
+                    Jump::Cont0.to(V::Fall),
+                ],
+            ),
             // The test allocator, as a runtime-supplied body rather than as an
             // intrinsic call: `alloc` reads no state, so the handle is zero and
             // `allocate` answers the request.

@@ -111,8 +111,8 @@ pub(crate) enum Src {
 
 /// `Str` is `{ base, ptr, len }` (VALUE-MODEL.md §3), and bit 63 of `len` is
 /// the ASCII flag rather than part of the count.
-const STR_PTR: u32 = 8;
-const STR_LEN: u32 = 16;
+pub(super) const STR_PTR: u32 = 8;
+pub(super) const STR_LEN: u32 = 16;
 
 /// Every runtime row fits a `crt` stencil, checked as this crate builds. A
 /// `Ret::Res` row counts both out-pointers, whether or not it needs them.

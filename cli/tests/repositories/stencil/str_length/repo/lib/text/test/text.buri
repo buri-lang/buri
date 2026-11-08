@@ -1,0 +1,52 @@
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn lengthOf(s: Str): Int {
+    s.length()
+}
+
+fn total(words: [Str], acc: Int): Int {
+    match (words) {
+        [w, ..rest] => total(rest, acc + w.length()),
+        [] => acc,
+    }
+}
+
+test "a literal counts its scalars, not its bytes" {
+    assert.equal("".length(), 0);
+    assert.equal("hello".length(), 5);
+    assert.equal("héllo".length(), 5);
+    assert.equal("日本語".length(), 3);
+    assert.equal("a😀b".length(), 3);
+    assert.equal(lengthOf("naïve"), 5);
+    assert.equal(lengthOf("plain"), 5);
+}
+
+test "built text counts the same way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let ascii = "abc".concat(ctx, "def");
+    let mixed = "abc".concat(ctx, "dé");
+    assert.equal(ascii.length(), 6);
+    assert.equal(mixed.length(), 5);
+    assert.equal(str.fromInt(ctx, -1234).length(), 5);
+    assert.equal(str.fromChars(ctx, ['ü', 'x']).length(), 2);
+    assert.equal(mixed.slice(3, 5).length(), 2);
+    assert.equal("日本語です".slice(1, 4).length(), 3);
+    assert.equal("  pad  ".trim().length(), 3);
+}
+
+test "a length is kept across a loop and a call" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = ["one", "twö", "", "three", "日本"];
+    assert.equal(total(words, 0), 13);
+    let n = words.fold(fn(acc, w) => acc + w.length(), 0);
+    assert.equal(n, 13);
+    let lengths = words.map(ctx, fn(w) => w.length());
+    assert.equal(lengths, [3, 3, 0, 5, 2]);
+}

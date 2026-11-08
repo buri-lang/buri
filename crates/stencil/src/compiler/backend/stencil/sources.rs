@@ -309,6 +309,9 @@ void buri_rt_free(uint64_t);
 void buri_rt_drop(uint64_t, void *);
 uint64_t buri_rt_alloc(uint64_t);
 uint64_t buri_rt_alloc_zeroed(uint64_t);
+// The scalar count of a `Str` whose length word lacks the ASCII flag; the
+// runtime masks the flag off itself.
+uint64_t buri_rt_str_scalar_len(uint64_t, uint64_t);
 // 128-bit division, which is a call on every backend: clang would otherwise
 // reach compiler-rt's `__divti3`, and a Buri artifact links `libburi_rt.a` and
 // the C library and nothing else. The runtime's entry also owns the
@@ -712,6 +715,17 @@ fn moves(o: &mut Out) {
         "void $NAME(ARGS0) { uint64_t n = AT(uint64_t, _JIT_A); \
          AT(uint64_t, _JIT_D) = n ? (uint64_t)(uintptr_t)buri_rt_alloc_zeroed(n * (uint64_t)OFF(_JIT_P)) \
          : (uint64_t)0; TAIL0; }"
+            .into(),
+    );
+    // `str.length` (`emit.rs::call`), with `A` the `Str`'s length word and `B`
+    // its pointer word: the byte count where the ASCII flag, bit 63, is set,
+    // and the runtime's scalar count only where it is not.
+    o.push(
+        "strlen",
+        "void $NAME(ARGS0) { uint64_t n = AT(uint64_t, _JIT_A); \
+         AT(uint64_t, _JIT_D) = __builtin_expect((int64_t)n < 0, 1) \
+         ? n & 0x7FFFFFFFFFFFFFFFull : buri_rt_str_scalar_len(AT(uint64_t, _JIT_B), n); \
+         TAIL0; }"
             .into(),
     );
     // A box (`emit::box_into`): a block of exactly the value's width, written

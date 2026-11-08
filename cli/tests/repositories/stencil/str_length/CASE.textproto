@@ -1,0 +1,15 @@
+# A `Str`'s length counts Unicode scalars, whether the text is all ASCII or
+# not, and whether it came from a literal, a concatenation, a slice or a
+# conversion. Both kinds of text run through every shape of call, on both
+# backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a string's length counts scalars on both backends, ASCII or not"
+
+run {
+  args: ["test", "//lib/text", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
