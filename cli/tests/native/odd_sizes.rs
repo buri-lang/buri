@@ -142,6 +142,58 @@ test "seven bytes" {
     );
 }
 
+/// An element with padding after it, and a three-byte value a closure captures
+/// and reads on every call.
+#[test]
+fn a_padded_element_and_a_three_byte_capture_read_back() {
+    passes(
+        "padded-elements",
+        r#"from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Equal, Show for Padded;
+struct Padded {
+    n: I32,
+    b: Bool,
+}
+
+derive Equal, Show for Three;
+struct Three {
+    a: Bool,
+    b: Bool,
+    c: Bool,
+}
+
+fn second<T>(xs: [T], none: T): T {
+    match (xs) {
+        [_, x, ..] => x,
+        _ => none,
+    }
+}
+
+fn padded(n: I32): [Padded] {
+    [Padded { n: n, b: false }, Padded { n: n + 1, b: true }, Padded { n: n + 2, b: false }]
+}
+
+test "an element with padding after it" {
+    let none = Padded { n: 0, b: false };
+    assert.equal(second(padded(7), none), Padded { n: 8, b: true });
+}
+
+test "a three-byte capture" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let t = second([Three { a: false, b: false, c: false }, Three { a: true, b: false, c: true }], Three { a: false, b: true, c: false });
+    let f = fn(x: Int) => if (t.a && !t.b && t.c) { x } else { 0 - x };
+    assert.equal([1, 2, 3].map(ctx, f), [1, 2, 3]);
+}
+"#,
+        2,
+    );
+}
+
 /// A literal of sixteen mebibytes and eight bytes, with a short one after it,
 /// both read back.
 #[test]
