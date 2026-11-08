@@ -3755,7 +3755,14 @@ impl Scan<'_> {
             None => borrowed_root(scrutinee)
                 .filter(|r| self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)),
         };
-        if let Some(r) = kept {
+        // Only the arms that read words need the root: each of those holds it
+        // and drops it after its own body. One that binds nothing and has no
+        // guard is left to dispose of it like any other local, so `.None =>
+        // note(log)` hands `log` on unshared beside `.Some(n) => …`. Under a
+        // jump the arms are kept whole and the root is held across all of
+        // them, as below.
+        let per_arm = kept.filter(|_| !self.jumps_within(id));
+        if let (Some(r), None) = (kept, per_arm) {
             self.enliven(live, r);
         }
         let mut gids: Vec<Option<NodeId>> = Vec::new();
@@ -3797,7 +3804,14 @@ impl Scan<'_> {
             &mut rows,
             &mut |me, (a, bid, gid, edges), live| {
                 let edges_before = me.jumps.len();
+                let holds = per_arm.filter(|_| a.guard.is_some() || binds_something(&a.pattern));
+                if let Some(r) = holds {
+                    me.enliven(live, r);
+                }
                 me.arm(a, *gid, *bid, live, mode, token, built);
+                if let Some(r) = holds {
+                    me.push(*bid, Position::After, RcOp::DecRef, Target::Local(r));
+                }
                 *edges = me.jumps.get(edges_before..).unwrap_or_default().to_vec();
             },
         );
@@ -3883,7 +3897,7 @@ impl Scan<'_> {
         // one that reads it at its last read, one that doesn't at its back
         // edges above. Dropping it again before every jump released it twice
         // in an arm that handed it on, as in `.A => loop(xs.push(ctx, r))`.
-        if let (Some(r), true) = (kept, falls_through) {
+        if let (Some(r), None, true) = (kept, per_arm, falls_through) {
             self.pending.push(r);
         }
         if falls_through {

@@ -1146,3 +1146,192 @@ export fn main(host: NativeHost): Result<(), Str> {
         );
     }
 }
+
+/// Two thousand rounds of a `match` on a record's field where one arm binds
+/// the field and the other hands the record to a function that pushes onto
+/// its list. The arm that binds nothing reads nothing of the record, so the
+/// push finds the list unique and grows it in place.
+#[test]
+fn an_arm_binding_nothing_beside_one_that_binds_pushes_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+struct Log { leader: Option<Str>, history: [Int], n: Int }
+
+fn note<C: Allocator>(ctx: C, log: Log): Log {
+  Log { ..log, history: log.history.push(ctx, log.n) }
+}
+
+fn request<C: Allocator>(ctx: C, log: Log): Log {
+  match (log.leader) {
+    .Some(name) => Log { ..log, n: log.n + name.length() },
+    .None => note(ctx, log),
+  }
+}
+
+fn run<C: Allocator>(ctx: C, log: Log, left: Int): Log {
+  if (left == 0) { log } else { run(ctx, request(ctx, Log { ..log, n: log.n + 1 }), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let log = run(ctx, Log { leader: .None, history: [], n: 0 }, 2000);
+  let led = run(ctx, Log { leader: .Some("abc"), history: [7], n: 0 }, 5);
+  let _ = io.println(host.stdout, "${log.history.length()} ${log.history.get(1999)} ${log.n} ${led.history.length()} ${led.n}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("arm-binding-nothing-beside-binding", source) {
+        assert_eq!(
+            r.stdout, "2000 .Some(2000) 2000 1 20\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 100,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the arm that binds \
+             nothing handed on a record that its sibling's binding still held, and the push copied"
+        );
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
+
+/// The same `match` shape where the record is also held elsewhere: by the
+/// caller, by a closure, and by a list. Each of those must still read the
+/// record as it was before the push.
+#[test]
+fn an_arm_binding_nothing_leaves_a_record_held_elsewhere_unchanged() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+struct Log { leader: Option<Str>, history: [Int], n: Int }
+
+fn note<C: Allocator>(ctx: C, log: Log): Log {
+  Log { ..log, history: log.history.push(ctx, log.n) }
+}
+
+fn request<C: Allocator>(ctx: C, log: Log): Log {
+  match (log.leader) {
+    .Some(name) => Log { ..log, history: log.history.push(ctx, name.length()) },
+    .None => note(ctx, log),
+  }
+}
+
+fn sum(xs: [Int], i: Int, acc: Int): Int {
+  match (xs.get(i)) {
+    .Some(x) => sum(xs, i + 1, acc + x),
+    .None => acc,
+  }
+}
+
+fn rounds<C: Allocator>(ctx: C, log: Log, kept: [Log], left: Int): [Log] {
+  if (left == 0) {
+    kept
+  } else {
+    let next = request(ctx, Log { ..log, n: log.n + 1 });
+    rounds(ctx, next, kept.push(ctx, log), left - 1)
+  }
+}
+
+fn total(kept: [Log], i: Int, acc: Int): Int {
+  match (kept.get(i)) {
+    .Some(l) => total(kept, i + 1, acc * 10 + l.history.length()),
+    .None => acc,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = Log { leader: .None, history: [1, 2], n: 5 };
+  let seen = fn() => a.history.length();
+  let held = [a];
+  let b = request(ctx, a);
+  let c = request(ctx, Log { ..a, leader: .Some("xyz") });
+  let kept = rounds(ctx, Log { leader: .None, history: [], n: 0 }, [], 4);
+  let line = "${a.history.length()} ${seen()} ${total(held, 0, 0)} ${sum(b.history, 0, 0)} ${sum(c.history, 0, 0)} ${total(kept, 0, 0)}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("arm-binding-nothing-held-elsewhere", source) {
+        assert_eq!(r.stdout, "2 2 2 8 6 123\n", "{backend}: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
+
+/// An arm that binds nothing beside a guarded arm and an arm that leaves
+/// early through `?`. A failed guard falls to the arm binding nothing, which
+/// still owns the record; an early exit still releases it; and the record
+/// the caller kept reads back unchanged.
+#[test]
+fn an_arm_binding_nothing_beside_a_guard_and_an_early_exit_releases_once() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+struct Log { leader: Option<Str>, history: [Int], n: Int }
+
+fn check(name: Str): Result<Int, Str> {
+  if (name == "bad") { .Err(name) } else { .Ok(name.length()) }
+}
+
+fn step<C: Allocator>(ctx: C, log: Log): Result<Log, Str> {
+  match (log.leader) {
+    .Some(name) if name.length() > 3 => .Ok(Log { ..log, n: log.n + 100 }),
+    .Some(name) => {
+      let k = check(name)?;
+      .Ok(Log { ..log, history: log.history.push(ctx, k) })
+    },
+    _ => .Ok(Log { ..log, history: log.history.push(ctx, log.n) }),
+  }
+}
+
+fn run<C: Allocator>(ctx: C, log: Log, left: Int): Result<Log, Str> {
+  if (left == 0) {
+    .Ok(log)
+  } else {
+    let next = step(ctx, Log { ..log, n: log.n + 1 })?;
+    run(ctx, next, left - 1)
+  }
+}
+
+fn show(r: Result<Log, Str>): Int {
+  match (r) {
+    .Ok(l) => l.history.length() * 10000 + l.n,
+    .Err(e) => 0 - e.length(),
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let kept = Log { leader: .Some("longer"), history: [4], n: 0 };
+  let plain = run(ctx, Log { leader: .None, history: [], n: 0 }, 2000);
+  let guarded = run(ctx, kept, 3);
+  let short = run(ctx, Log { ..kept, leader: .Some("ab") }, 3);
+  let refused = run(ctx, Log { ..kept, leader: .Some("bad") }, 3);
+  let _ = io.println(host.stdout, "${show(plain)} ${show(guarded)} ${show(short)} ${show(refused)} ${kept.history.length()} ${kept.n}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("arm-binding-nothing-guard-early-exit", source) {
+        assert_eq!(
+            r.stdout, "20002000 10303 40003 -3 1 0\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 100,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the arm that binds \
+             nothing handed on a record its siblings still held, and the push copied"
+        );
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
