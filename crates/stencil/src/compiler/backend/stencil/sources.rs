@@ -35,7 +35,9 @@
 
 use super::abi::{Loc, Reg, StencilTarget, CPS_REGISTER_COUNT, RETURN_SHAPES};
 use super::elfobj as elf;
-use super::extract::{extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms};
+use super::extract::{
+    extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, narrow, swap_arms,
+};
 use super::library::{Builder, HoleKind, Stencil};
 use super::machobj as macho;
 use std::collections::HashMap;
@@ -2094,10 +2096,13 @@ fn assemble(
                 variants.append(&mut extra);
             }
             for (k, mut v) in variants {
+                v.name.clone_from(&k);
                 if target.is_arm64() {
                     one_register_pairs(&k, &v)?;
+                    // Every twin has its own narrow form, so a fold and the
+                    // sixteen-bit `movz` never have to be traded for each other.
+                    v.narrow = narrow(&v).map(Box::new);
                 }
-                v.name.clone_from(&k);
                 lib.push(k, v);
             }
         }

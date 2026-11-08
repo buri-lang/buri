@@ -385,6 +385,7 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
                     branches: Vec::new(),
                     conds: Vec::new(),
                     lo12: Vec::new(),
+                    movz: Vec::new(),
                 }),
             }
         }
@@ -658,6 +659,9 @@ fn remove(
         }
         for l in h.lo12.iter_mut() {
             l.0 = moved(l.0)?;
+        }
+        for m in h.movz.iter_mut() {
+            *m = moved(*m)?;
         }
         // A site outside the body is not dead; the `moved` below is what
         // refuses it, so that one answer covers both loops.
@@ -1412,4 +1416,54 @@ pub fn fold_imm(s: &Stencil) -> Option<Stencil> {
         h.pairs.retain(|p| p.0 != u32::MAX);
     }
     remove(&s2, &dead, &mut code, format!("{}+ifold", s.name), false)
+}
+
+/// Answers the twin of a stencil whose immediate pairs are one `movz` each:
+/// the form the emitter copies when every literal its pairs take fits in
+/// sixteen bits, which most frame offsets, sizes and constants do.
+///
+/// A pair is patched into `movz xD, #lo` + `movk xD, #hi, lsl #16`, and with
+/// `hi` zero the `movk` changes nothing, so the twin drops that word and keeps
+/// the `movz`. Nothing about the register's uses has to be known: the value in
+/// `xD` is the same either way. A pair whose second word names another
+/// register is left whole.
+pub fn narrow(s: &Stencil) -> Option<Stencil> {
+    let words = s.code.len() / 4;
+    let code = words_of(&s.code)?;
+    let mut dead = vec![false; words];
+    let mut s2 = Stencil {
+        name: s.name.clone(),
+        code: s.code.clone(),
+        holes: s.holes.clone(),
+        tail: s.tail,
+        ..Stencil::unspilled()
+    };
+    for h in &mut s2.holes {
+        if h.kind == HoleKind::Branch {
+            continue;
+        }
+        let mut kept = Vec::new();
+        for (a, b) in h.pairs.drain(..) {
+            let (Some(&wa), Some(&wb)) = (code.get(a as usize / 4), code.get(b as usize / 4))
+            else {
+                return None;
+            };
+            if wa & 0x1f != wb & 0x1f {
+                kept.push((a, b));
+                continue;
+            }
+            *dead.get_mut(b as usize / 4)? = true;
+            h.movz.push(a);
+        }
+        h.pairs = kept;
+    }
+    if !dead.contains(&true) {
+        return None;
+    }
+    let mut code = code;
+    let out = remove(&s2, &dead, &mut code, format!("{}+narrow", s.name), false)?;
+    // `Jit::elidable_at` reads the tail off the unfolded body, so the twin has
+    // to end in the same continuation.
+    let tail = |s: &Stencil| s.tail.and_then(|i| s.holes.get(i)).map(|h| h.name.clone());
+    (tail(&out) == tail(s)).then_some(out)
 }

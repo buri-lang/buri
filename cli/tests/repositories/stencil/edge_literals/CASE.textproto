@@ -1,0 +1,13 @@
+# A literal just below, at or just above sixteen bits, or past thirty-two,
+# keeps its value in arithmetic, a comparison and a branch. Both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a literal at the edge of sixteen bits keeps its value"
+
+run {
+  args: ["test", "//lib/edge", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

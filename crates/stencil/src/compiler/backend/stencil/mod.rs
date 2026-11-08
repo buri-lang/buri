@@ -1342,6 +1342,42 @@ mod tests {
         }
     }
 
+    /// A narrow twin is its stencil less one word per pair it turned into a
+    /// `movz`, ending in the same continuation, and the arm64 libraries have
+    /// them: a twin that stopped being built would only make code slower.
+    #[test]
+    fn every_narrow_twin_drops_one_word_per_pair() {
+        for t in abi::StencilTarget::ALL {
+            if !available_for(t) {
+                continue;
+            }
+            let lib = load(t).expect("a library this toolchain baked decodes");
+            let mut twins = 0usize;
+            for st in lib.iter() {
+                let Some(n) = st.narrow.as_deref() else {
+                    continue;
+                };
+                twins += 1;
+                let movz: usize = n.holes.iter().map(|h| h.movz.len()).sum();
+                assert!(movz > 0, "{}", st.name);
+                assert_eq!(n.code.len() + 4 * movz, st.code.len(), "{}", st.name);
+                for (h, m) in st.holes.iter().zip(&n.holes) {
+                    assert_eq!(h.name, m.name, "{}", st.name);
+                    assert_eq!(h.pairs.len(), m.pairs.len() + m.movz.len(), "{}", st.name);
+                }
+                let tail =
+                    |s: &library::Stencil| s.tail.map(|i| s.holes.get(i).map(|h| h.name.clone()));
+                assert_eq!(tail(st), tail(n), "{}", st.name);
+            }
+            assert_eq!(
+                twins > 0,
+                t.is_arm64(),
+                "{} has {twins} narrow twins",
+                t.slug()
+            );
+        }
+    }
+
     /// The extractor's name guard, asserted against the libraries this
     /// toolchain actually baked rather than against a synthetic name.
     ///

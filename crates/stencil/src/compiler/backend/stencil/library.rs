@@ -147,6 +147,11 @@ pub struct Hole {
     /// `(offset, scale)` of a load or store whose *unsigned 12-bit offset
     /// field* is the hole. See [`fold_addressing`].
     pub lo12: Vec<(u32, u32)>,
+    /// Offsets of the `movz` that holds the whole value, in a stencil's
+    /// [`Stencil::narrow`] twin. See [`narrow`].
+    ///
+    /// [`narrow`]: super::extract::narrow
+    pub movz: Vec<u32>,
 }
 
 /// A place where a stencil reads bytes clang spilled, and where in
@@ -186,6 +191,9 @@ pub struct Stencil {
     /// laid out immediately after (the paper's "control is passed directly to
     /// the next operation").
     pub tail: Option<usize>,
+    /// The same stencil with each immediate pair one `movz`, for operands that
+    /// all fit sixteen bits. See [`narrow`](super::extract::narrow).
+    pub narrow: Option<Box<Stencil>>,
 }
 
 impl Stencil {
@@ -201,6 +209,7 @@ impl Stencil {
             consts_align: 0,
             const_refs: Vec::new(),
             tail: None,
+            narrow: None,
         }
     }
 }
@@ -572,6 +581,7 @@ fn put_record(out: &mut Vec<u8>, s: &Stencil) {
         put_u32s(out, &h.branches);
         put_u32s(out, &h.conds);
         put_pairs(out, &h.lo12);
+        put_u32s(out, &h.movz);
     }
     put_u32(out, s.consts.len() as u32);
     out.extend_from_slice(&s.consts);
@@ -581,6 +591,17 @@ fn put_record(out: &mut Vec<u8>, s: &Stencil) {
         put_u32(out, c.field);
         put_u32(out, c.insn_end);
         put_u32(out, c.at);
+    }
+    // The narrow twin travels inside its stencil's record, code first, so
+    // that it costs the index nothing and is read with the stencil.
+    match &s.narrow {
+        None => put_u32(out, 0),
+        Some(n) => {
+            put_u32(out, 1);
+            put_u32(out, n.code.len() as u32);
+            out.extend_from_slice(&n.code);
+            put_record(out, n);
+        }
     }
 }
 
@@ -610,6 +631,7 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
             branches: c.u32s()?,
             conds: c.u32s()?,
             lo12: c.pairs()?,
+            movz: c.u32s()?,
         });
     }
     let nc = c.usize()?;
@@ -624,6 +646,15 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
             at: c.u32()?,
         });
     }
+    let narrow = match c.u32()? {
+        0 => None,
+        _ => {
+            let n = c.usize()?;
+            let code_at = c.at;
+            c.take(n)?;
+            Some(Box::new(read_stencil(bytes, c.at as u32, code_at as u32)?))
+        }
+    };
     let code = Cursor {
         bytes,
         at: code as usize,
@@ -638,6 +669,7 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
         consts_align,
         const_refs,
         tail: (tail != u32::MAX).then_some(tail as usize),
+        narrow,
     })
 }
 
@@ -729,6 +761,7 @@ mod tests {
                 branches: vec![8],
                 conds: vec![],
                 lo12: vec![(4, 8)],
+                movz: vec![12],
             }],
             consts: vec![9, 9, 9, 9, 9, 9, 9, 9],
             consts_align: 16,
@@ -738,6 +771,12 @@ mod tests {
                 at: 0,
             }],
             tail: Some(0),
+            narrow: Some(Box::new(Stencil {
+                name: String::from("bin/add/i64/ff/f+narrow"),
+                code: vec![1, 2, 3, 4],
+                tail: Some(0),
+                ..Stencil::unspilled()
+            })),
         };
         let mut lib = Builder::new(String::from("r3"));
         lib.push(s.name.clone(), s.clone());
@@ -821,6 +860,12 @@ mod tests {
         assert_eq!(h.pairs, vec![(0, 4)]);
         assert_eq!(h.branches, vec![8]);
         assert_eq!(h.lo12, vec![(4, 8)]);
+        assert_eq!(h.movz, vec![12]);
+        // The narrow twin is read with its stencil, code and all.
+        let n = s.narrow.as_deref().unwrap();
+        assert_eq!(n.name, "bin/add/i64/ff/f+narrow");
+        assert_eq!(n.code, vec![1, 2, 3, 4]);
+        assert_eq!(n.tail, Some(0));
         // The spilled constants travel with the stencil, because there is
         // nothing else that could supply them at emission time.
         assert_eq!(s.consts, vec![9, 9, 9, 9, 9, 9, 9, 9]);

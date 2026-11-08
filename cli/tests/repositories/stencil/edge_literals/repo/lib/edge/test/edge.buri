@@ -1,0 +1,80 @@
+from "core/testing/assert" import * as assert;
+
+// Each literal sits just below, at or just above a power of two the machine
+// code may hold in one instruction.
+fn plus(x: Int): Int {
+    x + 65535
+}
+
+fn plusMore(x: Int): Int {
+    x + 65536
+}
+
+fn times(x: Int): Int {
+    x * 65537
+}
+
+fn minus(x: Int): Int {
+    x - 65536
+}
+
+fn rest(x: Int): Int {
+    x % 65536
+}
+
+fn shrunk(x: Int): Int {
+    x / 65537
+}
+
+fn under(x: Int): Bool {
+    x < 65536
+}
+
+fn top(x: Int): Bool {
+    x == 65535
+}
+
+fn wide(x: Int): Int {
+    x + 4294967295
+}
+
+fn wider(x: Int): Int {
+    x - 4294967296
+}
+
+fn low(x: U16): U16 {
+    x.wrappingAdd(65535)
+}
+
+fn high(x: U32): U32 {
+    x.wrappingAdd(65536)
+}
+
+fn pick(x: Int): Int {
+    if (x < 0) { -65536 } else { 65537 }
+}
+
+test "a literal at the edge of sixteen bits keeps its value" {
+    assert.equal(plus(1), 65536);
+    assert.equal(plusMore(1), 65537);
+    assert.equal(times(2), 131074);
+    assert.equal(minus(0), -65536);
+    assert.equal(rest(65537), 1);
+    assert.equal(rest(65535), 65535);
+    assert.equal(shrunk(131074), 2);
+    assert.equal(under(65535), true);
+    assert.equal(under(65536), false);
+    assert.equal(top(65535), true);
+    assert.equal(top(131071), false);
+}
+
+test "a literal past sixteen bits keeps its value" {
+    assert.equal(wide(1), 4294967296);
+    assert.equal(wider(0), -4294967296);
+    assert.equal(low(1), 0);
+    assert.equal(low(0), 65535);
+    assert.equal(high(4294901760), 0);
+    assert.equal(high(1), 65537);
+    assert.equal(pick(-1), -65536);
+    assert.equal(pick(1), 65537);
+}

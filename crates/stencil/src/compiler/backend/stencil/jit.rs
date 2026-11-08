@@ -1597,6 +1597,21 @@ impl<'a> Jit<'a> {
                 break;
             }
         }
+        // Then its narrow form, when every value a pair would take fits the
+        // one `movz` that form keeps (`extract::narrow`).
+        if let Some(n) = s.narrow.as_deref() {
+            let fits = n.holes.iter().all(|h| {
+                h.movz.is_empty()
+                    || bind_of(binds, h).is_some_and(|b| match *b {
+                        Bind::Lit(_, x) => x as u32 >> 16 == 0,
+                        Bind::Word(_, Datum::I(x)) => x >> 16 == 0,
+                        _ => false,
+                    })
+            });
+            if fits {
+                s = n;
+            }
+        }
         // The hole on the stencil's last instruction, once the fold above has
         // settled which twin is being copied.
         let tail = s.tail.and_then(|t| s.holes.get(t));
@@ -1761,6 +1776,9 @@ impl<'a> Jit<'a> {
                 for (o, scale) in &h.lo12 {
                     self.patch_lo12(at + *o as u64, x as u32, *scale);
                 }
+                for o in &h.movz {
+                    self.patch_movz(at + u64::from(*o), x as u32);
+                }
             }
             Bind::Word(_, d) => {
                 if !self.target.is_arm64() {
@@ -1775,6 +1793,9 @@ impl<'a> Jit<'a> {
                         // `imm12` holes are bound to literals.
                         for (o, scale) in &h.lo12 {
                             self.patch_lo12(at + *o as u64, x as u32, *scale);
+                        }
+                        for o in &h.movz {
+                            self.patch_movz(at + u64::from(*o), x as u32);
                         }
                         if h.pairs.is_empty() {
                             return;
@@ -1988,6 +2009,15 @@ impl<'a> Jit<'a> {
             .set_word(adrp, 0xd280_0000 | ((v & 0xffff) << 5) | rd);
         self.region
             .set_word(add, 0xf2a0_0000 | (((v >> 16) & 0xffff) << 5) | rd);
+    }
+
+    /// The one `movz` a narrow twin keeps of a pair: `v` is under 1 << 16, as
+    /// `Jit::emit` checked before copying the twin.
+    fn patch_movz(&mut self, at: u64, v: u32) {
+        debug_assert!(v >> 16 == 0);
+        let rd = self.region.word_at(at) & 0x1f;
+        self.region
+            .set_word(at, 0xd280_0000 | ((v & 0xffff) << 5) | rd);
     }
 
     /// The `imm12` field of a load or store the library builder folded the hole

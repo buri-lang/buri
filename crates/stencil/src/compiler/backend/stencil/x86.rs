@@ -454,6 +454,7 @@ fn one(
                     branches: Vec::new(),
                     conds: Vec::new(),
                     lo12: Vec::new(),
+                    movz: Vec::new(),
                 });
                 // Just pushed, so there is a last.
                 holes.last_mut().ok_or_else(|| {
@@ -514,6 +515,7 @@ fn one(
         consts_align: consts.align,
         const_refs,
         tail,
+        narrow: None,
     })
 }
 
