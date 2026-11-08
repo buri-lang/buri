@@ -420,6 +420,23 @@ impl Library {
         self.twin(i, k).map(|(_, s)| s)
     }
 
+    /// The [`FOLD_SUFFIXES`] twins of the stencil at `i` that the library has,
+    /// in that order: [`Library::fold_twin`] for every `k`, with the twins
+    /// looked up once rather than once a slot, because the emitter asks on
+    /// every stencil it copies.
+    pub fn fold_twins(&self, i: usize) -> impl Iterator<Item = &Stencil> {
+        let twins = self.stencil(i).and_then(|s| {
+            self.twins
+                .get(i)
+                .map(|t| t.get_or_init(|| self.twins_of(&s.name)))
+        });
+        twins
+            .into_iter()
+            .flat_map(|t| t.iter().take(FOLD_SUFFIXES_LEN))
+            .filter(|j| **j != NO_TWIN)
+            .filter_map(|j| self.stencil(*j as usize))
+    }
+
     /// The [`SWAP_SUFFIX`] twin of the stencil at `i`, and its index, if the
     /// library has one.
     pub fn swap_twin(&self, i: usize) -> Option<(usize, &Stencil)> {

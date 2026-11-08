@@ -1306,9 +1306,9 @@ mod tests {
         }
     }
 
-    /// `Library::fold_twin` answers by index what the emitter used to ask by
-    /// name, and the two must agree for **every** stencil in every library
-    /// this toolchain baked.
+    /// `Library::fold_twin` and `Library::fold_twins` answer by index what the
+    /// emitter used to ask by name, and they must agree for **every** stencil
+    /// in every library this toolchain baked.
     ///
     /// A twin that the index missed is a fold that stops being applied — the
     /// emitted code stays correct and gets bigger and slower, which is exactly
@@ -1328,6 +1328,13 @@ mod tests {
                     assert_eq!(by_name, by_index, "{} {}{suffix}", t.slug(), st.name);
                     twins += usize::from(by_index.is_some());
                 }
+                // The emitter asks for them all at once, in slot order.
+                let each: Vec<&String> = (0..library::FOLD_SUFFIXES.len())
+                    .filter_map(|k| lib.fold_twin(i, k))
+                    .map(|f| &f.name)
+                    .collect();
+                let all: Vec<&String> = lib.fold_twins(i).map(|f| &f.name).collect();
+                assert_eq!(all, each, "{} {}", t.slug(), st.name);
             }
             // A library with no twins at all would make the assertion above
             // vacuous. The folds are an AArch64 `imm12` question

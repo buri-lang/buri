@@ -1576,14 +1576,11 @@ impl<'a> Jit<'a> {
         // scale and inside its reach, and the two folds are independent, so a
         // stencil can have both, either or neither.
         //
-        // Asked by index rather than by name: `Library::fold_twin` resolved
+        // Asked by index rather than by name: `Library::fold_twins` resolved
         // `key+ifold+fold`, `key+fold` and `key+ifold` once for the whole
         // library, and this is the loop that used to build those three names
         // with `format!` per emitted instruction.
-        for k in 0..super::library::FOLD_SUFFIXES_LEN {
-            let Some(f) = lib.fold_twin(at, k) else {
-                continue;
-            };
+        for f in lib.fold_twins(at) {
             let fits = f.holes.iter().all(|h| {
                 h.lo12.is_empty()
                     || bind_of(binds, h).and_then(Bind::literal).is_some_and(|v| {
