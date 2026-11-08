@@ -830,6 +830,33 @@ impl Scratch {
         run_in_with_stdin(&self.root, args, Some(stdin))
     }
 
+    /// The same, with standard input redirected from the file at `rel` rather
+    /// than written down a pipe, as `buri run //x < file` does. A regular file
+    /// is a different object to a reader than a pipe is.
+    pub fn run_with_stdin_from(&self, args: &[&str], rel: &str) -> Run {
+        use std::process::Stdio;
+        let mut cmd = buri_command();
+        cmd.args(args).arg("--color=never").current_dir(&self.root);
+        let what = format!("buri {} < {rel}", args.join(" "));
+        let input = std::fs::File::open(self.path(rel)).expect("the input file opens");
+        let mut child = cmd
+            .stdin(Stdio::from(input))
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the buri binary runs");
+        let (stdout, stderr) = hang::drain(&mut child);
+        let status = hang::wait_capped(&mut child, &what, hang::cap());
+        let run = Run {
+            code: status.code().unwrap_or(-1),
+            stdout: strip_ansi(&String::from_utf8_lossy(&stdout.take())),
+            stderr: strip_ansi(&String::from_utf8_lossy(&stderr.take())),
+            what,
+        };
+        run.heap_ok();
+        run
+    }
+
     /// The same, with variables added to the environment the CLI inherits.
     pub fn run_with_env(&self, args: &[&str], env: &[(&str, &str)]) -> Run {
         run_in_with_env(&self.root, args, env)

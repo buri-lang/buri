@@ -623,7 +623,25 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// build runs its own tools natively.
 #[test]
 fn a_program_serving_a_tool_answers_on_javascript() {
-    let scratch = Scratch::repo("generators-serve-on-js");
+    let scratch = serving("generators-serve-on-js", "NodeHost", "\"node\"");
+    let run = scratch.run_with_stdin(&["run", "//cmd/serve"], TWO_REQUESTS.as_bytes());
+    run.ok();
+    assert_eq!(run.stdout, TWO_ANSWERS, "{}", indent(&run.all()));
+}
+
+/// Two `generate` requests for [`SERVING_PROGRAM`], one line each.
+const TWO_REQUESTS: &str = "{\"entry\":\"generate\",\"inputs\":[{\"path\":\"a.txt\",\"language\":\"text\",\"value\":\"alpha 4\"}],\"files\":[]}\n\
+     {\"entry\":\"generate\",\"inputs\":[{\"path\":\"a.txt\",\"language\":\"text\",\"value\":\"beta 5\"}],\"files\":[]}\n";
+
+/// What [`SERVING_PROGRAM`] answers [`TWO_REQUESTS`].
+const TWO_ANSWERS: &str = "{\"modules\":[{\"name\":\"alpha\",\"text\":\"export let alpha: Int = 25;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n\
+     {\"modules\":[{\"name\":\"beta\",\"text\":\"export let beta: Int = 20;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n";
+
+/// A repository holding [`SERVING_PROGRAM`] as `//cmd/serve`, entered from
+/// `host` (`NodeHost` or `NativeHost`) and built for `platform`, and
+/// [`TWO_REQUESTS`] in `requests.txt`.
+fn serving(name: &str, host: &str, platform: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
     scratch.write(
         "tools/gen/BUILD.buri",
         "library {\n    visibility: [\"//visibility:public\"]\n}\n",
@@ -631,24 +649,44 @@ fn a_program_serving_a_tool_answers_on_javascript() {
     scratch.write("tools/gen/lib.buri", DIVIDING_TOOL);
     scratch.write(
         "cmd/serve/BUILD.buri",
-        "binary {\n    dependencies: [\"//tools/gen\"]\n\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+        &format!(
+            "binary {{\n    dependencies: [\"//tools/gen\"]\n\n    outputs: [\n        {{ platform: {platform} }},\n    ]\n}}\n"
+        ),
     );
-    scratch.write("cmd/serve/main.buri", SERVING_PROGRAM);
-    let request = |value: &str| {
-        format!(
-            "{{\"entry\":\"generate\",\"inputs\":[{{\"path\":\"a.txt\",\"language\":\"text\",\"value\":\"{value}\"}}],\"files\":[]}}\n"
+    let module = if host == "NodeHost" { "node" } else { "native" };
+    let program = SERVING_PROGRAM
+        .replace(
+            "from \"node\" import { NodeHost }",
+            &format!("from \"{module}\" import {{ {host} }}"),
         )
-    };
-    let input = format!("{}{}", request("alpha 4"), request("beta 5"));
-    let run = scratch.run_with_stdin(&["run", "//cmd/serve"], input.as_bytes());
+        .replace("host: NodeHost", &format!("host: {host}"));
+    scratch.write("cmd/serve/main.buri", &program);
+    scratch.write("requests.txt", TWO_REQUESTS);
+    scratch
+}
+
+/// **A program serving a tool answers requests read from a file and exits at
+/// its end, on JavaScript.** A file on standard input ends where a pipe would
+/// be closed, so `serve` answers each line and stops there.
+#[test]
+fn a_program_serving_a_tool_answers_a_file_of_requests_on_javascript() {
+    let scratch = serving("generators-serve-file-js", "NodeHost", "\"node\"");
+    let run = scratch.run_with_stdin_from(&["run", "//cmd/serve"], "requests.txt");
     run.ok();
-    assert_eq!(
-        run.stdout,
-        "{\"modules\":[{\"name\":\"alpha\",\"text\":\"export let alpha: Int = 25;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n\
-         {\"modules\":[{\"name\":\"beta\",\"text\":\"export let beta: Int = 20;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n",
-        "{}",
-        indent(&run.all())
+    assert_eq!(run.stdout, TWO_ANSWERS, "{}", indent(&run.all()));
+}
+
+/// The same natively, which is how the build runs its tools.
+#[test]
+fn a_program_serving_a_tool_answers_a_file_of_requests_natively() {
+    let scratch = serving(
+        "generators-serve-file-native",
+        "NativeHost",
+        &host_platform(),
     );
+    let run = scratch.run_with_stdin_from(&["run", "//cmd/serve"], "requests.txt");
+    run.ok();
+    assert_eq!(run.stdout, TWO_ANSWERS, "{}", indent(&run.all()));
 }
 
 /// A tool links like a native binary, so a machine with no C compiler is told

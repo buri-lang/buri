@@ -2376,13 +2376,25 @@ function $host_HostStderr_eprintln(self, t) {
 // The buffer is a queue of chunks rather than one growing `Buffer`, because
 // `readBytes` is a framed protocol's reader: a thousand four-byte headers off
 // the front of one megabyte must not each copy the megabyte.
-const $stdin = { chunks: [], at: 0, size: 0, ended: false };
+//
+// `closed` is the stream's `end`, heard by a listener that stays on. Bun can
+// emit `end` while no read is waiting and still answer `readableEnded` false
+// afterwards, which is what a regular file on standard input does there; a
+// reader that asked only `readableEnded` waited for an `end` already gone.
+const $stdin = { chunks: [], at: 0, size: 0, ended: false, closed: false, heard: false };
 
 function $stdinStream() {
   if (typeof process === "undefined" || !process.stdin) {
     $abort("this platform grants no standard input");
   }
-  return process.stdin;
+  const s = process.stdin;
+  if (!$stdin.heard) {
+    $stdin.heard = true;
+    s.once("end", () => {
+      $stdin.closed = true;
+    });
+  }
+  return s;
 }
 
 // The next chunk, or `null` at end of input.
@@ -2394,7 +2406,7 @@ function $stdinChunk() {
   const s = $stdinStream();
   const first = s.read();
   if (first !== null && first !== undefined) return Promise.resolve(first);
-  if (s.readableEnded) return Promise.resolve(null);
+  if (s.readableEnded || $stdin.closed) return Promise.resolve(null);
   return new Promise((resolve) => {
     const settle = (v) => {
       s.off("readable", onReadable);
