@@ -933,7 +933,7 @@ impl<'a> Jit<'a> {
                 // whatever the frame last held and the walk is behind the test.
                 Site::Guarded { null_at, ty } => {
                     let skip = st.label();
-                    let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
+                    let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
                     self.emit(
                         key,
                         &[
@@ -1644,10 +1644,11 @@ impl<'a> Jit<'a> {
                         self.emit("jump", &[Jump::T.to(V::Fall)]);
                         return;
                     }
-                    let lnext = st.label();
-                    // (g) The case body falls through, so the test's `JIT_T`
-                    // arm is the one that has to be the elidable one.
-                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), Jump::T);
+                    // (g) The next case's test falls through, so the test's
+                    // `JIT_F` arm is the one that has to be the elidable one:
+                    // a matched tag is one taken branch, and a refused one
+                    // none.
+                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), Jump::F);
                     // (2) The census says `tagbr + jump` is the commonest
                     // adjacent pair in the corpus after the constant
                     // stores: every `match` arm is a tag test followed by a
@@ -1657,7 +1658,7 @@ impl<'a> Jit<'a> {
                     let mut binds: Vec<Bind> = vec![
                         Lit::A.of(src as u64),
                         Jump::T.to(V::Blk(Label::of(tgt.block))),
-                        Jump::F.to(V::Blk(lnext)),
+                        Jump::F.to(V::Fall),
                     ];
                     if fusedw.is_some() {
                         binds.push(Lit::N.of(*k));
@@ -1665,7 +1666,6 @@ impl<'a> Jit<'a> {
                         binds.push(Word::K.lit(*k));
                     }
                     self.emit(key, &binds);
-                    st.place(lnext, self.region.code_addr());
                 }
                 match default {
                     Some(tgt) => {
@@ -2408,7 +2408,7 @@ impl Jit<'_> {
             .bytes();
         let some = st.label();
         let done = st.label();
-        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
@@ -2700,7 +2700,7 @@ impl Jit<'_> {
         let (lo, hi) = (int_pattern(int, true), int_pattern(int, false));
         let ok = st.label();
         let done = st.label();
-        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
