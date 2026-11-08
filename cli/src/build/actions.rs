@@ -2915,9 +2915,15 @@ fn objects_named(
     // an identical one — it is a pure function of the program, and nothing has
     // taken the program by `&mut` since — so this is the same lowering with one
     // whole-program analysis in it instead of two.
-    let lowered = match &plan {
-        Some(plan) => lower::run_with(program, tables, plan),
-        None => lower::run(program, tables),
+    //
+    // Lowering is the middle end's last step, so `BURI_PROFILE` bills it there
+    // rather than to `other`.
+    let lowered = {
+        let _phase = crate::profile::enter(crate::profile::Phase::Middle);
+        match &plan {
+            Some(plan) => lower::run_with(program, tables, plan),
+            None => lower::run(program, tables),
+        }
     };
 
     let backend = match backend::native(back_target, profile) {
@@ -2963,6 +2969,9 @@ fn objects_named(
     // out, on both native backends, so the answer is in every unit's key
     // (buri-lang/buri#243).
     let shares = crate::compiler::backend::runtime_table::shares_counts(&lowered);
+    // Rendering and hashing every unit is codegen's work whether or not a unit
+    // turns out to be cached, so `BURI_PROFILE` bills it to `emit`.
+    let keying = crate::profile::enter(crate::profile::Phase::Emit);
     let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
         .into_iter()
         .enumerate()
@@ -2999,6 +3008,7 @@ fn objects_named(
         let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, "");
         keys.push((shared.to_string(), key));
     }
+    drop(keying);
 
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {

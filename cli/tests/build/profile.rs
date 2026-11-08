@@ -194,6 +194,86 @@ fn a_build_on_one_thread_writes_the_same_binary() {
     );
 }
 
+/// `n` structs deriving `Equal` and `Hash`, each with a function that maps and
+/// compares a list of it: a few source lines that monomorphize into many
+/// functions to lower and key.
+fn many_instantiated_types(n: usize) -> (String, String) {
+    let items: String = (0..n)
+        .map(|i| {
+            format!(
+                "struct S{i}(Int, Str);\n\nderive Equal, Hash for S{i};\n\n\
+                 fn g{i}<C: Allocator>(ctx: C, k: Int): Int {{\n    \
+                 let xs = [S{i}(k, \"a\"), S{i}(k + {i}, \"b\")];\n    \
+                 let ys = xs.map(ctx, fn(s) => s);\n    \
+                 if (ys == xs) {{ ys.length() }} else {{ 0 }}\n}}\n\n"
+            )
+        })
+        .collect();
+    let calls: Vec<String> = (0..n).map(|i| format!("g{i}(ctx, k)")).collect();
+    let body = format!(
+        "    let k = 3;\n    let _ = io.println(ctx, \"${{{}}}\").ignore();\n",
+        calls.join(" + ")
+    );
+    (items, body)
+}
+
+/// Each phase's instructions, in millions, off a `BURI_PROFILE=1` report, by
+/// the phase's name: `None` where the platform has no per-thread counter.
+fn phase_table(report: &str) -> Option<std::collections::HashMap<String, f64>> {
+    let mut table = std::collections::HashMap::new();
+    let header = report.lines().position(|l| l.starts_with("buri profile"))?;
+    for line in report.lines().skip(header + 1) {
+        let Some(row) = line.strip_prefix("  ") else {
+            break;
+        };
+        let at = row.find(|c: char| c.is_ascii_digit() || c == '-')?;
+        let count = row[at..].split_whitespace().next()?.parse::<f64>().ok()?;
+        table.insert(row[..at].trim().to_string(), count);
+    }
+    (table.get("all phases").copied().unwrap_or(0.0) > 0.0).then_some(table)
+}
+
+/// **Lowering and keying a program's units are billed to codegen.** A build
+/// lowered each program and rendered and hashed each unit for its cache key
+/// outside any phase, so the report put 0.8 s of a 7 s build under `other`:
+/// a quarter of what a program's own functions cost went there. Doubling the
+/// functions a program builds now grows `other` by under a seventh of what
+/// it grows the whole build by. The middle end and emission take the rest.
+///
+/// Instruction counts rather than times, read where the platform counts them;
+/// the doubling cancels what every build pays alike.
+#[test]
+fn lowering_and_unit_keys_are_billed_to_codegen_not_other() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let table = |n: usize| {
+        let (items, body) = many_instantiated_types(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        for phase in ["middle", "emit", "other"] {
+            run.says(&format!("\n  {phase} "));
+        }
+        phase_table(&run.all())
+    };
+    let (Some(small), Some(large)) = (table(200), table(400)) else {
+        return;
+    };
+    let grew = |phase: &str| large[phase] - small[phase];
+    let (other, whole) = (grew("other"), grew("all phases"));
+    assert!(
+        other <= whole / 7.0,
+        "doubling the program grew `other` by {other:.1} M instructions, \
+         {:.0}% of the build's {whole:.1} M",
+        100.0 * other / whole
+    );
+}
+
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {

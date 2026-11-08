@@ -171,35 +171,38 @@ BURI_PROFILE=1 buri build --release //...
 samply record --save-only --unstable-presymbolicate -- buri build //...
 ```
 
-Cold dev build, `BURI_PROFILE`, 6.0 s in-process plus 1.3 s of `lld`:
+Cold dev build, `BURI_PROFILE`, 6.0 s in-process plus 1.3 s of `lld`, with
+`lower` billed to `middle` and unit keys to `emit`:
 
 | Phase | CPU | Share |
 |---|---:|---:|
-| lex+parse | 0.046 s | 0.6% |
-| check | 0.165 s | 2.3% |
-| monomorphize | 0.520 s | 7.1% |
-| middle | 1.477 s | 20.2% |
-| emit | 1.933 s | 26.5% |
-| link, with `lld` | 1.374 s | 18.8% |
-| other | 1.766 s | 24.2% |
+| lex+parse | 0.048 s | 0.7% |
+| check | 0.168 s | 2.3% |
+| monomorphize | 0.531 s | 7.2% |
+| middle | 2.060 s | 28.0% |
+| emit | 2.253 s | 30.6% |
+| link, with `lld` | 1.392 s | 18.9% |
+| other | 0.910 s | 12.4% |
 
 Cold release build: 294.3 s in-process plus 1.1 s of `lld`. `emit` is 290.3 s,
 98.6%. Inside it `default<O2>` takes 50.5%, instruction selection to bytes
 46.0%, building the modules for real 1.7%, and the glue pre-pass 1.6%
 (4.75 s). Everything above `emit` costs the same as in dev.
 
-**`other` holds 0.8 s of codegen.** `objects_named` runs `lower::run_with` and
-`unit_hashes` after `prepare`'s `Phase::Middle` guard has dropped, so both bill
-to `other`. The rest of `other` is cache writes (0.54 s), lint, and the loader.
+`other` is cache writes (0.54 s), lint, and the loader. It used to hold 0.83 s
+of codegen too, because `lower::run_with` and `unit_hashes` ran outside any
+phase. `profile::lowering_and_unit_keys_are_billed_to_codegen_not_other`
+keeps them out.
 
 Throughput against the goals, `--goals=time`, fastest of 3:
 
 | Phase | Lines/CPU s | Goal | Of goal |
 |---|---:|---:|---:|
-| parse | 5.47 M | 10 M | 55% |
-| check | 1.58 M | 1 M | 158% |
-| dev codegen | 48.1 k | 100 k | 48% |
-| dev codegen, `lower` and keys billed to it | 42.0 k | 100 k | 42% |
+| parse | 5.58 M | 10 M | 56% |
+| check | 1.55 M | 1 M | 155% |
+| dev codegen | 42.2 k | 100 k | 42% |
+
+Dev codegen read 49.1 k before `lower` and the keys were billed to it.
 
 Check passed its goal when §6.97 stopped checking each library once per
 program. Dev codegen is short because it runs once per program. Each program
@@ -216,10 +219,6 @@ across programs (`--explain`), so the cache and `Flights` share nothing.
 
 Ranked by CPU saved per unit of complexity. Savings are of the cold builds
 above.
-
-**First, fix the meter.** Put `lower::run_with` and `unit_hashes` under a
-codegen phase, so the goals table reads 42k rather than 48k. Two lines, no
-risk, and every proposal below gets judged by it.
 
 1. **Make codegen units the same across programs.** Up to 39% of dev CPU and
    68% of release. Evidence: 69% of linked functions are another program's by
