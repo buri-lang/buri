@@ -437,6 +437,16 @@ impl Refusal {
     }
 }
 
+/// An ELF link's debug information left out of the artifact.
+///
+/// The backends write none for Buri code, so all of it is the runtime's,
+/// `std`'s and the C library's, and most of that describes code
+/// `--gc-sections` dropped. The linker merged and relocated all of it into
+/// every program: 47 M of a 213 M-instruction link, and 3.3 MB of a 5.7 MB
+/// artifact. A macOS link never copies it either; `ld64` leaves it in the
+/// archive.
+const STRIP_DEBUG: &str = "-Wl,--strip-debug";
+
 /// Which linker the C driver is told to run.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flavour {
@@ -468,11 +478,17 @@ impl Flavour {
         }
     }
 
-    fn driver_flag(self) -> Option<&'static str> {
+    /// The driver arguments that pick this flavour's linker.
+    ///
+    /// mold links in a child process by default and hands the output over
+    /// while the child frees its memory. That is a second process per link
+    /// for a wall-clock saving no build waits on: 49 M of the 275 M
+    /// instructions one link retired. So `--no-fork` goes with it.
+    fn driver_flags(self) -> &'static [&'static str] {
         match self {
-            Flavour::Mold => Some("-fuse-ld=mold"),
-            Flavour::Lld => Some("-fuse-ld=lld"),
-            Flavour::System => None,
+            Flavour::Mold => &["-fuse-ld=mold", "-Wl,--no-fork"],
+            Flavour::Lld => &["-fuse-ld=lld"],
+            Flavour::System => &[],
         }
     }
 }
@@ -1672,11 +1688,13 @@ impl CDriver {
                 flags.push("-lunwind".into());
                 flags.push("musl/lib/crtendS.o".into());
                 flags.push("musl/lib/crtn.o".into());
+                flags.push(STRIP_DEBUG.into());
             }
             _ => {
                 // A build id is a hash of content that is about to be compared
                 // byte for byte.
                 flags.push("-Wl,--build-id=none".into());
+                flags.push(STRIP_DEBUG.into());
                 // `-dead_strip`'s counterpart: the artifact keeps the part of
                 // the archive it reaches. Measured by relinking the x86-64
                 // Linux CI job's own objects and archive with and without it,
@@ -2254,9 +2272,7 @@ impl CDriver {
         runtime: RuntimeArchive,
     ) -> Vec<std::ffi::OsString> {
         let mut args: Vec<std::ffi::OsString> = Vec::new();
-        if let Some(flag) = self.flavour.driver_flag() {
-            args.push(flag.into());
-        }
+        args.extend(self.flavour.driver_flags().iter().map(Into::into));
         // On a cross link, `-B <gcc-ld dir>` makes `-fuse-ld=lld` find rustc's
         // bundled `ld.lld`, so no system lld need be on `PATH` (see
         // `select_cross`).
@@ -2285,7 +2301,7 @@ impl CDriver {
         crate::build::counted::add(crate::build::counted::Count::Links);
         let mut command = Command::new(&self.driver);
         self.clone().in_dir(dir.to_path_buf()).pin(&mut command);
-        command.args(self.flavour.driver_flag());
+        command.args(self.flavour.driver_flags());
         command.args(["-o", "test-host", "main.o"]);
         command.arg(format!("-Wl,-force_load,{}", runtime_native::ARCHIVE_NAME));
         match spawn::output(&mut command) {
@@ -2377,8 +2393,8 @@ impl Replay {
         let (before, rest) = argv.split_at_checked(start)?;
         Some(Replay {
             program,
-            before: before.to_vec(),
-            after: rest.get(objects.len()..)?.to_vec(),
+            before: searched_once(before),
+            after: searched_once(rest.get(objects.len()..)?),
         })
     }
 
@@ -2430,6 +2446,21 @@ impl Replay {
                 .chain(&self.after)
                 .any(|a| dirs.iter().any(|d| a.contains(d)))
     }
+}
+
+/// `args` with each library directory after its first `-L<dir>` dropped.
+///
+/// A linker searches the directories in order and takes the first match, so a
+/// directory named again can't change what's found. nix's wrappers name each
+/// of theirs three times or more, and the linker checks every one for every
+/// library: 59 M of a 784 M-instruction `ld64.lld` link, and 13 M of a 275 M
+/// mold one. The two-argument `-L <dir>` is left alone.
+fn searched_once(args: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    args.iter()
+        .filter(|arg| !arg.starts_with("-L") || arg.len() == 2 || seen.insert(arg.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// The arguments of one `-###` line: each in double quotes, with `"`, `\` and
@@ -3340,6 +3371,21 @@ mod tests {
             None,
             "an empty entry means no replay"
         );
+    }
+
+    /// A library directory named again is dropped from the replay, in both
+    /// halves, and the two-argument `-L <dir>` is kept as it is.
+    #[test]
+    fn a_replay_searches_each_library_directory_once() {
+        let objects = strings(&["a.o"]);
+        let stderr = " \"/bin/ld\" \"-L/x\" \"-L/y\" \"-L/x\" \"-L\" \"/x\" \"-L\" \"/x\" \
+             \"a.o\" \"-L/y\" \"-L/z\" \"-lc\" \"-L/z\"\n";
+        let replay = Replay::from_dry_run(stderr, &objects).expect("one linker line");
+        assert_eq!(
+            replay.before,
+            strings(&["-L/x", "-L/y", "-L", "/x", "-L", "/x"])
+        );
+        assert_eq!(replay.after, strings(&["-L/y", "-L/z", "-lc"]));
     }
 
     /// A replayed link writes the same bytes the driver writes.

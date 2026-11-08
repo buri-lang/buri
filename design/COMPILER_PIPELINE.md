@@ -213,6 +213,26 @@ Throughput against the goals, `--goals=time`, fastest of 3:
 
 Dev codegen read 49.1 k before `lower` and the keys were billed to it.
 
+On Linux the link was a third of dev codegen. One mold link of a `monorepo`
+program retired 275 M instructions, and three things in it did no useful work:
+
+- `-L` directories. nix's wrappers name each one three times or more, and
+  the linker searches every copy for every library. `Replay` now keeps the
+  first `-L<dir>` of each: 13 M per mold link, 59 M of 784 M per `ld64.lld`
+  link.
+- mold's fork. It links in a child and hands the output over while the child
+  frees its memory. `-Wl,--no-fork` rides with `-fuse-ld=mold`: 49 M.
+- DWARF. An ELF link copies the runtime's, std's and musl's debug sections
+  into every artifact, mostly for code `--gc-sections` dropped. `ld64` never
+  copies them. `-Wl,--strip-debug` saves 47 M and 3.3 MB of a 5.7 MB
+  artifact. `build_driver::a_linux_artifact_carries_no_debug_information`
+  holds it for each linker.
+
+Unit keys memoize each type's layout line per worker, rather than
+re-rendering the closure of every unit's types. Together the four cut dev
+codegen instructions per line by 17% on `ci`, 18% on `monorepo-ci` and 14% on
+its test build (`--goals=count`, aarch64 Linux).
+
 `full` has no generators. A build's only child processes besides `lld` are
 generator runs, one per generator rule, with a workspace tool under bun. The
 `monorepo` goals workspace has 31 of them, and checks, compiles and runs
@@ -291,6 +311,9 @@ Not worth proposing:
   about 5% of dev here, so it may be worth measuring again once proposal 4
   removes the biggest clone.
 - **A lower `-O` for release.** The release backend stays at `default<O2>`.
+- **A flat libSystem stub for macOS links.** `ld64.lld` spends much of a link
+  parsing the SDK's `.tbd` files, but SDK 27's tbd lists arm64e only, so a
+  stub we write would have to track each SDK.
 
 ## Sharing codegen across programs
 

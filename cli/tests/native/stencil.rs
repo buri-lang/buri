@@ -3281,7 +3281,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// stab pointing at them. Neither linker drops the debug information for code
 /// it dead-strips, so on ELF the *file* is mostly a constant that stripping
 /// cannot move — which is exactly why a ratio measured on Mach-O said nothing
-/// true about it.
+/// true about it. A Linux link now passes `--strip-debug`, so the linked and
+/// stripped sizes there are close to equal; the stripped size stays the
+/// measure because it holds on a linker that ignores the flag.
 ///
 /// So what is asserted is the stripped size, which is the same quantity on both
 /// platforms, and it is asserted against numbers that were measured on both:

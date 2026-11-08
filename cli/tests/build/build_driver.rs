@@ -367,6 +367,69 @@ fn buri_linker_picks_the_linker() {
     }
 }
 
+/// A Linux artifact carries no debug information, whichever linker links it,
+/// and still runs. The backends write none for Buri code, so all of it was the
+/// runtime's and the C library's, most of it for code the link dropped: the
+/// linker copied and relocated it into every program.
+#[test]
+fn a_linux_artifact_carries_no_debug_information() {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let on_path = |program: &str| {
+        std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {program}")])
+            .capped_output()
+            .unwrap()
+            .status
+            .success()
+    };
+    for (linker, program) in [("cc", "cc"), ("lld", "ld.lld"), ("mold", "mold")] {
+        if !on_path(program) {
+            continue;
+        }
+        scratch
+            .run_with_env(
+                &["build", "--force", "//cmd/app"],
+                &[("BURI_LINKER", linker)],
+            )
+            .ok();
+        let variant = only_entry(&scratch.path(".buri/out/native"));
+        let app = scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"));
+        let debug: Vec<String> = elf_section_names(&std::fs::read(&app).unwrap())
+            .into_iter()
+            .filter(|name| name.starts_with(".debug"))
+            .collect();
+        assert!(debug.is_empty(), "BURI_LINKER={linker} kept {debug:?}");
+        let out = std::process::Command::new(&app).capped_output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "native\n",
+            "BURI_LINKER={linker}"
+        );
+    }
+}
+
+/// The section names of a 64-bit little-endian ELF file.
+fn elf_section_names(elf: &[u8]) -> Vec<String> {
+    let int = |at: usize, len: usize| -> usize {
+        let mut bytes = [0u8; 8];
+        bytes[..len].copy_from_slice(&elf[at..at + len]);
+        u64::from_le_bytes(bytes) as usize
+    };
+    let (headers, size, count, names) = (int(0x28, 8), int(0x3a, 2), int(0x3c, 2), int(0x3e, 2));
+    let header = |i: usize| headers + i * size;
+    let table = int(header(names) + 0x18, 8);
+    (0..count)
+        .map(|i| {
+            let start = table + int(header(i), 4);
+            let end = start + elf[start..].iter().position(|&b| b == 0).unwrap();
+            String::from_utf8_lossy(&elf[start..end]).into_owned()
+        })
+        .collect()
+}
+
 /// With neither `HOME` nor `BURI_HOME` there is nowhere to remember the linker
 /// between runs: a host build links anyway, and a cross build, whose runtime
 /// is cached under the home, is refused with what to set.

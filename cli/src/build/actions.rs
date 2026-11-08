@@ -2348,7 +2348,7 @@ pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
 /// glue can be sized from, reached across the pointers and erased carriers a
 /// one-level `Layout` stops at. An inlined field was already caught by the
 /// owner's own computed layout; a field behind a pointer, a list element, or an
-/// erased carrier's element is caught now. See [`layout_closure_signature`].
+/// erased carrier's element is caught now. See [`Shapes::closure_signature`].
 ///
 /// The shape lines are sorted **as text**, not by `TypeId`. A `TypeId` is a
 /// program-global interning index, so ordering by it makes an unrelated unit's
@@ -2360,15 +2360,15 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
     let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
     // A unit at a time, over the cores this machine has. Each unit's two hashes
     // are a pure function of the unit's members and of `tables`, and nothing
-    // here writes to the program — so the only per-worker state is the `Layouts`
-    // memo, which is a cache of an answer rather than an answer that
+    // here writes to the program — so the only per-worker state is the
+    // [`Shapes`] memo, which is a cache of an answer rather than an answer that
     // accumulates. `parallel::map_with` returns in index order, which is what
     // keeps `keys` in unit order for `codegen_units_for` and in link order for
     // `link_key`.
     crate::parallel::map_with(
         program.units.len(),
-        || layout::Layouts::new(tables),
-        |layouts, u| {
+        || Shapes::new(tables),
+        |shapes, u| {
             let unit = program.units.get(u);
             let name = unit.map_or_else(String::new, |unit| unit.name.clone());
             let mut text = String::new();
@@ -2386,86 +2386,131 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             types.sort_unstable();
             types.dedup();
             let seeds = types.iter().map(|id| program.types.get(*id).ty);
-            let shapes = layout_closure_signature(layouts, tables, seeds);
+            let layout = shapes.closure_signature(seeds);
             (
                 name,
                 hash_bytes(text.as_bytes()),
-                hash_bytes(shapes.as_bytes()),
+                hash_bytes(layout.as_bytes()),
             )
         },
     )
 }
 
-/// The layout term for one unit: the computed layout of every type in the
-/// transitive closure of the types the unit names, rendered as sorted text.
-///
-/// Seeded with the aggregates a unit's functions name ([`collect_types`]) and
-/// then walked through every type each of those reaches — type arguments, an
-/// array's element, a tuple's or a closure's parts, and a struct's fields or an
-/// enum's variants' fields. A one-level `Layout` stops at a pointer, a list's
-/// `{ ptr, len }`, or an erased carrier, so a type whose shape a unit's glue is
-/// sized from — but which the unit reaches only across one of those boundaries —
-/// would otherwise be absent from the key (buri-lang/buri#196). The closure
-/// reaches it, so a change to its shape moves the layout hash and the unit is
-/// rebuilt rather than served stale.
-///
-/// A `HashSet` of the visited `Ty` bounds the walk: a recursive type (a `Tree`
-/// whose `Node` holds a `Tree`) is entered once. Each type is rendered by
-/// `types::show`, which is derived from the type and not from its interning
-/// index, so — like the sort being on text — the string moves only when a
-/// layout it names moves.
-fn layout_closure_signature(
-    layouts: &mut layout::Layouts,
-    tables: &Tables,
-    seeds: impl Iterator<Item = crate::compiler::semantics::types::Ty>,
-) -> String {
-    use crate::compiler::semantics::types::{self, Ty, TyKind};
+/// One type's line in a unit's layout term, and the types it reaches.
+struct Shape {
+    /// `show(ty) layout`, a line of [`Shapes::closure_signature`].
+    line: String,
+    /// Its type arguments and constituent parts, then — for a nominal type —
+    /// the types of its fields or its variants' fields, which is where a shape
+    /// reached only across a pointer lives.
+    reaches: Vec<crate::compiler::semantics::types::Ty>,
+}
 
-    let mut seen: std::collections::HashSet<Ty> = std::collections::HashSet::new();
-    let mut stack: Vec<Ty> = seeds.collect();
-    let mut lines: Vec<String> = Vec::new();
-    while let Some(ty) = stack.pop() {
-        // Only the shaped types have a layout worth folding in; a bare
-        // parameter or an inference variable has none and cannot be reached in
-        // a monomorphized program anyway.
-        if matches!(
-            ty.kind(),
-            TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error
-        ) {
-            continue;
-        }
-        if !seen.insert(ty) {
-            continue;
-        }
-        lines.push(format!(
-            "{} {:?}\n",
-            types::show(tables, None, &[], &ty),
-            layouts.of(ty)
-        ));
-        // The types this one reaches: its arguments and its constituent parts,
-        // then — for a nominal type — the types of its fields or its variants'
-        // fields, which is where a shape reached only across a pointer lives.
-        match ty.kind() {
-            TyKind::Con(id, args) => {
-                stack.extend(args.iter().cloned());
-                stack.extend(types::field_types(tables, &ty));
-                let variants = tables.tycon(*id).variants().len();
-                for v in 0..variants {
-                    stack.extend(types::variant_types(tables, &ty, v));
-                }
-            }
-            TyKind::Array(el) => stack.push(*el),
-            TyKind::Tuple(els) => stack.extend(els.iter().cloned()),
-            TyKind::Fn(ps, r) => {
-                stack.extend(ps.iter().cloned());
-                stack.push(*r);
-            }
-            TyKind::Ctx(..) => stack.extend(types::field_types(tables, &ty)),
-            _ => {}
+/// One worker's memo of [`Shape`]s, over one program's `Tables`.
+///
+/// A program's units name mostly the same types — strings, lists, the
+/// prelude's options — so each type is rendered and walked once per worker
+/// rather than once per unit that reaches it. A line is a function of the type
+/// and `tables` alone, so the memo changes no key.
+struct Shapes<'a> {
+    tables: &'a Tables,
+    layouts: layout::Layouts<'a>,
+    memo: crate::hash::Map<crate::compiler::semantics::types::Ty, Shape>,
+}
+
+impl<'a> Shapes<'a> {
+    fn new(tables: &'a Tables) -> Self {
+        Shapes {
+            tables,
+            layouts: layout::Layouts::new(tables),
+            memo: crate::hash::Map::default(),
         }
     }
-    lines.sort();
-    lines.concat()
+
+    /// The layout term for one unit: the computed layout of every type in the
+    /// transitive closure of the types the unit names, rendered as sorted text.
+    ///
+    /// Seeded with the aggregates a unit's functions name ([`collect_types`])
+    /// and then walked through every type each of those reaches — type
+    /// arguments, an array's element, a tuple's or a closure's parts, and a
+    /// struct's fields or an enum's variants' fields. A one-level `Layout`
+    /// stops at a pointer, a list's `{ ptr, len }`, or an erased carrier, so a
+    /// type whose shape a unit's glue is sized from — but which the unit
+    /// reaches only across one of those boundaries — would otherwise be absent
+    /// from the key (buri-lang/buri#196). The closure reaches it, so a change
+    /// to its shape moves the layout hash and the unit is rebuilt rather than
+    /// served stale.
+    ///
+    /// A `HashSet` of the visited `Ty` bounds the walk: a recursive type (a
+    /// `Tree` whose `Node` holds a `Tree`) is entered once. Each type is
+    /// rendered by `types::show`, which is derived from the type and not from
+    /// its interning index, so — like the sort being on text — the string moves
+    /// only when a layout it names moves.
+    fn closure_signature(
+        &mut self,
+        seeds: impl Iterator<Item = crate::compiler::semantics::types::Ty>,
+    ) -> String {
+        use crate::compiler::semantics::types::{Ty, TyKind};
+
+        let mut seen: crate::hash::Set<Ty> = crate::hash::Set::default();
+        let mut stack: Vec<Ty> = seeds.collect();
+        while let Some(ty) = stack.pop() {
+            // Only the shaped types have a layout worth folding in; a bare
+            // parameter or an inference variable has none and cannot be
+            // reached in a monomorphized program anyway.
+            if matches!(
+                ty.kind(),
+                TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error
+            ) {
+                continue;
+            }
+            if !seen.insert(ty) {
+                continue;
+            }
+            stack.extend(self.shape(ty).reaches.iter().copied());
+        }
+        let mut lines: Vec<&str> = seen
+            .iter()
+            .filter_map(|ty| self.memo.get(ty))
+            .map(|shape| shape.line.as_str())
+            .collect();
+        lines.sort_unstable();
+        lines.concat()
+    }
+
+    fn shape(&mut self, ty: crate::compiler::semantics::types::Ty) -> &Shape {
+        use crate::compiler::semantics::types::{self, TyKind};
+
+        let tables = self.tables;
+        let layouts = &mut self.layouts;
+        self.memo.entry(ty).or_insert_with(|| {
+            let line = format!(
+                "{} {:?}\n",
+                types::show(tables, None, &[], &ty),
+                layouts.of(ty)
+            );
+            let mut reaches = Vec::new();
+            match ty.kind() {
+                TyKind::Con(id, args) => {
+                    reaches.extend(args.iter().cloned());
+                    reaches.extend(types::field_types(tables, &ty));
+                    let variants = tables.tycon(*id).variants().len();
+                    for v in 0..variants {
+                        reaches.extend(types::variant_types(tables, &ty, v));
+                    }
+                }
+                TyKind::Array(el) => reaches.push(*el),
+                TyKind::Tuple(els) => reaches.extend(els.iter().cloned()),
+                TyKind::Fn(ps, r) => {
+                    reaches.extend(ps.iter().cloned());
+                    reaches.push(*r);
+                }
+                TyKind::Ctx(..) => reaches.extend(types::field_types(tables, &ty)),
+                _ => {}
+            }
+            Shape { line, reaches }
+        })
+    }
 }
 
 /// The unit that carries a test binary's entry point, and a signature of the
