@@ -387,13 +387,11 @@ pub fn report(started: Instant) -> Option<String> {
         .iter()
         .map(|&p| (p, totals(p).each_ref().map(|v| v.load(Relaxed))))
         .collect();
-    let counted_instructions = os::thread_instructions() != 0;
     let counted_allocations = rows
         .iter()
         .any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
     let counted_children = rows.iter().any(|(_, [.., cpu])| *cpu != 0);
     let columns = Columns {
-        instructions: counted_instructions,
         allocations: counted_allocations,
         children: counted_children,
     };
@@ -440,20 +438,15 @@ pub fn report(started: Instant) -> Option<String> {
 
 /// Which optional columns the table has.
 struct Columns {
-    instructions: bool,
     allocations: bool,
     children: bool,
 }
 
 fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
     let [count, cpu, busy, allocated, child_count, child_cpu] = *row;
-    let count = if columns.instructions {
-        mega(count)
-    } else {
-        "-".to_string()
-    };
     let mut s = format!(
-        "  {name:<14} {count:>17} {:>10} {:>10}",
+        "  {name:<14} {:>17} {:>10} {:>10}",
+        mega(count),
         seconds(cpu),
         seconds(busy)
     );
@@ -461,21 +454,23 @@ fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
         s.push_str(&format!(" {allocated:>13}"));
     }
     if columns.children {
-        // No child instructions counted reads `-`, not 0: the row's phase
-        // waited for no child, or a virtual machine, which has no counters,
-        // counted its CPU time and none of its instructions.
-        let child_count = if child_count == 0 {
-            "-".to_string()
-        } else {
-            mega(child_count)
-        };
-        s.push_str(&format!(" {child_count:>19} {:>10}", seconds(child_cpu)));
+        s.push_str(&format!(
+            " {:>19} {:>10}",
+            mega(child_count),
+            seconds(child_cpu)
+        ));
     }
     s.push('\n');
     s
 }
 
+/// Millions of instructions. None counted reads `-`, not 0: Linux and a
+/// virtual machine have no counters and count CPU time but no instructions,
+/// and a phase that waited for no child ran no child instructions.
 fn mega(n: u64) -> String {
+    if n == 0 {
+        return "-".to_string();
+    }
     format!("{:.1} M", n as f64 / 1e6)
 }
 
@@ -726,7 +721,6 @@ mod tests {
     #[test]
     fn a_child_whose_instructions_went_uncounted_shows_a_dash() {
         let columns = Columns {
-            instructions: false,
             allocations: false,
             children: true,
         };
@@ -738,7 +732,6 @@ mod tests {
     #[test]
     fn a_child_whose_instructions_were_counted_shows_them() {
         let columns = Columns {
-            instructions: true,
             allocations: false,
             children: true,
         };
