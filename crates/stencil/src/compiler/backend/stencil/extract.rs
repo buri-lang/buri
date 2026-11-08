@@ -744,7 +744,7 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
         let after = code.get(j + 1).copied().unwrap_or(0);
         let leaves = reloc.get(j + 1).copied().unwrap_or(false);
         let transfers = (after & 0x7c00_0000 == 0x1400_0000 && leaves) || after == 0xd65f_03c0;
-        if transfers {
+        if transfers || clear_unread(&code, i, w & 0x1f) {
             for d in dead.iter_mut().take(j + 1).skip(i) {
                 *d = true;
             }
@@ -754,6 +754,41 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
         return None;
     }
     remove(s, &dead, &mut code, s.name.clone(), true)
+}
+
+/// Whether the clear of `r` at `at` is never read: clang schedules some of
+/// them a few instructions before the transfer rather than right against it —
+/// `mov x8, #0` between the load and the store of a `mov/32`. Every
+/// instruction after it is scanned, whichever path reaches it, and one that may
+/// read `r` refuses, as does a `bl` (`x8` is the indirect-result register) and
+/// any branch back to the clear or before it, where a read would see the zero
+/// on the next time round. Off the end of the body, `r` is dead by the rule
+/// above.
+fn clear_unread(code: &[u32], at: usize, r: u32) -> bool {
+    let back = |w: u32, j: usize| -> bool {
+        let field = |shift: u32, bits: u32| -> i64 {
+            let raw = i64::from((w >> shift) & ((1 << bits) - 1));
+            if raw & (1 << (bits - 1)) != 0 {
+                raw - (1 << bits)
+            } else {
+                raw
+            }
+        };
+        let d = if w & 0x7c00_0000 == 0x1400_0000 {
+            field(0, 26)
+        } else if w & 0xff00_0010 == 0x5400_0000 || w & 0x7e00_0000 == 0x3400_0000 {
+            field(5, 19)
+        } else if w & 0x7e00_0000 == 0x3600_0000 {
+            field(5, 14)
+        } else {
+            return false;
+        };
+        j as i64 + d <= at as i64
+    };
+    code.iter()
+        .enumerate()
+        .skip(at + 1)
+        .all(|(j, &w)| !may_read(w, r) && w & 0xfc00_0000 != 0x9400_0000 && !back(w, j))
 }
 
 /// Answers the folded twin of a stencil, when there is one to have.
