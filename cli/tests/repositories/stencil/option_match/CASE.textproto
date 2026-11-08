@@ -1,0 +1,14 @@
+# A `match` on an `Option` of text or of a list takes the arm its value
+# names, whichever arm is written first, whether `_` stands for one of them,
+# and whether the match is in a loop that ends on `.None`. Both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a match on an optional text or list takes the arm its value names"
+
+run {
+  args: ["test", "//lib/pick", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

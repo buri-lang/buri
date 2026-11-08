@@ -1,0 +1,60 @@
+from "core/testing/assert" import * as assert;
+
+fn someFirst(o: Option<Str>): Str {
+    match (o) {
+        .Some(s) => s,
+        .None => "none",
+    }
+}
+
+fn noneFirst(o: Option<Str>): Str {
+    match (o) {
+        .None => "none",
+        .Some(s) => s,
+    }
+}
+
+fn wildcard(o: Option<[Int]>): Int {
+    match (o) {
+        .Some(xs) => xs.length(),
+        _ => -1,
+    }
+}
+
+fn noneOrElse(o: Option<[Int]>): Int {
+    match (o) {
+        .None => -1,
+        _ => 1,
+    }
+}
+
+// Walks to the first word that is not shorter than `n`, ending on `.None`.
+fn firstLong(words: [Str], n: Int, at: Int): Int {
+    match (words[at]) {
+        .None => -1,
+        .Some(w) => if (w.length() >= n) { at } else { firstLong(words, n, at + 1) },
+    }
+}
+
+test "a match on an optional text takes the arm its value names" {
+    assert.equal(someFirst(.Some("a")), "a");
+    assert.equal(someFirst(.None), "none");
+    assert.equal(noneFirst(.Some("")), "");
+    assert.equal(noneFirst(.None), "none");
+}
+
+test "a wildcard arm stands for the other variant" {
+    assert.equal(wildcard(.Some([1, 2, 3])), 3);
+    assert.equal(wildcard(.Some([])), 0);
+    assert.equal(wildcard(.None), -1);
+    assert.equal(noneOrElse(.None), -1);
+    assert.equal(noneOrElse(.Some([])), 1);
+}
+
+test "a loop that ends on a missing element stops there" {
+    let words = ["a", "bb", "", "dddd", "ccc"];
+    assert.equal(firstLong(words, 3, 0), 3);
+    assert.equal(firstLong(words, 1, 0), 0);
+    assert.equal(firstLong(words, 5, 0), -1);
+    assert.equal(firstLong([], 0, 0), -1);
+}

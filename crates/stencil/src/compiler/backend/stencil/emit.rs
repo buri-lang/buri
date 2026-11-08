@@ -1590,25 +1590,18 @@ impl<'a> Jit<'a> {
                 // directly, so that `GetTag` never lands in a slot at all.
                 // Where the comparison reads its discriminant, and whether the
                 // fused `tagbr` stencil can read it in place. A niche-encoded
-                // tag is a *test* rather than a field, so it is materialised
-                // into scratch and the fusion does not apply.
+                // tag is a *test* rather than a field: the fused stencil reads
+                // the pointer itself, and a case is null or not null.
                 let mut src = st.at(*on);
                 let mut fusedw: Option<usize> = None;
+                let mut null_case: Option<u64> = None;
                 if let Some((agg, e)) = plan.tagsw {
                     let (off, w, niche) = self.tag_field(prog, st, agg, e);
                     let s0 = st.scratch + 24;
                     if niche {
-                        self.emit(
-                            "niche_tag",
-                            &[
-                                Lit::D.of(s0 as u64),
-                                Lit::A.of(off as u64),
-                                Lit::N.of(w as u64),
-                                Lit::P.of(u64::from(w == 0)),
-                                Jump::Cont.to(V::Fall),
-                            ],
-                        );
-                        src = s0;
+                        fusedw = Some(self.lib.known.tag_eq);
+                        null_case = Some(u64::from(w));
+                        src = off;
                     } else {
                         match w {
                             1 => fusedw = Some(self.lib.known.tag_eq8),
@@ -1648,22 +1641,28 @@ impl<'a> Jit<'a> {
                     // `JIT_F` arm is the one that has to be the elidable one:
                     // a matched tag is one taken branch, and a refused one
                     // none.
-                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), Jump::F);
                     // (2) The census says `tagbr + jump` is the commonest
                     // adjacent pair in the corpus after the constant
                     // stores: every `match` arm is a tag test followed by a
                     // jump to the arm's block. A case's edge carries no copies
                     // (`middle::lower` gives every case a block of its own with
                     // no parameters), so the test names the block itself.
-                    let mut binds: Vec<Bind> = vec![
-                        Lit::A.of(src as u64),
-                        Jump::T.to(V::Blk(Label::of(tgt.block))),
-                        Jump::F.to(V::Fall),
-                    ];
+                    let case = V::Blk(Label::of(tgt.block));
+                    let (hit, miss, fall, n) = match null_case {
+                        // A niche's case other than the null one is taken on
+                        // a pointer that is not null: the same test against
+                        // zero, with its arms the other way round.
+                        Some(null) if null != *k => (V::Fall, case, Jump::T, 0),
+                        Some(_) => (case, V::Fall, Jump::F, 0),
+                        None => (case, V::Fall, Jump::F, *k),
+                    };
+                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), fall);
+                    let mut binds: Vec<Bind> =
+                        vec![Lit::A.of(src as u64), Jump::T.to(hit), Jump::F.to(miss)];
                     if fusedw.is_some() {
-                        binds.push(Lit::N.of(*k));
+                        binds.push(Lit::N.of(n));
                     } else {
-                        binds.push(Word::K.lit(*k));
+                        binds.push(Word::K.lit(n));
                     }
                     self.emit(key, &binds);
                 }
