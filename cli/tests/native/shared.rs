@@ -1239,7 +1239,10 @@ pub fn localhost_second_listens() -> (std::net::TcpListener, Refusing) {
         .collect();
     let first = *found.first().expect("an address for localhost");
     let Some(later) = found.iter().copied().find(|ip| *ip != first) else {
-        panic!("localhost resolves only to {found:?}, and this row needs two addresses");
+        panic!(
+            "localhost resolves only to {found:?}, and this row needs two addresses: \
+             add `::1 localhost` to /etc/hosts (cli/tests/README.md, Running them)"
+        );
     };
     for _ in 0..100 {
         let far = std::net::TcpListener::bind((first, 0)).expect("a bound port");

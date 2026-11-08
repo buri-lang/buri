@@ -314,6 +314,15 @@ Run them inside `nix develop`. Its rustc is the one CI uses, pinned in
 `rust-toolchain.toml`. To bump it, change `channel` there and run
 `nix flake update rust-overlay` if the overlay doesn't know the new version yet.
 
+The shell can't set one thing: `localhost` must resolve to both `::1` and
+`127.0.0.1`, for the tests that dial the next address when the first refuses.
+macOS and CI's runners do. A stock Ubuntu image maps `::1` to `ip6-localhost`
+alone, so add the name:
+
+```
+echo '::1 localhost' | sudo tee -a /etc/hosts
+```
+
 The first line is the whole suite. `cargo test -p buri` runs the same set, but
 one binary after another, which is over ten minutes on a ten-core mac. nextest
 runs every test in a process of its own and keeps the machine busy instead.

@@ -580,19 +580,15 @@
         # *after* the caller's arguments — so musl's `stdlib.h` is the one
         # found, not glibc's.
         #
-        # `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`: the clang wrapper prints a
-        # line per compilation unit when it is handed a `--target=` other than
-        # its own, on the reasoning that it "is currently not designed with
-        # multi-target compilers in mind". What the warning is about is the
-        # wrapper's *link* flags, which point at glibc — and nothing here
-        # links: `cc-rs` compiles objects, `rustc` links them against the
-        # baked musl sysroot. Suppressed with the argument written down rather
-        # than left to scroll past on every file.
+        # The clang wrapper prints a warning per compile handed a `--target=`
+        # other than its own. It stays: `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`
+        # makes the wrapper put the host's `-march` ahead of the `--target=`,
+        # and on arm64 clang then refuses `armv8-a` for x86-64, so the build
+        # writes an empty x86-64 stencil library.
         //
           lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
             "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
             "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
-            NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
 
             # THE SAME CLANG AS `CC`, AND THE SECOND HALF OF A NATIVE BACKEND.
             #
@@ -681,7 +677,7 @@
         # what knows where `crt1.o`, `libc` and `libSystem.tbd` live
         # (`cli/src/build/link.rs`).
         devShells = {
-        default = pkgs.mkShell {
+        default = pkgs.mkShell ({
           # `llvm-sys` refuses to guess. Without this the `backend-llvm` build
           # fails at its build script rather than at a link.
           LLVM_SYS_211_PREFIX = "${llvm.dev}";
@@ -754,7 +750,28 @@
           # and the Mach-O fork was archived in November 2024 with its author
           # recommending Apple's linker (BUILD-AND-WATCH.md §3).
           ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.mold;
-        };
+        }
+        # On Linux, `cc` and `CC` are clang, as on macOS. The stdenv's are gcc,
+        # which has no `--target=`: `cli/build.rs` then writes an empty stencil
+        # library and runtime archive, and a link finds no C driver for musl,
+        # since nixpkgs has no `musl-gcc`. `PATH`, because the toolchain
+        # propagates gcc's wrapper ahead of every package here.
+        #
+        # No `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`: with it, the wrapper puts
+        # the host's `-march` ahead of every `--target=`, and on arm64 clang
+        # then refuses `armv8-a` for x86-64: no x86-64 stencils get built, and
+        # a cross link is refused. The cost is the wrapper's warning per compile.
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
+          "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
+          # The wrapper's `_FORTIFY_SOURCE` calls glibc's `__vfprintf_chk`,
+          # which a C object the suite links against musl can't resolve.
+          hardeningDisable = [ "all" ];
+          shellHook = ''
+            export CC=${pkgs.clang}/bin/clang
+            export PATH=${pkgs.clang}/bin:$PATH
+          '';
+        });
         # The coverage gate's shell (coverage/compiler/src/main.rs): the default shell's
         # tools, built by the nightly that has `-Zcoverage-options=branch`.
         coverage = pkgs.mkShell (
