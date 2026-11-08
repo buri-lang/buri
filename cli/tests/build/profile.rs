@@ -274,6 +274,46 @@ fn lowering_and_unit_keys_are_billed_to_codegen_not_other() {
     );
 }
 
+/// **A release build builds each LLVM module once.** Every unit's module was
+/// built, thrown away to learn which glue it asks for, and built again: 1.6%
+/// of a release build. Now a cold build builds one module per object it
+/// writes, the glue unit's included. A toolchain without the optimizing
+/// backend refuses the build.
+#[test]
+fn a_release_build_builds_each_llvm_module_once() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let (items, body) = many_instantiated_types(3);
+    let scratch = large_shape("native", &items, &body);
+    let run = scratch.run_with_env(&["build", "--release", "//app"], &[("BURI_PROFILE", "1")]);
+    if run.stderr.contains("built without `backend-llvm`") {
+        run.exits(1);
+        return;
+    }
+    run.ok();
+    let count = |name: &str| -> u64 {
+        let all = run.all();
+        let line = all
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("no `{name}` count in\n{}", indent(&all)));
+        line.parse().unwrap()
+    };
+    let objects = count("objects compiled");
+    assert!(objects > 2, "{objects} objects:\n{}", indent(&run.all()));
+    assert_eq!(
+        count("llvm modules built"),
+        objects,
+        "a module built for each object, once:\n{}",
+        indent(&run.all())
+    );
+    let binary = scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()));
+    let ran = std::process::Command::new(binary).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "6\n");
+}
+
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {

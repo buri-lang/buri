@@ -526,71 +526,60 @@ fn emit_selected(
 
     // The glue unit is the one after the program's own, and it defines the
     // glue every unit asks for, wanted or not. So when it is wanted, every
-    // unit's module is built first, for that, and dropped.
+    // unit's module is built: a wanted one is rendered as well, and one the
+    // cache already holds is built only for its asks and dropped. Each module
+    // is built once, and the glue unit is built last, from all of their asks.
     let glue_index = program.units.len();
     let glue_wanted = units.wants(glue_index);
-    let asked = if glue_wanted {
-        let every: Vec<(usize, &ir::Unit)> = program.units.iter().enumerate().collect();
-        let built = crate::parallel::map_items_with(
-            &every,
-            || None,
-            |worker: &mut Option<Worker>, _, &(index, unit)| {
-                worker_for(worker)?;
-                let worker = worker.as_ref().or_ice("made above");
-                crate::parallel::on_a_core(|| emit_unit(&shared, worker, index, unit, None))
-            },
-        );
-        let mut asked: Vec<emit::GlueAsk> = Vec::new();
-        let mut seen = crate::hash::Set::default();
-        for unit in built {
-            let (_, asks) = unit?;
-            // The first unit to ask for a symbol gives its type: two types
-            // with one glue key walk alike.
-            asked.extend(
-                asks.into_iter()
-                    .filter(|a| seen.insert(a.name().to_string())),
-            );
-        }
-        asked.sort_by(|a, b| a.name().cmp(b.name()));
-        asked
-    } else {
-        Vec::new()
-    };
-
-    let mut wanted: Vec<(usize, Option<&ir::Unit>)> = program
+    let mut built: Vec<(usize, &ir::Unit)> = program
         .units
         .iter()
         .enumerate()
-        .filter(|(i, _)| units.wants(*i))
-        .map(|(i, u)| (i, Some(u)))
+        .filter(|(i, _)| glue_wanted || units.wants(*i))
         .collect();
-    if glue_wanted {
-        wanted.push((glue_index, None));
-    }
     // Largest first, by member count, with the unit index breaking ties so that
     // the order is a function of the program alone.
-    let size = |unit: Option<&ir::Unit>| unit.map_or(asked.len(), |u| u.funcs.len());
-    wanted.sort_by_key(|(i, u)| (std::cmp::Reverse(size(*u)), *i));
+    built.sort_by_key(|(i, u)| (std::cmp::Reverse(u.funcs.len()), *i));
     let emitted = crate::parallel::map_items_with(
-        &wanted,
+        &built,
         || None,
         |worker: &mut Option<Worker>, _, &(index, unit)| {
             worker_for(worker)?;
             let worker = worker.as_ref().or_ice("made above");
-            crate::parallel::on_a_core(|| match unit {
-                Some(unit) => emit_unit(&shared, worker, index, unit, Some(render))
-                    .map(|(object, _)| object.or_ice("a rendered unit has an object")),
-                None => emit_glue(&shared, worker, &asked, render),
-            })
+            let render = units.wants(index).then_some(render);
+            crate::parallel::on_a_core(|| emit_unit(&shared, worker, index, unit, render))
         },
     );
 
-    // In unit order, so a failure is the first failing unit's: the one a loop
-    // over the units would have stopped at.
-    let mut out: Vec<(usize, Result<Emitted, Diagnostics>)> =
-        wanted.iter().map(|(i, _)| *i).zip(emitted).collect();
-    out.sort_by_key(|(index, _)| *index);
-    out.into_iter().map(|(_, e)| e).collect()
+    // In unit order, so a failure is the first failing unit's, the one a loop
+    // over the units would have stopped at, and the first unit to ask for a
+    // glue symbol is the first in unit order.
+    let mut by_unit: Vec<(usize, Result<Built, Diagnostics>)> =
+        built.iter().map(|(i, _)| *i).zip(emitted).collect();
+    by_unit.sort_by_key(|(index, _)| *index);
+    let mut out: Vec<Emitted> = Vec::new();
+    let mut asked: Vec<emit::GlueAsk> = Vec::new();
+    let mut seen = crate::hash::Set::default();
+    for (_, unit) in by_unit {
+        let (object, asks) = unit?;
+        // The first unit to ask for a symbol gives its type: two types with
+        // one glue key walk alike.
+        asked.extend(
+            asks.into_iter()
+                .filter(|a| seen.insert(a.name().to_string())),
+        );
+        out.extend(object);
+    }
+    if glue_wanted {
+        asked.sort_by(|a, b| a.name().cmp(b.name()));
+        let mut worker = None;
+        worker_for(&mut worker)?;
+        let worker = worker.as_ref().or_ice("made above");
+        out.push(crate::parallel::on_a_core(|| {
+            emit_glue(&shared, worker, &asked, render)
+        })?);
+    }
+    Ok(out)
 }
 
 /// The unit after the program's own that every unit's glue is compiled in, once ([`emit::GlueHome::Shared`]).
@@ -659,7 +648,7 @@ fn emit_unit(
     // returned is reported there as "the backend emitted no object for unit
     // `x`". The debug backend's loop is over the same list for the same
     // reason.
-    let ctx = Context::create();
+    let ctx = module_context();
     build::keep_names(&ctx, audience.names);
     let builder = ctx.create_builder();
     let module_name = format!("{}{unit_name}", opts.unit_prefix);
@@ -736,7 +725,7 @@ fn emit_glue(
     asked: &[emit::GlueAsk],
     render: Render<'_>,
 ) -> Result<Emitted, Diagnostics> {
-    let ctx = Context::create();
+    let ctx = module_context();
     build::keep_names(&ctx, shared.audience.names);
     let builder = ctx.create_builder();
     let mut emitter = emit::Unit::new(
@@ -772,6 +761,21 @@ fn emit_glue(
         key: None,
         bytes,
     })
+}
+
+/// How many modules this process built, the glue unit's included.
+static MODULES_BUILT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// How many modules this process built, the glue unit's included, for
+/// `BURI_PROFILE`'s `llvm modules built`.
+pub fn modules_built() -> u64 {
+    MODULES_BUILT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A fresh context for one module, counted in [`modules_built`].
+fn module_context() -> Context {
+    MODULES_BUILT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    Context::create()
 }
 
 /// One unit's module, verified in a developer build and then optimized.

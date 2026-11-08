@@ -162,6 +162,11 @@ pub fn lines() -> String {
         .zip(&COUNTS)
         .map(|(name, n)| format!("{name} {}\n", n.load(Relaxed)))
         .collect();
+    // LLVM counts its own, since a module is built below the unit loop.
+    out.push_str(&format!(
+        "llvm modules built {}\n",
+        crate::compiler::backend::llvm_modules_built()
+    ));
     let handed = HANDED.lock().unwrap_or_else(PoisonError::into_inner);
     if !handed.is_empty() {
         out.push_str(&format!("first tests handed out: {}\n", handed.join(", ")));

@@ -29,7 +29,7 @@ source ──lex──▶ tokens ──parse──▶ syntax tree ──check─
                                                      │
                              ┌───────────────────────┴──────────────────────┐
                              ▼ dev                                          ▼ release
-                 stencil regions ─▶ object model ─▶ bytes      LLVM module (built twice) ─▶ O2 ─▶ ISel ─▶ bytes
+                 stencil regions ─▶ object model ─▶ bytes      LLVM module ─▶ O2 ─▶ ISel ─▶ bytes
                              └──────────────────────┬──────────────────────┘
                                                     ▼
                                          cache file per unit ─▶ lld ─▶ executable
@@ -133,8 +133,10 @@ function reached from the program's roots.
   (`Jit::function`), parts in parallel, then `assemble_unit` concatenates parts
   and writes the object. 18.3%, of which assembly is 2.5%.
 - **LLVM emission.** IR to LLVM modules, `default<O2>`, instruction selection.
-  Every unit's module is built twice: once to learn which glue it asks for,
-  then dropped, then again for real (§6.88). Release only.
+  Each unit's module is built once and reports the glue it asks for; the glue
+  unit is built last, from those asks (§6.88). A unit the cache already holds
+  is still built, without optimizing, whenever the glue unit isn't cached.
+  Release only.
 - **JS emission.** For the 4 pages: generate a JS tree, then `minify` folds,
   cleans, merges, drops dead code and mangles, each a full rewrite, then
   prints. The fold and dead-code passes repeat work `inline` and `dce` did on
@@ -150,12 +152,12 @@ what the previous one changed.
 ## How many transformations
 
 A native build rebuilds the program into a new representation nine times in
-dev and ten in release, and updates one in place eleven times.
+either profile, and updates one in place eleven times.
 
 - **Rebuilds, both profiles.** Lex, parse, check, monomorphize, lower, unit-key
   rendering, link.
 - **Rebuilds, dev.** Stencil regions, then object assembly.
-- **Rebuilds, release.** The LLVM module, twice, then instruction selection.
+- **Rebuilds, release.** The LLVM module, then instruction selection.
 - **In place.** Style extraction, inline, dce, tail_calls, decision, chunks,
   derives, fuse, closures, forward, name_discards. Release adds LLVM's O2.
 - **Whole-program analyses that build no program.** `rc::Syntactic` (built
@@ -186,8 +188,15 @@ Cold dev build, `BURI_PROFILE`, 6.0 s in-process plus 1.3 s of `lld`, with
 
 Cold release build: 294.3 s in-process plus 1.1 s of `lld`. `emit` is 290.3 s,
 98.6%. Inside it `default<O2>` takes 50.5%, instruction selection to bytes
-46.0%, building the modules for real 1.7%, and the glue pre-pass 1.6%
-(4.75 s). Everything above `emit` costs the same as in dev.
+46.0%, and building the modules 1.7%. Everything above `emit` costs the same
+as in dev.
+
+A glue pre-pass used to build every module a second time, 1.6% (4.75 s).
+Building each module once took a cold release build from 3,538 G
+instructions to 3,458 G (−2.3%) and from 342.5 to 326.5 CPU-seconds, on a
+loaded machine. The 24 outputs are byte-identical.
+`profile::a_release_build_builds_each_llvm_module_once` holds `llvm modules
+built` to `objects compiled`.
 
 `other` is cache writes (0.54 s), lint, and the loader. It used to hold 0.83 s
 of codegen too, because `lower::run_with` and `unit_hashes` ran outside any
@@ -240,18 +249,12 @@ above.
    hash layouts by field rather than by `Debug` string. Risk: low; the hash
    must spell types by module path, not `TyConId`, as §6.97 requires. It takes
    the text renderer out of the build; tests keep using it.
-3. **Build each release module once.** 1.6% of release, 4.75 s. Evidence: the
-   glue pre-pass in `emit_selected` builds and disposes every unit's module
-   just to collect `GlueAsk`s. Emit the units first, return their asks with
-   their objects, then emit `buri.glue`. Risk: the glue unit starts last, so
-   wall time can grow by its emission; a build whose only miss is the glue
-   unit still needs the old path. It deletes the pre-pass loop.
-4. **Write a program's objects as one cache entry.** Up to 5% of dev. Evidence:
+3. **Write a program's objects as one cache entry.** Up to 5% of dev. Evidence:
    0.54 s goes to one open, write, `setxattr` and rename per unit, 3,231 times.
    Write one pack per program with an index of unit keys, and keep reading per
    unit. Risk: medium; the cache layout, `buri clean` and the cache's own
    tests change.
-5. **Instantiate while copying.** About 1.5% of dev. Evidence: `monomorphize`
+4. **Instantiate while copying.** About 1.5% of dev. Evidence: `monomorphize`
    clones each body whole (24% of the pass) and then walks the copy to
    substitute (60%). One walk that builds the substituted tree from the
    borrowed generic one does both. Risk: medium; `rewrite` is large, and
@@ -281,6 +284,6 @@ Not worth proposing:
   traversal. The six small passes together are 2.4%.
 - **An arena for the typed tree.** §6.52 measured it at 3–4% after the
   allocator change, under its 5% bar. Clones and drops of typed trees are still
-  about 5% of dev here, so it may be worth measuring again once proposal 5
+  about 5% of dev here, so it may be worth measuring again once proposal 4
   removes the biggest clone.
 - **A lower `-O` for release.** The release backend stays at `default<O2>`.

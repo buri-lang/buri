@@ -48,6 +48,16 @@ pub mod stencil {
     pub type Stencil = super::WithRuntime<buri_stencil::compiler::backend::stencil::Stencil>;
 }
 
+/// How many LLVM modules this process built: `BURI_PROFILE`'s
+/// `llvm modules built`, and 0 in a toolchain without the backend.
+pub fn llvm_modules_built() -> u64 {
+    #[cfg(feature = "backend-llvm")]
+    let built = llvm::modules_built();
+    #[cfg(not(feature = "backend-llvm"))]
+    let built = 0;
+    built
+}
+
 use crate::build::buildfile::Platform;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::Program;
