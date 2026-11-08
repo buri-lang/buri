@@ -36,9 +36,10 @@ wherever `llvm-config-21` reports). On a host without LLVM, leave the feature
 and the variable out: the toolchain still builds and does everything but a
 native `--release`.
 
-The binary has no runtime dependencies. Linking a native binary uses the system
-C toolchain: `cc`, or whatever `CC` names. The JavaScript path looks for `bun`
-or `node` on your `PATH`, or the one `BURI_JS` names.
+The binary has no runtime dependencies. Linking a native binary, a generator's
+tool included, uses the system C toolchain: `cc`, or whatever `CC` names. The
+JavaScript path looks for `bun` or `node` on your `PATH`, or the one `BURI_JS`
+names.
 
 ## Setting up a repository
 

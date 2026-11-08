@@ -196,5 +196,5 @@ Every answer is an action keyed on:
 - under a contract, the schema and every file it reaches.
 
 Editing the tool, the file, or a schema it read reruns it, and nothing else
-does. The tool compiles to JavaScript once per key, kept under
-`.buri/out/tools`.
+does. The tool compiles to an executable for this machine once per key, kept
+under `.buri/out/tools`.

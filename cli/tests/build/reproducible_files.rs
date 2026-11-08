@@ -2,8 +2,8 @@
 //! lazy chunks in one round, a stylesheet in one and a chunk in the other, and
 //! codegen units under other names around the same code.
 //!
-//! As in `check_reproducible`, the generator's tool runs under `BURI_JS`, and a
-//! stand-in runtime made of shell builtins answers each request differently.
+//! As in `check_reproducible`, a script of shell builtins in place of the
+//! generator's built tool answers each request differently.
 use crate::harness::*;
 
 /// The platform a native binary here declares.
@@ -91,9 +91,8 @@ done
 "#;
 
 /// A repository whose `//cmd/app` runs what `//tools/gen` generated into
-/// `//lib/text`, for `output`, with the runtime `script` answering the tool.
-/// Answers the repository and the path to point `BURI_JS` at.
-fn repository(name: &str, output: &str, script: &str) -> (Scratch, String) {
+/// `//lib/text`, for `output`, with `script` in place of the tool.
+fn repository(name: &str, output: &str, script: &str) -> Scratch {
     let scratch = Scratch::repo(name);
     scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     scratch.write("tools/gen/tool.buri", TOOL);
@@ -137,20 +136,17 @@ fn repository(name: &str, output: &str, script: &str) -> (Scratch, String) {
             .replace("CONTEXT", context),
     );
     let count = scratch.path("count").display().to_string();
-    let js = scratch.write_executable("fake/js", &script.replace("COUNT", &count));
-    (scratch, js.display().to_string())
+    scratch.replace_the_tool("//lib/text", &script.replace("COUNT", &count));
+    scratch
 }
 
 /// A round that writes more files than the other is reported by the count.
 #[cfg(unix)]
 #[test]
 fn a_round_with_more_chunks_is_reported_by_its_file_count() {
-    let (scratch, js) = repository("reproducible-more-chunks", "node", GROWING_CHUNKS);
+    let scratch = repository("reproducible-more-chunks", "node", GROWING_CHUNKS);
     scratch
-        .run_with_env(
-            &["build", "--check-reproducible", "//cmd/app"],
-            &[("BURI_JS", &js)],
-        )
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree wrote ")
@@ -162,12 +158,9 @@ fn a_round_with_more_chunks_is_reported_by_its_file_count() {
 #[cfg(unix)]
 #[test]
 fn a_stylesheet_in_one_round_and_a_chunk_in_the_other_are_named() {
-    let (scratch, js) = repository("reproducible-style-or-chunk", "web", STYLE_THEN_CHUNK);
+    let scratch = repository("reproducible-style-or-chunk", "web", STYLE_THEN_CHUNK);
     scratch
-        .run_with_env(
-            &["build", "--check-reproducible", "//cmd/app"],
-            &[("BURI_JS", &js)],
-        )
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree wrote `main.css` and `main.0.mjs`");
@@ -178,12 +171,9 @@ fn a_stylesheet_in_one_round_and_a_chunk_in_the_other_are_named() {
 #[cfg(unix)]
 #[test]
 fn a_renamed_unit_is_reported_and_blamed_on_the_toolchain() {
-    let (scratch, js) = repository("reproducible-renamed-unit", "native", RENAMED_MODULE);
+    let scratch = repository("reproducible-renamed-unit", "native", RENAMED_MODULE);
     scratch
-        .run_with_env(
-            &["build", "--check-reproducible", "//cmd/app"],
-            &[("BURI_JS", &js)],
-        )
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree named unit `__lib_text_m")

@@ -3434,6 +3434,37 @@ fn link_cached(
     Ok((key, None))
 }
 
+/// Links `program` into an executable for this machine at `path`: the codegen
+/// and the link a native binary's build runs, each cached under its own key,
+/// with `label` naming what is linked.
+///
+/// For a program the build runs itself, such as a tool. It runs here whatever
+/// the build's own outputs are for, so its target is the host's.
+pub fn link_for_host(
+    root: &std::path::Path,
+    label: &str,
+    flags: &Flags,
+    program: &mut monomorphize::Program,
+    tables: &Tables,
+    path: &std::path::Path,
+) -> Result<(), Diagnostics> {
+    let output = Output::for_platform(crate::build::buildfile::host_native_platform(), Span::NONE);
+    let mut diagnostics = Diagnostics::new();
+    let objects = objects_named(
+        root,
+        label,
+        &output,
+        flags,
+        program,
+        tables,
+        &mut diagnostics,
+    )?;
+    let Some(linker) = linker_for(&output, &mut diagnostics) else {
+        return Err(diagnostics);
+    };
+    link_cached(root, label, &output, flags, linker, &objects, path, "tool").map(|_| ())
+}
+
 /// The lock a link in the directory named `place` holds.
 fn dir_lock(place: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
     type Locks = std::collections::BTreeMap<String, std::sync::Arc<std::sync::Mutex<()>>>;

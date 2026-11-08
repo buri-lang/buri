@@ -1,18 +1,15 @@
-//! What a build says when a tool goes wrong: a tool process that answers
-//! nothing, dies, says too much, or asks for files outside the repository;
-//! tools built from each other's generated code; contracts the loader refuses,
-//! read by the language server anyway; and a tool's request types.
-//!
-//! Most of these put a stand-in in front of the JavaScript runtime with
-//! `BURI_JS`, a shell script that answers the way a broken tool would. It runs
-//! with an empty environment, so every path in it is absolute.
+//! What a build says when a tool goes wrong: a tool that asks for files
+//! outside the repository; tools built from each other's generated code;
+//! contracts the loader refuses, read by the language server anyway; and a
+//! tool's request types. A tool process that answers nothing, dies, or says
+//! too much is a shell script standing in for a tool, in
+//! `build::generators`'s unit tests.
 //!
 //! ```text
 //! cargo test -p buri --test build generator_failures::
 //! ```
 
-use crate::harness::hang::Capped;
-use crate::harness::{indent, js_runtime, Run, Scratch};
+use crate::harness::{indent, Run, Scratch};
 
 /// Each input's first word becomes an exported `Int`, a hundred over its
 /// second.
@@ -126,170 +123,47 @@ fn two_entries(name: &str) -> Scratch {
     scratch
 }
 
-/// The JavaScript runtime's absolute path.
-fn js_path() -> String {
-    let found = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(format!("command -v {}", js_runtime()))
-        .capped_output()
-        .expect("sh runs");
-    String::from_utf8_lossy(&found.stdout).trim().to_string()
-}
+/// A tool that needs files: asked with none, it names them, inside the
+/// repository and out; asked with some, it says which it was handed.
+const NEEDING_TOOL: &str = r#"from "core/str" import * as str;
+from "core/tool" import { Diagnostic, Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
 
-/// Builds `//lib/wire` with `script` standing in for the JavaScript runtime.
-fn build_with(name: &str, script: &str) -> Run {
-    let scratch = two_entries(name);
-    let runtime = scratch.write_executable("runtime.sh", &format!("#!/bin/sh\n{script}"));
-    scratch.run_with_env(
-        &["build", "//lib/wire"],
-        &[("BURI_JS", &runtime.display().to_string())],
-    )
-}
-
-/// The note under a failed tool's error, its lines unindented.
-fn note(run: &Run) -> String {
-    let at = run
-        .stderr
-        .find("  = the tool ")
-        .unwrap_or_else(|| panic!("no note:\n{}", indent(&run.all())));
-    let rest = &run.stderr[at..];
-    let end = rest.find("  = fix:").unwrap_or(rest.len());
-    rest[..end]
-        .lines()
-        .map(|l| l.trim_start().trim_start_matches("= "))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// A tool that exits without answering, or answers with a blank line, wrote
-/// nothing a build can read.
-#[test]
-fn a_tool_that_answers_nothing_wrote_nothing() {
-    for (name, script) in [
-        ("silent", "read -r line\n"),
-        ("blank", "read -r line\necho '   '\n"),
-    ] {
-        let run = build_with(&format!("tool-{name}"), script);
-        run.exits(1)
-            .says("`//tools/gen` did not answer [tool-failed]");
-        assert_eq!(
-            note(&run),
-            "the tool wrote nothing",
-            "{name}:\n{}",
-            indent(&run.all())
-        );
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    if (request.files.isEmpty()) {
+        Generated {
+            modules: [],
+            diagnostics: [],
+            needs: [
+                "//lib/wire/extra.txt",
+                "lib/wire/extra.txt",
+                "//lib/wire/extra.txt",
+                "//",
+                "/etc/hosts",
+                "https://example.org/a",
+                "a\\b",
+                "../../up",
+            ],
+        }
+    } else {
+        let handed = request.files.mapCtx(ctx, fn(c, f) => str.format(c, "${f.0}=${f.1.trim()}")).join(ctx, ", ");
+        Generated {
+            modules: [],
+            diagnostics: [Diagnostic { code: "handed", message: handed, note: .None, fix: .None, origin: .None }],
+            needs: [],
+        }
     }
 }
-
-/// A tool a signal killed is named by the signal: by name where macOS and
-/// Linux agree on its number, and by number where they don't.
-#[test]
-fn a_tool_killed_by_a_signal_is_named_by_it() {
-    let run = build_with("tool-segv", "kill -SEGV $$\n");
-    run.exits(1);
-    assert_eq!(note(&run), "the tool was killed by SIGSEGV (signal 11)");
-    let usr1 = if cfg!(target_os = "macos") { 30 } else { 10 };
-    let run = build_with("tool-usr1", "kill -USR1 $$\n");
-    run.exits(1);
-    assert_eq!(note(&run), format!("the tool was killed by signal {usr1}"));
-}
-
-/// Only the last four kilobytes of a tool's standard error come with the
-/// note, cut between characters.
-#[test]
-fn a_tool_s_long_standard_error_is_cut_to_its_tail() {
-    let wide = "é".repeat(3000);
-    let run = build_with(
-        "tool-loud",
-        &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"),
-    );
-    run.exits(1);
-    // 6011 bytes, so 1915 go, and one more to reach the end of a character.
-    let kept = format!("the tool exited with 3\n(the first 1916 bytes of standard error are not shown)\n{}\nlast words", "é".repeat(2048 - 6));
-    assert_eq!(note(&run).trim_end(), kept);
-}
-
-/// A runtime's stack frames go, and so does a line heading them that only
-/// restates the message above it. Lines that look like frames but aren't, and
-/// headers that say something new, stay.
-#[test]
-fn a_tool_s_stack_frames_go_and_its_own_words_stay() {
-    let stderr = [
-        "first",
-        "  indented but not a frame",
-        "boom",
-        "Error: boom",
-        "    at foo (file.js:1:2)",
-        "    at bar:3:4",
-        "TypeError: other",
-        "    at baz (x.js:5:6)",
-        "SyntaxError",
-        "    at q:1:1",
-        "Boom: odd",
-        "    at f (a.js:1:2)",
-        "    at x::1",
-        "    at foo (x.js:1:b)",
-    ]
-    .join("\n");
-    let run = build_with(
-        "tool-frames",
-        &format!("read -r line\ncat >&2 <<'EOF'\n{stderr}\nEOF\nexit 2\n"),
-    );
-    run.exits(1);
-    assert_eq!(
-        note(&run).trim_end(),
-        "the tool exited with 2\nfirst\nindented but not a frame\nboom\nTypeError: other\nBoom: odd\nat x::1\nat foo (x.js:1:b)"
-    );
-}
-
-/// A kept tool that exits after its first answer is asked the second
-/// request alone, and so is one whose answer has no line end.
-#[test]
-fn a_kept_tool_that_stops_after_one_answer_is_asked_again() {
-    let js = js_path();
-    for (name, script) in [
-        ("once", format!("read -r line\nexec 0<&-\nprintf '%s\\n' \"$line\" | '{js}' \"$@\"\n")),
-        ("no-line-end", format!("read -r line\nexec 0<&-\nout=$(printf '%s\\n' \"$line\" | '{js}' \"$@\")\nprintf '%s' \"$out\"\n")),
-    ] {
-        let scratch = two_entries(&format!("tool-{name}"));
-        let runtime = scratch.write_executable("runtime.sh", &format!("#!/bin/sh\n{script}"));
-        let run = scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_JS", &runtime.display().to_string())]);
-        run.ok();
-        assert_eq!(run.stdout.trim(), "150", "{name}:\n{}", indent(&run.all()));
-    }
-}
-
-/// A JavaScript runtime that isn't there is named, with what to do.
-#[test]
-fn a_missing_javascript_runtime_is_named() {
-    let scratch = two_entries("tool-no-runtime");
-    scratch
-        .run_with_env(&["build", "//lib/wire"], &[("BURI_JS", "/nonexistent/js-runtime")])
-        .exits(1)
-        .says("= `/nonexistent/js-runtime` is not on PATH; install bun, or point BURI_JS at a JavaScript runtime");
-}
+"#;
 
 /// A tool's `needs` are read and handed back once each, and one outside the
-/// repository is refused by name. One that isn't a path is passed over.
+/// repository is refused by name.
 #[test]
 fn a_tool_s_needs_outside_the_repository_are_refused() {
     let scratch = two_entries("tool-needs");
+    scratch.write("tools/gen/tool.buri", NEEDING_TOOL);
     scratch.write("lib/wire/extra.txt", "extra\n");
-    let answer = r#"{"modules":[{"name":"alpha","text":"export let alpha: Int = 100;\n","anchors":[]},{"name":"beta","text":"export let beta: Int = 50;\n","anchors":[]}],"diagnostics":[],"needs":[1,"//lib/wire/extra.txt","lib/wire/extra.txt","//lib/wire/extra.txt","//","/etc/hosts","https://example.org/a","a\\b","../../up"]}"#;
-    scratch.write("answer.json", &format!("{answer}\n"));
-    let asked = scratch.path("asked.txt");
-    let runtime = scratch.write_executable(
-        "runtime.sh",
-        &format!(
-            "#!/bin/sh\nwhile read -r line; do printf '%s\\n' \"$line\" >> '{}'; cat '{}'; done\n",
-            asked.display(),
-            scratch.path("answer.json").display()
-        ),
-    );
-    let run = scratch.run_with_env(
-        &["build", "//lib/wire"],
-        &[("BURI_JS", &runtime.display().to_string())],
-    );
+    let run = scratch.run(&["build", "//lib/wire"]);
     run.exits(1);
     for outside in [
         "//",
@@ -303,18 +177,10 @@ fn a_tool_s_needs_outside_the_repository_are_refused() {
         ));
     }
     run.says("= fix: check the file in, and have the tool ask for it by its repository path")
+        .says("//lib/wire/extra.txt=extra, lib/wire/extra.txt=extra")
         .silent_about("$schema")
-        .silent_about("[schema-outside-repository]");
-    run.silent_about("`1`")
+        .silent_about("[schema-outside-repository]")
         .silent_about("`//lib/wire/extra.txt` is not");
-    let asked = std::fs::read_to_string(asked).unwrap();
-    assert!(
-        asked.contains(
-            r#""files":[["//lib/wire/extra.txt","extra\n"],["lib/wire/extra.txt","extra\n"]]"#
-        ),
-        "the tool was not handed the files it needed:\n{}",
-        indent(&asked)
-    );
 }
 
 /// A language's `check` and the `generate` a contract asks for types say a
@@ -332,13 +198,12 @@ fn a_check_s_and_a_contract_s_needs_outside_the_repository_are_refused() {
     );
     scratch.write(
         "tools/types/tool.buri",
-        &format!(
-            "{}\nexport fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {{\n    Checked {{ diagnostics: [], needs: [] }}\n}}\n",
-            TOOL.replace(
-                "from \"core/tool\" import { Generated, GenerateRequest };",
-                "from \"core/tool\" import { Checked, CheckRequest, Generated, GenerateRequest };"
-            )
-        ),
+        "from \"core/tool\" import { Checked, CheckRequest, Generated, GenerateRequest };\n\
+         from \"platform/effect\" import { Allocator };\n\n\
+         export fn check<C: Allocator>(ctx: C, request: CheckRequest<Str>): Checked {\n    \
+         Checked { diagnostics: [], needs: [\"https://example.org/a\"] }\n}\n\n\
+         export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {\n    \
+         Generated { modules: [], diagnostics: [], needs: [\"https://example.org/a\"] }\n}\n",
     );
     scratch.write(
         "tools/lines/BUILD.buri",
@@ -351,25 +216,12 @@ fn a_check_s_and_a_contract_s_needs_outside_the_repository_are_refused() {
     scratch.write("lib/x/BUILD.buri", "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"x.lines\"] },\n    ]\n}\n");
     scratch.write("lib/x/x.lines", "x 1\n");
     scratch.write("lib/x/lib.buri", "export let one: Int = 1;\n");
-    scratch.write(
-        "answer.json",
-        "{\"modules\":[],\"diagnostics\":[],\"needs\":[\"https://example.org/a\"]}\n",
-    );
-    let runtime = scratch.write_executable(
-        "runtime.sh",
-        &format!(
-            "#!/bin/sh\nwhile read -r line; do cat '{}'; done\n",
-            scratch.path("answer.json").display()
-        ),
-    );
-    let env = [("BURI_JS", runtime.display().to_string())];
-    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
     for (target, at) in [
         ("//tools/lines", "tools/lines/BUILD.buri:4:47"),
         ("//lib/x", "lib/x/x.lines"),
     ] {
         scratch
-            .run_with_env(&["build", target], &env)
+            .run(&["build", target])
             .exits(1)
             .says(&format!("error: `https://example.org/a` is not in this repository [needs-outside-repository]\n --> {at}"))
             .says("= fix: check the file in, and have the tool ask for it by its repository path")
@@ -597,8 +449,8 @@ fn a_tool_s_request_type_names_its_contract_s_root() {
 
 /// A repository language whose `generate` answers a contract's `typesOf`
 /// with a module that has no `decode` of the usual shape still gives the tool
-/// its types; and a file whose `format` tool answers with something that
-/// isn't JSON is left as it is.
+/// its types; and a file whose `format` tool answers with no layout is left as
+/// it is.
 #[test]
 fn a_repository_language_s_tools_answer_however_they_answer() {
     let scratch = Scratch::repo("language-answers");
@@ -616,37 +468,38 @@ fn a_repository_language_s_tools_answer_however_they_answer() {
         "tools/types/BUILD.buri",
         "tool {\n    generate {}\n\n    format {}\n}\n",
     );
-    scratch.write(
-        "tools/types/tool.buri",
-        &format!(
-            "{}\nexport fn format<C: Allocator>(ctx: C, request: FormatRequest): Result<Doc, [Diagnostic]> {{\n    .Err([])\n}}\n",
-            TOOL.replace(
-                "from \"core/tool\" import { Generated, GenerateRequest };",
-                "from \"core/format\" import { Doc };\nfrom \"core/tool\" import { Diagnostic, FormatRequest, Generated, GenerateRequest };"
-            )
-        ),
-    );
+    scratch.write("tools/types/tool.buri", TYPES_TOOL);
     scratch.write("lib/x/BUILD.buri", "library {\n    generators: [\n        { tool: \"//tools/lines\", inputs: [\"x.lines\"] },\n    ]\n}\n");
     scratch.write("lib/x/x.lines", "three\n");
     scratch.write("lib/x/lib.buri", "export let one: Int = 1;\n");
-    let module = "fn hidden(): Int {\\n    1\\n}\\n\\nexport fn other(): Int {\\n    2\\n}\\n\\nexport fn decode(): Int {\\n    3\\n}\\n";
-    scratch.write("answer.json", &format!("{{\"modules\":[{{\"name\":\"lines\",\"text\":\"{module}\",\"anchors\":[]}}],\"diagnostics\":[],\"needs\":[]}}\n"));
-    let runtime = scratch.write_executable(
-        "runtime.sh",
-        &format!(
-            "#!/bin/sh\nwhile read -r line; do cat '{}'; done\n",
-            scratch.path("answer.json").display()
-        ),
-    );
-    let env = [("BURI_JS", runtime.display().to_string())];
-    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    scratch.run_with_env(&["build", "//tools/lines"], &env).ok();
-    scratch.write("answer.json", "not json\n");
+    scratch.run(&["build", "//tools/lines"]).ok();
     scratch
-        .run_with_env(&["format", "--check", "lib/x/x.lines"], &env)
+        .run(&["format", "--check", "lib/x/x.lines"])
         .exits(1)
         .says("lib/x/x.lines: does not parse, and was left exactly as it is");
 }
+
+/// A language's tool whose `generate` answers every request with one module,
+/// `lines`, holding no `decode` of the usual shape, and whose `format` answers
+/// with no layout.
+const TYPES_TOOL: &str = r#"from "core/buri/ast" import * as ast;
+from "core/format" import { Doc };
+from "core/tool" import { Diagnostic, FormatRequest, Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let source = "fn hidden(): Int {\n    1\n}\n\nexport fn other(): Int {\n    2\n}\n\nexport fn decode(): Int {\n    3\n}\n";
+    let modules = match (ast.parse(ctx, "", source)) {
+        .Ok(parsed) => [("lines", parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}
+
+export fn format<C: Allocator>(ctx: C, request: FormatRequest): Result<Doc, [Diagnostic]> {
+    .Err([])
+}
+"#;
 
 /// One language with two contracts on one tool is refused, across `check`
 /// and `generate` too.

@@ -401,7 +401,7 @@ pub fn rule_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
         k.input("tool", g.tool.value.as_bytes());
         // Loading refuses a generator that names no tool, so each has one.
         for tool in tools::resolve(&session.workspace, &g.tool.value).into_iter() {
-            k.dependency(&tools::program_key(session, tool, flags));
+            k.dependency(&tools::program_key(session, tool));
         }
     }
     for rel in &paths {
@@ -462,7 +462,7 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 // Running one
 // ---------------------------------------------------------------------------
 
-/// Runs a built tool under the JavaScript runtime, one line in and one line
+/// Runs a built tool's executable, one line in and one line
 /// out, and answers with the last non-empty line it wrote.
 ///
 /// The command comes from [`crate::build::spawn::command`] rather than
@@ -504,11 +504,13 @@ impl KeptProcess {
             mut child, stdin, ..
         } = self;
         drop(stdin);
+        crate::profile::reaped(child.id());
         let _ = child.wait();
     }
 
     fn kill(mut self) {
         let _ = self.child.kill();
+        crate::profile::reaped(self.child.id());
         let _ = self.child.wait();
     }
 }
@@ -519,8 +521,8 @@ static KEPT: Mutex<Kept> = Mutex::new(Kept {
 });
 
 /// A pass over generators: while one is held, each tool process answers the
-/// requests after its first too. Starting the JavaScript runtime and loading a
-/// tool costs more than most requests do, and a pass asks one tool many
+/// requests after its first too. Starting a tool's process costs more than
+/// most requests do, and a pass asks one tool many
 /// questions — a check per input, a second round for the files a check needs,
 /// then `generate`. The last holder to let go ends every kept process.
 struct Keep(());
@@ -573,10 +575,8 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
     let mut process = match found {
         Some(process) => process,
         None => {
-            let program = crate::commands::test::js_runtime();
-            let mut cmd = crate::build::spawn::command(&program)?;
-            let mut child = crate::build::spawn::start_alone(
-                cmd.arg(artifact)
+            let mut child = start(
+                tool_command(artifact)?
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null()),
@@ -613,25 +613,36 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
     Some(line)
 }
 
+/// The command that runs a tool's executable.
+fn tool_command(artifact: &std::path::Path) -> Option<std::process::Command> {
+    crate::build::spawn::command(&artifact.to_string_lossy())
+}
+
+/// Starts a tool process, counted for `BURI_PROFILE`.
+fn start(command: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    let child = crate::build::spawn::start_alone(command)?;
+    crate::build::counted::add(crate::build::counted::Count::ToolProcesses);
+    Ok(child)
+}
+
 /// One request, to a process of its own: the request, then the end of the
 /// input.
 fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
 
-    let program = crate::commands::test::js_runtime();
-    let Some(mut cmd) = crate::build::spawn::command(&program) else {
+    let Some(mut cmd) = tool_command(artifact) else {
         return Err(format!(
-            "`{program}` is not on PATH; install bun, or point BURI_JS at a JavaScript runtime"
+            "{}: the tool's program is gone",
+            artifact.display()
         ));
     };
-    let mut child = crate::build::spawn::start_alone(
-        cmd.arg(artifact)
-            .stdin(Stdio::piped())
+    let mut child = start(
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
-    .map_err(|e| format!("{program}: {e}"))?;
+    .map_err(|e| format!("{}: {e}", artifact.display()))?;
     // Each pipe on a thread of its own, and none of them read after the wait.
     // A pipe holds a page or two: a generator writing more than that — a schema
     // of any size produces far more — blocks on the write, and this process
@@ -671,7 +682,7 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
     // the machine: a two-thousand-field schema is five seconds on an idle
     // laptop and past sixty on a four-core runner with sixteen tests on it,
     // which is how CI came to fail a build every other host completed. Nothing
-    // else the build spawns — `cc`, a linker, the JavaScript runtime — carries
+    // else the build spawns — `cc`, a linker — carries
     // a clock either. The one bound in this toolchain that stops a subprocess
     // is `timeout_seconds` on a `test` rule, which a person wrote in a build
     // file about their own tests. A generator that never answers is a program
@@ -699,9 +710,8 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
 
 /// How much of what a tool put on standard error a note carries.
 ///
-/// A generator that fills its pipe must not fill the page a person is reading,
-/// and a JavaScript runtime's stack trace is long: four kilobytes is a screen
-/// or two, which is enough to say what went wrong and short enough to read.
+/// A generator that fills its pipe must not fill the page a person is reading:
+/// four kilobytes is a screen or two, which is enough to say what went wrong and short enough to read.
 const STDERR_TAIL: usize = 4096;
 
 /// How a generator's process ended, in the words the note carries.
@@ -755,41 +765,9 @@ fn signal_name(signal: i32) -> Option<&'static str> {
 /// A sentence, with what the tool put on standard error under it.
 ///
 /// The **tail** of it, at most [`STDERR_TAIL`] bytes: what a program says last
-/// is what says why it stopped, and a runtime's stack trace buries its first
-/// line under a hundred frames.
-///
-/// **The runtime's stack trace goes, and the note is what the tool said.** A
-/// tool that stops prints its message on a line of its own and then the
-/// error's stack (`$failed` in the JavaScript runtime). The stack's frames name
-/// lines of JavaScript nobody wrote, under a file named for a cache key, or
-/// the runtime's own internals. Nor is the stack the same text from one run
-/// to the next: under load, bun has rendered the frames of one crash as
-/// `Error: division by zero` with `(native:7:39)` and as a bare `Error` with
-/// `(unknown:7:39)`. So every frame goes, and so does the line that heads
-/// them when it only restates the message above it.
+/// is what says why it stopped.
 fn said(sentence: &str, stderr: &str) -> String {
-    let mut kept: Vec<&str> = Vec::new();
-    let mut in_frames = false;
-    for line in stderr.lines() {
-        if is_frame(line) {
-            if !in_frames {
-                let restated = match kept.as_slice() {
-                    [.., said, header] => restates(header, Some(said)),
-                    [header] => restates(header, None),
-                    [] => false,
-                };
-                if restated {
-                    kept.pop();
-                }
-            }
-            in_frames = true;
-            continue;
-        }
-        in_frames = false;
-        kept.push(line);
-    }
-    let kept = kept.join("\n");
-    let text = kept.trim();
+    let text = stderr.trim();
     if text.is_empty() {
         return sentence.to_string();
     }
@@ -804,31 +782,6 @@ fn said(sentence: &str, stderr: &str) -> String {
         .unwrap_or(text.len());
     let tail = text.get(cut..).unwrap_or_default();
     format!("{sentence}\n(the first {cut} bytes of standard error are not shown)\n{tail}")
-}
-
-/// A JavaScript stack frame: indented, `at`, and a `file:line:column` at the
-/// end, bare or in parentheses.
-fn is_frame(line: &str) -> bool {
-    if !line.starts_with(char::is_whitespace) || !line.trim_start().starts_with("at ") {
-        return false;
-    }
-    let place = line.trim_end().trim_end_matches(')');
-    let mut parts = place.rsplitn(3, ':');
-    let digits =
-        |p: Option<&str>| p.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
-    digits(parts.next()) && digits(parts.next()) && parts.next().is_some()
-}
-
-/// Whether the line that heads a stack says nothing the line above it did not:
-/// an error's bare name, `Error`, or its name and the message above it,
-/// `Error: division by zero`.
-fn restates(header: &str, above: Option<&str>) -> bool {
-    let (name, message) = match header.split_once(": ") {
-        Some((name, message)) => (name, Some(message)),
-        None => (header, None),
-    };
-    let named = name.ends_with("Error") && name.bytes().all(|b| b.is_ascii_alphanumeric());
-    named && (message.is_none() || message == above)
 }
 
 // ---------------------------------------------------------------------------
@@ -985,7 +938,7 @@ fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, target
             }
             break;
         }
-        build_tools(session, &ready, flags);
+        build_tools(session, &ready);
         // Each worker takes the next rule until none is left, this thread too,
         // so a helper that does not start leaves its rules to the others.
         let next = AtomicUsize::new(0);
@@ -1047,7 +1000,7 @@ fn needs(workspace: &Workspace, target: TargetId, rules: &[TargetId]) -> Vec<Tar
 /// rule finds the program already there, and an edited tool still has a key of
 /// its own. A tool whose build failed here fails again in that call, which is
 /// where its error is reported.
-fn build_tools(session: &Session, rules: &[TargetId], flags: &Flags) {
+fn build_tools(session: &Session, rules: &[TargetId]) {
     let workspace = &session.workspace;
     let mut wanted: Vec<Tool> = Vec::new();
     for &rule in rules {
@@ -1064,7 +1017,7 @@ fn build_tools(session: &Session, rules: &[TargetId], flags: &Flags) {
             let _ = std::thread::Builder::new()
                 .name("buri-tool".into())
                 .stack_size(crate::parallel::STACK)
-                .spawn_scoped(scope, move || tools::artifact(session, tool, flags));
+                .spawn_scoped(scope, move || tools::artifact(session, tool));
         }
     });
 }
@@ -1872,7 +1825,7 @@ fn generate_key(
     k.rule_identity(&session.workspace.label(target), "generate", &paths);
     k.input("tool", tool.as_bytes());
     if let Ok(tool) = tools::resolve(&session.workspace, tool) {
-        k.dependency(&tools::program_key(session, tool, flags));
+        k.dependency(&tools::program_key(session, tool));
     }
     for (path, text) in inputs {
         k.input(path, text.as_bytes());
@@ -2185,41 +2138,16 @@ mod tests {
         let crashed = std::process::ExitStatus::from_raw(11);
         let note = said(
             &format!("the generator {}", how_it_ended(&crashed)),
-            "\nRangeError: Maximum call stack size exceeded.\n  at print\n",
+            "\nMaximum call stack size exceeded.\n",
         );
         assert_eq!(
             note,
             "the generator was killed by SIGSEGV (signal 11)\n\
-             RangeError: Maximum call stack size exceeded.\n  at print"
+             Maximum call stack size exceeded."
         );
 
         let refused = std::process::ExitStatus::from_raw(1 << 8);
         assert_eq!(how_it_ended(&refused), "exited with 1");
-    }
-
-    /// The two ways bun has printed one tool's division by zero, both seen in
-    /// the suite: the frames and the line heading them differ, and the note
-    /// does not.
-    #[test]
-    fn a_crash_says_the_same_whichever_way_the_runtime_renders_its_stack() {
-        let tool = "/tmp/x/.buri/out/tools/7677ca.mjs";
-        let first = format!(
-            "division by zero\nError: division by zero\n    at $abort ({tool}:4:17)\n    at async main ({tool}:711:16)\n    at processTicksAndRejections (native:7:39)\n"
-        );
-        let second = format!(
-            "division by zero\nError\n    at $abort ({tool}:4:17)\n    at processTicksAndRejections (unknown:7:39)\n"
-        );
-        let expected = "the tool exited with 1\ndivision by zero";
-        assert_eq!(said("the tool exited with 1", &first), expected);
-        assert_eq!(said("the tool exited with 1", &second), expected);
-
-        // A heading that says more than the line above it stays, and so does
-        // a line that only reads like a frame.
-        let other = "the schema is wrong\nTypeError: undefined is not an object\n    at f (x.mjs:1:2)\n  at line 3\n";
-        assert_eq!(
-            said("the tool exited with 1", other),
-            "the tool exited with 1\nthe schema is wrong\nTypeError: undefined is not an object\n  at line 3"
-        );
     }
 
     /// A tool that fills its pipe may not fill the page. The **tail** is kept,
@@ -2281,5 +2209,212 @@ mod tests {
         assert_eq!(module.anchor_at(5).map(|a| a.span), Some((0, 1)));
         assert_eq!(module.anchor_at(7).map(|a| a.span), Some((4, 5)));
         assert_eq!(module.anchor_at(10), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tools that go wrong, as shell scripts
+    // -----------------------------------------------------------------------
+
+    /// What each script here answers: an answer, of nothing.
+    const ANSWER: &str = r#"{"modules":[],"diagnostics":[],"needs":[]}"#;
+
+    const REQUEST: &str = r#"{"entry":"generate","inputs":[],"files":[]}"#;
+
+    /// A tool's executable that is the shell script `body`. It runs with an
+    /// empty environment, so every program it names is a whole path.
+    fn script_tool(name: &str, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("buri-tool-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory for the tool");
+        let path = dir.join("tool");
+        crate::build::spawn::writing_executable(|| {
+            std::fs::write(&path, format!("#!/bin/sh\n{body}"))
+        })
+        .expect("the tool is written");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("the tool is executable");
+        path
+    }
+
+    /// A tool that exits without answering, or answers with a blank line,
+    /// wrote nothing a build can read.
+    #[test]
+    fn a_tool_that_answers_nothing_wrote_nothing() {
+        for (name, body) in [
+            ("silent", "read -r line\n"),
+            ("blank", "read -r line\necho '   '\n"),
+        ] {
+            let tool = script_tool(name, body);
+            assert_eq!(
+                run_artifact(&tool, REQUEST),
+                Err("the tool wrote nothing".to_string()),
+                "{name}"
+            );
+        }
+    }
+
+    /// A tool a signal killed is named by the signal: by name where macOS and
+    /// Linux agree on its number, and by number where they don't.
+    #[test]
+    fn a_tool_killed_by_a_signal_is_named_by_it() {
+        let tool = script_tool("segv", "kill -SEGV $$\n");
+        assert_eq!(
+            run_artifact(&tool, REQUEST),
+            Err("the tool was killed by SIGSEGV (signal 11)".to_string())
+        );
+        let usr1 = if cfg!(target_os = "macos") { 30 } else { 10 };
+        let tool = script_tool("usr1", "kill -USR1 $$\n");
+        assert_eq!(
+            run_artifact(&tool, REQUEST),
+            Err(format!("the tool was killed by signal {usr1}"))
+        );
+    }
+
+    /// Only the last four kilobytes of a tool's standard error come with the
+    /// note, cut between characters.
+    #[test]
+    fn a_tool_s_long_standard_error_is_cut_to_its_tail() {
+        let wide = "é".repeat(3000);
+        let tool = script_tool(
+            "loud",
+            &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"),
+        );
+        // 6011 bytes, so 1915 go, and one more to reach the end of a character.
+        let kept = format!(
+            "the tool exited with 3\n(the first 1916 bytes of standard error are not shown)\n{}\nlast words",
+            "é".repeat(2048 - 6)
+        );
+        assert_eq!(run_artifact(&tool, REQUEST), Err(kept));
+    }
+
+    /// A kept tool that exits after its first answer is asked the second
+    /// request alone, and so is one whose answer has no line end.
+    #[test]
+    fn a_kept_tool_that_stops_after_one_answer_is_asked_again() {
+        for (name, body) in [
+            ("once", format!("read -r line\necho '{ANSWER}'\n")),
+            (
+                "no-line-end",
+                format!("read -r line\nprintf '%s' '{ANSWER}'\n"),
+            ),
+        ] {
+            let tool = script_tool(name, &body);
+            let _pass = keep();
+            for request in 0..2 {
+                assert_eq!(
+                    run_artifact(&tool, REQUEST).as_deref(),
+                    Ok(ANSWER),
+                    "{name}, request {request}"
+                );
+            }
+        }
+    }
+
+    /// **A tool's process holds its own three streams and nothing else.**
+    ///
+    /// A tool process answers requests until its input ends, and a pass keeps
+    /// one for its next request. A tool started while another's pipes were
+    /// being made could inherit them. Holding the write end of a kept
+    /// process's input, it kept that process from ever reading the end, and
+    /// the build waited on it forever: a cold `buri test` hung in its
+    /// generators for 21 minutes. So here many requests start many tools at
+    /// once, and each notes the descriptors it started with.
+    ///
+    /// Nor does a tool hold a descriptor `buri` was started with: a shell or
+    /// a supervisor can leave one open, not close-on-exec.
+    ///
+    /// In a process of its own, since another test making a pipe of its own
+    /// at the same moment is just what this asks about.
+    #[test]
+    fn a_tool_process_holds_its_three_streams_and_nothing_else() {
+        const ALONE: &str = "BURI_TOOL_TEST_ALONE";
+        if std::env::var_os(ALONE).is_none() {
+            let out = std::process::Command::new(
+                std::env::current_exe().expect("this test binary"),
+            )
+            .args([
+                "--exact",
+                "build::generators::tests::a_tool_process_holds_its_three_streams_and_nothing_else",
+                "--test-threads=1",
+                "--nocapture",
+            ])
+            .env(ALONE, "1")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("this test binary runs");
+            let said = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(out.status.success(), "{said}");
+            assert!(said.contains("1 passed"), "the test did not run:\n{said}");
+            return;
+        }
+        unsafe extern "C" {
+            fn pipe(fds: *mut i32) -> i32;
+            fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+            fn close(fd: i32) -> i32;
+        }
+        const F_DUPFD: i32 = 0;
+        const STARTS: usize = 96;
+        let log = std::env::temp_dir().join(format!("buri-tool-fds-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(&log);
+        let tool = script_tool(
+            "descriptors",
+            &format!(
+                "echo $(/bin/ls /dev/fd/) >> '{}'\nwhile read -r line; do echo '{ANSWER}'; done\n",
+                log.display()
+            ),
+        );
+        let noted = || std::fs::read_to_string(&log).unwrap_or_default();
+        assert_eq!(run_artifact(&tool, REQUEST).as_deref(), Ok(ANSWER));
+        let alone: Vec<String> = noted().split_whitespace().map(str::to_string).collect();
+        assert!(!alone.is_empty(), "the tool noted nothing");
+
+        // A pipe's read end, not close-on-exec, at a number nothing else here
+        // holds.
+        let mut fds = [0; 2];
+        // SAFETY: `fds` holds the two descriptors `pipe` writes.
+        assert_eq!(unsafe { pipe(fds.as_mut_ptr()) }, 0, "a pipe");
+        // SAFETY: duplicates a descriptor this test just opened.
+        let held = unsafe { fcntl(fds[0], F_DUPFD, 200) };
+        assert!(held >= 200, "a descriptor at 200 or above");
+        assert_eq!(run_artifact(&tool, REQUEST).as_deref(), Ok(ANSWER));
+        for fd in [held, fds[0], fds[1]] {
+            // SAFETY: closes descriptors this test opened.
+            unsafe { close(fd) };
+        }
+        let second = noted();
+        let second = second.lines().nth(1).unwrap_or_default();
+        assert!(
+            !second.split_whitespace().any(|fd| fd == held.to_string()),
+            "a tool was started holding descriptor {held}: {second}"
+        );
+
+        {
+            let _pass = keep();
+            std::thread::scope(|scope| {
+                for _ in 0..STARTS {
+                    scope.spawn(|| {
+                        assert_eq!(run_artifact(&tool, REQUEST).as_deref(), Ok(ANSWER));
+                    });
+                }
+            });
+        }
+        let noted = noted();
+        assert!(noted.lines().count() > 2, "no tool was kept");
+        let extra: Vec<&str> = noted
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .any(|fd| !alone.iter().any(|a| a == fd))
+            })
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "a tool was started holding more than {alone:?}:\n{}",
+            extra.join("\n")
+        );
     }
 }

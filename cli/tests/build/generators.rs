@@ -17,8 +17,8 @@
 //! gets is the whole of what the `.proto` generator can write.
 //!
 //! The third row is about the tool rather than the module. The generator this
-//! toolchain ships is a Buri program compiled to an `.mjs` the first time a
-//! build needs one; the claim is that a repository pays for that **once**, not
+//! toolchain ships is a Buri program compiled to an executable the first time
+//! a build needs one; the claim is that a repository pays for that **once**, not
 //! once per target, per platform, or per build.
 //!
 //! The last three are here rather than in `repositories/generators/` because
@@ -31,7 +31,6 @@
 //! cargo test -p buri --test build generators::
 //! ```
 
-use crate::harness::hang::{Capped, CappedChild};
 use crate::harness::{ci, indent, tests_dir, Run, Scratch};
 
 /// The platform a binary here declares.
@@ -229,7 +228,7 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 /// The generator the toolchain ships is compiled **once per repository**.
 ///
 /// The `proto` tool is a Buri program, and the build compiles it to an
-/// `.mjs` under `.buri/out/tools/` the first time anything needs a schema
+/// executable under `.buri/out/tools/` the first time anything needs a schema
 /// read. The file's name is its action key, so the claim this row holds is
 /// two-sided: after two builds, of two targets, across three platforms, that
 /// directory holds exactly one file — and the second build did not write it
@@ -461,7 +460,7 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     );
 }
 
-/// Every `.mjs` under `.buri/out/tools/`, sorted.
+/// Every tool's executable under `.buri/out/tools/`, sorted.
 fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
     let dir = scratch.path(".buri/out/tools");
     let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -470,7 +469,7 @@ fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
     let mut out: Vec<std::path::PathBuf> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "mjs"))
+        .filter(|p| p.is_file() && p.extension().is_none())
         .collect();
     out.sort();
     out
@@ -541,63 +540,38 @@ fn two_entries(name: &str) -> Scratch {
     scratch
 }
 
-/// The JavaScript runtime's absolute path. A stand-in runs with an empty
-/// environment, so it can't look the runtime up itself.
-fn js_path() -> String {
-    let found = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg(format!("command -v {}", crate::harness::js_runtime()))
-        .capped_output()
-        .expect("sh runs");
-    String::from_utf8_lossy(&found.stdout).trim().to_string()
-}
-
-/// A script standing in for the JavaScript runtime that notes each tool it is
-/// started on, one line per start, in `starts.txt`, and answers its path for
-/// `BURI_JS`. It runs with an empty environment, so every path is absolute.
-fn counting_runtime(scratch: &Scratch) -> String {
-    let js = js_path();
-    let log = scratch.path("starts.txt");
-    let path = scratch.write_executable(
-        "runtime.sh",
-        &format!(
-            "#!/bin/sh\ncase \"$1\" in\n*/.buri/out/tools/*) echo \"$1\" >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
-            log.display()
-        ),
-    );
-    path.display().to_string()
-}
-
-/// How many times a tool process was started.
-fn tool_starts(scratch: &Scratch) -> usize {
-    std::fs::read_to_string(scratch.path("starts.txt"))
-        .map(|t| t.lines().count())
-        .unwrap_or(0)
+/// The count `BURI_PROFILE` gives `name`, as in `tool processes 1`.
+fn counted(run: &Run, name: &str) -> u64 {
+    let all = run.all();
+    all.lines()
+        .find_map(|l| l.strip_prefix(&format!("{name} ")))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no `{name}` count in\n{}", indent(&all)))
 }
 
 /// **One tool process answers every request a pass makes of it in turn.**
 ///
-/// Starting the JavaScript runtime and loading a tool costs more than most
-/// requests do, and a schema's checks and its rule's `generate` are one
-/// request after another to the same program. Both entries here run in the
-/// same pass, one after the other, so the second is asked of the process that
-/// answered the first.
+/// Starting a tool's process costs more than most requests do, and a schema's
+/// checks and its rule's `generate` are one request after another to the same
+/// program. Both entries here run in the same pass, one after the other, so
+/// the second is asked of the process that answered the first.
 #[test]
 fn one_tool_process_answers_both_entries_of_a_rule() {
     let scratch = two_entries("generators-one-process");
-    let runtime = counting_runtime(&scratch);
-    let run = scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_JS", &runtime)]);
+    let built = scratch.run_with_env(&["build", "//lib/wire"], &[("BURI_PROFILE", "1")]);
+    built.ok();
+    assert_eq!(
+        counted(&built, "tool processes"),
+        1,
+        "two requests of one tool started more than one process"
+    );
+    let run = scratch.run(&["run", "//cmd/app"]);
     run.ok();
     assert_eq!(
         run.stdout.trim(),
         "150",
         "the two generated modules did not hold 100 and 50:\n{}",
         indent(&run.all())
-    );
-    assert_eq!(
-        tool_starts(&scratch),
-        1,
-        "two requests of one tool started more than one process"
     );
 }
 
@@ -608,9 +582,8 @@ fn one_tool_process_answers_both_entries_of_a_rule() {
 #[test]
 fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     let scratch = two_entries("generators-kept-process-stops");
-    let runtime = counting_runtime(&scratch);
     scratch.write("lib/wire/beta.txt", "beta 0\n");
-    let run = scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_JS", &runtime)]);
+    let run = scratch.run(&["build", "//cmd/app"]);
     run.exits(1);
     let want = "error: `//tools/gen` did not answer [tool-failed]\n --> lib/wire/BUILD.buri:4:9\n  |\n4 |         { tool: \"//tools/gen\", inputs: [\"beta.txt\"] },\n  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  |\n  = the tool exited with 1\n    division by zero\n";
     assert!(
@@ -625,154 +598,132 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     );
 }
 
-/// A repository of `rules` libraries, each with one rule asking `//tools/gen`
-/// for one module. Each rule is in a package of its own, so they all run in
-/// the same round, side by side, and most start a tool process of their own.
-fn many_rules(name: &str, rules: usize) -> Scratch {
-    let scratch = Scratch::repo(name);
-    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.write("tools/gen/tool.buri", DIVIDING_TOOL);
-    for i in 0..rules {
-        scratch.write(
-            &format!("lib/w{i}/BUILD.buri"),
-            "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"alpha.txt\"] },\n    ]\n}\n",
-        );
-        scratch.write(
-            &format!("lib/w{i}/alpha.txt"),
-            &format!("alpha {}\n", i + 1),
-        );
-        scratch.write(
-            &format!("lib/w{i}/lib.buri"),
-            &format!("from \"//lib/w{i}/alpha\" export {{ alpha }};\n"),
-        );
+/// **A kept tool process's work is in the profile.** Both requests here are
+/// answered by one kept process, so the child processes `other` counts, the
+/// phase generators run in, are that process alone. Read where the platform
+/// counts a child's instructions, which is macOS.
+#[test]
+fn a_kept_tool_process_is_counted_in_the_profile() {
+    let scratch = two_entries("generators-kept-process-profiled");
+    let run = scratch.run_with_env(&["build", "//lib/wire"], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(counted(&run, "tool processes"), 1);
+    let all = run.all();
+    if !all.contains("child instructions") {
+        if cfg!(target_os = "macos") {
+            panic!("macOS counted no child process:\n{}", indent(&all));
+        }
+        return;
     }
+    let other = all
+        .lines()
+        .find(|l| l.trim_start().starts_with("other "))
+        .unwrap_or_else(|| panic!("no `other` row in\n{}", indent(&all)));
+    // Child instructions are the row's last count in millions, `<n> M`.
+    let words: Vec<&str> = other.split_whitespace().collect();
+    let child_instructions = words
+        .iter()
+        .rposition(|w| *w == "M")
+        .and_then(|at| words.get(at.checked_sub(1)?)?.parse::<f64>().ok())
+        .unwrap_or_else(|| panic!("no child instructions in `{other}`"));
+    assert!(
+        child_instructions > 0.0,
+        "the kept tool process was not counted:\n{}",
+        indent(&all)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// What a generator needs installed
+// ---------------------------------------------------------------------------
+
+/// A test of what `//lib/wire`'s generators wrote: the two modules of
+/// `//tools/gen`, and the one `proto` wrote for `point.proto`.
+const GENERATED_TEST: &str = r#"from "core/testing/assert" import * as assert;
+from "//lib/wire" import { alpha, beta, defaultPoint, Point };
+
+test "every generator answered" {
+    assert.equal(alpha + beta, 150);
+    assert.equal(defaultPoint(), Point { x: .None, y: .None });
+}
+"#;
+
+/// [`two_entries`], with `proto` as a third generator of `//lib/wire` and a
+/// test of all three modules.
+fn tool_and_proto(name: &str) -> Scratch {
+    let scratch = two_entries(name);
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"alpha.txt\"] },\n        { tool: \"//tools/gen\", inputs: [\"beta.txt\"] },\n        { tool: \"proto\", inputs: [\"point.proto\"] },\n    ]\n\n    test {\n        sources: [\"test/wire.buri\"]\n    }\n\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/wire/point.proto",
+        "edition = \"2026\";\n\npackage wire.v1;\n\nmessage Point {\n  int32 x = 1;\n  int32 y = 2;\n}\n",
+    );
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/alpha\" export { alpha };\nfrom \"//lib/wire/beta\" export { beta };\nfrom \"//lib/wire/point.proto\" export { defaultPoint, Point };\n",
+    );
+    scratch.write("lib/wire/test/wire.buri", GENERATED_TEST);
     scratch
 }
 
-/// A script standing in for the JavaScript runtime that notes, for each tool
-/// it's started on, the descriptors it was started with, one line per start in
-/// `descriptors.txt`. Started with `--descriptors`, it prints the line instead
-/// and runs nothing.
-fn descriptor_noting_runtime(scratch: &Scratch) -> String {
-    let js = js_path();
-    let log = scratch.path("descriptors.txt");
-    let path = scratch.write_executable(
+/// `PATH` without the directories that hold `bun`.
+fn path_without_bun() -> String {
+    std::env::var("PATH")
+        .unwrap_or_default()
+        .split(':')
+        .filter(|dir| !std::path::Path::new(dir).join("bun").exists())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+/// **A build with generators needs no JavaScript runtime.** A repository's own
+/// tool and the `proto` tool the toolchain ships both answer, and the tests of
+/// what they wrote pass, with `bun` off `PATH` and `BURI_JS` naming nothing.
+#[test]
+fn generators_need_no_javascript_runtime() {
+    let scratch = tool_and_proto("generators-no-javascript");
+    let path = path_without_bun();
+    let run = scratch.run_with_env(
+        &["test", "//lib/wire"],
+        &[("BURI_JS", "/nonexistent/js-runtime"), ("PATH", &path)],
+    );
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+}
+
+/// **A build with generators starts one process per tool, and no JavaScript
+/// runtime.** `BURI_JS` names a script that notes each start, and it is never
+/// started; the repository's tool and `proto` each answer all their requests
+/// from one process.
+#[test]
+fn a_generator_build_starts_one_process_per_tool_and_no_javascript_runtime() {
+    let scratch = tool_and_proto("generators-no-javascript-started");
+    let log = scratch.path("started.txt");
+    let runtime = scratch.write_executable(
         "runtime.sh",
-        &format!(
-            "#!/bin/sh\ncase \"$1\" in\n--descriptors) echo $(ls /dev/fd/) ; exit 0 ;;\n*/.buri/out/tools/*) echo $(ls /dev/fd/) >> '{}' ;;\nesac\nexec '{js}' \"$@\"\n",
-            log.display()
-        ),
+        &format!("#!/bin/sh\necho started >> '{}'\n", log.display()),
     );
-    path.display().to_string()
-}
-
-/// **A tool's process holds its own three streams and nothing of another's.**
-///
-/// A tool process answers requests until its input ends, and the build keeps
-/// one for a pass's next request. A tool started while another's pipes were
-/// being made could inherit them. Holding the write end of a kept process's
-/// input, it kept that process from ever reading the end, and the build
-/// waited on it forever: a cold `buri test` hung in its generators for 21
-/// minutes. Many rules side by side start many tools at once, so their starts
-/// overlap, and each build here runs every one again. What each was started
-/// with is compared with what the stand-in sees when it's started alone.
-#[test]
-fn a_tool_process_inherits_no_other_process_pipe() {
-    const RULES: usize = 96;
-    const BUILDS: usize = 5;
-    let scratch = many_rules("generators-inherit-nothing", RULES);
-    let runtime = descriptor_noting_runtime(&scratch);
-    let alone = std::process::Command::new(&runtime)
-        .arg("--descriptors")
-        .env_clear()
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("the stand-in runs")
-        .capped_wait_with_output()
-        .expect("the stand-in runs");
-    let alone: Vec<String> = String::from_utf8_lossy(&alone.stdout)
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
-    for _ in 0..BUILDS {
-        scratch
-            .run_with_env(&["build", "--force", "//..."], &[("BURI_JS", &runtime)])
-            .ok();
-    }
-    let noted = std::fs::read_to_string(scratch.path("descriptors.txt")).unwrap_or_default();
-    // A process a rule let go of may answer a rule that starts after it, so
-    // a build starts at most one per rule, and at least one.
-    let starts = noted.lines().count();
+    let run = scratch.run_with_env(
+        &["test", "//lib/wire"],
+        &[
+            ("BURI_JS", &runtime.display().to_string()),
+            ("BURI_PROFILE", "1"),
+        ],
+    );
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
     assert!(
-        (BUILDS..=RULES * BUILDS).contains(&starts),
-        "{starts} tools were started in {BUILDS} builds"
+        !log.exists(),
+        "a JavaScript runtime was started:\n{}",
+        indent(&run.all())
     );
-    let extra: Vec<&str> = noted
-        .lines()
-        .filter(|line| {
-            line.split_whitespace()
-                .any(|fd| !alone.iter().any(|a| a == fd))
-        })
-        .collect();
-    assert!(
-        extra.is_empty(),
-        "a tool was started holding more than {alone:?}:\n{}",
-        indent(&extra.join("\n"))
-    );
-}
-
-/// **A tool's process holds nothing `buri` was started with beyond its three
-/// streams.** Here `buri` starts holding the read end of a pipe on descriptor
-/// 19, not close-on-exec, the way a shell or a supervisor can leave one open.
-/// A process that started `buri` while making a pipe of its own does the same
-/// by accident, and every tool then held it.
-#[test]
-fn a_tool_process_inherits_no_descriptor_buri_was_started_with() {
-    use std::os::unix::process::CommandExt as _;
-    unsafe extern "C" {
-        fn pipe(fds: *mut i32) -> i32;
-        fn dup2(from: i32, to: i32) -> i32;
-        fn close(fd: i32) -> i32;
-    }
-    let scratch = many_rules("generators-inherit-nothing-of-buri", 1);
-    let runtime = descriptor_noting_runtime(&scratch);
-    let mut cmd = crate::harness::buri_command();
-    cmd.args(["build", "//...", "--color=never"])
-        .current_dir(scratch.path(""))
-        .env("BURI_JS", &runtime);
-    // SAFETY: `pipe`, `dup2` and `close` are on POSIX's async-signal-safe
-    // list, the whole of what a `pre_exec` closure may call.
-    unsafe {
-        cmd.pre_exec(|| {
-            let mut fds = [0; 2];
-            if pipe(fds.as_mut_ptr()) == -1 || dup2(fds[0], 19) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            close(fds[0]);
-            close(fds[1]);
-            Ok(())
-        })
-    };
-    let out =
-        crate::harness::hang::capped_output(cmd, "buri build //...", crate::harness::hang::cap());
-    let all = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(out.status.success(), "the build failed:\n{}", indent(&all));
-    let noted = std::fs::read_to_string(scratch.path("descriptors.txt")).unwrap_or_default();
-    assert!(!noted.is_empty(), "no tool was started:\n{}", indent(&all));
-    let holding: Vec<&str> = noted
-        .lines()
-        .filter(|line| line.split_whitespace().any(|fd| fd == "19"))
-        .collect();
-    assert!(
-        holding.is_empty(),
-        "a tool was started holding `buri`'s descriptor 19:\n{}",
-        indent(&holding.join("\n"))
+    assert_eq!(
+        counted(&run, "tool processes"),
+        2,
+        "two tools started other than one process each:\n{}",
+        indent(&run.all())
     );
 }
 

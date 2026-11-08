@@ -771,6 +771,25 @@ impl Scratch {
         path
     }
 
+    /// Builds `target` so the repository's one tool is compiled, then puts
+    /// `script` where its executable was. A tool answers whatever it was
+    /// built from, so a script is how a test gets one that answers each
+    /// request differently.
+    pub fn replace_the_tool(&self, target: &str, script: &str) {
+        self.run(&["build", target]);
+        let tools = self.path(".buri/out/tools");
+        let built: Vec<PathBuf> = std::fs::read_dir(&tools)
+            .unwrap_or_else(|e| panic!("no tool was built into {}: {e}", tools.display()))
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && p.extension().is_none())
+            .collect();
+        let [tool] = built.as_slice() else {
+            panic!("expected one tool executable, found {built:?}");
+        };
+        write_executable(tool, script);
+    }
+
     pub fn read(&self, rel: &str) -> String {
         let path = self.path(rel);
         std::fs::read_to_string(&path)

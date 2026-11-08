@@ -7,15 +7,15 @@ error: `//tools/good` did not answer [tool-failed]
   = the tool does not build: `tool.buri` exports no `check`
   = fix: fix what the note names; `buri test` on the tool runs its own tests
 
-      = the tool was killed by SIGSEGV (signal 11)
-        RangeError: Maximum call stack size exceeded.
+      = the tool exited with 1
+        Maximum call stack size exceeded.
 
     The note says what went wrong: the tool didn't build, exited non-zero, was
     killed by a signal, wrote nothing, or wrote something that isn't an answer.
 
-    A killed tool names its signal: SIGSEGV for a crash or a stack overflow,
-    SIGKILL for a machine out of memory. The last four kilobytes of its standard
-    error come with the note.
+    A killed tool names its signal: SIGSEGV for a crash, SIGKILL for a machine
+    out of memory. The last four kilobytes of its standard error come with the
+    note.
 
     A slow tool isn't this error. The build waits for a tool as long as it runs,
     the way it waits for a compiler.

@@ -2,10 +2,10 @@
 //! request to the next, a target edited between the two rounds, and a target
 //! the build itself refuses.
 //!
-//! The generator's tool runs under `BURI_JS`, so a stand-in runtime that
-//! answers each request with something new is what makes two rounds disagree.
-//! It uses shell builtins alone, because a tool's process gets an empty
-//! environment and no `PATH`.
+//! A script in place of the generator's built tool answers each request with
+//! something new, which is what makes two rounds disagree. It uses shell
+//! builtins alone, because a tool's process gets an empty environment and no
+//! `PATH`.
 use crate::harness::*;
 
 /// The platform a native binary here declares.
@@ -48,7 +48,7 @@ export fn main(host: HOST): Result<(), Str> {
 /// Answers request `n` with a module `text` reaching `n` generated modules,
 /// each calling the one before it, the first returning `"n"`. So each round
 /// asks for, and compiles, more modules than the round before.
-const GROWING_RUNTIME: &str = r#"#!/bin/sh
+const GROWING_TOOL: &str = r#"#!/bin/sh
 while read -r line; do
   n=0
   [ -f COUNT ] && read -r n < COUNT
@@ -103,8 +103,8 @@ fn repository(name: &str, platform: &str) -> Scratch {
     scratch
 }
 
-/// The same repository with `//lib/text` written by hand, so it builds under
-/// any JavaScript runtime.
+/// The same repository with `//lib/text` written by hand, so it builds without
+/// a tool.
 fn written(name: &str, platform: &str) -> Scratch {
     let scratch = repository(name, platform);
     scratch.write(
@@ -122,14 +122,11 @@ fn written(name: &str, platform: &str) -> Scratch {
     scratch
 }
 
-/// Writes `script` as the JavaScript runtime, with `COUNT` naming a file in
-/// the repository, and answers the path to point `BURI_JS` at.
-fn runtime(scratch: &Scratch, script: &str) -> String {
+/// Puts `script` in place of the tool, with `COUNT` naming a file in the
+/// repository.
+fn replace_the_tool(scratch: &Scratch, script: &str) {
     let count = scratch.path("count").display().to_string();
-    scratch
-        .write_executable("fake/js", &script.replace("COUNT", &count))
-        .display()
-        .to_string()
+    scratch.replace_the_tool("//lib/text", &script.replace("COUNT", &count));
 }
 
 /// A JavaScript artifact that differs between the rounds names the file.
@@ -137,9 +134,9 @@ fn runtime(scratch: &Scratch, script: &str) -> String {
 #[test]
 fn a_generated_module_that_differs_between_rounds_makes_the_script_differ() {
     let scratch = repository("check-reproducible-growing-js", "node");
-    let js = runtime(&scratch, GROWING_RUNTIME);
+    replace_the_tool(&scratch, GROWING_TOOL);
     scratch
-        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &[("BURI_JS", &js)])
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says(".buri/out/node/cmd/app/app.mjs differs between two builds of the same tree, first at byte ");
@@ -151,12 +148,9 @@ fn a_generated_module_that_differs_between_rounds_makes_the_script_differ() {
 #[test]
 fn a_generated_module_that_differs_between_rounds_changes_the_codegen_units() {
     let scratch = repository("check-reproducible-growing-native", "native");
-    let js = runtime(&scratch, GROWING_RUNTIME);
+    replace_the_tool(&scratch, GROWING_TOOL);
     scratch
-        .run_with_env(
-            &["build", "--check-reproducible", "//cmd/app"],
-            &[("BURI_JS", &js)],
-        )
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("codegen units")
@@ -186,12 +180,9 @@ while read -r line; do
   printf '%s\n' '{"modules":[{"name":"text","text":"export fn text(): Str { \"a\" }\n","anchors":[]}],"diagnostics":[],"needs":[]}'
 done
 "#;
-    let js = runtime(&scratch, &script.replace("BUILD", &build));
+    replace_the_tool(&scratch, &script.replace("BUILD", &build));
     scratch
-        .run_with_env(
-            &["build", "--check-reproducible", "//cmd/app"],
-            &[("BURI_JS", &js)],
-        )
+        .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(2)
         .says("error: //cmd/app disappeared between two builds of one tree");
 }

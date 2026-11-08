@@ -151,6 +151,98 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
     }
 }
 
+/// A generator writing the module `word`, which exports `word`: the text of
+/// its one input.
+const WORD_TOOL: &str = r#"from "core/buri/ast" import * as ast;
+from "core/str" import * as str;
+from "core/tool" import { Generated, GenerateRequest };
+from "platform/effect" import { Allocator };
+
+export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+    let text = request.inputs.get(0).map(fn(i) => i.value).withDefault("").trim();
+    let source = str.format(ctx, "export let word: Str = \"${text}\";\n");
+    let modules = match (ast.parse(ctx, "", source)) {
+        .Ok(parsed) => [("word", parsed)],
+        .Err(_) => [],
+    };
+    Generated { modules: modules, diagnostics: [], needs: [] }
+}
+"#;
+
+/// A program printing the generated `word`.
+const WORD_PROGRAM: &str = r#"from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "//lib/wire" import { word };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, word).mapErr(fn(_e) => "could not write to standard output")
+}
+"#;
+
+#[test]
+fn a_cross_build_runs_its_generator_on_the_host() {
+    if !cross_ready() {
+        return;
+    }
+    let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("cross-generator-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let repo = scratch.join("repo");
+    let files = [
+        ("REPO.buri", ""),
+        ("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n"),
+        ("tools/gen/tool.buri", WORD_TOOL),
+        (
+            "lib/wire/BUILD.buri",
+            "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"word.txt\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n",
+        ),
+        ("lib/wire/word.txt", "generated\n"),
+        ("lib/wire/lib.buri", "from \"//lib/wire/word\" export { word };\n"),
+        (
+            "cmd/hello/BUILD.buri",
+            "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [\n        { platform: \"native\", variant: \"linux-x86_64\" },\n    ]\n}\n",
+        ),
+        ("cmd/hello/main.buri", WORD_PROGRAM),
+    ];
+    for (path, text) in files {
+        let path = repo.join(path);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("create a directory");
+        std::fs::write(path, text).expect("write a file");
+    }
+    let home = crate::sweep::kept::shared_cross_home();
+    crate::sweep::kept::warm_cross_runtime();
+
+    let out = buri(&repo, home)
+        .args(["build", "//cmd/hello", "--output=native/linux-x86_64"])
+        .capped_output()
+        .expect("run buri build");
+    assert!(
+        out.status.success(),
+        "the cross build with a generator failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let artifact = repo.join(".buri/out/native/linux-x86_64/cmd/hello/hello");
+    let bytes = std::fs::read(&artifact).expect("the cross-built artifact");
+    assert!(
+        is_linux_x86_64_pie(&bytes),
+        "the artifact is not a 64-bit x86-64 static-PIE ELF"
+    );
+    if let Some(ran) = run_in_container(&artifact) {
+        assert_eq!(
+            ran.trim(),
+            "generated",
+            "the generated module did not reach the binary"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// Runs `artifact` in a `docker.io/library/rust` container and answers its
 /// standard output, or `None` when no container could be started.
 fn run_in_container(artifact: &Path) -> Option<String> {

@@ -50,7 +50,7 @@ environment, and a denied network. Buri needs none of that:
   [generator](./generators.md), held to the same rules: every input is in the
   key, and its entry point gets an `Allocator` context and nothing else.
 
-`test` and `generate` each spawn a JavaScript runtime. Both spawns are
+`test` and `generate` each spawn a process. Both spawns are
 **deterministic** rather than confined:
 
 - **An explicit environment.** `env_clear`, then exactly `TZ=UTC` and

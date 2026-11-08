@@ -140,6 +140,6 @@ Editing an input or the tool re-runs it and rebuilds what read its modules, and
 `--check-reproducible` covers generators too. See
 [hermeticity](./hermeticity.md).
 
-A tool compiles to JavaScript and runs on the build machine. `proto` is one too:
+A tool compiles to an executable for the build machine and runs there. `proto` is one too:
 a Buri program calling `std/codegen/proto`'s `emit`, compiled on first use and
 cached under `.buri/out/tools`.

@@ -40,6 +40,8 @@ pub enum Count {
     NewExecutables,
     /// A process running tests, native or JavaScript.
     TestProcesses,
+    /// A process running a generator's tool, kept or answering once.
+    ToolProcesses,
     /// A byte of a source read to key an action.
     KeyedBytes,
 }
@@ -58,6 +60,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "images linked",
     "new executables launched",
     "test processes",
+    "tool processes",
     "bytes keyed",
 ];
 

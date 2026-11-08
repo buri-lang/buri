@@ -56,7 +56,7 @@ use crate::http;
 use crate::rng;
 use crate::sync::{Condvar, Mutex};
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
-use std::io::{Read, Seek, Write};
+use std::io::{BufRead, Read, Seek, Write};
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering::Relaxed};
 
 /// Bytes buffered before a flush happens on its own. `$host` flushes after 64
@@ -127,7 +127,6 @@ impl Stream {
     }
 }
 static ARGS: Mutex<Option<Vec<String>>> = Mutex::new(None);
-static STDIN_LINES: Mutex<Option<(Vec<String>, usize)>> = Mutex::new(None);
 
 /// The first stream failure nobody has been told about yet.
 ///
@@ -557,10 +556,12 @@ pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(ptr: *const u8, len: u6
 
 /// `Stdin::readLine` — `.Some(line)` or `.None` at end of input.
 ///
-/// Standard input is read to its end on the first call and split, which is what
-/// `$host_HostStdin_readLine` does (`runtime.js:1300-1315`): a program using
-/// `readLine` cannot answer before the other side has finished speaking, and
-/// `readBytes` is the operation for a program that must.
+/// One line is read, up to its newline, and no further, so a program answers
+/// each line of a conversation before the other side has finished speaking,
+/// as `$host_HostStdin_readLine` does on JavaScript. What is left when the
+/// input ends is a last line without a newline, and nothing left is `.None`.
+/// The line goes through the same buffer `readBytes` reads, so the two can be
+/// mixed.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
@@ -569,35 +570,17 @@ pub unsafe extern "C" fn buri_rt_host_stdin_read_line(out: *mut BuriStr) -> i32 
     // [`about_to_block`]'s rule: a prompt is printed before the answer to it is
     // waited for, which is the whole of what a prompt is.
     about_to_block();
-    if lock(&STDIN_LINES).is_none() {
-        // Readers queue on the input's own lock rather than on `STDIN_LINES`,
-        // which an exit would wait on across a read that may never end.
-        let stdin = std::io::stdin();
-        let mut input = stdin.lock();
-        if lock(&STDIN_LINES).is_none() {
-            let mut raw = Vec::new();
-            #[cfg(all(test, feature = "valgrind"))]
-            crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
-            let _ = input.read_to_end(&mut raw);
-            let text = String::from_utf8_lossy(&raw);
-            let mut lines: Vec<String> = if text.is_empty() {
-                Vec::new()
-            } else {
-                text.split('\n').map(str::to_string).collect()
-            };
-            if lines.last().is_some_and(String::is_empty) {
-                lines.pop();
-            }
-            *lock(&STDIN_LINES) = Some((lines, 0));
-        }
-    }
-    let mut state = lock(&STDIN_LINES);
-    let Some((lines, at)) = state.as_mut() else {
+    let mut raw = Vec::new();
+    #[cfg(all(test, feature = "valgrind"))]
+    crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = std::io::stdin().lock().read_until(b'\n', &mut raw);
+    if raw.is_empty() {
         return 0;
-    };
-    let Some(line) = lines.get(*at) else { return 0 };
-    *at = at.saturating_add(1);
-    let value = str_of(line);
+    }
+    if raw.last() == Some(&b'\n') {
+        raw.pop();
+    }
+    let value = str_of(&String::from_utf8_lossy(&raw));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK

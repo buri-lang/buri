@@ -4,7 +4,8 @@
 //! A print to a closed pipe answers `.Err(.Other(_))` natively, as it does on
 //! JavaScript, rather than ending the program by `SIGPIPE`. So does a write to
 //! a socket whose peer has gone. A child the program spawns still starts with
-//! `SIGPIPE`'s default, as every Unix tool expects.
+//! `SIGPIPE`'s default, as every Unix tool expects. And a program reading its
+//! input a line at a time answers each line before the input ends.
 //!
 //! Each row builds one program per native backend this toolchain has, and once
 //! for JavaScript, through `buri build`.
@@ -409,5 +410,68 @@ fn a_child_still_dies_by_sigpipe_when_its_reader_leaves() {
             (Some(0), "yes ended 141\n", ""),
             "on {backend}"
         );
+    }
+}
+
+/// Answers each line of its input as it arrives, until the input ends.
+const ANSWERS: &str = r#"from "core/io" import * as io;
+from "HOST_MODULE" import { HOST };
+from "platform/effect" import { Stdin, Stdout };
+
+fn answer<C: Stdin + Stdout>(ctx: C): () {
+    match (io.readLine(ctx)) {
+        .None => (),
+        .Some(line) => {
+            let _said = io.println(ctx, "got ${line}").ignore();
+            answer(ctx)
+        },
+    }
+}
+
+export fn main(host: HOST): Result<(), Str> {
+    let _answered = answer(context { Stdin: host.stdin, Stdout: host.stdout });
+    .Ok(())
+}
+"#;
+
+/// **`readLine` returns a line as soon as it arrives**, before the input ends,
+/// so a program can answer each line of a conversation on a pipe. The writer
+/// here waits for each answer before it sends the next line, so a program that
+/// read its input to the end first would never answer at all.
+#[test]
+fn a_program_answers_each_line_before_its_input_ends() {
+    use crate::hang::CappedChild;
+    use std::io::Write;
+    for program in built("answers", ANSWERS) {
+        let backend = program.backend;
+        let mut cmd = program.command();
+        crate::shared::heap_checked(&mut cmd);
+        let mut child = crate::shared::started(
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null()),
+        );
+        let mut stdin = child.stdin.take().expect("a piped stdin");
+        let mut stdout = std::io::BufReader::new(child.stdout.take().expect("a piped stdout"));
+        let talking = std::thread::spawn(move || {
+            let mut answers = Vec::new();
+            for line in ["one", "two"] {
+                writeln!(stdin, "{line}")
+                    .and_then(|()| stdin.flush())
+                    .expect("a line is sent");
+                let mut answer = String::new();
+                stdout.read_line(&mut answer).expect("an answer reads");
+                answers.push(answer);
+            }
+            drop(stdin);
+            let mut rest = String::new();
+            stdout.read_to_string(&mut rest).expect("the rest reads");
+            answers.push(rest);
+            answers
+        });
+        let status = child.capped_wait().expect("the program ends");
+        let answers = talking.join().expect("the conversation ends");
+        assert!(status.success(), "on {backend}: {status}");
+        assert_eq!(answers, ["got one\n", "got two\n", ""], "on {backend}");
     }
 }

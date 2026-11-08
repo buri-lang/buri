@@ -9,8 +9,8 @@
 //!
 //! A tool's `tool.buri` exports one function per block, and has no `main`. To
 //! run one, the build writes a `main` that calls `core/tool`'s `serve` with the
-//! tool's entry points ([`harness`]), compiles it to JavaScript once per key,
-//! and hands it one line of JSON on standard input:
+//! tool's entry points ([`harness`]), compiles it to an executable for this
+//! machine once per key, and hands it one line of JSON on standard input:
 //!
 //! ```text
 //! -> {"entry":"check","inputs":[{"path":"lib/a.lines","language":"lines","value":"..."}],"files":[]}
@@ -28,7 +28,7 @@
 //! `format` is native ([`crate::languages::proto`],
 //! [`crate::languages::textproto`]).
 
-use crate::build::buildfile::{self, Output, Platform, Spanned};
+use crate::build::buildfile::{self, Output, Spanned};
 use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
@@ -609,11 +609,11 @@ pub fn harness(
     format!(
         "from \"platform/effect\" import {{ Allocator, Stdin, Stdout }};\n\
          from \"core/tool\" import * as tool;\n\
-         from \"node\" import {{ NodeHost }};\n\
+         from \"native\" import {{ NativeHost }};\n\
          from \"{module}\" import * as entry;\n\
          {typed_imports}\
          \n\
-         export fn main(host: NodeHost): Result<(), Str> {{\n\
+         export fn main(host: NativeHost): Result<(), Str> {{\n\
          \x20   let ctx = context {{\n\
          \x20       Allocator: host.alloc,\n\
          \x20       Stdin: host.stdin,\n\
@@ -667,10 +667,9 @@ type Source = (Option<crate::build::workspace::PackageId>, String, String);
 /// way are kept in the cache, and while they hold the bytes they did,
 /// their digests finish the key. When they don't, or nothing was kept, the
 /// tool is compiled here to learn them. With none, the key is the one above.
-pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
-    let base = base_key(session, tool, flags);
+pub fn program_key(session: &Session, tool: Tool) -> ActionKey {
+    let base = base_key(session, tool);
     let Tool::Repo(t) = tool else { return base };
-    let dir = session.root.join(".buri/out/tools");
     let cache = crate::build::cache::Cache::open(&session.root);
     let kept = ActionKey::of(format!("tool reads\n{}", base.as_str()).as_bytes());
     if let Some((reads, _)) = cache
@@ -680,27 +679,33 @@ pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
     {
         return finished(&base, &reads);
     }
-    let Ok((js, read)) = compile(session, tool, repo_source(&session.workspace, t)) else {
+    let Ok(mut compiled) = compile(session, tool, repo_source(&session.workspace, t)) else {
         return base;
     };
+    let read = compiled
+        .map
+        .paths()
+        .map(Path::to_path_buf)
+        .collect::<Vec<_>>();
     let reads = crate::build::actions::encode_reads(
         session,
         &crate::build::actions::tool_unkeyed_reads(session, t, read.iter().map(PathBuf::as_path)),
     );
     let key = finished(&base, &reads);
-    let _ = place(
-        &dir,
-        &dir.join(format!("{}.mjs", key.as_str())),
-        js.as_bytes(),
-    );
+    let _ = link(session, tool, &mut compiled, &artifact_path(session, &key));
     cache.put(&kept, &crate::build::actions::with_reads(&reads, b""));
     key
 }
 
 /// [`program_key`] before the files no rule lists.
-fn base_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
+///
+/// A tool is built the same way whatever the build it runs for: for this
+/// machine, by the development backend. So its key holds neither the build's
+/// mode nor its outputs' platforms.
+fn base_key(session: &Session, tool: Tool) -> ActionKey {
+    let flags = Flags::default();
     let mut k = KeyBuilder::new(Action::Link, flags.mode);
-    k.platform(Platform::Js, None);
+    k.platform(buildfile::host_native_platform(), None);
     let name = tool.name(&session.workspace);
     k.rule_identity(&name, "tool", &[]);
     if let Some((_, _, main)) = source(&session.workspace, tool) {
@@ -710,12 +715,17 @@ fn base_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
         k.dependency(&crate::build::actions::action_key(
             session,
             t,
-            &Output::js(Span::NONE),
-            flags,
+            &host_output(),
+            &flags,
             Action::Link,
         ));
     }
     k.finish()
+}
+
+/// The output a tool's program is built as: this machine's.
+fn host_output() -> Output {
+    Output::for_platform(buildfile::host_native_platform(), Span::NONE)
 }
 
 /// `base` with the digests of the files no rule lists, or `base` with none.
@@ -726,23 +736,24 @@ fn finished(base: &ActionKey, reads: &str) -> ActionKey {
     ActionKey::of(format!("{}\n{reads}", base.as_str()).as_bytes())
 }
 
-/// Writes `bytes` to `path` through a temporary and a rename, because two
-/// builds in one repository may reach it at the same moment.
-fn place(dir: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(format!(".{}", std::process::id()));
-    let staged = path.with_file_name(name);
-    std::fs::write(&staged, bytes).map_err(|e| format!("{}: {e}", staged.display()))?;
-    std::fs::rename(&staged, path).map_err(|e| format!("{}: {e}", path.display()))
+/// Where the executable of the program under `key` is kept.
+fn artifact_path(session: &Session, key: &ActionKey) -> PathBuf {
+    session.root.join(".buri/out/tools").join(key.as_str())
 }
 
-/// Compiles a tool's program: the JavaScript, and every file it read.
+/// A tool's program, checked and monomorphized, and the sources it read.
+struct Compiled {
+    program: crate::compiler::middle::monomorphize::Program,
+    analysis: crate::compiler::driver::Analysis,
+    map: crate::diagnostics::SourceMap,
+}
+
+/// Compiles a tool's program up to the code generator.
 fn compile(
     session: &Session,
     tool: Tool,
     (package, main_name, main): Source,
-) -> Result<(String, Vec<PathBuf>), String> {
+) -> Result<Compiled, String> {
     let name = tool.name(&session.workspace);
     if let Some(why) = broken_contract(&session.workspace, tool) {
         return Err(format!("the tool does not build: {why}"));
@@ -760,34 +771,62 @@ fn compile(
         }
     }
     let mut map = crate::diagnostics::SourceMap::new();
-    let (js, _chunks) = crate::compiler::driver::compile_snippet_js_as(
+    let (program, analysis) = crate::compiler::driver::monomorphize_snippet(
         Some(&session.workspace),
         package,
         &mut map,
         &main_name,
         &main,
+        Some(buildfile::host_native_platform()),
     )
-    .map_err(|d| match d.items.first() {
-        Some(first) => format!("the tool does not build: {}", map.render(first, false)),
-        None => "the tool does not build".to_string(),
-    })?;
-    Ok((js, map.paths().map(Path::to_path_buf).collect()))
+    .map_err(|d| does_not_build(&map, &d))?;
+    Ok(Compiled {
+        program,
+        analysis,
+        map,
+    })
 }
 
-/// The `.mjs` a tool is compiled to, built once per [`program_key`] and kept.
-pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf, String> {
+/// Generates the code of a compiled tool and links it into the executable at
+/// `path`.
+fn link(session: &Session, tool: Tool, compiled: &mut Compiled, path: &Path) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    crate::build::actions::link_for_host(
+        &session.root,
+        &tool.name(&session.workspace),
+        &Flags::default(),
+        &mut compiled.program,
+        &compiled.analysis.checked.tables,
+        path,
+    )
+    .map_err(|d| does_not_build(&compiled.map, &d))
+}
+
+/// What a note says about a tool whose program did not build.
+fn does_not_build(
+    map: &crate::diagnostics::SourceMap,
+    d: &crate::diagnostics::Diagnostics,
+) -> String {
+    match d.items.first() {
+        Some(first) => format!("the tool does not build: {}", map.render(first, false)),
+        None => "the tool does not build".to_string(),
+    }
+}
+
+/// The executable a tool is built to, once per [`program_key`] and kept.
+pub fn artifact(session: &Session, tool: Tool) -> Result<PathBuf, String> {
     let name = tool.name(&session.workspace);
     let Some(source) = source(&session.workspace, tool) else {
         return Err(format!("`{name}` runs in-tree and has no program"));
     };
-    let key = program_key(session, tool, flags);
-    let dir = session.root.join(".buri/out/tools");
-    let path = dir.join(format!("{}.mjs", key.as_str()));
+    let path = artifact_path(session, &program_key(session, tool));
     if path.is_file() {
         return Ok(path);
     }
-    let (js, _) = compile(session, tool, source)?;
-    place(&dir, &path, js.as_bytes())?;
+    let mut compiled = compile(session, tool, source)?;
+    link(session, tool, &mut compiled, &path)?;
     Ok(path)
 }
 
@@ -878,7 +917,7 @@ pub fn exchange(
     read: &dyn Fn(&str) -> Option<String>,
     flags: &Flags,
 ) -> Result<Answer, String> {
-    let program = program_key(session, ask.tool, flags);
+    let program = program_key(session, ask.tool);
     let cache = Cache::open(&session.root);
     let mut files: BTreeMap<String, Option<String>> = BTreeMap::new();
     let mut outside: Vec<String> = Vec::new();
@@ -910,10 +949,9 @@ pub fn exchange(
         let ran = cached.is_none();
         let line = match cached {
             Some(line) => line,
-            None => crate::build::generators::run_artifact(
-                &artifact(session, ask.tool, flags)?,
-                &request,
-            )?,
+            None => {
+                crate::build::generators::run_artifact(&artifact(session, ask.tool)?, &request)?
+            }
         };
         let value =
             crate::json::parse(&line).map_err(|e| format!("the tool's answer is not JSON: {e}"))?;

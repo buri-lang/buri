@@ -890,11 +890,7 @@ pub fn run_snippet(
 /// The same up to running it: the JavaScript a snippet that exports `main`
 /// compiles to, with the snippet standing in for a file of `pkg`.
 ///
-/// [`run_snippet`] is this and then a subprocess. `build::tools` is the other
-/// caller: the `main` the toolchain writes for a `tool` rule is a snippet too,
-/// and it imports that tool's `tool.buri`, which only a file of its own package
-/// may. This is what turns it into an artifact the build can hand a request on
-/// standard input.
+/// [`run_snippet`] is this and then a subprocess.
 pub fn compile_snippet_js_as(
     ws: Option<&Workspace>,
     pkg: Option<crate::build::workspace::PackageId>,
@@ -902,16 +898,61 @@ pub fn compile_snippet_js_as(
     name: &str,
     text: &str,
 ) -> Result<(String, Vec<String>), Diagnostics> {
+    let (mut program, analysis) = monomorphize_snippet(ws, pkg, map, name, text, None)?;
+    let mut diags = Diagnostics::new();
+    let flags = crate::commands::arguments::Flags::default();
+    actions::emit_all(
+        &mut program,
+        &analysis.checked.tables,
+        crate::compiler::backend::Target {
+            platform: crate::build::buildfile::Platform::Js,
+            arch: None,
+        },
+        &flags,
+        &mut diags,
+    )
+}
+
+/// The program a snippet that exports `main` monomorphizes to, checked for
+/// `platform` with the snippet standing in for a file of `pkg`, and the
+/// analysis whose tables it reads.
+///
+/// `build::tools` calls it too: the `main` the toolchain writes for a `tool`
+/// rule is a snippet, and it imports that tool's `tool.buri`, which only a file
+/// of its own package may. This is the program the build links into the
+/// executable it hands a request on standard input.
+pub fn monomorphize_snippet(
+    ws: Option<&Workspace>,
+    pkg: Option<crate::build::workspace::PackageId>,
+    map: &mut SourceMap,
+    name: &str,
+    text: &str,
+    platform: Option<Platform>,
+) -> Result<(crate::compiler::middle::monomorphize::Program, Analysis), Diagnostics> {
     let mut cache = crate::parsing::parser::Cache::new();
-    let analysis = analyze_snippet_on(
+    // `main` is the entry this program is built through, so it answers to
+    // `platform`'s host whatever outputs `pkg`'s build file names.
+    let analysis = analyze_on(
         ws,
-        pkg,
         map,
         &mut cache,
-        name,
-        text,
-        crate::compiler::modules::Role::Entry,
-        None,
+        Opening::Library,
+        Scope::All,
+        |loader| {
+            loader.load_unit(&crate::compiler::modules::Unit {
+                target: None,
+                platform,
+                entry: platform.map(|_| "main".to_string()),
+                with_tests: false,
+            });
+            loader.load_all_std();
+            loader.load_source_in(
+                name,
+                crate::compiler::modules::Role::Entry,
+                text.to_string(),
+                pkg,
+            );
+        },
     );
     if analysis.diagnostics.has_errors() {
         return Err(analysis.diagnostics);
@@ -927,7 +968,7 @@ pub fn compile_snippet_js_as(
         .iter()
         .map(|m| m.path.clone())
         .collect();
-    let mut program = crate::compiler::middle::monomorphize::run(
+    let program = crate::compiler::middle::monomorphize::run(
         &analysis.checked,
         module_paths,
         &mut diags,
@@ -936,17 +977,7 @@ pub fn compile_snippet_js_as(
     if diags.has_errors() {
         return Err(diags);
     }
-    let flags = crate::commands::arguments::Flags::default();
-    actions::emit_all(
-        &mut program,
-        &analysis.checked.tables,
-        crate::compiler::backend::Target {
-            platform: crate::build::buildfile::Platform::Js,
-            arch: None,
-        },
-        &flags,
-        &mut diags,
-    )
+    Ok((program, analysis))
 }
 
 /// Writes the emitted module to a scratch file and runs it under the JS
