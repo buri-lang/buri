@@ -229,19 +229,13 @@ across programs (`--explain`), so the cache and `Flights` share nothing.
 Ranked by CPU saved per unit of complexity. Savings are of the cold builds
 above.
 
-1. **Make codegen units the same across programs.** Up to 39% of dev CPU and
-   68% of release. Evidence: 69% of linked functions are another program's by
-   symbol; the back half below check is 4.1 s of dev and 290 s of release.
-   That's an upper bound. A matching symbol isn't a matching body, because
-   `inline` pastes single-call-site callees by program-wide counts and closure
-   numbers move. §6.89 found 18% by symbol and 42% by body on a repository
-   generic over its handlers. First step, cheap: hash each function's
-   `render_func_into` text across programs to get this workspace's
-   body-level share. Then split each module's unit by whether a function's
-   body depends on the program, and keep program-driven inlining out of the
-   shared half. Risk: changes symbols and binaries, and can lose inlining
-   across the split. It removes the per-program repetition the goals
-   denominator hides; it adds a partition rule.
+1. **Make codegen units the same across programs.** Measured at 18% of dev
+   CPU and 72% of release, from two small changes; see
+   [Sharing codegen across programs](#sharing-codegen-across-programs).
+   Number each lifted closure within its parent, and take the package path
+   out of the LLVM module name and out of `codegen_key`. The existing unit
+   cache then restores 2,481 of 3,231 units in a cold build. Risk: low;
+   closure symbols change once, and every cached object misses once.
 2. **Hash unit keys from the IR, not from its text.** About 4% of dev, 0.3 s
    in release. Evidence: `unit_hashes` is 0.32 s, and formatting
    (`render_func_into`, `fmt::write`, `Layout`'s `Debug`) is most of it.
@@ -287,3 +281,153 @@ Not worth proposing:
   about 5% of dev here, so it may be worth measuring again once proposal 4
   removes the biggest clone.
 - **A lower `-O` for release.** The release backend stays at `default<O2>`.
+
+## Sharing codegen across programs
+
+**Most per-program codegen is identical, and two small changes let the unit
+cache we already have reuse it.** Measured 2026-11-07 on the `full` workspace
+above, cold, `BURI_THREADS=1`, with a `validate`-profile `buri` and a
+throwaway patch. The patch dumped each function's rendered IR hash, its stencil
+bytes and relocations, and each unit's LLVM IR before and after `default<O2>`.
+
+### What's identical
+
+The share is of the copies a build compiles beyond the first, so it's what
+compiling each function once would remove. Time is the per-function stencil
+time in dev, and each unit's `default<O2>` plus instruction selection, split
+across its functions by instruction count, in release.
+
+| | Dev, functions | Dev, time | Release, functions | Release, time |
+|---|---:|---:|---:|---:|
+| Copies of another program's symbol | 74.7% | 82.0% | 73.9% | 83.9% |
+| Identical copies, today | 67.9% | 54.1% | 48.4% | 60.5% |
+| Identical copies, closures numbered per parent | 84.1% | 83.7% | 84.7% | 83.9% |
+| Whole units identical, today | 58 of 3,231 | 0.1% | 69 of 3,231 | 0.1% |
+| Whole units identical, closures numbered per parent | 2,521 | 76.2% | 2,544 | 79.9% |
+
+Identical IR gives identical code. In dev, all but 190 functions match once
+relocated fields are masked; those few most likely read a callee's frame
+layout. Raw bytes differ for about 3,000 more, because constant-pool offsets
+and part-local helper names (`buri$stencil$p{part}h{i}`) depend on the 512-function
+part a function lands in. In release, identical IR gives identical IR before
+`default<O2>` for every function except the per-unit `buri.thunk.N` helpers,
+and 96% of those functions are still identical after it.
+
+### Why the rest differ
+
+- **Closure symbols.** `closures::run` names a lifted lambda
+  `{parent}$fn{n}`, with `n` counted from the program's function count, so
+  `heft25$1n9hh3$fn2204` in one program is `$fn2300` in another. Of the 3,646
+  shared symbols whose IR differs, 3,569 differ only by that. Every caller of a
+  closure differs with it, and so does the unit around it. It also renames every
+  closure in a program when one function is added anywhere, so an edit misses
+  every unit that holds a closure.
+- **Single-use inlining.** `inline` pastes a callee with one call site by the
+  program's own counts: 59 symbols.
+- **Dead bodies.** 18 functions are `abort "this function was never built"` in
+  programs that don't reach them.
+- **Which functions a program reaches.** A unit holds every function the
+  program reaches in one module. The workspace's library units match because
+  every program reaches the same parts of each library. The stdlib's don't:
+  `core_list` has 12 versions for 12 programs, and 1.1% of stdlib unit time
+  repeats, against 84.7% function by function. The stdlib is only 2% of this
+  workspace's emission, so a stdlib-heavy repository looks more like that row.
+
+Monomorphization context, layouts and ordering caused no differences. Instance
+symbols already carry their type arguments' hash.
+
+### What blocks equal keys
+
+- **`codegen_key` takes the package path** (`unit_prefix`), so two programs in
+  two packages never share a key. Only the LLVM backend reads it, as the module
+  name, which ELF writes as an `STT_FILE` symbol. The stencil backend ignores it.
+- **Closure numbering** changes the unit's IR text, as above.
+- **The partition is per program and module**, so a unit's key covers every
+  function the program reaches in that module.
+
+The rendered text in the key costs time (proposal 2), but it doesn't stop
+matches: it's built from content, not from ids.
+
+### The real saving
+
+Measured, not simulated: the same build with both changes against without,
+cold, CPU-seconds including `lld`.
+
+| | Today | Both changes | Saved |
+|---|---:|---:|---:|
+| Dev | 7.85 s | 6.42 s | 18% |
+| Release | 308.8 s | 86.8 s | 72% |
+
+2,481 of 3,231 units come back from the cache. Dev saves less than the 39%
+upper bound because monomorphize, the middle end, `lower` and unit keys still
+run once per program. With lint and the loader they're 3.8 s of the 6.4 s
+left. Release saves more than the 68%
+the symbol count suggested, because a matched unit skips all of its LLVM work.
+
+`buri test //...` on this workspace spends 0.02 s in emit, so there's nothing
+there to share. Test binaries already have an empty prefix and share within a
+batch.
+
+### Release and inlining
+
+**Release has no link-time optimization.** Each unit is its own module,
+optimized by `default<O2>` alone. Other units' functions are declarations,
+except small leaf glue kept `available_externally`. Whole-program inlining
+happens earlier, in the middle end's `inline`, so the IR already carries it and
+an identical IR is an identical final object. Release shares objects directly;
+there's no bitcode stage to share.
+
+Sharing whole units loses nothing. A finer split would cut `default<O2>`'s
+inlining wherever a program-specific function calls a shared one in the same
+module. Today that's 56% of its same-unit inlines (65,040 of 115,928). With
+closures numbered per parent it's 0.6% (711), because the shared functions
+then call almost nothing that isn't shared.
+
+### Options
+
+- **Make today's unit keys match.** Number lifted closures within their parent,
+  name LLVM modules by unit alone, and drop `unit_prefix` from `codegen_key`.
+  Saves 18% of dev and 72% of release here. Three small changes; the prefix
+  test `the_codegen_key_carries_the_unit_prefix` goes. The first program writes
+  each unit and the rest restore it, so it's done once per build through the
+  cache we already have, and `Flights` covers programs built side by side. The
+  key stays exact: it already holds the IR, the layouts, the backend, the mode,
+  `named elsewhere`, `shares-counts` and the test entry, and nothing in an
+  object reads the prefix once the module name doesn't. If debug info ever
+  writes `DW_AT_comp_dir`, the prefix goes back into the keys of the units that
+  carry it.
+- **Emit each function once per build, in dev.** Memoize stencil emission by
+  function: the IR hash, the layouts it names, its callees' frame layouts,
+  `shares-counts` and the backend. Assemble each unit's object from the
+  memoized parts, so objects stay per program and module. Catches what module
+  units miss, like stdlib instances: 83.7% of per-function time against 76.2%
+  here, and much more on a stdlib-heavy repository. Medium complexity: each
+  function needs its own constant pool and program-wide helper names. In memory
+  for one build, so nothing to invalidate. Release can't do this, because
+  `default<O2>` works on a whole module.
+- **Partition units by function identity.** Split each module's unit into
+  hash buckets, or one unit per function. Simulated on the dumps:
+
+  | Units | Objects a program | Dev time shared | Release time shared |
+  |---|---:|---:|---:|
+  | One per module, as today | 269 | 76.2% | 79.4% |
+  | 16 buckets per module | 4,202 | 79.0% | 82.0% |
+  | One per source declaration | 19,372 | 79.6% | 82.6% |
+  | One per function | 27,918 | 83.3% | 83.6% |
+
+  At most 7 more points, for 15 to 100 times the objects. Each cache file
+  costs about 0.17 ms to write, and `lld` reads every object. Not worth it.
+- **Compile every program in one program, linked many times.** Test batches
+  already do this. It would also share monomorphize and the middle end, up to
+  84% of their 2.3 s. But every artifact would depend on which other targets
+  the build holds. `shares-counts`, task crossing and single-use inlining would
+  become build-wide, and each link would read every program's code. Not for
+  `buri build`.
+- **A persistent cache per function.** It has the same key as the dev memo and
+  only adds warm-build hits where a whole unit misses. It costs a file per
+  function, like the identity partition. Not until the memo shows misses worth
+  persisting.
+
+**Recommended: make today's unit keys match first.** It's the biggest saving
+and the smallest change. Then measure a stdlib-heavy neutral workspace before
+building the dev memo.
