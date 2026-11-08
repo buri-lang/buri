@@ -28,6 +28,55 @@ impl Jit<'_> {
 }
 
 impl Jit<'_> {
+    /// `frame[dst] = *(frame[ptr] + off)`, `bytes` wide, zero-extended into a
+    /// whole word below eight bytes. `dst` may share bytes with `ptr`: the
+    /// pointer is read before anything is written.
+    pub(crate) fn ptr_load(&mut self, dst: u32, ptr: u32, off: u32, bytes: u32) {
+        let fixed_key = key!["pload/", bytes];
+        let fixed = self.has(&fixed_key);
+        let key = if fixed { fixed_key } else { key!["pload/n"] };
+        self.emit(
+            &key,
+            &[
+                Lit::D.of(u64::from(dst)),
+                Lit::A.of(u64::from(ptr)),
+                Lit::N.of(u64::from(off)),
+                Lit::P.of(u64::from(bytes)),
+                Jump::Cont.to(V::Fall),
+            ],
+        );
+        // 3, 5, 6 and 7 bytes land in the word's low half, and the rest is
+        // masked off after, as `elem_load` does.
+        if !fixed && bytes < 8 {
+            self.emit(
+                "bin/and/u64/fi/f",
+                &[
+                    Lit::D.of(u64::from(dst)),
+                    Lit::A.of(u64::from(dst)),
+                    Word::K.lit((1u64 << (8 * bytes)) - 1),
+                    Jump::Cont.to(V::Fall),
+                ],
+            );
+        }
+    }
+
+    /// `*(frame[ptr] + off) = frame[src]`, `bytes` wide.
+    pub(crate) fn ptr_store(&mut self, src: u32, ptr: u32, off: u32, bytes: u32) {
+        let fixed_key = key!["pput/", bytes];
+        let fixed = self.has(&fixed_key);
+        let key = if fixed { fixed_key } else { key!["pput/n"] };
+        self.emit(
+            &key,
+            &[
+                Lit::D.of(u64::from(src)),
+                Lit::A.of(u64::from(ptr)),
+                Lit::N.of(u64::from(off)),
+                Lit::P.of(u64::from(bytes)),
+                Jump::Cont.to(V::Fall),
+            ],
+        );
+    }
+
     /// `frame[dst] = *(base + i * stride)`, `bytes` wide.
     ///
     /// `dst` may share bytes with `base` or `i`: each stencil reads both

@@ -741,8 +741,13 @@ fn moves(o: &mut Out) {
             .into(),
     );
     // A box (`emit::box_into`): a block of exactly the value's width, written
-    // whole, so it needs neither `elemalloc`'s zeroing nor its index. And the
-    // read back (`emit::unbox_from`), from the block's first byte.
+    // whole, so it needs neither `elemalloc`'s zeroing nor its index.
+    //
+    // And a value at a constant offset from a pointer, read into the frame or
+    // written out of it (`lists.rs::ptr_load`, `ptr_store`): a box read back,
+    // a closure's environment, a thunk's arguments. The offset is a hole the
+    // addressing fold puts in the load's own field, where the indexed family
+    // needs an index in a slot and a multiply.
     for n in ELEM_WIDTHS {
         o.push(
             &format!("box/{n}"),
@@ -752,20 +757,40 @@ fn moves(o: &mut Out) {
                  AT(uint64_t, _JIT_D) = p; TAIL0; }}"
             ),
         );
+        let from = "(const char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N)";
         let read = match n {
             1 | 2 | 4 => format!(
-                "AT(uint64_t, _JIT_D) = (uint64_t)*(const uint{}_t *)(uintptr_t)AT(uint64_t, _JIT_A);",
+                "AT(uint64_t, _JIT_D) = (uint64_t)*(const uint{}_t *)({from});",
                 n * 8
             ),
-            _ => format!(
-                "memcpy((char *)fp + OFF(_JIT_D), (const char *)(uintptr_t)AT(uint64_t, _JIT_A), {n});"
-            ),
+            _ => format!("memcpy((char *)fp + OFF(_JIT_D), {from}, {n});"),
         };
         o.push(
-            &format!("unbox/{n}"),
+            &format!("pload/{n}"),
             format!("void $NAME(ARGS) {{ {read} TAIL; }}"),
         );
+        o.push(
+            &format!("pput/{n}"),
+            format!(
+                "void $NAME(ARGS) {{ memcpy((char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), \
+                 (const char *)fp + OFF(_JIT_D), {n}); TAIL; }}"
+            ),
+        );
     }
+    // The widths with no fixed stencil: the size is a hole, so these are a
+    // real `memcpy` call, as `eload/n` is.
+    o.push(
+        "pload/n",
+        "void $NAME(ARGS) { memcpy((char *)fp + OFF(_JIT_D), \
+         (const char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), OFF(_JIT_P)); TAIL; }"
+            .into(),
+    );
+    o.push(
+        "pput/n",
+        "void $NAME(ARGS) { memcpy((char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), \
+         (const char *)fp + OFF(_JIT_D), OFF(_JIT_P)); TAIL; }"
+            .into(),
+    );
     o.push(
         "box/n",
         "void $NAME(ARGS0) { uint64_t p = buri_rt_alloc(OFF(_JIT_N)); \

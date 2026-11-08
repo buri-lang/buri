@@ -242,24 +242,21 @@ const G_SPARE: u32 = 24;
 const G_VALUE: u32 = 32;
 
 /// The fixed slots an **entry thunk**'s frame opens with: its four C
-/// arguments, a zero to index them by, a pointer into the state record, the
-/// closure copied out of that record, and the element copied out of `arg`.
+/// arguments, two spare words, the closure copied out of the state record,
+/// and the element copied out of `arg`.
 const E_STATE: u32 = 0;
 const E_INDEX: u32 = 8;
 const E_ARG: u32 = 16;
 const E_OUT: u32 = 24;
-const E_ZERO: u32 = 32;
-const E_CTXP: u32 = 40;
 const E_CLOS: u32 = 48;
 const E_ELEM: u32 = 64;
 
 /// The fixed slots an **equality thunk**'s frame opens with: the two values it
-/// was pointed at, where the answer goes, a zero to index by, and then the two
-/// values themselves copied out.
+/// was pointed at, where the answer goes, a spare word, and then the two values
+/// themselves copied out.
 const Q_A: u32 = 0;
 const Q_B: u32 = 8;
 const Q_OUT: u32 = 16;
-const Q_ZERO: u32 = 24;
 const Q_VALUE: u32 = 32;
 
 /// The **state record** a runtime-driven step crosses the C boundary inside.
@@ -406,7 +403,7 @@ impl Jit<'_> {
             );
         }
         if size > 0 {
-            self.elem_store(st.at(env), block, one, ENV_FIELDS, size);
+            self.ptr_store(st.at(env), block, ENV_FIELDS, size);
         }
         self.mv(dest, block, 8);
     }
@@ -456,13 +453,11 @@ impl Jit<'_> {
         let frame = frame_for(size);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + round8(size));
-        self.imm_to(G_INDEX, 0);
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, 8, size);
+        self.ptr_load(G_VALUE, G_PTR, 0, size);
         let base = self.fixups_len();
         self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
         if op == Op::Copy {
-            self.imm_to(G_INDEX, 0);
-            self.elem_store(G_VALUE, G_PTR, G_INDEX, 8, size);
+            self.ptr_store(G_VALUE, G_PTR, 0, size);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
@@ -481,8 +476,6 @@ impl Jit<'_> {
         let frame = frame_for(window);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
-        // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
-        self.imm_to(G_INDEX, 1);
         let base = self.fixups_len();
         self.walk_in_place(&mut st, &ty);
         self.emit("ret", &[]);
@@ -495,8 +488,6 @@ impl Jit<'_> {
         let frame = frame_for(8);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + 8);
-        // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
-        self.imm_to(G_INDEX, 1);
         let base = self.fixups_len();
         for (ty, at) in values {
             self.walk_through(&mut st, ty, *at, op, 0);
@@ -778,7 +769,7 @@ impl Jit<'_> {
             ..f.clone()
         };
         self.walk_field(st, &here, G_VALUE, Op::Copy, 0);
-        self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset.bytes(), width);
+        self.ptr_store(G_VALUE, G_PTR, f.offset.bytes(), width);
     }
 
     /// The frame word holding `G_PTR + offset`: `G_PTR` itself at zero, and
@@ -799,10 +790,9 @@ impl Jit<'_> {
         G_COUNT
     }
 
-    /// `frame[dst] = *(G_PTR + offset)`, `bytes` wide, in one stencil: `G_INDEX`
-    /// holds one throughout an in-place walk, so `offset` is the stride.
+    /// `frame[dst] = *(G_PTR + offset)`, `bytes` wide, in one stencil.
     fn load_at(&mut self, dst: u32, offset: u32, bytes: u32) {
-        self.elem_load(dst, G_PTR, G_INDEX, offset, bytes);
+        self.ptr_load(dst, G_PTR, offset, bytes);
     }
 
     /// `fn(*mut u8)` over every element of a `[T]` block.
@@ -1187,8 +1177,7 @@ impl Jit<'_> {
         let mut st = self.glue_frame(frame, scratch);
         let base = self.fixups_len();
 
-        self.imm_to(E_ZERO, 0);
-        self.elem_load(E_CLOS, E_STATE, E_ZERO, 8, 16);
+        self.ptr_load(E_CLOS, E_STATE, 0, 16);
         // The step's own frame, `[ret][env: 8][params...]`, laid out exactly as
         // `Jit::call_indirect` lays it out: what a `calli` enters is the
         // thunk, and this is the thunk's frame. The contexts are in the record
@@ -1213,16 +1202,7 @@ impl Jit<'_> {
                 if w == 0 {
                     continue;
                 }
-                self.emit(
-                    "bin/add/u64/fi/f",
-                    &[
-                        Lit::D.of(u64::from(E_CTXP)),
-                        Lit::A.of(u64::from(E_STATE)),
-                        Word::K.lit(u64::from(off)),
-                        Jump::Cont.to(V::Fall),
-                    ],
-                );
-                self.elem_load(at, E_CTXP, E_ZERO, 8, w);
+                self.ptr_load(at, E_STATE, off, w);
                 if lent && self.rc_counted(t) {
                     self.walk_rc(&mut st, t, at, Op::Retain, 0);
                 }
@@ -1239,7 +1219,7 @@ impl Jit<'_> {
             ],
         );
         if ret_size > 0 {
-            self.elem_store(frame, E_OUT, E_ZERO, 8, ret_size);
+            self.ptr_store(frame, E_OUT, 0, ret_size);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
@@ -1254,7 +1234,7 @@ impl Jit<'_> {
     fn entry_element(&mut self, st: &mut Fn2, elem: &Ty, to: u32, slot: u32) {
         let size = self.layouts_of(*elem).size;
         if size > 0 {
-            self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, size);
+            self.ptr_load(E_ELEM, E_ARG, 0, size);
             if self.rc_counted(elem) {
                 self.walk_rc(st, elem, E_ELEM, Op::Retain, 0);
             }
@@ -1390,7 +1370,6 @@ impl Jit<'_> {
         let mut st = self.glue_frame(frame, scratch);
         let base = self.fixups_len();
 
-        self.imm_to(Q_ZERO, 0);
         let counted = self.rc_counted(&ty);
         // An equality takes two values (`ir::verify`).
         for (i, ((from, at), to)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)]
@@ -1399,7 +1378,7 @@ impl Jit<'_> {
             .enumerate()
         {
             if size > 0 {
-                self.elem_load(at, from, Q_ZERO, 8, size);
+                self.ptr_load(at, from, 0, size);
             }
             if counted && facts.get(i) == Some(&ir::Passing::Own) {
                 self.walk_rc(&mut st, &ty, at, Op::Retain, 0);
@@ -1415,7 +1394,7 @@ impl Jit<'_> {
                 Jump::Cont0.to(V::Fall),
             ],
         );
-        self.elem_store(cbase + RET, Q_OUT, Q_ZERO, 8, ret_size);
+        self.ptr_store(cbase + RET, Q_OUT, 0, ret_size);
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
     }
@@ -1518,8 +1497,7 @@ impl Jit<'_> {
             // Unboxed, the environment parameter is the unit a capture-free
             // lambda takes (`emit.rs`'s `MakeClosure`), so it has no bytes.
             if w > 0 {
-                self.imm_to(scratch, 1);
-                self.elem_load(to, env_at, scratch, ENV_FIELDS, w);
+                self.ptr_load(to, env_at, ENV_FIELDS, w);
             }
             // An environment of no bytes is no record, and holds no count.
             let owns = boxed && facts.first() == Some(&ir::Passing::Own);

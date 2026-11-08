@@ -368,7 +368,7 @@ impl<'a> Jit<'a> {
                 let off = l.fields.get(*field).bytes();
                 let src = st.at(*agg) + off;
                 if self.boxes(owner, &prog.types.field(*ty, *field)) {
-                    self.unbox_from(st, st.at(*dest), src, w);
+                    self.unbox_from(st.at(*dest), src, w);
                     return;
                 }
                 self.load_w(st.at(*dest), src, w);
@@ -396,7 +396,7 @@ impl<'a> Jit<'a> {
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let head = prog.types.enum_head(*ty);
                 if self.boxes(&head.ty, &head.payload(self.tables, *variant, *field)) {
-                    self.unbox_from(st, st.at(*dest), src, w);
+                    self.unbox_from(st.at(*dest), src, w);
                     return;
                 }
                 self.load_w(st.at(*dest), src, w)
@@ -755,22 +755,8 @@ impl<'a> Jit<'a> {
 
     /// Reading one back: the field holds the block's pointer, and the value is
     /// the bytes it names.
-    fn unbox_from(&mut self, st: &mut Fn2, dest: u32, at: u32, size: u32) {
-        let key = key!["unbox/", size];
-        if self.has(&key) {
-            self.emit(
-                &key,
-                &[
-                    Lit::D.of(u64::from(dest)),
-                    Lit::A.of(u64::from(at)),
-                    Jump::Cont.to(V::Fall),
-                ],
-            );
-            return;
-        }
-        let zero = st.scratch + 8;
-        self.imm_to(zero, 0);
-        self.elem_load(dest, at, zero, 8, size);
+    fn unbox_from(&mut self, dest: u32, at: u32, size: u32) {
+        self.ptr_load(dest, at, 0, size);
     }
 
     pub(crate) fn imm_w(&mut self, dst: u32, w: u32, v: u64) {
