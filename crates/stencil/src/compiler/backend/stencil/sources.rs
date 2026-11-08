@@ -735,7 +735,7 @@ fn moves(o: &mut Out) {
         let read = match n {
             1 | 2 | 4 => format!(
                 "AT(uint64_t, _JIT_D) = (uint64_t)*(const uint{}_t *)({from});",
-                n * 8
+                n.saturating_mul(8)
             ),
             _ => format!("memcpy((char *)fp + OFF(_JIT_D), {from}, {n});"),
         };
@@ -912,7 +912,7 @@ fn arithmetic(o: &mut Out) -> Result<(), String> {
 /// sort spends most of its time here.
 fn compares(o: &mut Out) {
     for t in [I64, U64, I32, U32, I16, U16, I8, U8] {
-        for w in [1u32, 2, 4, 8] {
+        for (w, bits) in [(1u32, 8u32), (2, 16), (4, 32), (8, 64)] {
             let (a, b) = (read(t, Loc::Frame, "A"), read(t, Loc::Frame, "B"));
             o.push(
                 &format!("cmp3/{}/{w}", t.tag),
@@ -920,7 +920,7 @@ fn compares(o: &mut Out) {
                     "void $NAME(ARGS) {{ {cty} a = {a}, b = {b}; \
                      AT(uint{bits}_t, _JIT_D) = (uint{bits}_t)(a < b ? 0 : (a > b ? 2 : 1)); TAIL; }}",
                     cty = t.cty,
-                    bits = w * 8,
+
                 ),
             );
         }
