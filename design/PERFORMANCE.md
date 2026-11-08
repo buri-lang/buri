@@ -8813,6 +8813,46 @@ each UI suite loaded the library again. Its other cases hold each bundle to the 
 alone, each suite's stylesheet to its own classes, and a shared library's
 type error to one report per suite that reaches it.
 
+### 6.105 A lambda that's only called is a direct call, 2026-11-08
+
+```buri
+let reply = fn(n: Node, ok: Bool, matched: Int): Envelope => Envelope { to: envelope.sender, ... };
+match (envelope.message) {
+    .Append { .. } => if (stale) { (current, [reply(current, false, 0)]) } else { ... },
+    ...
+}
+```
+
+Each `handle` built `reply`'s environment block and retained `envelope` into
+it. Each call went through the thunk, which takes every argument owned and
+releases the ones the lambda only reads.
+
+`middle/known_calls.rs` now turns a call of a name bound to a closure or
+function reference, read only as a callee, into a direct call, and drops the
+`let`. The lifted lambda takes its captures as parameters instead of an
+environment tuple, so `rc` infers each one's convention. A lambda that's also
+handed on as a value keeps its closure.
+
+Where kvstore's 26.1 M retains and releases came from, counted per operation
+in a release build:
+
+- 60% of block retains are runtime list copies retaining each element. Most
+  copy a list another holder still has: a node read out of a map, updated,
+  then inserted back, and `[x, ..rest]`, whose `rest` is always a copy.
+- Parameter passing is about a tenth of the counts the middle end places.
+- The largest single site left is `entryAt(i).map(fn(e) => e.term)`:
+  `log.get` retains the entry and `Option.map`'s thunk releases it, about
+  700 K block operations.
+
+On an arm64 VM, `run-dev/kvstore` went from 1,488.1 M to 1,475.6 M
+instructions, and its release build from 911.3 M to 904.9 M. The other
+`--levels` programs didn't move, and every stencil build still runs fewer
+instructions than `-O0`. Retains and releases fell to 25.8 M.
+
+`cli/tests/native/ownership.rs` guards it: two thousand rounds that name a
+lambda and call it twice allocated 2,002 blocks, and the test fails at 20.
+A lambda that pushes onto the list it's handed must still grow it in place.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

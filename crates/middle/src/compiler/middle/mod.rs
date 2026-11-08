@@ -67,6 +67,7 @@ pub mod forward;
 pub mod fuse;
 pub mod inline;
 pub mod ir;
+pub mod known_calls;
 pub mod layout;
 pub mod lower;
 pub mod monomorphize;
@@ -151,6 +152,10 @@ pub fn native(program: &mut Program) -> rc::Plan {
     // `closures` is what turns a lambda into a lifted function.
     fuse::run(program);
     closures::run(program);
+    // Right after `closures`, which is what makes a lambda a function a call
+    // can name, and before `rc`, which then infers a known lambda's captures
+    // like any other parameters.
+    known_calls::run(program);
     // After `closures`, so a name it forwards is never read from a lambda's
     // body, and before `rc`, whose moves out of a dying update see a field
     // read where the program read a name for it.

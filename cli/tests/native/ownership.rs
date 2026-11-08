@@ -1382,3 +1382,126 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
     }
 }
+
+/// Two thousand rounds that each name a lambda over a list and a number and
+/// only ever call it. A lambda nothing but calls is never a value anybody
+/// holds, so a round builds nothing for it: the rounds allocate no block the
+/// list did not.
+#[test]
+fn a_lambda_that_is_only_called_allocates_nothing() {
+    let source = r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn count(xs: [Int], i: Int, n: Int, acc: Int): Int {
+  if (i == n) {
+    acc
+  } else {
+    let pick = fn(k: Int): Int => xs.get(k % 4).withDefault(0) + i;
+    count(xs, i + 1, n, acc + pick(i) + pick(i + 1))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${count([10, 20, 30, 40], 0, 2000, 0)}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("only-called-lambda", source) {
+        assert_eq!(r.stdout, "4098000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 20,
+            "{backend}: two thousand rounds allocated {blocks} blocks: each built the \
+             lambda it only called"
+        );
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
+
+/// Two thousand pushes, each made by a lambda the round names and calls with
+/// the list. Nothing else holds the list, so every push finds it unique and
+/// grows it in place: a block per doubling.
+#[test]
+fn a_list_handed_to_a_named_lambda_grows_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn fill<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int, bias: Int): [Int] {
+  if (i == n) {
+    xs
+  } else {
+    let add = fn(c: C, ys: [Int], k: Int): [Int] => ys.push(c, k + bias);
+    fill(ctx, add(ctx, xs, i), i + 1, n, bias)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let xs = fill(host.alloc, [], 0, 2000, 7);
+  let _ = io.println(host.stdout, "${xs.length()} ${xs.sum()}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("named-lambda-push", source) {
+        assert_eq!(r.stdout, "2000 2013000\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 40,
+            "{backend}: two thousand pushes allocated {blocks} blocks: the lambda's push \
+             found the list shared, or each round built the lambda"
+        );
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
+
+/// Lambdas over strings the function made, called in some branches and not
+/// others, called on their own answer, and one both called and handed to
+/// `map`. Every string reads back as written and each is released once.
+#[test]
+fn named_lambdas_over_counted_values_keep_and_release_them() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn describe<C: Allocator>(ctx: C, i: Int, name: Str): Str {
+  let tag = str.format(ctx, "${name}-${i}");
+  let wrap = fn(c: C, s: Str): Str => str.format(c, "[${tag}:${s}]");
+  if (i % 3 == 0) {
+    wrap(ctx, "fizz")
+  } else if (i % 3 == 1) {
+    wrap(ctx, wrap(ctx, "one"))
+  } else {
+    tag
+  }
+}
+
+fn mixed<C: Allocator>(ctx: C, xs: [Int], k: Int): Int {
+  let scale = fn(x: Int): Int => x * k + xs.length();
+  xs.map(ctx, scale).sum() + scale(1)
+}
+
+fn all<C: Allocator>(ctx: C, i: Int, out: Str): Str {
+  if (i == 400) { out } else { all(ctx, i + 1, describe(ctx, i, str.format(ctx, "n"))) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let line = "${describe(ctx, 0, "n")} ${describe(ctx, 1, "n")} ${describe(ctx, 2, "n")} ${describe(ctx, 3, "n")} ${mixed(ctx, [1, 2, 3], 5)} ${all(ctx, 0, "")}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("named-lambdas-counted", source) {
+        assert_eq!(
+            r.stdout, "[n-0:fizz] [n-1:[n-1:one]] n-2 [n-3:fizz] 47 [n-399:fizz]\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}
