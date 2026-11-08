@@ -2697,6 +2697,40 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// A rotate or shift by a literal 63, the largest count a 64-bit word takes,
+/// on a word read at run time. The count goes in as a number rather than an
+/// `Int`, and both backends print the same words.
+#[test]
+fn row_14_a_literal_count_of_63_agrees() {
+    rows_or_skip!();
+    agree(
+        "row 14 literal 63",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn wide(host: NativeHost, w: U64): () {
+  let _ = io.println(host.stdout, "${bits.rotateLeftU64(w, 63)} ${bits.rotateRightU64(w, 63)} ${bits.shiftRightU64(w, 63)}").ignore();
+}
+
+fn whole(host: NativeHost, w: Int): () {
+  let _ = io.println(host.stdout, "${bits.rotateLeft(w, 63)} ${bits.rotateRight(w, 63)} ${bits.shiftLeft(w, 63)}").ignore();
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = wide(host, 1311768467463790320);
+  let _ = whole(host, 5);
+  let _ = whole(host, -3);
+  .Ok(())
+}
+"#,
+        "655884233731895160 2623536934927580640 0\n\
+         -9223372036854775806 10 -9223372036854775808\n\
+         -2 -5 -9223372036854775808\n",
+    );
+}
+
 /// The `.Err` path, which is not an abort: `main` returning `.Err(msg)`
 /// writes `msg` to standard error and exits 1, and nothing was thrown — so
 /// this is the one failure whose *whole* standard error agrees, not only
