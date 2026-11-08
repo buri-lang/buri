@@ -666,7 +666,10 @@ fn insertInto<K: Ordered, V, C: Allocator>(
 ): (Grown<K, V>, Bool) {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children[at]) {
+    // `get` hands the child out as a value of its own, where `n.children[at]`
+    // would read it in place and keep `n` alive across the arm. So the branch
+    // can still hand `children` on unshared.
+    match (n.children.get(at)) {
         .None => {
             if (found) {
                 let replaced = leaf(
@@ -682,11 +685,11 @@ fn insertInto<K: Ordered, V, C: Allocator>(
                 (overfull(ctx, added), true)
             }
         },
-        .Some(_) => descend(ctx, n.keys, n.children, at, key, value),
+        .Some(child) => descend(ctx, n.keys, n.children, at, child, key, value),
     }
 }
 
-/// The insert into a branch's child `at`.
+/// The insert into `child`, the branch's child `at`.
 ///
 /// The child is taken out of `children` before the insert reaches it, and an
 /// empty leaf, which allocates nothing, holds its place. So a tree nothing
@@ -697,10 +700,10 @@ fn descend<K: Ordered, V, C: Allocator>(
     keys: [K],
     children: [Node<K, V>],
     at: Int,
+    child: Node<K, V>,
     key: K,
     value: V,
 ): (Grown<K, V>, Bool) {
-    let child = children.getOr(at, leaf([], []));
     let rest = replaceAt(ctx, children, at, leaf([], []));
     let (grown, added) = insertInto(ctx, child, key, value);
     match (grown) {
@@ -865,7 +868,10 @@ fn floorIn<K: Ordered, V>(
 ): Option<(K, V)> {
     let (seen, found) = seek(n.keys, key, 0);
     let at = under(seen, found);
-    match (n.children[at]) {
+    // `get` hands the child out as a value of its own, where `n.children[at]`
+    // would read it in place and keep `n` alive across the arm. So the branch
+    // can still hand `children` on unshared.
+    match (n.children.get(at)) {
         .None => {
             if (found) {
                 entryAt(n, seen)

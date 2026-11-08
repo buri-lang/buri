@@ -2313,10 +2313,16 @@ test "an insert loop that returns early leaves the map it was given alone" {
     let m = scattered(ctx, 50);
     let failed = insertAll(ctx, m, [1, 2, 3, -1, 4]);
     let done = insertAll(ctx, m, [1, 2, 3, 77]);
-    assert.isTrue(failed.isErr());
+    assert.equal((failed.isErr(), done.isErr()), (true, false));
     assert.equal(m.get(2), .Some(4));
     assert.equal(m.length(), 50);
-    assert.equal(done.map(fn(d) => (d.get(2), d.length())), .Ok((.Some(0), 51)));
+    let summary = fn(r: Result<OrderedMap<Int, Int>, Str>) => {
+        r.map(fn(d) => (d.get(2), d.length()))
+    };
+    assert.equal(summary(done), .Ok((.Some(0), 51)));
+    assert.equal(summary(failed), .Err("negative"));
+    assert.notEqual(summary(done), summary(failed));
+    assert.notEqual(summary(failed), summary(done));
 }
 
 test "every version a chain of overwrites made keeps its own value" {
