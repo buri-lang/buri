@@ -2,8 +2,7 @@
 //! outside the repository; tools built from each other's generated code;
 //! contracts the loader refuses, read by the language server anyway; and a
 //! tool's request types. A tool process that answers nothing, dies, or says
-//! too much is a shell script standing in for a tool, in
-//! `build::generators`'s unit tests.
+//! too much is a shell script in place of the built tool.
 //!
 //! ```text
 //! cargo test -p buri --test build generator_failures::
@@ -123,46 +122,128 @@ fn two_entries(name: &str) -> Scratch {
     scratch
 }
 
-/// A tool that needs files: asked with none, it names them, inside the
-/// repository and out; asked with some, it says which it was handed.
-const NEEDING_TOOL: &str = r#"from "core/str" import * as str;
-from "core/tool" import { Diagnostic, Generated, GenerateRequest };
-from "platform/effect" import { Allocator };
+/// Puts the shell script `script` in place of [`two_entries`]'s tool, and
+/// edits both inputs so the build asks it. The built tool stays at
+/// `built-tool`.
+fn replace_the_tool(scratch: &Scratch, script: &str) {
+    scratch.replace_the_tool("//lib/wire", &format!("#!/bin/sh\n{script}"));
+    scratch.write("lib/wire/alpha.txt", "alpha 1\n\n");
+    scratch.write("lib/wire/beta.txt", "beta 2\n\n");
+}
 
-export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
-    if (request.files.isEmpty()) {
-        Generated {
-            modules: [],
-            diagnostics: [],
-            needs: [
-                "//lib/wire/extra.txt",
-                "lib/wire/extra.txt",
-                "//lib/wire/extra.txt",
-                "//",
-                "/etc/hosts",
-                "https://example.org/a",
-                "a\\b",
-                "../../up",
-            ],
-        }
-    } else {
-        let handed = request.files.mapCtx(ctx, fn(c, f) => str.format(c, "${f.0}=${f.1.trim()}")).join(ctx, ", ");
-        Generated {
-            modules: [],
-            diagnostics: [Diagnostic { code: "handed", message: handed, note: .None, fix: .None, origin: .None }],
-            needs: [],
-        }
+/// Builds `//lib/wire` with `script` in place of its tool.
+fn build_with(name: &str, script: &str) -> Run {
+    let scratch = two_entries(name);
+    replace_the_tool(&scratch, script);
+    scratch.run(&["build", "//lib/wire"])
+}
+
+/// The note under a failed tool's error, its lines unindented.
+fn note(run: &Run) -> String {
+    let at = run
+        .stderr
+        .find("  = the tool ")
+        .unwrap_or_else(|| panic!("no note:\n{}", indent(&run.all())));
+    let rest = &run.stderr[at..];
+    let end = rest.find("  = fix:").unwrap_or(rest.len());
+    rest[..end]
+        .lines()
+        .map(|l| l.trim_start().trim_start_matches("= "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A tool that exits without answering, or answers with a blank line, wrote
+/// nothing a build can read.
+#[test]
+fn a_tool_that_answers_nothing_wrote_nothing() {
+    for (name, script) in [
+        ("silent", "read -r line\n"),
+        ("blank", "read -r line\necho '   '\n"),
+    ] {
+        let run = build_with(&format!("tool-{name}"), script);
+        run.exits(1)
+            .says("`//tools/gen` did not answer [tool-failed]");
+        assert_eq!(
+            note(&run),
+            "the tool wrote nothing",
+            "{name}:\n{}",
+            indent(&run.all())
+        );
     }
 }
-"#;
+
+/// A tool a signal killed is named by the signal: by name where macOS and
+/// Linux agree on its number, and by number where they don't.
+#[test]
+fn a_tool_killed_by_a_signal_is_named_by_it() {
+    let run = build_with("tool-segv", "kill -SEGV $$\n");
+    run.exits(1);
+    assert_eq!(note(&run), "the tool was killed by SIGSEGV (signal 11)");
+    let usr1 = if cfg!(target_os = "macos") { 30 } else { 10 };
+    let run = build_with("tool-usr1", "kill -USR1 $$\n");
+    run.exits(1);
+    assert_eq!(note(&run), format!("the tool was killed by signal {usr1}"));
+}
+
+/// Only the last four kilobytes of a tool's standard error come with the
+/// note, cut between characters.
+#[test]
+fn a_tool_s_long_standard_error_is_cut_to_its_tail() {
+    let wide = "é".repeat(3000);
+    let run = build_with(
+        "tool-loud",
+        &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"),
+    );
+    run.exits(1);
+    // 6011 bytes, so 1915 go, and one more to reach the end of a character.
+    let kept = format!(
+        "the tool exited with 3\n(the first 1916 bytes of standard error are not shown)\n{}\nlast words",
+        "é".repeat(2048 - 6)
+    );
+    assert_eq!(note(&run).trim_end(), kept);
+}
+
+/// A kept tool that exits after its first answer is asked the second
+/// request alone, and so is one whose answer has no line end.
+#[test]
+fn a_kept_tool_that_stops_after_one_answer_is_asked_again() {
+    for (name, script) in [
+        (
+            "once",
+            "read -r line\nexec 0<&-\nprintf '%s\\n' \"$line\" | BUILT\n",
+        ),
+        (
+            "no-line-end",
+            "read -r line\nexec 0<&-\nout=$(printf '%s\\n' \"$line\" | BUILT)\nprintf '%s' \"$out\"\n",
+        ),
+    ] {
+        let scratch = two_entries(&format!("tool-{name}"));
+        let built = format!("'{}'", scratch.path("built-tool").display());
+        replace_the_tool(&scratch, &script.replace("BUILT", &built));
+        let run = scratch.run(&["run", "//cmd/app"]);
+        run.ok();
+        assert_eq!(run.stdout.trim(), "150", "{name}:\n{}", indent(&run.all()));
+    }
+}
 
 /// A tool's `needs` are read and handed back once each, and one outside the
-/// repository is refused by name.
+/// repository is refused by name. One that isn't a path is passed over.
 #[test]
 fn a_tool_s_needs_outside_the_repository_are_refused() {
     let scratch = two_entries("tool-needs");
-    scratch.write("tools/gen/tool.buri", NEEDING_TOOL);
     scratch.write("lib/wire/extra.txt", "extra\n");
+    let answer = r#"{"modules":[{"name":"alpha","text":"export let alpha: Int = 100;\n","anchors":[]},{"name":"beta","text":"export let beta: Int = 50;\n","anchors":[]}],"diagnostics":[],"needs":[1,"//lib/wire/extra.txt","lib/wire/extra.txt","//lib/wire/extra.txt","//","/etc/hosts","/etc/hosts","https://example.org/a","a\\b","../../up"]}"#;
+    scratch.write("answer.json", &format!("{answer}\n"));
+    let asked = scratch.path("asked.txt");
+    replace_the_tool(
+        &scratch,
+        &format!(
+            "while read -r line; do printf '%s\\n' \"$line\" >> '{}'; cat '{}'; done\n",
+            asked.display(),
+            scratch.path("answer.json").display()
+        ),
+    );
     let run = scratch.run(&["build", "//lib/wire"]);
     run.exits(1);
     for outside in [
@@ -177,10 +258,18 @@ fn a_tool_s_needs_outside_the_repository_are_refused() {
         ));
     }
     run.says("= fix: check the file in, and have the tool ask for it by its repository path")
-        .says("//lib/wire/extra.txt=extra, lib/wire/extra.txt=extra")
         .silent_about("$schema")
-        .silent_about("[schema-outside-repository]")
+        .silent_about("[schema-outside-repository]");
+    run.silent_about("`1`")
         .silent_about("`//lib/wire/extra.txt` is not");
+    let asked = std::fs::read_to_string(asked).unwrap();
+    assert!(
+        asked.contains(
+            r#""files":[["//lib/wire/extra.txt","extra\n"],["lib/wire/extra.txt","extra\n"]]"#
+        ),
+        "the tool was not handed the files it needed:\n{}",
+        indent(&asked)
+    );
 }
 
 /// A language's `check` and the `generate` a contract asks for types say a
@@ -473,6 +562,16 @@ fn a_repository_language_s_tools_answer_however_they_answer() {
     scratch.write("lib/x/x.lines", "three\n");
     scratch.write("lib/x/lib.buri", "export let one: Int = 1;\n");
     scratch.run(&["build", "//tools/lines"]).ok();
+    scratch
+        .run(&["format", "--check", "lib/x/x.lines"])
+        .exits(1)
+        .says("lib/x/x.lines: does not parse, and was left exactly as it is");
+    // A `format` that answers something that isn't JSON leaves it too.
+    scratch.replace_the_tool(
+        "//tools/lines",
+        "#!/bin/sh\nwhile read -r line; do echo 'not json'; done\n",
+    );
+    scratch.write("lib/x/x.lines", "four\n");
     scratch
         .run(&["format", "--check", "lib/x/x.lines"])
         .exits(1)

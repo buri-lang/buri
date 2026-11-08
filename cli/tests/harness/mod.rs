@@ -772,9 +772,10 @@ impl Scratch {
     }
 
     /// Builds `target` so the repository's one tool is compiled, then puts
-    /// `script` where its executable was. A tool answers whatever it was
-    /// built from, so a script is how a test gets one that answers each
-    /// request differently.
+    /// `script` where its executable was, and the executable at `built-tool`.
+    /// A tool answers whatever it was built from, so a script is how a test
+    /// gets one that answers each request differently. The answers the build
+    /// recorded stay, so only a request with other inputs reaches the script.
     pub fn replace_the_tool(&self, target: &str, script: &str) {
         self.run(&["build", target]);
         let tools = self.path(".buri/out/tools");
@@ -787,6 +788,7 @@ impl Scratch {
         let [tool] = built.as_slice() else {
             panic!("expected one tool executable, found {built:?}");
         };
+        std::fs::copy(tool, self.path("built-tool")).expect("keep the built tool");
         write_executable(tool, script);
     }
 

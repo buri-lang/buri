@@ -576,7 +576,7 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
         Some(process) => process,
         None => {
             let mut child = start(
-                tool_command(artifact)?
+                tool_command(artifact)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null()),
@@ -614,8 +614,8 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
 }
 
 /// The command that runs a tool's executable.
-fn tool_command(artifact: &std::path::Path) -> Option<std::process::Command> {
-    crate::build::spawn::command(&artifact.to_string_lossy())
+fn tool_command(artifact: &std::path::Path) -> std::process::Command {
+    crate::build::spawn::command_at(artifact)
 }
 
 /// Starts a tool process, counted for `BURI_PROFILE`.
@@ -631,14 +631,9 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;
 
-    let Some(mut cmd) = tool_command(artifact) else {
-        return Err(format!(
-            "{}: the tool's program is gone",
-            artifact.display()
-        ));
-    };
     let mut child = start(
-        cmd.stdin(Stdio::piped())
+        tool_command(artifact)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -2234,80 +2229,6 @@ mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
             .expect("the tool is executable");
         path
-    }
-
-    /// A tool that exits without answering, or answers with a blank line,
-    /// wrote nothing a build can read.
-    #[test]
-    fn a_tool_that_answers_nothing_wrote_nothing() {
-        for (name, body) in [
-            ("silent", "read -r line\n"),
-            ("blank", "read -r line\necho '   '\n"),
-        ] {
-            let tool = script_tool(name, body);
-            assert_eq!(
-                run_artifact(&tool, REQUEST),
-                Err("the tool wrote nothing".to_string()),
-                "{name}"
-            );
-        }
-    }
-
-    /// A tool a signal killed is named by the signal: by name where macOS and
-    /// Linux agree on its number, and by number where they don't.
-    #[test]
-    fn a_tool_killed_by_a_signal_is_named_by_it() {
-        let tool = script_tool("segv", "kill -SEGV $$\n");
-        assert_eq!(
-            run_artifact(&tool, REQUEST),
-            Err("the tool was killed by SIGSEGV (signal 11)".to_string())
-        );
-        let usr1 = if cfg!(target_os = "macos") { 30 } else { 10 };
-        let tool = script_tool("usr1", "kill -USR1 $$\n");
-        assert_eq!(
-            run_artifact(&tool, REQUEST),
-            Err(format!("the tool was killed by signal {usr1}"))
-        );
-    }
-
-    /// Only the last four kilobytes of a tool's standard error come with the
-    /// note, cut between characters.
-    #[test]
-    fn a_tool_s_long_standard_error_is_cut_to_its_tail() {
-        let wide = "é".repeat(3000);
-        let tool = script_tool(
-            "loud",
-            &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"),
-        );
-        // 6011 bytes, so 1915 go, and one more to reach the end of a character.
-        let kept = format!(
-            "the tool exited with 3\n(the first 1916 bytes of standard error are not shown)\n{}\nlast words",
-            "é".repeat(2048 - 6)
-        );
-        assert_eq!(run_artifact(&tool, REQUEST), Err(kept));
-    }
-
-    /// A kept tool that exits after its first answer is asked the second
-    /// request alone, and so is one whose answer has no line end.
-    #[test]
-    fn a_kept_tool_that_stops_after_one_answer_is_asked_again() {
-        for (name, body) in [
-            ("once", format!("read -r line\necho '{ANSWER}'\n")),
-            (
-                "no-line-end",
-                format!("read -r line\nprintf '%s' '{ANSWER}'\n"),
-            ),
-        ] {
-            let tool = script_tool(name, &body);
-            let _pass = keep();
-            for request in 0..2 {
-                assert_eq!(
-                    run_artifact(&tool, REQUEST).as_deref(),
-                    Ok(ANSWER),
-                    "{name}, request {request}"
-                );
-            }
-        }
     }
 
     /// **A tool's process holds its own three streams and nothing else.**

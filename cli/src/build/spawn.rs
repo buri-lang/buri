@@ -100,8 +100,12 @@ pub const SOURCE_DATE_EPOCH: &str = "0";
 /// caller's cue to say "install a JavaScript runtime" rather than to spawn
 /// something and misreport what went wrong.
 pub fn command(program: &str) -> Option<Command> {
-    let exe = resolve(program)?;
-    let mut cmd = Command::new(&exe);
+    resolve(program).map(|exe| command_at(&exe))
+}
+
+/// The command that runs the executable at `exe` for an action.
+pub fn command_at(exe: &Path) -> Command {
+    let mut cmd = Command::new(exe);
     // Cleared, then exactly two constants. Both are the clock; neither is
     // inherited.
     cmd.env_clear();
@@ -111,7 +115,7 @@ pub fn command(program: &str) -> Option<Command> {
     if let Some(dir) = crate::build::coverage::raw_dir() {
         cmd.env(crate::build::coverage::VARIABLE, dir);
     }
-    Some(cmd)
+    cmd
 }
 
 /// `bun` -> `/usr/local/bin/bun`, using the parent's `PATH`.

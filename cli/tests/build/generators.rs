@@ -598,6 +598,71 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     );
 }
 
+/// A program of a user's own that serves [`DIVIDING_TOOL`]'s `generate` the
+/// way a tool's program does.
+const SERVING_PROGRAM: &str = r#"from "core/tool" import * as tool;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdin, Stdout };
+from "//tools/gen" import { generate };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    tool.serve(ctx, tool.Entries {
+        check: .None,
+        format: .None,
+        generate: .Some(fn(c, request) => generate(c, request)),
+    })
+}
+"#;
+
+/// `core/tool`'s `serve` answers each request on JavaScript too, though the
+/// build runs its own tools natively.
+#[test]
+fn a_program_serving_a_tool_answers_on_javascript() {
+    let scratch = Scratch::repo("generators-serve-on-js");
+    scratch.write(
+        "tools/gen/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write("tools/gen/lib.buri", DIVIDING_TOOL);
+    scratch.write(
+        "cmd/serve/BUILD.buri",
+        "binary {\n    dependencies: [\"//tools/gen\"]\n\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/serve/main.buri", SERVING_PROGRAM);
+    let request = |value: &str| {
+        format!(
+            "{{\"entry\":\"generate\",\"inputs\":[{{\"path\":\"a.txt\",\"language\":\"text\",\"value\":\"{value}\"}}],\"files\":[]}}\n"
+        )
+    };
+    let input = format!("{}{}", request("alpha 4"), request("beta 5"));
+    let run = scratch.run_with_stdin(&["run", "//cmd/serve"], input.as_bytes());
+    run.ok();
+    assert_eq!(
+        run.stdout,
+        "{\"modules\":[{\"name\":\"alpha\",\"text\":\"export let alpha: Int = 25;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n\
+         {\"modules\":[{\"name\":\"beta\",\"text\":\"export let beta: Int = 20;\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}\n",
+        "{}",
+        indent(&run.all())
+    );
+}
+
+/// A tool links like a native binary, so a machine with no C compiler is told
+/// so where the tool runs.
+#[test]
+fn a_tool_without_a_c_compiler_to_link_it_says_so() {
+    let scratch = two_entries("generators-no-cc");
+    scratch
+        .run_with_env(&["build", "//lib/wire"], &[("CC", "/nonexistent/cc")])
+        .exits(1)
+        .says("`//tools/gen` did not answer [tool-failed]")
+        .says("no C compiler on PATH to drive the link (looked for `/nonexistent/cc`)");
+}
+
 /// **A kept tool process's work is in the profile.** Both requests here are
 /// answered by one kept process, so the child processes `other` counts, the
 /// phase generators run in, are that process alone. Read where the platform

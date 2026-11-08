@@ -790,9 +790,7 @@ fn compile(
 /// Generates the code of a compiled tool and links it into the executable at
 /// `path`.
 fn link(session: &Session, tool: Tool, compiled: &mut Compiled, path: &Path) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
+    crate::build::create_parent(path);
     crate::build::actions::link_for_host(
         &session.root,
         &tool.name(&session.workspace),
