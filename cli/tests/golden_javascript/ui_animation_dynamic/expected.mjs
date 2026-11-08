@@ -41,7 +41,7 @@ function __cmd_x_main_buri$main(){
       $abort('no arm matched');
     }
     const decorative_18=$t5;
-    $t3=[[3,$share(config_12[0]),$share(config_12[1]),current_14,decorative_18,focus_15,events_13]];
+    $t3=[[3,$share(config_12[0]),$fromShared(config_12,config_12[1]),current_14,decorative_18,focus_15,events_13]];
   }else{
     $abort('no arm matched');
   }

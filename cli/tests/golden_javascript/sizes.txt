@@ -34,7 +34,7 @@ tail_self: 2968 bytes artifact, 1608 generated
 tail_short_circuit: 3272 bytes artifact, 2060 generated
 traits: 2560 bytes artifact, 629 generated
 ui_animation: 39459 bytes artifact, 8165 generated
-ui_animation_dynamic: 45726 bytes artifact, 7029 generated
+ui_animation_dynamic: 45905 bytes artifact, 7044 generated
 ui_counter: 40263 bytes artifact, 10675 generated
 ui_signals: 10583 bytes artifact, 6319 generated
 ui_styles: 47062 bytes artifact, 9205 generated
@@ -44,5 +44,5 @@ ui_theme: 43552 bytes artifact, 12919 generated
 ui_theme_and_computed: 47707 bytes artifact, 7197 generated
 unused_closure: 2521 bytes artifact, 517 generated
 
-total: 499374 bytes artifact, 167463 generated
+total: 499553 bytes artifact, 167478 generated
 largest function: 10692 bytes, ui_animation/$tree_render
