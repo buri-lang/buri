@@ -392,10 +392,15 @@ pub fn report(started: Instant) -> Option<String> {
         .iter()
         .any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
     let counted_children = rows.iter().any(|(_, [.., cpu])| *cpu != 0);
+    // A child's instructions come from the same counters as this thread's,
+    // which a virtual machine doesn't have: there its CPU time is counted and
+    // its instructions are not, and a 0 would read as a child that ran none.
+    let counted_child_instructions = rows.iter().any(|(_, [.., n, _])| *n != 0);
     let columns = Columns {
         instructions: counted_instructions,
         allocations: counted_allocations,
         children: counted_children,
+        child_instructions: counted_child_instructions,
     };
     let mut out = String::from("buri profile           instructions        cpu       busy");
     if counted_allocations {
@@ -443,6 +448,7 @@ struct Columns {
     instructions: bool,
     allocations: bool,
     children: bool,
+    child_instructions: bool,
 }
 
 fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
@@ -461,11 +467,12 @@ fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
         s.push_str(&format!(" {allocated:>13}"));
     }
     if columns.children {
-        s.push_str(&format!(
-            " {:>19} {:>10}",
-            mega(child_count),
-            seconds(child_cpu)
-        ));
+        let child_count = if columns.child_instructions {
+            mega(child_count)
+        } else {
+            "-".to_string()
+        };
+        s.push_str(&format!(" {child_count:>19} {:>10}", seconds(child_cpu)));
     }
     s.push('\n');
     s
@@ -710,5 +717,37 @@ mod os {
 
     pub(super) fn process() -> Option<super::Process> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A virtual machine counts a child's CPU time and none of its
+    /// instructions, and the row says so rather than reading 0.
+    #[test]
+    fn a_child_whose_instructions_went_uncounted_shows_a_dash() {
+        let columns = Columns {
+            instructions: false,
+            allocations: false,
+            children: true,
+            child_instructions: false,
+        };
+        let row = line("run", &[0, 0, 0, 0, 0, 8_000_000], &columns);
+        let words: Vec<&str> = row.split_whitespace().collect();
+        assert_eq!(words[words.len() - 3..], ["-", "0.008", "s"], "{row}");
+    }
+
+    #[test]
+    fn a_child_whose_instructions_were_counted_shows_them() {
+        let columns = Columns {
+            instructions: true,
+            allocations: false,
+            children: true,
+            child_instructions: true,
+        };
+        let row = line("run", &[0, 0, 0, 0, 2_500_000, 8_000_000], &columns);
+        assert!(row.contains(" 2.5 M "), "{row}");
     }
 }

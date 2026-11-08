@@ -748,8 +748,10 @@ fn a_tool_without_a_c_compiler_to_link_it_says_so() {
 /// **A tool's run is in the profile's `run` row, apart from the build's own
 /// work.** Building a tool is the build's work, but running one is not, the
 /// way running a test isn't. Both requests here are answered by one kept
-/// process, so the child processes `run` counts are that process alone. Child
-/// instructions are read where the platform counts them, which is macOS.
+/// process, so the child processes `run` counts are that process alone. A
+/// child's CPU time is read where the platform counts it, which is macOS, and
+/// its instructions where the machine has the counters too, which a virtual
+/// machine, such as CI's, doesn't.
 #[test]
 fn a_tool_process_is_counted_in_the_run_row() {
     let scratch = two_entries("generators-kept-process-profiled");
@@ -757,32 +759,50 @@ fn a_tool_process_is_counted_in_the_run_row() {
     run.ok();
     assert_eq!(counted(&run, "tool processes"), 1);
     let all = run.all();
-    let row = |name: &str| {
-        all.lines()
-            .find(|l| l.trim_start().starts_with(&format!("{name} ")))
-            .unwrap_or_else(|| panic!("no `{name}` row in\n{}", indent(&all)))
-    };
-    let run_row = row("run");
+    let run_row = all
+        .lines()
+        .find(|l| l.trim_start().starts_with("run "))
+        .unwrap_or_else(|| panic!("no `run` row in\n{}", indent(&all)));
     if !all.contains("child instructions") {
         if cfg!(target_os = "macos") {
             panic!("macOS counted no child process:\n{}", indent(&all));
         }
         return;
     }
-    // Child instructions are a row's last count in millions, `<n> M`.
-    let child_instructions = |line: &str| {
-        let words: Vec<&str> = line.split_whitespace().collect();
-        words
-            .iter()
-            .rposition(|w| *w == "M")
-            .and_then(|at| words.get(at.checked_sub(1)?)?.parse::<f64>().ok())
-            .unwrap_or_else(|| panic!("no child instructions in `{line}`"))
-    };
+    // A row ends `<child instructions> M <child cpu> s`, or `- <child cpu> s`
+    // where no instructions were counted.
+    let words: Vec<&str> = run_row.split_whitespace().collect();
+    let child_cpu = words
+        .len()
+        .checked_sub(2)
+        .and_then(|i| words[i].parse::<f64>().ok());
     assert!(
-        child_instructions(run_row) > 0.0,
-        "the kept tool process was not counted in `run`:\n{}",
+        child_cpu.is_some_and(|s| s > 0.0),
+        "the kept tool process's CPU time was not counted in `run`:\n{}",
         indent(&all)
     );
+    // The build's own instructions are `-` exactly where the machine has no
+    // counters, and then a child's are too.
+    let counters = words.get(1) != Some(&"-");
+    let instructions = &words[..words.len() - 2];
+    match (counters, instructions.last()) {
+        (false, Some(&"-")) => {}
+        (true, Some(&"M")) => {
+            let n = instructions
+                .len()
+                .checked_sub(2)
+                .and_then(|i| instructions[i].parse::<f64>().ok());
+            assert!(
+                n.is_some_and(|n| n > 0.0),
+                "the kept tool process's instructions were not counted in `run`:\n{}",
+                indent(&all)
+            );
+        }
+        _ => panic!(
+            "the `run` row's child instructions disagree with the machine's counters:\n{}",
+            indent(&all)
+        ),
+    }
 }
 
 /// **A tool linked again to the same bytes starts as the file that ran

@@ -554,6 +554,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     env:
       BURI_PERF: 1
+      CC: clang
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -561,6 +562,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ubuntu-2404-arm-release
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
       # The repository budget's suites run on JavaScript.
       - uses: oven-sh/setup-bun@v2
         with:
@@ -966,6 +972,8 @@ jobs:
     name: protobuf conformance
     timeout-minutes: 30
     runs-on: ubuntu-24.04
+    env:
+      CC: clang
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -1000,6 +1008,11 @@ jobs:
         run: nix copy --to "file://$PWD/proto-runner?compression=zstd" ./runner
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version

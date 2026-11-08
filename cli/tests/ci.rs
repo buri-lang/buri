@@ -1192,6 +1192,48 @@ fn the_conformance_runner_is_cached_by_its_derivation() {
     );
 }
 
+/// **Every job that tests `buri` with the runner's own cargo builds it with a
+/// native backend.** A generator's tool is compiled for the machine it runs
+/// on, so a toolchain without that machine's stencils can't build a
+/// repository with a generator in it. `cli/build.rs` writes empty stencils
+/// when `CC` is gcc, and a job left on the runner's default then fails every
+/// such build with `tool-failed`, as the `protobuf conformance` and `language
+/// server budget` jobs did in run 42495427054. A job in a `nix develop` shell
+/// gets the shell's clang, so only a step without one is read here.
+#[test]
+fn every_job_testing_buri_outside_nix_builds_a_native_backend() {
+    let text = workflow();
+    let mut checked = 0;
+    for (name, body) in jobs(&text) {
+        let tests_buri = body.lines().map(code).any(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let cargo = words
+                .windows(2)
+                .any(|w| w[0] == "cargo" && (w[1] == "test" || w[1] == "bench"));
+            cargo && words.windows(2).any(|w| w == ["-p", "buri"]) && !line.contains("nix develop")
+        });
+        if !tests_buri {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            body.lines().any(|l| code(l).trim() == "CC: clang"),
+            "the `{name}` job tests `buri` without `CC: clang`, so its toolchain has no stencils \
+             and every generator's tool fails to build. Set `CC: clang` in the job's `env:`."
+        );
+        assert!(
+            body.contains("rustup target add") && body.contains("-unknown-linux-musl"),
+            "the `{name}` job tests `buri` without the musl standard library, so the runtime a \
+             tool links against is built for glibc. Install it as the `test` job does."
+        );
+    }
+    assert!(
+        checked >= 5,
+        "only {checked} job(s) were found testing `buri` outside a `nix develop` shell, and there \
+         were five when this was written; the reading above has stopped seeing them"
+    );
+}
+
 /// **Every job that caches a build directory prunes it first.**
 ///
 /// Unpruned, those caches kept every variant ever built and every workspace
