@@ -612,6 +612,10 @@ jobs:
   # because a free account runs at most five macOS jobs at once and this
   # workflow's other two are the `test` leg and this build. `coverage` merges
   # every shard and gates.
+  #
+  # The macOS build is its own job, `coverage-build-macos`, because `needs`
+  # waits for a whole matrix. In one matrix the Linux shards waited for the
+  # macOS build, 90-330 s after their own (runs 42405326397 to 42436433796).
   coverage-build:
     name: coverage build (${{ matrix.platform }})
     strategy:
@@ -620,11 +624,10 @@ jobs:
         include:
           - { platform: x86_64-linux, os: ubuntu-24.04 }
           - { platform: arm64-linux, os: ubuntu-24.04-arm, cc: CC=/usr/bin/clang }
-          - { platform: arm64-macos, os: macos-26 }
           - { platform: x86_64-linux-release, os: ubuntu-24.04, release: --release }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
-    steps:
+    steps: &coverage-build
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
         with:
@@ -660,6 +663,16 @@ jobs:
           path: target/coverage/build
           retention-days: 7
       - *prune
+
+  coverage-build-macos:
+    name: coverage build (${{ matrix.platform }})
+    strategy:
+      matrix:
+        include:
+          - { platform: arm64-macos, os: macos-26, cc: "", release: "" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps: *coverage-build
 
   coverage-shard:
     name: coverage shard (${{ matrix.platform }}, ${{ matrix.shard }}/4)
@@ -711,7 +724,7 @@ jobs:
   # path, 26 minutes after a 14-minute build (run 42361847351).
   coverage-macos:
     name: coverage shard (arm64-macos, ${{ matrix.shard }}/3)
-    needs: coverage-build
+    needs: coverage-build-macos
     strategy:
       fail-fast: false
       matrix:
