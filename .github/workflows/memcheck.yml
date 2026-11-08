@@ -115,21 +115,22 @@ jobs:
 
   # **Each shard is a list of runs**, and each run is one of the invocations
   # below, in `runs`. Each architecture has its own lists, balanced on the
-  # runs' times in runs 42412545472 to 42436433809:
+  # runs' times in runs 42412545472 to 42441726142:
   #
-  # * **x86_64,** whose runners vary up to 1.7×: `modules` 1086-1841 s, held
-  #   up by `coverage_agrees::coverage_changes_no_verdict_on_stencil`;
-  #   `backends` 831-1219 s and `agreement` 152-220 s; `stencil-debug`
-  #   436-588 s, `llvm-release` 279-406 s, `llvm-debug` 270-394 s and `e2e`
-  #   194-318 s; `runtime` 357-615 s. With the four conformance runs in one
-  #   shard, that shard took 1706 s and `runtime` 459 s (run 42436433809).
-  # * **arm64,** about twice as fast: `modules` 879 s, `backends` with
-  #   `agreement` 722 s, and the four conformance runs 927 s.
+  # * **x86_64,** whose runners vary up to 1.7×: `backends` 789-1184 s,
+  #   `stencil-debug` 393-557 s, `llvm-release` 278-405 s, `llvm-debug`
+  #   270-394 s, `e2e` 194-318 s, `agreement` 151-219 s, `runtime` 270-501 s.
+  #   `coverage`, one test, took 980-1700 s inside `modules`, sharing the
+  #   runner's four cores with it; `modules`' other tests were done by
+  #   705-1158 s. Four shards would average over 20 min, so x86_64 has five.
+  # * **arm64,** about twice as fast: `modules` 800 s, 750 s of it
+  #   `coverage`; `backends` with `agreement` 713 s; the conformance runs 855 s.
   #
-  # So no shard runs much longer than `modules`, which cannot be split below
-  # its longest test. `cli/tests/ci.rs`'s
-  # `every_memcheck_run_is_in_exactly_one_shard` holds each architecture's
-  # lists to naming each run once.
+  # No shard can run shorter than `coverage`, which is one test.
+  # `cli/tests/ci.rs`'s `every_memcheck_run_is_in_exactly_one_shard` holds
+  # each architecture's lists to naming each run once, and
+  # `no_memcheck_run_repeats_a_test_modules_runs` holds `modules` to skipping
+  # what the other runs pick.
   #
   # `runtime` runs on x86_64 only. On arm64, LLVM turns some branches into a
   # `csel` keyed on a field that is unset but whose value can't change the
@@ -143,10 +144,11 @@ jobs:
       matrix:
         include:
           - { arch: x86_64, shard: modules, runs: modules }
+          - { arch: x86_64, shard: coverage, runs: coverage }
           - { arch: x86_64, shard: backends, runs: backends }
-          - { arch: x86_64, shard: conformance, runs: stencil-debug llvm-release e2e }
-          - { arch: x86_64, shard: runtime, runs: runtime llvm-debug agreement }
-          - { arch: arm64, shard: modules, runs: modules }
+          - { arch: x86_64, shard: conformance, runs: stencil-debug llvm-release agreement }
+          - { arch: x86_64, shard: runtime, runs: runtime llvm-debug e2e }
+          - { arch: arm64, shard: modules, runs: modules coverage }
           - { arch: arm64, shard: backends, runs: backends agreement }
           - { arch: arm64, shard: conformance, runs: stencil-debug llvm-release llvm-debug e2e }
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
@@ -195,9 +197,11 @@ jobs:
               agreement) run "$r" cli "$native" agreement:: at_scale:: ;;
               e2e) run "$r" cli "$native" e2e:: ;;
               backends) run "$r" cli "$native" llvm:: stencil:: ;;
+              coverage) run "$r" cli "$native" coverage_agrees::coverage_changes_no_verdict_on_stencil ;;
               modules)
                 run "$r" cli "$native" --skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: \
-                  --skip stencil:: --skip float_parity:: --skip differential:: --skip cross::
+                  --skip stencil:: --skip coverage_agrees::coverage_changes_no_verdict_on_stencil \
+                  --skip float_parity:: --skip differential:: --skip cross::
                 ;;
               # Ten thousand parked tasks' stacks are more address space than
               # Valgrind gives a program; a thousand still asks the same question.

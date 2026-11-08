@@ -1041,6 +1041,71 @@ fn every_memcheck_run_is_in_exactly_one_shard() {
     );
 }
 
+/// **No memcheck run repeats a test `modules` runs.**
+///
+/// `modules` runs the native suite less what it skips, and every other run of
+/// the suite picks tests by name. A test both pick runs twice on the shards'
+/// time, so each name a run picks must contain one `modules` skips.
+#[test]
+fn no_memcheck_run_repeats_a_test_modules_runs() {
+    let path = repo_root().join(".github/workflows/memcheck.yml");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
+    let body = text
+        .split("            case $r in\n")
+        .nth(1)
+        .and_then(|rest| rest.split("            esac\n").next())
+        .unwrap_or_else(|| panic!("memcheck.yml has no `case $r in` ... `esac`"));
+    // Each arm on one line, comments dropped: `name) run "$r" cli "$native" a:: b:: ;;`.
+    let arms: String = body
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .replace("\\\n", " ");
+    let mut picks: Vec<(String, String)> = Vec::new();
+    let mut skips: Vec<String> = Vec::new();
+    for arm in arms.split(";;") {
+        let Some((name, command)) = arm.split_once(')') else {
+            continue;
+        };
+        let Some((_, args)) = command.split_once("\"$native\"") else {
+            continue;
+        };
+        let name = name.trim().to_string();
+        let mut args = args.split_whitespace();
+        while let Some(arg) = args.next() {
+            if arg == "--skip" {
+                assert!(
+                    name == "modules",
+                    "memcheck.yml's run `{name}` skips tests; only `modules` should"
+                );
+                skips.extend(args.next().map(str::to_string));
+            } else {
+                assert!(
+                    name != "modules",
+                    "memcheck.yml's `modules` picks `{arg}`; it runs all it does not skip"
+                );
+                picks.push((name.clone(), arg.to_string()));
+            }
+        }
+    }
+    assert!(
+        skips.len() >= 9 && picks.len() >= 8,
+        "only {} skip(s) and {} pick(s) were read from memcheck.yml's runs, and there were \
+         ten and eight when this was written; the reading above has stopped seeing them",
+        skips.len(),
+        picks.len()
+    );
+    for (run, pick) in &picks {
+        assert!(
+            skips.iter().any(|skip| pick.contains(skip.as_str())),
+            "memcheck.yml's run `{run}` picks `{pick}`, and `modules` runs it too: skip it there"
+        );
+    }
+    println!("{} pick(s), {} skip(s)", picks.len(), skips.len());
+}
+
 /// **Memcheck's test binaries never read the cargo registry at run time.**
 ///
 /// `memcheck.yml` builds the native suite and the runtime's unit tests in one
