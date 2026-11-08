@@ -1335,3 +1335,50 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
     }
 }
+
+/// An ordered map of lists built by two thousand inserts at the front of its
+/// nodes, so their lists grow past capacity again and again, then thinned
+/// and refilled. A snapshot taken halfway still reads back as it was, and
+/// every list the map held is released exactly once.
+#[test]
+fn an_ordered_map_of_lists_grown_thinned_and_refilled_keeps_every_value() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+
+fn fill<C: Allocator>(ctx: C, m: OrderedMap<Int, [Int]>, i: Int, stop: Int): OrderedMap<Int, [Int]> {
+  if (i <= stop) { m } else { fill(ctx, m.insert(ctx, i, [i, i * 2]), i - 1, stop) }
+}
+
+fn thin<C: Allocator>(ctx: C, m: OrderedMap<Int, [Int]>, i: Int): OrderedMap<Int, [Int]> {
+  if (i <= 0) { m } else { thin(ctx, m.remove(ctx, i), i - 3) }
+}
+
+fn total(m: OrderedMap<Int, [Int]>): Int {
+  m.fold(fn(acc, k, v) => acc + k + v.length() * 1000000, 0)
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let half = fill(ctx, orderedmap.empty<Int, [Int]>(), 2000, 1000);
+  let full = fill(ctx, half, 1000, 0);
+  let thinned = thin(ctx, full, 2000);
+  let refilled = fill(ctx, thinned, 2000, 0);
+  let line = "${half.length()} ${total(half)} ${full.length()} ${total(full)} ${thinned.length()} ${refilled.length()} ${total(refilled)}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("ordered-map-grown-thinned-refilled", source) {
+        assert_eq!(
+            r.stdout, "1000 2001500500 2000 4002001000 1333 2000 4002001000\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
+    }
+}

@@ -164,9 +164,22 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
     // its glue walks.
     unsafe {
         let f = fresh.ptr;
-        copy_retaining(f, ptr, at, s, retain);
+        if unique.is_some() {
+            // The list was the caller's alone, so its elements move rather
+            // than copy: no retain here, and the old block's slots are zeroed
+            // so its release below skips them. A slot past `n` still holds
+            // what a longer, dead descriptor put there, and is released.
+            let p = ptr.cast_mut();
+            std::ptr::copy_nonoverlapping(p, f, at * s);
+            std::ptr::copy_nonoverlapping(p.add(at * s), f.add((at + 1) * s), (n - at) * s);
+            if retain.is_some() {
+                std::ptr::write_bytes(p, 0, n * s);
+            }
+        } else {
+            copy_retaining(f, ptr, at, s, retain);
+            copy_retaining(f.add((at + 1) * s), ptr.add(at * s), n - at, s, retain);
+        }
         copy_retaining(f.add(at * s), item, 1, s, retain);
-        copy_retaining(f.add((at + 1) * s), ptr.add(at * s), n - at, s, retain);
         if unique.is_some() && retain.is_some() {
             let used = total * s;
             let headroom = (buri_rt_cap(f) as usize).saturating_sub(used);
