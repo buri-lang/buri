@@ -3,21 +3,21 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15422 15521 99.36%
+total 15397 15493 99.38%
 area cli/build 1687 1693 99.65%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
-area cli/lint 573 574 99.83%
+area cli/lint 570 570 100.00%
 area cli/other 590 596 98.99%
 area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
-area cli/test 504 518 97.30%
+area cli/test 476 488 97.54%
 area crates/backend 68 68 100.00%
 area crates/diagnostics 277 278 99.64%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 999 1024 97.56%
+area crates/js 1005 1030 97.57%
 area crates/llvm 580 580 100.00%
 area crates/middle 2093 2120 98.73%
 area crates/project 1335 1338 99.78%
@@ -55,13 +55,13 @@ area crates/syntax 1268 1268 100.00%
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-545 546 cli/src/commands/lint.rs
+542 542 cli/src/commands/lint.rs
 28 28 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 38 38 cli/src/commands/query.rs
 58 58 cli/src/commands/run.rs
 34 34 cli/src/commands/serve.rs
-502 516 cli/src/commands/test.rs
+474 486 cli/src/commands/test.rs
 2 2 cli/src/commands/test_times.rs
 4 4 cli/src/commands/version.rs
 34 34 cli/src/commands/watch.rs
@@ -123,7 +123,7 @@ area crates/syntax 1268 1268 100.00%
 8 8 crates/hash/src/hash.rs
 10 10 crates/js/src/compiler/backend/js/crossing.rs
 301 304 crates/js/src/compiler/backend/js/generate.rs
-94 94 crates/js/src/compiler/backend/js/intrinsics.rs
+100 100 crates/js/src/compiler/backend/js/intrinsics.rs
 526 546 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
 65 66 crates/js/src/compiler/backend/js/park.rs
