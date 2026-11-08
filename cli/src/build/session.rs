@@ -174,6 +174,7 @@ impl Session {
                   writing them is what it is for"
     )]
     pub fn emit_from(&self, map: &SourceMap, d: &crate::diagnostics::Diagnostic) {
+        let _above = crate::progress::hold();
         match self.rendering {
             Rendering::Human { color } => eprint!("{}", map.render_with_body(d, color)),
             Rendering::Json => eprintln!("{}", map.to_json(d)),

@@ -43,6 +43,7 @@ use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::FuncIdx;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::json::Value;
+use crate::progress::{self, Kind};
 use std::io::Write;
 use std::time::{Duration, Instant};
 
@@ -394,6 +395,15 @@ fn one_pass(
             quiet: false,
         };
     }
+    // A watch loop prints each pass whole, and `--explain` writes from every
+    // thread, so neither has a block under its output.
+    let reporter = (matches!(asked, Asked::Once) && !args.flags.explain).then(|| {
+        let color = args
+            .flags
+            .color
+            .unwrap_or_else(|| std::env::var("NO_COLOR").is_err());
+        progress::start(color, true)
+    });
     if !prepared {
         crate::build::generators::prepare_for(&mut session, &args.flags, &targets);
     }
@@ -402,6 +412,7 @@ fn one_pass(
     if args.flags.coverage {
         let begun = crate::build::coverage::begin(&session.root, args.flags.mcdc);
         if let Err(msg) = &begun {
+            let _above = progress::hold();
             eprintln!("error: {msg}");
             return watch::Pass {
                 code: 2,
@@ -456,6 +467,10 @@ fn one_pass(
     } else {
         jobs_of(&args.flags)
     };
+    progress::suites(
+        slots.iter().count(),
+        slots.iter().filter(|s| s.answer.is_some()).count(),
+    );
     let tally = crate::parallel::pool(
         width,
         memory_budget(),
@@ -494,6 +509,8 @@ fn one_pass(
         shared_build,
         times,
     } = tally;
+    // Every suite has its answer: what's left prints with no block under it.
+    drop(reporter);
     shared.times.save(&shared.root, times);
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
@@ -1048,7 +1065,11 @@ fn drive(
             if !ready {
                 break;
             }
-            report(session, plan, slots, &args.flags, &mut tally, out);
+            {
+                let _above = progress::hold();
+                report(session, plan, slots, &args.flags, &mut tally, out);
+            }
+            progress::failed(tally.failed + tally.uncompiled + tally.unrun);
             next += 1;
         }
         if next >= plans.len() {
@@ -1062,6 +1083,7 @@ fn drive(
                 notes,
                 built,
             } => {
+                progress::answered(slot.0);
                 let s = slots.get_mut(slot);
                 // A suite that was built was planned with a build key.
                 if let (Some(built), Some(at)) = (built, &s.build) {
@@ -1126,6 +1148,7 @@ fn drive(
                 mut explain,
             } => {
                 for &i in &abandoned {
+                    progress::sent_back(i.0);
                     let s = slots.get_mut(i);
                     // The first member says why for the batch.
                     s.explain.push_str(&std::mem::take(&mut explain));
@@ -1547,6 +1570,7 @@ fn solo(
         return;
     }
     slot.queued = true;
+    progress::queued(i.0);
     let (target, platform, chosen, key) =
         (slot.target, slot.platform, slot.chosen, slot.key.clone());
     let suite = Suite::clone(&slot.suite);
@@ -1657,6 +1681,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         snapshot_dir,
         filter,
     } = job;
+    let work = progress::begin(Kind::Build, &label);
     let began = Instant::now();
     let answer = |answer, built| Done::Answer {
         slot,
@@ -1759,7 +1784,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
             skipped,
             began,
         };
-        return run_js(job, held, queue, shared);
+        return run_js(job, held, queue, shared, work);
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let Some(f) = filter {
@@ -1809,7 +1834,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         skipped,
         began,
     };
-    run_solo(job, held, queue, tell, shared)
+    run_solo(job, held, queue, tell, shared, work)
 }
 
 /// One suite's own native binary: link it, then run every block.
@@ -1846,7 +1871,14 @@ struct SoloJob {
 /// ([`queue_members`]), so a suite named alone runs as fast as one named beside
 /// another. A suite with a `timeout_seconds` keeps its one process
 /// ([`run_alone`]), for the reason a batch refuses it.
-fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
+fn run_solo(
+    job: SoloJob,
+    held: Held,
+    queue: &Queue,
+    tell: &Tell,
+    shared: &Shared,
+    mut work: progress::Work,
+) -> Done {
     let SoloJob {
         slot,
         label,
@@ -1867,6 +1899,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
     // Taken before the link, which changes the program.
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
+    work.set(Kind::Link);
     let (built, explain) = crate::build::cache::holding_explain(|| {
         actions::link_test_binary(
             &shared.root,
@@ -1883,6 +1916,7 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
     drop(program);
     drop(tables);
     drop(held);
+    drop(work);
     let answer = |answer| Done::Answer {
         slot,
         answer,
@@ -1989,6 +2023,7 @@ fn run_alone(
     snapshots: &[(&str, String)],
     shared: &Shared,
 ) -> Done {
+    progress::testing(spec.slot.0, &spec.label);
     let MemberSpec {
         slot,
         ref tests,
@@ -2104,7 +2139,7 @@ struct JsJob {
     began: Instant,
 }
 
-fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
+fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared, work: progress::Work) -> Done {
     let JsJob {
         slot,
         label,
@@ -2135,6 +2170,7 @@ fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
     drop(program);
     drop(tables);
     drop(held);
+    drop(work);
     let run = JsRun {
         label,
         key,
@@ -2289,6 +2325,7 @@ fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> u
 /// handed, so the suite's tests go out in that one order across all of its
 /// processes. Records are kept by test, so the report is in declared order.
 fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
+    progress::testing(suite.slot.0, &suite.run.label);
     let processes = js_processes(suite.roots.len(), suite.run.limit, &shared.flags);
     if processes == 1 {
         let ran = run_bundle(suite.origin.bundle(), &suite.run, &suite.roots, shared);
@@ -4567,6 +4604,7 @@ fn queue_batch(
     };
     for &i in member_slots {
         slots.get_mut(i).queued = true;
+        progress::queued(i.0);
     }
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let job = BatchJob {
@@ -4637,6 +4675,10 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
         map,
         bytes,
     } = job;
+    let work = progress::begin(
+        Kind::Build,
+        &several(info.labels.iter().map(String::as_str)),
+    );
     // Everything here serves every member, so it is all shared.
     let began = Instant::now();
     let abandoned = || {
@@ -4709,6 +4751,7 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
             began,
             suites: info.members.len(),
         };
+        drop(work);
         return submit_group(
             &info, &skipped, group, &selected, program, tables, step, held, queue, tell, shared,
         );
@@ -4777,6 +4820,14 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         began: Instant::now(),
         suites: group.members.len(),
     };
+    let work = progress::begin(
+        Kind::Build,
+        &several(
+            (group.members.iter())
+                .filter_map(|&i| info.labels.get(i))
+                .map(String::as_str),
+        ),
+    );
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -4805,6 +4856,7 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         retain_tests(&mut program, |t| t.name.contains(f.as_str()));
     }
     let mine = selected_of(&mut program, &info);
+    drop(work);
     submit_group(
         &info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared,
     )
@@ -4944,6 +4996,16 @@ fn submit_group(
     build_group(job, held, queue, tell, shared)
 }
 
+/// How a row of the progress block names the suites one binary serves: the
+/// first, and how many more.
+fn several<'a>(mut labels: impl Iterator<Item = &'a str>) -> String {
+    let first = labels.next().unwrap_or_default();
+    match labels.count() {
+        0 => first.to_string(),
+        more => format!("{first} +{more}"),
+    }
+}
+
 /// Consecutive runs of block indices, as `(from, to)` with `to` exclusive.
 fn ranges_of(blocks: &[usize]) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
@@ -5021,6 +5083,10 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
     } = job;
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
+    let work = progress::begin(
+        Kind::Link,
+        &several(members.iter().map(|m| m.label.as_str())),
+    );
     let (built, explain) = crate::build::cache::holding_explain(|| {
         actions::link_test_binary(
             &shared.root,
@@ -5037,6 +5103,7 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
     drop(program);
     drop(tables);
     drop(held);
+    drop(work);
     let Ok((binary, link)) = built else {
         tell.tell(Done::Shared {
             ns: since(step.began),
@@ -5383,6 +5450,7 @@ fn run_limited(
     seeds: &str,
     snapshots: &[(&str, String)],
 ) {
+    progress::testing(spec.slot.0, &spec.label);
     {
         let mut all = gathered_of(gathered);
         all.handed = all.blocks.len();
@@ -5518,6 +5586,7 @@ fn run_pulled(
     snapshots: &[(&str, String)],
 ) -> Pulled {
     use std::io::BufRead as _;
+    progress::testing(spec.slot.0, &spec.label);
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let Some(mut cmd) = test_process(program) else {
         return Pulled::Broken;

@@ -32,6 +32,7 @@
 //! | [`many_findings`] | scratch | That a file with thousands of findings publishes each once, where it is, across edits, and that `lint --fix` over a thousand of them leaves the program printing what it printed. |
 //! | [`monorepo`] | scratch | A large repository's shape, scaled down: what a warm run, a comment edit and a generator's input edit may not redo, and that a link does not start the C driver. |
 //! | [`profile`] | scratch | That `BURI_PROFILE=1` reports each phase a run went through, that a run without it prints nothing extra, and that checking and emitting large shapes is linear in their size. |
+//! | [`progress`] | scratch | What a terminal shows while `buri test` and `buri build` run — a row per build, link, generator and suite with its timer, the counts, and nothing left once the run ends — and the `still running` lines a pipe gets instead. |
 //! | [`scheduling`] | scratch | That suites build and run side by side, report in suite order, and are reused across an edit that cannot change them. |
 //! | [`stencil`] | `repositories/stencil/` | That programs reaching the debug backend's rarer paths build and do what the language says. |
 //! | [`verbose`] | `repositories/testing/verbose/` | What `buri test --verbose`'s goldens blank out: the unit each time is spelled in, build times against the run, verdicts cached before there were times, and the list each pass of a watch loop prints. |
@@ -118,6 +119,7 @@ mod middle;
 mod monorepo;
 mod profile;
 mod programs_at_once;
+mod progress;
 mod rare_paths;
 mod repositories;
 mod reproducible_files;

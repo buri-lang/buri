@@ -1021,7 +1021,13 @@ fn build_tools(session: &Session, rules: &[TargetId]) {
             let _ = std::thread::Builder::new()
                 .name("buri-tool".into())
                 .stack_size(crate::parallel::STACK)
-                .spawn_scoped(scope, move || tools::artifact(session, tool));
+                .spawn_scoped(scope, move || {
+                    let _work = crate::progress::begin(
+                        crate::progress::Kind::Build,
+                        &tool.name(&session.workspace),
+                    );
+                    tools::artifact(session, tool)
+                });
         }
     });
 }
@@ -1555,7 +1561,17 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
     };
     let mut produced: Vec<(GeneratedModule, Span)> = Vec::new();
     for entry in entries {
-        match answer(session, &workspace, target, &entry, &read, flags) {
+        let work = crate::progress::begin(
+            crate::progress::Kind::Gen,
+            &format!(
+                "{} → {}",
+                entry.generator.tool.value,
+                workspace.label(target)
+            ),
+        );
+        let answered = answer(session, &workspace, target, &entry, &read, flags);
+        drop(work);
+        match answered {
             Ok((response, asked, findings)) => {
                 outcome
                     .findings

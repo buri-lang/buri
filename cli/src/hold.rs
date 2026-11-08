@@ -87,3 +87,52 @@ impl Point {
             .unwrap_or(measured)
     }
 }
+
+/// Hands the progress block a clock and a hold on each side of a row's start,
+/// read from the same directory.
+///
+/// The clock is `<dir>/clock-now`, whole seconds, rewritten by the test as it
+/// moves time along; the last time read stays until the next one parses. A row
+/// for work labelled `//lib/a` holds at `begin-test-lib_a` before it shows and
+/// `begun-test-lib_a` after.
+pub fn progress() {
+    use crate::progress::{hook, Hooks, Kind};
+    use std::sync::Mutex;
+    static CLOCK: Point = Point::new("clock");
+    static LAST: Mutex<Option<std::time::Duration>> = Mutex::new(None);
+    static BEGIN: Point = Point::new("begin");
+    static BEGUN: Point = Point::new("begun");
+    fn clock() -> Option<std::time::Duration> {
+        std::env::var_os(VARIABLE)?;
+        let mut last = LAST
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Ok(secs) = String::from_utf8_lossy(&CLOCK.held_as("now"))
+            .trim()
+            .parse()
+        {
+            *last = Some(std::time::Duration::from_secs(secs));
+        }
+        *last
+    }
+    fn starting(kind: Kind, label: &str, begun: bool) {
+        if std::env::var_os(VARIABLE).is_none() {
+            return;
+        }
+        let mut who = String::new();
+        for c in label.chars() {
+            if c.is_ascii_alphanumeric() {
+                who.push(c);
+            } else if !who.is_empty() && !who.ends_with('_') {
+                who.push('_');
+            }
+        }
+        let who = format!("{}-{}", kind.name(), who.trim_end_matches('_'));
+        if begun {
+            BEGUN.held_as(&who);
+        } else {
+            BEGIN.held_as(&who);
+        }
+    }
+    hook(Hooks { clock, starting });
+}

@@ -24,6 +24,30 @@ finished building runs beside the others whatever the memory. Set
 `BURI_TEST_MEMORY_BYTES` to budget against a different amount of memory. A suite
 whose code is unchanged, comments and whitespace aside, reports as cached.
 
+## While it runs
+
+At a terminal, a block below the results shows what's running and for how long:
+
+```text
+[Building 41/52 · Testing 18/30 · 1 failed]
+  test   //libs/sim ......................... 01:32
+  gen    proto → //lib/conformance .......... 00:01
+  … and 3 more
+```
+
+Each row is a build, a link, a generator or a suite's tests, oldest first. A
+row turns yellow at 30 seconds, unless colour is off. Results print above the
+block as they always do, and the block is gone once the run ends.
+
+Anywhere else, such as a pipe or a CI log, the output is the same as without a
+terminal, plus a line a minute for anything still running:
+
+```text
+still running: test //libs/sim (2:00)
+```
+
+`--explain` and `--watch` show no block.
+
 ## Every test
 
 `--verbose` lists every suite with how long it took to build, and every test in

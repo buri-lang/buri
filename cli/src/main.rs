@@ -61,6 +61,7 @@ fn main() -> ExitCode {
     // before anything unwinds.
     let report = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        buri::progress::abandon();
         if let Some(message) = info.payload().downcast_ref::<String>() {
             arguments::failed_print(message);
         }
@@ -130,6 +131,8 @@ fn command() -> ExitCode {
 
     // Test hook: lets an end-to-end test see the internal-error report, which
     // otherwise only a compiler bug reaches.
+    #[cfg(feature = "test-hooks")]
+    buri::hold::progress();
     #[cfg(feature = "test-hooks")]
     buri::diagnostics::invariant(
         std::env::var_os("BURI_INTERNAL_ERROR_TEST").is_none(),

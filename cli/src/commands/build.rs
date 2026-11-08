@@ -39,6 +39,14 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         Ok(both) => both,
         Err(c) => return c as i32,
     };
+    // `--explain` writes from every thread, so it has no block under it.
+    let reporter = (!args.flags.explain).then(|| {
+        let color = args
+            .flags
+            .color
+            .unwrap_or_else(|| std::env::var("NO_COLOR").is_err());
+        crate::progress::start(color, false)
+    });
 
     // `--output` selects one of the outputs a target declares. A selector that
     // matches none of them is the thing you asked *with* being wrong, and has
@@ -258,6 +266,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                                 release,
                             );
                             queue.push(job, bytes);
+                            crate::progress::queued(slot);
                             printing.pending += 1;
                         }
                     }
@@ -276,11 +285,13 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     release,
                 );
                 queue.push(job, bytes);
+                crate::progress::queued(slot);
                 printing.pending += 1;
             }
             printing.flush(&session, &reports, &outcomes);
             while printing.pending > 0 {
                 let (slot, outcome) = done.recv();
+                crate::progress::built(slot);
                 outcomes.insert(slot, outcome);
                 printing.pending -= 1;
                 printing.flush(&session, &reports, &outcomes);
@@ -290,6 +301,8 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         },
     )
     .unwrap_or_else(no_thread);
+    // Every program is built: what's left prints with no block under it.
+    drop(reporter);
     if crate::profile::enabled() {
         let (programs, bytes) = most_held;
         eprintln!("programs held at once {programs}, expected {bytes} of {budget} bytes");
@@ -505,6 +518,10 @@ impl Job {
             map,
             explain,
         } = self;
+        let work = crate::progress::begin(
+            crate::progress::Kind::Build,
+            &workers.workspace.label(target),
+        );
         // A session of its own, over the map the load left: the build may
         // read a file more, and what it reports is printed against the map
         // that names it.
@@ -542,6 +559,7 @@ impl Job {
         // The program is gone by now; only its artifact and its report are left.
         drop((analysis, share));
         drop(held);
+        drop(work);
         let explain = explain + &finished;
         let mut outcome = outcome(&session, target, output, workers.flags, built, explain);
         outcome.map = Some(std::sync::Arc::new(session.map));
@@ -629,6 +647,7 @@ impl Printing {
         reports: &[Report],
         outcomes: &BTreeMap<usize, Outcome>,
     ) {
+        let _above = crate::progress::hold();
         while let Some(report) = reports.get(self.next) {
             match report {
                 Report::Checked(diagnostics) => self.failed |= session.print(diagnostics),
