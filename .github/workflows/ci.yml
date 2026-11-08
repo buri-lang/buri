@@ -407,6 +407,11 @@ jobs:
           key: goals-buildscript-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: goals-buildscript-
       - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci
+      # The instruction-count gate's aarch64 half (design/PERFORMANCE.md §9):
+      # the runtime benchmark's stencil build, counted twice. It reuses the
+      # `buri` the step above built, so it costs the count and little else.
+      - if: always()
+        run: nix develop .#perf -c cargo bench -p buri --bench instructions -- --runs=2
       - *prune
       # This run's figures, at their lowest: the file to commit when a change
       # lowers one, or when the toolchain moved.
@@ -415,6 +420,13 @@ jobs:
         with:
           name: goals-baseline
           path: target/goals/baseline.txt
+          if-no-files-found: ignore
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: instructions-baseline-arm64
+          path: /tmp/buri-instructions/baseline.txt
+          retention-days: 7
           if-no-files-found: ignore
 
   # The native conformance set built by the release backend, with the heap check

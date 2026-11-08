@@ -1,0 +1,20 @@
+library {
+    sources: [
+        "types.buri",
+        "store.buri",
+        "node.buri",
+        "network.buri",
+        "cluster.buri",
+    ]
+    visibility: ["//apps/soak"]
+
+    test {
+        sources: [
+            "test/store.buri",
+            "test/node.buri",
+            "test/network.buri",
+            "test/cluster.buri",
+            "test/soak.buri",
+        ]
+    }
+}

@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//libs/replica"]
+    outputs: [
+        { platform: "native" },
+    ]
+}

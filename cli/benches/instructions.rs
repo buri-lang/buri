@@ -7,10 +7,14 @@
 //! cargo bench -p buri --features backend-llvm --bench instructions -- --runs=3   # and show the spread
 //! cargo bench -p buri --features backend-llvm --bench instructions -- run/       # only names containing `run/`
 //! cargo bench -p buri --features backend-llvm --bench instructions -- --levels   # stencils against LLVM's levels
+//! cargo bench -p buri --bench instructions                                       # aarch64: the runtime benchmark only
 //! ```
 //!
-//! Linux only. Every measured process is pinned to one core, so the compiler
-//! and the runtime start no workers and the count doesn't depend on scheduling.
+//! Linux only. On x86_64 it counts every workload but `run-dev/kvstore`; on
+//! aarch64 it counts only that one, the stencil build of the runtime benchmark
+//! in `kvstore`, so the arm64 job needs no LLVM. Every measured process is
+//! pinned to one core, so the compiler and the runtime start no workers and the
+//! count doesn't depend on scheduling.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -46,6 +50,10 @@ const PROGRAMS: [&str; 7] = [
     "floats", "lists", "maps", "match", "sort", "strings", "tree",
 ];
 
+/// The runtime benchmark: a repository of its own, and the binary its soak run
+/// builds. `--levels` counts it beside [`PROGRAMS`].
+const BENCHMARK: (&str, &str) = ("kvstore", "apps/soak/soak");
+
 /// What the `buri test` workload adds to one test file before its measured run.
 const EDIT: &str =
     "\ntest \"an edit the gate makes\" {\n    assert.equal(fromCents(7), fromCents(7));\n}\n";
@@ -70,12 +78,17 @@ fn main() {
         eprintln!("the instruction-count gate runs on Linux only: cachegrind does (design/PERFORMANCE.md §9)");
         std::process::exit(2);
     }
+    let arch = std::env::consts::ARCH;
+    let levels_asked = args.iter().any(|a| a == "--levels");
+    if !cfg!(feature = "backend-llvm") && (arch != "aarch64" || levels_asked) {
+        eprintln!("this needs `--features backend-llvm`: it builds with `--release` (design/PERFORMANCE.md §9)");
+        std::process::exit(2);
+    }
     let gate = Gate::new();
-    if args.iter().any(|a| a == "--levels") {
+    if levels_asked {
         let passed = levels(&gate, &filter);
         std::process::exit(i32::from(!passed));
     }
-    let arch = std::env::consts::ARCH;
     let toolchain = toolchain();
 
     let mut measured = BTreeMap::new();
@@ -176,8 +189,9 @@ struct Gate {
     buri: PathBuf,
     taskset: PathBuf,
     valgrind: PathBuf,
-    /// The builds of [`PROGRAMS`], one per [`Level`] asked for, made once each.
-    built: std::cell::RefCell<BTreeMap<&'static str, PathBuf>>,
+    /// The builds of each repository, one per [`Level`] asked for, made once
+    /// each.
+    built: std::cell::RefCell<BTreeMap<(&'static str, &'static str), PathBuf>>,
 }
 
 impl Gate {
@@ -219,6 +233,9 @@ impl Gate {
     }
 
     fn workloads(&self) -> Vec<String> {
+        if std::env::consts::ARCH == "aarch64" {
+            return vec![format!("run-dev/{}", BENCHMARK.0)];
+        }
         let mut names: Vec<String> = [
             "build/mixed-10k",
             "lint/mixed-10k",
@@ -259,6 +276,7 @@ impl Gate {
                 std::fs::write(&file, text + EDIT).unwrap();
                 self.counted(name, buri, &["test", "//..."], &repo)
             }
+            "run-dev/kvstore" => self.run_program(name, &LEVELS[0], BENCHMARK.0),
             _ => {
                 let program = name
                     .strip_prefix("run/")
@@ -268,16 +286,26 @@ impl Gate {
         }
     }
 
-    /// Counts `program` from [`PROGRAMS`] as `level` builds it.
+    /// Counts `program`, from [`PROGRAMS`] or the [`BENCHMARK`], as `level`
+    /// builds it.
     fn run_program(&self, name: &str, level: &Level, program: &str) -> u64 {
+        let (source, binary) = if program == BENCHMARK.0 {
+            (BENCHMARK.0, PathBuf::from(BENCHMARK.1))
+        } else {
+            ("instructions/programs", Path::new(program).join(program))
+        };
         let built = self
             .built
             .borrow_mut()
-            .entry(level.name)
+            .entry((source, level.name))
             .or_insert_with(|| {
-                let repo = Path::new(ROOT).join(format!("work/programs-{}", level.name));
+                let repo = Path::new(ROOT).join(format!(
+                    "work/{}-{}",
+                    source.replace('/', "-"),
+                    level.name
+                ));
                 let benches = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches");
-                copy(&benches.join("instructions/programs"), &repo);
+                copy(&benches.join(source), &repo);
                 let mut args = vec!["build"];
                 args.extend(level.flags);
                 args.push("//...");
@@ -285,12 +313,7 @@ impl Gate {
                 repo.join(".buri/out/native").join(host_variant())
             })
             .clone();
-        self.counted(
-            name,
-            &built.join(program).join(program),
-            &[],
-            Path::new(ROOT),
-        )
+        self.counted(name, &built.join(binary), &[], Path::new(ROOT))
     }
 
     /// Runs `program` under cachegrind, on one core, and returns the
@@ -369,12 +392,13 @@ const LEVELS: [Level; 4] = [
     RELEASE,
 ];
 
-/// `--levels`: each program's count at every one of [`LEVELS`], worst
-/// stencil-to-`-O0` ratio first. Fails when a stencil build runs more
-/// instructions than LLVM's `-O0` build of the same program.
+/// `--levels`: each program's count, and the [`BENCHMARK`]'s, at every one of
+/// [`LEVELS`], worst stencil-to-`-O0` ratio first. Fails when a stencil build
+/// runs more instructions than LLVM's `-O0` build of the same program.
 fn levels(gate: &Gate, filter: &str) -> bool {
     let mut rows: Vec<(&str, Vec<u64>)> = PROGRAMS
         .iter()
+        .chain([&BENCHMARK.0])
         .filter(|p| p.contains(filter))
         .map(|&program| {
             let counts = LEVELS
@@ -497,6 +521,10 @@ fn copy(from: &Path, to: &Path) {
     entries.sort();
     for entry in entries {
         let target = to.join(entry.file_name().unwrap());
+        // A local build leaves an `out` link into `.buri`, which isn't copied.
+        if entry.is_symlink() {
+            continue;
+        }
         if entry.is_dir() {
             if entry.file_name().is_some_and(|n| n == ".buri") {
                 continue;

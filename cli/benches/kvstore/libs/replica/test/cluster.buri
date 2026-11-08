@@ -1,0 +1,162 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//libs/replica" import {
+    Cluster, Config, converged, count, leaderNode, logsAgree, observations, readsHold,
+    run, settle, start, step,
+};
+
+fn quiet(nodes: Int): Config {
+    Config { nodes: nodes, keys: 20, dropPercent: 0, faults: false }
+}
+
+fn faulty(nodes: Int): Config {
+    Config { nodes: nodes, keys: 20, dropPercent: 10, faults: true }
+}
+
+test "a new cluster has a leader" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = start(ctx, quiet(3), 1);
+    let leader = assert.some(leaderNode(cluster));
+    assert.isTrue(leader.isLeader());
+    assert.equal(count(cluster, "elected"), 1);
+}
+
+test "a new cluster has one node of each name" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = start(ctx, quiet(5), 1);
+    assert.equal(cluster.nodes.keys(ctx), [
+        "node-1",
+        "node-2",
+        "node-3",
+        "node-4",
+        "node-5",
+    ]);
+}
+
+test "a step moves the clock" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = step(ctx, start(ctx, quiet(3), 1));
+    assert.equal(cluster.now, 1);
+}
+
+test "the same seed replays the same run" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = run(ctx, start(ctx, faulty(3), 7), 300);
+    let two = run(ctx, start(ctx, faulty(3), 7), 300);
+    assert.equal(one.history, two.history);
+    assert.equal(one.network.sent, two.network.sent);
+}
+
+test "two seeds make two runs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = run(ctx, start(ctx, faulty(3), 7), 300);
+    let two = run(ctx, start(ctx, faulty(3), 8), 300);
+    assert.notEqual(one.history, two.history);
+}
+
+test "a quiet cluster commits client writes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, quiet(3), 2), 400);
+    let leader = assert.some(leaderNode(cluster));
+    assert.greaterThan(leader.commit, 20);
+    assert.equal(count(cluster, "elected"), 1);
+}
+
+test "a quiet cluster loses nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, quiet(3), 3), 400);
+    assert.equal(cluster.network.dropped, 0);
+    assert.equal(count(cluster, "crashed"), 0);
+}
+
+test "a quiet cluster settles to one store" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = settle(ctx, run(ctx, start(ctx, quiet(3), 4), 400), 20);
+    assert.isTrue(converged(ctx, cluster));
+}
+
+test "a faulty run crashes nodes and loses messages" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, faulty(5), 5), 1500);
+    assert.greaterThan(count(cluster, "crashed"), 0);
+    assert.greaterThan(cluster.network.dropped, 0);
+}
+
+test "losing the leader elects another" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, faulty(5), 6), 3000);
+    assert.greaterThan(count(cluster, "elected"), 1);
+}
+
+test "logs agree in the middle of a faulty run" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, faulty(5), 9), 800);
+    assert.ok(logsAgree(ctx, cluster));
+}
+
+test "a faulty run settles to one store" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = settle(ctx, run(ctx, start(ctx, faulty(5), 10), 800), 50);
+    assert.isTrue(converged(ctx, cluster));
+    assert.ok(logsAgree(ctx, cluster));
+}
+
+test "settling brings every node back" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = settle(ctx, run(ctx, start(ctx, faulty(5), 11), 800), 50);
+    assert.equal(cluster.down.length(), 0);
+    assert.equal(cluster.network.cut.length(), 0);
+}
+
+test "a single node commits on its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, quiet(1), 12), 200);
+    let leader = assert.some(leaderNode(cluster));
+    assert.equal(leader.commit, leader.lastIndex());
+}
+
+test "clients read while the cluster runs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = run(ctx, start(ctx, quiet(3), 13), 600);
+    assert.greaterThan(observations(ctx, cluster).length(), 0);
+    assert.equal(observations(ctx, cluster).length(), count(cluster, "observed"));
+}
+
+test "no read sees the future" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cluster = settle(ctx, run(ctx, start(ctx, faulty(5), 14), 1500), 50);
+    assert.ok(readsHold(ctx, cluster));
+}

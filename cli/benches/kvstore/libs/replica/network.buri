@@ -1,0 +1,127 @@
+//! The links between nodes: one first-in, first-out queue per direction, and
+//! the links a partition has cut. A link with nothing waiting is not kept.
+
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/orderedset" import * as orderedset;
+from "core/orderedset" import { OrderedSet };
+from "core/queue" import * as queue;
+from "core/queue" import { Queue };
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+from "//libs/replica/types.buri" import { Envelope };
+
+export struct Network {
+    export links: OrderedMap<Str, Queue<Envelope>>,
+    export cut: OrderedSet<Str>,
+    export sent: Int,
+    export dropped: Int,
+}
+
+export fn emptyNetwork(): Network {
+    Network {
+        links: orderedmap.empty<Str, Queue<Envelope>>(),
+        cut: orderedset.empty<Str>(),
+        sent: 0,
+        dropped: 0,
+    }
+}
+
+export fn linkName<C: Allocator>(ctx: C, sender: Str, to: Str): Str {
+    str.format(ctx, "${sender}->${to}")
+}
+
+/// Queues `envelope` on its link, or loses it if the link is cut.
+export fn send<C: Allocator>(ctx: C, net: Network, envelope: Envelope): Network {
+    let link = linkName(ctx, envelope.sender, envelope.to);
+    if (net.cut.has(link)) {
+        Network { ..net, sent: net.sent + 1, dropped: net.dropped + 1 }
+    } else {
+        let waiting = net.links.get(link).withDefault(queue.empty<Envelope>());
+        Network {
+            ..net,
+            links: net.links.insert(ctx, link, waiting.push(ctx, envelope)),
+            sent: net.sent + 1,
+        }
+    }
+}
+
+export fn sendAll<C: Allocator>(ctx: C, net: Network, envelopes: [Envelope]): Network {
+    envelopes.foldCtx(ctx, fn(c, n, e) => send(c, n, e), net)
+}
+
+/// The links with something waiting on them, in name order.
+export fn busyLinks<C: Allocator>(ctx: C, net: Network): [Str] {
+    net.links.keys(ctx)
+}
+
+/// The oldest message on `link`, and the network without it.
+export fn receive<C: Allocator>(
+    ctx: C,
+    net: Network,
+    link: Str,
+): Option<(Envelope, Network)> {
+    match (net.links.get(link)) {
+        .Some(waiting) => {
+            match (waiting.pop(ctx)) {
+                .Some((envelope, rest)) => {
+                    .Some(
+                        (
+                            envelope,
+                            Network {
+                                ..net,
+                                links: if (rest.isEmpty()) {
+                                    net.links.remove(ctx, link)
+                                } else {
+                                    net.links.insert(ctx, link, rest)
+                                },
+                            },
+                        ),
+                    )
+                },
+                .None => .None,
+            }
+        },
+        .None => .None,
+    }
+}
+
+/// How many messages are waiting, over every link.
+export fn inFlight(net: Network): Int {
+    net.links.fold(fn(total, link, waiting) => total + waiting.length(), 0)
+}
+
+/// Cuts both directions between `a` and `b`. What is already queued still
+/// arrives.
+export fn partition<C: Allocator>(ctx: C, net: Network, a: Str, b: Str): Network {
+    Network {
+        ..net,
+        cut: net.cut.insert(ctx, linkName(ctx, a, b)).insert(ctx, linkName(ctx, b, a)),
+    }
+}
+
+export fn heal(net: Network): Network {
+    Network { ..net, cut: orderedset.empty<Str>() }
+}
+
+/// Loses every message waiting for `node`, as when it crashes.
+export fn dropTo<C: Allocator>(ctx: C, net: Network, node: Str): Network {
+    let suffix = str.format(ctx, "->${node}");
+    net
+        .links
+        .foldCtx(
+            ctx,
+            fn(c, n, link, waiting) => {
+                if (link.endsWith(suffix)) {
+                    Network {
+                        ..n,
+                        links: n.links.remove(c, link),
+                        dropped: n.dropped + waiting.length(),
+                    }
+                } else {
+                    n
+                }
+            },
+            net,
+        )
+}

@@ -1,0 +1,641 @@
+//! A whole cluster under a deterministic scheduler. Every choice — which
+//! message arrives next, which client writes, which node crashes — is drawn
+//! from one seeded generator, so a seed replays a run exactly.
+
+from "core/list" import * as list;
+from "core/number" import * as number;
+from "core/order" import * as order;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/orderedset" import * as orderedset;
+from "core/orderedset" import { OrderedSet };
+from "core/random" import * as random;
+from "core/random" import { Generator };
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+from "//libs/replica/network.buri" import {
+    busyLinks, dropTo, emptyNetwork, heal, Network, partition, receive, send, sendAll,
+};
+from "//libs/replica/node.buri" import {
+    compact, fresh, handle, heartbeat, lead, Node, restart,
+};
+from "//libs/replica/store.buri" import { digest, Store };
+from "//libs/replica/types.buri" import { Envelope, Message, Op, Record };
+
+derive Equal, Show for Config;
+export struct Config {
+    export nodes: Int,
+    /// How many distinct keys clients write.
+    export keys: Int,
+    /// The chance, in percent, that a delivered message is lost instead.
+    export dropPercent: Int,
+    /// Whether nodes crash and links are cut.
+    export faults: Bool,
+}
+
+derive Equal, Show for Observation;
+/// What one client read: the record a node held for a key, and how far that
+/// node had applied the log.
+export struct Observation {
+    export at: Int,
+    export node: Str,
+    export key: Str,
+    export record: Option<Record>,
+    export applied: Int,
+}
+
+derive Equal, Show for Event;
+/// One line of a run's history.
+export struct Event {
+    export at: Int,
+    export node: Str,
+    export what: Str,
+    export detail: Str,
+}
+
+export struct Cluster {
+    export config: Config,
+    export now: Int,
+    export rng: Generator,
+    export nodes: OrderedMap<Str, Node>,
+    export down: OrderedSet<Str>,
+    export network: Network,
+    export leader: Option<Str>,
+    export history: [Event],
+    export counts: OrderedMap<Str, Int>,
+    /// Every read each client has seen answered, oldest first.
+    export reads: OrderedMap<Str, [Observation]>,
+}
+
+derive Equal, Show for Summary;
+/// What a finished run looks like from outside.
+export struct Summary {
+    export steps: Int,
+    export commit: Int,
+    export keys: Int,
+    export digest: Int,
+    export sent: Int,
+    export dropped: Int,
+    export elections: Int,
+    export snapshot: Int,
+    export reads: Int,
+}
+
+export fn nodeName<C: Allocator>(ctx: C, i: Int): Str {
+    str.format(ctx, "node-${i}")
+}
+
+/// A cluster of fresh nodes with a leader elected.
+export fn start<C: Allocator>(ctx: C, config: Config, seed: Int): Cluster {
+    let names = list
+        .range(ctx, 1, config.nodes + 1)
+        .mapCtx(ctx, fn(c, i) => nodeName(c, i));
+    let nodes = names.foldCtx(
+        ctx,
+        fn(c, m: OrderedMap<Str, Node>, name) => {
+            m.insert(c, name, fresh(name, names.filter(c, fn(p) => p != name)))
+        },
+        orderedmap.empty<Str, Node>(),
+    );
+    elect(ctx, Cluster {
+        config: config,
+        now: 0,
+        rng: random.seeded(seed),
+        nodes: nodes,
+        down: orderedset.empty<Str>(),
+        network: emptyNetwork(),
+        leader: .None,
+        history: [],
+        counts: orderedmap.empty<Str, Int>(),
+        reads: orderedmap.empty<Str, [Observation]>(),
+    })
+}
+
+export fn node(cluster: Cluster, name: Str): Option<Node> {
+    cluster.nodes.get(name)
+}
+
+fn note<C: Allocator>(ctx: C, cluster: Cluster, node: Str, what: Str): Cluster {
+    noteDetail(ctx, cluster, node, what, "")
+}
+
+fn noteDetail<C: Allocator>(
+    ctx: C,
+    cluster: Cluster,
+    node: Str,
+    what: Str,
+    detail: Str,
+): Cluster {
+    Cluster {
+        ..cluster,
+        history: cluster
+            .history
+            .push(ctx, Event {
+                at: cluster.now,
+                node: node,
+                what: what,
+                detail: detail,
+            }),
+        counts: cluster
+            .counts
+            .insert(ctx, what, cluster.counts.get(what).withDefault(0) + 1),
+    }
+}
+
+export fn count(cluster: Cluster, what: Str): Int {
+    cluster.counts.get(what).withDefault(0)
+}
+
+fn live<C: Allocator>(ctx: C, cluster: Cluster): [Node] {
+    cluster.nodes.values(ctx).filter(ctx, fn(n) => !cluster.down.has(n.id))
+}
+
+/// Whose log is further along: the later last term, then the longer log.
+fn fresher(a: Node, b: Node): order.Order {
+    order.int(a.lastTerm(), b.lastTerm()).then(order.int(a.lastIndex(), b.lastIndex()))
+}
+
+/// Makes the live node with the freshest log leader, if a majority is up.
+export fn elect<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let up = live(ctx, cluster);
+    if (up.length() * 2 <= cluster.nodes.length()) {
+        Cluster { ..cluster, leader: .None }
+    } else {
+        let term = cluster.nodes.fold(fn(t, name, n) => number.max(t, n.term), 0) + 1;
+        match (up.maxBy(fresher)) {
+            .Some(best) => {
+                note(
+                    ctx,
+                    Cluster {
+                        ..cluster,
+                        nodes: cluster
+                            .nodes
+                            .insert(ctx, best.id, lead(ctx, best, term)),
+                        leader: .Some(best.id),
+                    },
+                    best.id,
+                    "elected",
+                )
+            },
+            .None => cluster,
+        }
+    }
+}
+
+/// The leader, if there is one and it is up.
+export fn leaderNode(cluster: Cluster): Option<Node> {
+    match (cluster.leader) {
+        .Some(name) => {
+            if (cluster.down.has(name)) { .None } else { cluster.nodes.get(name) }
+        },
+        .None => .None,
+    }
+}
+
+fn draw(cluster: Cluster, low: Int, high: Int): (Int, Cluster) {
+    let (n, rng) = cluster.rng.nextInt(low, high);
+    (n, Cluster { ..cluster, rng: rng })
+}
+
+fn pick<T>(cluster: Cluster, items: [T]): (Option<T>, Cluster) {
+    let (i, next) = draw(cluster, 0, items.length());
+    (items.get(i), next)
+}
+
+/// One scheduler step.
+export fn step<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let (roll, drawn) = draw(cluster, 0, 100);
+    let c = Cluster { ..drawn, now: drawn.now + 1 };
+    if (roll < 64) {
+        deliver(ctx, c)
+    } else if (roll < 80) {
+        request(ctx, c)
+    } else if (roll < 87) {
+        tick(ctx, c)
+    } else if (roll < 91 || !c.config.faults) {
+        compactAll(ctx, c)
+    } else if (roll < 92) {
+        crash(ctx, c)
+    } else if (roll < 95) {
+        recover(ctx, c)
+    } else if (roll < 96) {
+        cutLink(ctx, c)
+    } else {
+        note(ctx, Cluster { ..c, network: heal(c.network) }, "all", "healed")
+    }
+}
+
+/// Runs `steps` scheduler steps.
+export fn run<C: Allocator>(ctx: C, cluster: Cluster, steps: Int): Cluster {
+    if (steps <= 0) { cluster } else { run(ctx, step(ctx, cluster), steps - 1) }
+}
+
+/// Delivers the oldest message on one busy link, picked at random.
+fn deliver<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let (link, picked) = pick(cluster, busyLinks(ctx, cluster.network));
+    match (link) {
+        .Some(name) => {
+            match (receive(ctx, picked.network, name)) {
+                .Some((envelope, rest)) => {
+                    let (loss, c) = draw(Cluster { ..picked, network: rest }, 0, 100);
+                    if (loss < c.config.dropPercent) {
+                        note(
+                            ctx,
+                            Cluster {
+                                ..c,
+                                network: Network {
+                                    ..c.network,
+                                    dropped: c.network.dropped + 1,
+                                },
+                            },
+                            envelope.to,
+                            "lost",
+                        )
+                    } else {
+                        arrive(ctx, c, envelope)
+                    }
+                },
+                .None => picked,
+            }
+        },
+        .None => picked,
+    }
+}
+
+/// Hands `envelope` to its node and queues what it answers.
+fn arrive<C: Allocator>(ctx: C, cluster: Cluster, envelope: Envelope): Cluster {
+    match (cluster.nodes.get(envelope.to)) {
+        .Some(target) => {
+            if (cluster.down.has(target.id)) {
+                note(ctx, cluster, target.id, "missed")
+            } else {
+                let (after, replies) = handle(ctx, target, envelope, cluster.now);
+                let detail = str.format(
+                    ctx,
+                    "${envelope.sender} -> ${envelope.to}, sent at ${envelope.sentAt}, ${replies.length()} replies",
+                );
+                noteDetail(
+                    ctx,
+                    Cluster {
+                        ..cluster,
+                        nodes: cluster.nodes.insert(ctx, target.id, after),
+                        network: sendAll(ctx, cluster.network, replies),
+                    },
+                    target.id,
+                    kind(envelope.message),
+                    detail,
+                )
+            }
+        },
+        .None => observe(ctx, cluster, envelope),
+    }
+}
+
+/// A client takes the answer to its read.
+fn observe<C: Allocator>(ctx: C, cluster: Cluster, envelope: Envelope): Cluster {
+    match (envelope.message) {
+        .Value { key, record, applied } => {
+            let seen = Observation {
+                at: cluster.now,
+                node: envelope.sender,
+                key: key,
+                record: record,
+                applied: applied,
+            };
+            let before = cluster.reads.get(envelope.to).withDefault([]);
+            noteDetail(
+                ctx,
+                Cluster {
+                    ..cluster,
+                    reads: cluster
+                        .reads
+                        .insert(ctx, envelope.to, before.push(ctx, seen)),
+                },
+                envelope.to,
+                "observed",
+                key,
+            )
+        },
+        _ => cluster,
+    }
+}
+
+/// Every read answered so far.
+export fn observations<C: Allocator>(ctx: C, cluster: Cluster): [Observation] {
+    cluster
+        .reads
+        .foldCtx(
+            ctx,
+            fn(c, all: [Observation], client, seen) => all.concat(c, seen),
+            [],
+        )
+}
+
+/// A read never sees a node further along than the log the cluster ends with,
+/// and never sees a record written after the entries its node had applied.
+export fn readsHold<C: Allocator>(ctx: C, cluster: Cluster): Result<(), Str> {
+    let commit = leaderNode(cluster).map(fn(n) => n.commit).withDefault(0);
+    let bad = observations(ctx, cluster).find(fn(o) => {
+        o.applied > commit
+            || o.record.map(fn(r) => r.writtenAt > o.applied).withDefault(false)
+    });
+    match (bad) {
+        .Some(o) => {
+            .Err(str.format(ctx, "a read of ${o.key} at ${o.at} saw the future"))
+        },
+        .None => .Ok(()),
+    }
+}
+
+fn kind(message: Message): Str {
+    match (message) {
+        .Request { .. } => "request",
+        .Append { entries, .. } => {
+            if (entries.isEmpty()) { "heartbeat" } else { "append" }
+        },
+        .Ack { ok, .. } => if (ok) { "ack" } else { "nack" },
+        .Install { .. } => "install",
+        .Read { .. } => "read",
+        .Value { .. } => "value",
+    }
+}
+
+/// A client asks the leader for a write. With no leader it gives up.
+fn request<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    match (cluster.leader) {
+        .Some(leader) => {
+            let (k, a) = draw(cluster, 0, cluster.config.keys);
+            let (which, b) = draw(a, 0, 16);
+            let (client, c) = draw(b, 0, 8);
+            let key = str.format(ctx, "user/${k}");
+            let name = str.format(ctx, "client-${client}");
+            if (which >= 10) {
+                read(ctx, c, name, key)
+            } else {
+                write(ctx, c, leader, name, key, which)
+            }
+        },
+        .None => note(ctx, cluster, "client", "unavailable"),
+    }
+}
+
+/// A client reads a key from any node, which may lag the leader.
+fn read<C: Allocator>(ctx: C, cluster: Cluster, client: Str, key: Str): Cluster {
+    let (target, c) = pick(cluster, cluster.nodes.keys(ctx));
+    match (target) {
+        .Some(name) => {
+            Cluster {
+                ..c,
+                network: send(ctx, c.network, Envelope {
+                    sender: client,
+                    to: name,
+                    sentAt: c.now,
+                    message: .Read { client: client, key: key },
+                }),
+            }
+        },
+        .None => c,
+    }
+}
+
+fn write<C: Allocator>(
+    ctx: C,
+    c: Cluster,
+    leader: Str,
+    name: Str,
+    key: Str,
+    which: Int,
+): Cluster {
+    let op = if (which < 6) {
+        Op.Put { key: key, value: str.format(ctx, "v${c.now}") }
+    } else if (which < 9) {
+        Op.Append { key: key, suffix: str.format(ctx, ",${c.now}") }
+    } else {
+        Op.Delete { key: key }
+    };
+    Cluster {
+        ..c,
+        network: send(ctx, c.network, Envelope {
+            sender: name,
+            to: leader,
+            sentAt: c.now,
+            message: .Request { client: name, op: op },
+        }),
+    }
+}
+
+/// The leader replicates; with no leader up, the live nodes elect one.
+fn tick<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    match (leaderNode(cluster)) {
+        .Some(leader) => {
+            Cluster {
+                ..cluster,
+                network: sendAll(
+                    ctx,
+                    cluster.network,
+                    heartbeat(ctx, leader, cluster.now),
+                ),
+            }
+        },
+        .None => elect(ctx, cluster),
+    }
+}
+
+fn compactAll<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    Cluster {
+        ..cluster,
+        nodes: cluster
+            .nodes
+            .foldCtx(
+                ctx,
+                fn(c, m, name, n) => m.insert(c, name, compact(c, n)),
+                cluster.nodes,
+            ),
+    }
+}
+
+/// Stops one node, as long as a majority stays up.
+fn crash<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let up = live(ctx, cluster);
+    if ((cluster.down.length() + 1) * 2 >= cluster.nodes.length()) {
+        cluster
+    } else {
+        let (victim, c) = pick(cluster, up);
+        match (victim) {
+            .Some(n) => {
+                let leader: Option<Str> = if (c.leader == .Some(n.id)) {
+                    .None
+                } else {
+                    c.leader
+                };
+                note(
+                    ctx,
+                    Cluster {
+                        ..c,
+                        down: c.down.insert(ctx, n.id),
+                        nodes: c.nodes.insert(ctx, n.id, restart(ctx, n)),
+                        network: dropTo(ctx, c.network, n.id),
+                        leader: leader,
+                    },
+                    n.id,
+                    "crashed",
+                )
+            },
+            .None => c,
+        }
+    }
+}
+
+/// Starts one stopped node again.
+fn recover<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let (name, c) = pick(cluster, cluster.down.toList(ctx));
+    match (name) {
+        .Some(n) => {
+            note(ctx, Cluster { ..c, down: c.down.remove(ctx, n) }, n, "recovered")
+        },
+        .None => c,
+    }
+}
+
+fn cutLink<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    let names = cluster.nodes.keys(ctx);
+    let (a, c1) = pick(cluster, names);
+    let (b, c2) = pick(c1, names);
+    match ((a, b)) {
+        (.Some(x), .Some(y)) => {
+            if (x == y) {
+                c2
+            } else {
+                note(
+                    ctx,
+                    Cluster { ..c2, network: partition(ctx, c2.network, x, y) },
+                    x,
+                    "cut",
+                )
+            }
+        },
+        _ => c2,
+    }
+}
+
+/// Ends the faults: heals every link, starts every node, and replicates until
+/// every node has applied what the leader committed, for at most `rounds`
+/// rounds.
+export fn settle<C: Allocator>(ctx: C, cluster: Cluster, rounds: Int): Cluster {
+    let calm = Cluster {
+        ..cluster,
+        network: heal(cluster.network),
+        down: orderedset.empty<Str>(),
+        config: Config { ..cluster.config, dropPercent: 0 },
+    };
+    let led = match (leaderNode(calm)) {
+        .Some(_) => calm,
+        .None => elect(ctx, calm),
+    };
+    replicate(ctx, led, rounds)
+}
+
+fn replicate<C: Allocator>(ctx: C, cluster: Cluster, rounds: Int): Cluster {
+    if (rounds <= 0 || converged(ctx, cluster)) {
+        cluster
+    } else {
+        replicate(ctx, drain(ctx, tick(ctx, cluster)), rounds - 1)
+    }
+}
+
+/// Delivers everything in flight, and what that sends, link by link.
+fn drain<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
+    match (busyLinks(ctx, cluster.network).first()) {
+        .Some(link) => {
+            match (receive(ctx, cluster.network, link)) {
+                .Some((envelope, rest)) => {
+                    drain(
+                        ctx,
+                        arrive(ctx, Cluster { ..cluster, network: rest }, envelope),
+                    )
+                },
+                .None => cluster,
+            }
+        },
+        .None => cluster,
+    }
+}
+
+/// Every node has applied the same entries, and holds the same store.
+export fn converged<C: Allocator>(ctx: C, cluster: Cluster): Bool {
+    match (leaderNode(cluster)) {
+        .Some(leader) => {
+            leader.applied == leader.lastIndex()
+                && cluster
+                    .nodes
+                    .foldCtx(
+                        ctx,
+                        fn(c, same, name, n) => {
+                            same
+                                && n.applied == leader.applied
+                                && n.store.equals(c, leader.store)
+                        },
+                        true,
+                    )
+        },
+        .None => false,
+    }
+}
+
+/// Where every node's log agrees: an index two nodes both hold has the same
+/// term on both. The first disagreement, if any.
+export fn logsAgree<C: Allocator>(ctx: C, cluster: Cluster): Result<(), Str> {
+    let nodes = cluster.nodes.values(ctx);
+    nodes.foldResultCtx(
+        ctx,
+        fn(c, u, a) => {
+            nodes.foldResultCtx(c, fn(c2, u2, b) => samePrefix(c2, a, b), ())
+        },
+        (),
+    )
+}
+
+fn samePrefix<C: Allocator>(ctx: C, a: Node, b: Node): Result<(), Str> {
+    let low = number.max(a.snapshot.index, b.snapshot.index) + 1;
+    let high = number.min(a.commit, b.commit);
+    let bad = list.range(ctx, low, high + 1).find(fn(i) => a.termAt(i) != b.termAt(i));
+    match (bad) {
+        .Some(i) => .Err(str.format(ctx, "${a.id} and ${b.id} disagree at ${i}")),
+        .None => .Ok(()),
+    }
+}
+
+/// The leader's store, or an empty one with no leader.
+export fn leaderStore(cluster: Cluster): Option<Store> {
+    leaderNode(cluster).map(fn(n) => n.store)
+}
+
+/// Runs a seed to the end, settles it, and checks every node agrees.
+export fn soak<C: Allocator>(
+    ctx: C,
+    config: Config,
+    seed: Int,
+    steps: Int,
+): Result<Summary, Str> {
+    let ran = run(ctx, start(ctx, config, seed), steps);
+    let _ = logsAgree(ctx, ran)?;
+    let settled = settle(ctx, ran, 50);
+    if (!converged(ctx, settled)) {
+        .Err(str.format(ctx, "seed ${seed} did not converge"))
+    } else {
+        let _ = logsAgree(ctx, settled)?;
+        let _ = readsHold(ctx, settled)?;
+        let leader = leaderNode(settled);
+        .Ok(Summary {
+            steps: steps,
+            commit: leader.map(fn(n) => n.commit).withDefault(0),
+            keys: leader.map(fn(n) => n.store.length()).withDefault(0),
+            digest: leader.map(fn(n) => digest(n.store)).withDefault(0),
+            sent: settled.network.sent,
+            dropped: settled.network.dropped,
+            elections: count(settled, "elected"),
+            snapshot: leader.map(fn(n) => n.snapshot.index).withDefault(0),
+            reads: count(settled, "observed"),
+        })
+    }
+}

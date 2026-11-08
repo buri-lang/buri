@@ -1,0 +1,38 @@
+//! Long randomized runs: many seeds, many steps, every fault on.
+
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//libs/replica" import { Config, soak, Summary };
+
+fn soakAll<C: Allocator>(ctx: C, config: Config, seeds: [Int], steps: Int): [Summary] {
+    seeds.mapCtx(ctx, fn(c, seed) => assert.ok(soak(c, config, seed, steps)))
+}
+
+test "three nodes agree after long faulty runs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let config = Config { nodes: 3, keys: 50, dropPercent: 5, faults: true };
+    let runs = soakAll(ctx, config, list.range(ctx, 100, 104), 2000);
+    assert.isTrue(runs.all(fn(s) => s.commit > 100));
+}
+
+test "five nodes agree after long faulty runs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let config = Config { nodes: 5, keys: 200, dropPercent: 5, faults: true };
+    let runs = soakAll(ctx, config, list.range(ctx, 200, 204), 2000);
+    assert.isTrue(runs.all(fn(s) => s.elections > 1));
+}
+
+test "a lossy network still converges" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let config = Config { nodes: 5, keys: 100, dropPercent: 30, faults: true };
+    let runs = soakAll(ctx, config, list.range(ctx, 300, 302), 2000);
+    assert.isTrue(runs.all(fn(s) => s.dropped > 0));
+}

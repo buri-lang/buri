@@ -1,0 +1,467 @@
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//libs/replica" import {
+    compact, Entry, Envelope, fresh, handle, heartbeat, lead, Message, Node, Op,
+    propose, Record, restart, Role,
+};
+
+fn put(term: Int, index: Int, key: Str): Entry {
+    Entry {
+        term: term,
+        index: index,
+        client: "client-0",
+        op: .Put { key: key, value: key },
+    }
+}
+
+fn follower(): Node {
+    fresh("node-2", ["node-1", "node-3"])
+}
+
+fn append(
+    term: Int,
+    prevIndex: Int,
+    prevTerm: Int,
+    entries: [Entry],
+    commit: Int,
+): Envelope {
+    Envelope {
+        sender: "node-1",
+        to: "node-2",
+        sentAt: 0,
+        message: .Append {
+            term: term,
+            prevIndex: prevIndex,
+            prevTerm: prevTerm,
+            entries: entries,
+            commit: commit,
+        },
+    }
+}
+
+fn ack(sender: Str, term: Int, matched: Int, ok: Bool): Envelope {
+    Envelope {
+        sender: sender,
+        to: "node-1",
+        sentAt: 0,
+        message: .Ack { term: term, matched: matched, ok: ok },
+    }
+}
+
+fn request(key: Str): Envelope {
+    Envelope {
+        sender: "client-0",
+        to: "node-1",
+        sentAt: 0,
+        message: .Request { client: "client-0", op: .Put { key: key, value: "v" } },
+    }
+}
+
+/// What a single reply says, as (ok, matched).
+fn answer(replies: [Envelope]): (Bool, Int) {
+    match (replies) {
+        [Envelope { message: .Ack { ok, matched, .. }, .. }] => (ok, matched),
+        _ => (false, -1),
+    }
+}
+
+test "a fresh node is an empty follower" {
+    let n = follower();
+    assert.equal(n.role, Role.Follower);
+    assert.equal(n.lastIndex(), 0);
+    assert.equal(n.lastTerm(), 0);
+    assert.equal(n.termAt(0), .Some(0));
+    assert.equal(n.termAt(1), .None);
+}
+
+test "a new leader opens its term with an entry of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    assert.equal(leader.role, Role.Leader);
+    assert.equal(leader.lastIndex(), 1);
+    assert.equal(leader.lastTerm(), 1);
+    assert.equal(leader.commit, 0);
+}
+
+test "a follower accepts entries that continue its log" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, replies) = handle(
+        ctx,
+        follower(),
+        append(1, 0, 0, [put(1, 1, "a"), put(1, 2, "b")], 0),
+        5,
+    );
+    assert.equal(n.lastIndex(), 2);
+    assert.equal(answer(replies), (true, 2));
+    assert.equal(n.commit, 0);
+}
+
+test "a follower applies what the leader says is committed" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, _) = handle(
+        ctx,
+        follower(),
+        append(1, 0, 0, [put(1, 1, "a"), put(1, 2, "b")], 1),
+        5,
+    );
+    assert.equal(n.commit, 1);
+    assert.equal(n.applied, 1);
+    assert.equal(n.store.keys(ctx), ["a"]);
+}
+
+test "a follower never commits past what it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, _) = handle(ctx, follower(), append(1, 0, 0, [put(1, 1, "a")], 9), 5);
+    assert.equal(n.commit, 1);
+}
+
+test "a follower rejects an append from an older term" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let ahead = Node { ..follower(), term: 3 };
+    let (n, replies) = handle(ctx, ahead, append(2, 0, 0, [put(2, 1, "a")], 0), 5);
+    assert.equal(n.lastIndex(), 0);
+    assert.equal(answer(replies), (false, 0));
+}
+
+test "a follower rejects an append with a gap before it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, replies) = handle(ctx, follower(), append(1, 4, 1, [put(1, 5, "e")], 0), 5);
+    assert.equal(n.lastIndex(), 0);
+    assert.equal(answer(replies), (false, 0));
+}
+
+test "a follower replaces entries whose term disagrees" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (one, _) = handle(
+        ctx,
+        follower(),
+        append(1, 0, 0, [put(1, 1, "a"), put(1, 2, "b"), put(1, 3, "c")], 0),
+        5,
+    );
+    let (two, replies) = handle(ctx, one, append(2, 1, 1, [put(2, 2, "x")], 0), 6);
+    assert.equal(two.lastIndex(), 2);
+    assert.equal(two.termAt(2), .Some(2));
+    assert.equal(answer(replies), (true, 2));
+}
+
+test "a repeated append changes nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let message = append(1, 0, 0, [put(1, 1, "a"), put(1, 2, "b")], 0);
+    let (once, _) = handle(ctx, follower(), message, 5);
+    let (twice, _) = handle(ctx, once, message, 6);
+    assert.equal(twice.log, once.log);
+}
+
+test "a late, shorter append keeps the entries after it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (long, _) = handle(
+        ctx,
+        follower(),
+        append(1, 0, 0, [put(1, 1, "a"), put(1, 2, "b")], 0),
+        5,
+    );
+    let (late, replies) = handle(ctx, long, append(1, 0, 0, [put(1, 1, "a")], 0), 6);
+    assert.equal(late.lastIndex(), 2);
+    assert.equal(answer(replies), (true, 1));
+}
+
+test "a message from a later term turns a leader into a follower" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let (after, _) = handle(ctx, leader, ack("node-2", 4, 0, false), 5);
+    assert.equal(after.role, Role.Follower);
+    assert.equal(after.term, 4);
+}
+
+test "a leader commits once a majority holds an entry" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let (after, _) = handle(ctx, leader, ack("node-2", 1, 1, true), 5);
+    assert.equal(after.commit, 1);
+    assert.equal(after.store.keys(ctx), ["leader"]);
+}
+
+test "a leader of five waits for two acks" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(
+        ctx,
+        fresh("node-1", ["node-2", "node-3", "node-4", "node-5"]),
+        1,
+    );
+    let (one, _) = handle(ctx, leader, ack("node-2", 1, 1, true), 5);
+    assert.equal(one.commit, 0);
+    let (two, _) = handle(ctx, one, ack("node-4", 1, 1, true), 6);
+    assert.equal(two.commit, 1);
+}
+
+test "the same peer acking twice is not a majority" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(
+        ctx,
+        fresh("node-1", ["node-2", "node-3", "node-4", "node-5"]),
+        1,
+    );
+    let (one, _) = handle(ctx, leader, ack("node-2", 1, 1, true), 5);
+    let (two, _) = handle(ctx, one, ack("node-2", 1, 1, true), 6);
+    assert.equal(two.commit, 0);
+}
+
+test "an ack from an older term is ignored" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 2);
+    let (after, _) = handle(ctx, leader, ack("node-2", 1, 1, true), 5);
+    assert.equal(after.commit, 0);
+    assert.equal(after.matched.get("node-2"), .Some(0));
+}
+
+test "a leader does not commit an older term's entry by counting" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (old, _) = handle(
+        ctx,
+        fresh("node-1", ["node-2", "node-3"]),
+        Envelope {
+            ..append(1, 0, 0, [put(1, 1, "a")], 0),
+            to: "node-1",
+            sender: "node-2",
+        },
+        1,
+    );
+    let leader = lead(ctx, old, 2);
+    let (after, _) = handle(ctx, leader, ack("node-2", 2, 1, true), 5);
+    assert.equal(after.commit, 0);
+}
+
+test "a refused append moves the leader back to where the follower is" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let (after, _) = handle(ctx, leader, ack("node-2", 1, 0, false), 5);
+    assert.equal(after.next.get("node-2"), .Some(1));
+}
+
+test "a leader takes client writes into its log" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let (after, replies) = handle(ctx, leader, request("k"), 5);
+    assert.equal(after.lastIndex(), 2);
+    assert.equal(replies, []);
+}
+
+test "a follower ignores client writes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (after, _) = handle(ctx, follower(), request("k"), 5);
+    assert.equal(after.lastIndex(), 0);
+}
+
+test "a heartbeat goes to every peer" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let sent = heartbeat(ctx, leader, 3);
+    assert.equal(sent.map(ctx, fn(e) => e.to), ["node-2", "node-3"]);
+}
+
+test "a follower sends no heartbeat" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(heartbeat(ctx, follower(), 3), []);
+}
+
+test "a heartbeat carries at most sixteen entries" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let busy = list
+        .range(ctx, 0, 40)
+        .foldCtx(
+            ctx,
+            fn(c, n, i) => propose(c, n, "client-0", .Delete { key: "k" }),
+            leader,
+        );
+    let (caughtUp, _) = handle(ctx, busy, ack("node-3", 1, 41, true), 3);
+    let (behind, _) = handle(ctx, caughtUp, ack("node-2", 1, 0, false), 4);
+    let sizes = heartbeat(ctx, behind, 5).map(ctx, fn(e) => {
+        match (e.message) {
+            .Append { entries, .. } => entries.length(),
+            _ => -1,
+        }
+    });
+    assert.equal(sizes, [16, 0]);
+}
+
+test "compacting keeps the store and shortens the log" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let entries = list.range(ctx, 1, 61).map(ctx, fn(i) => put(1, i, "k"));
+    let (full, _) = handle(ctx, follower(), append(1, 0, 0, entries, 60), 5);
+    let small = compact(ctx, full);
+    assert.equal(small.snapshot.index, 60);
+    assert.equal(small.log, []);
+    assert.equal(small.lastIndex(), 60);
+    assert.isTrue(small.store.equals(ctx, full.store));
+}
+
+test "a short log is not compacted" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, _) = handle(ctx, follower(), append(1, 0, 0, [put(1, 1, "a")], 1), 5);
+    assert.equal(compact(ctx, n), n);
+}
+
+test "a restarted node falls back to its snapshot" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let entries = list
+        .range(ctx, 1, 61)
+        .mapCtx(ctx, fn(c, i) => put(1, i, str.format(c, "k${i}")));
+    let (full, _) = handle(ctx, follower(), append(1, 0, 0, entries, 50), 5);
+    let back = restart(ctx, compact(ctx, full));
+    assert.equal(back.applied, 50);
+    assert.equal(back.store.length(), 50);
+    assert.equal(back.lastIndex(), 60);
+}
+
+test "a leader sends its snapshot to a peer that needs compacted entries" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let leader = lead(ctx, fresh("node-1", ["node-2", "node-3"]), 1);
+    let busy = list
+        .range(ctx, 0, 60)
+        .foldCtx(
+            ctx,
+            fn(c, n, i) => propose(c, n, "client-0", .Delete { key: "k" }),
+            leader,
+        );
+    let (committed, _) = handle(ctx, busy, ack("node-3", 1, 61, true), 4);
+    let (behind, _) = handle(
+        ctx,
+        compact(ctx, committed),
+        ack("node-2", 1, 0, false),
+        5,
+    );
+    let kinds = heartbeat(ctx, behind, 6).map(ctx, fn(e) => {
+        match (e.message) {
+            .Install { .. } => "install",
+            _ => "other",
+        }
+    });
+    assert.equal(kinds, ["install", "other"]);
+}
+
+test "an installed snapshot replaces the follower's store" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let entries = list
+        .range(ctx, 1, 61)
+        .mapCtx(ctx, fn(c, i) => put(1, i, str.format(c, "k${i}")));
+    let (source, _) = handle(ctx, follower(), append(1, 0, 0, entries, 60), 5);
+    let snapshot = compact(ctx, source).snapshot;
+    let (installed, replies) = handle(
+        ctx,
+        fresh("node-3", ["node-1", "node-2"]),
+        Envelope {
+            sender: "node-1",
+            to: "node-3",
+            sentAt: 7,
+            message: .Install { term: 1, snapshot: snapshot },
+        },
+        7,
+    );
+    assert.equal(installed.applied, 60);
+    assert.equal(installed.store.length(), 60);
+    assert.equal(answer(replies), (true, 60));
+}
+
+fn read(key: Str): Envelope {
+    Envelope {
+        sender: "client-3",
+        to: "node-2",
+        sentAt: 0,
+        message: .Read { client: "client-3", key: key },
+    }
+}
+
+test "a node answers a read with what it has applied" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, _) = handle(ctx, follower(), append(1, 0, 0, [put(1, 1, "a")], 1), 5);
+    let (_, replies) = handle(ctx, n, read("a"), 6);
+    let reply = assert.some(replies.first());
+    assert.equal(reply.to, "client-3");
+    assert.equal(reply.message, Message.Value {
+        key: "a",
+        record: .Some(Record {
+            value: "a",
+            version: 1,
+            writer: "client-0",
+            writtenAt: 1,
+        }),
+        applied: 1,
+    });
+}
+
+test "a read of a missing key answers no record" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (_, replies) = handle(ctx, follower(), read("a"), 6);
+    let reply = assert.some(replies.first());
+    assert.equal(reply.message, Message.Value { key: "a", record: .None, applied: 0 });
+}
+
+test "a read leaves the node's log and store alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (n, _) = handle(ctx, follower(), append(1, 0, 0, [put(1, 1, "a")], 1), 5);
+    let (after, _) = handle(ctx, n, read("a"), 6);
+    assert.equal(after.lastIndex(), n.lastIndex());
+    assert.isTrue(after.store.equals(ctx, n.store));
+}

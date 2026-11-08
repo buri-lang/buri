@@ -8973,6 +8973,7 @@ checks what fixed work costs, on Linux.
 | `build/programs` | a cold debug `buri build` of `cli/benches/instructions/programs`: stencils and link orchestration |
 | `test/one-edit` | `buri test` after adding one test to `cli/benches/instructions/tested`, whose suites already passed |
 | `run/<name>` | one program from `cli/benches/instructions/programs`, built with `--release` |
+| `run-dev/kvstore` | the runtime benchmark's soak run, built by a debug `buri build`; aarch64 only |
 
 - Every measured process runs under `taskset` on one core, so neither the
   compiler nor the runtime starts workers. Children aren't counted: the linker
@@ -8985,6 +8986,45 @@ checks what fixed work costs, on Linux.
   more than 0.1%. Measured on an arm64 VM, three runs each: the compiler
   workloads spread by at most 0.0013%, the programs by at most a dozen
   instructions.
+
+### The runtime benchmark
+
+`cli/benches/kvstore` is a repository written the way a user would write one: a
+replicated key-value store simulated under a seeded scheduler. Five nodes pass
+messages over queues, keep an ordered map of records, replicate a log, take
+snapshots, crash, recover and lose messages. `apps/soak` runs eight seeds of
+6000 steps, settles each, and checks every node agrees; `libs/replica` has 68
+tests, three of them long randomized runs.
+
+Its CPU split, from `sample` on the debug build, is close to what large test
+suites spend:
+
+| Where | Share |
+|---|---:|
+| Generated program and stdlib code | 54% |
+| Retain and release | 21% |
+| memmove and memcmp | 13% |
+| Rust list, string and map runtime | 8% |
+| Allocation, free and zeroing | 4% |
+
+CI's `throughput goals, counted (arm64)` job counts it after the goals:
+
+```text
+nix develop .#perf -c cargo bench -p buri --bench instructions -- --runs=2
+```
+
+On aarch64 the gate counts only this workload, so it needs no LLVM and reuses
+the `buri` the goals step built. Two counts take about 20 s, and they agree to
+within a few dozen instructions. `cargo test -p buri --test build -- kvstore`
+keeps the repository building, passing and lint-clean.
+
+Counted on an arm64 VM with `--levels kvstore`, where the stencil build already
+beats LLVM's `-O0`:
+
+```text
+program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
+kvstore      2001873684     2188491379     1166659324     1152700806       0.915       1.716
+```
 
 ### Reading a failure
 
@@ -9004,8 +9044,8 @@ checks what fixed work costs, on Linux.
 Re-blessing rewrites `baseline.txt`, so a count that rises is a line in review.
 
 - From CI: every run uploads `instructions-baseline`, the file as that run
-  measured it. Commit it after a failure, or after a pass that reports
-  **improved**.
+  measured it, and the arm64 job uploads `instructions-baseline-arm64`. Commit
+  it after a failure, or after a pass that reports **improved**.
 - On x86_64 Linux: add `-- --bless` to the command above.
 
 ### Running it locally
@@ -9017,9 +9057,10 @@ limactl start --name=perf --vm-type=vz --cpus=8 --memory=16 template:ubuntu-24.0
 ```
 
 Install nix inside it, copy the checkout in, and run the command above. An
-arm64 VM counts arm64 instructions, which the committed baseline doesn't have,
-so compare two commits: `-- --bless` on the base, then run on yours. Don't
-commit the `aarch64` lines; CI checks x86_64 only.
+arm64 VM counts only `run-dev/kvstore`, which CI checks too, so `-- --bless`
+there rewrites that line. For the x86_64 workloads, compare two commits on
+arm64 with `--features backend-llvm`: `-- --bless` on the base, then run on
+yours, and don't commit those lines.
 
 - `-- --runs=3` measures each workload three times and reports the spread.
 - `-- run/` runs only the workloads whose names contain `run/`.
@@ -9046,10 +9087,10 @@ maps         2835007060     3034942898     1981808264     1980619887       0.934
   in CI yet, because some programs are.
 - It reads no baseline, so it runs on any architecture.
 
-### Why x86_64 only
+### Why mostly x86_64
 
 Valgrind's amd64 port shows the program one of a few fixed CPUs, so glibc and
 the standard library pick the same code paths on every runner. The arm64 port
-works and is repeatable on one machine (the figures above), but glibc picks
-its aarch64 `memcpy` by CPU model, and whether the arm runners all read the
-same hasn't been checked. Adding them is one matrix line once it has.
+is repeatable on one machine, but glibc picks its aarch64 `memcpy` by CPU
+model. The goals' arm64 counts have held across runners, so the runtime
+benchmark joined them; if its count moves with the runner, that's why.

@@ -1,0 +1,108 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//libs/replica" import {
+    busyLinks, dropTo, emptyNetwork, Envelope, heal, inFlight, linkName, Message,
+    partition, receive, send, sendAll,
+};
+
+fn note(sender: Str, to: Str, at: Int): Envelope {
+    Envelope {
+        sender: sender,
+        to: to,
+        sentAt: at,
+        message: .Ack { term: 1, matched: at, ok: true },
+    }
+}
+
+test "a link is named by its two ends" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(linkName(ctx, "node-1", "node-2"), "node-1->node-2");
+}
+
+test "a sent message waits on its link" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = send(ctx, emptyNetwork(), note("node-1", "node-2", 1));
+    assert.equal(inFlight(net), 1);
+    assert.equal(busyLinks(ctx, net), ["node-1->node-2"]);
+    assert.equal(net.sent, 1);
+}
+
+test "a link delivers in the order it was sent" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = sendAll(ctx, emptyNetwork(), [
+        note("a", "b", 1),
+        note("a", "b", 2),
+        note("a", "b", 3),
+    ]);
+    let (first, rest) = assert.some(receive(ctx, net, "a->b"));
+    let (second, _) = assert.some(receive(ctx, rest, "a->b"));
+    assert.equal(first.sentAt, 1);
+    assert.equal(second.sentAt, 2);
+    assert.equal(inFlight(rest), 2);
+}
+
+test "the two directions of a link are separate queues" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = sendAll(ctx, emptyNetwork(), [note("a", "b", 1), note("b", "a", 2)]);
+    assert.equal(busyLinks(ctx, net), ["a->b", "b->a"]);
+}
+
+test "an empty link has nothing to receive" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = send(ctx, emptyNetwork(), note("a", "b", 1));
+    let (_, rest) = assert.some(receive(ctx, net, "a->b"));
+    assert.isTrue(receive(ctx, rest, "a->b").isNone());
+    assert.isTrue(receive(ctx, rest, "c->d").isNone());
+    assert.equal(busyLinks(ctx, rest), []);
+}
+
+test "a cut link loses what is sent on it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = send(ctx, partition(ctx, emptyNetwork(), "a", "b"), note("b", "a", 1));
+    assert.equal(inFlight(net), 0);
+    assert.equal(net.dropped, 1);
+}
+
+test "a cut leaves other links alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = send(ctx, partition(ctx, emptyNetwork(), "a", "b"), note("a", "c", 1));
+    assert.equal(inFlight(net), 1);
+}
+
+test "healing reconnects every link" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cut = partition(ctx, partition(ctx, emptyNetwork(), "a", "b"), "b", "c");
+    let net = send(ctx, heal(cut), note("a", "b", 1));
+    assert.equal(inFlight(net), 1);
+}
+
+test "a crash loses what was waiting for the node" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let net = sendAll(ctx, emptyNetwork(), [
+        note("a", "b", 1),
+        note("c", "b", 2),
+        note("b", "a", 3),
+    ]);
+    let after = dropTo(ctx, net, "b");
+    assert.equal(busyLinks(ctx, after), ["b->a"]);
+    assert.equal(after.dropped, 2);
+}

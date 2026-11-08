@@ -1,0 +1,3 @@
+# A replicated key-value store, simulated: the runtime benchmark of
+# design/PERFORMANCE.md §9. It is written the way a user would write it, so
+# what it costs is what a simulation suite costs.

@@ -1,0 +1,56 @@
+//! The values every part of the store passes around.
+
+derive Equal, Show for Record;
+/// One key's current value, with enough history to tell two writes apart.
+export struct Record {
+    export value: Str,
+    export version: Int,
+    export writer: Str,
+    export writtenAt: Int,
+}
+
+derive Equal, Show for Op;
+/// A change a client asks for.
+export enum Op {
+    Put { key: Str, value: Str },
+    Delete { key: Str },
+    Append { key: Str, suffix: Str },
+}
+
+derive Equal, Show for Entry;
+/// One slot of the replicated log.
+export struct Entry {
+    export term: Int,
+    export index: Int,
+    export client: Str,
+    export op: Op,
+}
+
+derive Equal, Show for Snapshot;
+/// The store as of one log index, so the entries up to it can be dropped. It
+/// is kept as the list of records a node would write to disk.
+export struct Snapshot {
+    export index: Int,
+    export term: Int,
+    export records: [(Str, Record)],
+}
+
+derive Equal, Show for Message;
+/// What one node says to another.
+export enum Message {
+    Request { client: Str, op: Op },
+    Append { term: Int, prevIndex: Int, prevTerm: Int, entries: [Entry], commit: Int },
+    Ack { term: Int, matched: Int, ok: Bool },
+    Install { term: Int, snapshot: Snapshot },
+    Read { client: Str, key: Str },
+    Value { key: Str, record: Option<Record>, applied: Int },
+}
+
+derive Equal, Show for Envelope;
+/// A message in flight.
+export struct Envelope {
+    export sender: Str,
+    export to: Str,
+    export sentAt: Int,
+    export message: Message,
+}

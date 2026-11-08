@@ -1,0 +1,62 @@
+//! The state machine the log drives: an ordered map of records.
+
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+from "//libs/replica/types.buri" import { Entry, Op, Record };
+
+export type Store = OrderedMap<Str, Record>;
+
+export fn emptyStore(): Store {
+    orderedmap.empty<Str, Record>()
+}
+
+/// The store a snapshot's records describe.
+export fn restore<C: Allocator>(ctx: C, records: [(Str, Record)]): Store {
+    orderedmap.of(ctx, records)
+}
+
+/// The store after one committed entry.
+export fn apply<C: Allocator>(ctx: C, store: Store, entry: Entry): Store {
+    match (entry.op) {
+        .Put { key, value } => write(ctx, store, key, value, entry),
+        .Delete { key } => store.remove(ctx, key),
+        .Append { key, suffix } => {
+            let before = store.get(key).map(fn(r) => r.value).withDefault("");
+            write(ctx, store, key, str.format(ctx, "${before}${suffix}"), entry)
+        },
+    }
+}
+
+fn write<C: Allocator>(
+    ctx: C,
+    store: Store,
+    key: Str,
+    value: Str,
+    entry: Entry,
+): Store {
+    let version = store.get(key).map(fn(r) => r.version + 1).withDefault(1);
+    store.insert(ctx, key, Record {
+        value: value,
+        version: version,
+        writer: entry.client,
+        writtenAt: entry.index,
+    })
+}
+
+/// Every entry in order, as a node replays its log.
+export fn applyAll<C: Allocator>(ctx: C, store: Store, entries: [Entry]): Store {
+    entries.foldCtx(ctx, fn(c, s, e) => apply(c, s, e), store)
+}
+
+/// A short fingerprint of a store, for comparing runs.
+export fn digest(store: Store): Int {
+    store.fold(
+        fn(acc, key, record) => {
+            (acc * 31 + key.length() * 7 + record.version * 13 + record.value.length())
+                % 1000000007
+        },
+        17,
+    )
+}

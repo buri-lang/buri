@@ -1,0 +1,127 @@
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//libs/replica" import { apply, applyAll, digest, emptyStore, Entry, Op, Record };
+
+fn put(index: Int, key: Str, value: Str): Entry {
+    Entry {
+        term: 1,
+        index: index,
+        client: "client-0",
+        op: .Put { key: key, value: value },
+    }
+}
+
+fn entry(index: Int, op: Op): Entry {
+    Entry { term: 1, index: index, client: "client-1", op: op }
+}
+
+test "a put creates a record at version one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = apply(ctx, emptyStore(), put(1, "a", "x"));
+    assert.equal(
+        store.get("a"),
+        .Some(Record { value: "x", version: 1, writer: "client-0", writtenAt: 1 }),
+    );
+}
+
+test "a second put bumps the version and keeps the newest value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = applyAll(ctx, emptyStore(), [put(1, "a", "x"), put(2, "a", "y")]);
+    let record = assert.some(store.get("a"));
+    assert.equal(record.version, 2);
+    assert.equal(record.value, "y");
+    assert.equal(record.writtenAt, 2);
+}
+
+test "a delete removes the key" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = applyAll(ctx, emptyStore(), [
+        put(1, "a", "x"),
+        entry(2, .Delete { key: "a" }),
+    ]);
+    assert.equal(store.get("a"), .None);
+    assert.equal(store.length(), 0);
+}
+
+test "deleting a missing key changes nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let before = applyAll(ctx, emptyStore(), [put(1, "a", "x")]);
+    let after = apply(ctx, before, entry(2, .Delete { key: "b" }));
+    assert.isTrue(after.equals(ctx, before));
+}
+
+test "an append to a missing key starts from empty" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = apply(
+        ctx,
+        emptyStore(),
+        entry(1, .Append { key: "log", suffix: ",1" }),
+    );
+    assert.equal(store.get("log").map(fn(r) => r.value), .Some(",1"));
+}
+
+test "appends concatenate in log order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = applyAll(ctx, emptyStore(), [
+        put(1, "log", "start"),
+        entry(2, .Append { key: "log", suffix: ",a" }),
+        entry(3, .Append { key: "log", suffix: ",b" }),
+    ]);
+    let record = assert.some(store.get("log"));
+    assert.equal(record.value, "start,a,b");
+    assert.equal(record.version, 3);
+    assert.equal(record.writer, "client-1");
+}
+
+test "keys come back in order whatever order they were written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let store = applyAll(ctx, emptyStore(), [
+        put(1, "user/9", "a"),
+        put(2, "user/10", "b"),
+        put(3, "user/1", "c"),
+    ]);
+    assert.equal(store.keys(ctx), ["user/1", "user/10", "user/9"]);
+}
+
+test "an older store is untouched by later writes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let before = applyAll(ctx, emptyStore(), [put(1, "a", "x"), put(2, "b", "y")]);
+    let after = apply(ctx, before, put(3, "a", "z"));
+    assert.equal(before.get("a").map(fn(r) => r.value), .Some("x"));
+    assert.equal(after.get("a").map(fn(r) => r.value), .Some("z"));
+}
+
+test "equal stores have equal digests" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = applyAll(ctx, emptyStore(), [put(1, "a", "x"), put(2, "b", "y")]);
+    let two = applyAll(ctx, emptyStore(), [put(1, "b", "y"), put(2, "a", "x")]);
+    assert.equal(digest(one), digest(two));
+}
+
+test "a different value changes the digest" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let one = applyAll(ctx, emptyStore(), [put(1, "a", "x")]);
+    let two = applyAll(ctx, emptyStore(), [put(1, "a", "xx")]);
+    assert.notEqual(digest(one), digest(two));
+}

@@ -111,6 +111,7 @@ mod json_patterns;
 mod json_schema_suite;
 mod json_schemas;
 mod json_syntax;
+mod kvstore;
 mod loading;
 mod many_findings;
 mod middle;

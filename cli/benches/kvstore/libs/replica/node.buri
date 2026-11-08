@@ -1,0 +1,385 @@
+//! One replica: a log, the store it drives, and the leader's view of its peers.
+//! A node never reads a clock or a network. It is handed one message and
+//! answers its next state and the messages it sends.
+
+from "core/number" import * as number;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "platform/effect" import { Allocator };
+from "//libs/replica/store.buri" import { apply, emptyStore, restore, Store };
+from "//libs/replica/types.buri" import { Entry, Envelope, Message, Op, Snapshot };
+
+/// How many entries one append carries at most.
+let BATCH: Int = 16;
+
+/// How many applied entries a node keeps before it folds them into a snapshot.
+let KEEP: Int = 48;
+
+derive Equal, Show for Role;
+export enum Role {
+    Leader,
+    Follower,
+}
+
+derive Equal, Show for Node;
+export struct Node {
+    export id: Str,
+    export peers: [Str],
+    export role: Role,
+    export term: Int,
+    /// The store as of `snapshot.index`. The log holds what came after.
+    export snapshot: Snapshot,
+    export log: [Entry],
+    export commit: Int,
+    export applied: Int,
+    export store: Store,
+    /// A leader's record of the highest index each peer is known to hold.
+    export matched: OrderedMap<Str, Int>,
+    /// A leader's guess at the next index each peer needs.
+    export next: OrderedMap<Str, Int>,
+}
+
+export fn fresh(id: Str, peers: [Str]): Node {
+    Node {
+        id: id,
+        peers: peers,
+        role: .Follower,
+        term: 0,
+        snapshot: Snapshot { index: 0, term: 0, records: [] },
+        log: [],
+        commit: 0,
+        applied: 0,
+        store: emptyStore(),
+        matched: orderedmap.empty<Str, Int>(),
+        next: orderedmap.empty<Str, Int>(),
+    }
+}
+
+impl Node {
+    export fn lastIndex(self): Int {
+        self.snapshot.index + self.log.length()
+    }
+
+    export fn lastTerm(self): Int {
+        self.log.last().map(fn(e) => e.term).withDefault(self.snapshot.term)
+    }
+
+    export fn entryAt(self, index: Int): Option<Entry> {
+        if (index <= self.snapshot.index) {
+            .None
+        } else {
+            self.log.get(index - self.snapshot.index - 1)
+        }
+    }
+
+    export fn termAt(self, index: Int): Option<Int> {
+        if (index == self.snapshot.index) {
+            .Some(self.snapshot.term)
+        } else {
+            self.entryAt(index).map(fn(e) => e.term)
+        }
+    }
+
+    export fn isLeader(self): Bool {
+        self.role == Role.Leader
+    }
+}
+
+/// `node` as leader of `term`. It forgets what it knew of its peers, and
+/// starts the term with an entry of its own so that older entries can commit.
+export fn lead<C: Allocator>(ctx: C, node: Node, term: Int): Node {
+    let next = node.lastIndex() + 1;
+    let leader = Node {
+        ..node,
+        role: .Leader,
+        term: term,
+        matched: node
+            .peers
+            .foldCtx(
+                ctx,
+                fn(c, m, p) => m.insert(c, p, 0),
+                orderedmap.empty<Str, Int>(),
+            ),
+        next: node
+            .peers
+            .foldCtx(
+                ctx,
+                fn(c, m, p) => m.insert(c, p, next),
+                orderedmap.empty<Str, Int>(),
+            ),
+    };
+    propose(ctx, leader, node.id, .Put { key: "leader", value: node.id })
+}
+
+/// A leader appends a client's change to its log.
+export fn propose<C: Allocator>(ctx: C, node: Node, client: Str, op: Op): Node {
+    let entry = Entry {
+        term: node.term,
+        index: node.lastIndex() + 1,
+        client: client,
+        op: op,
+    };
+    advance(ctx, Node { ..node, log: node.log.push(ctx, entry) })
+}
+
+/// The highest index a majority holds, counting the leader itself.
+fn majorityIndex<C: Allocator>(ctx: C, node: Node): Int {
+    let held = node
+        .matched
+        .values(ctx)
+        .push(ctx, node.lastIndex())
+        .sort(ctx)
+        .reverse(ctx);
+    let quorum = (node.peers.length() + 1) / 2 + 1;
+    held.get(quorum - 1).withDefault(0)
+}
+
+/// A leader commits what a majority holds, if it was written in its own term.
+fn advance<C: Allocator>(ctx: C, node: Node): Node {
+    let candidate = majorityIndex(ctx, node);
+    let current = node
+        .termAt(candidate)
+        .map(fn(t) => t == node.term)
+        .withDefault(false);
+    if (candidate > node.commit && current) {
+        applyCommitted(ctx, Node { ..node, commit: candidate })
+    } else {
+        node
+    }
+}
+
+/// Applies every committed entry not applied yet.
+export fn applyCommitted<C: Allocator>(ctx: C, node: Node): Node {
+    if (node.applied >= node.commit) {
+        node
+    } else {
+        match (node.entryAt(node.applied + 1)) {
+            .Some(entry) => {
+                applyCommitted(ctx, Node {
+                    ..node,
+                    applied: node.applied + 1,
+                    store: apply(ctx, node.store, entry),
+                })
+            },
+            .None => node,
+        }
+    }
+}
+
+/// What a leader sends each peer: the entries it is missing, or the snapshot
+/// when those entries are gone.
+export fn heartbeat<C: Allocator>(ctx: C, node: Node, now: Int): [Envelope] {
+    if (node.isLeader()) {
+        node.peers.mapCtx(ctx, fn(c, peer) => appendFor(c, node, peer, now))
+    } else {
+        []
+    }
+}
+
+fn appendFor<C: Allocator>(ctx: C, node: Node, peer: Str, now: Int): Envelope {
+    let next = node.next.get(peer).withDefault(node.lastIndex() + 1);
+    let message = if (next <= node.snapshot.index) {
+        Message.Install { term: node.term, snapshot: node.snapshot }
+    } else {
+        let prevIndex = next - 1;
+        let start = prevIndex - node.snapshot.index;
+        Message.Append {
+            term: node.term,
+            prevIndex: prevIndex,
+            prevTerm: node.termAt(prevIndex).withDefault(0),
+            entries: node
+                .log
+                .slice(ctx, start, number.min(node.log.length(), start + BATCH)),
+            commit: node.commit,
+        }
+    };
+    Envelope { sender: node.id, to: peer, sentAt: now, message: message }
+}
+
+fn termOf(message: Message): Int {
+    match (message) {
+        .Request { .. } => 0,
+        .Append { term, .. } => term,
+        .Ack { term, .. } => term,
+        .Install { term, .. } => term,
+        .Read { .. } => 0,
+        .Value { .. } => 0,
+    }
+}
+
+/// A node's next state after one message, and what it sends in reply.
+export fn handle<C: Allocator>(
+    ctx: C,
+    node: Node,
+    envelope: Envelope,
+    now: Int,
+): (Node, [Envelope]) {
+    let term = termOf(envelope.message);
+    let current = if (term > node.term) {
+        Node { ..node, term: term, role: .Follower }
+    } else {
+        node
+    };
+    let reply = fn(n: Node, ok: Bool, matched: Int): Envelope => {
+        Envelope {
+            sender: n.id,
+            to: envelope.sender,
+            sentAt: now,
+            message: Message.Ack { term: n.term, matched: matched, ok: ok },
+        }
+    };
+    match (envelope.message) {
+        .Request { client, op } => {
+            if (current.isLeader()) {
+                (propose(ctx, current, client, op), [])
+            } else {
+                (current, [])
+            }
+        },
+        .Append { term, prevIndex, prevTerm, entries, commit } => {
+            if (term < current.term) {
+                (current, [reply(current, false, 0)])
+            } else if (prevIndex < current.snapshot.index) {
+                (current, [reply(current, false, current.snapshot.index)])
+            } else if (
+                current.termAt(prevIndex).map(fn(t) => t != prevTerm).withDefault(true)
+            ) {
+                (
+                    current,
+                    [reply(current, false, number.min(prevIndex - 1, current.commit))],
+                )
+            } else {
+                let merged = mergeEntries(
+                    ctx,
+                    Node { ..current, role: .Follower },
+                    entries,
+                );
+                let last = prevIndex + entries.length();
+                let committed = applyCommitted(ctx, Node {
+                    ..merged,
+                    commit: number.max(merged.commit, number.min(commit, last)),
+                });
+                (committed, [reply(committed, true, last)])
+            }
+        },
+        .Ack { term, matched, ok } => {
+            (onAck(ctx, current, envelope.sender, term, matched, ok), [])
+        },
+        .Install { term, snapshot } => {
+            if (term < current.term) {
+                (current, [reply(current, false, 0)])
+            } else if (snapshot.index <= current.commit) {
+                (current, [reply(current, true, snapshot.index)])
+            } else {
+                let installed = Node {
+                    ..current,
+                    role: .Follower,
+                    snapshot: snapshot,
+                    log: [],
+                    commit: snapshot.index,
+                    applied: snapshot.index,
+                    store: restore(ctx, snapshot.records),
+                };
+                (installed, [reply(installed, true, snapshot.index)])
+            }
+        },
+        .Read { client, key } => {
+            (
+                current,
+                [
+                    Envelope {
+                        sender: current.id,
+                        to: client,
+                        sentAt: now,
+                        message: .Value {
+                            key: key,
+                            record: current.store.get(key),
+                            applied: current.applied,
+                        },
+                    },
+                ],
+            )
+        },
+        .Value { .. } => (current, []),
+    }
+}
+
+/// Appends what the log lacks. An entry whose term disagrees with the one
+/// already at its index replaces it and everything after it.
+fn mergeEntries<C: Allocator>(ctx: C, node: Node, entries: [Entry]): Node {
+    match (entries) {
+        [] => node,
+        [entry, ..rest] => {
+            if (entry.index <= node.snapshot.index) {
+                mergeEntries(ctx, node, rest)
+            } else {
+                match (node.termAt(entry.index)) {
+                    .Some(t) => {
+                        if (t == entry.term) {
+                            mergeEntries(ctx, node, rest)
+                        } else {
+                            let kept = node
+                                .log
+                                .take(ctx, entry.index - node.snapshot.index - 1);
+                            Node { ..node, log: kept.concat(ctx, entries) }
+                        }
+                    },
+                    .None => Node { ..node, log: node.log.concat(ctx, entries) },
+                }
+            }
+        },
+    }
+}
+
+fn onAck<C: Allocator>(
+    ctx: C,
+    node: Node,
+    sender: Str,
+    term: Int,
+    matched: Int,
+    ok: Bool,
+): Node {
+    if (!node.isLeader() || term != node.term) {
+        node
+    } else if (ok) {
+        let best = number.max(node.matched.get(sender).withDefault(0), matched);
+        advance(ctx, Node {
+            ..node,
+            matched: node.matched.insert(ctx, sender, best),
+            next: node.next.insert(ctx, sender, best + 1),
+        })
+    } else {
+        Node { ..node, next: node.next.insert(ctx, sender, number.max(1, matched + 1)) }
+    }
+}
+
+/// Folds the applied prefix of the log into a snapshot once it is long enough.
+export fn compact<C: Allocator>(ctx: C, node: Node): Node {
+    if (node.applied - node.snapshot.index < KEEP) {
+        node
+    } else {
+        Node {
+            ..node,
+            snapshot: Snapshot {
+                index: node.applied,
+                term: node.termAt(node.applied).withDefault(0),
+                records: node.store.entries(ctx),
+            },
+            log: node.log.drop(ctx, node.applied - node.snapshot.index),
+        }
+    }
+}
+
+/// A node back from a crash: its snapshot and log survived, and everything it
+/// held only in memory did not.
+export fn restart<C: Allocator>(ctx: C, node: Node): Node {
+    Node {
+        ..node,
+        role: .Follower,
+        commit: node.snapshot.index,
+        applied: node.snapshot.index,
+        store: restore(ctx, node.snapshot.records),
+        matched: orderedmap.empty<Str, Int>(),
+        next: orderedmap.empty<Str, Int>(),
+    }
+}

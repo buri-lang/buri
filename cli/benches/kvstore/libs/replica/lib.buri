@@ -1,0 +1,25 @@
+//! The public surface of //libs/replica.
+
+from "//libs/replica/cluster.buri" export {
+    Cluster, Config, converged, count, elect, Event, leaderNode, leaderStore, logsAgree,
+    node, nodeName, Observation, observations, readsHold, run, settle, soak, start,
+    step, Summary,
+};
+
+from "//libs/replica/network.buri" export {
+    busyLinks, dropTo, emptyNetwork, heal, inFlight, linkName, Network, partition,
+    receive, send, sendAll,
+};
+
+from "//libs/replica/node.buri" export {
+    applyCommitted, compact, entryAt, fresh, handle, heartbeat, isLeader, lastIndex,
+    lastTerm, lead, Node, propose, restart, Role, termAt,
+};
+
+from "//libs/replica/store.buri" export {
+    apply, applyAll, digest, emptyStore, restore, Store,
+};
+
+from "//libs/replica/types.buri" export {
+    Entry, Envelope, Message, Op, Record, Snapshot,
+};
