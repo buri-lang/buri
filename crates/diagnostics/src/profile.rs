@@ -392,15 +392,10 @@ pub fn report(started: Instant) -> Option<String> {
         .iter()
         .any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
     let counted_children = rows.iter().any(|(_, [.., cpu])| *cpu != 0);
-    // A child's instructions come from the same counters as this thread's,
-    // which a virtual machine doesn't have: there its CPU time is counted and
-    // its instructions are not, and a 0 would read as a child that ran none.
-    let counted_child_instructions = rows.iter().any(|(_, [.., n, _])| *n != 0);
     let columns = Columns {
         instructions: counted_instructions,
         allocations: counted_allocations,
         children: counted_children,
-        child_instructions: counted_child_instructions,
     };
     let mut out = String::from("buri profile           instructions        cpu       busy");
     if counted_allocations {
@@ -448,7 +443,6 @@ struct Columns {
     instructions: bool,
     allocations: bool,
     children: bool,
-    child_instructions: bool,
 }
 
 fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
@@ -467,10 +461,13 @@ fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
         s.push_str(&format!(" {allocated:>13}"));
     }
     if columns.children {
-        let child_count = if columns.child_instructions {
-            mega(child_count)
-        } else {
+        // No child instructions counted reads `-`, not 0: the row's phase
+        // waited for no child, or a virtual machine, which has no counters,
+        // counted its CPU time and none of its instructions.
+        let child_count = if child_count == 0 {
             "-".to_string()
+        } else {
+            mega(child_count)
         };
         s.push_str(&format!(" {child_count:>19} {:>10}", seconds(child_cpu)));
     }
@@ -732,7 +729,6 @@ mod tests {
             instructions: false,
             allocations: false,
             children: true,
-            child_instructions: false,
         };
         let row = line("run", &[0, 0, 0, 0, 0, 8_000_000], &columns);
         let words: Vec<&str> = row.split_whitespace().collect();
@@ -745,7 +741,6 @@ mod tests {
             instructions: true,
             allocations: false,
             children: true,
-            child_instructions: true,
         };
         let row = line("run", &[0, 0, 0, 0, 2_500_000, 8_000_000], &columns);
         assert!(row.contains(" 2.5 M "), "{row}");

@@ -3174,9 +3174,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// An `incref x` followed by a `decref w`, with nothing between them that
     /// can call, allocate or count, is a pair of no-ops when the decrement
-    /// releases exactly what the increment retained: `w` is `x` itself, or `x`
-    /// is an unboxed field or payload field of `w` and no other field of `w`
-    /// (or of `x`'s variant) holds a count. The middle end plans it that way
+    /// releases exactly what the increment retained: `x` is an unboxed field
+    /// or payload field of `w` and no other field of `w` (or of `x`'s variant)
+    /// holds a count. A `decref` of `x` itself is `middle::pairs`'s to cancel,
+    /// before this runs. The middle end plans it that way
     /// where a match binds a field and then drops what it matched on, as a
     /// lookup in a map does at every level of the tree. LLVM can't fold the
     /// two itself: it can't tell the decrement doesn't reach zero.
@@ -3209,7 +3210,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // Neither is taken yet: an earlier pair's `incref` stopped at this
             // one, which is not a `decref`.
             let j = after.saturating_add(k);
-            if *x == w || self.holds_only(*x, w, projections) {
+            if self.holds_only(*x, w, projections) {
                 cancelled.extend([i, j]);
             }
         }

@@ -36,7 +36,7 @@
 //! Past the `decref`, nothing changes: the value had only the `incref`'s
 //! count there before, and it has only the struct's now.
 
-use crate::compiler::middle::ir::{Block, Code, Inst, ValueId};
+use crate::compiler::middle::ir::{Block, Code, Inst, PerValue, ValueId};
 
 /// One step of a path from a value to what it was read out of.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -98,10 +98,14 @@ pub fn cancel(code: &mut Code) {
                 continue;
             };
             if let Some(j) = partner(&block.insts, &gone, i, paths.of(*x), &paths, &mut scratch) {
-                for k in [i, j] {
-                    if let Some(g) = gone.get_mut(k) {
-                        *g = true;
-                    }
+                // `j` is past `i`, so this marks the two of them.
+                for g in gone
+                    .iter_mut()
+                    .skip(i)
+                    .step_by(j.saturating_sub(i).max(1))
+                    .take(2)
+                {
+                    *g = true;
                 }
                 any = true;
             }
@@ -167,27 +171,25 @@ fn partner(
         .skip(i.saturating_add(1))
         .take(WINDOW);
     for (j, inst) in after.filter(|(j, _)| !gone.get(*j).copied().unwrap_or(false)) {
-        match inst {
+        // Whether what the instruction does with its operands is judged.
+        let judged = match inst {
             Inst::DecRef { value } if paths.same(paths.of(*value), x) => return Some(j),
             // A read takes no count, and what it reads is judged where it is
             // used. Another field of a struct that holds the value is no read
             // of the value at all.
             Inst::GetField { agg, .. } | Inst::GetPayload { agg, .. } => {
-                if !given || paths.holds(paths.of(*agg), x) {
-                    continue;
-                }
+                given && !paths.holds(paths.of(*agg), x)
             }
             // Another increment gives nothing away either.
             Inst::GetTag { .. }
             | Inst::ArrayLen { .. }
             | Inst::ArrayGet { .. }
             | Inst::ArraySlice { .. }
-            | Inst::IncRef { .. }
-                if !given =>
-            {
-                continue;
-            }
-            _ => {}
+            | Inst::IncRef { .. } => given,
+            _ => true,
+        };
+        if !judged {
+            continue;
         }
         let Scratch { uses, seen, work } = &mut *scratch;
         uses.clear();
@@ -208,23 +210,23 @@ fn partner(
 /// The [`Path`] of every value read out of another one, and what each value
 /// built from others holds.
 struct Paths {
-    /// Every value's path, by id.
-    paths: Vec<Path>,
+    /// Every value's path.
+    paths: PerValue<Path>,
     /// The steps every path is a run of. A path one step longer than the
     /// last one made extends it in place, so a chain of reads shares one run.
     steps: Vec<Step>,
     /// A struct, enum, list or closure's operands, and every value a block
-    /// parameter is passed: value `v`'s are `held[held_at[v]..held_at[v + 1]]`.
-    held_at: Vec<u32>,
-    held: Vec<ValueId>,
+    /// parameter is passed, as `(holder, held)`: by holder, and each holder's
+    /// in the order they were found.
+    held: Vec<(ValueId, ValueId)>,
 }
+
+/// A read's source, its step, and whether the read keeps the path exact.
+type Def = (ValueId, Option<Step>, bool);
 
 impl Paths {
     fn of(&self, v: ValueId) -> Path {
-        self.paths
-            .get(v.index())
-            .copied()
-            .unwrap_or_else(|| Path::root(v))
+        *self.paths.get(v)
     }
 
     fn steps(&self, p: Path) -> &[Step] {
@@ -251,10 +253,10 @@ impl Paths {
     }
 
     /// What value `v` holds.
-    fn held(&self, v: ValueId) -> &[ValueId] {
-        let at = |i: usize| self.held_at.get(i).map_or(0, |n| *n as usize);
-        let i = v.index();
-        self.held.get(at(i)..at(i.saturating_add(1))).unwrap_or(&[])
+    fn held(&self, v: ValueId) -> &[(ValueId, ValueId)] {
+        let from = self.held.partition_point(|(h, _)| *h < v);
+        let to = self.held.partition_point(|(h, _)| *h <= v);
+        self.held.get(from..to).unwrap_or(&[])
     }
 
     /// Whether reading `v` may read the value at `x`, or something in it.
@@ -281,18 +283,15 @@ impl Paths {
             }
             if !seen.contains(&path.root) {
                 seen.push(path.root);
-                work.extend_from_slice(self.held(path.root));
+                work.extend(self.held(path.root).iter().map(|(_, v)| *v));
             }
         }
         false
     }
 
     fn new(code: &Code) -> Paths {
-        let n = code.values();
-        // What each value holds, in the order it was found.
-        let mut holds: Vec<(usize, ValueId)> = Vec::new();
-        // A read's source, its step, and whether the read keeps the path exact.
-        let mut defs: Vec<Option<(ValueId, Option<Step>, bool)>> = vec![None; n];
+        let mut held: Vec<(ValueId, ValueId)> = Vec::new();
+        let mut defs: PerValue<Option<Def>> = code.per_value(None);
         for block in code.blocks() {
             for inst in &block.insts {
                 let (dest, def) = match inst {
@@ -318,11 +317,11 @@ impl Paths {
                     }
                     Inst::ArraySlice { dest, array, .. } => (*dest, (*array, None, false)),
                     Inst::MakeStruct { dest, fields, .. } | Inst::MakeEnum { dest, fields, .. } => {
-                        holds.extend(fields.iter().map(|f| (dest.index(), *f)));
+                        held.extend(fields.iter().map(|f| (*dest, *f)));
                         continue;
                     }
                     Inst::MakeArray { dest, elems, .. } => {
-                        holds.extend(elems.iter().map(|e| (dest.index(), *e)));
+                        held.extend(elems.iter().map(|e| (*dest, *e)));
                         continue;
                     }
                     Inst::MakeClosure {
@@ -330,64 +329,46 @@ impl Paths {
                         env: Some(env),
                         ..
                     } => {
-                        holds.push((dest.index(), env.value));
+                        held.push((*dest, env.value));
                         continue;
                     }
                     _ => continue,
                 };
-                if let Some(d) = defs.get_mut(dest.index()) {
-                    *d = Some(def);
-                }
+                *defs.get_mut(dest) = Some(def);
             }
             for target in block.term.targets() {
                 let params = &code.get(target.block).params;
                 for (param, arg) in params.iter().zip(&target.args) {
-                    holds.push((param.index(), *arg));
+                    held.push((*param, *arg));
                 }
             }
         }
-
-        // By holder, each holder's values in the order they were found.
-        holds.sort_by_key(|(h, _)| *h);
-        let mut held_at = vec![0u32; n.saturating_add(1)];
-        for (h, _) in &holds {
-            if let Some(c) = held_at.get_mut(h.saturating_add(1)) {
-                *c = c.saturating_add(1);
-            }
-        }
-        for i in 1..held_at.len() {
-            let before = held_at.get(i.saturating_sub(1)).copied().unwrap_or(0);
-            if let Some(c) = held_at.get_mut(i) {
-                *c = c.saturating_add(before);
-            }
-        }
-        let held = holds.into_iter().map(|(_, v)| v).collect();
+        // A stable sort keeps each holder's values in the order they were found.
+        held.sort_by_key(|(h, _)| *h);
 
         let mut paths = Paths {
-            paths: code.value_ids().map(Path::root).collect(),
+            paths: code.per_value_from(&mut PerValue::default(), Path::root),
             steps: Vec::new(),
-            held_at,
             held,
         };
         // Each read's path, its source's first: a chain is walked up to the
-        // first value already resolved, then resolved back down.
-        let mut done = vec![false; n];
-        let mut chain: Vec<usize> = Vec::new();
-        for v in 0..n {
+        // first value already on one, then resolved back down. An id defined
+        // by a read of itself is no SSA, and ends its own walk that way rather
+        // than being walked for ever.
+        let mut walked = code.per_value(false);
+        let mut chain: Vec<(ValueId, Def)> = Vec::new();
+        for v in code.value_ids() {
             let mut at = v;
-            while let Some(Some((from, ..))) = defs.get(at) {
-                // An id defined by a read of itself is no SSA, and is left
-                // its own root rather than walked for ever.
-                if done.get(at).copied().unwrap_or(true) || chain.len() > n {
+            while let Some(def) = *defs.get(at) {
+                let w = walked.get_mut(at);
+                if *w {
                     break;
                 }
-                chain.push(at);
-                at = from.index();
+                *w = true;
+                chain.push((at, def));
+                at = def.0;
             }
-            while let Some(v) = chain.pop() {
-                let Some(Some((from, step, exact))) = defs.get(v).copied() else {
-                    continue;
-                };
+            while let Some((v, (from, step, exact))) = chain.pop() {
                 let mut path = paths.of(from);
                 path.exact &= exact;
                 if let Some(step) = step {
@@ -403,12 +384,7 @@ impl Paths {
                     paths.steps.push(step);
                     path.len = path.len.saturating_add(1);
                 }
-                if let Some(p) = paths.paths.get_mut(v) {
-                    *p = path;
-                }
-                if let Some(d) = done.get_mut(v) {
-                    *d = true;
-                }
+                *paths.paths.get_mut(v) = path;
             }
         }
         paths

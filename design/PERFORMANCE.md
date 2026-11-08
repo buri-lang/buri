@@ -8859,14 +8859,14 @@ Set it on any command and the toolchain prints, at exit:
 
 ```text
 buri profile           instructions        cpu       busy  child instructions  child cpu
-  lex+parse               5691.6 M    0.499 s    1.228 s               0.0 M    0.000 s
-  check                  13727.6 M    2.068 s    6.192 s               0.0 M    0.000 s
-  monomorphize           11520.6 M    1.542 s    6.623 s               0.0 M    0.000 s
-  middle                 11404.1 M    2.204 s    7.699 s               0.0 M    0.000 s
-  emit                   55468.4 M    6.268 s   22.587 s               0.0 M    0.000 s
+  lex+parse               5691.6 M    0.499 s    1.228 s                   -    0.000 s
+  check                  13727.6 M    2.068 s    6.192 s                   -    0.000 s
+  monomorphize           11520.6 M    1.542 s    6.623 s                   -    0.000 s
+  middle                 11404.1 M    2.204 s    7.699 s                   -    0.000 s
+  emit                   55468.4 M    6.268 s   22.587 s                   -    0.000 s
   link                    7163.6 M    1.540 s    9.305 s           15743.9 M    2.214 s
   run                      280.4 M    0.113 s  542.070 s         1237788.9 M  157.069 s
-  other                  27494.5 M    4.730 s  458.686 s               0.0 M    0.000 s
+  other                  27494.5 M    4.730 s  458.686 s                   -    0.000 s
   all phases            132750.7 M   18.965 s 1054.389 s         1253532.8 M  159.283 s
 wall 105.049 s
 process: 135.920 G instructions, 19.646 s cpu, 66.326 s runnable but not running, peak 1814 MB
@@ -8881,7 +8881,8 @@ child processes: 174.066 s cpu
   mostly time spent waiting on a child.
 - **child instructions** and **child cpu** are the linkers, test binaries and
   generators a phase waited for, read from the exited child before it's reaped.
-  Generators count under `other`.
+  Generators count under `other`. A phase that waited for no child reads `-`,
+  and so does every row on a virtual machine, which has no instruction counters.
 - **allocations** appears when the binary is built with
   `--features alloc-counter`, which costs a thread-local increment per
   allocation.

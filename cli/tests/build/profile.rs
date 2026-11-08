@@ -43,6 +43,31 @@ fn a_profiled_test_run_names_every_phase_it_went_through() {
     );
 }
 
+/// **A phase that waited for no child reads `-` for child instructions**,
+/// rather than a 0 that reads as a child that ran none. Only macOS counts
+/// children at all.
+#[test]
+fn a_phase_that_waited_for_no_child_counts_no_child_instructions() {
+    let scratch = repo();
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    let report = run.all();
+    if !report.contains("child instructions") {
+        return;
+    }
+    let row = report
+        .lines()
+        .find(|l| l.trim_start().starts_with("check "))
+        .unwrap_or_else(|| panic!("no `check` row in\n{}", indent(&report)));
+    let words: Vec<&str> = row.split_whitespace().collect();
+    assert_eq!(
+        words[words.len() - 3..],
+        ["-", "0.000", "s"],
+        "{}",
+        indent(&report)
+    );
+}
+
 #[test]
 fn an_unprofiled_run_prints_no_profile() {
     let scratch = repo();
