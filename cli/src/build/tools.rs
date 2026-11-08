@@ -692,7 +692,12 @@ pub fn program_key(session: &Session, tool: Tool) -> ActionKey {
         &crate::build::actions::tool_unkeyed_reads(session, t, read.iter().map(PathBuf::as_path)),
     );
     let key = finished(&base, &reads);
-    let _ = link(session, tool, &mut compiled, &artifact_path(session, &key));
+    let _ = link(
+        session,
+        tool,
+        &mut compiled,
+        &artifact_path(session, tool, &key),
+    );
     cache.put(&kept, &crate::build::actions::with_reads(&reads, b""));
     key
 }
@@ -736,9 +741,17 @@ fn finished(base: &ActionKey, reads: &str) -> ActionKey {
     ActionKey::of(format!("{}\n{reads}", base.as_str()).as_bytes())
 }
 
-/// Where the executable of the program under `key` is kept.
-fn artifact_path(session: &Session, key: &ActionKey) -> PathBuf {
-    session.root.join(".buri/out/tools").join(key.as_str())
+/// Where the executable of `tool`'s program under `key` is kept: the
+/// repository's own tools in the repository, and the toolchain's in the home,
+/// since their program is the same in every repository.
+fn artifact_path(session: &Session, tool: Tool, key: &ActionKey) -> PathBuf {
+    let home = match tool {
+        Tool::Repo(_) => None,
+        _ => crate::build::runtime_cross::buri_home().ok(),
+    };
+    home.unwrap_or_else(|| session.root.join(".buri/out"))
+        .join("tools")
+        .join(key.as_str())
 }
 
 /// A tool's program, checked and monomorphized, and the sources it read.
@@ -788,7 +801,7 @@ fn compile(
 }
 
 /// Generates the code of a compiled tool and links it into the executable at
-/// `path`.
+/// `path`, settled so macOS checks its first launch once per bytes.
 fn link(session: &Session, tool: Tool, compiled: &mut Compiled, path: &Path) -> Result<(), String> {
     crate::build::create_parent(path);
     crate::build::actions::link_for_host(
@@ -799,7 +812,9 @@ fn link(session: &Session, tool: Tool, compiled: &mut Compiled, path: &Path) -> 
         &compiled.analysis.checked.tables,
         path,
     )
-    .map_err(|d| does_not_build(&compiled.map, &d))
+    .map_err(|d| does_not_build(&compiled.map, &d))?;
+    crate::build::programs::settle(path);
+    Ok(())
 }
 
 /// What a note says about a tool whose program did not build.
@@ -819,7 +834,7 @@ pub fn artifact(session: &Session, tool: Tool) -> Result<PathBuf, String> {
     let Some(source) = source(&session.workspace, tool) else {
         return Err(format!("`{name}` runs in-tree and has no program"));
     };
-    let path = artifact_path(session, &program_key(session, tool));
+    let path = artifact_path(session, tool, &program_key(session, tool));
     if path.is_file() {
         return Ok(path);
     }

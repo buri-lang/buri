@@ -225,10 +225,10 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
     run.says("native-artifact-unavailable");
 }
 
-/// The generator the toolchain ships is compiled **once per repository**.
+/// The generator the toolchain ships is compiled **once per home**.
 ///
 /// The `proto` tool is a Buri program, and the build compiles it to an
-/// executable under `.buri/out/tools/` the first time anything needs a schema
+/// executable under `$BURI_HOME/tools/` the first time anything needs a schema
 /// read. The file's name is its action key, so the claim this row holds is
 /// two-sided: after two builds, of two targets, across three platforms, that
 /// directory holds exactly one file — and the second build did not write it
@@ -239,8 +239,10 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 /// reader, and it happens before the first schema is read. Paying it per target
 /// would put it in front of every package in a repository.
 #[test]
-fn the_toolchain_generator_is_compiled_once_per_repository() {
+fn the_toolchain_generator_is_compiled_once_per_home() {
     let scratch = repository("generators-toolchain");
+    let home = scratch.path(".home");
+    let env = [("BURI_HOME", home.to_str().expect("a UTF-8 path"))];
     // A second package reading the same library, on two platforms of its own.
     // Nothing native here: whether this host links is a different question, and
     // this row has to mean the same thing on every machine.
@@ -250,12 +252,12 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     );
     scratch.write("cmd/twice/main.buri", &twice());
 
-    scratch.run(&["build", "//lib/proto"]).ok();
-    let after_first = toolchain_artifacts(&scratch);
+    scratch.run_with_env(&["build", "//lib/proto"], &env).ok();
+    let after_first = tool_artifacts(&home);
     assert_eq!(
         after_first.len(),
         1,
-        "the toolchain generator was compiled {} times for one repository: {after_first:?}",
+        "the toolchain generator was compiled {} times for one home: {after_first:?}",
         after_first.len()
     );
 
@@ -265,8 +267,8 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
         .expect("the generator's module")
         .modified()
         .ok();
-    scratch.run(&["build", "//cmd/twice"]).ok();
-    let after_second = toolchain_artifacts(&scratch);
+    scratch.run_with_env(&["build", "//cmd/twice"], &env).ok();
+    let after_second = tool_artifacts(&home);
     assert_eq!(
         after_second, after_first,
         "a second build compiled the toolchain generator again"
@@ -278,6 +280,48 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     assert_eq!(
         before, after,
         "the generator's module was rewritten by a build that had one"
+    );
+}
+
+/// The generator the toolchain ships is linked **once per home**, not once per
+/// repository.
+///
+/// Its program is the same in every repository a toolchain builds, so a
+/// second repository under the same `BURI_HOME`, and the first one after
+/// `buri clean`, take the executable the first build linked. They link
+/// nothing, and their schemas still generate.
+#[test]
+fn the_toolchain_generator_is_linked_once_per_home() {
+    let first = repository("generators-home-first");
+    let home = first.path(".home");
+    let home = home.to_str().expect("a UTF-8 path");
+    let env = [("BURI_HOME", home), ("BURI_PROFILE", "1")];
+    let linked = first.run_with_env(&["build", "//lib/proto"], &env);
+    linked.ok();
+    assert!(
+        counted(&linked, "links") > 0,
+        "the first build in a home linked no generator:\n{}",
+        indent(&linked.all())
+    );
+
+    let second = repository("generators-home-second");
+    let taken = second.run_with_env(&["build", "//lib/proto"], &env);
+    taken.ok();
+    assert_eq!(
+        counted(&taken, "links"),
+        0,
+        "a second repository linked the generator again:\n{}",
+        indent(&taken.all())
+    );
+
+    first.run_with_env(&["clean"], &env).ok();
+    let again = first.run_with_env(&["build", "//lib/proto"], &env);
+    again.ok();
+    assert_eq!(
+        counted(&again, "links"),
+        0,
+        "a build after `buri clean` linked the generator again:\n{}",
+        indent(&again.all())
     );
 }
 
@@ -439,7 +483,7 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     let scratch = Scratch::copy_of("generators-printed-text", &fixture);
     scratch.run(&["build", "//lib/wire"]).ok();
 
-    let tool = toolchain_artifacts(&scratch);
+    let tool = tool_artifacts(&scratch.path(".buri/out"));
     let [tool] = tool.as_slice() else {
         panic!("one tool was compiled: {tool:?}")
     };
@@ -460,10 +504,10 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     );
 }
 
-/// Every tool's executable under `.buri/out/tools/`, sorted.
-fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
-    let dir = scratch.path(".buri/out/tools");
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+/// Every tool's executable in the `tools` directory under `dir`, sorted: a
+/// repository's `.buri/out` or a `BURI_HOME`.
+fn tool_artifacts(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir.join("tools")) else {
         return Vec::new();
     };
     let mut out: Vec<std::path::PathBuf> = entries
@@ -738,6 +782,33 @@ fn a_tool_process_is_counted_in_the_run_row() {
         child_instructions(run_row) > 0.0,
         "the kept tool process was not counted in `run`:\n{}",
         indent(&all)
+    );
+}
+
+/// **A tool linked again to the same bytes starts as the file that ran
+/// before**, on macOS, which checks a new executable at its first launch.
+/// After `buri clean` the tool is linked again, and the build starts no new
+/// executable there. Elsewhere there is no check to save, and it starts one.
+#[test]
+fn a_tool_linked_again_after_a_clean_launches_no_new_executable_on_macos() {
+    let scratch = two_entries("generators-tool-settled");
+    let home = scratch.path(".home");
+    let env = [
+        ("BURI_HOME", home.to_str().expect("a UTF-8 path")),
+        ("BURI_PROFILE", "1"),
+    ];
+    let first = scratch.run_with_env(&["build", "//lib/wire"], &env);
+    first.ok();
+    assert_eq!(counted(&first, "new executables launched"), 1);
+    scratch.run_with_env(&["clean"], &env).ok();
+    let again = scratch.run_with_env(&["build", "//lib/wire"], &env);
+    again.ok();
+    assert_eq!(counted(&again, "links"), 1);
+    assert_eq!(
+        counted(&again, "new executables launched"),
+        u64::from(!cfg!(target_os = "macos")),
+        "{}",
+        indent(&again.all())
     );
 }
 

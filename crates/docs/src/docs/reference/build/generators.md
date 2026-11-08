@@ -141,5 +141,6 @@ Editing an input or the tool re-runs it and rebuilds what read its modules, and
 [hermeticity](./hermeticity.md).
 
 A tool compiles to an executable for the build machine and runs there. `proto` is one too:
-a Buri program calling `std/codegen/proto`'s `emit`, compiled on first use and
-cached under `.buri/out/tools`.
+a Buri program calling `std/codegen/proto`'s `emit`. It compiles once per machine, on first
+use, into `~/.buri/tools`, so other repositories and builds after `buri clean`
+reuse it.
