@@ -501,8 +501,8 @@ impl<'a> Jit<'a> {
                 ty,
                 index,
             } => {
-                let (stride, w, _) = self.list_elem(prog, *ty);
-                self.elem_load(st.at(*dest), st.at(*array), st.at(*index), stride, w);
+                let (_, w, _) = self.list_elem(prog, *ty);
+                self.elem_load(st.at(*dest), st.at(*array), st.at(*index), w);
             }
             Inst::ArrayLen { dest, array } => {
                 // `[T]` is `{ ptr, len }`, and the length is O(1) by §4.
@@ -531,8 +531,8 @@ impl<'a> Jit<'a> {
                 index,
                 value,
             } => {
-                let (stride, w, _) = self.list_elem(prog, *ty);
-                self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
+                let (_, w, _) = self.list_elem(prog, *ty);
+                self.elem_store(st.at(*value), st.at(*array), st.at(*index), w);
             }
             // `elemalloc` zeroes the block, so the elements past `len` are the
             // spare slots the drop glue skips, and the block is kept.

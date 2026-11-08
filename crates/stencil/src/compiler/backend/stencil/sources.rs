@@ -655,16 +655,12 @@ fn moves(o: &mut Out) {
     // holding whatever was there. That is not a slow program, it is a wrong
     // one: `Prim::Bool` compares at 64 bits (`emit.rs::prim_tag`), so a
     // `[Bool]` element compared against `true` answered on garbage.
+    //
+    // An element's stride is its size (`middle::layout`), so each width bakes
+    // it in, and the `ldr` takes its scaled-register form.
     for (n, ty) in [(1u32, "uint8_t"), (2, "uint16_t"), (4, "uint32_t")] {
         o.push(
             &format!("eloadz/{n}"),
-            format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = (uint64_t)*(const {ty} *)\
-                 (AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * OFF(_JIT_P)); TAIL; }}"
-            ),
-        );
-        o.push(
-            &format!("eloadz/{n}/s"),
             format!(
                 "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = (uint64_t)*(const {ty} *)\
                  (AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * {n}); TAIL; }}"
@@ -672,14 +668,8 @@ fn moves(o: &mut Out) {
         );
     }
     for n in ELEM_WIDTHS {
-        // The stride-equals-width twin. A `[T]` whose element needs no
-        // alignment padding — which is almost every one — has `stride == size`,
-        // and baking that in turns `movz`/`movk`/`multiply` into the `ldr`'s own
-        // scaled-register form. It is a stencil *variant* in exactly the
-        // paper's sense: an operand kind, "an index scaled by a known stride"
-        // against "an index scaled by a patched one".
         o.push(
-            &format!("eload/{n}/s"),
+            &format!("eload/{n}"),
             format!(
                 "void $NAME(ARGS) {{ memcpy((char *)fp + OFF(_JIT_D), \
                  (const char *)(AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * {n}), \
@@ -687,43 +677,27 @@ fn moves(o: &mut Out) {
             ),
         );
         o.push(
-            &format!("estore/{n}/s"),
+            &format!("estore/{n}"),
             format!(
                 "void $NAME(ARGS) {{ memcpy((char *)(AT(uint64_t, _JIT_A) + \
                  AT(uint64_t, _JIT_B) * {n}), (const char *)fp + OFF(_JIT_D), \
                  {n}); TAIL; }}"
             ),
         );
-        o.push(
-            &format!("eload/{n}"),
-            format!(
-                "void $NAME(ARGS) {{ memcpy((char *)fp + OFF(_JIT_D), \
-                 (const char *)(AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * OFF(_JIT_P)), \
-                 {n}); TAIL; }}"
-            ),
-        );
-        o.push(
-            &format!("estore/{n}"),
-            format!(
-                "void $NAME(ARGS) {{ memcpy((char *)(AT(uint64_t, _JIT_A) + \
-                 AT(uint64_t, _JIT_B) * OFF(_JIT_P)), (const char *)fp + OFF(_JIT_D), \
-                 {n}); TAIL; }}"
-            ),
-        );
     }
-    // An element wider than the widest fixed stencil: the size is a hole, so
-    // this one is a real `memcpy` call. Rare enough that the call is right.
+    // Any other width: the size is a hole, so this one is a real `memcpy`
+    // call. Rare enough that the call is right.
     o.push(
         "eload/n",
         "void $NAME(ARGS) { memcpy((char *)fp + OFF(_JIT_D), \
-         (const char *)(AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * OFF(_JIT_P)), \
+         (const char *)(AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * OFF(_JIT_N)), \
          OFF(_JIT_N)); TAIL; }"
             .into(),
     );
     o.push(
         "estore/n",
         "void $NAME(ARGS) { memcpy((char *)(AT(uint64_t, _JIT_A) + \
-         AT(uint64_t, _JIT_B) * OFF(_JIT_P)), (const char *)fp + OFF(_JIT_D), \
+         AT(uint64_t, _JIT_B) * OFF(_JIT_N)), (const char *)fp + OFF(_JIT_D), \
          OFF(_JIT_N)); TAIL; }"
             .into(),
     );

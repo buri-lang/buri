@@ -835,7 +835,7 @@ impl Jit<'_> {
             ],
         );
         self.imm_to(G_INDEX, 0);
-        self.elem_load(G_COUNT, G_SPARE, G_INDEX, 8, 8);
+        self.elem_load(G_COUNT, G_SPARE, G_INDEX, 8);
         self.emit(
             "bin/and/u64/fi/f",
             &[
@@ -869,7 +869,7 @@ impl Jit<'_> {
             self.unless_spare(stride, next);
             self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
             if op == Op::Copy {
-                self.elem_store(G_VALUE, G_PTR, G_INDEX, stride, size);
+                self.elem_store(G_VALUE, G_PTR, G_INDEX, size);
             }
         }
         let here = self.region.code_addr();
@@ -908,7 +908,7 @@ impl Jit<'_> {
     fn unless_spare(&mut self, stride: u32, skip: Label) {
         // A counted element holds a pointer, so its stride is whole words.
         let words = stride / 8;
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride, stride);
+        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride);
         let any = if words > 1 {
             self.first_nonzero_word(words);
             G_SPARE
