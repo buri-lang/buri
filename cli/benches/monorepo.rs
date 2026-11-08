@@ -16,9 +16,18 @@
 //!   named by strings, literal tables, JSON fixtures, and long plain functions.
 //!   Few generics, fewer traits, and a fraction of the code reachable from any
 //!   one program.
+//! * **Runs generic over their state**: each package's steps take a run, match
+//!   on an event and step into the one before, logging through a dependency's
+//!   run as well as their own. A page's buttons step a package's run, so style
+//!   extraction follows what a node reads into all of them, over the rounds
+//!   it takes a generic parameter to be found going further.
+//! * **A design system** (`monorepo_ui.rs`) the pages are built from.
 
 use super::super::generate::{laid_out, nonblank_lines, Rng};
 use super::File;
+
+#[path = "monorepo_ui.rs"]
+mod design;
 
 /// How large a monorepo to write.
 pub struct Monorepo {
@@ -41,6 +50,14 @@ pub struct Monorepo {
     pub calls: usize,
     /// Messages in a protocol buffer schema.
     pub messages: usize,
+    /// Design system packages, the component modules in each, and the
+    /// components in a module (at least one of each kind).
+    pub ui_packages: usize,
+    pub ui_modules: usize,
+    pub components: usize,
+    /// Steps of a run generic over its state in each module, each stepping
+    /// into the one before it, the first into the module before's last.
+    pub machines: usize,
 }
 
 /// The dependencies of package `k`: up to five of the twenty before it.
@@ -115,9 +132,21 @@ pub fn files(m: &Monorepo) -> Vec<File> {
         let used = draw(&mut rng, 2);
         script(&mut out, j, &used, fx(&used));
     }
+    let components = design::files(&mut out, m, &mut rng);
     for j in 0..m.pages {
         let used = draw(&mut rng, 2);
-        page(&mut out, j, &used, fx(&used));
+        // One component of each kind, from any package.
+        let shown: Vec<design::Component> = design::KINDS
+            .iter()
+            .filter(|_| !components.is_empty())
+            .map(|kind| {
+                let theirs = &components[rng.below(components.len() as u64) as usize];
+                let of: Vec<&design::Component> =
+                    theirs.iter().filter(|c| c.kind == *kind).collect();
+                of[rng.below(of.len() as u64) as usize].clone()
+            })
+            .collect();
+        page(&mut out, j, &used, &shown, fx(&used));
     }
     for f in &mut out {
         if f.path.ends_with(".buri") && !f.path.ends_with("BUILD.buri") && f.path != "REPO.buri" {
@@ -311,6 +340,8 @@ struct Declared {
     decode: bool,
     /// Whether the module reads the clock and draws random numbers.
     effects: bool,
+    /// The module's last step of its package's run.
+    machine: Option<String>,
 }
 
 impl Declared {
@@ -763,6 +794,105 @@ fn generic(out: &mut String, d: &mut Declared, name: &str) {
     ));
 }
 
+/// Package `k`'s run, generic over its state, and what starts and logs one.
+fn run(out: &mut String, d: &mut Declared, k: usize, rng: &mut Rng) {
+    let w = *rng.pick(&WORDS);
+    let cap = 4 + rng.below(8);
+    out.push_str(&format!(
+        "/// A {w} run: the state so far, what happened, and how many steps it took.\n\
+         export struct Run{k}<S> {{\n\
+         \x20   export state: S,\n\
+         \x20   export log: [Str],\n\
+         \x20   export steps: Int,\n\
+         }}\n\n\
+         /// A run that has not stepped yet.\n\
+         export fn start{k}<S>(state: S): Run{k}<S> {{\n\
+         \x20   Run{k} {{ state: state, log: [], steps: 0 }}\n\
+         }}\n\n\
+         /// The last {cap} lines of `log`, `line` the newest.\n\
+         export fn noted{k}<C: Allocator>(ctx: C, log: [Str], line: Str): [Str] {{\n\
+         \x20   if (log.length() < {cap}) {{\n\
+         \x20       log.push(ctx, line)\n\
+         \x20   }} else {{\n\
+         \x20       log.drop(ctx, 1).push(ctx, line)\n\
+         \x20   }}\n\
+         }}\n\n"
+    ));
+    d.exports
+        .extend([format!("Run{k}"), format!("start{k}"), format!("noted{k}")]);
+}
+
+/// One step of package `k`'s run, logged through package `src`'s `noted`,
+/// that steps into `prev` after it. `steps` is how many it takes in all.
+#[allow(clippy::too_many_arguments)]
+fn machine(
+    out: &mut String,
+    d: &mut Declared,
+    k: usize,
+    name: &str,
+    src: usize,
+    prev: Option<&str>,
+    steps: usize,
+    rng: &mut Rng,
+) {
+    let w = *rng.pick(&WORDS);
+    let f = *rng.pick(&FIELDS);
+    let tail = match prev {
+        Some(p) => format!("stepped{p}(ctx, next, .Started, step)"),
+        None => "next".to_string(),
+    };
+    out.push_str(&format!(
+        "/// What can happen to a {w} run.\n\
+         export enum Event{name} {{\n\
+         \x20   Started,\n\
+         \x20   Moved {{ by: Int, note: Str }},\n\
+         \x20   Failed(Str),\n\
+         \x20   Settled {{ at: Int }},\n\
+         }}\n\n\
+         /// A {w} step: `step` moves the state on, and the log says what happened.\n\
+         export fn stepped{name}<S, C: Allocator>(\n\
+         \x20   ctx: C,\n\
+         \x20   run: Run{k}<S>,\n\
+         \x20   event: Event{name},\n\
+         \x20   step: fn(S) => S,\n\
+         ): Run{k}<S> {{\n\
+         \x20   let moved = match (event) {{\n\
+         \x20       .Started => run,\n\
+         \x20       .Moved {{ by, note }} => {{\n\
+         \x20           let logged = noted{k}(ctx, run.log, note);\n\
+         \x20           Run{k} {{ state: run.state, log: logged, steps: run.steps + by }}\n\
+         \x20       }},\n\
+         \x20       .Failed(why) => {{\n\
+         \x20           let logged = noted{src}(ctx, run.log, why);\n\
+         \x20           Run{k} {{ state: run.state, log: logged, steps: run.steps }}\n\
+         \x20       }},\n\
+         \x20       .Settled {{ at }} => Run{k} {{ state: run.state, log: run.log, steps: at }},\n\
+         \x20   }};\n\
+         \x20   let {f} = step(moved.state);\n\
+         \x20   let next = Run{k} {{\n\
+         \x20       state: {f},\n\
+         \x20       log: noted{k}(ctx, moved.log, \"{w} {name}\"),\n\
+         \x20       steps: moved.steps + 1,\n\
+         \x20   }};\n\
+         \x20   {tail}\n\
+         }}\n\n"
+    ));
+    d.sum(format!(
+        "stepped{name}(ctx, start{k}(1), .Moved {{ by: 2, note: \"{w}\" }}, fn(n) => n + 1).steps"
+    ));
+    d.exports.push(format!("stepped{name}"));
+    d.tests.push(format!(
+        "test \"{name}: a {w} run takes every step once\" {{\n\
+         \x20   let run = stepped{name}(alloc(), start{k}(1), .Settled {{ at: 10 }}, fn(n) => n + 2);\n\
+         \x20   assert.equal(run.steps, {});\n\
+         \x20   assert.equal(run.state, {});\n\
+         \x20   assert.equal(run.log.isEmpty(), false);\n\
+         }}\n\n",
+        10 + steps,
+        1 + 2 * steps
+    ));
+}
+
 /// Lines of a module's sum each of its parts adds.
 const PART: usize = 25;
 
@@ -781,6 +911,7 @@ fn module(
     deps: &[(usize, String, Option<Fx>)],
     first: Option<(&Record, &Generated)>,
     prev_fx: Fx,
+    prev_machine: Option<&str>,
     rng: &mut Rng,
 ) -> (String, Declared, Fx) {
     let mut body = String::new();
@@ -793,7 +924,28 @@ fn module(
         }
         d.reach
             .extend(generated.functions.iter().map(|(r, _)| (r.clone(), 0)));
+        run(&mut body, &mut d, k, rng);
     }
+    // The first step logs through a dependency's run, if the module uses one.
+    let mut prev = prev_machine.map(str::to_string);
+    let noted_from = deps.first().map(|(dep, _, _)| *dep);
+    for j in 0..m.machines {
+        let name = format!("{i}s{j}");
+        let src = if j == 0 { noted_from.unwrap_or(k) } else { k };
+        let steps = g * m.machines + j + 1;
+        machine(
+            &mut body,
+            &mut d,
+            k,
+            &name,
+            src,
+            prev.as_deref(),
+            steps,
+            rng,
+        );
+        prev = Some(name);
+    }
+    d.machine = prev;
     for (dep, word, calls) in deps {
         body.push_str(&format!(
             "/// A {word} from p{dep:03}, as this package logs it.\n\
@@ -885,6 +1037,22 @@ fn module(
              }}\n",
             bound(fx)
         ));
+        if let Some(step) = &d.machine {
+            body.push_str(&format!(
+                "\n/// Package p{k:03}'s run, every step of it once more.\n\
+                 export fn advance{k}<S, C: Allocator>(ctx: C, run: Run{k}<S>, step: fn(S) => S): Run{k}<S> {{\n\
+                 \x20   stepped{step}(ctx, run, .Started, step)\n\
+                 }}\n"
+            ));
+            d.exports.push(format!("advance{k}"));
+            d.tests.push(format!(
+                "test \"advance{k}: the package's run steps through every module\" {{\n\
+                 \x20   let run = advance{k}(alloc(), start{k}(0), fn(n) => n + 1);\n\
+                 \x20   assert.equal(run.steps, {});\n\
+                 }}\n\n",
+                m.modules * m.machines
+            ));
+        }
     }
     let mut s = format!("//! Module {g} of package p{k:03}.\n\n");
     if d.json {
@@ -908,20 +1076,35 @@ fn module(
         "from \"platform/effect\" import {{ {} }};\n",
         bound(used).replace(" +", ",")
     ));
-    if g == 1 {
+    if g > 0 {
+        let mut first = vec![format!("blankItem{k}"), format!("describeItem{k}")];
+        let mut before = vec![format!("summary{}", i - 1)];
+        if m.machines > 0 {
+            first.extend([format!("Run{k}"), format!("start{k}")]);
+            if body.contains(&format!("noted{k}(")) {
+                first.push(format!("noted{k}"));
+            }
+        }
+        if let Some(p) = prev_machine {
+            before.push(format!("stepped{p}"));
+        }
+        if g == 1 {
+            first.append(&mut before);
+        }
+        first.sort();
         s.push_str(&format!(
-            "from \"{}/m1.buri\" import {{ blankItem{k}, describeItem{k}, summary{} }};\n",
+            "from \"{}/m1.buri\" import {{ {} }};\n",
             package(k),
-            i - 1
+            first.join(", ")
         ));
-    } else if g > 1 {
-        s.push_str(&format!(
-            "from \"{}/m1.buri\" import {{ blankItem{k}, describeItem{k} }};\n\
-             from \"{}/m{g}.buri\" import {{ summary{} }};\n",
-            package(k),
-            package(k),
-            i - 1
-        ));
+        if !before.is_empty() {
+            before.sort();
+            s.push_str(&format!(
+                "from \"{}/m{g}.buri\" import {{ {} }};\n",
+                package(k),
+                before.join(", ")
+            ));
+        }
     }
     for (dep, _, calls) in deps {
         let entry = if calls.is_some() {
@@ -929,8 +1112,13 @@ fn module(
         } else {
             String::new()
         };
+        let noted = if body.contains(&format!("noted{dep}(")) {
+            format!(", noted{dep}")
+        } else {
+            String::new()
+        };
         s.push_str(&format!(
-            "from \"{}\" import {{ blankItem{dep}, describeItem{dep}{entry} }};\n",
+            "from \"{}\" import {{ blankItem{dep}, describeItem{dep}{entry}{noted} }};\n",
             package(*dep)
         ));
     }
@@ -972,6 +1160,7 @@ fn library(
     let mut surface = generated.surface.clone();
     let mut tests = Vec::new();
     let mut entry_fx = 0;
+    let mut last_machine: Option<String> = None;
     for g in 0..m.modules {
         let i = k * m.modules + g;
         let mine: Vec<(usize, String, Option<Fx>)> = words
@@ -981,8 +1170,19 @@ fn library(
             .map(|(_, w)| w.clone())
             .collect();
         let first = (g == 0).then_some((&item, &generated));
-        let (text, d, fx) = module(m, k, g, i, &mine, first, entry_fx, rng);
+        let (text, d, fx) = module(
+            m,
+            k,
+            g,
+            i,
+            &mine,
+            first,
+            entry_fx,
+            last_machine.as_deref(),
+            rng,
+        );
         entry_fx = fx;
+        last_machine = d.machine.clone();
         out.push(File {
             path: format!("{dir}/m{}.buri", g + 1),
             text,
@@ -1040,7 +1240,16 @@ fn library(
         if d.decode {
             t.push_str("from \"core/json\" import * as json;\nfrom \"core/json\" import { DecodeError };\n");
         }
-        let mut names = d.exports.clone();
+        // The tests start runs, and never name one's type or log.
+        let mut names: Vec<String> = d
+            .exports
+            .iter()
+            .filter(|n| **n != format!("Run{k}") && **n != format!("noted{k}"))
+            .cloned()
+            .collect();
+        if g > 0 && m.machines > 0 {
+            names.push(format!("start{k}"));
+        }
         if g == 0 {
             names.extend(generated.exported.iter().cloned());
             t.push_str(&generated.test_imports);
@@ -1304,29 +1513,64 @@ fn main_of(platform: &str, host: &str, used: &[usize], fx: Fx) -> String {
     s
 }
 
-/// A page over `used` packages, with styles.
-fn page(out: &mut Vec<File>, j: usize, used: &[usize], fx: Fx) {
+/// A page over `used` packages, with styles, showing the `shown` components.
+fn page(out: &mut Vec<File>, j: usize, used: &[usize], shown: &[design::Component], fx: Fx) {
     let dir = format!("web/w{j}");
+    let mut designs: Vec<usize> = shown.iter().map(|c| c.package).collect();
+    designs.sort_unstable();
+    designs.dedup();
     out.push(File {
         path: format!("{dir}/BUILD.buri"),
         text: format!(
             "binary {{\n    dependencies: [{}]\n\n    outputs: [\n        {{ platform: \"web\" }},\n    ]\n}}\n",
-            quoted(used.iter().map(|d| package(*d))),
+            quoted(
+                used.iter()
+                    .map(|d| package(*d))
+                    .chain(designs.iter().map(|d| design::package(*d)))
+            ),
         ),
     });
     let mut m = format!(
         "from \"core/str\" import * as str;\n\
-         from \"platform/effect\" import {{ {}, Ui }};\n\
+         from \"platform/effect\" import {{ {}, Ui, Watch }};\n\
          from \"ui/node\" import * as ui;\n\
          from \"ui/node\" import {{ Node }};\n\
+         from \"ui/signal\" import {{ signal }};\n\
          from \"ui/style\" import {{ Style }};\n\
          from \"web\" import {{ WebHost }};\n",
         bound(fx).replace(" +", ",")
     );
+    // The page's buttons step the first package's run.
+    let driven = used[0];
     for d in used {
+        let run = if *d == driven {
+            format!(", advance{d}, start{d}")
+        } else {
+            String::new()
+        };
         m.push_str(&format!(
-            "from \"{}\" import {{ entry{d} }};\n",
+            "from \"{}\" import {{ entry{d}{run} }};\n",
             package(*d)
+        ));
+    }
+    for d in &designs {
+        let mut names: Vec<String> = shown
+            .iter()
+            .filter(|c| c.package == *d)
+            .flat_map(|c| {
+                let mut v = vec![c.name.clone()];
+                if c.kind == design::Kind::Panel {
+                    v.push(format!("Props{d}"));
+                }
+                v
+            })
+            .collect();
+        names.sort();
+        names.dedup();
+        m.push_str(&format!(
+            "from \"{}\" import {{ {} }};\n",
+            design::package(*d),
+            names.join(", ")
         ));
     }
     m.push_str(&format!(
@@ -1345,7 +1589,9 @@ fn page(out: &mut Vec<File>, j: usize, used: &[usize], fx: Fx) {
          \x20       Allocator: host.alloc,\n\
          {fields}\
          \x20       Ui: host.ui,\n\
+         \x20       Watch: host.watch,\n\
          \x20   }};\n\
+         \x20   let run = signal(ctx, start{driven}(0));\n\
          \x20   ui.mount(ctx, ui.stack({{\n\
          \x20       styles: [panel{j}],\n\
          \x20       children: [\n",
@@ -1355,6 +1601,16 @@ fn page(out: &mut Vec<File>, j: usize, used: &[usize], fx: Fx) {
     for d in used {
         m.push_str(&format!(
             "            row{j}(ctx, \"p{d:03}\", entry{d}(ctx)),\n"
+        ));
+    }
+    for (at, c) in shown.iter().enumerate() {
+        m.push_str(&format!(
+            "            {},\n",
+            design::call(
+                c,
+                &format!("{} {at}", WORDS[(j + at) % WORDS.len()]),
+                &format!("fn(c) => run.set(c, advance{driven}(c, run.get(c), fn(n) => n + 1))"),
+            )
         ));
     }
     m.push_str("        ],\n    }), [])\n}\n");

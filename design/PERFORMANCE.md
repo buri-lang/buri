@@ -14,9 +14,10 @@ something:
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
 None holds on a real build yet. A cold dev `buri build //...` of a generated
-449k-line application monorepo on an M3 Pro parses at 49% of its goal and
-compiles at 38%; check passes, but checks real code slower than this (§6.82). CI holds each phase's instructions and cache cost per
-line to a baseline that only falls. `cli/benches/compiler.rs` measures both.
+424k-line application monorepo on an M3 Pro parses at 43% of its goal and
+compiles at 43%. Check passes at 111%, and its test build at 17% (§6.82). CI
+holds each phase's instructions and cache cost per line to a baseline that
+only falls. `cli/benches/compiler.rs` measures both.
 
 ---
 
@@ -7622,20 +7623,23 @@ There are two workspaces:
   application monorepo. It has many small packages in a deep dependency graph,
   each with a test suite. Its code is records with JSON round trips, state
   enums, string tables, slugs, totals, a few generics and clock-and-random
-  leases. It has few traits. Every few packages run a generator: JSON fixtures
-  through a workspace tool, or a `.proto` schema through `proto`. Native
-  programs, `node` scripts and pages sit on top. Each size runs twice:
+  leases, and runs generic over their state that step into each other. It has
+  few traits. Every few packages run a generator: JSON fixtures through a
+  workspace tool, or a `.proto` schema through `proto`. A design system of
+  component packages, each with a JavaScript suite, builds the pages, whose
+  buttons step the runs. Native programs, `node` scripts and pages sit on
+  top. Each size runs twice:
   `buri build //...`, and what `buri test //...` builds. The test runs
   themselves are left out (see the phases below).
 
-| Size | Packages | Programs, scripts, pages | Generators | Lines of code | Runs in |
-|---|---:|---:|---:|---:|---|
-| `monorepo` | 150 | 30, 8, 3 | 31 | 448,808 | `--goals=time`, 13 s a build on an M3 Pro |
-| `monorepo-ci` | 16 | 2, 1, 1 | 4 | 58,293 | `goals-counted` |
-| `monorepo-tiny` | 3 | 1, 1, 1 | 2 | 37,932 | the suite's `build::goals` |
-| `full` | 48 | 12, 0, 4 | 0 | 262,368 | `--goals=time --size=full` |
-| `ci` | 8 | 3, 0, 1 | 0 | 25,838 | `goals-counted` |
-| `tiny` | 3 | 1, 0, 1 | 0 | 12,202 | the suite's `build::goals` |
+| Size | Packages | Design packages | Programs, scripts, pages | Generators | Lines of code | Runs in |
+|---|---:|---:|---:|---:|---:|---|
+| `monorepo` | 150 | 44 | 30, 8, 12 | 31 | 424,232 | `--goals=time`, 13 s a build on an M3 Pro |
+| `monorepo-ci` | 16 | 6 | 2, 1, 1 | 4 | 56,936 | `goals-counted` |
+| `monorepo-tiny` | 3 | 2 | 1, 1, 1 | 2 | 38,515 | the suite's `build::goals` |
+| `full` | 48 | 0 | 12, 0, 4 | 0 | 262,368 | `--goals=time --size=full` |
+| `ci` | 8 | 0 | 3, 0, 1 | 0 | 25,838 | `goals-counted` |
+| `tiny` | 3 | 0 | 1, 0, 1 | 0 | 12,202 | the suite's `build::goals` |
 
 CI counts the small sizes because the large ones would take over an hour
 under callgrind. Check's cost per line grows with the workspace, so the small
@@ -7676,28 +7680,42 @@ The in-memory corpora this replaced (`mixed-1M` under `parser::parse` and
 them because it parses and checks the stdlib it reaches, lints, and checks a
 workspace whose cost per line grows with its size.
 
-**The monorepo against `full`**, 2026-11-07 on an M3 Pro, `--goals=time`,
-lines a CPU second:
+**The monorepo against `full`**, on an M3 Pro, `--goals=time`, lines a CPU
+second. `full` is from 2026-11-07, the monorepo from 2026-11-08, with other
+work running beside it:
 
 | Phase | `full` build | `monorepo` build | `monorepo` test build |
 |---|---:|---:|---:|
-| parse | 5.14 M | 4.93 M | 4.49 M |
-| check | 1.40 M | 1.94 M | 1.06 M |
-| dev codegen | 44.2 k | 38.5 k | 66.1 k |
-| check instructions/line | 6,717 | 5,492 | 10,197 |
+| parse | 5.14 M | 4.29 M | 3.34 M |
+| check | 1.40 M | 1.11 M | 174 k |
+| dev codegen | 44.2 k | 42.7 k | 113 k |
+| check instructions/line | 6,717 | 9,170 | 51,136 |
 
 The monorepo compiles 0.42 functions a line against `full`'s 1.28. Its child
-processes, 31 generator runs and 30 links, take 9.0 CPU-seconds. A test build checks twice
-the instructions a line, because the 7,376 tests and the code they call get
-checked too, but compiles less, because nothing links the programs.
+processes, 31 generator runs and 30 links, take 9.0 CPU-seconds. A test build
+checks over five times the instructions a line: the tests and the code they
+call get checked too, and each design-system suite is a compilation of its
+own. It compiles less, because nothing links the programs.
 
-**Where it still falls short of real code: check.** Real application code
-checks at about 0.2–0.5 M lines a second on this machine, for about 1.4x
-`full`'s instructions a line. The monorepo's test build matches the
-instructions but not the time: real code retires about half the instructions
-a cycle in check. Neither the constructs a module uses, its identifiers nor
-its effect bounds reproduce that. Doubling the effects on every bound doubled
-check's instructions without lowering the rate. The cause is open.
+**Why real code checked slower: style extraction.** Real large workspaces
+checked several times slower a line than the monorepo, most of all in a test
+build. The extra went to style extraction, which runs inside check,
+and to the compilations UI suites add. Three patterns cause it:
+
+- Pages' event handlers step domain state machines generic over their state.
+  A handler sits where a node reads it, so extraction follows what the machine
+  reads: every caller of every parameter, across most of the domain code.
+- A machine step that hands its run to another step makes the graph grow in
+  rounds. Extraction finds one more generic parameter going further each
+  round and redraws its callers.
+- A design system's component packages carry long style lists, and each of
+  their suites declares `backends: [JS]`, so each is its own compilation with
+  its own fixed check cost and style pass.
+
+`monorepo.rs` now steps runs from every page, five steps a module chained
+across each package, and `monorepo_ui.rs` writes the design system. Measured
+back to back with a real large workspace, three runs each, the monorepo
+checks within 1.5x of it in both builds.
 
 **The gate is a ratchet, not the goals.** `goals-counted`, on the arm64 Linux
 runner in the `perf` shell, runs the `ci` workspace under
@@ -7738,20 +7756,20 @@ Dev codegen is the whole build, children included, less the other three.
 | dev codegen | 86,076 | 130,807 |
 | other | 17,722 | 27,515 |
 
-**The `monorepo-ci` size's figures**, arm64 under callgrind, at its first
-bless, 2026-11-08:
+**The `monorepo-ci` size's figures**, arm64 under callgrind, re-measured
+2026-11-08 with the design system and the runs:
 
 | Phase | Build, instructions/line | Build, cost/line | Test build, instructions/line | Test build, cost/line |
 |---|---:|---:|---:|---:|
-| parse | 2,264 | 3,299 | 2,443 | 3,573 |
-| check | 6,465 | 11,287 | 7,446 | 12,335 |
-| dev codegen | 33,987 | 49,245 | 32,722 | 46,753 |
-| other | 5,471 | 7,384 | 6,933 | 9,022 |
+| parse | 2,312 | 3,364 | 2,552 | 3,708 |
+| check | 8,073 | 13,318 | 14,925 | 22,338 |
+| dev codegen | 58,812 | 89,116 | 58,811 | 87,305 |
+| other | 6,780 | 8,877 | 7,466 | 9,894 |
 
-Check's cost is 1.75x its instructions here, against 1.60x on `ci`: a few
-more cache misses a line, nowhere near real code's halved rate. The two
-sizes take 105 s side by side on a 4-core arm64 VM, against 30 s for `ci`
-alone.
+Check's cost is 1.65x its instructions in a build and 1.50x in a test build,
+against 1.60x on `ci`. The two sizes take 183 s side by side on a 4-core
+arm64 VM, against 46 s for `ci` alone. Without the design system and the runs
+they took 153 s.
 
 The suite's `build::goals` checks the generators are deterministic, that both
 tiny workspaces build lint-clean, that the monorepo's tests pass, that each

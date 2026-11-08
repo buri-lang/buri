@@ -104,11 +104,15 @@ pub const MONOREPO: Size = Size {
         module_lines: 300,
         programs: 30,
         scripts: 8,
-        pages: 3,
+        pages: 12,
         fixtures: 12,
         protos: 8,
         messages: 16,
         calls: 1,
+        ui_packages: 44,
+        ui_modules: 3,
+        components: 6,
+        machines: 5,
     }),
 };
 
@@ -126,6 +130,10 @@ pub const MONOREPO_CI: Size = Size {
         protos: 8,
         messages: 8,
         calls: 1,
+        ui_packages: 6,
+        ui_modules: 2,
+        components: 4,
+        machines: 5,
     }),
 };
 
@@ -143,6 +151,10 @@ pub const MONOREPO_TINY: Size = Size {
         protos: 3,
         messages: 3,
         calls: 1,
+        ui_packages: 2,
+        ui_modules: 1,
+        components: 4,
+        machines: 2,
     }),
 };
 
