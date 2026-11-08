@@ -227,6 +227,20 @@ fn a_kept_tool_that_stops_after_one_answer_is_asked_again() {
     }
 }
 
+/// A script put in place of one repository's tool is that repository's alone:
+/// another repository built from the same tool still runs the tool.
+#[test]
+fn a_tool_replaced_in_one_repository_leaves_another_s_alone() {
+    let kept = two_entries("tool-replaced-kept");
+    kept.run(&["build", "//lib/wire"]).ok();
+    let replaced = two_entries("tool-replaced-elsewhere");
+    replace_the_tool(&replaced, "exit 3\n");
+    kept.write("lib/wire/alpha.txt", "alpha 4\n");
+    let run = kept.run(&["run", "//cmd/app"]);
+    run.ok();
+    assert_eq!(run.stdout.trim(), "75", "{}", indent(&run.all()));
+}
+
 /// A tool's `needs` are read and handed back once each, and one outside the
 /// repository is refused by name. One that isn't a path is passed over.
 #[test]

@@ -953,11 +953,19 @@ impl Drop for Scratch {
 /// (`ETXTBSY`). A child that another test's thread forks while this one writes
 /// inherits the open file and holds it until its own `exec`. So the bytes go
 /// to a staging file here, and `cp` writes `path` from its own process.
+///
+/// A link at `path` is replaced, not written through: a built program is a
+/// link into the home's shared store on macOS, and writing through it would
+/// put `contents` in place of every other repository's copy of that program.
 pub fn write_executable(path: &Path, contents: impl AsRef<[u8]>) {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
+    }
+    if path.is_symlink() {
+        std::fs::remove_file(path)
+            .unwrap_or_else(|e| panic!("cannot remove the link {}: {e}", path.display()));
     }
     let name = path
         .file_name()
