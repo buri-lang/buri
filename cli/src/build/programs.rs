@@ -62,12 +62,13 @@ fn settle_in(store: &Path, binary: &Path) {
         if !entry.is_dir() {
             created = create(store, &entry, binary);
         }
-        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else {
+        let Ok(_lock) = File::options()
+            .append(true)
+            .open(entry.join("lock"))
+            .and_then(|lock| lock.lock_shared().map(|()| lock))
+        else {
             continue;
         };
-        if lock.lock_shared().is_err() {
-            continue;
-        }
         // Under the shared lock no sweep takes the entry, and the touch keeps
         // the next one from taking it for `STALE`.
         match std::fs::read(&kept) {
