@@ -71,9 +71,9 @@ impl Profile {
 
     /// Parse, check, other and dev codegen: CPU seconds and, where this
     /// machine counts them, instructions. Dev codegen is the rest of the
-    /// process and its children, the linker among them. Of a `buri test`,
-    /// the tests' processes are left out and the work around them counts as
-    /// other.
+    /// process and its children, the linker among them. The processes the
+    /// `run` row waited for are left out, the generators' tools and the tests
+    /// of a `buri test`, and the work around them counts as other.
     pub fn phases(&self) -> [(f64, Option<f64>); 4] {
         let counted = self.rows.values().any(|r| r[0].is_some());
         let own = |name: &str| (self.row(name, 1), counted.then(|| self.row(name, 0)));

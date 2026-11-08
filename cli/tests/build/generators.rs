@@ -701,37 +701,42 @@ fn a_tool_without_a_c_compiler_to_link_it_says_so() {
         .says("no C compiler on PATH to drive the link (looked for `/nonexistent/cc`)");
 }
 
-/// **A kept tool process's work is in the profile.** Both requests here are
-/// answered by one kept process, so the child processes `other` counts, the
-/// phase generators run in, are that process alone. Read where the platform
-/// counts a child's instructions, which is macOS.
+/// **A tool's run is in the profile's `run` row, apart from the build's own
+/// work.** Building a tool is the build's work, but running one is not, the
+/// way running a test isn't. Both requests here are answered by one kept
+/// process, so the child processes `run` counts are that process alone. Child
+/// instructions are read where the platform counts them, which is macOS.
 #[test]
-fn a_kept_tool_process_is_counted_in_the_profile() {
+fn a_tool_process_is_counted_in_the_run_row() {
     let scratch = two_entries("generators-kept-process-profiled");
     let run = scratch.run_with_env(&["build", "//lib/wire"], &[("BURI_PROFILE", "1")]);
     run.ok();
     assert_eq!(counted(&run, "tool processes"), 1);
     let all = run.all();
+    let row = |name: &str| {
+        all.lines()
+            .find(|l| l.trim_start().starts_with(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("no `{name}` row in\n{}", indent(&all)))
+    };
+    let run_row = row("run");
     if !all.contains("child instructions") {
         if cfg!(target_os = "macos") {
             panic!("macOS counted no child process:\n{}", indent(&all));
         }
         return;
     }
-    let other = all
-        .lines()
-        .find(|l| l.trim_start().starts_with("other "))
-        .unwrap_or_else(|| panic!("no `other` row in\n{}", indent(&all)));
-    // Child instructions are the row's last count in millions, `<n> M`.
-    let words: Vec<&str> = other.split_whitespace().collect();
-    let child_instructions = words
-        .iter()
-        .rposition(|w| *w == "M")
-        .and_then(|at| words.get(at.checked_sub(1)?)?.parse::<f64>().ok())
-        .unwrap_or_else(|| panic!("no child instructions in `{other}`"));
+    // Child instructions are a row's last count in millions, `<n> M`.
+    let child_instructions = |line: &str| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words
+            .iter()
+            .rposition(|w| *w == "M")
+            .and_then(|at| words.get(at.checked_sub(1)?)?.parse::<f64>().ok())
+            .unwrap_or_else(|| panic!("no child instructions in `{line}`"))
+    };
     assert!(
-        child_instructions > 0.0,
-        "the kept tool process was not counted:\n{}",
+        child_instructions(run_row) > 0.0,
+        "the kept tool process was not counted in `run`:\n{}",
         indent(&all)
     );
 }

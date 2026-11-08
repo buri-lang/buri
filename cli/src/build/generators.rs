@@ -504,13 +504,13 @@ impl KeptProcess {
             mut child, stdin, ..
         } = self;
         drop(stdin);
-        crate::profile::reaped(child.id());
+        reaped(child.id());
         let _ = child.wait();
     }
 
     fn kill(mut self) {
         let _ = self.child.kill();
-        crate::profile::reaped(self.child.id());
+        reaped(self.child.id());
         let _ = self.child.wait();
     }
 }
@@ -618,6 +618,15 @@ fn tool_command(artifact: &std::path::Path) -> std::process::Command {
     crate::build::spawn::command_at(artifact)
 }
 
+/// Charges tool process `pid`'s work to `BURI_PROFILE`'s `run` row, which
+/// holds the programs a build runs rather than the build itself: building a
+/// tool is the build's work, and its run is not. Waits for it to exit like
+/// [`crate::profile::reaped`].
+fn reaped(pid: u32) {
+    let _run = crate::profile::enter(crate::profile::Phase::Run);
+    crate::profile::reaped(pid);
+}
+
 /// Starts a tool process, counted for `BURI_PROFILE`.
 fn start(command: &mut std::process::Command) -> std::io::Result<std::process::Child> {
     let child = crate::build::spawn::start_alone(command)?;
@@ -684,7 +693,7 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
     // its author can run and interrupt, and the suite that drives this has a
     // cap of its own that can tell a stuck process from a busy one
     // (`cli/tests/harness/hang.rs`).
-    crate::profile::reaped(child.id());
+    reaped(child.id());
     let status = child.wait().map_err(|e| e.to_string())?;
     let _ = feeding.join();
     let stdout = reading_out.join().unwrap_or_default();

@@ -136,7 +136,7 @@ fn a_test_builds_report_leaves_the_tests_out() {
         near(other.0, 0.030) && near(other.1.unwrap(), 300e6),
         "{other:?}"
     );
-    // The process and the generators' 0.1 s, less parse, check and other.
+    // The process and the linker's 0.1 s, less parse, check and other.
     assert!(near(codegen.0, 0.140 + 0.100 - 0.070), "{codegen:?}");
     assert!(near(codegen.1.unwrap(), 1400e6 - 700e6), "{codegen:?}");
     let figures = profile.phases().map(|(cpu, n)| (Some(cpu), n));
