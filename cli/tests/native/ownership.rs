@@ -970,3 +970,52 @@ export fn main(host: NativeHost): Result<(), Str> {
         );
     }
 }
+
+/// Two thousand rounds that each replace an element of both lists a record
+/// holds. The first list is read while the record still holds the second, so
+/// its read and the record's release of it are one count, not two, and each
+/// replace finds its list unique.
+#[test]
+fn replacing_in_both_lists_of_a_dying_record_writes_in_place() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Two { a: [Int], b: [Int] }
+
+fn replaced<C: Allocator>(ctx: C, t: Two, i: Int): Two {
+  Two { a: t.a.replaceAt(ctx, 0, i), b: t.b.replaceAt(ctx, 1, i) }
+}
+
+fn churn<C: Allocator>(ctx: C, t: Two, left: Int): Two {
+  if (left == 0) { t } else { churn(ctx, replaced(ctx, t, left), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let start = list.range(ctx, 0, 2000);
+  let t = churn(ctx, Two { a: start, b: start.reverse(ctx) }, 2000);
+  let _ = io.println(host.stdout, "${t.a.get(0)} ${t.a.get(1)} ${t.b.get(0)} ${t.b.get(1)}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("replace-both-fields", source) {
+        assert_eq!(
+            r.stdout, ".Some(1) .Some(1) .Some(1999) .Some(1)\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 50,
+            "{backend}: four thousand replaces allocated {blocks} blocks: the record's first \
+             list was counted twice while it was replaced, so every replace copied it"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}

@@ -672,7 +672,7 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
                 rc::Site {
                     node: rc::NodeId(0),
                     at: rc::Position::After,
-                    op: rc::RcOp::DecRef,
+                    op: rc::RcOp::IncRef,
                     target: rc::Target::Node(rc::NodeId(0)),
                 },
             ]
@@ -703,7 +703,7 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
          fn test$keep(Str) -> Str {\n\
          \x20 b0(v0: Str):\n\
          \x20   incref v0\n\
-         \x20   decref v0\n\
+         \x20   incref v0\n\
          \x20   return v0\n\
          }\n"
     );

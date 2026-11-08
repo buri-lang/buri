@@ -1315,6 +1315,25 @@ fn growBoth<C: Allocator>(ctx: C, t: Two): Two {
     Two { ..t, left: t.left.push(ctx, 9), right: t.right.push(ctx, 10) }
 }
 
+fn replaceBoth<C: Allocator>(ctx: C, t: Two): Two {
+    Two { left: t.left.replaceAt(ctx, 0, 5), right: t.right.replaceAt(ctx, 1, 6) }
+}
+
+test "replacing in both lists of a record leaves every other name for them alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = Two { left: [1].concat(ctx, [2]), right: [3].concat(ctx, [4]) };
+    let left = base.left;
+    let replaced = replaceBoth(ctx, base);
+    assert.equal((replaced.left, replaced.right), ([5, 2], [3, 6]));
+    assert.equal(left, [1, 2]);
+    assert.equal((base.left, base.right), ([1, 2], [3, 4]));
+    let xs = [7].concat(ctx, [8]);
+    let same = replaceBoth(ctx, Two { left: xs, right: xs });
+    assert.equal((same.left, same.right, xs), ([5, 8], [7, 6], [7, 8]));
+}
+
 fn swapGrow<C: Allocator>(ctx: C, t: Two): Two {
     Two { ..t, left: t.right.push(ctx, 7), right: t.left.push(ctx, 8) }
 }

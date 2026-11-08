@@ -70,6 +70,7 @@ pub mod ir;
 pub mod layout;
 pub mod lower;
 pub mod monomorphize;
+pub mod pairs;
 pub mod rc;
 pub mod tail_calls;
 

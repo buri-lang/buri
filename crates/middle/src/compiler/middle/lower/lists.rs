@@ -60,7 +60,7 @@ use crate::compiler::middle::ir::{
     Type, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
-use crate::compiler::middle::rc;
+use crate::compiler::middle::{pairs, rc};
 use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{
     FieldId, FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind, VariantId,
@@ -223,6 +223,7 @@ impl FnLower<'_> {
         };
         self.set_term(Term::Return(v));
         self.code.retain_reachable();
+        pairs::cancel(&mut self.code);
         self.code
     }
 
