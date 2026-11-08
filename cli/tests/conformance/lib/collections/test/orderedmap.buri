@@ -2336,3 +2336,123 @@ test "every version a chain of overwrites made keeps its own value" {
     let seen = versions.map(ctx, fn(v) => assert.some(v.get(17)));
     assert.equal(seen, [34].concat(ctx, list.range(ctx, 1, 40)));
 }
+
+// --- string keys, byte by byte -----------------------------------------------------
+//
+// A native `Str.compare` reads eight bytes at a time, so the strings worth
+// ordering are the ones whose first difference falls either side of each
+// eight-byte boundary, and the ones that end there.
+
+/// `"abcdefghijklmnopqrstu"` cut to every length, and each of those with one
+/// scalar changed at every position: lower, higher, and wider than a byte.
+fn edited<C: Allocator>(ctx: C): [Str] {
+    let letters = "abcdefghijklmnopqrstu";
+    list
+        .range(ctx, 0, letters.length() + 1)
+        .flatMapCtx(ctx, fn(c, n) => {
+            let base = letters.slice(0, n);
+            let changed = list
+                .range(c, 0, n)
+                .flatMapCtx(c, fn(c2, at) => {
+                    ["A", "z", "\u{7f}", "é", "𐀀"].mapCtx(c2, fn(c3, s) => {
+                        base
+                            .slice(0, at)
+                            .concat(c3, s)
+                            .concat(c3, base.slice(at + 1, n))
+                    })
+                });
+            [base].concat(c, changed)
+        })
+}
+
+/// Scalar order, one scalar at a time: the order `Str.compare` promises.
+fn byScalars(a: Str, b: Str, at: Int): Order {
+    match ((a.charAt(at), b.charAt(at))) {
+        (.None, .None) => Order.Equal,
+        (.None, .Some(_)) => Order.Less,
+        (.Some(_), .None) => Order.Greater,
+        (.Some(x), .Some(y)) => {
+            match (x.compare(y)) {
+                .Equal => byScalars(a, b, at + 1),
+                other => other,
+            }
+        },
+    }
+}
+
+test "strings sort in scalar order wherever their first difference falls" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = edited(ctx);
+    let compared = words.sortBy(ctx, fn(a, b) => a.compare(b));
+    let model = words.sortBy(ctx, fn(a, b) => byScalars(a, b, 0));
+    assert.equal(compared, model);
+    assert.equal("abcdefgh".compare("abcdefghi"), Order.Less);
+    assert.equal("abcdefghi".compare("abcdefgh"), Order.Greater);
+    assert.equal("abcdefgA".compare("abcdefgz"), Order.Less);
+    assert.equal("abcdefghijklmnoz".compare("abcdefghijklmnoA"), Order.Greater);
+    assert.equal("abcdefghé".compare("abcdefgh\u{7f}"), Order.Greater);
+    assert.equal("�".compare("𐀀"), Order.Less);
+}
+
+test "a map keyed by those strings holds each once, in scalar order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = edited(ctx);
+    let model = words.sortBy(ctx, fn(a, b) => byScalars(a, b, 0));
+    let m = words.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, w) => acc.insert(c, w, w.utf8Length()),
+        orderedmap.empty<Str, Int>(),
+    );
+    assert.equal(m.length(), words.length());
+    assert.equal(m.keys(ctx), model);
+    assert.isTrue(words.all(fn(w) => m.get(w) == .Some(w.utf8Length())));
+    // Spelled afresh, in blocks of their own, the same keys find the same
+    // entries, and storing one again replaces rather than adds.
+    let again = words.mapCtx(ctx, fn(c, w) => "".concat(c, w).concat(c, ""));
+    assert.isTrue(again.all(fn(w) => m.has(w)));
+    let replaced = again.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, w) => acc.insert(c, w, 0),
+        m,
+    );
+    assert.equal(replaced.length(), m.length());
+    assert.equal(replaced.values(ctx), model.map(ctx, fn(_w) => 0));
+    // One scalar more or less than a stored key is not that key.
+    assert.isFalse(m.has("abcdefghi!"));
+    assert.isFalse(m.has("abcdefg".concat(ctx, "hijklmnopqrstuv")));
+    assert.equal(m.get("abcdefgh"), .Some(8));
+}
+
+test "removing each key of a large string-keyed map while walking its keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let names = padded(ctx, 2000).mapCtx(ctx, fn(c, n) => "key-".concat(c, n));
+    let m = names.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, k) => acc.insert(c, k, k.length()),
+        orderedmap.empty<Str, Int>(),
+    );
+    let keys = m.keys(ctx);
+    // After each removal the map holds exactly the keys the walk has still
+    // to reach, the next of them first, and the walk's own list is untouched.
+    let (left, held) = keys.foldCtx(
+        ctx,
+        fn(c, acc: (OrderedMap<Str, Int>, Bool), k) => {
+            let (rest, ok) = acc;
+            let next = rest.remove(c, k);
+            let at = names.length() - next.length();
+            let first = next.first().map(fn(e) => textOf(e));
+            (next, ok && !next.has(k) && first == keys.get(at))
+        },
+        (m, true),
+    );
+    assert.isTrue(held);
+    assert.isTrue(left.isEmpty());
+    assert.equal(keys, names);
+    assert.equal(m.length(), 2000);
+}

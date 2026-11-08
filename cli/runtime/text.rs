@@ -25,8 +25,8 @@
 //! * **Comparison is by scalar value; hashing is in UTF-16.** The two are not
 //!   the same choice and do not have to be. An *order* is something a caller
 //!   reads and reasons about, so it is the one the type indexes in — scalar
-//!   value, which for valid UTF-8 is byte order, so `buri_rt_str_compare` is a
-//!   `memcmp` and `$str_compare` spells the same order out rather than using
+//!   value, which for valid UTF-8 is byte order, so `buri_rt_str_compare` compares
+//!   bytes and `$str_compare` spells the same order out rather than using
 //!   JavaScript's UTF-16 `<`. A *hash* is only ever compared with another hash
 //!   of the same run, so its unit is free, and `$hashInto` mixes
 //!   `charCodeAt(i)` because that is what JavaScript can do cheaply;
@@ -573,8 +573,8 @@ pub unsafe extern "C" fn buri_rt_str_split_once(
 /// `str.compare(self, other) -> Order`, as the tag `0 | 1 | 2`.
 ///
 /// **Unicode scalar value order**, which for a valid string is exactly UTF-8
-/// byte order — so this is a `memcmp` and a length tie-break, with nothing
-/// decoded. It is what `str::cmp` answers in Rust, `<` answers in Go and `<`
+/// byte order — so this is a byte comparison ([`byte_order`]) and a length
+/// tie-break, with nothing decoded. It is what `str::cmp` answers in Rust, `<` answers in Go and `<`
 /// answers in Python, and it is what `str.length()` and `charAt` already count in.
 ///
 /// It used to be UTF-16 code-unit order, transcoding on the fly so that the
@@ -598,7 +598,7 @@ pub unsafe extern "C" fn buri_rt_str_compare(
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
     let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
-    match a.cmp(b) {
+    match byte_order(a, b) {
         std::cmp::Ordering::Less => 0,
         std::cmp::Ordering::Equal => 1,
         std::cmp::Ordering::Greater => 2,
@@ -622,7 +622,61 @@ pub unsafe extern "C" fn buri_rt_str_equal(
     // SAFETY: the caller promises both ranges.
     let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
     // Two views of the same bytes are equal without reading them.
-    u8::from(a.len() == b.len() && (a.as_ptr() == b.as_ptr() || a == b))
+    u8::from(a.len() == b.len() && (a.as_ptr() == b.as_ptr() || byte_order(a, b).is_eq()))
+}
+
+/// What `<[u8]>::cmp` answers, eight bytes to a comparison.
+///
+/// The slice comparison calls `memcmp`, and musl's is a C loop over one byte
+/// at a time, so a short key cost a call and a loop for a few bytes: in the
+/// runtime benchmark, 78 instructions a comparison, most of them in `memcmp`.
+/// Here each eight bytes are one big-endian word, whose order is the bytes'
+/// order, and the few left over are one more.
+fn byte_order(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
+    // Both sides have eight bytes from `at` only while the shorter one does.
+    let mut at = 0;
+    while let (Some(x), Some(y)) = (a.get(at..at + 8), b.get(at..at + 8)) {
+        let (x, y) = (word(x), word(y));
+        if x != y {
+            return x.cmp(&y);
+        }
+        at += 8;
+    }
+    let n = a.len().min(b.len());
+    if at < n {
+        let (x, y) = (last(a, n), last(b, n));
+        if x != y {
+            return x.cmp(&y);
+        }
+    }
+    a.len().cmp(&b.len())
+}
+
+/// The bytes of `s` before `n`, where fewer than eight are left to compare,
+/// as one number whose order is theirs.
+///
+/// The number may repeat bytes or take in bytes before the ones left, which
+/// the two sides have in common, so it orders as the bytes left do. Each read
+/// stays inside `s`.
+fn last(s: &[u8], n: usize) -> u64 {
+    let byte = |i: usize| s.get(i).map_or(0, |&b| u64::from(b));
+    let quad = |i: usize| {
+        s.get(i..i + 4)
+            .and_then(|q| q.try_into().ok())
+            .map_or(0, |q| u64::from(u32::from_be_bytes(q)))
+    };
+    if n >= 8 {
+        s.get(n - 8..n).map_or(0, word)
+    } else if n >= 4 {
+        quad(0) << 32 | quad(n - 4)
+    } else {
+        byte(0) << 16 | byte(n / 2) << 8 | byte(n - 1)
+    }
+}
+
+/// Eight bytes as the big-endian word they spell.
+fn word(bytes: &[u8]) -> u64 {
+    bytes.try_into().map_or(0, u64::from_be_bytes)
 }
 
 /// `str.toInt(self) -> Option<Int>` — `$str_toInt`.
@@ -1454,6 +1508,30 @@ mod tests {
         assert_eq!(cmp("banana", "apple"), 2);
         assert_eq!(cmp("app", "apple"), 0);
         assert_eq!(cmp("", "a"), 0);
+    }
+
+    /// Every length up to twenty and every place the first difference can
+    /// be, either side of each eight-byte word, with the bytes whose sign
+    /// a signed comparison would get wrong.
+    #[test]
+    fn byte_order_is_the_slice_order() {
+        let mut all: Vec<Vec<u8>> = Vec::new();
+        for len in 0..=20usize {
+            let base: Vec<u8> = (0..len).map(|i| b'a' + (i % 26) as u8).collect();
+            for at in 0..len {
+                for b in [0x00, b'A', b'z', 0x7f, 0x80, 0xff] {
+                    let mut v = base.clone();
+                    v[at] = b;
+                    all.push(v);
+                }
+            }
+            all.push(base);
+        }
+        for a in &all {
+            for b in &all {
+                assert_eq!(byte_order(a, b), a.cmp(b), "{a:?} against {b:?}");
+            }
+        }
     }
 
     #[test]
