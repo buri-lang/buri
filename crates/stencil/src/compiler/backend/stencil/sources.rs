@@ -852,6 +852,7 @@ fn arithmetic(o: &mut Out) -> Result<(), String> {
         }
     }
     checks(o)?;
+    compares(o);
     wide(o);
     // Boolean not, which the IR spells `UnOp::Not` on an `I1`.
     for a in &locs {
@@ -868,6 +869,30 @@ fn arithmetic(o: &mut Out) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// `compare` at an integer: `Less`, `Equal` or `Greater` (`rtcall::LESS`,
+/// `EQUAL`, `GREATER`, the declaration order `middle::layout` gives a bare
+/// three-variant enum) stored as a tag of `w` bytes.
+///
+/// One stencil rather than two tests, two branches and three stores: clang
+/// turns the nested conditional into two compares and a pair of `csel`s, and a
+/// sort spends most of its time here.
+fn compares(o: &mut Out) {
+    for t in [I64, U64, I32, U32, I16, U16, I8, U8] {
+        for w in [1u32, 2, 4, 8] {
+            let (a, b) = (read(t, Loc::Frame, "A"), read(t, Loc::Frame, "B"));
+            o.push(
+                &format!("cmp3/{}/{w}", t.tag),
+                format!(
+                    "void $NAME(ARGS) {{ {cty} a = {a}, b = {b}; \
+                     AT(uint{bits}_t, _JIT_D) = (uint{bits}_t)(a < b ? 0 : (a > b ? 2 : 1)); TAIL; }}",
+                    cty = t.cty,
+                    bits = w * 8,
+                ),
+            );
+        }
+    }
 }
 
 /// `(result, did it overflow)` for the four operations `Checked` and

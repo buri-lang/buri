@@ -1279,6 +1279,36 @@ impl<'a> Jit<'a> {
                 self.rt_call(prog, st, (entry, r.answer), dest, &list, Vec::new());
                 return;
             }
+            // `compare` at a number, a `Bool` or a `Char`, emitted here for the
+            // same reason: the body is one stencil, and the call around it
+            // was three times its length. The operands and the tag go where
+            // the generated body would have read and written them, from the
+            // caller's own slots — `compare_prim` and `prim_trait_at` read
+            // both operands before they store the tag.
+            let tag = match code.ty_of(dest) {
+                ir::Type::Agg(id) => self.tag_width(prog, id.id()),
+                _ => None,
+            };
+            if let (Some(w), [a, b]) = (tag, args) {
+                let (a, b, d) = (st.at(*a), st.at(*b), st.at(dest));
+                match *self.routes.bodies.get(r.key) {
+                    route::Body::Number(num, route::Number::Compare) => {
+                        return self.compare_prim(st, num.scalar(), a, b, d, w);
+                    }
+                    route::Body::PrimTrait(prim, route::PrimOp::Compare) => {
+                        return self.prim_trait_at(
+                            st,
+                            prim,
+                            route::PrimOp::Compare,
+                            d,
+                            a,
+                            b,
+                            Some(w),
+                        );
+                    }
+                    _ => {}
+                }
+            }
         }
         let base = st.frame.size;
         let callee = self.frame_sig_of(func);
@@ -2221,6 +2251,9 @@ impl Jit<'_> {
                     ],
                 );
             }
+            route::PrimOp::Compare if matches!(tag, Some(1 | 2 | 4 | 8)) => {
+                self.cmp3("u64", a, b, d, tag.unwrap_or(8));
+            }
             route::PrimOp::Compare => {
                 let raw = st.scratch + super::rtcall::RAW_WORD * 8;
                 let entry: &[(&'static str, u64)] =
@@ -2901,6 +2934,9 @@ impl Jit<'_> {
         if prim.is_float() {
             return self.compare_float(st, prim, a, b, dest, w);
         }
+        if tag != "i128" && tag != "u128" && matches!(w, 1 | 2 | 4 | 8) {
+            return self.cmp3(tag, a, b, dest, w);
+        }
         let raw = st.scratch + super::rtcall::RAW_WORD * 8;
         self.imm_to(raw, EQUAL);
         for (op, v) in [("lt", LESS), ("gt", GREATER)] {
@@ -2929,6 +2965,21 @@ impl Jit<'_> {
             st.place(skip, here);
         }
         self.store_w(dest, raw, w);
+    }
+
+    /// An integer `compare` in one stencil (`sources.rs::compares`): `a` and
+    /// `b` are both read before the `w`-byte tag is stored at `dest`, so
+    /// `dest` may share a slot with either.
+    fn cmp3(&mut self, tag: &str, a: u32, b: u32, dest: u32, w: u32) {
+        self.emit(
+            &key!["cmp3/", tag, "/", w],
+            &[
+                Lit::D.of(u64::from(dest)),
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(b)),
+                Jump::Cont.to(V::Fall),
+            ],
+        );
     }
 
     /// [`Self::compare_prim`] at a float: `-inf < … < -0.0 < 0.0 < … < inf <

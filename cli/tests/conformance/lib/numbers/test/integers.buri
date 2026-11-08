@@ -15,7 +15,7 @@
 
 from "core/number" import * as number;
 from "core/number" import { Add, Bounded, Wrapping };
-from "core/order" import { Order };
+from "core/order" import { Order, Ordered };
 from "core/testing/assert" import * as assert;
 
 // --- Helpers ------------------------------------------------------------------
@@ -66,6 +66,10 @@ fn asI64(x: I64): I64 {
 
 // SPEC 5.1.1: arithmetic reaches a type parameter through the operator traits,
 // so the same generic body has to work on both machine representations.
+
+fn compareOf<T: Ordered>(a: T, b: T): Order {
+    a.compare(b)
+}
 
 fn sum3<N: Add>(a: N, b: N, c: N): N {
     a + b + c
@@ -1036,6 +1040,39 @@ test "compare yields an Order" {
     let c: U64 = 18446744073709551615;
     assert.equal(c.compare(0), Order.Greater);
     assert.equal(number.minValue<I128>().compare(0), Order.Less);
+}
+
+test "compare reads each width with its own sign" {
+    let a: I8 = -1;
+    let b: I8 = 1;
+    assert.equal(a.compare(b), Order.Less);
+    assert.equal(b.compare(a), Order.Greater);
+    assert.equal(compareOf(a, b), Order.Less);
+    let c: U8 = 255;
+    let d: U8 = 1;
+    assert.equal(c.compare(d), Order.Greater);
+    assert.equal(compareOf(d, c), Order.Less);
+    let e: I16 = -32768;
+    let f: I16 = 32767;
+    assert.equal(e.compare(f), Order.Less);
+    assert.equal(compareOf(f, f), Order.Equal);
+    let g: U16 = 65535;
+    assert.equal(g.compare(0), Order.Greater);
+    let h: I32 = -2147483648;
+    assert.equal(h.compare(0), Order.Less);
+    assert.equal(compareOf(0, h), Order.Greater);
+    let i: U32 = 4294967295;
+    assert.equal(i.compare(1), Order.Greater);
+    let j: I64 = -9223372036854775807;
+    assert.equal(j.compare(9223372036854775807), Order.Less);
+    assert.equal(compareOf(j, j), Order.Equal);
+    let k: U64 = 18446744073709551615;
+    assert.equal(compareOf(k, 1), Order.Greater);
+    assert.equal('a'.compare('b'), Order.Less);
+    assert.equal(compareOf('\u{10FFFF}', 'a'), Order.Greater);
+    assert.equal(false.compare(true), Order.Less);
+    assert.equal(compareOf(true, false), Order.Greater);
+    assert.equal(compareOf(true, true), Order.Equal);
 }
 
 test "the comparison operators agree with compare" {
