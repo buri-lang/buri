@@ -895,3 +895,38 @@ fn reading_a_schema_copies_no_offset_list() {
         "reading two ten-thousand-character documents copied {copied} elements"
     );
 }
+
+/// A field read straight out of a functional update, whose carried list is
+/// marked as it is copied over.
+const READ_THROUGH_UPDATE: &str = r#"
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+struct Shelf { label: Str, books: [Str] }
+
+fn renamed(shelf: Shelf, label: Str): Str {
+  Shelf { ..shelf, label: label }.label
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let shelf = Shelf { label: "old", books: ["a"].concat(ctx, ["b"]) };
+  let name = renamed(shelf, "new");
+  let more = shelf.books.push(ctx, "c");
+  io.println(ctx, "${name} ${shelf.label} ${shelf.books.length()} ${more.length()}").mapErr(fn(_e) => "could not print")
+}
+"#;
+
+/// Reading the updated field answers the new value and leaves the original
+/// record and its list as they were.
+#[test]
+fn a_field_read_out_of_a_functional_update_is_the_new_one() {
+    let scratch = Scratch::repo("js-sharing-read-through-update");
+    scratch.write("cmd/read/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/read/main.buri", READ_THROUGH_UPDATE);
+    scratch.run(&["build", "//cmd/read"]).ok();
+    let out = scratch.exec_js("cmd/read");
+    out.ok();
+    assert_eq!(out.stdout, "new old 2 3\n", "{}", out.stderr);
+}
