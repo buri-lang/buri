@@ -194,6 +194,39 @@ pub fn command(binary: &Path, build: &str) -> Option<Command> {
     })
 }
 
+/// The reports of the programs started under a tool, by process id: Valgrind
+/// runs the program in its own process, so the child's id is the program's.
+static REPORTS: std::sync::Mutex<Vec<(u32, PathBuf)>> = std::sync::Mutex::new(Vec::new());
+
+/// Notes the report `cmd` writes, when it is a command [`command`] made and
+/// `pid` is its process.
+pub fn started(pid: u32, cmd: &Command) {
+    let Some(xml) = cmd
+        .get_args()
+        .find_map(|a| a.to_str()?.strip_prefix("--xml-file=").map(PathBuf::from))
+    else {
+        return;
+    };
+    let mut reports = REPORTS.lock().unwrap_or_else(|e| e.into_inner());
+    // An id the kernel handed out again is a new program's.
+    reports.retain(|(p, _)| *p != pid);
+    reports.push((pid, xml));
+}
+
+/// Whether the program in process `pid`, started under a tool, has exited.
+///
+/// Valgrind writes its `FINISHED` status the moment the program ends, and
+/// only then runs its leak check, which a loaded machine can stretch to
+/// minutes. So a wait for the program to stop ends here, and the wait for
+/// Valgrind's report is the hang cap's.
+pub fn program_exited(pid: u32) -> bool {
+    let reports = REPORTS.lock().unwrap_or_else(|e| e.into_inner());
+    reports.iter().any(|(p, xml)| {
+        *p == pid
+            && std::fs::read_to_string(xml).is_ok_and(|x| x.contains("<state>FINISHED</state>"))
+    })
+}
+
 /// Runs `cmd` under `tool` with `extra` flags, leaving its report in `dir/runs`.
 ///
 /// `again` is how to rerun it, for the issue.

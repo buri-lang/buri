@@ -497,6 +497,7 @@ pub fn started(command: &mut Command) -> std::process::Child {
     let mut child = command
         .spawn()
         .unwrap_or_else(|e| panic!("cannot start {:?}: {e}", command.get_program()));
+    crate::valgrind::started(child.id(), command);
     while !has_run(&child) && matches!(child.try_wait(), Ok(None)) {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
@@ -1591,10 +1592,8 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
     signalling(&child, signal);
     let until = std::time::Instant::now() + server_deadline();
     let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(e) => panic!("could not ask whether the server had exited: {e}"),
+        if let Some(status) = stopped(&mut child) {
+            break status;
         }
         if std::time::Instant::now() >= until {
             let _ = child.kill();
@@ -1661,16 +1660,16 @@ pub fn signalling(child: &std::process::Child, signal: i32) {
 /// A process that will not stop is killed rather than waited on forever, and
 /// the panic says which of the two happened. That is the whole of the rule this
 /// file states about every other wait, applied to the one std does not bound.
+///
+/// The deadline is the program's, not Valgrind's: see [`stopped`].
 pub fn waited(
     child: &mut std::process::Child,
     within: std::time::Duration,
 ) -> std::process::ExitStatus {
     let until = std::time::Instant::now() + within;
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status,
-            Ok(None) => {}
-            Err(e) => panic!("could not ask whether the server had exited: {e}"),
+        if let Some(status) = stopped(child) {
+            return status;
         }
         if std::time::Instant::now() >= until {
             let _ = child.kill();
@@ -1678,6 +1677,26 @@ pub fn waited(
             panic!("the server did not stop within {within:?} of being signalled");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+/// How `child` ended, once its program has stopped; `None` while it runs.
+///
+/// Under Valgrind the program has stopped when Valgrind's report says so,
+/// before its leak check. That check took minutes on a loaded runner, and a
+/// deadline that counted it failed servers that had drained and exited
+/// (`memcheck (backends, x86_64)`, run 42430307012). So the rest of the wait
+/// is Valgrind's, under the hang cap, which still fails a Valgrind that hangs.
+fn stopped(child: &mut std::process::Child) -> Option<std::process::ExitStatus> {
+    match child.try_wait() {
+        Ok(Some(status)) => Some(status),
+        Ok(None) if crate::valgrind::program_exited(child.id()) => Some(
+            child
+                .capped_wait()
+                .unwrap_or_else(|e| panic!("could not wait for Valgrind's report: {e}")),
+        ),
+        Ok(None) => None,
+        Err(e) => panic!("could not ask whether the server had exited: {e}"),
     }
 }
 
