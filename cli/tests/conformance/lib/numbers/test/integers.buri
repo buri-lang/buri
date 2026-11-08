@@ -1069,7 +1069,7 @@ test "compare reads each width with its own sign" {
     let k: U64 = 18446744073709551615;
     assert.equal(compareOf(k, 1), Order.Greater);
     assert.equal('a'.compare('b'), Order.Less);
-    assert.equal(compareOf('\u{10FFFF}', 'a'), Order.Greater);
+    assert.equal(compareOf('\u{10ffff}', 'a'), Order.Greater);
     assert.equal(false.compare(true), Order.Less);
     assert.equal(compareOf(true, false), Order.Greater);
     assert.equal(compareOf(true, true), Order.Equal);

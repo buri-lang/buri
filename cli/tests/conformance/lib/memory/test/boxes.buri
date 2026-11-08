@@ -221,7 +221,11 @@ fn byteSum(b: Bytes): Int {
 }
 
 fn wide(n: Int): Wide {
-    if (n == 0) { .Stop } else { .Step(n, n * 2, n * 3, n * 4, n * 5, n * 6, wide(n - 1)) }
+    if (n == 0) {
+        .Stop
+    } else {
+        .Step(n, n * 2, n * 3, n * 4, n * 5, n * 6, wide(n - 1))
+    }
 }
 
 fn wideSum(w: Wide): Int {
