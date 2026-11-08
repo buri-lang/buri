@@ -1925,10 +1925,10 @@ fn run_solo(
         // The gaps `missing_intrinsics` cannot see are named by the backend
         // while it emits, so the sentence saying what to do is added here.
         Err(d) if is_backend_gap(&d) => {
+            let mut items = d.items.into_iter();
             let mut out = Diagnostics::new();
-            for (i, d) in d.items.into_iter().enumerate() {
-                out.push(if i == 0 { d.with_fix(GAP_FIX) } else { d });
-            }
+            out.extend(items.next().map(|d| d.with_fix(GAP_FIX)));
+            out.extend(items);
             return answer(Err(out));
         }
         Err(d) => return answer(Err(d)),
@@ -5298,9 +5298,10 @@ struct Gathered {
 }
 
 impl Gathered {
-    /// Whether any block is still waiting for a process.
+    /// Whether any block is still waiting for a process. A member times out
+    /// only once [`run_limited`] has handed out every block.
     fn waiting(&self) -> bool {
-        !self.failed && !self.timed_out && self.handed < self.blocks.len()
+        !self.failed && self.handed < self.blocks.len()
     }
 
     /// The next block to hand a process, with its position in the member:

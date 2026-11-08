@@ -854,6 +854,35 @@ fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
     );
 }
 
+/// **The profile names the first ten tests handed out**, however many more a
+/// run hands out after them.
+#[test]
+fn the_profile_names_only_the_first_ten_tests_handed_out() {
+    if let Some(gap) = ci::native_host_gap() {
+        ci::skipped("build::scheduling", &gap);
+        return;
+    }
+    let scratch = Scratch::repo("twelve-handed");
+    let tests: String = (0..12)
+        .map(|i| format!("test \"t{i:02}\" {{\n  assert.equal(one(), 1);\n}}\n\n"))
+        .collect();
+    scratch.write(
+        "lib/twelve/BUILD.buri",
+        "library {\n  test { sources: [\"test/twelve.buri\"] }\n}\n",
+    );
+    scratch.write("lib/twelve/lib.buri", "export fn one(): Int { 1 }\n");
+    scratch.write(
+        "lib/twelve/test/twelve.buri",
+        &format!(
+            "from \"//lib/twelve\" import {{ one }};\n\
+             from \"core/testing/assert\" import * as assert;\n\n{tests}"
+        ),
+    );
+    let run = scratch.run_with_env(&["test", "//...", "--jobs=1"], &[("BURI_PROFILE", "1")]);
+    run.ok().says("12 passed, 0 failed, 0 skipped");
+    assert_eq!(handed_out(&run).len(), 10, "{}", indent(&run.all()));
+}
+
 /// A test body that adds up a list of a million numbers: milliseconds of work
 /// in a few lines, where the other tests take microseconds.
 const SLOW_BODY: &str = "  let ctx = context { Allocator: alloc() };\n  \
