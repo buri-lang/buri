@@ -8737,6 +8737,44 @@ such JavaScript runs in a suite, so it saves about 130 CPU-seconds.
 built per lookup, where it was dozens, and 23 checks for astral scalars where
 it was 5,752.
 
+### 6.103 The allocator's fast paths test one byte, 2026-11-08
+
+`buri_rt_alloc` loaded two flags before it touched the cache, and
+`buri_rt_free` loaded the heap check's mode and four `scalars` index keys. A
+push added its bytes to `held`, compared the sum with `limit`, and bumped a
+sweep counter on the way up.
+
+Now one byte, `GATE`, holds every reason to leave the fast path:
+
+```rust
+if gated(GATE_HEAP_CHECK | GATE_INDEXED) {   // one load, one test
+    return free_gated(p);                    // out of line
+}
+```
+
+- The heap check clears its bit once it's decided off. A scope and the first
+  scalar index each set theirs, and never clear it.
+- The cache keeps `room`, the bytes it may still take, so a push compares and
+  subtracts. `until_sweep` counts down to the next sweep the same way.
+- Linux arm64 reads the thread's heap as `tpidr_el0` plus an offset learned
+  on the first arm, as macOS does with its key (§6.96). The TLS descriptor
+  call the linker removes still made both functions keep a frame.
+- `release_slot` moved out of line, so the sweep's loop is 9 instructions a
+  slot.
+
+On an arm64 VM, `run-dev/kvstore` went from 1,520.7 M to 1,496.1 M
+instructions and its release build from 934.6 M to 908.9 M. On macOS, dev went
+from 1,528 M to 1,514 M and release from 980 M to 969 M. Peak RSS didn't move
+beyond noise on either.
+
+`cli/tests/native/alloc_churn.rs` guards it: a `list.range` step went from 210
+to 187 instructions on stencil and from 164 to 154 on LLVM.
+`cli/tests/native/strings.rs` checks that a string built in a freed indexed
+block reads its own scalars, which the index bit keeps true.
+
+A slot per 32 bytes from 1 KiB to 4 KiB saved about 4.5 M more on kvstore,
+but cost 100–500 KB of RSS, so it isn't in.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

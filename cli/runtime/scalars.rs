@@ -272,6 +272,7 @@ fn with_index<T>(base: *mut u8, bytes: &[u8], answer: impl FnOnce(&Index, usize)
                 *s = Some(Index::build(key, bytes));
             }
             INDEXED.store(true, Ordering::Relaxed);
+            crate::memory::gate(crate::memory::GATE_INDEXED);
             if let Some(k) = KEYS.get(slot) {
                 k.store(key, Ordering::Relaxed);
             }

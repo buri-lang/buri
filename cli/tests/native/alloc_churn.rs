@@ -73,6 +73,14 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// literal step went from 829 to 782 instructions on stencil and from 315 to
 /// 261 on LLVM.
 ///
+/// **The fast paths test one gate byte, and a free counts down two words.**
+/// The heap check, scopes and indexed blocks each once had a flag of their
+/// own that every allocation or free loaded, and a push added to the bytes
+/// held and compared the sum with a limit. A `list.range` step went from 210
+/// to 187 instructions on stencil and from 164 to 154 on LLVM; a list literal
+/// step from 208 to 177 and from 109 to 99; a large literal step from 782 to
+/// 757 and from 261 to 255.
+///
 /// Each bound sits about halfway.
 #[test]
 fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
@@ -81,9 +89,9 @@ fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("alloc-churn", &churn());
         for (mode, length, stencil, llvm) in [
-            ("range", 2, 228, 182),
-            ("literal", 2, 220, 126),
-            ("large", LARGE, 805, 288),
+            ("range", 2, 198, 159),
+            ("literal", 2, 192, 104),
+            ("large", LARGE, 769, 258),
         ] {
             let want = format!("{}\n", STEPS * length);
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);

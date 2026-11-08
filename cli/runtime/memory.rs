@@ -164,8 +164,13 @@ pub static SHARED_MASK: AtomicU64 = AtomicU64::new(0);
 /// [`is_shared`] adds to every block's.
 #[inline]
 fn shared_mask() -> u64 {
-    SHARED_MASK.load(Ordering::Relaxed)
+    MASK.load(Ordering::Relaxed)
 }
+
+/// [`SHARED_MASK`]'s value, for this file's own reads. The exported static is
+/// reached through the global offset table, three instructions where this
+/// one is a load.
+static MASK: AtomicU64 = AtomicU64::new(0);
 
 /// Whether the artifact said its counts honour [`SHARED_MASK`]
 /// ([`buri_rt_values_may_cross_tasks`]).
@@ -214,6 +219,8 @@ pub fn values_may_cross_tasks() -> bool {
 pub fn begin_sharing() {
     // A latch every allocation reads with a plain load.
     valgrind::atomic(&SHARED_MASK);
+    valgrind::atomic(&MASK);
+    MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
     SHARED_MASK.store(BURI_RT_CAP_SHARED, Ordering::Relaxed);
 }
 
@@ -240,6 +247,7 @@ pub(crate) unsafe fn count_and_mark(p: *const u8) -> (u64, bool) {
 #[cfg(test)]
 pub(crate) fn forget_values_may_cross_tasks() {
     MAY_SHARE.store(false, Ordering::Relaxed);
+    MASK.store(0, Ordering::Relaxed);
     SHARED_MASK.store(0, Ordering::Relaxed);
 }
 
@@ -902,12 +910,16 @@ struct Cache {
     /// together on every pop, so two parallel arrays would cost two cache
     /// lines per allocation where one will do.
     slots: [Slot; CACHE_SLOTS],
-    held: u64,
-    /// What `held` may grow to: [`cache_budget`] once the cache is armed, and
-    /// zero before that and after it closes, so a push past it is the one
-    /// test that sends the first free and every late one off the fast path.
+    /// The bytes the cache may still take: `limit` less what it holds. A
+    /// push larger than this is the one test that sends the first free and
+    /// every late one off the fast path, and it is a compare against a word
+    /// the push then decrements, where a count of bytes held needed an add
+    /// and a second load to ask the same thing.
+    room: u64,
+    /// What the cache may hold: [`cache_budget`] once the cache is armed, and
+    /// zero before that and after it closes.
     ///
-    /// **Zero rather than a sentinel in `held`, so the thread-local starts
+    /// **Zero rather than a sentinel, so the thread-local starts
     /// all zeros.** An all-zero thread-local is `__thread_bss` and costs the
     /// binary nothing; one non-zero word made the whole 16 KiB of slots
     /// initialised `__thread_data`, in every program.
@@ -928,8 +940,10 @@ struct Cache {
     /// accuracy of one sweep period per live thread — which
     /// `BuriHeapStats::retained_bytes` says out loud.
     published: u64,
-    /// Cache operations since the last sweep.
-    since_sweep: u32,
+    /// Cache operations left before the next sweep. Counting down keeps the
+    /// fast path's test a compare against a constant, and zero, before the
+    /// cache is armed, sends every push to the slow path that arms it.
+    until_sweep: u32,
     /// Sweeps so far, for [`CACHE_MID_SWEEP_EVERY`].
     sweeps: u32,
     /// **G5: the `core/alloc::scoped` arena this thread is inside, plus one;
@@ -1032,8 +1046,12 @@ impl Cache {
         // because nothing would give it back.
         if CACHE_DRAIN.try_with(|_| ()).is_ok() {
             self.limit = cache_budget();
+            self.room = self.limit;
+            self.until_sweep = CACHE_SWEEP_OPS;
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let _ = CACHE.try_with(|t| heap_slot::set(t));
+            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            let _ = CACHE.try_with(|t| heap_offset::set(t));
         }
     }
 
@@ -1047,16 +1065,23 @@ impl Cache {
         self.publish();
         self.armed = true;
         self.limit = 0;
+        self.room = 0;
+    }
+
+    /// The bytes the cache holds.
+    fn held(&self) -> u64 {
+        self.limit.saturating_sub(self.room)
     }
 
     /// Tell [`RETAINED_BYTES`] what this thread is holding now.
     fn publish(&mut self) {
-        if self.held >= self.published {
-            RETAINED_BYTES.fetch_add(self.held - self.published, Ordering::Relaxed);
+        let held = self.held();
+        if held >= self.published {
+            RETAINED_BYTES.fetch_add(held - self.published, Ordering::Relaxed);
         } else {
-            RETAINED_BYTES.fetch_sub(self.published - self.held, Ordering::Relaxed);
+            RETAINED_BYTES.fetch_sub(self.published - held, Ordering::Relaxed);
         }
-        self.published = self.held;
+        self.published = held;
     }
 
     /// One cache operation has happened; sweep if enough of them have.
@@ -1070,9 +1095,10 @@ impl Cache {
     /// the whole of the rest of this slice costs it.
     #[inline(always)]
     fn tick(&mut self) {
-        self.since_sweep += 1;
-        if self.since_sweep >= CACHE_SWEEP_OPS {
+        if self.until_sweep <= 1 {
             self.sweep();
+        } else {
+            self.until_sweep -= 1;
         }
     }
 
@@ -1086,7 +1112,7 @@ impl Cache {
     #[cold]
     #[inline(never)]
     fn sweep(&mut self) {
-        self.since_sweep = 0;
+        self.until_sweep = CACHE_SWEEP_OPS;
         let end = if self.sweeps.is_multiple_of(CACHE_MID_SWEEP_EVERY) {
             CACHE_SLOTS
         } else {
@@ -1123,6 +1149,10 @@ impl Cache {
     /// allocator in a position to do the rest. (The pages this file *does* own
     /// are the thread stacks, and those are decommitted for real: see
     /// [`buri_rt_stack_release`].)
+    ///
+    /// Out of line, so the sweep's walk over slots with nothing to give back
+    /// keeps its loop in registers.
+    #[inline(never)]
     fn release_slot(&mut self, idx: usize) {
         let payload = idx as u64;
         let bytes = slot_bytes(payload);
@@ -1138,7 +1168,7 @@ impl Cache {
             // SAFETY: every pointer in a slot is a dead block this file freed,
             // of exactly `payload` usable bytes, whose `rc` holds the next one.
             slot.head = unsafe { (*header(p)).rc as *mut u8 };
-            self.held = self.held.saturating_sub(bytes);
+            self.room += bytes;
             // SAFETY: `p - 16` is the allocation and `layout` is the layout it
             // was created with — the slot index *is* the capacity, which is
             // the whole point of keying on exact sizes.
@@ -1203,11 +1233,11 @@ thread_local! {
         ThreadHeap {
             cache: std::cell::UnsafeCell::new(Cache {
                 slots: [Slot { head: std::ptr::null_mut(), idle: 0 }; CACHE_SLOTS],
-                held: 0,
+                room: 0,
                 limit: 0,
                 armed: false,
                 published: 0,
-                since_sweep: 0,
+                until_sweep: 0,
                 sweeps: 0,
                 arena: 0,
                 arena_at: 0,
@@ -1231,20 +1261,97 @@ thread_local! {
 }
 
 /// This thread's [`ThreadHeap`] for the fast paths, or null where they must not
-/// run: on macOS arm64 before the cache is armed and after it closes.
+/// run: on arm64 before any cache is armed, and on macOS arm64 after this
+/// thread's closes.
 ///
 /// **On macOS a `thread_local!` is a call into dyld**, `_tlv_get_addr`, and
 /// the call made both `buri_rt_alloc` and `buri_rt_free` keep a stack frame.
 /// [`heap_slot`] keeps the address where one load from the thread's own
-/// register finds it. Elsewhere the thread-local is that load already.
+/// register finds it. On Linux arm64 the thread-local is a load already, but
+/// one the linker rewrites from a call, so the frame stayed; [`heap_offset`]
+/// is the same load without it. Elsewhere the thread-local is used as it is.
 #[inline(always)]
 fn heap_fast() -> *const ThreadHeap {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     return heap_slot::get();
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    return heap_offset::get();
+    #[cfg(not(all(any(target_os = "macos", target_os = "linux"), target_arch = "aarch64")))]
     CACHE
         .try_with(|t| std::ptr::from_ref(t))
         .unwrap_or(std::ptr::null())
+}
+
+/// This thread's [`ThreadHeap`] address, as the thread pointer plus an offset
+/// that is the same on every thread.
+///
+/// **Rust reaches a thread-local through a TLS descriptor**, a call the linker
+/// turns into a constant when it links the runtime into an executable. The
+/// call is gone from the binary, but it was there when the compiler laid out
+/// the function, so `buri_rt_alloc` and `buri_rt_free` still saved the link
+/// register around it.
+///
+/// The constant is the thread-local's offset from `tpidr_el0`, the same for
+/// every thread, because the runtime is always in the executable's own TLS
+/// block. [`set`](heap_offset::set) learns it on each thread that arms a
+/// cache and checks that it agrees, and an offset that ever disagrees leaves
+/// every thread on the slow path.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+mod heap_offset {
+    use super::ThreadHeap;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    /// The offset, or zero while it is unknown and once two threads disagreed.
+    /// Zero is never an offset: the thread pointer names the thread control
+    /// block, which the TLS block follows.
+    static OFFSET: AtomicUsize = AtomicUsize::new(0);
+
+    /// Two threads disagreed, so [`OFFSET`] stays zero.
+    static BROKEN: AtomicBool = AtomicBool::new(false);
+
+    /// This thread's thread pointer.
+    #[inline(always)]
+    fn tp() -> usize {
+        let tp: usize;
+        // SAFETY: reads a register.
+        unsafe {
+            core::arch::asm!(
+                "mrs {}, tpidr_el0",
+                out(reg) tp,
+                options(nomem, nostack, preserves_flags)
+            );
+        }
+        tp
+    }
+
+    /// This thread's heap, or null.
+    #[inline(always)]
+    pub(super) fn get() -> *const ThreadHeap {
+        let offset = OFFSET.load(Ordering::Relaxed);
+        if offset == 0 {
+            return std::ptr::null();
+        }
+        let heap = std::ptr::with_exposed_provenance::<ThreadHeap>(tp().wrapping_add(offset));
+        // SAFETY: the address of this thread's heap, which is not null.
+        unsafe { std::hint::assert_unchecked(!heap.is_null()) };
+        heap
+    }
+
+    /// Learn the offset from this thread's `heap`, or check it.
+    pub(super) fn set(heap: *const ThreadHeap) {
+        let offset = heap.expose_provenance().wrapping_sub(tp());
+        if BROKEN.load(Ordering::Relaxed) {
+            return;
+        }
+        // A latch every allocation reads with a plain load.
+        super::valgrind::atomic(&OFFSET);
+        if let Err(known) = OFFSET.compare_exchange(0, offset, Ordering::Relaxed, Ordering::Relaxed)
+            && known != offset
+        {
+            BROKEN.store(true, Ordering::Relaxed);
+            OFFSET.store(0, Ordering::Relaxed);
+        }
+    }
 }
 
 /// This thread's [`ThreadHeap`] address, in a pthread key read straight from
@@ -1341,7 +1448,7 @@ mod heap_slot {
 /// answered.
 #[inline(always)]
 fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
-    let t = if scopes_exist() || !heap_check_off() {
+    let t = if gated(GATE_HEAP_CHECK | GATE_SCOPES) {
         std::ptr::null()
     } else {
         heap_fast()
@@ -1430,7 +1537,7 @@ unsafe fn free_cached(p: *mut u8) {
         return;
     }
     let cap = h.cap & BURI_RT_CAP_MASK;
-    if h.cap & BURI_RT_CAP_ARENA != 0 || crate::scalars::indexed(p) {
+    if h.cap & BURI_RT_CAP_ARENA != 0 {
         // SAFETY: forwarded.
         return unsafe { free_uncached(p) };
     }
@@ -1440,13 +1547,14 @@ unsafe fn free_cached(p: *mut u8) {
     // SAFETY: as above.
     let cache = unsafe { &mut *t.cache.get() };
     let bytes = slot_bytes(cap);
-    if cap > CACHE_MAX_PAYLOAD
-        || cache.held + bytes > cache.limit
-        || cache.since_sweep + 1 >= CACHE_SWEEP_OPS
-    {
+    if cap > CACHE_MAX_PAYLOAD || bytes > cache.room || cache.until_sweep <= 1 {
         // SAFETY: forwarded; the reference into the cache has ended.
         return unsafe { free_missed(t, p, cap) };
     }
+    // Before the link is written, which the compiler can't tell apart from
+    // these two words.
+    cache.room -= bytes;
+    cache.until_sweep -= 1;
     #[expect(
         clippy::indexing_slicing,
         reason = "`cap <= CACHE_MAX_PAYLOAD` was checked above, and there are `CACHE_SLOTS` of them"
@@ -1456,8 +1564,6 @@ unsafe fn free_cached(p: *mut u8) {
     // storage.
     unsafe { (*header(p)).rc = slot.head as u64 };
     slot.head = p;
-    cache.held += bytes;
-    cache.since_sweep += 1;
 }
 
 /// [`free_cached`] once the cache's fast push refused a block of `cap` bytes:
@@ -1519,7 +1625,7 @@ fn cache_take(cache: &mut Cache, payload: u64) -> Option<*mut u8> {
     // G6: the program wanted this size in this period, so the sweep
     // leaves the slot alone.
     slot.idle = 0;
-    cache.held = cache.held.saturating_sub(slot_bytes(payload));
+    cache.room += slot_bytes(payload);
     Some(p)
 }
 
@@ -1584,7 +1690,7 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
             // G6: the program wanted this size in this period, so the sweep
             // leaves the slot alone.
             slot.idle = 0;
-            cache.held = cache.held.saturating_sub(slot_bytes(payload));
+            cache.room += slot_bytes(payload);
             Take::Cached(p)
         })
         .unwrap_or(Take::Neither);
@@ -1644,13 +1750,12 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
         // Everything but an accepted push between two sweeps is out of line,
         // so this closure stays small enough to inline into `buri_rt_free`
         // rather than costing a second frame on every free.
-        if cap > CACHE_MAX_PAYLOAD
-            || cache.held + bytes > cache.limit
-            || cache.since_sweep + 1 >= CACHE_SWEEP_OPS
-        {
+        if cap > CACHE_MAX_PAYLOAD || bytes > cache.room || cache.until_sweep <= 1 {
             // SAFETY: forwarded.
             return unsafe { cache_push_slow(t, p, cap) };
         }
+        cache.room -= bytes;
+        cache.until_sweep -= 1;
         #[expect(
             clippy::indexing_slicing,
             reason = "`cap <= CACHE_MAX_PAYLOAD` was checked above, and there are `CACHE_SLOTS` of them"
@@ -1662,8 +1767,6 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
             (*header(p)).rc = slot.head as u64;
         }
         slot.head = p;
-        cache.held += bytes;
-        cache.since_sweep += 1;
         true
     });
     pushed.unwrap_or_else(|_| {
@@ -1688,7 +1791,7 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
     // ended.
     let cache = unsafe { &mut *t.cache.get() };
     let bytes = slot_bytes(cap);
-    if cache.held.saturating_add(bytes) > cache.limit {
+    if bytes > cache.room {
         // Unarmed, closed or full: the one place a push asks after the
         // tally, and the arm below needs it open first.
         t.tally.seen(&freed(cap));
@@ -1700,7 +1803,7 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
         // The thread's first free. Register the destructor that will drain
         // this cache, open it, and keep the block after all.
         cache.arm();
-        if cache.held.saturating_add(bytes) > cache.limit {
+        if bytes > cache.room {
             return false;
         }
     }
@@ -1713,7 +1816,7 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
         (*header(p)).rc = slot.head as u64;
     }
     slot.head = p;
-    cache.held = cache.held.saturating_add(bytes);
+    cache.room -= bytes;
     cache.tick();
     true
 }
@@ -2046,16 +2149,35 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     if p.is_null() {
         return;
     }
-    // The mode is read once, and a shipped program's, `Off`, gets a copy of
-    // the body with every check folded away: no quarantine test, no trace,
+    // A shipped program's gate is clear, and it gets a copy of the body with
+    // every check folded away: no quarantine test, no trace, no index lookup,
     // and none of their registers saved on the way in.
-    if heap_check_off() {
+    if gated(GATE_HEAP_CHECK | GATE_INDEXED) {
         // SAFETY: forwarded.
-        unsafe { free_cached(p) }
+        unsafe { free_gated(p) }
     } else {
         // SAFETY: forwarded.
-        unsafe { free_checked(p, heap_check()) }
+        unsafe { free_cached(p) }
     }
+}
+
+/// [`buri_rt_free`] with a bit of [`GATE`] set: the heap check is on or
+/// undecided, or some block may have a scalar index to forget.
+///
+/// # Safety
+/// As [`buri_rt_free`], and `p` is not null.
+#[inline(never)]
+unsafe fn free_gated(p: *mut u8) {
+    if !heap_check_off() {
+        // SAFETY: forwarded.
+        return unsafe { free_checked(p, heap_check()) };
+    }
+    if crate::scalars::indexed(p) {
+        // SAFETY: forwarded.
+        return unsafe { free_uncached(p) };
+    }
+    // SAFETY: forwarded.
+    unsafe { free_cached(p) }
 }
 
 /// Run `drop_glue` on a block that has died, then [`buri_rt_free`] it: the
@@ -2621,6 +2743,36 @@ fn heap_check_off() -> bool {
     HEAP_MODE.load(Ordering::Relaxed) == 1
 }
 
+/// **Every process-wide question the fast paths ask, in one byte**: a set bit
+/// sends [`alloc_cached`] or [`free_cached`] the long way round.
+///
+/// The heap check's mode, [`SCOPES_EXIST`] and `scalars`' index latch were
+/// three loads and three branches on every allocation and free, each of a
+/// word written at most a few times in a process's life. One byte and one
+/// test answer all three for a shipped program, which has every bit clear.
+/// The latches themselves stay, for the slow paths that need the detail.
+static GATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(GATE_HEAP_CHECK);
+
+/// [`GATE`]'s bit for a heap check that is on or not yet decided.
+const GATE_HEAP_CHECK: u8 = 1;
+/// [`GATE`]'s bit for a process that has opened a scope.
+const GATE_SCOPES: u8 = 2;
+/// [`GATE`]'s bit for a process that has built a scalar index.
+pub(crate) const GATE_INDEXED: u8 = 4;
+
+/// Whether any of `bits` is set in [`GATE`].
+#[inline(always)]
+fn gated(bits: u8) -> bool {
+    GATE.load(Ordering::Relaxed) & bits != 0
+}
+
+/// Set `bit` in [`GATE`], for good.
+pub(crate) fn gate(bit: u8) {
+    // A latch every allocation reads with a plain load.
+    valgrind::atomic(&GATE);
+    GATE.fetch_or(bit, Ordering::Relaxed);
+}
+
 /// [`heap_check`]'s cached answer: `0` until it is decided, then one more than
 /// the variant's position.
 static HEAP_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -2640,6 +2792,10 @@ fn heap_check_decided() -> HeapCheck {
     // A latch every allocation reads with a plain load.
     valgrind::atomic(&HEAP_MODE);
     HEAP_MODE.store(byte, Ordering::Relaxed);
+    if mode == HeapCheck::Off {
+        valgrind::atomic(&GATE);
+        GATE.fetch_and(!GATE_HEAP_CHECK, Ordering::Relaxed);
+    }
     mode
 }
 
@@ -3371,11 +3527,11 @@ const BURI_RT_ARENA_BLOCK: usize = 64 * 1024;
 
 /// **Whether this process has ever opened a scope.**
 ///
-/// Set by [`buri_rt_alloc_arena_create`] and never cleared, and read on every
-/// allocation by [`take_block`] — one relaxed load of a word written at most
-/// once in a process's life, so it is in this core's cache from the first block
-/// onwards. A program with no `core/alloc::scoped` in it therefore allocates
-/// exactly as it did before G5.
+/// Set by [`buri_rt_alloc_arena_create`] and never cleared, and read by every
+/// allocation off the fast path, which [`GATE`]'s scopes bit sends there — one
+/// relaxed load of a word written at most once in a process's life, so it is
+/// in this core's cache from the first block onwards. A program with no
+/// `core/alloc::scoped` in it therefore allocates exactly as it did before G5.
 ///
 /// The same device as G3's marking latch, for the same reason: the question is
 /// about the *program* and not about the allocation, so it is asked once and
@@ -3580,6 +3736,7 @@ pub extern "C" fn buri_rt_alloc_arena_create() -> i64 {
     // A latch every allocation reads with a plain load.
     valgrind::atomic(&SCOPES_EXIST);
     SCOPES_EXIST.store(true, Ordering::Relaxed);
+    gate(GATE_SCOPES);
     let reused = arena_free(Vec::pop).and_then(|slot| {
         arenas(|t| {
             let a = t.get_mut(slot)?;
@@ -5836,7 +5993,7 @@ mod tests {
     /// and the convergence claim below is a per-thread claim.
     fn cache_held() -> u64 {
         // SAFETY: this thread's own cell, and the reference does not escape.
-        CACHE.with(|c| unsafe { (*c.cache.get()).held })
+        CACHE.with(|c| unsafe { (*c.cache.get()).held() })
     }
 
     /// This thread's own heap counts, which no other test moves.
@@ -6251,8 +6408,8 @@ mod tests {
         fn drop(&mut self) {
             if let Some(tx) = self.0.take() {
                 // SAFETY: this thread's own cell, and the reference does not escape.
-                let left =
-                    CACHE.with(|c| unsafe { ((*c.cache.get()).held, (*c.cache.get()).published) });
+                let left = CACHE
+                    .with(|c| unsafe { ((*c.cache.get()).held(), (*c.cache.get()).published) });
                 let _ = tx.send(left);
             }
         }

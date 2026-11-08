@@ -19,7 +19,7 @@
 //! Each row runs under the heap check, so a table that kept a block alive, or a
 //! block freed under one, fails the status.
 
-use crate::shared::{probed, ran_checked, Ran, ALLOC_PROBE};
+use crate::shared::{heap_checked, probed, ran_checked, ran_command, Ran, ALLOC_PROBE};
 
 /// [`ALLOC_PROBE`], plus a line with the bytes the runtime read to turn scalar
 /// indices into byte offsets over the whole run.
@@ -215,4 +215,69 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     let (_, live) = probed(&r.stderr);
     assert_eq!(live, 0, "blocks still live at exit");
+}
+
+/// Strings built in the blocks of freed indexed ones read their own scalars,
+/// as the program ships, where a block goes back through the thread's cache,
+/// and under the heap check, where it does not.
+///
+/// Each round's `long` is 300 `é`s, indexed by its first `charAt`, and dies
+/// with `indexedLong`'s frame. `mixed` is 200 `aé`s, the same 600 bytes, so it
+/// can take the freed block. Each string's every scalar is read, and one past
+/// the end. An index of `long` would say `mixed` ends at scalar 300, and one
+/// of `mixed` would read past `long`'s end. A hundred rounds, so some free
+/// goes back through a cache that is already armed.
+#[test]
+fn strings_built_in_freed_indexed_blocks_read_their_own_scalars() {
+    let source = r#"
+from "platform/effect" import { Allocator, Environment };
+from "native" import { NativeHost };
+from "core/env" import * as env;
+from "core/io" import * as io;
+
+fn code(c: Option<Char>): Int {
+  match (c) { .Some(x) => x.toU32().toI64(), .None => -1 }
+}
+
+fn codes(s: Str, i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else { codes(s, i + 1, n, acc + code(s.charAt(i))) }
+}
+
+fn indexedLong<C: Allocator>(ctx: C, times: Int): Int {
+  let long = "é".repeat(ctx, times);
+  codes(long, 0, 301, 0)
+}
+
+fn agrees<C: Allocator>(ctx: C, extra: Int): Bool {
+  let last = indexedLong(ctx, 300 + extra);
+  let mixed = "aé".repeat(ctx, 200 + extra);
+  last == 300 * 233 - 1 && codes(mixed, 0, 401, 0) == 200 * 97 + 200 * 233 - 1
+}
+
+fn rounds<C: Allocator>(ctx: C, extra: Int, i: Int, n: Int, ok: Int): Int {
+  if (i >= n) { ok } else { rounds(ctx, extra, i + 1, n, if (agrees(ctx, extra)) { ok + 1 } else { ok }) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env };
+  // A count the compiler can't know, so the strings are built as it runs.
+  let none = env.arguments(ctx).length();
+  let _ = io.println(host.stdout, "${rounds(host.alloc, none, 0, 100, 0)} of 100").ignore();
+  .Ok(())
+}
+"#;
+    let Some(binary) = crate::e2e::built_probed("freed-index", source, &scan_probe()) else {
+        return;
+    };
+    for checked in [false, true] {
+        let mut cmd = std::process::Command::new(&binary);
+        if checked {
+            heap_checked(&mut cmd);
+        }
+        let r = ran_command(&mut cmd);
+        assert_eq!(r.status, 0, "checked={checked}: {}", r.stderr);
+        assert_eq!(r.stdout, "100 of 100\n", "checked={checked}: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "checked={checked}: blocks still live at exit");
+    }
 }
