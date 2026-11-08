@@ -14,8 +14,8 @@ something:
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
 None holds on a real build yet. A cold dev `buri build //...` of a generated
-262k-line workspace on an M3 Pro parses at 25% of its goal, checks at 15% and
-compiles at 34% (§6.82). CI holds each phase's instructions and cache cost per
+449k-line application monorepo on an M3 Pro parses at 49% of its goal and
+compiles at 38%; check passes, but checks real code slower than this (§6.82). CI holds each phase's instructions and cache cost per
 line to a baseline that only falls. `cli/benches/compiler.rs` measures both.
 
 ---
@@ -442,8 +442,8 @@ and the flags that select what runs:
   --rss             peak RSS and instructions per phase, untimed
   --calibrate       the speed-of-light ceilings, per corpus (§3.2)
   --alloc           allocations per line, per phase, untimed
-  --goals=<mode>    time | count: a cold `buri build //...` against the goals (§6.82)
-  --size=<name>     full | ci | tiny: the workspace --goals builds
+  --goals=<mode>    time | count: cold builds against the goals (§6.82)
+  --size=<names>    monorepo, monorepo-ci, monorepo-tiny, full, ci or tiny, comma-separated
   --bless           with --goals=count, lower the baseline to this run
 ```
 
@@ -7602,27 +7602,49 @@ fixes the first edit.
 ### 6.82 The goals, measured on a real build, 2026-11-05
 
 ```text
-cargo bench -p buri --bench compiler -- --goals=time                 # lines a CPU second, full size
-cargo bench -p buri --bench compiler -- --goals=count --size=ci      # callgrind, against the baseline (Linux)
-cargo bench -p buri --bench compiler -- --goals=count --size=ci --bless
+cargo bench -p buri --bench compiler -- --goals=time                            # lines a CPU second, monorepo
+cargo bench -p buri --bench compiler -- --goals=time --size=full                # the library workspace
+cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci     # callgrind, against the baseline (Linux)
+cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci --bless
 ```
 
-Both run a cold dev `buri build //...` through the real CLI, with
-`BURI_THREADS=1`. The build includes the loader, lint, styles and the linker.
-The input is a workspace `cli/benches/workspace.rs` generates from fixed seeds.
-It has libraries with BUILD files, shared by native programs, pages and
-tests, plus generics used at several types, effects, records, enums and
-styles. Nothing big is checked in.
+Every run is a cold dev build through the real CLI, with `BURI_THREADS=1`. The
+build includes the loader, lint, styles, build-time generators and the linker.
+Nothing big is checked in: `cli/benches/workspace.rs` and
+`cli/benches/monorepo.rs` generate the workspaces from fixed seeds.
 
-| Size | Libraries | Programs | Pages | Lines of code | Runs in |
+There are two workspaces:
+
+- **The library workspace** (`full`, `ci`, `tiny`): libraries with BUILD
+  files, shared by native programs, pages and tests, plus generics used at
+  several types, effects, records, enums and styles. `buri build //...` only.
+- **The monorepo** (`monorepo`, `monorepo-ci`, `monorepo-tiny`): shaped like an
+  application monorepo. It has many small packages in a deep dependency graph,
+  each with a test suite. Its code is records with JSON round trips, state
+  enums, string tables, slugs, totals, a few generics and clock-and-random
+  leases. It has few traits. Every few packages run a generator: JSON fixtures
+  through a workspace tool, or a `.proto` schema through `proto`. Native
+  programs, `node` scripts and pages sit on top. Each size runs twice:
+  `buri build //...`, and what `buri test //...` builds. The test runs
+  themselves are left out (see the phases below).
+
+| Size | Packages | Programs, scripts, pages | Generators | Lines of code | Runs in |
 |---|---:|---:|---:|---:|---|
-| `full` | 48 | 12 | 4 | 262,364 | `--goals=time`, 16 s a build on an M3 Pro |
-| `ci` | 8 | 3 | 1 | 25,838 | `goals-counted`, 4 to 6 min under callgrind |
-| `tiny` | 3 | 1 | 1 | 12,202 | the suite's `build::goals` |
+| `monorepo` | 150 | 30, 8, 3 | 31 | 448,808 | `--goals=time`, 13 s a build on an M3 Pro |
+| `monorepo-ci` | 16 | 2, 1, 1 | 4 | 58,293 | `goals-counted` |
+| `monorepo-tiny` | 3 | 1, 1, 1 | 2 | 37,932 | the suite's `build::goals` |
+| `full` | 48 | 12, 0, 4 | 0 | 262,368 | `--goals=time --size=full` |
+| `ci` | 8 | 3, 0, 1 | 0 | 25,838 | `goals-counted` |
+| `tiny` | 3 | 1, 0, 1 | 0 | 12,202 | the suite's `build::goals` |
 
-CI counts the `ci` size because the full one would take over an hour under
-callgrind. Check's cost per line grows with the workspace, so `ci` flatters
-check by about 3x against `full`.
+CI counts the small sizes because the large ones would take over an hour
+under callgrind. Check's cost per line grows with the workspace, so the small
+sizes flatter check.
+
+**Generators are the build's only child processes** besides the linker. Each
+generator rule runs its tool once. A workspace tool runs under bun today, which
+is why the `perf` shell carries bun. No step spawns a bundler: JS bundling and
+minifying happen inside `buri`.
 
 **A line** is a line holding part of a token, counted once per distinct file
 the build lexes: the workspace's sources and the stdlib they reach. Blank and
@@ -7633,10 +7655,11 @@ comment lines don't count. `BURI_PROFILE=1` prints the count as
 
 - parse is `lex+parse`.
 - check is `check`: name resolution and type checking.
-- dev codegen is everything else up to a linked binary, the linker's child
-  process included.
+- dev codegen is everything else up to a linked binary, child processes
+  included: the linker and the generators.
 - other is the loader, lint, styles and the build cache. It's reported, not
-  held to a goal.
+  held to a goal. In a test build it also holds `run`, the test runner's own
+  work. The tests' processes are left out of every phase.
 
 **Measured on an M3 Pro**, `--goals=time`, the fastest of 3 builds:
 
@@ -7652,6 +7675,29 @@ The in-memory corpora this replaced (`mixed-1M` under `parser::parse` and
 `Checker::run`) read 1.27x, 4.19x and 3.93x of the goals. A real build misses
 them because it parses and checks the stdlib it reaches, lints, and checks a
 workspace whose cost per line grows with its size.
+
+**The monorepo against `full`**, 2026-11-07 on an M3 Pro, `--goals=time`,
+lines a CPU second:
+
+| Phase | `full` build | `monorepo` build | `monorepo` test build |
+|---|---:|---:|---:|
+| parse | 5.14 M | 4.93 M | 4.49 M |
+| check | 1.40 M | 1.94 M | 1.06 M |
+| dev codegen | 44.2 k | 38.5 k | 66.1 k |
+| check instructions/line | 6,717 | 5,492 | 10,197 |
+
+The monorepo compiles 0.42 functions a line against `full`'s 1.28. Its child
+processes, 31 generator runs and 30 links, take 9.0 CPU-seconds. A test build checks twice
+the instructions a line, because the 7,376 tests and the code they call get
+checked too, but compiles less, because nothing links the programs.
+
+**Where it still falls short of real code: check.** Real application code
+checks at about 0.2–0.5 M lines a second on this machine, for about 1.4x
+`full`'s instructions a line. The monorepo's test build matches the
+instructions but not the time: real code retires about half the instructions
+a cycle in check. Neither the constructs a module uses, its identifiers nor
+its effect bounds reproduce that. Doubling the effects on every bound doubled
+check's instructions without lowering the rate. The cause is open.
 
 **The gate is a ratchet, not the goals.** `goals-counted`, on the arm64 Linux
 runner in the `perf` shell, runs the `ci` workspace under
@@ -7692,9 +7738,25 @@ Dev codegen is the whole build, children included, less the other three.
 | dev codegen | 86,076 | 130,807 |
 | other | 17,722 | 27,515 |
 
-The suite's `build::goals` checks the generator is deterministic, that the
-tiny workspace builds lint-clean and its report names each goal phase, and
-that the report and baseline handle the cost figures. `build::profile` checks
+**The `monorepo-ci` size's figures**, arm64 under callgrind, at its first
+bless, 2026-11-08:
+
+| Phase | Build, instructions/line | Build, cost/line | Test build, instructions/line | Test build, cost/line |
+|---|---:|---:|---:|---:|
+| parse | 2,264 | 3,299 | 2,443 | 3,573 |
+| check | 6,465 | 11,287 | 7,446 | 12,335 |
+| dev codegen | 33,987 | 49,245 | 32,722 | 46,753 |
+| other | 5,471 | 7,384 | 6,933 | 9,022 |
+
+Check's cost is 1.75x its instructions here, against 1.60x on `ci`: a few
+more cache misses a line, nowhere near real code's halved rate. The two
+sizes take 105 s side by side on a 4-core arm64 VM, against 30 s for `ci`
+alone.
+
+The suite's `build::goals` checks the generators are deterministic, that both
+tiny workspaces build lint-clean, that the monorepo's tests pass, that each
+report names its goal phases, that the report and baseline handle the cost
+figures, and that a test build's report leaves the tests out. `build::profile` checks
 that the line count leaves out blank and comment lines and counts the stdlib
 once.
 

@@ -378,7 +378,8 @@ jobs:
       - run: cargo bench -p buri --bench compiler --profile validate -- --validate --quick
 
   # The compile goals, counted (design/PERFORMANCE.md §6.82): a cold dev
-  # `buri build //...` of the generated workspace at its `ci` size, under
+  # `buri build //...` of each generated workspace at its `ci` size, and what
+  # `buri test //...` builds of the monorepo one, under
   # callgrind's cache simulation with pinned cache sizes. Each goal phase's
   # instructions and cache cost per line may not rise over
   # `cli/benches/goals/baseline.txt` by more than 1%. Callgrind's counts are
@@ -405,7 +406,7 @@ jobs:
           path: target/release/build
           key: goals-buildscript-${{ hashFiles('flake.lock', 'Cargo.lock', 'rust-toolchain.toml', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: goals-buildscript-
-      - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count --size=ci
+      - run: nix develop .#perf -c cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci
       - *prune
       # This run's figures, at their lowest: the file to commit when a change
       # lowers one, or when the toolchain moved.
@@ -413,7 +414,7 @@ jobs:
         if: always()
         with:
           name: goals-baseline
-          path: target/goals/ci-count/baseline.txt
+          path: target/goals/baseline.txt
           if-no-files-found: ignore
 
   # The native conformance set built by the release backend, with the heap check

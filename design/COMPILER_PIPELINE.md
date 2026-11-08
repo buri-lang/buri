@@ -213,6 +213,12 @@ Throughput against the goals, `--goals=time`, fastest of 3:
 
 Dev codegen read 49.1 k before `lower` and the keys were billed to it.
 
+`full` has no generators. A build's only child processes besides `lld` are
+generator runs, one per generator rule, with a workspace tool under bun. The
+`monorepo` goals workspace has 31 of them, and checks, compiles and runs
+generators the way an application monorepo does (`design/PERFORMANCE.md`
+§6.82).
+
 Check passed its goal when §6.97 stopped checking each library once per
 program. Dev codegen is short because it runs once per program. Each program
 reaches 104k to 166k lines, so the back half compiles about 1.65 M lines for

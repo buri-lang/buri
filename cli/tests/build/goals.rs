@@ -1,7 +1,7 @@
 //! The compile goals' benchmark (`design/PERFORMANCE.md` §6.82): its generated
 //! workspace, a real build of it, and the report and baseline `--goals` prints.
 use crate::harness::*;
-use crate::workspace::{self, TINY};
+use crate::workspace::{self, MONOREPO_TINY, TINY};
 
 #[path = "../../benches/goals/report.rs"]
 #[allow(dead_code)]
@@ -83,6 +83,73 @@ fn the_report_names_each_phase_of_a_real_build() {
     }
     let counted = format!("{} lines of code", report::commas(lines as f64));
     assert!(report.contains(&counted), "{}", indent(&report));
+}
+
+/// **A real build of the monorepo is lint-clean, and every test in it
+/// passes**: its generators run, and its `node` programs and pages build
+/// beside its native ones.
+#[test]
+fn the_monorepo_builds_lint_clean_and_its_tests_pass() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::goals", &why);
+        return;
+    }
+    let scratch = Scratch::empty("goals-monorepo-tiny");
+    for f in workspace::files(&MONOREPO_TINY) {
+        scratch.write(&f.path, &f.text);
+    }
+    scratch
+        .run(&["build", "//..."])
+        .ok()
+        .silent_about("warning");
+    scratch
+        .run(&["test", "//..."])
+        .ok()
+        .silent_about("warning")
+        .says(" passed, 0 failed, 0 skipped");
+}
+
+/// A `buri test //...` profile: the tests' processes took 9 s.
+const TEST_PROFILE: &str = "\
+buri profile           instructions        cpu       busy  child instructions  child cpu
+  lex+parse                100.0 M    0.010 s    0.010 s               0.0 M    0.000 s
+  check                    300.0 M    0.030 s    0.030 s               0.0 M    0.000 s
+  emit                     600.0 M    0.060 s    0.060 s               0.0 M    0.000 s
+  run                       50.0 M    0.005 s    0.213 s           90000.0 M    9.000 s
+  other                    250.0 M    0.025 s    1.414 s               0.0 M    0.000 s
+  all phases              1300.0 M    0.130 s    1.727 s           90000.0 M    9.000 s
+source: 1000 lines of code lexed, each file once
+process: 1.400 G instructions, 0.140 s cpu, 0.220 s runnable but not running, peak 83 MB
+child processes: 9.100 s cpu
+";
+
+/// **Of a `buri test //...`, the report measures the build**: the tests'
+/// processes are left out, and the runner's own work around them is other.
+#[test]
+fn a_test_builds_report_leaves_the_tests_out() {
+    let profile = Profile::read(TEST_PROFILE);
+    let [parse, check, other, codegen] = profile.phases();
+    assert_eq!(parse, (0.010, Some(100e6)));
+    assert_eq!(check, (0.030, Some(300e6)));
+    let near = |a: f64, b: f64| (a - b).abs() < 1e-6 * b.max(1.0);
+    assert!(
+        near(other.0, 0.030) && near(other.1.unwrap(), 300e6),
+        "{other:?}"
+    );
+    // The process and the generators' 0.1 s, less parse, check and other.
+    assert!(near(codegen.0, 0.140 + 0.100 - 0.070), "{codegen:?}");
+    assert!(near(codegen.1.unwrap(), 1400e6 - 700e6), "{codegen:?}");
+    let figures = profile.phases().map(|(cpu, n)| (Some(cpu), n));
+    let measured = Measured::new("monorepo-tiny", 1000, GOALS, figures, None).of_tests();
+    let report = measured.render();
+    assert!(
+        report.contains("what a cold `buri test //...` builds of the monorepo-tiny workspace"),
+        "{}",
+        indent(&report)
+    );
+    let figures = measured.figures("aarch64");
+    let key = "aarch64 monorepo-tiny test-build dev-codegen instructions";
+    assert!(figures.contains_key(key), "no {key} in {figures:?}");
 }
 
 /// One callgrind output file with cache simulation, as `--goals=count` reads.

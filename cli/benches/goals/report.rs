@@ -71,21 +71,25 @@ impl Profile {
 
     /// Parse, check, other and dev codegen: CPU seconds and, where this
     /// machine counts them, instructions. Dev codegen is the rest of the
-    /// process and its children, the linker among them.
+    /// process and its children, the linker among them. Of a `buri test`,
+    /// the tests' processes are left out and the work around them counts as
+    /// other.
     pub fn phases(&self) -> [(f64, Option<f64>); 4] {
         let counted = self.rows.values().any(|r| r[0].is_some());
         let own = |name: &str| (self.row(name, 1), counted.then(|| self.row(name, 0)));
-        let [parse, check, other] = [own("lex+parse"), own("check"), own("other")];
+        let [parse, check] = [own("lex+parse"), own("check")];
+        let (other, run) = (own("other"), own("run"));
+        let other = (other.0 + run.0, other.1.zip(run.1).map(|(a, b)| a + b));
         let children = |at: usize| {
             self.rows
                 .iter()
-                .filter(|(n, _)| *n != "all phases")
+                .filter(|(n, _)| *n != "all phases" && *n != "run")
                 .map(|(_, r)| r[at].unwrap_or(0.0))
                 .sum::<f64>()
         };
         let (cpu, instructions) = match self.process {
             Some((instructions, cpu)) => (
-                cpu + self.child_cpu.unwrap_or(0.0),
+                cpu + self.child_cpu.unwrap_or(0.0) - self.row("run", 3),
                 counted.then(|| instructions + children(2)),
             ),
             None => (
@@ -225,6 +229,8 @@ pub type Figure = (Option<f64>, Option<f64>);
 /// What one `--goals` run found.
 pub struct Measured {
     pub size: String,
+    /// Whether this is what `buri test //...` builds, not `buri build //...`.
+    pub tests: bool,
     pub lines: u64,
     /// The three phases, then `other` and the whole build.
     pub rows: Vec<Row>,
@@ -246,6 +252,7 @@ impl Measured {
         let sum = |f: fn(&Figure) -> Option<f64>| -> Option<f64> { figures.iter().map(f).sum() };
         Measured {
             size: size.to_string(),
+            tests: false,
             lines,
             rows: vec![
                 Row {
@@ -287,11 +294,24 @@ impl Measured {
         }
     }
 
+    /// The same figures, for what `buri test //...` builds.
+    pub fn of_tests(self) -> Measured {
+        Measured {
+            tests: true,
+            ..self
+        }
+    }
+
     /// The table.
     pub fn render(&self) -> String {
         let lines = self.lines as f64;
+        let build = if self.tests {
+            "what a cold `buri test //...` builds"
+        } else {
+            "a cold dev `buri build //...`"
+        };
         let mut out = format!(
-            "compile goals: a cold dev `buri build //...` of the {} workspace, on one thread\n\
+            "compile goals: {build} of the {} workspace, on one thread\n\
              {} lines of code: the workspace's and the stdlib's it reaches, each file once\n\n",
             self.size,
             commas(lines)
@@ -317,8 +337,9 @@ impl Measured {
             ));
         }
         out.push_str(
-            "\nother: the loader, lint, styles and the build cache. cost: instructions + 10 x L1 misses\n\
-             + 100 x last-level misses, under valgrind's cache simulation (`--goals=count`).\n",
+            "\nother: the loader, lint, styles, the build cache and the test runner around the tests.\n\
+             cost: instructions + 10 x L1 misses + 100 x last-level misses, under valgrind's cache\n\
+             simulation (`--goals=count`).\n",
         );
         out
     }
@@ -331,7 +352,11 @@ impl Measured {
             for (what, n) in [("instructions", r.instructions), ("cost", r.cost)] {
                 if let Some(n) = n {
                     let per_line = (n / self.lines as f64 * 10.0).round() / 10.0;
-                    out.insert(format!("{arch} {} {phase} {what}", self.size), per_line);
+                    let test = if self.tests { " test-build" } else { "" };
+                    out.insert(
+                        format!("{arch} {}{test} {phase} {what}", self.size),
+                        per_line,
+                    );
                 }
             }
         }
@@ -413,7 +438,7 @@ impl Baseline {
                 .iter()
                 .filter(|(k, _)| k.split(' ').next() == Some(arch))
             {
-                out.push_str(&format!("{key:<40} {n:>10.1}\n"));
+                out.push_str(&format!("{key:<56} {n:>10.1}\n"));
             }
         }
         out
@@ -430,7 +455,7 @@ impl Baseline {
         next.toolchains
             .insert(arch.to_string(), toolchain.to_string());
         let mut report = format!(
-            "{:<40} {:>10} {:>10} {:>9}\n",
+            "{:<56} {:>10} {:>10} {:>9}\n",
             "baseline, per line", "was", "now", "change"
         );
         let mut failed = false;
@@ -443,7 +468,7 @@ impl Baseline {
                 None => {
                     failed = true;
                     report.push_str(&format!(
-                        "{key:<40} {:>10} {now:>10.1}   no baseline\n",
+                        "{key:<56} {:>10} {now:>10.1}   no baseline\n",
                         "-"
                     ));
                 }
@@ -459,7 +484,7 @@ impl Baseline {
                         ""
                     };
                     report.push_str(&format!(
-                        "{key:<40} {base:>10.1} {now:>10.1} {:>+8.2}%{mark}\n",
+                        "{key:<56} {base:>10.1} {now:>10.1} {:>+8.2}%{mark}\n",
                         change * 100.0
                     ));
                 }

@@ -487,7 +487,8 @@ fn seconds(ns: u64) -> String {
 /// one of the group's phases, for `cargo bench --bench compiler -- --goals`
 /// (`design/PERFORMANCE.md` §6.82). Run under
 /// `valgrind --tool=callgrind --collect-atstart=no`, which starts every thread
-/// not counting. The groups are `parse`, `check` and `other`.
+/// not counting. The groups are `parse`, `check` and `other`, which takes in
+/// `run`: the test runner's own work around the tests a `buri test` starts.
 mod collect {
     use super::Phase;
     use std::sync::OnceLock;
@@ -498,7 +499,7 @@ mod collect {
             || match std::env::var("BURI_PROFILE_COLLECT").ok()?.as_str() {
                 "parse" => Some(&[Phase::Parse]),
                 "check" => Some(&[Phase::Check]),
-                "other" => Some(&[Phase::Other]),
+                "other" => Some(&[Phase::Other, Phase::Run]),
                 _ => None,
             },
         )

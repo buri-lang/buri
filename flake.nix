@@ -823,6 +823,9 @@
             pkgs.valgrind
             # `taskset`, which pins a measured process to one core.
             pkgs.util-linux
+            # What runs the build-time generators of the goals' monorepo
+            # workload (cli/benches/goals.rs).
+            bun
           ];
           # `cli/build.rs` needs clang; the stdenv's `cc` is gcc here.
           shellHook = ''

@@ -161,10 +161,13 @@ usage: compiler [flags]
   --record[=<name>]      write the corpus into cli/benches/corpora/ and exit
   --pin[=<name>]         write a digest-pinned manifest into cli/benches/pinned/
   --goals=time           the goals on a cold `buri build //...` of a generated
-                         workspace: lines a CPU second per phase (PERFORMANCE.md §6.82)
+                         workspace, and on what `buri test //...` builds of a
+                         monorepo: lines a CPU second per phase (PERFORMANCE.md §6.82)
   --goals=count          the same under callgrind (Linux): instructions and cache
                          cost a line, held to cli/benches/goals/baseline.txt
-  --size=<full|ci|tiny>  the workspace --goals builds (default: full; ci for count)
+  --size=<names>         the workspaces --goals builds, comma-separated: monorepo,
+                         monorepo-ci, monorepo-tiny, full, ci or tiny
+                         (default: monorepo; monorepo-ci for count)
   --bless                with --goals=count, lower the baseline to this run
 ";
 

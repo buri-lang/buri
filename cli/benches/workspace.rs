@@ -17,9 +17,32 @@
 
 use super::generate::{chunk, laid_out, nonblank_lines, Params, Rng};
 
-/// How large a workspace to write.
+#[path = "monorepo.rs"]
+mod monorepo;
+use monorepo::Monorepo;
+
+/// A workspace `--goals` can build: its name and its shape.
 pub struct Size {
     pub name: &'static str,
+    pub shape: Shape,
+}
+
+pub enum Shape {
+    /// This file's library-heavy workspace.
+    Libraries(Libraries),
+    /// `monorepo.rs`'s application monorepo.
+    Monorepo(Monorepo),
+}
+
+impl Size {
+    /// Whether `--goals` also measures what `buri test //...` builds.
+    pub fn tests(&self) -> bool {
+        matches!(self.shape, Shape::Monorepo(_))
+    }
+}
+
+/// How large a library workspace to write.
+pub struct Libraries {
     pub libraries: usize,
     pub modules: usize,
     /// Non-blank lines a module is filled to.
@@ -30,41 +53,100 @@ pub struct Size {
     pub uses: usize,
 }
 
-/// What `--goals` measures by default: about 300,000 lines with the stdlib.
+/// The library workspace `--goals` measured first: about 260,000 lines with
+/// the stdlib.
 pub const FULL: Size = Size {
     name: "full",
-    libraries: 48,
-    modules: 10,
-    module_lines: 560,
-    programs: 12,
-    pages: 4,
-    uses: 4,
+    shape: Shape::Libraries(Libraries {
+        libraries: 48,
+        modules: 10,
+        module_lines: 560,
+        programs: 12,
+        pages: 4,
+        uses: 4,
+    }),
 };
 
-/// What CI measures: Valgrind runs a build tens of times slower, and the full
-/// size would take most of an hour there.
+/// What CI measures of it: Valgrind runs a build tens of times slower, and
+/// the full size would take most of an hour there.
 pub const CI: Size = Size {
     name: "ci",
-    libraries: 8,
-    modules: 6,
-    module_lines: 300,
-    programs: 3,
-    pages: 1,
-    uses: 3,
+    shape: Shape::Libraries(Libraries {
+        libraries: 8,
+        modules: 6,
+        module_lines: 300,
+        programs: 3,
+        pages: 1,
+        uses: 3,
+    }),
 };
 
-/// The smallest workspace with every shape in it, for the suite.
+/// The smallest library workspace with every shape in it, for the suite.
 pub const TINY: Size = Size {
     name: "tiny",
-    libraries: 3,
-    modules: 2,
-    module_lines: 80,
-    programs: 1,
-    pages: 1,
-    uses: 2,
+    shape: Shape::Libraries(Libraries {
+        libraries: 3,
+        modules: 2,
+        module_lines: 80,
+        programs: 1,
+        pages: 1,
+        uses: 2,
+    }),
 };
 
-pub const SIZES: [&Size; 3] = [&FULL, &CI, &TINY];
+/// What `--goals` measures by default: an application monorepo of about
+/// 400,000 lines with the stdlib, shaped like a large real one.
+pub const MONOREPO: Size = Size {
+    name: "monorepo",
+    shape: Shape::Monorepo(Monorepo {
+        packages: 150,
+        modules: 4,
+        module_lines: 300,
+        programs: 30,
+        scripts: 8,
+        pages: 3,
+        fixtures: 12,
+        protos: 8,
+        messages: 16,
+        calls: 1,
+    }),
+};
+
+/// What CI measures of it.
+pub const MONOREPO_CI: Size = Size {
+    name: "monorepo-ci",
+    shape: Shape::Monorepo(Monorepo {
+        packages: 16,
+        modules: 3,
+        module_lines: 200,
+        programs: 2,
+        scripts: 1,
+        pages: 1,
+        fixtures: 8,
+        protos: 8,
+        messages: 8,
+        calls: 1,
+    }),
+};
+
+/// The smallest monorepo with every shape in it, for the suite.
+pub const MONOREPO_TINY: Size = Size {
+    name: "monorepo-tiny",
+    shape: Shape::Monorepo(Monorepo {
+        packages: 3,
+        modules: 2,
+        module_lines: 60,
+        programs: 1,
+        scripts: 1,
+        pages: 1,
+        fixtures: 2,
+        protos: 3,
+        messages: 3,
+        calls: 1,
+    }),
+};
+
+pub const SIZES: [&Size; 6] = [&MONOREPO, &MONOREPO_CI, &MONOREPO_TINY, &FULL, &CI, &TINY];
 
 pub struct File {
     /// Relative to the repository root.
@@ -74,6 +156,13 @@ pub struct File {
 
 /// Every file of the workspace at `size`, in a fixed order.
 pub fn files(size: &Size) -> Vec<File> {
+    match &size.shape {
+        Shape::Libraries(l) => libraries(l),
+        Shape::Monorepo(m) => monorepo::files(m),
+    }
+}
+
+fn libraries(size: &Libraries) -> Vec<File> {
     let p = Params::default();
     let mut rng = Rng::new(0x5745_4f52_4b53_5041);
     let mut aux = Rng::new(0x4155_5849_4c49_4152);
@@ -113,7 +202,7 @@ pub fn files(size: &Size) -> Vec<File> {
 }
 
 /// `uses` distinct libraries, in order.
-fn draw(rng: &mut Rng, size: &Size) -> Vec<usize> {
+fn draw(rng: &mut Rng, size: &Libraries) -> Vec<usize> {
     let mut used = Vec::new();
     while used.len() < size.uses.min(size.libraries) {
         let d = rng.below(size.libraries as u64) as usize;
@@ -138,7 +227,7 @@ fn quoted(xs: impl Iterator<Item = String>) -> String {
 #[allow(clippy::too_many_arguments)]
 fn library(
     out: &mut Vec<File>,
-    size: &Size,
+    size: &Libraries,
     k: usize,
     deps: &[usize],
     p: &Params,
@@ -282,7 +371,7 @@ fn shapes(k: usize) -> String {
 /// Module `g` of library `k`, numbered `i` across the workspace.
 #[allow(clippy::too_many_arguments)]
 fn module(
-    size: &Size,
+    size: &Libraries,
     k: usize,
     g: usize,
     i: usize,

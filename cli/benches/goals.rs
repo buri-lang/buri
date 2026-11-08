@@ -2,16 +2,18 @@
 //! (`design/PERFORMANCE.md` §6.82).
 //!
 //! ```text
-//! cargo bench -p buri --bench compiler -- --goals=time              # lines a CPU second, here
-//! cargo bench -p buri --bench compiler -- --goals=count --size=ci   # callgrind, against the baseline
-//! cargo bench -p buri --bench compiler -- --goals=count --size=ci --bless
+//! cargo bench -p buri --bench compiler -- --goals=time                    # lines a CPU second, here
+//! cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci   # callgrind, against the baseline
+//! cargo bench -p buri --bench compiler -- --goals=count --size=ci,monorepo-ci --bless
 //! ```
 //!
-//! Both run a cold dev `buri build //...` of the workspace `workspace.rs`
-//! writes, through the real CLI, on one thread. `time` reads one profiled
-//! build's CPU time per phase, and its instructions where the machine counts
-//! them. `count` is Linux only: it runs the build under callgrind's cache
-//! simulation once per phase group and once whole, and holds each goal
+//! Both run a cold dev `buri build //...` of a workspace `workspace.rs`
+//! writes, through the real CLI, on one thread, and for a monorepo also a
+//! cold `buri test //...`, of which they measure the build: the tests' own
+//! processes are left out, and the runner's work around them is other. `time` reads one
+//! profiled build's CPU time per phase, and its instructions where the machine
+//! counts them. `count` is Linux only: it runs each build under callgrind's
+//! cache simulation once per phase group and once whole, and holds each goal
 //! phase's instructions and cache cost per line to `goals/baseline.txt`.
 
 mod report;
@@ -30,16 +32,69 @@ const GOALS: [f64; 3] = [TARGET_PARSE, TARGET_SEMA, TARGET_LOWER];
 const RUNS: usize = 3;
 
 pub fn run(mode: &str, size: Option<&str>, bless: bool) {
-    let default = if mode == "count" { "ci" } else { "full" };
-    let name = size.unwrap_or(default);
-    let size = workspace::SIZES
+    let default = if mode == "count" {
+        "monorepo-ci"
+    } else {
+        "monorepo"
+    };
+    let sizes: Vec<&Size> = size
+        .unwrap_or(default)
+        .split(',')
+        .map(|name| {
+            workspace::SIZES
+                .into_iter()
+                .find(|s| s.name == name)
+                .unwrap_or_else(|| {
+                    let names: Vec<&str> = workspace::SIZES.iter().map(|s| s.name).collect();
+                    fail(&format!("no workspace size `{name}`: {}", names.join(", ")))
+                })
+        })
+        .collect();
+    let builds: Vec<Build> = sizes
         .into_iter()
-        .find(|s| s.name == name)
-        .unwrap_or_else(|| fail(&format!("no workspace size `{name}`: full, ci or tiny")));
+        .flat_map(|size| {
+            let test = size.tests().then_some(Build { size, test: true });
+            std::iter::once(Build { size, test: false }).chain(test)
+        })
+        .collect();
     match mode {
-        "time" => timed(size),
-        "count" => counted(size, bless),
+        "time" => builds.iter().for_each(timed),
+        "count" => counted(&builds, bless),
         _ => fail("--goals wants `time` or `count`"),
+    }
+}
+
+/// One measured build: `buri build //...` of a workspace, or what
+/// `buri test //...` builds of it.
+#[derive(Clone, Copy)]
+struct Build {
+    size: &'static Size,
+    test: bool,
+}
+
+impl Build {
+    fn command(&self) -> &'static str {
+        if self.test {
+            "test"
+        } else {
+            "build"
+        }
+    }
+
+    /// The table's rows, against `figures` and, where valgrind measured
+    /// them, `costs`.
+    fn measured(
+        &self,
+        lines: u64,
+        figures: [report::Figure; 4],
+        costs: Option<[f64; 4]>,
+    ) -> Measured {
+        let m = Measured::new(self.size.name, lines, GOALS, figures, costs);
+        if self.test {
+            m.of_tests()
+        } else {
+            m
+        }
     }
 }
 
@@ -59,7 +114,7 @@ fn root() -> PathBuf {
 /// with a home of its own that one unmeasured build has warmed. The warm-up
 /// runs every time: a home a different `buri` warmed holds nothing this one
 /// reuses, and the first measured build would pay for it. Returns the home.
-fn prepared(size: &Size, dir: &Path) -> PathBuf {
+fn prepared(size: &Size, dir: &Path, command: &str) -> PathBuf {
     let files = workspace::files(size);
     let digest = {
         use std::hash::{Hash, Hasher};
@@ -82,7 +137,7 @@ fn prepared(size: &Size, dir: &Path) -> PathBuf {
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(&stamp, digest).unwrap();
     }
-    build(dir, &home, &[]);
+    build(dir, &home, command, &[]);
     clean(dir, &home);
     home
 }
@@ -108,11 +163,11 @@ fn clean(dir: &Path, home: &Path) {
     }
 }
 
-/// One cold profiled build; its stderr.
-fn build(dir: &Path, home: &Path, env: &[(&str, &str)]) -> String {
+/// One cold profiled `buri <command> //...`; its stderr.
+fn build(dir: &Path, home: &Path, command: &str, env: &[(&str, &str)]) -> String {
     clean(dir, home);
     let out = buri(dir, home)
-        .args(["build", "//..."])
+        .args([command, "//..."])
         .env("BURI_PROFILE", "1")
         .envs(env.iter().copied())
         .output()
@@ -120,7 +175,7 @@ fn build(dir: &Path, home: &Path, env: &[(&str, &str)]) -> String {
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     if !out.status.success() {
         fail(&format!(
-            "`buri build //...` failed in {}:\n{stderr}",
+            "`buri {command} //...` failed in {}:\n{stderr}",
             dir.display()
         ));
     }
@@ -134,13 +189,13 @@ fn lines_of(profile: &Profile) -> u64 {
     }
 }
 
-fn timed(size: &Size) {
-    let dir = root().join(size.name);
-    let home = prepared(size, &dir);
+fn timed(b: &Build) {
+    let dir = root().join(b.size.name);
+    let home = prepared(b.size, &dir, b.command());
     let mut lines = 0;
     let mut best: Option<[(f64, Option<f64>); 4]> = None;
     for _ in 0..RUNS {
-        let profile = Profile::read(&build(&dir, &home, &[]));
+        let profile = Profile::read(&build(&dir, &home, b.command(), &[]));
         lines = lines_of(&profile);
         let now = profile.phases();
         best = Some(match best {
@@ -156,10 +211,7 @@ fn timed(size: &Size) {
     }
     clean(&dir, &home);
     let figures = best.unwrap().map(|(cpu, n)| (Some(cpu), n));
-    print!(
-        "{}",
-        Measured::new(size.name, lines, GOALS, figures, None).render()
-    );
+    println!("{}", b.measured(lines, figures, None).render());
 }
 
 /// The tools a count depends on besides this repository's code.
@@ -182,24 +234,35 @@ fn toolchain() -> String {
     .join("; ")
 }
 
-/// The four callgrind runs: one per phase group, then the whole build and its
-/// children. Each is a workspace and home of its own, so they run side by side.
+/// The four callgrind runs of a build: one per phase group, then the whole
+/// build and its children. Each is a workspace and home of its own, so they
+/// run side by side.
 const GROUPS: [&str; 4] = ["parse", "check", "other", "whole"];
 
-fn counted(size: &Size, bless: bool) {
+/// The children the whole run leaves uncounted: the JavaScript runtime a
+/// generator runs on, which is not this repository's code, and the tests a
+/// `buri test` starts with the shell that reaps them, which are not the build.
+const UNCOUNTED: &str = "*/bun,*/test-runner,*/test-host,*/sh";
+
+fn counted(builds: &[Build], bless: bool) {
     if !cfg!(target_os = "linux") {
         fail("--goals=count runs on Linux only: callgrind counts there (design/PERFORMANCE.md §6.82)");
     }
     let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-    let base = root().join(format!("{}-count", size.name));
+    let runs: Vec<(Build, &str)> = builds
+        .iter()
+        .flat_map(|b| GROUPS.iter().map(move |g| (*b, *g)))
+        .collect();
     let results: Vec<(Events, String)> = std::thread::scope(|scope| {
-        let handles: Vec<_> = GROUPS
+        let handles: Vec<_> = runs
             .iter()
             .enumerate()
-            .map(|(i, group)| {
-                let dir = base.join(group);
+            .map(|(i, (b, group))| {
+                let dir = count_dir(b).join(group);
                 scope.spawn(move || {
-                    let home = prepared(size, &dir);
+                    let size = b.size;
+                    let command = b.command();
+                    let home = prepared(size, &dir, command);
                     let out = dir.join(".callgrind");
                     let _ = std::fs::remove_dir_all(&out);
                     std::fs::create_dir_all(&out).unwrap();
@@ -216,14 +279,15 @@ fn counted(size: &Size, bless: bool) {
                     .arg(format!("--callgrind-out-file={}/out.%p", out.display()))
                     .arg(format!("--log-file={}/log.%p", out.display()));
                     if *group == "whole" {
-                        cmd.arg("--trace-children=yes");
+                        cmd.arg("--trace-children=yes")
+                            .arg(format!("--trace-children-skip={UNCOUNTED}"));
                     } else {
                         cmd.arg("--collect-atstart=no")
                             .env("BURI_PROFILE_COLLECT", group);
                     }
                     let run = cmd
                         .arg(env!("CARGO_BIN_EXE_buri"))
-                        .args(["build", "//..."])
+                        .args([command, "//..."])
                         .current_dir(&dir)
                         .env("HOME", &home)
                         .env("BURI_THREADS", "1")
@@ -233,7 +297,7 @@ fn counted(size: &Size, bless: bool) {
                     let stderr = String::from_utf8_lossy(&run.stderr).into_owned();
                     if !run.status.success() {
                         fail(&format!(
-                            "`buri build //...` under callgrind failed in {}:\n{stderr}",
+                            "`buri {command} //...` under callgrind failed in {}:\n{stderr}",
                             dir.display()
                         ));
                     }
@@ -261,25 +325,26 @@ fn counted(size: &Size, bless: bool) {
             .map(|h| h.join().expect("a callgrind run"))
             .collect()
     });
-    let lines = lines_of(&Profile::read(&results[3].1));
-    let [parse, check, other, whole] = [0, 1, 2, 3].map(|i| results[i].0);
-    let codegen = whole.minus(parse).minus(check).minus(other);
-    let events = [parse, check, other, codegen];
-    let figures = events.map(|e| (None, Some(e.instructions)));
-    let measured = Measured::new(
-        size.name,
-        lines,
-        GOALS,
-        figures,
-        Some(events.map(|e| e.cost())),
-    );
-    print!("{}", measured.render());
-
     let arch = std::env::consts::ARCH;
+    let mut figures = std::collections::BTreeMap::new();
+    for (b, results) in builds.iter().zip(results.chunks(GROUPS.len())) {
+        let lines = lines_of(&Profile::read(&results[3].1));
+        let [parse, check, other, whole] = [0, 1, 2, 3].map(|i| results[i].0);
+        let codegen = whole.minus(parse).minus(check).minus(other);
+        let events = [parse, check, other, codegen];
+        let measured = b.measured(
+            lines,
+            events.map(|e| (None, Some(e.instructions))),
+            Some(events.map(|e| e.cost())),
+        );
+        println!("{}", measured.render());
+        figures.extend(measured.figures(arch));
+    }
+
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/goals/baseline.txt");
     let baseline = Baseline::read(&std::fs::read_to_string(&path).unwrap_or_default());
-    let verdict = baseline.check(arch, &toolchain(), &measured.figures(arch));
-    let written = base.join("baseline.txt");
+    let verdict = baseline.check(arch, &toolchain(), &figures);
+    let written = root().join("baseline.txt");
     std::fs::write(&written, verdict.next.render()).unwrap();
     if bless {
         std::fs::write(&path, verdict.next.render()).unwrap();
@@ -295,4 +360,10 @@ fn counted(size: &Size, bless: bool) {
         );
         std::process::exit(1);
     }
+}
+
+/// Where a counted build's workspaces go: one a phase group.
+fn count_dir(b: &Build) -> PathBuf {
+    let test = if b.test { "-test" } else { "" };
+    root().join(format!("{}{test}-count", b.size.name))
 }
