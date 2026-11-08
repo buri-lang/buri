@@ -240,11 +240,11 @@ fn toolchain() -> String {
 const GROUPS: [&str; 4] = ["parse", "check", "other", "whole"];
 
 /// The children the whole run leaves uncounted, because they are not the
-/// build: the generators' tools, whose building counts but whose runs don't,
-/// and the tests a `buri test` starts, on the JavaScript runtime or natively,
-/// with the shell that reaps them. The profile leaves the same processes out,
-/// in its `run` row.
-const UNCOUNTED: &str = "*/out/tools/*,*/bun,*/test-runner,*/test-host,*/sh";
+/// build: the generators' tools, a repository's and the toolchain's in the home,
+/// whose building counts but whose runs don't, and the tests a `buri test`
+/// starts, on the JavaScript runtime or natively, with the shell that reaps
+/// them. The profile leaves the same processes out, in its `run` row.
+const UNCOUNTED: &str = "*/out/tools/*,*/.buri/tools/*,*/bun,*/test-runner,*/test-host,*/sh";
 
 fn counted(builds: &[Build], bless: bool) {
     if !cfg!(target_os = "linux") {
