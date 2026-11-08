@@ -97,8 +97,9 @@ function reached from the program's roots.
   imports, signatures, impls), then local bidirectional inference per body,
   with no fixpoint. Linear in practice. Runs once per build over every module
   any target reaches (§6.97). Style extraction then rewrites the bodies in
-  place, and again per program in `Checked::restyle`. 3.0%, of which styles are
-  1.1%.
+  place, and again per program in `Checked::restyle`. In a test build that
+  takes what the first run found wherever it answers the same. 3.0%, of which
+  styles are 1.1%.
 - **Monomorphize.** `Checked` to `Program`. A worklist from the roots, so only
   what's reached. Each instance clones its generic body
   (`typed::Body::clone`, 24% of the pass) and then rewrites the copy in place
@@ -247,9 +248,11 @@ runs the middle end and emits at 470k lines a CPU-second.
 
 A test build checks the same way: every suite the cache left to build, and
 the lint's targets, are one compilation, and each suite restyles over its own
-modules (`design/PERFORMANCE.md` §6.104). On the `monorepo` workspace that's
-3.9 G instructions of type checking and 12.7 G of style graphs, one per UI
-suite. The graphs are what keeps test-build check at 357 k lines a CPU second.
+modules (`design/PERFORMANCE.md` §6.104). A restyle takes what the shared
+compilation's own extraction found for each declaration wherever the
+questions it asked of the program answer the same in that suite, and walks
+only the rest (§6.106). On the `monorepo` workspace that took test-build
+check from 339 k to 707 k lines a CPU second.
 
 **Most per-program work is repeated.** The 12 linked executables define
 203,858 functions between them, and only 63,313 distinct symbols (`nm -U`).

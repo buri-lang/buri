@@ -8853,6 +8853,59 @@ instructions than `-O0`. Retains and releases fell to 25.8 M.
 lambda and call it twice allocated 2,002 blocks, and the test fails at 20.
 A lambda that pushes onto the list it's handed must still grow it in place.
 
+### 6.106 A suite's restyle takes what the shared run found, 2026-11-08
+
+Each UI suite's restyle (§6.104) drew its style graph and walked its styled
+declarations again, over library code the shared compilation had extracted
+already. On the `monorepo` workspace the 45 restyles held 49.8 k bodies
+between them, about 1,450 of them distinct, so 97% of the work repeated.
+Before `fill`, every body a restyle rewrote came out the same as in the
+shared run.
+
+Now a test build's shared run keeps a `styles::Remembered`. For each declaration it
+holds its part of the graph, its alpha scan, and each walk. Each one carries
+the questions it asked of the program, and their answers:
+
+```rust
+enum Query { Read(FnId), Escapes(FnId, LocalId), Demanded(Demand), Reached(Demand), Touched(Owner) }
+```
+
+Nothing else a walk reads depends on the program: the bodies, the tables and
+what a style folds to are the same in all of them. So a restyle takes a
+declaration's kept result wherever every answer matches, and walks it
+otherwise. A kept walk numbers its leaves from its own first one, and they're
+renumbered where it lands. `fill` still runs per suite, because which names
+reach a `classify` depends on the program. Restyles only read the memory, so
+they still run side by side, and in the same order every time.
+
+Only a test build keeps it (`Restyling::Remembering`). Keeping cost the `ci`
+workspace's `buri build` 13 M of its 164 M check instructions, which would
+fail the goals' 1% margin, so a build restyles afresh. The questions a
+build doesn't keep still cost its check 0.4% to 0.6% in the goals count.
+
+Cold `buri test //...` on `monorepo`, one thread, validate profile:
+
+- check went from 17.4 G to 6.8 G instructions, and from 1.25 s to 0.60 s;
+- test-build check went from 339 k to 707 k lines a CPU second;
+- the process went from 56.7 G to 46.1 G instructions.
+
+The goals' `monorepo-ci test-build check` row fell 18%, from 11,073 to 9,068
+instructions a line, and its cost 12%, from 16,883 to 14,924.
+
+Wall time on every thread moved within noise: 7.0 to 8.8 s with and without
+the change. §6.104 didn't raise it either: 6.8 to 10.1 s before it, 6.7 to
+7.5 s after. So nothing needed parallelising.
+
+`cli/tests/build/shared_test_check.rs` guards it, counting
+`style declarations walked` under `BURI_PROFILE`:
+
+- testing a chain of four UI libraries walks as many style declarations as
+  testing the last one alone;
+- where the first library matches on a style the others give a node, its
+  suite walks that one function again and nothing else;
+- that style stays out of the matching suite's stylesheet. A restyle that
+  took kept walks without checking their answers fails this case.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
