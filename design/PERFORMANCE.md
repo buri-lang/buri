@@ -8775,6 +8775,44 @@ block reads its own scalars, which the index bit keeps true.
 A slot per 32 bytes from 1 KiB to 4 KiB saved about 4.5 M more on kvstore,
 but cost 100–500 KB of RSS, so it isn't in.
 
+### 6.104 A test run checks each module once, 2026-11-08
+
+`buri test //...` checked each JavaScript suite on its own, so a library 40
+suites reach was checked 40 times. The lint then checked every target it
+wasn't handed once more. Only native batches shared a check.
+
+Now `check_once` in `commands/test.rs` puts every suite the cache left to
+build, and every target the lint reads, in one `driver::shared` compilation.
+Each suite gets its clean share of it, as §6.97's programs do:
+
+- a share that reports an error is checked on its own, so its diagnostics
+  and their order don't change;
+- a clean share restyles over its own modules and roots at its own test
+  sources, and tests are numbered within the program, so a suite's bundle
+  doesn't depend on what else the run tests;
+- a batch takes only clean members, and the lint reads the same compilation;
+- a coverage run checks each suite on its own, where its probes go in.
+
+The JavaScript suites restyle side by side before any is queued. Restyling is
+billed to check, since a suite's own compilation does it there.
+
+On the `monorepo` goals workspace, cold and on one thread, modules loaded fell
+from 6,002 to 1,712 and the process from 60.2 G to 55.2 G instructions.
+Check went from 21.7 G to 16.6 G: type checking is 3.9 G, and drawing each
+UI suite's style graph is the other 12.7 G. Test-build check went from 187 k
+to 357 k lines a CPU second, and from 51.0 k to 39.2 k instructions a line.
+Under callgrind on `monorepo-ci`, it went from 14.9 k to 11.1 k, and parse
+from 2.55 k to 2.31 k.
+
+The 47 style graphs are what's left between test-build check and its goal.
+Each UI suite still draws its own, over the same library code.
+
+`cli/tests/build/shared_test_check.rs` guards it: two UI suites, their shared
+library and a native suite load 7 modules, with or without the lint, where
+each UI suite loaded the library again. Its other cases hold each bundle to the bytes it has built
+alone, each suite's stylesheet to its own classes, and a shared library's
+type error to one report per suite that reaches it.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

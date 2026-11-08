@@ -228,10 +228,26 @@ fn only_an_edit_that_can_change_behaviour_re_runs_a_suite() {
 #[test]
 fn a_broken_suite_leaves_the_others_batched() {
     let scratch = Scratch::repo("batch-without-broken");
-    suite(&scratch, "a", 1);
-    suite(&scratch, "b", 1);
-    suite(&scratch, "c", 1);
-    scratch.write("lib/c/lib.buri", "export fn answer(): I64 { missing() }\n");
+    c_broken_by(&scratch, "export fn answer(): I64 { missing() }\n");
+}
+
+/// So does a suite whose library imports a package that isn't there.
+#[test]
+fn a_suite_importing_a_missing_package_leaves_the_others_batched() {
+    let scratch = Scratch::repo("batch-without-missing-import");
+    c_broken_by(
+        &scratch,
+        "from \"//lib/nowhere\" import { gone };\n\nexport fn answer(): I64 { gone() }\n",
+    );
+}
+
+/// Suites `a`, `b` and `c`, where `c`'s library is `lib`: `c` fails to
+/// compile, and `a` and `b` pass in one binary.
+fn c_broken_by(scratch: &Scratch, lib: &str) {
+    suite(scratch, "a", 1);
+    suite(scratch, "b", 1);
+    suite(scratch, "c", 1);
+    scratch.write("lib/c/lib.buri", lib);
     let run = scratch.run(&["test", "//...", "--explain"]);
     if run.stderr.contains("test-run-unavailable") {
         run.exits(1);

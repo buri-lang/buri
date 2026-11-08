@@ -170,12 +170,11 @@ fn findings_and_regenerable(
     flags: &arguments::Flags,
     analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 ) -> (Diagnostics, Regenerable) {
-    if !crate::build::generators::all_prepared(&session.workspace)
-        && needs_every_generator(session, targets)
-    {
+    let linting = Linting::before_build(session, targets, flags).unwrap_or_else(|| {
         crate::build::generators::prepare(session, flags, &crate::build::sources::Overlay::new());
-    }
-    Linting::start(session, targets, flags).finish(session, targets, analyses, None)
+        Linting::start(session, targets, flags)
+    });
+    linting.finish(session, targets, analyses, None)
 }
 
 /// The lint records a run answers targets from, read before any target is

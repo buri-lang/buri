@@ -126,6 +126,7 @@ mod reproducible_files;
 mod scheduling;
 mod serving;
 mod shared_check;
+mod shared_test_check;
 mod stencil;
 mod test_corners;
 mod test_host;

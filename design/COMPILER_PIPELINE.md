@@ -225,6 +225,12 @@ reaches 104k to 166k lines, so the back half compiles about 1.65 M lines for
 262k unique ones. Measured per program reached, `cmd/p11` monomorphizes,
 runs the middle end and emits at 470k lines a CPU-second.
 
+A test build checks the same way: every suite the cache left to build, and
+the lint's targets, are one compilation, and each suite restyles over its own
+modules (`design/PERFORMANCE.md` §6.104). On the `monorepo` workspace that's
+3.9 G instructions of type checking and 12.7 G of style graphs, one per UI
+suite. The graphs are what keeps test-build check at 357 k lines a CPU second.
+
 **Most per-program work is repeated.** The 12 linked executables define
 203,858 functions between them, and only 63,313 distinct symbols (`nm -U`).
 5,566 symbols appear in all 12. Not one of the 3,231 codegen-unit keys

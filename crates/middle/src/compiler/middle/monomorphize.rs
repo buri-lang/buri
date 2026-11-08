@@ -715,16 +715,17 @@ pub fn run_erasing(
     )
 }
 
-/// [`run`], building from `extracted` rather than `checked`'s own: one
-/// program's restyled bodies in a compilation several share.
+/// [`run_erasing`], building from `extracted` rather than `checked`'s own:
+/// one program's restyled bodies in a compilation several share.
 pub fn run_extracted(
     checked: &Checked,
     extracted: Extracted<'_>,
     module_paths: Vec<String>,
     diags: &mut Diagnostics,
     roots: Roots<'_>,
+    erase: bool,
 ) -> Program {
-    run_on(checked, extracted, module_paths, diags, roots, true)
+    run_on(checked, extracted, module_paths, diags, roots, erase)
 }
 
 fn run_on(
@@ -774,7 +775,10 @@ fn run_on(
         }
         Roots::Tests | Roots::TestsIn(_) => {
             let mut tests = Vec::new();
-            for (i, case) in m.checked.tests.iter().enumerate() {
+            for case in &m.checked.tests {
+                // Numbered within the program, so a suite's tests are the same
+                // functions whatever else its compilation checked.
+                let i = tests.len();
                 let module = m
                     .module_paths
                     .get(case.module.index())

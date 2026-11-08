@@ -502,6 +502,7 @@ fn monomorphized(
         module_paths,
         diagnostics,
         roots,
+        true,
     );
     if diagnostics.has_errors() {
         return Err(std::mem::take(diagnostics));

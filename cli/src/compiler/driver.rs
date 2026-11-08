@@ -399,6 +399,28 @@ impl Shared {
         }
         Some(&*share).filter(|s| s.reported.is_empty())
     }
+
+    /// The modules `holds` as one program: style extraction over those
+    /// modules alone, as that program's own compilation does it. `None` where
+    /// it reports an error. Billed to check, where that compilation does it.
+    pub fn restyled(
+        &self,
+        holds: PerModule<bool>,
+    ) -> Option<crate::compiler::semantics::resolve::Restyled> {
+        let _phase = crate::profile::enter(crate::profile::Phase::Check);
+        let mut reported = Diagnostics::new();
+        let restyled =
+            self.analysis
+                .checked
+                .restyle(&self.analysis.loaded, holds, &mut reported)?;
+        (!reported.has_errors()).then_some(restyled)
+    }
+
+    /// [`Loading::source_bytes`] for the modules `holds`.
+    pub fn source_bytes(&self, holds: &PerModule<bool>, map: &SourceMap) -> u64 {
+        let modules = self.analysis.loaded.modules.iter();
+        source_bytes(modules.filter(|m| *holds.get(m.id)), map)
+    }
 }
 
 impl Share {

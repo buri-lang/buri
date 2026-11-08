@@ -1,6 +1,6 @@
 //! `lint --fix` refusing a file's edits: two fixes claiming the same bytes,
-//! a remembered fix whose range no longer fits the file, and a file that
-//! can't be written.
+//! a remembered fix whose range no longer fits the file, one whose result
+//! would not parse, and a file that can't be written.
 //!
 //! Each refusal leaves the file exactly as it was.
 use crate::harness::*;
@@ -141,6 +141,13 @@ fn a_remembered_fix_inside_a_character_is_refused() {
     let (_scratch, run) = fix_with_damaged_range("fix-refusals-inside", |_, end| (7, end));
     run.exits(1)
         .says("has an edit at offset 7, which is inside a character, so none were applied");
+}
+
+#[test]
+fn a_remembered_fix_whose_result_would_not_parse_is_refused() {
+    let (_scratch, run) = fix_with_damaged_range("fix-refusals-unparsable", |_, end| (0, end));
+    run.exits(1)
+        .says("warning: fixing cmd/app/main.buri would not parse, so it was left alone");
 }
 
 /// `linting/fix_applies` with both of its files read-only: the text edit to
