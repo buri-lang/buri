@@ -56,3 +56,14 @@
    ...
    fun:*write_to*
 }
+# tokio's timer wheel on arm64, in a test build only: `debug_assert!` that no
+# level expires before the one found. `no_expirations_before` reads each
+# level's `Option<Expiration>`, and LLVM selects with `csinc` on the deadline
+# before it tests the tag, so for `None` the select is keyed on an unset
+# deadline whose arms are both `true`. Memcheck marks the result unset. x86_64
+# reports nothing, and a release runtime has no `debug_assert!`.
+{
+   tokio-wheel-debug-assert-arm64
+   Memcheck:Cond
+   fun:*tokio*time*wheel*Wheel*next_expiration*
+}

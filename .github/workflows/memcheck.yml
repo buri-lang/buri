@@ -86,8 +86,7 @@ jobs:
       # The tool is built in the tests' profile, so it reuses their build of
       # the library instead of compiling the workspace a second time (65 s).
       # `target/memcheck-tests/` lists each test executable, relative to the
-      # checkout. The runtime's tests run on x86_64 only (the `memcheck` job
-      # says why).
+      # checkout.
       - name: Build
         run: |
           set -euo pipefail
@@ -96,9 +95,11 @@ jobs:
           nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native --no-run --message-format=json-render-diagnostics \
             | executables > target/memcheck-tests/native
           nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo build --profile test -p buri --features backend-llvm,valgrind --example valgrind
-          if [ "${{ matrix.arch }}" = x86_64 ]; then
-            nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
-              | executables > target/memcheck-tests/runtime
+          nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
+            | executables > target/memcheck-tests/runtime
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            nix develop .#perf -c env NIX_HARDENING_ENABLE= CARGO_PROFILE_TEST_OPT_LEVEL=0 cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
+              | executables > target/memcheck-tests/runtime-unoptimized
           fi
           test "$(wc -l < target/memcheck-tests/native)" = 1
           mapfile -t tests < <(cat target/memcheck-tests/*)
@@ -125,6 +126,9 @@ jobs:
   #   705-1158 s. Four shards would average over 20 min, so x86_64 has five.
   # * **arm64,** about twice as fast: `modules` 800 s, 750 s of it
   #   `coverage`; `backends` with `agreement` 713 s; the conformance runs 855 s.
+  #   The runtime's runs came later, measured in a Lima VM on an M-series Mac:
+  #   `runtime-no-paint` 220 s went to `backends`, and `paint-unoptimized`
+  #   280-310 s to `modules`.
   #
   # No shard can run shorter than `coverage`, which is one test.
   # `cli/tests/ci.rs`'s `every_memcheck_run_is_in_exactly_one_shard` holds
@@ -132,10 +136,16 @@ jobs:
   # `no_memcheck_run_repeats_a_test_modules_runs` holds `modules` to skipping
   # what the other runs pick.
   #
-  # `runtime` runs on x86_64 only. On arm64, LLVM turns some branches into a
-  # `csel` keyed on a field that is unset but whose value can't change the
-  # answer. Memcheck reports that, about 120 sites (tokio, taffy, tiny-skia,
-  # paint). At opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
+  # **arm64 runs `paint::` at opt-level 0,** as `paint-unoptimized`, and the
+  # runtime's other tests as x86_64 does, as `runtime-no-paint`. On arm64,
+  # LLVM turns some branches into a `csel` keyed on a field that is unset,
+  # such as an empty `Option`'s payload or a drop flag, where the other
+  # operand already fixes the answer. Memcheck marks the whole result unset,
+  # which spreads through taffy's layout and tiny-skia's raster: 648 reports
+  # at 115 sites, all but one in `paint::`. At opt-level 0 there are none,
+  # but the tests take about five times as long, so only `paint::` pays that
+  # (cli/tests/README.md, "Valgrind"). The one site outside is
+  # `memcheck.supp`'s `tokio-wheel-debug-assert-arm64`.
   memcheck:
     name: memcheck (${{ matrix.shard }}, ${{ matrix.arch }})
     needs: build
@@ -148,8 +158,8 @@ jobs:
           - { arch: x86_64, shard: backends, runs: backends }
           - { arch: x86_64, shard: conformance, runs: stencil-debug llvm-release agreement }
           - { arch: x86_64, shard: runtime, runs: runtime llvm-debug e2e }
-          - { arch: arm64, shard: modules, runs: modules coverage }
-          - { arch: arm64, shard: backends, runs: backends agreement }
+          - { arch: arm64, shard: modules, runs: modules coverage paint-unoptimized }
+          - { arch: arm64, shard: backends, runs: backends agreement runtime-no-paint }
           - { arch: arm64, shard: conformance, runs: stencil-debug llvm-release llvm-debug e2e }
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 120
@@ -208,6 +218,14 @@ jobs:
               runtime)
                 run "$r" . BURI_B9_PARKED=1000 target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' \
                   "$(cat target/memcheck-tests/runtime)" --test-threads=1
+                ;;
+              runtime-no-paint)
+                run "$r" . BURI_B9_PARKED=1000 target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests' \
+                  "$(cat target/memcheck-tests/runtime)" --test-threads=1 --skip paint::
+                ;;
+              paint-unoptimized)
+                run "$r" . target/debug/examples/valgrind tests memcheck "$BURI_MEMCHECK" 'runtime unit tests at opt-level 0' \
+                  "$(cat target/memcheck-tests/runtime-unoptimized)" --test-threads=1 paint::
                 ;;
               *) echo "no run is called $r" >&2; exit 1 ;;
             esac

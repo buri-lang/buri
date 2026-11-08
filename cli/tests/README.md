@@ -585,7 +585,7 @@ and file each distinct error as an issue labelled `planned` and `urgent`.
 
 | Workflow | Tool | Shards |
 |---|---|---|
-| `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `e2e::`; `llvm::` and `stencil::`; every other module but `float_parity` and `differential`; `buri-rt-tests`, x86_64 only |
+| `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `e2e::`; `llvm::` and `stencil::`; every other module but `float_parity` and `differential`; `buri-rt-tests`, with `paint::` at opt-level 0 on arm64 |
 | `races.yml`, every commit to main and every pull request | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width`, `started::`, `actor_scoped::`, `headless_timers::` and `test_processes::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
 
 ```
@@ -624,10 +624,15 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
   see, and `report` drops it. `valgrind.rs`'s `UNSEEN` lists each with its
   reason. The two `rt::` rows that park a thousand tasks don't run: helgrind
   shadows each task's 64 MiB stack and runs out of memory.
-- arm64 runs memcheck's compiled programs too, but not the runtime's tests.
-  There LLVM selects with `csel` on fields that are unset and can't change the
-  result, and memcheck reports each one. At opt-level 0 the same tests are
-  clean.
+- arm64 runs the runtime's `paint::` tests at opt-level 0. At the tests'
+  usual opt-level 1, LLVM selects with `csel` on a field that is unset, such
+  as an empty `Option`'s payload, where the other operand already fixes the
+  answer. Memcheck marks the result unset, and in `paint::` that spreads
+  through taffy's layout and tiny-skia's raster: 645 reports at 114 sites,
+  none of them a bug. At opt-level 0 there are none, but the tests take about
+  five times as long, so the other tests stay at opt-level 1.
+  `memcheck.supp`'s `tokio-wheel-debug-assert-arm64` is the one such site
+  outside `paint::`.
 
 A memcheck run takes about ten minutes and a race run a few, most of each
 the build.

@@ -937,8 +937,9 @@ fn the_workflow_runs_at_most_five_macos_jobs() {
 /// its measured times. Moving a run between them must not drop it from every
 /// shard of an architecture or put it in two. A run no list names is a set of
 /// tests memcheck stopped checking, and one named twice is twice the runner
-/// time. The one run an architecture leaves out is `runtime` on arm64, which
-/// the workflow says why.
+/// time. The architectures run the runtime's tests differently, which the
+/// workflow says why: x86_64 as `runtime`, and arm64 as `runtime-no-paint`
+/// and `paint-unoptimized`.
 #[test]
 fn every_memcheck_run_is_in_exactly_one_shard() {
     let path = repo_root().join(".github/workflows/memcheck.yml");
@@ -1016,7 +1017,12 @@ fn every_memcheck_run_is_in_exactly_one_shard() {
                 .filter(|(_, runs)| runs.contains(run))
                 .map(|(shard, _)| shard)
                 .collect();
-            let want = usize::from(!(arch == "arm64" && run == "runtime"));
+            let others: &[&str] = if arch == "arm64" {
+                &["runtime"]
+            } else {
+                &["runtime-no-paint", "paint-unoptimized"]
+            };
+            let want = usize::from(!others.contains(&run.as_str()));
             assert!(
                 holders.len() == want,
                 "memcheck.yml's run `{run}` is in {} {arch} shard(s), {holders:?}; it belongs \
