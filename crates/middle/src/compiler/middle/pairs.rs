@@ -84,27 +84,25 @@ pub fn cancel(code: &mut Code) {
     let paths = paths(code);
     let mut uses = Vec::new();
     for block in code.blocks_mut() {
-        let mut gone = vec![false; block.insts.len()];
+        // The `decref`s already paired. An `incref` is never one of them: it
+        // pairs only with a `decref` after it.
+        let mut gone: Set<usize> = Set::default();
         for (i, inst) in block.insts.iter().enumerate() {
             let Inst::IncRef { value: x } = inst else {
                 continue;
             };
-            if gone.get(i).copied().unwrap_or(true) {
-                continue;
-            }
             if let Some(j) = partner(&block.insts, &gone, i, &paths.of(*x), &paths, &mut uses) {
-                for k in [i, j] {
-                    if let Some(g) = gone.get_mut(k) {
-                        *g = true;
-                    }
-                }
+                gone.insert(i);
+                gone.insert(j);
             }
         }
-        if gone.contains(&true) {
-            let mut flags = gone.iter();
-            block
-                .insts
-                .retain(|_| !flags.next().copied().unwrap_or(false));
+        if !gone.is_empty() {
+            block.insts = std::mem::take(&mut block.insts)
+                .into_iter()
+                .enumerate()
+                .filter(|(k, _)| !gone.contains(k))
+                .map(|(_, inst)| inst)
+                .collect();
         }
     }
 }
@@ -121,7 +119,7 @@ const REACH: usize = 32;
 /// path of the value `insts[i]` retains.
 fn partner(
     insts: &[Inst],
-    gone: &[bool],
+    gone: &Set<usize>,
     i: usize,
     x: &Path,
     paths: &Paths,
@@ -133,32 +131,29 @@ fn partner(
     let mut given = false;
     let after = insts
         .iter()
-        .zip(gone)
         .enumerate()
         .skip(i.saturating_add(1))
         .take(WINDOW);
-    for (j, (inst, _)) in after.filter(|(_, (_, gone))| !**gone) {
+    for (j, inst) in after.filter(|(j, _)| !gone.contains(j)) {
         match inst {
             Inst::DecRef { value } if paths.of(*value).same(x) => return Some(j),
-            // Another field of a struct that holds the value is no read of
-            // the value at all.
-            Inst::GetField { agg, .. } | Inst::GetPayload { agg, .. }
-                if paths.of(*agg).holds(x) =>
-            {
-                continue
-            }
             // A read takes no count, and what it reads is judged where it is
-            // used. Another increment gives nothing away.
-            Inst::GetField { .. }
-            | Inst::GetPayload { .. }
-            | Inst::GetTag { .. }
+            // used. Another field of a struct that holds the value is no read
+            // of the value at all.
+            Inst::GetField { agg, .. } | Inst::GetPayload { agg, .. } => {
+                if !given || paths.of(*agg).holds(x) {
+                    continue;
+                }
+            }
+            // Another increment gives nothing away either.
+            Inst::GetTag { .. }
             | Inst::ArrayLen { .. }
             | Inst::ArrayGet { .. }
             | Inst::ArraySlice { .. }
-            | Inst::IncRef { .. }
-                if !given =>
-            {
-                continue
+            | Inst::IncRef { .. } => {
+                if !given {
+                    continue;
+                }
             }
             _ => {}
         }
