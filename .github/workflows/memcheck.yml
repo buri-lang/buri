@@ -86,8 +86,8 @@ jobs:
       # The tool is built in the tests' profile, so it reuses their build of
       # the library instead of compiling the workspace a second time (65 s).
       # `target/memcheck-tests/` lists each test executable, relative to the
-      # checkout. The runtime's tests run on x86_64 only (the `memcheck` job's
-      # `exclude` says why).
+      # checkout. The runtime's tests run on x86_64 only (the `memcheck` job
+      # says why).
       - name: Build
         run: |
           set -euo pipefail
@@ -114,37 +114,42 @@ jobs:
           if-no-files-found: error
 
   # **Each shard is a list of runs**, and each run is one of the invocations
-  # below, in `runs`. The lists are balanced on the runs' times in run
-  # 42365863930, x86_64 first: `modules` 1355 s, held up by
-  # `coverage_agrees::coverage_changes_no_verdict_on_stencil` (1274 s);
-  # `backends` 1164 s and `agreement` 142 s; `stencil-debug` 436 s,
-  # `llvm-release` 375 s, `llvm-debug` 253 s and `e2e` 207 s; `runtime` 366 s
-  # with its build. So no shard runs much longer than `modules`, which cannot
-  # be split below its longest test. `cli/tests/ci.rs`'s
-  # `every_memcheck_run_is_in_exactly_one_shard` holds the lists to naming
-  # each run once.
+  # below, in `runs`. Each architecture has its own lists, balanced on the
+  # runs' times in runs 42412545472 to 42436433809:
+  #
+  # * **x86_64,** whose runners vary up to 1.7×: `modules` 1086-1841 s, held
+  #   up by `coverage_agrees::coverage_changes_no_verdict_on_stencil`;
+  #   `backends` 831-1219 s and `agreement` 152-220 s; `stencil-debug`
+  #   436-588 s, `llvm-release` 279-406 s, `llvm-debug` 270-394 s and `e2e`
+  #   194-318 s; `runtime` 357-615 s. With the four conformance runs in one
+  #   shard, that shard took 1706 s and `runtime` 459 s (run 42436433809).
+  # * **arm64,** about twice as fast: `modules` 879 s, `backends` with
+  #   `agreement` 722 s, and the four conformance runs 927 s.
+  #
+  # So no shard runs much longer than `modules`, which cannot be split below
+  # its longest test. `cli/tests/ci.rs`'s
+  # `every_memcheck_run_is_in_exactly_one_shard` holds each architecture's
+  # lists to naming each run once.
+  #
+  # `runtime` runs on x86_64 only. On arm64, LLVM turns some branches into a
+  # `csel` keyed on a field that is unset but whose value can't change the
+  # answer. Memcheck reports that, about 120 sites (tokio, taffy, tiny-skia,
+  # paint). At opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
   memcheck:
     name: memcheck (${{ matrix.shard }}, ${{ matrix.arch }})
     needs: build
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64]
-        shard: [modules, backends, conformance, runtime]
         include:
-          - { arch: x86_64, os: ubuntu-24.04 }
-          - { arch: arm64, os: ubuntu-24.04-arm }
-          - { shard: modules, runs: modules }
-          - { shard: backends, runs: backends agreement }
-          - { shard: conformance, runs: stencil-debug llvm-release llvm-debug e2e }
-          - { shard: runtime, runs: runtime }
-        # On arm64, LLVM turns some branches into a `csel` keyed on a field
-        # that is unset but whose value can't change the answer. Memcheck
-        # reports that, about 120 sites (tokio, taffy, tiny-skia, paint). At
-        # opt-level 0 they are clean (cli/tests/README.md, "Valgrind").
-        exclude:
-          - { arch: arm64, shard: runtime }
-    runs-on: ${{ matrix.os }}
+          - { arch: x86_64, shard: modules, runs: modules }
+          - { arch: x86_64, shard: backends, runs: backends }
+          - { arch: x86_64, shard: conformance, runs: stencil-debug llvm-release e2e }
+          - { arch: x86_64, shard: runtime, runs: runtime llvm-debug agreement }
+          - { arch: arm64, shard: modules, runs: modules }
+          - { arch: arm64, shard: backends, runs: backends agreement }
+          - { arch: arm64, shard: conformance, runs: stencil-debug llvm-release llvm-debug e2e }
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 120
     env:
       BURI_MEMCHECK: ${{ github.workspace }}/target/memcheck

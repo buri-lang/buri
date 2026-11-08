@@ -933,46 +933,53 @@ fn the_workflow_runs_at_most_five_macos_jobs() {
 ///
 /// `memcheck.yml` builds its test binaries once per architecture, and each
 /// shard runs a list of runs: one `cargo test` invocation each, as the run's
-/// `case` arm spells it. The lists are balanced by hand on measured times.
-/// Moving a run between them must not drop it from every shard or put it in
-/// two. A run no list names is a set of tests memcheck stopped checking, and
-/// one named twice is twice the runner time.
+/// `case` arm spells it. Each architecture's lists are balanced by hand on
+/// its measured times. Moving a run between them must not drop it from every
+/// shard of an architecture or put it in two. A run no list names is a set of
+/// tests memcheck stopped checking, and one named twice is twice the runner
+/// time. The one run an architecture leaves out is `runtime` on arm64, which
+/// the workflow says why.
 #[test]
 fn every_memcheck_run_is_in_exactly_one_shard() {
     let path = repo_root().join(".github/workflows/memcheck.yml");
     let text = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
-    // `- { shard: backends, runs: backends agreement }`
-    let mut lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for line in text.lines() {
-        let line = line.trim();
+    // `- { arch: arm64, shard: backends, runs: backends agreement }`, as
+    // architecture -> shard -> runs.
+    let mut arches: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+    let job = text
+        .split("\n  memcheck:\n")
+        .nth(1)
+        .unwrap_or_else(|| panic!("memcheck.yml has no `memcheck` job"));
+    for line in job.lines() {
         let Some(row) = line
-            .strip_prefix("- { shard: ")
+            .trim()
+            .strip_prefix("- { arch: ")
             .and_then(|r| r.strip_suffix(" }"))
         else {
             continue;
         };
-        let Some((shard, runs)) = row.split_once(", runs: ") else {
-            continue;
+        let parsed = row.split_once(", shard: ").and_then(|(arch, rest)| {
+            let (shard, runs) = rest.split_once(", runs: ")?;
+            Some((arch, shard, runs))
+        });
+        let Some((arch, shard, runs)) = parsed else {
+            panic!("memcheck.yml's matrix row `{line}` is not `- {{ arch: _, shard: _, runs: _ }}`")
         };
-        lists.insert(
+        let previous = arches.entry(arch.to_string()).or_default().insert(
             shard.to_string(),
             runs.split_whitespace().map(str::to_string).collect(),
         );
+        assert!(
+            previous.is_none(),
+            "memcheck.yml has two `{shard}` shards on {arch}"
+        );
     }
-    // `shard: [modules, backends, conformance, runtime]`
-    let shards: Vec<String> = text
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("shard: ["))
-        .unwrap_or_else(|| panic!("memcheck.yml has no `shard: [...]` matrix dimension"))
-        .trim_end_matches(']')
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
-    let unlisted: Vec<&String> = shards.iter().filter(|s| !lists.contains_key(*s)).collect();
     assert!(
-        unlisted.is_empty(),
-        "memcheck.yml's shards {unlisted:?} have no `runs` row, so they run nothing"
+        arches.keys().eq(["arm64", "x86_64"]),
+        "memcheck.yml's matrix rows name the architectures {:?}, and there were arm64 and \
+         x86_64 when this was written; the reading above has stopped seeing them",
+        arches.keys().collect::<Vec<_>>()
     );
     // The `case` arms of the step that starts the runs: `llvm-debug | llvm-release)`.
     let step = text
@@ -1001,31 +1008,36 @@ fn every_memcheck_run_is_in_exactly_one_shard() {
          written; the reading above has stopped seeing them: {arms:?}",
         arms.len()
     );
-    for run in &arms {
-        let holders: Vec<&String> = lists
-            .iter()
-            .filter(|(_, runs)| runs.contains(run))
-            .map(|(shard, _)| shard)
-            .collect();
-        assert!(
-            holders.len() == 1,
-            "memcheck.yml's run `{run}` is in {} shard(s), {holders:?}; every run belongs to \
-             exactly one",
-            holders.len()
-        );
-    }
-    for (shard, runs) in &lists {
-        for run in runs {
+    let mut shards = 0;
+    for (arch, lists) in &arches {
+        for run in &arms {
+            let holders: Vec<&String> = lists
+                .iter()
+                .filter(|(_, runs)| runs.contains(run))
+                .map(|(shard, _)| shard)
+                .collect();
+            let want = usize::from(!(arch == "arm64" && run == "runtime"));
             assert!(
-                arms.contains(run),
-                "memcheck.yml's shard `{shard}` lists `{run}`, which no `case` arm runs"
+                holders.len() == want,
+                "memcheck.yml's run `{run}` is in {} {arch} shard(s), {holders:?}; it belongs \
+                 to {want}",
+                holders.len()
             );
         }
+        for (shard, runs) in lists {
+            for run in runs {
+                assert!(
+                    arms.contains(run),
+                    "memcheck.yml's {arch} shard `{shard}` lists `{run}`, which no `case` arm runs"
+                );
+            }
+        }
+        shards += lists.len();
     }
     println!(
-        "{} memcheck run(s) over {} shard(s)",
+        "{} memcheck run(s) over {shards} shard(s) on {} architectures",
         arms.len(),
-        lists.len()
+        arches.len()
     );
 }
 
