@@ -365,7 +365,7 @@ impl Backend for Stencil {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let lowered = lower::run(program, tables);
         let routes = self.resolve(&lowered).map_err(|keys| {
@@ -395,7 +395,7 @@ impl Native for Stencil {
         &mut self,
         _: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         lowered: &ir::Program,
         routes: &route::Routes<'_>,
         units: Units<'_>,

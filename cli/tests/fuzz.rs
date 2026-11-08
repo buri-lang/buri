@@ -1255,11 +1255,7 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     };
     buri::build::actions::prepare(&mut program, target);
     let profile = buri::compiler::backend::Profile::Debug;
-    let opts = buri::compiler::backend::Options {
-        profile,
-        target,
-        unit_prefix: "",
-    };
+    let opts = buri::compiler::backend::Options { profile, target };
     let mut backend = buri::compiler::backend::select(target, profile)
         .map_err(|e| format!("no JavaScript backend: {e}"))?;
     let units = backend
@@ -1606,7 +1602,6 @@ mod native {
             let opts = Options {
                 profile: *profile,
                 target,
-                unit_prefix: "",
             };
             let Some(mut backend) = select(name, target, *profile) else {
                 continue;
@@ -1679,7 +1674,6 @@ mod native {
             let opts = Options {
                 profile: *profile,
                 target,
-                unit_prefix: "",
             };
             // A backend with no seat on this host refuses every program, which
             // is a fact about the host rather than a disagreement.

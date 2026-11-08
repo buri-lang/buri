@@ -285,6 +285,7 @@ pub fn run_one(root: &std::path::Path, label: &str, name: &str) -> (i32, String)
         },
         passthrough: Vec::new(),
     };
+    crate::build::actions::begin_round();
     let pass = one_pass(&args, Asked::Served { root }, None);
     (pass.code, pass.output)
 }

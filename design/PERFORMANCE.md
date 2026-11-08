@@ -7473,7 +7473,9 @@ test processes 1
 
 - **suites built, restored, reused**: `--explain`'s `run build`,
   `cached build` and `cached test` lines.
-- **objects compiled, restored**: its `run codegen` and `cached codegen` lines.
+- **objects compiled, restored**: units emitted, and units a program took
+  without emitting. Programs built together report a unit one of them emitted
+  as `run codegen` in both, so the lines alone count it twice.
 - **functions compiled**: functions in the objects compiled, one per
   instantiation of a generic (§6.90).
 - **links**: linker runs (`CDriver::link`).

@@ -221,21 +221,19 @@ runs the middle end and emits at 470k lines a CPU-second.
 
 **Most per-program work is repeated.** The 12 linked executables define
 203,858 functions between them, and only 63,313 distinct symbols (`nm -U`).
-5,566 symbols appear in all 12. Not one of the 3,231 codegen-unit keys repeats
-across programs (`--explain`), so the cache and `Flights` share nothing.
+5,566 symbols appear in all 12. Not one of the 3,231 codegen-unit keys
+repeated across programs until units got the same key in every program; now
+2,481 come back from the cache (see
+[Sharing codegen across programs](#sharing-codegen-across-programs)).
 
 ## Proposals
 
 Ranked by CPU saved per unit of complexity. Savings are of the cold builds
 above.
 
-1. **Make codegen units the same across programs.** Measured at 18% of dev
-   CPU and 72% of release, from two small changes; see
+1. **Make codegen units the same across programs.** Done: 15% of dev CPU and
+   76% of release; see
    [Sharing codegen across programs](#sharing-codegen-across-programs).
-   Number each lifted closure within its parent, and take the package path
-   out of the LLVM module name and out of `codegen_key`. The existing unit
-   cache then restores 2,481 of 3,231 units in a cold build. Risk: low;
-   closure symbols change once, and every cached object misses once.
 2. **Hash unit keys from the IR, not from its text.** About 4% of dev, 0.3 s
    in release. Evidence: `unit_hashes` is 0.32 s, and formatting
    (`render_func_into`, `fmt::write`, `Layout`'s `Debug`) is most of it.
@@ -285,7 +283,8 @@ Not worth proposing:
 ## Sharing codegen across programs
 
 **Most per-program codegen is identical, and two small changes let the unit
-cache we already have reuse it.** Measured 2026-11-07 on the `full` workspace
+cache we already have reuse it.** Both have landed; [Landed](#landed) has the
+numbers. Measured 2026-11-07 on the `full` workspace
 above, cold, `BURI_THREADS=1`, with a `validate`-profile `buri` and a
 throwaway patch. The patch dumped each function's rendered IR hash, its stencil
 bytes and relocations, and each unit's LLVM IR before and after `default<O2>`.
@@ -336,7 +335,9 @@ and 96% of those functions are still identical after it.
 Monomorphization context, layouts and ordering caused no differences. Instance
 symbols already carry their type arguments' hash.
 
-### What blocks equal keys
+### What blocked equal keys
+
+Each of these is fixed except the partition.
 
 - **`codegen_key` takes the package path** (`unit_prefix`), so two programs in
   two packages never share a key. Only the LLVM backend reads it, as the module
@@ -431,3 +432,23 @@ then call almost nothing that isn't shared.
 **Recommended: make today's unit keys match first.** It's the biggest saving
 and the smallest change. Then measure a stdlib-heavy neutral workspace before
 building the dev memo.
+
+### Landed
+
+`closures::run` names a lifted lambda `{parent}$fn{n}`, with `n` counted
+within its parent. The LLVM backend names a module by its unit alone, and
+`codegen_key` and `backend::Options` no longer take the package path.
+
+Cold `buri build //...` on the `full` workspace, `BURI_THREADS=1`, a
+`validate`-profile `buri` with `--features backend-llvm`, CPU-seconds including
+`lld`, best of two for dev:
+
+| | Before | After | Saved |
+|---|---:|---:|---:|
+| Dev | 7.55 s | 6.44 s | 15% |
+| Release | 291.6 s | 70.7 s | 76% |
+| Units restored from the cache | 0 of 3,231 | 2,481 of 3,231 | 77% |
+
+On the `ci` workspace, 88 of 178 units come back.
+`cli/tests/build/codegen_sharing.rs` holds it by the profile's
+`objects restored` count.

@@ -112,7 +112,7 @@ impl<B: Backend> Backend for WithRuntime<B> {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         self.0.emit(program, tables, opts)
     }
@@ -137,7 +137,7 @@ impl<B: Native> Native for WithRuntime<B> {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         lowered: &ir::Program,
         routes: &B::Routes<'_>,
         units: Units<'_>,
@@ -279,7 +279,7 @@ pub trait Ready {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics>;
 }
@@ -299,7 +299,7 @@ impl<B: Native> Ready for Resolved<'_, B> {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         self.backend

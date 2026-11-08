@@ -1927,11 +1927,7 @@ pub fn emit_all(
             return Err(std::mem::take(diagnostics));
         }
     };
-    let opts = BackendOptions {
-        profile,
-        target,
-        unit_prefix: "",
-    };
+    let opts = BackendOptions { profile, target };
     let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match backend.emit(program, tables, &opts) {
         Ok(units) => units,
@@ -2042,7 +2038,6 @@ pub fn target_of(output: &Output) -> Target {
 /// ```text
 /// codegen_key(unit) = H(Codegen, toolchain_version, mode, platform, arch,
 ///                       backend.name(), backend.identity(),
-///                       unit_prefix,
 ///                       H(the unit's lowered IR),
 ///                       H(the layout of every type the unit names))
 /// ```
@@ -2061,42 +2056,23 @@ pub fn target_of(output: &Output) -> Target {
 /// the analysis. That is acceptable and nearly free here: the expensive half of
 /// a native build is the half the key is protecting.
 ///
-/// # Why the prefix is in it
+/// # Why no program is in it
 ///
-/// The IR is not the whole of what a backend reads: `BackendOptions` is
-/// `profile`, `target` and `unit_prefix`, and the first two are in this key
-/// already. The third was not, and it is **observable in the emitted object**.
-/// The LLVM backend builds a unit's module name from it
-/// (`llvm/mod.rs`, `emit_selected`), and LLVM's `AsmPrinter` emits the module's
-/// source-file name as a `.file` directive wherever the target's assembly
-/// syntax has one — which is every ELF target and no Mach-O one. Two objects
-/// from one IR with prefixes `""` and `lib/money`, `llc -filetype=obj` on
-/// LLVM 21.1.2:
+/// One unit's object is the same in every program whose IR and layouts for it
+/// are the same, so the key names neither the program nor its package. The
+/// first program to emit a unit files it and every other program of the build
+/// restores it, through the cache and `Flights`. On the `full` goals workspace
+/// that's 2,481 of 3,231 units, 18% of a cold dev build's CPU and 72% of a
+/// release build's (`design/COMPILER_PIPELINE.md`, sharing codegen).
 ///
-/// ```text
-/// x86_64-unknown-linux-gnu    differ   .symtab STT_FILE `core_list` vs `moneycore_list`
-/// aarch64-unknown-linux-gnu   differ   the same symbol
-/// aarch64-apple-darwin        identical
-/// x86_64-apple-darwin         identical
-/// ```
-///
-/// So on a Linux host `//cmd/a` and `//cmd/b` sharing one `core/list` object
-/// under one key is a hit that serves bytes codegen would not have produced —
-/// and ARCHITECTURE.md §7 makes the prefix reach *more* of the object the day
-/// debug info is emitted, since `DW_AT_comp_dir` and the Mach-O `N_OSO` stabs
-/// are to be set from it. A key that omits an input to codegen is unsound on
-/// whichever host makes the input visible, so the term is unconditional rather
-/// than per-backend or per-platform.
-///
-/// What it costs is cross-target reuse, and that was measured before it was
-/// spent: on a 118k-line repository with two native binaries over one library,
-/// **2 of 369** codegen units were shared between the pair, and the cold
-/// `buri build //...` cell does not move. Monomorphization is why — a unit's IR
-/// is a function of the whole program it is in, so two binaries agree on a unit
-/// only where neither instantiated anything the other did not. Reuse *within* a
-/// target is untouched, and so is a batch's: `link_test_binary` gives every
-/// test binary the same empty prefix. Adding the term does invalidate every existing
-/// `codegen` and therefore every `link` entry, once.
+/// It holds because nothing a backend reads names the program. `Options` is
+/// the profile and the target, both in the key. The LLVM backend names each
+/// module by its unit alone, which matters on ELF, where the module name is an
+/// `STT_FILE` symbol in the object. Lifted closures are numbered within their
+/// parent function (`middle::closures`), so their symbols, and the IR of every
+/// caller, don't move with the rest of the program. If a backend ever writes a
+/// path into an object, such as debug info's `DW_AT_comp_dir`, that path goes
+/// back into the keys of the units that carry it.
 ///
 /// The native object path is what calls this: it runs the front end and the
 /// middle end, asks `unit_hashes` for a unit's IR and layout hashes, and gets
@@ -2106,14 +2082,12 @@ pub fn codegen_key(
     flags: &Flags,
     backend_name: &str,
     backend_identity: &str,
-    unit_prefix: &str,
     ir_hash: &str,
     layout_hash: &str,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Codegen, flags.mode);
     k.output(output);
     k.backend(backend_name, backend_identity);
-    k.input("prefix", unit_prefix.as_bytes());
     k.input("ir", ir_hash.as_bytes());
     k.input("layout", layout_hash.as_bytes());
     k.finish()
@@ -2594,6 +2568,9 @@ fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
 ///   cache, rather than emitted twice ([`Flights`]). So each unit is emitted
 ///   once a process, whichever build asks first. `emit` is called again only
 ///   for a unit whose other build failed.
+/// - Every build reports a unit this round emitted as `run`, and only one an
+///   earlier round left as `cached`, so the report doesn't depend on which
+///   build got there first ([`begin_round`]).
 pub fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
@@ -2635,10 +2612,16 @@ where
     emit_into(cache, &failed, &mut emit, &mut got)?;
     let mut out = Vec::with_capacity(keys.len());
     for (i, ((name, key), hit)) in keys.iter().zip(hits).enumerate() {
-        let (bytes, fresh) = match hit {
+        let (bytes, mine) = match hit {
             Some(bytes) => (bytes, false),
             None => got.remove(&i).unwrap_or_default(),
         };
+        // A unit another build emitted this round reports `run`, but this
+        // build restored it, and the profile counts it so.
+        let fresh = Flights::landed(cache, key);
+        if fresh && !mine {
+            crate::build::counted::add(crate::build::counted::Count::ObjectsRestored);
+        }
         out.push((
             Emitted {
                 name: object_name(name),
@@ -2655,7 +2638,7 @@ where
 type Coded<'a> = (usize, &'a ActionKey);
 
 /// Emits the `wanted` units and puts each in the cache and in `got`, marked
-/// emitted here. Asks `emit` nothing when `wanted` is empty.
+/// emitted here and noted as landed this round. Asks `emit` nothing when `wanted` is empty.
 ///
 /// `wanted` is in unit order, and `emit` answers one object per unit in that
 /// order, so each unit's object is the one at its position.
@@ -2674,7 +2657,11 @@ where
     let units: Vec<usize> = wanted.iter().map(|&(i, _)| i).collect();
     let emitted = emit(&units)?;
     for (&(i, key), unit) in wanted.iter().zip(emitted) {
+        // Noted before it is stored, so a build that finds it stored also
+        // finds it landed.
+        Flights::land(cache, key);
         cache.put_checked(key, &unit.bytes);
+        crate::build::counted::add(crate::build::counted::Count::ObjectsCompiled);
         got.insert(i, (unit.bytes, true));
     }
     Ok(())
@@ -2718,7 +2705,44 @@ struct Claimed<'a> {
 
 type FlightMap = crate::hash::Map<PathBuf, std::sync::Arc<Flight>>;
 
+/// The round each unit was last emitted in, by cache path.
+type LandedMap = crate::hash::Map<PathBuf, u64>;
+
+/// The round this process is building in. A watch loop's pass, or a language
+/// server's test run, starts a new one.
+static ROUND: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Starts a new round: a unit emitted before it reads as `cached` from here on.
+pub fn begin_round() {
+    ROUND.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl Flights {
+    fn landed_map() -> std::sync::MutexGuard<'static, LandedMap> {
+        static LANDED: std::sync::OnceLock<std::sync::Mutex<LandedMap>> =
+            std::sync::OnceLock::new();
+        LANDED
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Notes that this round emitted the unit at `key`.
+    fn land(cache: &Cache, key: &ActionKey) {
+        let round = ROUND.load(std::sync::atomic::Ordering::Relaxed);
+        Flights::landed_map().insert(cache.path(key), round);
+    }
+
+    /// Whether this round emitted the unit at `key`, for whichever program.
+    ///
+    /// Programs built together race to a unit they share, so which of them
+    /// emits it is chance. Each reports `run` for a unit this round emitted,
+    /// and `cached` only for one an earlier round or process left.
+    fn landed(cache: &Cache, key: &ActionKey) -> bool {
+        let round = ROUND.load(std::sync::atomic::Ordering::Relaxed);
+        Flights::landed_map().get(&cache.path(key)) == Some(&round)
+    }
+
     fn map() -> std::sync::MutexGuard<'static, FlightMap> {
         static FLIGHTS: std::sync::OnceLock<std::sync::Mutex<FlightMap>> =
             std::sync::OnceLock::new();
@@ -2858,15 +2882,9 @@ pub fn objects_of(
     tables: &Tables,
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
-    // Repository-relative, so that two checkouts in different directories put
-    // the same string in a debug section. This is the same rule `action_key`
-    // follows for input paths, and it is the source of nondeterminism
-    // ARCHITECTURE.md §7 calls out by name.
-    let prefix = session.workspace.package(target.package).path.clone();
     let label = session.workspace.label(target);
     objects_named(
         &session.root,
-        &prefix,
         &label,
         output,
         flags,
@@ -2876,22 +2894,15 @@ pub fn objects_of(
     )
 }
 
-/// [`objects_of`] with the two things it takes a target for named directly: the
-/// repository-relative prefix a debug section records, and the label
-/// `--explain` reports each unit under.
+/// [`objects_of`] with the label `--explain` reports each unit under named
+/// directly, rather than read off a target.
 ///
 /// Split out because a **batched** test binary is one program built from several
-/// suites, so neither of the two has a single target to come from. Everything
-/// else — the middle end, the keys, the per-unit cache — is a function of the
-/// program, and this is the seam that says so.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the two strings a target used to stand in for are now named, and \
-              neither is derivable from the program, the output or the flags"
-)]
+/// suites, so it has no single target to come from. Everything else — the
+/// middle end, the keys, the per-unit cache — is a function of the program, and
+/// this is the seam that says so.
 fn objects_named(
     root: &std::path::Path,
-    prefix: &str,
     label: &str,
     output: &Output,
     flags: &Flags,
@@ -2987,15 +2998,7 @@ fn objects_named(
             } else {
                 ir_hash
             };
-            let key = codegen_key(
-                output,
-                flags,
-                &name,
-                &identity,
-                prefix,
-                &ir_hash,
-                &layout_hash,
-            );
+            let key = codegen_key(output, flags, &name, &identity, &ir_hash, &layout_hash);
             (unit, key)
         })
         .collect();
@@ -3005,7 +3008,7 @@ fn objects_named(
     if let Some(shared) = backend.backend().shared_unit() {
         let every: Vec<&str> = keys.iter().map(|(_, k)| k.as_str()).collect();
         let ir_hash = hash_bytes(format!("{shared}\n{}", every.join("\n")).as_bytes());
-        let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, "");
+        let key = codegen_key(output, flags, &name, &identity, &ir_hash, "");
         keys.push((shared.to_string(), key));
     }
     drop(keying);
@@ -3015,7 +3018,6 @@ fn objects_named(
         let opts = BackendOptions {
             profile,
             target: back_target,
-            unit_prefix: prefix,
         };
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
@@ -3359,7 +3361,7 @@ fn native_from_record(
 #[allow(
     clippy::too_many_arguments,
     reason = "where the cache is, the label, the output, the flags, the linker, the objects, \
-              where the executable goes and the unit prefix: none derivable from another"
+              where the executable goes and the directory prefix: none derivable from another"
 )]
 fn link_cached(
     root: &std::path::Path,
@@ -3417,7 +3419,6 @@ fn link_cached(
     let opts = LinkOptions {
         profile: profile_of(flags),
         target: target_of(output),
-        unit_prefix: prefix,
     };
     // Two outputs of one binary for the same platform link in the one
     // directory, and `buri build` builds them side by side: one waits.
@@ -3622,9 +3623,7 @@ fn claim_runner_after(
 /// when it doesn't or another binary holds that file. The link is cached on the ordered `codegen` keys, so
 /// an edit the front end erases relinks nothing.
 ///
-/// The unit prefix is always empty. A batch spans packages, and a suite run alone
-/// uses the same prefix so that its `codegen` keys meet a batch's wherever the
-/// two programs agree on a unit.
+/// The link directory's prefix is always empty, because a batch spans packages.
 ///
 /// The `link` key comes back with the binary, so the next run can start the
 /// same binary again without compiling it ([`place_test_binary`]).
@@ -3649,16 +3648,7 @@ pub fn link_test_binary(
     let Some(linker) = linker_for(output, diagnostics) else {
         return Err(std::mem::take(diagnostics));
     };
-    let objects = objects_named(
-        root,
-        prefix,
-        label,
-        output,
-        flags,
-        program,
-        tables,
-        diagnostics,
-    )?;
+    let objects = objects_named(root, label, output, flags, program, tables, diagnostics)?;
     // Why the host couldn't load these objects, for a runner that can't link
     // them either: the objects themselves, maybe damaged in the cache.
     let mut refused = None;
@@ -4482,41 +4472,6 @@ mod tests {
         assert_eq!(first_difference(b"", b"a"), Some(0));
     }
 
-    /// Every field of `BackendOptions` is a term of the `codegen` key.
-    ///
-    /// `profile` and `target` were always in it. `unit_prefix` is the one that
-    /// was not, and it is observable in the object on every ELF target — see the
-    /// note on [`codegen_key`] for the measurement. So the claim this states is
-    /// the one that makes the key sound: identical IR under two prefixes is two
-    /// keys, not one entry that might hold either's bytes.
-    #[test]
-    fn the_codegen_key_carries_the_unit_prefix() {
-        let output = Output::for_platform(Platform::Macos, Span::NONE);
-        let flags = Flags::default();
-        let key = |prefix: &str| {
-            codegen_key(
-                &output,
-                &flags,
-                "llvm",
-                "llvm 21.1.2",
-                prefix,
-                "ir",
-                "layout",
-            )
-        };
-        assert_ne!(key(""), key("lib/money"));
-        assert_ne!(key("lib/money"), key("cmd/server"));
-        // And it is still a *function* of its inputs: the same prefix twice is
-        // the same key, or a batch would relink on every pass.
-        assert_eq!(key("lib/money"), key("lib/money"));
-        // The term is length-prefixed like every other, so no two prefixes can
-        // collide by running into the field beside them.
-        assert_ne!(
-            codegen_key(&output, &flags, "llvm", "id", "a", "b", "layout"),
-            codegen_key(&output, &flags, "llvm", "id", "ab", "", "layout")
-        );
-    }
-
     /// A `.buri` filled by a toolchain whose debug backend was a different one
     /// is not reused: the backend's name is a term of the key, so the old
     /// entries are unreachable rather than stale.
@@ -4528,7 +4483,7 @@ mod tests {
         let output = Output::for_platform(Platform::Macos, Span::NONE);
         let flags = Flags::default();
         let key = |name: &str, identity: &str| {
-            codegen_key(&output, &flags, name, identity, "lib/money", "ir", "layout")
+            codegen_key(&output, &flags, name, identity, "ir", "layout")
         };
         assert_ne!(key("stencil", "id"), key("cranelift", "id"));
         assert_ne!(key("stencil", "id"), key("llvm", "id"));

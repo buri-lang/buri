@@ -166,11 +166,10 @@ fn host_target() -> Target {
     }
 }
 
-fn options(profile: Profile) -> Options<'static> {
+fn options(profile: Profile) -> Options {
     Options {
         profile,
         target: host_target(),
-        unit_prefix: "",
     }
 }
 

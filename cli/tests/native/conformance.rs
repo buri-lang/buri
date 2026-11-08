@@ -1191,7 +1191,6 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     let opts = Options {
         profile: build.profile(),
         target,
-        unit_prefix: "",
     };
     let mut backend = build.backend();
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
@@ -1355,7 +1354,6 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(_) => Ok(String::new()),

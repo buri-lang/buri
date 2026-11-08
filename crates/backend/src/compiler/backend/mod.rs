@@ -105,21 +105,18 @@ pub struct Target {
 }
 
 /// What an emission or a link is for.
-pub struct Options<'a> {
+///
+/// Nothing in it names the program or its package, so one unit's object is the
+/// same in every program whose IR for it is the same, and the `codegen` cache
+/// shares it between them.
+pub struct Options {
     pub profile: Profile,
     pub target: Target,
-    /// Repository-relative, for the paths a debug section records.
-    ///
-    /// Relative rather than absolute for the same reason `action_key` hashes
-    /// relative paths: two checkouts in different directories must produce
-    /// identical bytes, and an absolute `DW_AT_comp_dir` is precisely the
-    /// failure `--check-reproducible`'s two-directory design exists to catch.
-    pub unit_prefix: &'a str,
 }
 
-/// A link wants the same three answers an emission does, under the name a
-/// link reads better with.
-pub type LinkOptions<'a> = Options<'a>;
+/// A link wants the same answers an emission does, under the name a link
+/// reads better with.
+pub type LinkOptions = Options;
 
 /// The target triple a [`Target`] names, as text, or `None` for a platform no
 /// native backend emits for.
@@ -255,7 +252,7 @@ pub trait Backend {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
     ) -> Result<Vec<Emitted>, Diagnostics>;
 
     /// Whether every unit's object depends on
@@ -313,7 +310,7 @@ pub trait Native: Backend {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         lowered: &ir::Program,
         routes: &Self::Routes<'_>,
         units: Units<'_>,

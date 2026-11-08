@@ -165,11 +165,10 @@ fn rows(units: &[Emitted], cached: &[bool]) -> Vec<Row> {
         .collect()
 }
 
-fn options(target: Target) -> LinkOptions<'static> {
+fn options(target: Target) -> LinkOptions {
     LinkOptions {
         profile: Profile::Debug,
         target,
-        unit_prefix: "cmd/app",
     }
 }
 
@@ -865,6 +864,8 @@ fn every_unit_cached_never_reaches_the_backend() {
         "a first build hit"
     );
 
+    // Each build is a round of its own, as each command or watch pass is.
+    actions::begin_round();
     let second = ok(actions::codegen_units_for(&cache, &keys, false, |_| {
         panic!("the backend was entered although every unit's key was unchanged")
     }));
@@ -898,6 +899,7 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     // One module edited: its unit's IR hash moves and the other's does not.
     let after = keys(&[("lib_answer", "fn answer -> 2"), ("main", "fn main")]);
     let mut emit = objects(&[("lib_answer", b"BBBB"), ("main", b"NNNN")]);
+    actions::begin_round();
     let built = ok(actions::codegen_units_for(
         &cache,
         &after,
@@ -926,6 +928,7 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     );
 
     // And the new object was stored, so going back is a hit in both units.
+    actions::begin_round();
     let again = ok(actions::codegen_units_for(&cache, &after, false, |_| {
         panic!("the re-emitted object was not stored")
     }));
@@ -961,8 +964,10 @@ fn force_re_emits_every_unit() {
     let keys = keys(&[("main", "fn main")]);
     let emit = || objects(&[("main", b"MMMM")]);
     ok(actions::codegen_units_for(&cache, &keys, false, emit()));
+    actions::begin_round();
     let cached = ok(actions::codegen_units_for(&cache, &keys, false, emit()));
     assert!(cached[0].1, "an unchanged unit was re-emitted");
+    actions::begin_round();
     let forced = ok(actions::codegen_units_for(&cache, &keys, true, emit()));
     assert!(!forced[0].1, "--force was served from the cache");
 }

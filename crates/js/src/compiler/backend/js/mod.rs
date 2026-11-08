@@ -80,7 +80,7 @@ impl Backend for Js {
         &mut self,
         program: &Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         self.emit_with(program, tables, opts.profile, true)
     }

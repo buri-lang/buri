@@ -457,7 +457,6 @@ pub(crate) fn emit_js(row: &str, checked: &Checked, paths: &[String]) -> PathBuf
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let mut backend = backend::select(target, Profile::Debug).expect("the JavaScript backend");
     let units = match backend.emit(&program, &checked.tables, &opts) {
@@ -504,7 +503,6 @@ pub(crate) fn emitted(
     let opts = Options {
         profile: native.profile,
         target: host_target(),
-        unit_prefix: "",
     };
     let mut backend = native.backend();
     let missing = backend.missing_intrinsics(program, &checked.tables);

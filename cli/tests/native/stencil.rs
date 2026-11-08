@@ -190,7 +190,6 @@ fn build_linked_by(
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let mut backend = Stencil::default();
     let units = match backend.emit(&program, &tables, &opts) {
@@ -281,7 +280,6 @@ fn emitted(name: &str, source: &str) -> Vec<(String, Vec<u8>)> {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let units = Stencil::default()
         .emit(&program, &tables, &opts)
@@ -390,7 +388,6 @@ fn the_builds_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
 
     let alone = Stencil::default()
@@ -428,7 +425,6 @@ fn a_backend_that_emitted_a_program_lowers_the_next_program_for_itself() {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let (first, first_tables) = lowered(EMITTER_SHAPES);
     let (second, second_tables) = lowered(
@@ -490,7 +486,6 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let once = Stencil::default()
         .emit(&program, &tables, &opts)
@@ -601,7 +596,6 @@ fn a_unit_of_several_parts_emits_the_same_bytes_twice() {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let once = Stencil::default()
         .emit(&program, &tables, &opts)
@@ -2134,7 +2128,6 @@ fn compile_corpus(path: &str) -> Compiled {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(units) => Compiled::Units(units, sheet),
@@ -3186,7 +3179,6 @@ export fn main(host: NativeHost): Result<(), Str> {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "cmd/app",
     };
     let units = Stencil::default()
         .emit(&program, &tables, &opts)
@@ -3224,7 +3216,6 @@ export fn main(host: NativeHost): Result<(), Str> {
     let options = LinkOptions {
         profile: Profile::Debug,
         target,
-        unit_prefix: "cmd/app",
     };
     if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
         panic!("the product's link failed: {:?}", messages(&d));
@@ -3406,7 +3397,6 @@ export fn main(host: NativeHost): Result<(), Str> {
         let opts = Options {
             profile: Profile::Debug,
             target,
-            unit_prefix: "cmd/app",
         };
         let units = Stencil::default()
             .emit(&program, &tables, &opts)
@@ -3437,7 +3427,6 @@ export fn main(host: NativeHost): Result<(), Str> {
         let options = LinkOptions {
             profile: Profile::Debug,
             target,
-            unit_prefix: "cmd/app",
         };
         if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
             panic!("the product's link failed for {name}: {:?}", messages(&d));
@@ -4085,7 +4074,6 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let units = Stencil::default()
         .emit(&program, &analysis.checked.tables, &opts)
@@ -4194,7 +4182,6 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "cmd/app",
     };
     match Stencil::default().emit(&program, &tables, &opts) {
         Ok(units) => Some(units),
@@ -4493,7 +4480,6 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
         let opts = Options {
             profile: Profile::Debug,
             target,
-            unit_prefix: "cmd/app",
         };
         let units = Stencil::default()
             .emit(&program, &tables, &opts)
@@ -4552,7 +4538,6 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }",
                 platform: Platform::Linux,
                 arch: Some(Arch::X86_64),
             },
-            unit_prefix: "",
         };
         let out = Stencil::default().emit(&program, &tables, &opts);
         assert!(
@@ -4568,7 +4553,6 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }",
             platform: Platform::Macos,
             arch: Some(Arch::X86_64),
         },
-        unit_prefix: "",
     };
     let msgs = Stencil::default()
         .emit(&program, &tables, &mac)
@@ -4744,7 +4728,6 @@ fn cross_emission_throughput() {
         let opts = Options {
             profile: Profile::Debug,
             target,
-            unit_prefix: "cmd/app",
         };
         // One uncounted emission of each size, so neither the stencil
         // library's decode nor a first touch of a fresh allocation is counted.

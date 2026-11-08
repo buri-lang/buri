@@ -55,7 +55,6 @@ pub fn run(program: &mut Program) {
     // Only the functions the program came in with: what this pass appends is
     // already converted, because a lambda nested inside another is lifted
     // while it is still part of the outer lambda's body.
-    let base = program.funcs.len();
     for i in program.funcs.ids() {
         let func = program.funcs.get_mut(i);
         let Some(mut body) = func.take_body() else {
@@ -65,7 +64,7 @@ pub fn run(program: &mut Program) {
             locals: func.locals.clone(),
             symbol: func.symbol.clone(),
             debug_name: func.debug_name.clone(),
-            base,
+            first: program.funcs.len(),
         };
         convert(&mut body, &parent, &mut program.funcs);
         program.funcs.get_mut(i).set_body(body);
@@ -77,8 +76,14 @@ struct Parent {
     locals: typed::Locals,
     symbol: String,
     debug_name: String,
-    /// Where the lifted functions start in the program's table.
-    base: usize,
+    /// Where this parent's lifted functions start in the program's table.
+    ///
+    /// A lifted function is numbered within its parent, not within the
+    /// program, so its symbol is the same in every program that reaches the
+    /// parent. Numbered program-wide, one closure added anywhere renamed every
+    /// later closure, and no codegen unit holding one matched another
+    /// program's (`design/COMPILER_PIPELINE.md`, sharing codegen).
+    first: usize,
 }
 
 /// Depth first, so a lambda inside a lambda is converted while it is still in
@@ -175,7 +180,7 @@ fn convert(e: &mut Expr, parent: &Parent, funcs: &mut Dense<FuncIdx, Func>) {
         )
     };
 
-    let n = funcs.len().saturating_sub(parent.base);
+    let n = funcs.len().saturating_sub(parent.first);
     let mut lifted_params = vec![env];
     lifted_params.extend(params);
     let func = funcs.push(Func {

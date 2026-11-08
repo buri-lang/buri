@@ -176,7 +176,6 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
     let opts = Options {
         profile: Profile::Debug,
         target,
-        unit_prefix: "",
     };
     let mut backend = backend::select(target, Profile::Debug)
         .map_err(|e| format!("no JavaScript backend: {e}"))?;

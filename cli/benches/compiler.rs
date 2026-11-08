@@ -1495,11 +1495,7 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
             let Ok(mut b) = backend::select(target, profile) else {
                 return;
             };
-            let opts = Options {
-                profile,
-                target,
-                unit_prefix: "",
-            };
+            let opts = Options { profile, target };
             let out = b.emit(&prog, &checked.tables, &opts);
             std::hint::black_box(out.is_ok());
         }
@@ -2151,11 +2147,7 @@ fn measure(
             });
             continue;
         }
-        let opts = Options {
-            profile,
-            target,
-            unit_prefix: "",
-        };
+        let opts = Options { profile, target };
         if let Err(diagnostics) = selected.emit(&probe, &checked.tables, &opts) {
             let reason = diagnostics
                 .items
@@ -2181,11 +2173,7 @@ fn measure(
                 monomorphize::run(&checked, module_paths.clone(), &mut d, Roots::Main(entry));
             actions::prepare(&mut prog, target);
             let mut b = backend::select(target, profile).expect("checked above");
-            let opts = Options {
-                profile,
-                target,
-                unit_prefix: "",
-            };
+            let opts = Options { profile, target };
             let out = b.emit(&prog, &checked.tables, &opts);
             std::hint::black_box(&out);
         });
@@ -2283,11 +2271,7 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
             let mut p = build();
             actions::prepare(&mut p, target);
             let mut b = backend::select(target, profile).expect("checked above");
-            let opts = Options {
-                profile,
-                target,
-                unit_prefix: "",
-            };
+            let opts = Options { profile, target };
             std::hint::black_box(b.emit(&p, &checked.tables, &opts).is_ok());
         });
         eprintln!(

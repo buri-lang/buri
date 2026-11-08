@@ -135,8 +135,8 @@
 //!   in the linker's environment, the runtime archive is embedded bytes rather
 //!   than a freshly-`ar`'d one, and nothing here stamps a file.
 //!
-//! The third of §7's sources — absolute paths in debug info — is the backend's,
-//! through `Options::unit_prefix`.
+//! The third of §7's sources, absolute paths in debug info, doesn't arise: no
+//! backend writes a path into an object.
 //!
 //! # The directory
 //!
@@ -1969,7 +1969,7 @@ impl CDriver {
         &self,
         units: &[Emitted],
         out: &Path,
-        _opts: &LinkOptions<'_>,
+        _opts: &LinkOptions,
     ) -> Result<(), Diagnostics> {
         let _phase = crate::profile::enter(crate::profile::Phase::Link);
         crate::build::counted::add(crate::build::counted::Count::Links);
@@ -2788,7 +2788,7 @@ pub fn run(
     rows: &[Row],
     linker: &CDriver,
     out: &Path,
-    opts: &LinkOptions<'_>,
+    opts: &LinkOptions,
 ) -> Result<Staged, Diagnostics> {
     let work = linker.private();
     // A directory a killed process of the same id left behind.
@@ -3384,7 +3384,6 @@ mod tests {
         let opts = LinkOptions {
             profile: crate::compiler::backend::Profile::Debug,
             target,
-            unit_prefix: "t",
         };
         assert!(
             cc.link(std::slice::from_ref(&unit), &out, &opts).is_ok(),

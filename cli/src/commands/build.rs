@@ -1070,11 +1070,9 @@ fn check_native(
             eprintln!("error: cannot write {}: {e}", written.display());
             return Err(2);
         }
-        let prefix = session.workspace.package(target.package).path.clone();
         let opts = crate::compiler::backend::LinkOptions {
             profile: actions::profile_of(flags),
             target: actions::target_of(output),
-            unit_prefix: &prefix,
         };
         if let Err(diagnostics) = link::run(&objects.units, &objects.rows, &linker, &written, &opts)
         {

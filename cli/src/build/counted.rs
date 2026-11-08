@@ -22,9 +22,10 @@ pub enum Count {
     SuitesRestored,
     /// A suite's verdict taken from the cache, nothing run: `cached test`.
     SuitesReused,
-    /// A codegen unit emitted: `run codegen`.
+    /// A codegen unit emitted, once however many programs report it `run codegen`.
     ObjectsCompiled,
-    /// A codegen unit taken from the cache: `cached codegen`.
+    /// A codegen unit a program took from the cache rather than emitting it:
+    /// `cached codegen`, or `run codegen` for one another program emitted.
     ObjectsRestored,
     /// A function in a codegen unit emitted, so one generic function's
     /// instantiations count once each.
@@ -92,7 +93,6 @@ pub fn explained(status: Status, action: Action) {
         (Status::Run, Action::Build) => Count::SuitesBuilt,
         (Status::Cached, Action::Build) => Count::SuitesRestored,
         (Status::Cached, Action::Test) => Count::SuitesReused,
-        (Status::Run, Action::Codegen) => Count::ObjectsCompiled,
         (Status::Cached, Action::Codegen) => Count::ObjectsRestored,
         _ => return,
     };

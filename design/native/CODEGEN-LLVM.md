@@ -487,15 +487,15 @@ and `DISubprogram`s from `Func::debug_name` (`monomorphize.rs`).
 
 Two constraints from ARCHITECTURE.md §7: `DW_AT_comp_dir` is the repository root
 spelled relatively, and on Mach-O the `N_OSO` entries name repository-relative
-object paths. Both are set from `Options::unit_prefix` rather than from
-`std::env::current_dir`, because `--check-reproducible` builds into two different
-directories precisely to catch the version that does not.
+object paths. Both are to be set from a repository-relative path rather than
+from `std::env::current_dir`, because `--check-reproducible` builds into two
+different directories precisely to catch the version that does not. That path
+then joins the `codegen` key of every unit that carries it.
 
-The prefix already reaches an object without waiting for debug info: it is the
-head of a unit's module name (`emit_selected`), and LLVM emits a module's
-source-file name as a `.file` directive on every ELF target, so it lands in
-`.symtab` as an `STT_FILE` symbol today. That is why it is a term of the
-`codegen` key (ARCHITECTURE.md §6.2).
+A module is named by its unit alone (`emit_selected`). LLVM writes a module's
+source-file name as an `STT_FILE` symbol on every ELF target, so a name that
+carried the package would keep two programs from sharing the unit's object
+(ARCHITECTURE.md §6.2).
 
 ## 8. Version pinning
 

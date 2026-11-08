@@ -189,11 +189,9 @@ pub struct Target {
     pub arch: Option<Arch>,
 }
 
-pub struct Options<'a> {
+pub struct Options {
     pub profile: Profile,
     pub target: Target,
-    /// Repository-relative, for the paths a debug section records.
-    pub unit_prefix: &'a str,
 }
 
 /// Which codegen units an emission is for. The build system keys one cache
@@ -434,10 +432,11 @@ makes a unit's IR a function of the whole program it is in, so two binaries'
 the other did not. Measured on a 118k-line repository with two native binaries
 over one library: **2 of 369 codegen units** were shared across the pair, and
 the cold `buri build //...` cell does not move when they are not (1.46 s against
-1.49, one run each, inside the noise). That is why `unit_prefix` being a term of
-the `codegen` key (§6.2) costs so little. A batched test binary spans packages
-under one empty prefix and shares within itself, which is where the sharing that
-matters happens.
+1.49, one run each, inside the noise). Most of that gap was closure numbering,
+not monomorphization: lifted closures were numbered across the program, so
+one closure anywhere renamed every later one. Numbered within their parent,
+and with no package in the key (§6.2), 2,481 of 3,231 units are shared on the
+`full` goals workspace (`design/COMPILER_PIPELINE.md`).
 
 A unit over a node budget (default 40 000 IR nodes) is split at function
 boundaries into `foo.0`, `foo.1`, ..., deterministically by the existing function
@@ -495,7 +494,6 @@ generate?  ->  compile (per closure member)  ->  codegen (per unit)  ->  link
 ```
 codegen_key(unit) = H(Codegen, toolchain, mode, platform, arch,
                       backend.name(), backend.identity(),
-                      unit_prefix,
                       H(the unit's lowered IR),
                       H(the layout of every type the unit names))
 ```
@@ -510,14 +508,11 @@ fixes both — the IR is what codegen reads, and it is insensitive to everything
 that is not semantics.
 
 The IR is not *all* codegen reads, and the rest of `Options` is in the key for
-the same reason: `profile`, `target`, and `unit_prefix`. The prefix is there
-because §7 makes it reach the object, and because it already does on every ELF
-target, where LLVM emits a unit's module name as a `.file` directive and
-therefore as an `STT_FILE` symbol. It costs the cross-package reuse §5.1 counts
-on: two targets whose closures share a unit compile it twice, because they are
-two prefixes. A key that omits an input to codegen is a key that can serve bytes
-codegen would not have produced, and that is the one thing this key exists to
-rule out.
+the same reason: `profile` and `target`. Nothing names the program or its
+package, so one unit's object is shared by every program whose IR for it
+matches. On ELF, LLVM writes a module's name as an `STT_FILE` symbol, so a
+module is named by its unit alone. When debug info writes a path into an
+object (§7), that path joins the key of every unit that carries it.
 
 The cost is that computing the key requires running the front end and the whole
 middle end, so `codegen` can never be skipped without doing the analysis. That is
@@ -592,10 +587,10 @@ for.**
 - **Mach-O `LC_UUID`.** Emitted with `-no_uuid` (`ld64.lld`) / `-Wl,-no_uuid`. A
   content-derived UUID would be reproducible; a random one is not.
 - **Absolute paths in debug info.** `DW_AT_comp_dir` and, on Mach-O, the `N_OSO`
-  stab entries name the object's path on disk. Both are set from
-  `Options::unit_prefix`, which is repository-relative — the same rule
-  `actions::action_key` already follows for input paths. This is precisely the
-  failure the two-directory design exists to catch.
+  stab entries name the object's path on disk. Both are to be set from a
+  repository-relative path, the same rule `actions::action_key` already
+  follows for input paths, and that path then joins the `codegen` key (§6.2).
+  This is precisely the failure the two-directory design exists to catch.
 - **Timestamps in archive members and in the Mach-O/ELF headers.** Zeroed.
   `SOURCE_DATE_EPOCH=0` is already in the action environment (`build/spawn.rs`;
   `buri docs build/hermeticity`) and the object writer honours it directly rather

@@ -453,6 +453,7 @@ impl Watch {
                 changed: std::mem::take(&mut changed),
             };
             let header = self.separator(&trigger);
+            crate::build::actions::begin_round();
             if self.header_first {
                 println!("{header}");
             }

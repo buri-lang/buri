@@ -202,7 +202,7 @@ impl Backend for Llvm {
         &mut self,
         program: &monomorphize::Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let lowered = lower::run(program, tables);
         let routes = resolved(self, &lowered)?;
@@ -233,7 +233,7 @@ impl Native for Llvm {
         &mut self,
         program: &monomorphize::Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         lowered: &ir::Program,
         routes: &route::Routes<'_>,
         units: Units<'_>,
@@ -276,7 +276,7 @@ impl Llvm {
         &mut self,
         program: &monomorphize::Program,
         tables: &Tables,
-        opts: &Options<'_>,
+        opts: &Options,
         unit: u32,
     ) -> Result<String, Diagnostics> {
         let lowered = lower::run(program, tables);
@@ -405,7 +405,7 @@ struct Shared<'p> {
     program: &'p ir::Program,
     routes: &'p route::Routes<'p>,
     tables: &'p Tables,
-    opts: &'p Options<'p>,
+    opts: &'p Options,
     root: Option<Root>,
     triple: String,
     cycles: std::sync::Arc<layout::Cycles>,
@@ -451,7 +451,7 @@ fn emit_selected(
     program: &ir::Program,
     routes: &route::Routes<'_>,
     tables: &Tables,
-    opts: &Options<'_>,
+    opts: &Options,
     root: Option<Root>,
     units: Units<'_>,
     counted: &rc::Syntactic,
@@ -592,7 +592,7 @@ type Built = (Option<Emitted>, Vec<emit::GlueAsk>);
 /// whose LLVM cannot make one.
 fn machine_for(
     triple: &str,
-    opts: &Options<'_>,
+    opts: &Options,
 ) -> Result<inkwell::targets::TargetMachine, Diagnostics> {
     target::machine(triple, opts.profile).map_err(|message| {
         let mut diags = Diagnostics::new();
@@ -651,14 +651,16 @@ fn emit_unit(
     let ctx = module_context();
     build::keep_names(&ctx, audience.names);
     let builder = ctx.create_builder();
-    let module_name = format!("{}{unit_name}", opts.unit_prefix);
+    // Named by the unit alone: ELF writes the name as an `STT_FILE` symbol,
+    // and a name that carried the program's package would make each program's
+    // object for the same IR differ, so no two programs could share it.
     let mut emitter = emit::Unit::new(
         &ctx,
         &builder,
         program,
         shared.routes,
         shared.tables,
-        &module_name,
+        unit_name,
         &shared.observed,
         shared.shares,
         std::sync::Arc::clone(&shared.cycles),
@@ -734,7 +736,7 @@ fn emit_glue(
         shared.program,
         shared.routes,
         shared.tables,
-        &format!("{}{GLUE_UNIT}", shared.opts.unit_prefix),
+        GLUE_UNIT,
         &shared.observed,
         shared.shares,
         std::sync::Arc::clone(&shared.cycles),
