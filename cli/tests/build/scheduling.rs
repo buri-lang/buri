@@ -1051,33 +1051,26 @@ fn forty_tests(name: &str) -> Scratch {
     scratch
 }
 
-/// **A JavaScript suite run in several processes hands out its longest tests
-/// first**, as a native suite does. Every process takes the longest test still
-/// waiting, so `BURI_PROFILE` lists the first ten in order whichever process
-/// took each.
+/// **A long JavaScript suite runs in one process**, with workers to spare, so
+/// the runtime and the suite's modules load once. A second process loads them
+/// again, which on this suite about doubles the CPU it takes.
 #[test]
-fn a_javascript_suite_hands_out_its_longest_tests_first() {
-    let scratch = forty_tests("js-handed");
+fn a_long_javascript_suite_runs_in_one_process() {
+    let scratch = forty_tests("js-one-process");
     let run = scratch.run_with_env(
         &["test", "//...", "--output=js", "--jobs=3"],
         &[("BURI_PROFILE", "1")],
     );
     run.exits(1);
-    let handed = run
-        .stderr
-        .lines()
-        .find_map(|l| l.strip_prefix("first tests handed out: "))
-        .unwrap_or_else(|| panic!("no order in the profile:\n{}", indent(&run.all())));
-    let longest: Vec<String> = (30..40)
-        .rev()
-        .map(|i| format!("//lib/long \"t{i:02}\""))
-        .collect();
-    assert_eq!(handed, longest.join(", "), "{}", indent(&run.all()));
+    assert!(
+        run.stderr.lines().any(|l| l == "test processes 1"),
+        "{}",
+        indent(&run.all())
+    );
 }
 
-/// **A JavaScript suite run in several processes reports its tests in the
-/// order they're declared**, failures included, exactly as one process
-/// running them in order reports them.
+/// **A long JavaScript suite reports its tests in the order they're
+/// declared**, failures included, whatever `--jobs` allows.
 #[test]
 fn a_javascript_suite_reports_in_declared_order_whichever_ran_first() {
     let report = |jobs: &str| {

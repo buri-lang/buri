@@ -233,23 +233,79 @@ fn a_javascript_runtime_that_reports_nothing_fails_the_suite() {
     }
 }
 
-/// A runtime that dies holding a test it was handed fails the suite, rather
-/// than the suite passing without it.
+/// A runtime killed in the middle of its report fails the suite, rather than
+/// the suite passing without the tests it didn't report.
 #[test]
 fn a_javascript_runtime_that_dies_in_a_test_fails_the_suite() {
     let scratch = javascript_suites("corners-js-dies");
     let dies = scratch.write_executable(
         "dies",
-        "#!/bin/sh\necho '{\"next\":0}'\nread test\necho \"died in test $test\" >&2\nexit 1\n",
+        "#!/bin/sh\nprintf '[{\"name\":\"one 0\",\"module\":\"m\",\"ok\":true},'\n\
+         echo 'died in a test' >&2\nkill -9 $$\n",
+    );
+    for suite in ["//lib/short", "//lib/long"] {
+        scratch
+            .run_with_env(
+                &["test", suite],
+                &[("BURI_JS", &dies.display().to_string())],
+            )
+            .exits(1)
+            .says("error: the test binary did not run")
+            .says("= died in a test")
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+    }
+}
+
+/// A long JavaScript suite with a test that never ends is stopped at its
+/// timeout, and reported as the suite's failure.
+#[test]
+fn a_long_javascript_suite_that_hangs_is_stopped_at_its_timeout() {
+    let scratch = Scratch::repo("corners-js-hangs");
+    let mut suite = blocks("long", 60);
+    suite.push_str("\ntest \"spins\" {\n    assert.equal(spin(0), 0);\n}\n");
+    library(
+        &scratch,
+        "long",
+        "        sources: [\"test/t.buri\"]\n        backends: [JS]\n        timeout_seconds: 1\n",
+        &suite.replacen("import { one }", "import { one, spin }", 1),
+    );
+    scratch.write(
+        "lib/long/lib.buri",
+        "export fn one(): Int {\n    1\n}\n\nexport fn spin(n: I64): I64 {\n    spin(n + 1)\n}\n",
     );
     scratch
-        .run_with_env(
-            &["test", "//lib/long"],
-            &[("BURI_JS", &dies.display().to_string())],
-        )
+        .run(&["test", "//lib/long"])
         .exits(1)
-        .says("error: the test binary did not run")
-        .says("= died in test ");
+        .says("error: //lib/long's test suite ran longer than 1s [test-timeout]")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+}
+
+/// Each test of a long JavaScript suite reads back only what it printed, and
+/// nothing a test prints reaches the report.
+#[test]
+fn a_long_javascript_suite_keeps_each_tests_output_its_own() {
+    let scratch = Scratch::repo("corners-js-output");
+    let mut suite = String::from(
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"core/io\" import * as io;\n\
+         from \"platform/effect/testing\" import { stdout };\n",
+    );
+    for i in 0..60 {
+        suite.push_str(&format!(
+            "\ntest \"prints {i}\" {{\n    let out = stdout();\n    \
+             let _ = io.println(out, \"line {i}\").ignore();\n    \
+             assert.equal(out.captured(), \"line {i}\\n\");\n}}\n"
+        ));
+    }
+    library(
+        &scratch,
+        "long",
+        "        sources: [\"test/t.buri\"]\n        backends: [JS]\n",
+        &suite,
+    );
+    let run = scratch.run(&["test", "//lib/long", "--color=never"]);
+    run.ok().says("60 passed, 0 failed, 0 skipped");
+    assert!(!run.all().contains("line "), "{}", indent(&run.all()));
 }
 
 /// A runtime whose records leave out a test of the suite, or name one it
@@ -276,25 +332,6 @@ fn a_javascript_runtime_that_reports_other_tests_fails_the_suite() {
             .silent_about("  = \n")
             .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     }
-    let pulling = scratch.write_executable(
-        "pulling",
-        "#!/bin/sh\n\
-         echo 'a line that is not the protocol'\n\
-         echo '{\"ran\":7,\"record\":{}}'\n\
-         while :; do\n  \
-           echo '{\"next\":true}'\n  \
-           read test || exit 0\n  \
-           echo \"{\\\"ran\\\":$test,\\\"record\\\":{\\\"name\\\":\\\"stranger\\\",\\\"module\\\":\\\"m\\\",\\\"ok\\\":true}}\"\n\
-         done\n",
-    );
-    scratch
-        .run_with_env(
-            &["test", "//lib/long"],
-            &[("BURI_JS", &pulling.display().to_string())],
-        )
-        .exits(1)
-        .says("error: the test binary did not run")
-        .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
 }
 
 /// Bundles that can't be written where they run fail their suites, each
