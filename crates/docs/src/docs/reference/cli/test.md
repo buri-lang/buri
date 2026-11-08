@@ -26,7 +26,8 @@ whose code is unchanged, comments and whitespace aside, reports as cached.
 
 ## While it runs
 
-At a terminal, a block below the results shows what's running and for how long:
+When standard error is a terminal, a block below the results shows what's
+running and for how long:
 
 ```text
 [Building 41/52 · Testing 18/30 · 1 failed]
