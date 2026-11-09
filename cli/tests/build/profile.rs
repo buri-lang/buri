@@ -1797,6 +1797,38 @@ fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
     }
 }
 
+/// **A build callgrind measures counts none of the profile's own work**, so
+/// the goals count what a build does without the profile: under any
+/// `BURI_PROFILE_COLLECT` group, the report prints no work counts, and
+/// without one it does.
+#[test]
+fn a_build_callgrind_measures_counts_no_work_of_the_profile() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    let scratch = Scratch::repo("profile-collect-work");
+    printing(&scratch, "app", "hi");
+    scratch.run(&["clean"]).ok();
+    scratch
+        .run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")])
+        .ok()
+        .says("\nbodies checked ")
+        .says("\nlocals compared in a lookup ");
+    for group in ["check", "whole"] {
+        scratch.run(&["clean"]).ok();
+        scratch
+            .run_with_env(
+                &["build", "//app"],
+                &[("BURI_PROFILE", "1"), ("BURI_PROFILE_COLLECT", group)],
+            )
+            .ok()
+            .says("\n  check ")
+            .silent_about("bodies checked")
+            .silent_about("locals compared in a lookup");
+    }
+}
+
 /// `buri build //...` of a repository holding a page, a node program of `n`
 /// small functions that imports nothing from `ui/`, or both. Answers the
 /// functions monomorphization walked for styles.

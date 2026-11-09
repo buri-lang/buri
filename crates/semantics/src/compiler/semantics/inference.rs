@@ -18,6 +18,7 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map as HashMap;
 use crate::parsing::flat;
 use crate::parsing::tree;
+use crate::profile::Tally;
 
 pub fn check_all(c: &mut Checker) {
     // What a base checked is already in the tables this checker started from.
@@ -966,32 +967,52 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.push_binding(name_hash(name), local);
     }
 
-    #[inline]
+    /// The local `name` is bound to here, if any. Always inlined: out of line,
+    /// the call alone cost 1% of checking (`design/PERFORMANCE.md` §6.82).
+    #[inline(always)]
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
+        if crate::profile::counts_work() {
+            return self.lookup_counted(name);
+        }
+        self.search_locals(name, &mut ())
+    }
+
+    /// [`Infer::lookup_local`] under the profile, which counts the bindings
+    /// the search compared. Out of line, so a lookup without the profile
+    /// carries only the flag's load.
+    #[cold]
+    #[inline(never)]
+    fn lookup_counted(&self, name: &str) -> Option<LocalId> {
+        let mut compared = 0;
+        let found = self.search_locals(name, &mut compared);
+        crate::profile::work(crate::profile::Work::LocalsCompared, compared);
+        found
+    }
+
+    /// The search [`Infer::lookup_local`] makes, tallying each binding it
+    /// compares into `compared`.
+    #[inline(always)]
+    fn search_locals<T: Tally>(&self, name: &str, compared: &mut T) -> Option<LocalId> {
         let hash = name_hash(name);
         let recent = self.scopes.get(self.shadows.len()..).unwrap_or(&[]);
-        let mut compared = 0;
-        let found = recent
-            .iter()
-            .rev()
-            .inspect(|_| compared = usize::saturating_add(compared, 1))
-            .find(|(h, id)| *h == hash && self.local(*id).name == name);
-        crate::profile::work(crate::profile::Work::LocalsCompared, compared);
-        if let Some(&(_, id)) = found {
+        if let Some(&(_, id)) = recent.iter().rev().find(|(h, id)| {
+            compared.tally();
+            *h == hash && self.local(*id).name == name
+        }) {
             return Some(id);
         }
         if self.shadows.is_empty() {
             return None;
         }
-        self.lookup_indexed(hash, name)
+        self.lookup_indexed(hash, name, compared)
     }
 
     /// The same, among the bindings old enough to be indexed.
     #[inline(never)]
-    fn lookup_indexed(&self, hash: u64, name: &str) -> Option<LocalId> {
+    fn lookup_indexed<T: Tally>(&self, hash: u64, name: &str, compared: &mut T) -> Option<LocalId> {
         let mut at = *self.latest.get(&hash)?;
         while let Some(&(_, id)) = self.scopes.get(at as usize) {
-            crate::profile::work(crate::profile::Work::LocalsCompared, 1);
+            compared.tally();
             if self.local(id).name == name {
                 return Some(id);
             }

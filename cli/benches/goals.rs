@@ -284,10 +284,12 @@ fn counted(builds: &[Build], bless: bool) {
                         cmd.arg("--trace-children=yes")
                             .arg(format!("--trace-children-skip={UNCOUNTED}"));
                     } else {
-                        cmd.arg("--collect-atstart=no")
-                            .env("BURI_PROFILE_COLLECT", group);
+                        cmd.arg("--collect-atstart=no");
                     }
+                    // `whole` toggles nothing, and under every group the
+                    // profile counts none of its own work.
                     let run = cmd
+                        .env("BURI_PROFILE_COLLECT", group)
                         .arg(env!("CARGO_BIN_EXE_buri"))
                         .args([command, "//..."])
                         .current_dir(&dir)

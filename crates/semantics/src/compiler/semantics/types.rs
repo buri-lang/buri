@@ -13,6 +13,7 @@ use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
 use crate::parsing::flat::List;
 use crate::parsing::tree;
+use crate::profile::Tally;
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -1586,8 +1587,31 @@ impl Tables {
     /// only where the constructor `provides` it. `Node<C>`, whose `C` appears
     /// only as a handler's parameter, is data even when `C: Ui`, for the same
     /// reason `fn(C, A) => B` is.
+    #[inline]
     pub fn is_effect_carrying(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
-        crate::profile::work(crate::profile::Work::EffectTypesWalked, 1);
+        if crate::profile::counts_work() {
+            return self.effect_carrying_counted(ty, generics);
+        }
+        self.carries_effect(ty, generics, &mut ())
+    }
+
+    /// [`Tables::is_effect_carrying`] under the profile, which counts the
+    /// types it asks. Out of line, so an ask without the profile carries only
+    /// the flag's load.
+    #[cold]
+    #[inline(never)]
+    fn effect_carrying_counted(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
+        let mut walked = 0;
+        let carrying = self.carries_effect(ty, generics, &mut walked);
+        crate::profile::work(crate::profile::Work::EffectTypesWalked, walked);
+        carrying
+    }
+
+    /// [`Tables::is_effect_carrying`], tallying the types it asks into
+    /// `walked`. A build without the profile tallies into `()`, so its walk
+    /// counts nothing at all.
+    fn carries_effect<T: Tally>(&self, ty: &Ty, generics: &[GenericInfo], walked: &mut T) -> bool {
+        walked.tally();
         match ty.kind() {
             TyKind::Param(i) => generics
                 .get(*i as usize)
@@ -1595,18 +1619,17 @@ impl Tables {
             TyKind::Ctx(..) => true,
             TyKind::Con(id, args) => {
                 self.con_carries_effect(*id)
-                    || args
-                        .iter()
-                        .enumerate()
-                        .any(|(k, a)| self.provides(*id, k) && self.is_effect_carrying(a, generics))
+                    || args.iter().enumerate().any(|(k, a)| {
+                        self.provides(*id, k) && self.carries_effect(a, generics, walked)
+                    })
             }
-            TyKind::Array(e) => self.is_effect_carrying(e, generics),
-            TyKind::Tuple(es) => es.iter().any(|e| self.is_effect_carrying(e, generics)),
+            TyKind::Array(e) => self.carries_effect(e, generics, walked),
+            TyKind::Tuple(es) => es.iter().any(|e| self.carries_effect(e, generics, walked)),
             // Only the result counts. A function that *accepts* a context is
             // not one that *carries* one — `fn(C, A) => B` is exactly the
             // shape `list.mapCtx` takes, and SPEC 10.6 mandates it. A
             // function that *returns* a context does carry it.
-            TyKind::Fn(_, r) => self.is_effect_carrying(r, generics),
+            TyKind::Fn(_, r) => self.carries_effect(r, generics, walked),
             _ => false,
         }
     }
@@ -1659,8 +1682,29 @@ impl Tables {
     /// Everything else is the shape of `is_effect_carrying`, and is asked only
     /// of a type that predicate refused. It walks the same positions, so a
     /// constructor that implements an effect itself never reaches here.
+    #[inline]
     pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
-        crate::profile::work(crate::profile::Work::EffectTypesWalked, 1);
+        if crate::profile::counts_work() {
+            return self.may_carry_counted(ty, generics);
+        }
+        self.may_carry(ty, generics, &mut ())
+    }
+
+    /// [`Tables::may_carry_effect`] under the profile, out of line as
+    /// [`Tables::effect_carrying_counted`] is.
+    #[cold]
+    #[inline(never)]
+    fn may_carry_counted(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
+        let mut walked = 0;
+        let may = self.may_carry(ty, generics, &mut walked);
+        crate::profile::work(crate::profile::Work::EffectTypesWalked, walked);
+        may
+    }
+
+    /// [`Tables::may_carry_effect`], tallying the types it asks into `walked`
+    /// as [`Tables::carries_effect`] does.
+    fn may_carry<T: Tally>(&self, ty: &Ty, generics: &[GenericInfo], walked: &mut T) -> bool {
+        walked.tally();
         match ty.kind() {
             TyKind::Param(i) => match generics.get(*i as usize) {
                 Some(g) => !g.bounds.iter().any(|b| !self.trait_(*b).is_effect),
@@ -1670,9 +1714,9 @@ impl Tables {
             TyKind::Con(id, args) => args
                 .iter()
                 .enumerate()
-                .any(|(k, a)| self.provides(*id, k) && self.may_carry_effect(a, generics)),
-            TyKind::Array(e) => self.may_carry_effect(e, generics),
-            TyKind::Tuple(es) => es.iter().any(|e| self.may_carry_effect(e, generics)),
+                .any(|(k, a)| self.provides(*id, k) && self.may_carry(a, generics, walked)),
+            TyKind::Array(e) => self.may_carry(e, generics, walked),
+            TyKind::Tuple(es) => es.iter().any(|e| self.may_carry(e, generics, walked)),
             // Spelled out rather than folded into the catch-all, because this
             // is the one place the two predicates deliberately disagree.
             TyKind::Fn(..) => false,

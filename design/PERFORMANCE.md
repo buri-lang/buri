@@ -7743,9 +7743,15 @@ the workspace:
 
 - three with `--collect-atstart=no` and `BURI_PROFILE_COLLECT=parse`, `check`
   or `other`, which turns collection on only while the thread is in that phase;
-- one of the whole build with `--trace-children=yes`.
+- one of the whole build with `--trace-children=yes` and
+  `BURI_PROFILE_COLLECT=whole`, which toggles nothing.
 
 Dev codegen is the whole build, children included, less the other three.
+
+Under any `BURI_PROFILE_COLLECT`, the profile counts none of its own work, such
+as `locals compared in a lookup`: the figures are a build's, not the profile's.
+Counting them cost 1.5% of check's instructions. A hot step that counts checks
+one flag, and a recursive one tallies into `()` when the profile is off.
 
 **The `ci` size's figures**, arm64 under callgrind, at the first bless:
 

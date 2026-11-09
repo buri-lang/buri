@@ -20,7 +20,7 @@
               figure is a wrong profile line, never a wrong build"
 )]
 
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 
@@ -229,14 +229,70 @@ const WORK_NAMES: [&str; WORKS] = [
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];
 
-/// Adds `n` to `work`'s count. Off, one load of a flag that was read once.
+/// False once a step has found that [`work`] counts nothing in this run.
+static MAY_COUNT_WORK: AtomicBool = AtomicBool::new(true);
+
+/// Adds `n` to `work`'s count. Off, one load of a flag and a branch, inlined
+/// into hot steps such as each type asked whether it carries an effect.
+#[inline]
 pub fn work(work: Work, n: usize) {
-    if enabled() {
-        // Every `Work` has a counter, so this always adds.
-        let _ = WORK
-            .get(work as usize)
-            .map(|count| count.fetch_add(n as u64, Relaxed));
+    if counts_work() {
+        add_work(work, n);
     }
+}
+
+/// Whether [`work`] counts, for a step whose count costs something to work
+/// out. Off, one load of a flag and a branch.
+#[inline]
+pub fn counts_work() -> bool {
+    MAY_COUNT_WORK.load(Relaxed) && still_counting_work()
+}
+
+/// Out of line, so a hot step that counts carries only the flag's load.
+#[cold]
+#[inline(never)]
+fn still_counting_work() -> bool {
+    let on = counting_work();
+    if !on {
+        MAY_COUNT_WORK.store(false, Relaxed);
+    }
+    on
+}
+
+/// What a hot recursive step tallies its [`Work`] into: a `usize` when
+/// [`counts_work`], and `()` otherwise, so the step a build without the
+/// profile runs counts nothing at all.
+pub trait Tally {
+    fn tally(&mut self);
+}
+
+impl Tally for () {
+    #[inline]
+    fn tally(&mut self) {}
+}
+
+impl Tally for usize {
+    #[inline]
+    fn tally(&mut self) {
+        *self = self.saturating_add(1);
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn add_work(work: Work, n: usize) {
+    // Every `Work` has a counter, so this always adds.
+    let _ = WORK
+        .get(work as usize)
+        .map(|count| count.fetch_add(n as u64, Relaxed));
+}
+
+/// Whether [`work`] counts: under `BURI_PROFILE`, except while callgrind
+/// measures the build (`BURI_PROFILE_COLLECT` is set). That measures what a
+/// build does without the profile, and it reads no work counts.
+fn counting_work() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| enabled() && std::env::var_os("BURI_PROFILE_COLLECT").is_none())
 }
 
 /// The source files this run lexed, each once, and their lines of code.
@@ -512,8 +568,10 @@ pub fn report(started: Instant) -> Option<String> {
         "wall {}\n",
         seconds(u64::try_from(started.elapsed().as_nanos()).unwrap_or(0))
     ));
-    for (name, count) in WORK_NAMES.iter().zip(&WORK) {
-        out.push_str(&format!("{name} {}\n", count.load(Relaxed)));
+    if counting_work() {
+        for (name, count) in WORK_NAMES.iter().zip(&WORK) {
+            out.push_str(&format!("{name} {}\n", count.load(Relaxed)));
+        }
     }
     out.push_str(&format!(
         "source: {} lines of code lexed, each file once\n",
@@ -585,6 +643,8 @@ fn seconds(ns: u64) -> String {
 /// `valgrind --tool=callgrind --collect-atstart=no`, which starts every thread
 /// not counting. The groups are `parse`, `check` and `other`, which takes in
 /// `run`: the test runner's own work around the tests a `buri test` starts.
+/// Any other group, such as the goals' `whole`, toggles nothing. Under every
+/// group, [`work`] counts nothing.
 mod collect {
     use super::Phase;
     use std::sync::OnceLock;
