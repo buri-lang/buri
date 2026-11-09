@@ -755,8 +755,9 @@ fn every_job_declares_a_timeout() {
 
 /// The released `buri` keeps the build settings its speed was measured with:
 /// fat LTO, one codegen unit, `panic = "abort"`, and a profile-guided build of
-/// every nightly Linux target. macOS builds without PGO until the training fits
-/// the free runner, but still with the release profile.
+/// every nightly target. Linux trains and builds in one job. macOS trains in a
+/// job of its own, because both in one lost the free runner, and its build
+/// reads the profile that job uploads.
 #[test]
 fn the_release_build_keeps_its_measured_settings() {
     let read = |path: &str| std::fs::read_to_string(repo_root().join(path)).unwrap();
@@ -794,17 +795,36 @@ fn the_release_build_keeps_its_measured_settings() {
         plain.is_empty(),
         "nightly.yml builds `buri` without the release profile: {plain:?}"
     );
+    let pgo: Vec<&str> = steps
+        .iter()
+        .copied()
+        .filter(|l| l.contains("sh .github/pgo.sh"))
+        .collect();
     assert_eq!(
-        steps
-            .iter()
-            .filter(|l| l.contains("sh .github/pgo.sh"))
-            .count(),
-        1,
-        "nightly.yml's Linux builds go through `.github/pgo.sh`, once, in Alpine"
+        pgo,
+        [
+            "run: sh .github/pgo.sh aarch64-apple-darwin train",
+            "run: sh .github/pgo.sh \"${{ matrix.target }}\" use",
+            "sh .github/pgo.sh \"$TARGET\"",
+        ],
+        "every nightly build goes through `.github/pgo.sh`: macOS trains in `pgo-train` and \
+         builds with its profile, and Linux does both in Alpine"
     );
+
+    let jobs = jobs(&nightly);
+    let train = &jobs["pgo-train"];
     assert!(
-        steps.contains(&"run: cargo build --release --features backend-llvm -p buri --target \"${{ matrix.target }}\""),
-        "nightly.yml's macOS build is a plain release build with the LLVM backend"
+        train.contains("runs-on: macos-latest")
+            && train.contains("name: profdata-aarch64-apple-darwin")
+            && train.contains("path: target/pgo/buri.profdata"),
+        "nightly.yml's `pgo-train` job trains on macOS and uploads the profile:\n{train}"
+    );
+    let build = &jobs["build"];
+    assert!(
+        build.contains("needs: [version, pgo-train]")
+            && build.contains("name: profdata-${{ matrix.target }}")
+            && build.contains("path: target/pgo\n"),
+        "nightly.yml's macOS build downloads the profile `pgo-train` uploads:\n{build}"
     );
 }
 

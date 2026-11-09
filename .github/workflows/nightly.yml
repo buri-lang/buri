@@ -91,6 +91,37 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "next version: $next"
 
+  # The macOS profile, trained on a runner of its own. Training and the release
+  # build in one job lost the free runner (3 cores, 7 GB, 14 GB of disk) 56 to
+  # 61 minutes in, twice (runs 42387323533 and 42536342333), so this job only
+  # builds the instrumented compiler, runs the training suites, and uploads the
+  # merged profile; the macOS leg of `build` downloads it on a fresh runner.
+  # The Linux legs train and build in one job, inside Alpine, but wait for this
+  # one too: a matrix's legs share one `needs`, and publish needs every leg.
+  pgo-train:
+    name: pgo-train (aarch64-apple-darwin)
+    needs: version
+    runs-on: macos-latest
+    # An instrumented release build, a debug build of six suites, and their run.
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/macos-toolchain
+      # The same edit the build makes, so the profile is of the same source.
+      - name: set version to ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          v="${{ needs.version.outputs.version }}"
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
+      - name: train the profile
+        run: sh .github/pgo.sh aarch64-apple-darwin train
+      - uses: actions/upload-artifact@v7
+        with:
+          name: profdata-aarch64-apple-darwin
+          path: target/pgo/buri.profdata
+          if-no-files-found: error
+          retention-days: 3
+
   # The three release targets. Every leg checks out, packages, and uploads on the
   # HOST runner; the only difference is where `buri` is compiled.
   #
@@ -120,7 +151,7 @@ jobs:
   # reads each target's hash out of its own artifact instead.
   build:
     name: build (${{ matrix.target }})
-    needs: version
+    needs: [version, pgo-train]
     strategy:
       fail-fast: false
       matrix:
@@ -130,52 +161,20 @@ jobs:
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
     runs-on: ${{ matrix.os }}
     # ~20 min cold compile per leg with the LLVM backend on larger runners, and the
-    # free runners have three to four cores; PGO compiles twice more and runs half
-    # the e2e suites. 150 leaves headroom for setup and the pull.
+    # free runners have three to four cores; on Linux PGO compiles twice more and
+    # runs half the e2e suites. 150 leaves headroom for setup and the pull.
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
 
-      # --- macOS toolchain (native): rustup is already on the host and installs
-      # what rust-toolchain.toml pins, Homebrew provides LLVM 21, and CC is
-      # clang (cli/build.rs honours CC, and clang is already cc on macOS). None of this runs on the Linux
-      # legs, whose toolchain lives inside the Alpine container below.
+      # --- macOS toolchain (native). None of this runs on the Linux legs, whose
+      # toolchain lives inside the Alpine container below.
       - if: runner.os == 'macOS'
-        run: rustup toolchain install
+        uses: ./.github/actions/macos-toolchain
       - if: runner.os == 'macOS'
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-${{ matrix.target }}
-      - if: runner.os == 'macOS'
-        name: LLVM 21 from Homebrew
-        run: |
-          set -euo pipefail
-          # The runner image ships taps Homebrew no longer trusts. Removing them is
-          # safer than trusting them, and silences the warning. Their formulae go
-          # first (nothing here uses them), because untapping a tap with installed
-          # formulae warns in its turn. Homebrew hides an untrusted tap's formulae,
-          # even from `list` and `uninstall`, so each is trusted just before its removal.
-          for tap in aws/tap azure/bicep; do
-            brew trust "$tap" || true
-            brew list --full-name | grep "^$tap/" \
-              | xargs -r brew uninstall --ignore-dependencies || true
-            brew untap "$tap" || true
-          done
-          # The image ships its own LLVM, and installing llvm@21 beside another
-          # llvm keg warns that 21 was not linked. Nothing here links: the build
-          # reads LLVM_SYS_211_PREFIX. Removing the other kegs leaves exactly one
-          # LLVM on the runner, the one llvm-sys 211 expects.
-          for keg in $(brew list --formula | grep -E '^llvm(@[0-9]+)?$' | grep -vx 'llvm@21' || true); do
-            brew uninstall --ignore-dependencies "$keg"
-          done
-          brew install llvm@21
-          prefix="$(brew --prefix llvm@21)"
-          case "$("$prefix/bin/llvm-config" --version)" in
-            21.*) ;;
-            *) echo "::error::brew llvm@21 is $("$prefix/bin/llvm-config" --version), not 21.x"; exit 1 ;;
-          esac
-          echo "LLVM_SYS_211_PREFIX=$prefix" >> "$GITHUB_ENV"
-          echo "CC=clang" >> "$GITHUB_ENV"
 
       # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
       # version` prints, so editing it before the build is what makes the binary
@@ -191,13 +190,16 @@ jobs:
           perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
 
-      # --- macOS native build with the optimizing backend (not optional here).
-      # PGO is off on macOS until its memory and CPU use fits the free runner
-      # (3 cores, 7 GB): runs 42387323533 and 42536342333 lost the runner
-      # partway through `.github/pgo.sh`. The Linux legs keep PGO.
+      # --- macOS native build with the optimizing backend (not optional here),
+      # reading the profile the `pgo-train` job trained on a runner of its own.
       - if: runner.os == 'macOS'
-        name: build buri --release --features backend-llvm
-        run: cargo build --release --features backend-llvm -p buri --target "${{ matrix.target }}"
+        uses: actions/download-artifact@v8
+        with:
+          name: profdata-${{ matrix.target }}
+          path: target/pgo
+      - if: runner.os == 'macOS'
+        name: build buri --release --features backend-llvm with the trained profile
+        run: sh .github/pgo.sh "${{ matrix.target }}" use
 
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
       # bind-mounted so the checked-out source (with the version already bumped on
