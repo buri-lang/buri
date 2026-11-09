@@ -1971,6 +1971,167 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// A recursion over `[x, ..rest]` whose arm branches before it hands `rest`
+/// on: two ways round, three ways round through nested `if`s, by a `match` on
+/// the head, and with one way out that drops `rest`. Two thousand steps of
+/// each over a fresh list must drop each head in place rather than copy the
+/// tail, and a list another name still holds is left as it was.
+#[test]
+fn a_rest_handed_on_after_a_branch_is_not_copied() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn evens(xs: [Int], acc: Int): Int {
+  match (xs) {
+    [] => acc,
+    [x, ..rest] => if (x % 2 == 0) { evens(rest, acc + 1) } else { evens(rest, acc) },
+  }
+}
+
+fn bands(xs: [Int], acc: Int): Int {
+  match (xs) {
+    [] => acc,
+    [x, ..rest] => {
+      if (x < 10) {
+        bands(rest, acc + 1)
+      } else if (x < 100) {
+        bands(rest, acc + 10)
+      } else {
+        bands(rest, acc + 100)
+      }
+    },
+  }
+}
+
+fn thirds(xs: [Int], acc: Int): Int {
+  match (xs) {
+    [] => acc,
+    [x, ..rest] => match (x % 3) {
+      0 => thirds(rest, acc + 1),
+      1 => thirds(rest, acc),
+      _ => thirds(rest, acc - 1),
+    },
+  }
+}
+
+fn until(xs: [Int], n: Int, acc: Int): Int {
+  match (xs) {
+    [] => acc,
+    [x, ..rest] => if (x >= n) { acc } else { until(rest, n, acc + x) },
+  }
+}
+
+fn total(xs: [Int]): Int {
+  match (xs) {
+    [] => 0,
+    [x, ..rest] => x + total(rest),
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = evens(list.range(ctx, 0, 2000), 0);
+  let b = bands(list.range(ctx, 0, 2000), 0);
+  let c = thirds(list.range(ctx, 0, 2000), 0);
+  let d = until(list.range(ctx, 0, 2000), 1990, 0);
+  let kept = list.range(ctx, 0, 50);
+  let e = evens(kept, 0);
+  let f = bands(kept, 0);
+  let g = thirds(kept, 0);
+  let h = until(kept, 45, 0);
+  let line = "${a} ${b} ${c} ${d} ${e} ${f} ${g} ${h} ${kept.length()} ${total(kept)}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("rest-after-a-branch", source) {
+        assert_eq!(
+            r.stdout, "1000 190910 1 1979055 25 410 1 990 50 1225\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 200,
+            "{backend}: eight thousand steps over fresh lists allocated {blocks} blocks: every \
+             step copied the rest"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}
+
+/// Two lists walked together by a `match` on the tuple of both, as
+/// `([x, ..xr], [y, ..yr])`: with a way out that reads neither list, and one
+/// that reads both. Two thousand steps of each over fresh lists must drop
+/// each head in place rather than copy both tails, and lists other names
+/// still hold are left as they were.
+#[test]
+fn rests_matched_out_of_a_tuple_are_not_copied() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn dot(xs: [Int], ys: [Int], acc: Int): Int {
+  match ((xs, ys)) {
+    ([x, ..xr], [y, ..yr]) => dot(xr, yr, acc + x * y),
+    _ => acc,
+  }
+}
+
+fn left(xs: [Int], ys: [Int], acc: Int): Int {
+  match ((xs, ys)) {
+    ([x, ..xr], [y, ..yr]) => left(xr, yr, acc + x - y),
+    _ => acc + xs.length() * 1000 + ys.length(),
+  }
+}
+
+fn total(xs: [Int]): Int {
+  match (xs) {
+    [] => 0,
+    [x, ..rest] => x + total(rest),
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let a = dot(list.range(ctx, 0, 2000), list.range(ctx, 0, 2010), 0);
+  let b = left(list.range(ctx, 0, 2005), list.range(ctx, 0, 2000), 0);
+  let xs = list.range(ctx, 0, 50);
+  let ys = list.range(ctx, 0, 40);
+  let c = dot(xs, ys, 0);
+  let d = left(ys, xs, 0);
+  let line = "${a} ${b} ${c} ${d} ${xs.length()} ${total(xs)} ${ys.length()} ${total(ys)}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("rests-out-of-a-tuple", source) {
+        assert_eq!(
+            r.stdout, "2664667000 5000 20540 10 50 1225 40 780\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 200,
+            "{backend}: four thousand steps over fresh lists allocated {blocks} blocks: every \
+             step copied the rests"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}
+
 /// How [`arrivals`] writes a record back.
 #[derive(Clone, Copy, Debug)]
 enum Arrival {

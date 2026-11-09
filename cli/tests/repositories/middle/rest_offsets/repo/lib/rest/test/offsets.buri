@@ -147,6 +147,33 @@ fn pairs(xs: [Str], ys: [Str], acc: Int): Int {
     }
 }
 
+// Two lists walked together until either runs out, which reads neither.
+fn dot(xs: [Str], ys: [Str], acc: Int): Int {
+    match ((xs, ys)) {
+        ([x, ..xr], [y, ..yr]) => dot(xr, yr, acc + x.length() * y.length()),
+        _ => acc,
+    }
+}
+
+// How long the rest is after the first word at least `n` long: the rest is
+// read by a call on one way round and handed on by the other.
+fn restAfter(xs: [Str], n: Int): Int {
+    match (xs) {
+        [] => -1,
+        [x, ..rest] => {
+            if (x.length() >= n) { rest.length() } else { restAfter(rest, n) }
+        },
+    }
+}
+
+// A tuple an arm binds whole and returns.
+fn whole(xs: [Str], n: Int): ([Str], Int) {
+    match ((xs, n)) {
+        ([], k) => ([], k + 1),
+        pair => if (n > 100) { whole([], n) } else { pair },
+    }
+}
+
 // The loop swaps its two lists, so neither stays where it was.
 fn swapped(xs: [Str], ys: [Str], acc: Int): Int {
     match (xs) {
@@ -286,5 +313,21 @@ test "two lists walked together, and two the loop swaps" {
     assert.equal(pairs(xs, ys, 0), 7020);
     assert.equal(pairs(ys, words(ctx, 5), 0), 20);
     assert.equal(swapped(xs, ys, 0), 28);
+    assert.equal(dot(xs, ys, 0), 20);
+    assert.equal(dot(words(ctx, 12), words(ctx, 11), 0), 49);
     assert.equal(xs.length() * 100 + ys.length(), 1205)
+}
+
+test "a rest read by a call on one way round, and a tuple returned whole" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 30);
+    assert.equal(restAfter(xs, 3), 19);
+    assert.equal(restAfter(words(ctx, 30), 3), 19);
+    assert.equal(restAfter(words(ctx, 8), 3), -1);
+    let (ys, m) = whole(xs, 4);
+    assert.equal(ys.length() * 10 + m, 304);
+    assert.equal(whole([], 7).1, 8);
+    assert.equal(xs.length(), 30)
 }

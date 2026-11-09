@@ -9121,6 +9121,39 @@ with the heap checked: a list held elsewhere, returned whole or handed to a
 call partway, handed on unchanged, swapped for another list, and dropped on two
 ways round. The tightened kvstore row guards the gain.
 
+### 6.112 A rest handed on after a branch, or out of a tuple, isn't copied, 2026-11-09
+
+Two shapes still copied `rest` on every step, because §6.107 found no
+`decref` of the list beside the jump:
+
+```buri
+[x, ..rest] => if (x > 2) { long(rest, acc + 1) } else { long(rest, acc - 1) },
+([x, ..xr], [y, ..yr]) => pairs(xr, yr, acc + x * y),
+```
+
+In the first, `rc` drops the list before the branch. `slices::sink` now moves
+that `decref` to the start of each block the branch goes to, as long as
+the block doesn't read the rest and no other block jumps there. A `decref`
+that runs later changes no answer, so a block that reads the list after it
+doesn't stop the move.
+The `decref` then sits beside each jump, and the two fuse as before.
+
+In the second, the slices read the tuple's fields and the tuple is what gets
+dropped. `slices::apart` now takes apart a tuple a `match` built, when only
+field reads and `decref`s use it: a field read becomes the element, and the
+tuple's `decref` one per element. A tuple holds its elements inline, so no
+count changes.
+
+Both shapes then drop each head in place, and the first, like a tuple whose
+other arm reads neither list, moves an offset (§6.111). A tuple whose other arm
+reads the lists takes a count of each before the test, so it keeps an owned
+slice per step.
+
+`cli/tests/native/ownership.rs` guards both with allocation counts: 2,000 steps
+went from about 2,000 blocks to under 200 per shape. `run-dev/kvstore` went
+from 1,358.4 M to 1,356.0 M instructions on arm64 (-0.17%), and the aarch64
+row is tightened to 1355992566. Its retains plus releases stay at 12.37 M.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

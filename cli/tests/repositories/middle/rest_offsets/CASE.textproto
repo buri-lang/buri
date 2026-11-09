@@ -3,8 +3,9 @@
 # or handing it to a call partway through and reading it again after, handing
 # it on unchanged, taking another list in its place, reading another list each
 # step, dropping the head on two ways round, and walking or swapping two at
-# once, plus a rest returned without a loop. Both backends run every block,
-# with the heap checked natively.
+# once, plus a rest returned without a loop, a rest read by a call on one way
+# round, and a tuple returned whole. Both backends run every block, with the
+# heap checked natively.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

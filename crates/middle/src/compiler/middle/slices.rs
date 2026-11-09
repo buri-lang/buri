@@ -34,7 +34,10 @@
 //!    jump after a `decref` of the list.
 //!
 //! Each of those gives the copy's one count away, so no path reads it twice,
-//! and each block can make its own.
+//! and each block can make its own. A list dropped before a branch has its
+//! `decref` moved past the branch first ([`push_drops`]), and a tuple a
+//! `match` built is taken apart ([`apart`]), so both find the drop beside the
+//! jump.
 //!
 //! [`offsets`] then replaces a loop's back-edge `slice.owned` with an offset.
 
@@ -43,6 +46,84 @@ use crate::compiler::middle::ir::{
 };
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::Prim;
+use crate::diagnostics::Invariant as _;
+
+/// Takes apart each tuple in `made`, which a `match` built to test, where
+/// nothing reads it but a field read or a `decref`: a field read becomes the
+/// element itself, and a `decref` one of each element.
+///
+/// A tuple holds its elements inline, never boxed, so this changes no count.
+/// It is what lets [`sink`] see `([x, ..xr], [y, ..yr])`'s slices as slices
+/// of the two lists, and the lists' own drops as the ones to fuse with.
+pub fn apart(code: &mut Code, made: &[ValueId]) {
+    let mut tuples = Vec::new();
+    for (_, block) in code.iter() {
+        for inst in &block.insts {
+            if let Inst::MakeStruct { dest, fields, .. } = inst {
+                if made.contains(dest) {
+                    tuples.push((*dest, fields.clone()));
+                }
+            }
+        }
+    }
+    let mut ops = Vec::new();
+    for (t, elems) in tuples {
+        let mut renames = Vec::new();
+        let mut kept = true;
+        for (_, block) in code.iter() {
+            for inst in &block.insts {
+                match *inst {
+                    Inst::GetField {
+                        dest, agg, field, ..
+                    } if agg == t => {
+                        let e = elems.get(field.index()).copied();
+                        renames.push((dest, e.or_ice("a tuple's field is one of its elements")));
+                    }
+                    Inst::MakeStruct { dest, .. } if dest == t => {}
+                    Inst::DecRef { value } if value == t => {}
+                    _ => {
+                        ops.clear();
+                        inst.operands(&mut ops);
+                        kept &= !ops.contains(&t);
+                    }
+                }
+            }
+            kept &= !names_in_term(block, t, &mut ops);
+        }
+        if !kept {
+            continue;
+        }
+        let counted: Vec<ValueId> = elems
+            .iter()
+            .copied()
+            .filter(|&e| matches!(code.ty_of(e), Type::Agg(_)))
+            .collect();
+        let ids: Vec<BlockId> = code.iter().map(|(b, _)| b).collect();
+        for b in ids {
+            let block = code.get_mut(b);
+            let mut out = Vec::with_capacity(block.insts.len());
+            for mut inst in std::mem::take(&mut block.insts) {
+                match inst {
+                    Inst::MakeStruct { dest, .. } if dest == t => {}
+                    Inst::GetField { agg, .. } if agg == t => {}
+                    Inst::DecRef { value } if value == t => {
+                        out.extend(counted.iter().map(|&value| Inst::DecRef { value }));
+                    }
+                    _ => {
+                        for &(v, e) in &renames {
+                            inst.rename(v, e);
+                        }
+                        out.push(inst);
+                    }
+                }
+            }
+            block.insts = out;
+            for &(v, e) in &renames {
+                block.term.rename(v, e);
+            }
+        }
+    }
+}
 
 /// Moves every `..rest` slice in `code` that [the module docs](self) license.
 pub fn sink(code: &mut Code) {
@@ -93,6 +174,70 @@ enum Use {
 
 /// Moves the slice `d` makes, if [the module docs](self) license it.
 fn sink_one(code: &mut Code, d: BlockId, slice: &Slice) {
+    let pushed = push_drops(code, d, slice.dest, slice.array);
+    if !sink_uses(code, d, slice) {
+        for (from, at, into) in pushed.into_iter().rev() {
+            for t in into {
+                code.get_mut(t).insts.remove(0);
+            }
+            let value = slice.array;
+            code.get_mut(from).insts.insert(at, Inst::DecRef { value });
+        }
+    }
+}
+
+/// Moves the list's `decref` out of each block that drops it and doesn't
+/// read the slice, to the start of every block it branches to, as long as
+/// each of those has no other way in. Answers each move: the block, the
+/// `decref`'s index there, and where it went.
+///
+/// A recursion whose arm drops the list and then branches, as in `[x,
+/// ..rest] => if (x > 2) { f(rest) } else { g(rest) }`, then drops it beside
+/// each jump that hands `rest` on, which is where [`use_in`] fuses the two.
+/// A `decref` that runs later holds the list a little longer, which changes
+/// no answer, even where the block reads the list after it.
+///
+/// A block that branches nowhere and doesn't read the slice ends in an
+/// abort: every other way out of the slice's block drops or hands on the
+/// slice. The `decref` it loses there is lost with the program.
+fn push_drops(
+    code: &mut Code,
+    d: BlockId,
+    v: ValueId,
+    array: ValueId,
+) -> Vec<(BlockId, usize, Vec<BlockId>)> {
+    let preds = code.preds();
+    let mut moves = Vec::new();
+    let mut ops = Vec::new();
+    let mut stack = vec![d];
+    while let Some(b) = stack.pop() {
+        let block = code.get(b);
+        let Some(at) = block
+            .insts
+            .iter()
+            .rposition(|inst| matches!(inst, Inst::DecRef { value } if *value == array))
+        else {
+            continue;
+        };
+        let into: Vec<BlockId> = block.term.targets().map(|t| t.block).collect();
+        if names(block, v, &mut ops) || into.iter().any(|&t| preds.get(t).as_slice() != [b]) {
+            continue;
+        }
+        code.get_mut(b).insts.remove(at);
+        for &t in &into {
+            code.get_mut(t)
+                .insts
+                .insert(0, Inst::DecRef { value: array });
+        }
+        stack.extend(into.iter().copied());
+        moves.push((b, at, into));
+    }
+    moves
+}
+
+/// Moves the slice to its uses, if each block that reads it is one
+/// [`use_in`] knows. Answers whether it did.
+fn sink_uses(code: &mut Code, d: BlockId, slice: &Slice) -> bool {
     let &Slice {
         dest: v,
         array,
@@ -104,7 +249,7 @@ fn sink_one(code: &mut Code, d: BlockId, slice: &Slice) {
         match use_in(block, v, array) {
             Some(None) => {}
             Some(Some(u)) => uses.push((b, u)),
-            None => return,
+            None => return false,
         }
     }
     for (b, u) in uses {
@@ -137,6 +282,7 @@ fn sink_one(code: &mut Code, d: BlockId, slice: &Slice) {
     code.get_mut(d)
         .insts
         .retain(|inst| !matches!(inst, Inst::ArraySlice { dest, .. } if *dest == v));
+    true
 }
 
 /// What `block` does with `v`, a slice of `array`: `Some(None)` where it
@@ -329,6 +475,12 @@ fn names(block: &Block, v: ValueId, ops: &mut Vec<ValueId>) -> bool {
     for inst in &block.insts {
         inst.operands(ops);
     }
+    ops.contains(&v) || names_in_term(block, v, ops)
+}
+
+/// Whether `block`'s terminator reads `v`, its jumps' arguments included.
+fn names_in_term(block: &Block, v: ValueId, ops: &mut Vec<ValueId>) -> bool {
+    ops.clear();
     block.term.operands(ops);
     ops.extend(block.term.targets().flat_map(|t| t.args.iter().copied()));
     ops.contains(&v)

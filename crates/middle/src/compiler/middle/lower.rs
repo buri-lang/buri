@@ -287,6 +287,7 @@ fn lower_one(
                 loops: Vec::new(),
                 unmatched: None,
                 slices: Vec::new(),
+                tuples: Vec::new(),
                 sites: Sites::of(fplan, body),
                 node_values: HashMap::default(),
                 #[cfg(debug_assertions)]
@@ -869,6 +870,8 @@ struct FnLower<'a> {
     /// allocation waits until every test in the pattern has passed, so a test
     /// that fails after one leaves no block behind ([`FnLower::matched`]).
     slices: Vec<(LocalId, ValueId, ListTy, usize)>,
+    /// The tuples `match` scrutinees built, for [`slices::apart`].
+    tuples: Vec<ValueId>,
     /// Where `middle::rc` wants an `incref` or a `decref`.
     sites: Sites,
     /// What each node evaluated to, for the sites that name a temporary
@@ -907,6 +910,7 @@ impl FnLower<'_> {
         }
 
         self.code.retain_reachable();
+        slices::apart(&mut self.code, &self.tuples);
         pairs::cancel(&mut self.code);
         slices::sink(&mut self.code);
         slices::offsets(&mut self.code);
@@ -2192,6 +2196,9 @@ impl FnLower<'_> {
 
     fn match_(&mut self, ty: Type, scrutinee: &Expr, arms: &[Arm]) -> ValueId {
         let s = self.expr(scrutinee);
+        if matches!(scrutinee.kind, ExprKind::Tuple(_)) {
+            self.tuples.push(s);
+        }
         let (join, join_v) = self.join(ty);
         if !self.switch(s, &scrutinee.ty, arms, join) {
             self.chain(s, arms, join);
