@@ -48,6 +48,7 @@ impl Position {
 /// large file from decoding the whole file.
 pub fn position_of(text: &str, offset: u32) -> Position {
     let offset = (offset as usize).min(text.len());
+    crate::profile::work(crate::profile::Work::PositionBytesWalked, offset);
     let above = text.as_bytes().get(..offset).unwrap_or_default();
     let line = u32::try_from(above.iter().filter(|b| **b == b'\n').count()).unwrap_or(u32::MAX);
     let start = above
@@ -67,6 +68,7 @@ fn units_before(text: &str, start: usize, offset: usize) -> u32 {
         if start.saturating_add(i) >= offset {
             break;
         }
+        crate::profile::work(crate::profile::Work::PositionBytesWalked, c.len_utf8());
         character = character.saturating_add(c.len_utf16() as u32);
     }
     character

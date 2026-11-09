@@ -145,6 +145,100 @@ fn switch(next: Option<Phase>) {
     }
 }
 
+/// Work a pass counts in its own units, at a step that was once `n²`. Unlike
+/// instructions, each is the same on every run of one tree, whatever the load,
+/// so a growth bound can read it once. The report prints each as `<name> <n>`.
+#[derive(Clone, Copy)]
+pub enum Work {
+    /// Expression nodes the derived functions are, and the nodes of each
+    /// operand copied to inline an operation at a field (`derives.rs`).
+    DeriveNodesBuilt,
+    /// Entries of reference counting's live set written, read in a walk or
+    /// copied (`rc.rs`).
+    RcLiveEntriesTouched,
+    /// Expression nodes forwarding field reads visited (`forward.rs`).
+    ForwardNodesVisited,
+    /// The locals in every function's table once closure conversion has lifted
+    /// the lambdas (`closures.rs`).
+    LocalsAfterClosures,
+    /// Rows of a pattern matrix specialized by a constructor (`exhaustiveness.rs`).
+    ExhaustivenessRowsSpecialized,
+    /// Types, and the types inside them, asked whether they carry an effect or
+    /// may (`types.rs`).
+    EffectTypesWalked,
+    /// Bindings a lookup of a local's name compared with it (`inference.rs`).
+    LocalsCompared,
+    /// Entries of the formatter's comment table looked at past a binary search
+    /// (`formatting.rs`).
+    CommentEntriesExamined,
+    /// JavaScript expression nodes copied (`javascript.rs`).
+    JsNodesCopied,
+    /// Lists of the values an IR instruction or terminator reads, read
+    /// (`ir.rs`, and the stencil backend's copy of them in `jit.rs`).
+    OperandListsRead,
+    /// Blocks the dominator tree's passes looked at, and steps up the tree
+    /// (`ir.rs`).
+    DominatorSteps,
+    /// Field types worked out in a list of a struct's, a tuple's or a variant's
+    /// (`types.rs`).
+    FieldTypesWorkedOut,
+    /// Keys of the testing filesystem a test process walked, as its blocks' `left`
+    /// lines report them (`cli/runtime/testing.rs`).
+    TestFsKeysWalked,
+    /// Function bodies the checker inferred (`inference.rs`).
+    BodiesChecked,
+    /// Declarations lint's type census compared with an identifier, to tell a
+    /// type's mention of itself from a use (`lint.rs`).
+    DeclarationsCompared,
+    /// Expression nodes `unused-context` walked for the call sites its fixes
+    /// edit (`lint.rs`).
+    CallSitesSought,
+    /// Bytes of a file walked to turn an offset into a line and a column
+    /// (`language_server/convert.rs`).
+    PositionBytesWalked,
+    /// Findings the language server keyed to drop repeats
+    /// (`language_server/mod.rs`).
+    FindingsKeyed,
+    /// Functions monomorphization walked for the styles their values may hold.
+    FunctionsSurveyedForStyles,
+}
+
+const WORKS: usize = Work::FunctionsSurveyedForStyles as usize + 1;
+
+const WORK_NAMES: [&str; WORKS] = [
+    "derive nodes built",
+    "rc live entries touched",
+    "forward nodes visited",
+    "locals after closure conversion",
+    "pattern rows specialized",
+    "types asked whether they carry an effect",
+    "locals compared in a lookup",
+    "comment entries examined",
+    "javascript nodes copied",
+    "ir operand lists read",
+    "dominator steps",
+    "field types worked out",
+    "testing filesystem keys walked",
+    "bodies checked",
+    "declarations compared with an identifier",
+    "nodes walked for call sites",
+    "bytes walked to a position",
+    "findings keyed",
+    "functions surveyed for styles",
+];
+
+static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];
+
+/// Adds `n` to `work`'s count. Off, one load of a flag that was read once.
+pub fn work(work: Work, n: usize) {
+    if enabled() {
+        // Every `Work` has a counter, so this always adds.
+        let _ = WORK
+            .get(work as usize)
+            .map(|count| count.fetch_add(n as u64, Relaxed));
+    }
+}
+
 /// The source files this run lexed, each once, and their lines of code.
 static SOURCES: Mutex<Option<std::collections::HashSet<(u64, usize)>>> = Mutex::new(None);
 static SOURCE_LINES: AtomicU64 = AtomicU64::new(0);
@@ -418,6 +512,9 @@ pub fn report(started: Instant) -> Option<String> {
         "wall {}\n",
         seconds(u64::try_from(started.elapsed().as_nanos()).unwrap_or(0))
     ));
+    for (name, count) in WORK_NAMES.iter().zip(&WORK) {
+        out.push_str(&format!("{name} {}\n", count.load(Relaxed)));
+    }
     out.push_str(&format!(
         "source: {} lines of code lexed, each file once\n",
         SOURCE_LINES.load(Relaxed)

@@ -715,6 +715,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn finish(mut self, expr: typed::Expr) -> typed::Body {
+        crate::profile::work(crate::profile::Work::BodiesChecked, 1);
         // Only if nothing constrains a literal does the default apply.
         self.subst.default_numerics(&self.c.tables);
         self.discharge_obligations();
@@ -969,11 +970,14 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
         let hash = name_hash(name);
         let recent = self.scopes.get(self.shadows.len()..).unwrap_or(&[]);
-        if let Some(&(_, id)) = recent
+        let mut compared = 0;
+        let found = recent
             .iter()
             .rev()
-            .find(|(h, id)| *h == hash && self.local(*id).name == name)
-        {
+            .inspect(|_| compared = usize::saturating_add(compared, 1))
+            .find(|(h, id)| *h == hash && self.local(*id).name == name);
+        crate::profile::work(crate::profile::Work::LocalsCompared, compared);
+        if let Some(&(_, id)) = found {
             return Some(id);
         }
         if self.shadows.is_empty() {
@@ -987,6 +991,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn lookup_indexed(&self, hash: u64, name: &str) -> Option<LocalId> {
         let mut at = *self.latest.get(&hash)?;
         while let Some(&(_, id)) = self.scopes.get(at as usize) {
+            crate::profile::work(crate::profile::Work::LocalsCompared, 1);
             if self.local(id).name == name {
                 return Some(id);
             }

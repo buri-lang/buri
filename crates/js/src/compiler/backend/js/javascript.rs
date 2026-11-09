@@ -202,7 +202,7 @@ impl UnOp {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Expr {
     Num(f64),
     /// Emitted with an `n` suffix. `Int` is `I64` on every target, so ordinary
@@ -270,6 +270,76 @@ pub enum Expr {
     /// spelled where JavaScript wants an expression.
     Seq(Vec<Expr>),
     Spread(Box<Expr>),
+}
+
+/// Written out rather than derived so the profile can count each node copied:
+/// a copy of the rest of a tree at each of its nodes is `n²`.
+impl Clone for Expr {
+    fn clone(&self) -> Expr {
+        crate::profile::work(crate::profile::Work::JsNodesCopied, 1);
+        match self {
+            Expr::Num(n) => Expr::Num(*n),
+            Expr::BigInt(s) => Expr::BigInt(s.clone()),
+            Expr::Str(s) => Expr::Str(s.clone()),
+            Expr::Bool(b) => Expr::Bool(*b),
+            Expr::Null => Expr::Null,
+            Expr::Undefined => Expr::Undefined,
+            Expr::Ident(s) => Expr::Ident(s.clone()),
+            Expr::Array(es) => Expr::Array(es.clone()),
+            Expr::Object(fields) => Expr::Object(fields.clone()),
+            Expr::Member { obj, prop } => Expr::Member {
+                obj: obj.clone(),
+                prop: prop.clone(),
+            },
+            Expr::Index { obj, index } => Expr::Index {
+                obj: obj.clone(),
+                index: index.clone(),
+            },
+            Expr::Call { callee, args } => Expr::Call {
+                callee: callee.clone(),
+                args: args.clone(),
+            },
+            Expr::Unary { op, operand } => Expr::Unary {
+                op: *op,
+                operand: operand.clone(),
+            },
+            Expr::Binary { op, lhs, rhs } => Expr::Binary {
+                op: *op,
+                lhs: lhs.clone(),
+                rhs: rhs.clone(),
+            },
+            Expr::Cond { test, cons, alt } => Expr::Cond {
+                test: test.clone(),
+                cons: cons.clone(),
+                alt: alt.clone(),
+            },
+            Expr::Assign { target, value } => Expr::Assign {
+                target: target.clone(),
+                value: value.clone(),
+            },
+            Expr::Arrow {
+                params,
+                body,
+                is_async,
+            } => Expr::Arrow {
+                params: params.clone(),
+                body: body.clone(),
+                is_async: *is_async,
+            },
+            Expr::ArrowBlock {
+                params,
+                body,
+                is_async,
+            } => Expr::ArrowBlock {
+                params: params.clone(),
+                body: body.clone(),
+                is_async: *is_async,
+            },
+            Expr::Await(e) => Expr::Await(e.clone()),
+            Expr::Seq(es) => Expr::Seq(es.clone()),
+            Expr::Spread(e) => Expr::Spread(e.clone()),
+        }
+    }
 }
 
 impl Expr {

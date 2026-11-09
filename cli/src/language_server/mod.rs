@@ -2586,6 +2586,7 @@ fn remember(state: &mut State, published: Published) -> Vec<Value> {
 /// Equal keys are equal values, because an object writes its keys in order and
 /// neither a message nor a range holds a float.
 fn finding_key(item: &Value) -> (Option<String>, Option<String>) {
+    crate::profile::work(crate::profile::Work::FindingsKeyed, 1);
     (
         item.get("message").map(Value::to_string),
         item.get("range").map(Value::to_string),

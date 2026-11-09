@@ -69,6 +69,10 @@ pub fn run(program: &mut Program) {
         convert(&mut body, &parent, &mut program.funcs);
         program.funcs.get_mut(i).set_body(body);
     }
+    if crate::profile::enabled() {
+        let locals = (&program.funcs).into_iter().map(|f| f.locals.len()).sum();
+        crate::profile::work(crate::profile::Work::LocalsAfterClosures, locals);
+    }
 }
 
 /// What a lifted function inherits from the function it was written inside.

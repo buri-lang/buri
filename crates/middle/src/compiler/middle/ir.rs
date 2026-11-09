@@ -1014,6 +1014,7 @@ impl Inst {
 
     /// The values this instruction reads, in operand order.
     pub fn operands(&self, out: &mut Vec<ValueId>) {
+        crate::profile::work(crate::profile::Work::OperandListsRead, 1);
         match self {
             Inst::Const { .. } | Inst::Abort { .. } => {}
             Inst::Unary { arg, .. } => out.push(*arg),
@@ -1166,6 +1167,7 @@ impl Term {
 
     /// The values read by the terminator itself, not counting block arguments.
     pub fn operands(&self, out: &mut Vec<ValueId>) {
+        crate::profile::work(crate::profile::Work::OperandListsRead, 1);
         match self {
             Term::Jump(_) | Term::Unreachable => {}
             Term::Branch { cond, .. } => out.push(*cond),
@@ -2020,9 +2022,11 @@ fn dominators(code: &Code) -> Dominance {
     let mut idom = vec![usize::MAX; n];
     idom[0] = 0;
     let mut changed = true;
+    let mut steps = 0;
     while changed {
         changed = false;
         for &b in order.iter().rev().skip(1) {
+            steps = usize::saturating_add(steps, 1);
             let mut new = usize::MAX;
             for p in &preds[b] {
                 let p = p.index();
@@ -2036,9 +2040,11 @@ fn dominators(code: &Code) -> Dominance {
                     while x != y {
                         while po(x) < po(y) {
                             x = idom[x];
+                            steps = usize::saturating_add(steps, 1);
                         }
                         while po(y) < po(x) {
                             y = idom[y];
+                            steps = usize::saturating_add(steps, 1);
                         }
                     }
                     x
@@ -2050,6 +2056,7 @@ fn dominators(code: &Code) -> Dominance {
             }
         }
     }
+    crate::profile::work(crate::profile::Work::DominatorSteps, steps);
     // Number the tree in preorder and postorder.
     let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
     for &b in order.iter().rev().skip(1) {

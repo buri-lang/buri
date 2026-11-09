@@ -1554,6 +1554,7 @@ impl Tables {
     /// only as a handler's parameter, is data even when `C: Ui`, for the same
     /// reason `fn(C, A) => B` is.
     pub fn is_effect_carrying(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
+        crate::profile::work(crate::profile::Work::EffectTypesWalked, 1);
         match ty.kind() {
             TyKind::Param(i) => generics
                 .get(*i as usize)
@@ -1626,6 +1627,7 @@ impl Tables {
     /// of a type that predicate refused. It walks the same positions, so a
     /// constructor that implements an effect itself never reaches here.
     pub fn may_carry_effect(&self, ty: &Ty, generics: &[GenericInfo]) -> bool {
+        crate::profile::work(crate::profile::Work::EffectTypesWalked, 1);
         match ty.kind() {
             TyKind::Param(i) => match generics.get(*i as usize) {
                 Some(g) => !g.bounds.iter().any(|b| !self.trait_(*b).is_effect),
@@ -1995,7 +1997,7 @@ impl<L> Subst<L> {
 /// tables: three backends asking the same question of the same table is one
 /// question.
 pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
-    match ty.kind() {
+    worked_out(match ty.kind() {
         TyKind::Tuple(elements) => elements.to_vec(),
         TyKind::Ctx(id, args) => tables
             .ctx_type(*id)
@@ -2011,7 +2013,13 @@ pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
             TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
         },
         _ => Vec::new(),
-    }
+    })
+}
+
+/// Counts the field types a list holds toward the profile, and returns it.
+fn worked_out(tys: Vec<Ty>) -> Vec<Ty> {
+    crate::profile::work(crate::profile::Work::FieldTypesWorkedOut, tys.len());
+    tys
 }
 
 /// A tuple's elements, under field ids of their own, the way a struct's
@@ -2026,14 +2034,14 @@ pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
         TyKind::Con(id, args) => (*id, args),
         _ => return Vec::new(),
     };
-    match tables.tycon(id).variants().as_slice().get(variant) {
+    worked_out(match tables.tycon(id).variants().as_slice().get(variant) {
         Some(v) => v
             .fields
             .iter()
             .map(|f| substitute(&f.ty, args, None))
             .collect(),
         None => Vec::new(),
-    }
+    })
 }
 
 /// Every trait a type constructor is known to satisfy, by name.

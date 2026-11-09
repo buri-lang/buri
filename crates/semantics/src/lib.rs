@@ -11,7 +11,7 @@ pub mod compiler {
     pub mod standard_library;
 }
 
-use buri_diagnostics::{diagnostics, ice};
+use buri_diagnostics::{diagnostics, ice, profile};
 use buri_docs::documentation;
 use buri_hash::hash;
 use buri_syntax::{formatting, parsing};

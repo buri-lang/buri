@@ -45,14 +45,19 @@ fn forward_body(body: &mut Expr) {
     // only names that aren't bases.
     let mut bases: Set<LocalId> = Set::default();
     let mut lets = false;
-    typed::walk(body, &mut |x| match &x.kind {
-        ExprKind::StructUpdate { base, .. } => {
-            if let ExprKind::Local(l) = base.kind {
-                bases.insert(l);
+    typed::walk(body, &mut |x| {
+        visited(1);
+        match &x.kind {
+            ExprKind::StructUpdate { base, .. } => {
+                if let ExprKind::Local(l) = base.kind {
+                    bases.insert(l);
+                }
             }
+            ExprKind::Block { stmts, .. } => {
+                lets |= stmts.iter().any(|s| path_let(s).is_some());
+            }
+            _ => {}
         }
-        ExprKind::Block { stmts, .. } => lets |= stmts.iter().any(|s| path_let(s).is_some()),
-        _ => {}
     });
     // A body binding no path has nothing to forward.
     if !lets {
@@ -66,6 +71,7 @@ fn forward_body(body: &mut Expr) {
 /// the blocks under it bind. A path holds no name forwarded after it, so one
 /// table answers for every enclosing block at once.
 fn forward(e: &mut Expr, bases: &Set<LocalId>, paths: &mut Map<LocalId, Expr>) {
+    visited(1);
     match &mut e.kind {
         ExprKind::Local(l) => {
             if let Some(path) = paths.get(l) {
@@ -96,6 +102,12 @@ fn forward(e: &mut Expr, bases: &Set<LocalId>, paths: &mut Map<LocalId, Expr>) {
         }
         _ => typed::children_mut(e, &mut |k| forward(k, bases, paths)),
     }
+}
+
+/// Counts `n` nodes this pass visited, `forward nodes visited` in
+/// `BURI_PROFILE`.
+fn visited(n: usize) {
+    crate::profile::work(crate::profile::Work::ForwardNodesVisited, n);
 }
 
 /// `let name = path;` with `path` a chain of field and tuple reads off a local.

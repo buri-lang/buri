@@ -654,6 +654,7 @@ impl<'a> Ctx<'a> {
         arity: usize,
         out: &mut Rows<'p>,
     ) {
+        crate::profile::work(crate::profile::Work::ExhaustivenessRowsSpecialized, 1);
         match head {
             Pat::Wild => {
                 out.push_cells(std::iter::repeat_n(&WILD, arity).chain(rest.iter().copied()))

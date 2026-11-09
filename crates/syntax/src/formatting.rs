@@ -1312,6 +1312,7 @@ impl Comments {
         let beside = &self.beside_code;
         let start = self.first_at(lo);
         for e in self.entries.iter_mut().skip(start) {
+            examined(1);
             let at = e.trivia.at();
             match &mut e.trivia {
                 Trivia::Run {
@@ -1366,6 +1367,7 @@ impl Comments {
     /// would not be a fixed point.
     fn take_file_header(&mut self, at: u32) -> Option<Trivia> {
         let i = self.first_at(at);
+        examined(1);
         let e = self.entries.get_mut(i).filter(|e| e.trivia.at() == at)?;
         let header = matches!(&e.trivia, Trivia::Run { comments, detached, .. }
             if !comments.is_empty() && *detached && !e.trivia.documented());
@@ -1379,6 +1381,7 @@ impl Comments {
     /// The trivia written above the token at `at`, marked as put back.
     fn take(&mut self, at: u32) -> Option<Trivia> {
         let i = self.first_at(at);
+        examined(1);
         let e = self.entries.get_mut(i).filter(|e| e.trivia.at() == at)?;
         if e.claimed {
             return None;
@@ -1414,6 +1417,7 @@ impl Comments {
         let mut out = Vec::new();
         let start = self.first_at(lo);
         for e in self.entries.iter_mut().skip(start) {
+            examined(1);
             let at = e.trivia.at();
             if at > hi {
                 break;
@@ -1453,6 +1457,7 @@ impl Comments {
         let rest = self.entries.get(start..).unwrap_or(&[]);
         rest.iter()
             .take_while(|e| e.trivia.at() <= hi)
+            .inspect(|_| examined(1))
             .any(|e| e.trivia.is_run())
     }
 
@@ -1467,8 +1472,14 @@ impl Comments {
         let start = self.first_at(at);
         let rest = self.entries.get(start..).unwrap_or(&[]);
         let n = rest.partition_point(|e| e.trivia.at() == at);
+        examined(n);
         rest.get(..n).unwrap_or(&[])
     }
+}
+
+/// Counts `n` comment entries looked at past a binary search, for the profile.
+fn examined(n: usize) {
+    crate::profile::work(crate::profile::Work::CommentEntriesExamined, n);
 }
 
 struct Build<'t> {

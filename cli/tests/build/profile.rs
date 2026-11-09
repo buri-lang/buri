@@ -121,17 +121,6 @@ fn an_allocation_counting_toolchain_reports_its_allocations() {
     }
 }
 
-/// The instructions one phase took, in millions, off a `BURI_PROFILE=1`
-/// report, or `None` where the platform has no per-thread counter (Linux, and
-/// CI's macOS virtual machines, read `-` or 0).
-fn phase_instructions(report: &str, phase: &str) -> Option<f64> {
-    let line = report
-        .lines()
-        .find(|l| l.trim_start().starts_with(&format!("{phase} ")))?;
-    let count = line.split_whitespace().nth(1)?.parse::<f64>().ok()?;
-    (count > 0.0).then_some(count)
-}
-
 /// This machine's `variant` for a native output.
 fn host_variant() -> String {
     let os = if cfg!(target_os = "macos") {
@@ -180,22 +169,54 @@ fn large_shape(platform: &str, items: &str, body: &str) -> Scratch {
     scratch
 }
 
-/// `buri build` of [`large_shape`]. Answers `phase`'s instructions.
-///
-/// On one thread: workers running side by side meet in the kernel, and under
-/// load that added up to a fifth to a phase's count from run to run.
-fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64> {
-    let scratch = large_shape(platform, items, body);
-    let run = scratch.run_with_env(
+/// `buri build` of [`large_shape`]. Answers the profile's count of `work`, a
+/// line `<work> <n>`, which no load can move.
+fn counted_work(platform: &str, items: &str, body: &str, work: &str) -> Option<f64> {
+    work_count(&counted(platform, items, body), work)
+}
+
+/// The `BURI_PROFILE=1` report of a `buri build` of [`large_shape`], on one
+/// thread.
+fn counted(platform: &str, items: &str, body: &str) -> String {
+    let run = large_shape(platform, items, body).run_with_env(
         &["build", "//app"],
         &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
     );
     run.ok();
-    phase_instructions(&run.all(), phase)
+    run.all()
+}
+
+/// [`grows_linearly`] for each of `works`, off one build of each size of
+/// `shape`'s program.
+fn each_grows_linearly(
+    what: &str,
+    works: &[&str],
+    platform: &str,
+    shape: impl Fn(usize) -> (String, String),
+    n: usize,
+) {
+    let report = |n| {
+        let (items, body) = shape(n);
+        counted(platform, &items, &body)
+    };
+    let (small, large) = (report(n), report(2 * n));
+    for work in works {
+        let count = |m| work_count(if m == n { &small } else { &large }, work);
+        grows_linearly(&format!("{what}, {work}"), count, n);
+    }
+}
+
+/// The count on a `BURI_PROFILE=1` report's `<work> <n>` line.
+fn work_count(report: &str, work: &str) -> Option<f64> {
+    let count = report
+        .lines()
+        .find_map(|l| l.strip_prefix(work)?.strip_prefix(' '));
+    let count = count.unwrap_or_else(|| panic!("no `{work}` in:\n{}", indent(report)));
+    Some(count.trim().parse::<f64>().unwrap())
 }
 
 /// **A build on one thread writes the binary a build on every core does.**
-/// `BURI_THREADS=1` is how [`profiled`] holds its counts still.
+/// `BURI_THREADS=1` is how [`counted`] builds on one thread.
 #[test]
 fn a_build_on_one_thread_writes_the_same_binary() {
     if let Some(why) = ci::native_host_gap() {
@@ -342,38 +363,20 @@ fn a_release_build_builds_each_llvm_module_once() {
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 ///
-/// For a count the compiler keeps, which load can't move. Instructions go
-/// through [`instructions_grow_linearly`].
+/// For a count the compiler keeps, which no load can move: the kernel's work
+/// on a thread only ever adds to its instructions, and under load once added
+/// more than half to one build's, which a growth bound can't tell from a
+/// quadratic.
 fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
     let (Some(small), Some(large)) = (work(n), work(2 * n)) else {
         return;
     };
     assert!(
         large <= small * 2.3,
-        "{what}: {large:.0} M instructions at {}, {:.2} times the {small:.0} M at {n}",
+        "{what}: {large:.0} at {}, {:.2} times the {small:.0} at {n}",
         2 * n,
         large / small
     );
-}
-
-/// [`grows_linearly`] for instructions: each size counts the fewest of three
-/// runs of `work`.
-///
-/// The count includes the kernel's work on the thread, such as interrupts and
-/// switching threads, and that work only ever adds. Under load it once added
-/// more than half to one build's `middle`, which a growth bound can't tell from
-/// a quadratic. Now it takes that in all three runs of one size.
-fn instructions_grow_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
-    grows_linearly(what, |n| fewest(|| work(n)), n);
-}
-
-/// The fewest of three runs of `count`, or `None` where any counted nothing.
-fn fewest(count: impl Fn() -> Option<f64>) -> Option<f64> {
-    (0..3)
-        .map(|_| count())
-        .collect::<Option<Vec<f64>>>()?
-        .into_iter()
-        .reduce(f64::min)
 }
 
 /// Builds tuples of `n` elements, takes one apart and compares two.
@@ -457,20 +460,18 @@ fn long_matches(n: usize, pairs: bool) -> (String, String) {
 /// tuple of 400 elements built and taken apart took 1.24 G instructions to
 /// emit, 3.5 times what 200 took. PERFORMANCE.md §6.32.
 ///
-/// An instruction count rather than a time: one run reads to within about 1%
-/// under any load (PERFORMANCE.md §8).
+/// Counted in operand lists read and dominator steps, which no load can move.
 #[test]
 fn a_debug_builds_emission_is_linear_in_a_functions_length() {
     if let Some(why) = ci::native_host_gap() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    each_grows_linearly(
         "emitting a long tuple's functions",
-        |n| {
-            let (items, body) = long_tuple(n);
-            profiled("native", &items, &body, "emit")
-        },
+        &["ir operand lists read", "dominator steps"],
+        "native",
+        long_tuple,
         300,
     );
 }
@@ -480,11 +481,11 @@ fn a_debug_builds_emission_is_linear_in_a_functions_length() {
 /// conditional copied the rest of the chain at every arm.
 #[test]
 fn javascript_emission_is_linear_in_a_matchs_arms() {
-    instructions_grow_linearly(
+    grows_linearly(
         "emitting long matches as JavaScript",
         |n| {
             let (items, body) = long_matches(n, false);
-            profiled("node", &items, &body, "emit")
+            counted_work("node", &items, &body, "javascript nodes copied")
         },
         500,
     );
@@ -494,11 +495,11 @@ fn javascript_emission_is_linear_in_a_matchs_arms() {
 /// pair is asked whether the arms before it already cover it.
 #[test]
 fn checking_a_match_over_pairs_is_linear_in_its_arms() {
-    instructions_grow_linearly(
+    grows_linearly(
         "checking a match over pairs",
         |n| {
             let (items, body) = long_matches(n, true);
-            profiled("node", &items, &body, "check")
+            counted_work("node", &items, &body, "pattern rows specialized")
         },
         500,
     );
@@ -510,11 +511,16 @@ fn checking_a_match_over_pairs_is_linear_in_its_arms() {
 /// took 1.2 G instructions to check.
 #[test]
 fn checking_a_pattern_is_linear_in_the_names_it_binds() {
-    instructions_grow_linearly(
+    grows_linearly(
         "checking a long tuple's functions",
         |n| {
             let (items, body) = long_tuple(n);
-            profiled("node", &items, &body, "check")
+            counted_work(
+                "node",
+                &items,
+                &body,
+                "types asked whether they carry an effect",
+            )
         },
         1000,
     );
@@ -552,17 +558,19 @@ fn long_branching(n: usize) -> (String, String) {
 /// `else if` chain over `n` live fields copied `n` sets of up to `n` names:
 /// 0.16 G instructions at 800 fields, 3.5 times what 400 took.
 /// PERFORMANCE.md §6.32.
+///
+/// Counted in the live set's entries written, walked and copied.
 #[test]
 fn reference_counting_is_linear_in_a_long_branching_expression() {
     if let Some(why) = ci::native_host_gap() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    grows_linearly(
         "planning the reference counts of a long `else if` chain",
         |n| {
             let (items, body) = long_branching(n);
-            profiled("native", &items, &body, "middle")
+            counted_work("native", &items, &body, "rc live entries touched")
         },
         400,
     );
@@ -600,17 +608,19 @@ fn wide_hashed_struct(n: usize) -> (String, String) {
 /// accumulator through every field, and inlining a field's hash copied the
 /// accumulator built so far: 0.55 G instructions in `middle` at 800 fields,
 /// 3.8 times what 400 took. PERFORMANCE.md §6.36.
+///
+/// Counted in the expression nodes deriving built, copies included.
 #[test]
 fn deriving_hash_is_linear_in_a_structs_fields() {
     if let Some(why) = ci::native_host_gap() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    grows_linearly(
         "deriving a wide struct's hash",
         |n| {
             let (items, body) = wide_hashed_struct(n);
-            profiled("native", &items, &body, "middle")
+            counted_work("native", &items, &body, "derive nodes built")
         },
         400,
     );
@@ -670,12 +680,11 @@ fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    each_grows_linearly(
         "emitting a wide variant's functions",
-        |n| {
-            let (items, body) = wide_variant(n);
-            profiled("native", &items, &body, "emit")
-        },
+        &["field types worked out", "ir operand lists read"],
+        "native",
+        wide_variant,
         1000,
     );
 }
@@ -698,11 +707,11 @@ fn many_lets(n: usize) -> (String, String) {
 /// walked all of them every time. PERFORMANCE.md §6.41.
 #[test]
 fn checking_is_linear_in_a_bodys_lets() {
-    instructions_grow_linearly(
+    grows_linearly(
         "checking a long body",
         |n| {
             let (items, body) = many_lets(n);
-            profiled("node", &items, &body, "check")
+            counted_work("node", &items, &body, "locals compared in a lookup")
         },
         4000,
     );
@@ -720,14 +729,14 @@ fn commented_file(n: usize) -> String {
 /// lines spent most of its formatting there. PERFORMANCE.md §6.41.
 #[test]
 fn formatting_is_linear_in_a_files_comments() {
-    instructions_grow_linearly(
+    grows_linearly(
         "formatting a long commented file",
         |n| {
             let scratch = Scratch::repo("profile-format");
             scratch.write("app/main.buri", &commented_file(n));
             let run = scratch.run_with_env(&["format", "app/main.buri"], &[("BURI_PROFILE", "1")]);
             run.ok();
-            phase_instructions(&run.all(), "other")
+            work_count(&run.all(), "comment entries examined")
         },
         2000,
     );
@@ -764,11 +773,11 @@ fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    grows_linearly(
         "forwarding a long body's field reads",
         |n| {
             let (items, body) = field_lets(n);
-            profiled("native", &items, &body, "middle")
+            counted_work("native", &items, &body, "forward nodes visited")
         },
         1000,
     );
@@ -801,24 +810,24 @@ fn closure_conversion_is_linear_in_a_functions_lambdas() {
         ci::skipped("build::profile", &why);
         return;
     }
-    instructions_grow_linearly(
+    grows_linearly(
         "lifting many lambdas out of one function",
         |n| {
             let (items, body) = many_lambdas(n);
-            profiled("native", &items, &body, "middle")
+            counted_work("native", &items, &body, "locals after closure conversion")
         },
         1000,
     );
 }
 
-/// `buri lint //...` over a repository `write` fills in, answering `phase`'s
-/// instructions.
-fn linted(name: &str, write: impl Fn(&Scratch), phase: &str) -> Option<f64> {
+/// `buri lint //...` over a repository `write` fills in, answering the
+/// profile's count of `work`.
+fn linted(name: &str, write: impl Fn(&Scratch), work: &str) -> Option<f64> {
     let scratch = Scratch::repo(name);
     write(&scratch);
     let run = scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
     run.ok();
-    phase_instructions(&run.all(), phase)
+    work_count(&run.all(), work)
 }
 
 /// A chain of `n` libraries, each calling the one before it.
@@ -851,9 +860,15 @@ fn library_chain(scratch: &Scratch, n: usize) {
 /// to build. PERFORMANCE.md §6.47.
 #[test]
 fn linting_checks_each_library_once() {
-    instructions_grow_linearly(
+    grows_linearly(
         "checking a chain of libraries for lint",
-        |n| linted("profile-lint-chain", |s| library_chain(s, n), "check"),
+        |n| {
+            linted(
+                "profile-lint-chain",
+                |s| library_chain(s, n),
+                "bodies checked",
+            )
+        },
         60,
     );
 }
@@ -911,9 +926,7 @@ fn building_a_chain_of_libraries_walks_the_graph_once() {
 /// its first library once per library after it: 3.6 times the work per
 /// doubling at 100 libraries. PERFORMANCE.md §6.47.
 ///
-/// Counted in modules loaded and in the `check` phase's instructions, which do
-/// no I/O. Loading's own instructions are mostly the kernel reading files:
-/// beside CPU burners they read 77–120 M for 200 libraries from run to run.
+/// Counted in modules loaded and in bodies checked, which no load can move.
 #[test]
 fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
     let cold = |n: usize| {
@@ -935,9 +948,9 @@ fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
         |n| loaded(&cold(n)),
         100,
     );
-    instructions_grow_linearly(
+    grows_linearly(
         "a cold build of a chain of libraries, checking",
-        |n| phase_instructions(&cold(n), "check"),
+        |n| work_count(&cold(n), "bodies checked"),
         100,
     );
 }
@@ -1006,13 +1019,13 @@ fn many_declarations(scratch: &Scratch, n: usize) {
 /// PERFORMANCE.md §6.47.
 #[test]
 fn the_lint_rules_are_linear_in_a_files_length() {
-    instructions_grow_linearly(
+    grows_linearly(
         "the lint rules over one long file",
         |n| {
             linted(
                 "profile-lint-long-file",
                 |s| many_declarations(s, n),
-                "other",
+                "declarations compared with an identifier",
             )
         },
         400,
@@ -1055,9 +1068,9 @@ fn unused_context_is_linear_in_its_findings() {
             "{}",
             indent(&run.all())
         );
-        phase_instructions(&run.all(), "other")
+        work_count(&run.all(), "nodes walked for call sites")
     };
-    instructions_grow_linearly("unused-context over one file", linted, 500);
+    grows_linearly("unused-context over one file", linted, 500);
 }
 
 /// A library of `n` functions, each with a context bound its body never uses.
@@ -1106,9 +1119,17 @@ fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
             "{}",
             indent(&run.stdout)
         );
-        phase_instructions(&run.stderr, "other")
+        run.stderr
     };
-    instructions_grow_linearly("publishing one file's findings", published, 200);
+    let (small, large) = (published(200), published(400));
+    for work in ["bytes walked to a position", "findings keyed"] {
+        let count = |n| work_count(if n == 200 { &small } else { &large }, work);
+        grows_linearly(
+            &format!("publishing one file's findings, {work}"),
+            count,
+            200,
+        );
+    }
 }
 
 /// **A `format --check` of an unchanged tree formats nothing.** It formatted
@@ -1543,20 +1564,6 @@ fn a_chain_of_structs_each_holding_the_last_is_searched_for_values_once() {
     grows_linearly("a chain of structs, searching for values", searched, 300);
 }
 
-/// The instructions the test processes a `BURI_PROFILE=1` run of `buri test`
-/// waited for retired, in millions: the `run` row's child column, or `None`
-/// where the platform counts no child's instructions (Linux).
-fn test_process_instructions(report: &str) -> Option<f64> {
-    let line = report
-        .lines()
-        .find(|l| l.trim_start().starts_with("run "))?;
-    let words: Vec<&str> = line.split_whitespace().collect();
-    // `… <child instructions> M <child cpu> s` ends the row.
-    let count = words.len().checked_sub(4).and_then(|i| words.get(i))?;
-    let count = count.parse::<f64>().ok()?;
-    (count > 0.0).then_some(count)
-}
-
 /// A suite that writes, appends to, reads, renames, lists and removes `n`
 /// files in one directory of the testing filesystem.
 fn many_files_suite(n: usize) -> Scratch {
@@ -1608,14 +1615,14 @@ fn many_files_suite(n: usize) -> Scratch {
 /// grew with the square of its files.
 #[test]
 fn the_test_filesystem_is_linear_in_its_files() {
-    instructions_grow_linearly(
+    grows_linearly(
         "a suite over many files",
         |n| {
             let run =
                 many_files_suite(n).run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
             run.ok();
             assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
-            test_process_instructions(&run.all())
+            work_count(&run.all(), "testing filesystem keys walked")
         },
         2000,
     );
@@ -1740,8 +1747,8 @@ fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
 }
 
 /// `buri build //...` of a repository holding a page, a node program of `n`
-/// small functions that imports nothing from `ui/`, or both, on one thread.
-/// Answers the fewest instructions monomorphizing took in three builds.
+/// small functions that imports nothing from `ui/`, or both. Answers the
+/// functions monomorphization walked for styles.
 fn page_and_program(page: bool, program: Option<usize>) -> Option<f64> {
     let scratch = Scratch::repo("profile-page-and-program");
     if page {
@@ -1792,23 +1799,17 @@ fn page_and_program(page: bool, program: Option<usize>) -> Option<f64> {
             ),
         );
     }
-    // The kernel's work on the thread only ever adds, by up to a fifth here,
-    // so the fewest of three builds is the one it left alone.
-    fewest(|| {
-        let run = scratch.run_with_env(
-            &["build", "//...", "--force"],
-            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
-        );
-        run.ok();
-        phase_instructions(&run.all(), "monomorphize")
-    })
+    let run = scratch.run_with_env(&["build", "//...", "--force"], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    work_count(&run.all(), "functions surveyed for styles")
 }
 
 /// **A program with no styles pays nothing for a page built beside it.** One
 /// compilation checks both and holds `ui/style` for the page, and every
 /// function of the program was walked for styles none of its values can hold:
 /// monomorphizing the two together took 1.12 times what the two took apart, at
-/// 400 functions.
+/// 400 functions. A count of the functions walked for styles, which no load
+/// can move.
 #[test]
 fn a_program_with_no_styles_pays_nothing_for_a_page_beside_it() {
     let n = 400;
@@ -1820,8 +1821,8 @@ fn a_program_with_no_styles_pays_nothing_for_a_page_beside_it() {
         return;
     };
     assert!(
-        both <= (page + program) * 1.05,
-        "{both:.1} M instructions monomorphizing a page and a program together, \
-         against {page:.1} M and {program:.1} M apart"
+        both <= page + program,
+        "{both} functions walked for styles building a page and a program together, \
+         against {page} and {program} apart"
     );
 }

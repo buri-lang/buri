@@ -555,6 +555,7 @@ impl Operands {
     }
 
     fn row(&self, r: usize) -> &[ir::ValueId] {
+        crate::profile::work(crate::profile::Work::OperandListsRead, 1);
         let lo = ent(&self.at, r, 0) as usize;
         let hi = ent(&self.at, r + 1, 0) as usize;
         self.ops.get(lo..hi).unwrap_or_default()

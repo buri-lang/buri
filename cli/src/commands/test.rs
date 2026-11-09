@@ -3979,6 +3979,7 @@ fn run_blocks(
             notes.push('\n');
         }
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        lines_of(&stdout).for_each(|line| charge_walked(&line));
         let times = left_times(&stdout);
         let passed = |at: usize| Block::Passed {
             ns: times.get(&at).copied(),
@@ -4076,6 +4077,16 @@ fn lines_of(stdout: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
 /// A field of a record that is a string.
 fn text_of(value: &Value, name: &str) -> Option<String> {
     value.get(name).and_then(Value::as_str).map(str::to_string)
+}
+
+/// Charges to the profile the keys of the testing filesystem a block's `left`
+/// line says it walked (`cli/runtime/testing.rs`'s `FS_WALKED`).
+fn charge_walked(line: &Value) {
+    let walked = match line.get("fs") {
+        Some(Value::Int(n)) => usize::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    crate::profile::work(crate::profile::Work::TestFsKeysWalked, walked);
 }
 
 /// How long a block or a test took, where its record says. A record cached
@@ -5675,6 +5686,7 @@ fn run_pulled(
         } else if text_of(&value, "message").is_some() {
             noted = noted_of(&value);
         } else if value.get("left").is_some() && held.is_some() && index_of(&value, "i") == held {
+            charge_walked(&value);
             returned = true;
             took = nanoseconds_of(&value);
         }

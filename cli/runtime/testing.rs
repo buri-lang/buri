@@ -570,6 +570,17 @@ type Entries = BTreeMap<String, Vec<u8>>;
 /// A store's recorded directories, [`fs_clean`]ed.
 type Dirs = BTreeSet<String>;
 
+/// Keys of a store a walk of its sorted run under a prefix read, since the
+/// last block's `left` line said how many ([`note_left`]). `BURI_PROFILE`
+/// counts them, which no load can move, where it can't count the process's
+/// instructions to within a factor of two.
+static FS_WALKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// One more key walked.
+fn fs_walked(_: &&String) {
+    FS_WALKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// `f` of the bytes a store holds at `path`, or `None` where there is no file
 /// there. The bytes are lent rather than copied, so a caller that only measures
 /// or slices them pays for no copy.
@@ -595,9 +606,11 @@ fn fs_under<'a>(
     let from = (Bound::Included(prefix), Bound::Unbounded);
     let under = move |k: &&String| k.starts_with(prefix);
     let files = entries.range::<str, _>(from).map(|(k, _)| k);
-    files
-        .take_while(under)
-        .chain(dirs.range::<str, _>(from).take_while(under))
+    files.inspect(fs_walked).take_while(under).chain(
+        dirs.range::<str, _>(from)
+            .inspect(fs_walked)
+            .take_while(under),
+    )
 }
 
 /// A path with its trailing slashes removed, which is how a directory is
@@ -1546,12 +1559,17 @@ fn fs_rename(
                     entries
                         .range::<str, _>(after)
                         .map(|(k, _)| k)
+                        .inspect(fs_walked)
                         .take_while(inside),
                 )
                 .cloned()
                 .collect();
             let directories: Vec<String> = (dirs.get(from).into_iter())
-                .chain(dirs.range::<str, _>(after).take_while(inside))
+                .chain(
+                    dirs.range::<str, _>(after)
+                        .inspect(fs_walked)
+                        .take_while(inside),
+                )
                 .cloned()
                 .collect();
             let moved = |k: &str| format!("{to}{}", k.strip_prefix(from).unwrap_or_default());
@@ -4308,7 +4326,11 @@ fn note_left(index: i64) {
         return;
     }
     use std::io::Write;
-    let line = format!("{{\"i\":{index},\"left\":1,\"ns\":{}}}\n", block_time());
+    let walked = FS_WALKED.swap(0, std::sync::atomic::Ordering::Relaxed);
+    let line = format!(
+        "{{\"i\":{index},\"left\":1,\"ns\":{},\"fs\":{walked}}}\n",
+        block_time()
+    );
     let stream = std::io::stdout();
     let mut stream = stream.lock();
     let _ = stream.write_all(line.as_bytes());

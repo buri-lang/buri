@@ -961,6 +961,9 @@ impl Generator {
         while let Some((op, desc, idx)) = self.queue.pop() {
             let built = self.body(op, desc);
             let Some((frame, expr)) = built else { continue };
+            if crate::profile::enabled() {
+                crate::profile::work(crate::profile::Work::DeriveNodesBuilt, nodes(&expr));
+            }
             let slot = self.funcs.get_mut(idx);
             slot.params = frame.params;
             slot.locals = frame.locals;
@@ -3232,6 +3235,9 @@ impl Generator {
     /// Adds a finished function. Unqualified, so it lands in the root codegen
     /// unit with the joiners.
     fn mint(&mut self, name: &str, frame: Frame, body: Expr, ret: Ty) -> FuncIdx {
+        if crate::profile::enabled() {
+            crate::profile::work(crate::profile::Work::DeriveNodesBuilt, nodes(&body));
+        }
         self.funcs.push(Func {
             symbol: name.to_string(),
             debug_name: name.to_string(),
@@ -3451,6 +3457,10 @@ impl Generator {
         // Otherwise it's inlined only over operands that may be written any
         // number of times, which are cheap to copy.
         if (prim || unit) && args.iter().all(Generator::duplicable) {
+            if crate::profile::enabled() {
+                let copied = args.iter().map(nodes).sum();
+                crate::profile::work(crate::profile::Work::DeriveNodesBuilt, copied);
+            }
             if let Some(e) = self.leaf(op, desc, args.clone()) {
                 return Some(e);
             }
@@ -3485,6 +3495,13 @@ impl Generator {
         // A leaf at a primitive or `()` binds nothing, so the frame stays empty.
         built
     }
+}
+
+/// How many expression nodes `e` is, itself included.
+fn nodes(e: &Expr) -> usize {
+    let mut n = 1;
+    typed::children(e, &mut |c| n += nodes(c));
+    n
 }
 
 /// The name of a payload local on one side of a derived function.

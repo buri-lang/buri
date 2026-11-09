@@ -2933,9 +2933,10 @@ impl<'m> Owned<'m> {
     fn declares(&self, name: &str, at: Span) -> bool {
         // Declarations do not overlap, so the one that can hold a token is
         // the last to start at or before it.
-        let after = self
-            .by_start
-            .partition_point(|(_, range)| range.start <= at.start);
+        let after = self.by_start.partition_point(|(_, range)| {
+            crate::profile::work(crate::profile::Work::DeclarationsCompared, 1);
+            range.start <= at.start
+        });
         after
             .checked_sub(1)
             .and_then(|i| self.by_start.get(i))
@@ -3626,27 +3627,30 @@ fn context_edits(
         if unchecked.body(fid) {
             return out;
         }
-        typed::walk(&body.expr, &mut |e| match &e.kind {
-            typed::ExprKind::FnRef(callee) => {
-                if wanted.contains_key(&callee.id) {
-                    refused.insert(callee.id);
-                }
-            }
-            typed::ExprKind::CallFn { func: callee, args } => {
-                let Some((index, edits)) = wanted.get_mut(&callee.id) else {
-                    return;
-                };
-                match args
-                    .get(*index)
-                    .and_then(|a| dropped_from_list(session, a.span))
-                {
-                    Some(edit) => edits.push(edit),
-                    None => {
+        typed::walk(&body.expr, &mut |e| {
+            crate::profile::work(crate::profile::Work::CallSitesSought, 1);
+            match &e.kind {
+                typed::ExprKind::FnRef(callee) => {
+                    if wanted.contains_key(&callee.id) {
                         refused.insert(callee.id);
                     }
                 }
+                typed::ExprKind::CallFn { func: callee, args } => {
+                    let Some((index, edits)) = wanted.get_mut(&callee.id) else {
+                        return;
+                    };
+                    match args
+                        .get(*index)
+                        .and_then(|a| dropped_from_list(session, a.span))
+                    {
+                        Some(edit) => edits.push(edit),
+                        None => {
+                            refused.insert(callee.id);
+                        }
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         });
     }
     for (func, (_, edits)) in wanted {

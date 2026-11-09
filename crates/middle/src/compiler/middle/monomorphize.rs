@@ -866,6 +866,7 @@ fn run_on(
         };
         for (slot, f) in funcs.entries_mut() {
             if let (FuncKind::Body(body), false) = (&mut f.kind, skipped.contains(&slot)) {
+                crate::profile::work(crate::profile::Work::FunctionsSurveyedForStyles, 1);
                 crate::compiler::semantics::styles::survey(
                     body,
                     ui,

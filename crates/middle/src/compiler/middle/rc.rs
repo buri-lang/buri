@@ -2153,7 +2153,10 @@ pub enum Mode {
 /// live names quadratic. A branch is scanned into the set and then taken back
 /// out ([`Live::mark`], [`Live::undo`]), which is what lets two branches start
 /// from the same set without either copying it.
-#[derive(Clone, Default)]
+///
+/// Each entry it writes, reads in a walk or copies counts toward `rc live
+/// entries touched` in `BURI_PROFILE`, which a copy per node makes `n²`.
+#[derive(Default)]
 struct Live {
     /// Each live local, with the tick it became live at and whether the
     /// function owned it then.
@@ -2181,6 +2184,24 @@ struct Mark {
     tick: u64,
 }
 
+impl Clone for Live {
+    fn clone(&self) -> Self {
+        touched(self.len());
+        Live {
+            at: self.at.clone(),
+            owned: self.owned.clone(),
+            tick: self.tick,
+            log: self.log.clone(),
+            open: self.open,
+        }
+    }
+}
+
+/// Counts `n` entries of a [`Live`] touched.
+fn touched(n: usize) {
+    crate::profile::work(crate::profile::Work::RcLiveEntriesTouched, n);
+}
+
 impl Live {
     fn contains(&self, l: &LocalId) -> bool {
         self.at.contains_key(l)
@@ -2191,7 +2212,7 @@ impl Live {
     }
 
     fn iter(&self) -> impl Iterator<Item = LocalId> + '_ {
-        self.at.keys().copied()
+        self.at.keys().inspect(|_| touched(1)).copied()
     }
 
     fn tick(&self) -> u64 {
@@ -2205,6 +2226,7 @@ impl Live {
         if self.at.contains_key(&l) {
             return;
         }
+        touched(1);
         self.tick += 1;
         self.at.insert(l, (self.tick, owned));
         if owned {
@@ -2219,6 +2241,7 @@ impl Live {
         let Some((tick, owned)) = self.at.remove(l) else {
             return;
         };
+        touched(1);
         if owned {
             self.owned.remove(&tick);
         }
@@ -2246,6 +2269,7 @@ impl Live {
     /// that was still live.
     fn undo(&mut self, mark: Mark) -> HashSet<LocalId> {
         let changes = self.log.split_off(mark.log.min(self.log.len()));
+        touched(changes.len());
         let mut added: HashSet<LocalId> = HashSet::default();
         for change in &changes {
             if let Change::Added(l) = change {
@@ -2283,7 +2307,10 @@ impl Live {
 
     /// The owned locals that became live after `tick` and still are.
     fn owned_since(&self, tick: u64) -> impl Iterator<Item = LocalId> + '_ {
-        self.owned.range(tick.saturating_add(1)..).map(|(_, l)| *l)
+        self.owned
+            .range(tick.saturating_add(1)..)
+            .map(|(_, l)| *l)
+            .inspect(|_| touched(1))
     }
 }
 
