@@ -191,11 +191,13 @@ jobs:
           perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
 
-      # --- macOS native build with the optimizing backend (not optional here),
-      # profile-guided: `.github/pgo.sh` trains on half the e2e suites first.
+      # --- macOS native build with the optimizing backend (not optional here).
+      # PGO is off on macOS until its memory and CPU use fits the free runner
+      # (3 cores, 7 GB): runs 42387323533 and 42536342333 lost the runner
+      # partway through `.github/pgo.sh`. The Linux legs keep PGO.
       - if: runner.os == 'macOS'
-        name: build buri --release --features backend-llvm, with PGO
-        run: sh .github/pgo.sh "${{ matrix.target }}"
+        name: build buri --release --features backend-llvm
+        run: cargo build --release --features backend-llvm -p buri --target "${{ matrix.target }}"
 
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
       # bind-mounted so the checked-out source (with the version already bumped on

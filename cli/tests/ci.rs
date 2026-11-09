@@ -755,7 +755,8 @@ fn every_job_declares_a_timeout() {
 
 /// The released `buri` keeps the build settings its speed was measured with:
 /// fat LTO, one codegen unit, `panic = "abort"`, and a profile-guided build of
-/// every nightly target.
+/// every nightly Linux target. macOS builds without PGO until the training fits
+/// the free runner, but still with the release profile.
 #[test]
 fn the_release_build_keeps_its_measured_settings() {
     let read = |path: &str| std::fs::read_to_string(repo_root().join(path)).unwrap();
@@ -785,17 +786,25 @@ fn the_release_build_keeps_its_measured_settings() {
         .map(str::trim)
         .filter(|l| !l.starts_with('#'))
         .collect();
+    let plain: Vec<&&str> = steps
+        .iter()
+        .filter(|l| l.contains("cargo build") && !l.contains("--release"))
+        .collect();
     assert!(
-        !steps.iter().any(|l| l.contains("cargo build --release")),
-        "nightly.yml builds `buri` without its profile; build through `.github/pgo.sh`"
+        plain.is_empty(),
+        "nightly.yml builds `buri` without the release profile: {plain:?}"
     );
     assert_eq!(
         steps
             .iter()
             .filter(|l| l.contains("sh .github/pgo.sh"))
             .count(),
-        2,
-        "nightly.yml's macOS and Linux builds both go through `.github/pgo.sh`"
+        1,
+        "nightly.yml's Linux builds go through `.github/pgo.sh`, once, in Alpine"
+    );
+    assert!(
+        steps.contains(&"run: cargo build --release --features backend-llvm -p buri --target \"${{ matrix.target }}\""),
+        "nightly.yml's macOS build is a plain release build with the LLVM backend"
     );
 }
 
