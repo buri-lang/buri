@@ -335,6 +335,9 @@ fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
 /// slot 4 builds, so the type cannot separate them: the answer is the
 /// program's own set of parking function values, and it is `true`.
 ///
+/// Slot 4 only *builds* that callback, and building one runs none of its
+/// body, so it is `false` (buri-lang/buri#325).
+///
 /// Before this refinement both were `true`, which is what "every `map` may
 /// park" meant.
 #[test]
@@ -358,7 +361,7 @@ fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
     ]);
     assert_eq!(
         parked(&program),
-        vec![true, false, true, false, true, true],
+        vec![true, false, true, false, false, true],
         "a callee that takes no capability cannot park; one that takes the \
          context is worth whatever function value of its type the program \
          builds"

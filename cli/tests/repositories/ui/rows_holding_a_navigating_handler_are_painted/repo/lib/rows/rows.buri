@@ -1,0 +1,30 @@
+from "platform/effect" import { Location, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+
+/// One button, built by a function that only holds a handler that navigates.
+fn row<C: Location + Ui>(s: Str): Node<C> {
+    ui.button({
+        label: .Const(s),
+        styles: [],
+        onPress: .Some(fn(c) => web.navigate(c, s)),
+    })
+}
+
+/// The same, with the handler bound to a `let` first.
+fn held<C: Location + Ui>(s: Str): Node<C> {
+    let go = fn(c: C) => web.navigate(c, s);
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(go) })
+}
+
+/// Two lists of those buttons, one row per item.
+export fn rows<C: Location + Ui>(): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .Group([.Padding(.Px(8)), .Gap(.Px(4))])],
+        children: [
+            ui.each(.Const(["a", "b"]), fn(s) => s, fn(_c, s, _i) => row(s)),
+            ui.each(.Const(["c"]), fn(s) => s, fn(_c, s, _i) => held(s)),
+        ],
+    })
+}

@@ -1,0 +1,18 @@
+# Rows built by a function that only *holds* a handler that navigates
+# (buri-lang/buri#325): one handler written inline, one bound to a `let`. On the
+# JavaScript backend such a function was printed `async`, so each row was a
+# promise and nothing mounted; `language::pages` drives that page in a browser
+# double. This is the same tree painted: every row is a button.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "rows built by functions holding a navigating handler are all painted"
+
+run {
+  args: ["test", "//lib/rows", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/rows/test/__snapshots__/rows.diff.png"  exists: false }

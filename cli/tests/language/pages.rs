@@ -430,3 +430,59 @@ console.log(`hovered again ${shown()}`);
          hovered again shown\n"
     );
 }
+
+/// Two lists whose rows are built by functions that only *hold* a handler
+/// that navigates: one written inline, one bound to a `let` first. Building a
+/// row waits on nothing, so every row renders, and pressing one still
+/// navigates (buri-lang/buri#325).
+const ROWS_PAGE: &str = r#"from "platform/effect" import { Allocator, Location, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+fn row<C: Location + Ui>(s: Str): Node<C> {
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(fn(c) => web.navigate(c, s)) })
+}
+
+fn held<C: Location + Ui>(s: Str): Node<C> {
+    let go = fn(c: C) => web.navigate(c, s);
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(go) })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Location: host.location,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const(["a", "b"]), fn(s) => s, fn(_c, s, _i) => row(s)),
+                ui.each(.Const(["c"]), fn(s) => s, fn(_c, s, _i) => held(s)),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn rows_built_by_a_function_holding_a_navigating_handler_render_and_navigate() {
+    let printed = drive(
+        "rows-page",
+        ROWS_PAGE,
+        r#"
+globalThis.history = { pushState: (_state, _title, path) => console.log(`pushed ${path}`) };
+console.log(["a", "b", "c"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
+fire(labelled("b"), "click");
+await new Promise((done) => setTimeout(done, 0));
+fire(labelled("c"), "click");
+await new Promise((done) => setTimeout(done, 0));
+"#,
+    );
+    assert_eq!(printed, "a:shown b:shown c:shown\npushed b\npushed c\n");
+}

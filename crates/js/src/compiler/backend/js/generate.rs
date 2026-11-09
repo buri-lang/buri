@@ -2607,12 +2607,12 @@ impl<'a> Gen<'a> {
             // parkability column, and the emitted body is asked instead:
             // `async` exactly when an `await` landed in it.
             //
-            // The function *holding* the lambda is `async` either way:
-            // `Parking`'s walk descends into a lambda body, so a call that
-            // puts an `await` here has already marked the function the lambda
-            // sits in. And an arrow printed `async` is a promise handed to
-            // whoever calls it — see [`Parking`] for why no program in
-            // this tree builds one the runtime then calls.
+            // The function *holding* the lambda is not made `async` by it:
+            // building an arrow runs none of its body, and `Parking`'s walk
+            // stops at a lambda for that reason (buri-lang/buri#325). An
+            // arrow printed `async` is a promise handed to whoever calls it —
+            // see [`Parking`] for why no program in this tree builds one the
+            // runtime then calls.
             ExprKind::Lambda { params, body, .. } => {
                 let names: Vec<String> = params.iter().map(|p| self.local_name_of(p)).collect();
                 let mut inner = Vec::new();

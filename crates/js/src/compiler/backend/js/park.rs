@@ -257,24 +257,38 @@ impl Parking {
 
     /// Whether running this body reaches something that waits.
     ///
-    /// The walk descends into lambda bodies, so a function holding a lambda
-    /// that parks parks too — which it must, on the backend that prints
-    /// `async`, because the `await` inside the arrow is inside this function's
-    /// own text.
+    /// The walk stops at a lambda: building one runs none of its body. The
+    /// lambda is printed as its own arrow, `async` when an `await` lands in
+    /// it, and `has_await` does not look inside a nested arrow either. A
+    /// function that only *holds* a handler that navigates is not `async`, so
+    /// a `ui.each` row built by one hands back a node rather than a promise
+    /// (buri-lang/buri#325). A call *through* a lambda asks
+    /// [`Parking::value_parks`], which reads its body.
     fn body_parks(&self, fi: FuncIdx, body: &Expr) -> bool {
         let mut k = false;
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, .. } => k = k || self.parks(*func),
+        self.walk_runs(fi, body, &mut k);
+        k
+    }
+
+    /// [`Parking::body_parks`]'s walk, outermost first, skipping lambda
+    /// bodies.
+    fn walk_runs(&self, fi: FuncIdx, e: &Expr, k: &mut bool) {
+        if *k {
+            return;
+        }
+        match &e.kind {
+            ExprKind::Lambda { .. } => return,
+            ExprKind::CallFunc { func, .. } => *k = self.parks(*func),
             // A jump into another function's loop is a call.
-            ExprKind::Continue { func: Some(c), .. } => k = k || self.parks(*c),
-            ExprKind::CallValue { callee, .. } => k = k || self.value_parks(fi, callee),
-            ExprKind::CallTrait { .. } => k = true,
+            ExprKind::Continue { func: Some(c), .. } => *k = self.parks(*c),
+            ExprKind::CallValue { callee, .. } => *k = self.value_parks(fi, callee),
+            ExprKind::CallTrait { .. } => *k = true,
             // A host call spelled as an inline node rather than reached
             // through an intrinsic *function*; the same seed answers both.
-            ExprKind::Intrinsic { name, .. } => k = k || suspends(name),
+            ExprKind::Intrinsic { name, .. } => *k = suspends(name),
             _ => {}
-        });
-        k
+        }
+        typed::children(e, &mut |c| self.walk_runs(fi, c, k));
     }
 }
 
