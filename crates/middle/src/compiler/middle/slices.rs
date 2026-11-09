@@ -155,9 +155,9 @@ fn use_in(block: &Block, v: ValueId, array: ValueId) -> Option<Option<Use>> {
     };
     match (read.as_slice(), operands.contains(&v), jump) {
         ([], false, _) => Some(None),
+        // A `decref` reads one value, so one that reads `v` drops `v`.
         ([j], false, _) => {
-            matches!(block.insts.get(*j), Some(Inst::DecRef { value }) if *value == v)
-                .then_some(Some(Use::Drop(*j)))
+            matches!(block.insts.get(*j), Some(Inst::DecRef { .. })).then_some(Some(Use::Drop(*j)))
         }
         ([], true, Some(t)) => block
             .insts
