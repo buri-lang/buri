@@ -105,3 +105,27 @@ fn a_comments_trailing_blanks_are_dropped() {
          // The last line, with no line break.\n"
     );
 }
+
+/// **A file packed with tokens reads whole**: a list written as one token a
+/// byte, far more than a file usually holds, with literals of every kind and
+/// nested lists after it.
+#[test]
+fn a_file_packed_with_tokens_reads_whole() {
+    let ones = vec!["1"; 4000].join(",");
+    let scratch = app(&format!(
+        "from \"node\" import {{ NodeHost }};\n\
+         from \"platform/effect\" import {{ Stdout }};\n\
+         from \"core/io\" import * as io;\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {{\n    \
+         let ctx = context {{ Stdout: host.stdout }};\n    \
+         let ones = [{ones}];\n    \
+         let nested = [[[1], [2, 3]], [[4], [5, 6]]];\n    \
+         let _ = io.println(ctx, \"${{ones}} ${{0x10}} ${{2.5}} ${{'b'}} ${{\"word\"}} ${{nested}}\").ignore();\n    \
+         .Ok(())\n}}\n"
+    ));
+    scratch.run(&["build", "//app"]).ok();
+    let printed = vec!["1"; 4000].join(", ");
+    scratch.exec_js("app").ok().says(&format!(
+        "[{printed}] 16 2.5 b word [[[1], [2, 3]], [[4], [5, 6]]]"
+    ));
+}

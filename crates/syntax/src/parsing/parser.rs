@@ -163,7 +163,7 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
             tree.adopt_docs(lexed.docs);
             tree
         },
-        scratch: Scratch::default(),
+        scratch: Scratch::sized(),
         last: lexed.tokens.len().saturating_sub(1),
         cur: lexed.tokens.kind(0),
         here: lexed.tokens.loc(0),
@@ -551,7 +551,6 @@ impl Declared {
 /// One stack per kind, owned by the parser and reused for the whole file, so a
 /// nested list costs a `push` rather than the `Vec` per child list the owned
 /// tree allocated — about a thousand allocations per thousand lines.
-#[derive(Default)]
 struct Scratch {
     exprs: Vec<ExprId>,
     pats: Vec<PatId>,
@@ -564,6 +563,27 @@ struct Scratch {
     binds: Vec<CtxBindData>,
     names: Vec<Location>,
     tys: Vec<TypeId>,
+}
+
+impl Scratch {
+    /// Stacks with room for what a typical file nests, so they don't grow
+    /// from nothing through a reallocation per doubling in every file. The
+    /// two left empty are rarely used.
+    fn sized() -> Scratch {
+        Scratch {
+            exprs: Vec::with_capacity(32),
+            pats: Vec::with_capacity(16),
+            stmts: Vec::with_capacity(32),
+            arms: Vec::with_capacity(16),
+            inits: Vec::with_capacity(16),
+            fpats: Vec::new(),
+            lparams: Vec::with_capacity(8),
+            parts: Vec::with_capacity(8),
+            binds: Vec::new(),
+            names: Vec::with_capacity(16),
+            tys: Vec::with_capacity(16),
+        }
+    }
 }
 
 /// What a production pushed onto a scratch stack: everything from `base` on.

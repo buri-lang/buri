@@ -756,19 +756,9 @@ impl<'a> Tokens<'a> {
         }
     }
 
-    #[inline]
+    #[cfg(test)]
     fn push(&mut self, kind: TokenKind, pay: u32, loc: Location) {
-        let mut word = pay;
-        if pay >= WIDE {
-            self.wide.push((self.records.len() as u32, pay));
-            word = WIDE;
-        }
-        let [a, b, c, _] = word.to_le_bytes();
-        self.records.push(Record {
-            loc,
-            kind,
-            pay: [a, b, c],
-        });
+        push_paid(&mut self.records, &mut self.wide, kind, pay, loc);
     }
 
     pub fn len(&self) -> usize {
@@ -1090,24 +1080,6 @@ impl<'a> Lexer<'a> {
         super::pushed(&mut self.errors, Diagnostic::templated(code, span))
     }
 
-    /// Append one token, from `start` to the cursor.
-    ///
-    /// What was written above it is already attached: every arm of
-    /// [`Lexer::run`] that reads a token calls [`Lexer::gap`] first, and pushes
-    /// exactly one token after it.
-    #[inline]
-    fn push(&mut self, kind: TokenKind, pay: u32, start: usize) {
-        debug_assert!(!self.has_trivia, "a token pushed without `gap` before it");
-        self.tokens.push(
-            kind,
-            pay,
-            Location {
-                start: start as u32,
-                end: self.pos as u32,
-            },
-        );
-    }
-
     /// Hand what was written above the next token to the trivia table.
     ///
     /// Almost no token has any of this — a run of comments belongs to a
@@ -1145,29 +1117,29 @@ impl<'a> Lexer<'a> {
         self.has_trivia |= blank;
     }
 
-    /// A token whose value lives in a side table: the payload column holds the
-    /// index the value was appended at.
-    fn push_int(&mut self, v: u128, start: usize) {
+    /// A literal whose value lives in a side table: the token's payload is
+    /// the index the value was appended at.
+    fn int(&mut self, v: u128) -> (TokenKind, u32) {
         let at = self.tokens.ints.len() as u32;
         self.tokens.ints.push(v);
-        self.push(TokenKind::Int, at, start);
+        (TokenKind::Int, at)
     }
 
-    fn push_float(&mut self, v: f64, start: usize) {
+    fn float(&mut self, v: f64) -> (TokenKind, u32) {
         let at = self.tokens.floats.len() as u32;
         self.tokens.floats.push(v);
-        self.push(TokenKind::Float, at, start);
+        (TokenKind::Float, at)
     }
 
     /// A string token whose text is what `scan_str_body` appended to the
     /// cooked text since `from`.
-    fn push_text(&mut self, kind: TokenKind, from: usize, start: usize) {
+    fn text(&mut self, kind: TokenKind, from: usize) -> (TokenKind, u32) {
         let at = self.tokens.strs.len() as u32;
         let end = u32::try_from(self.tokens.cooked.len()).unwrap_or(u32::MAX);
         self.tokens
             .strs
             .push((u32::try_from(from).unwrap_or(u32::MAX), end));
-        self.push(kind, at, start);
+        (kind, at)
     }
 
     /// The whole lexer: one `match` per thing read.
@@ -1178,6 +1150,11 @@ impl<'a> Lexer<'a> {
     /// The cursor is a local rather than `self.pos`, so it stays in a register
     /// through the common arms. An arm that hands off to a method writes it to
     /// `self.pos` first and reads it back after.
+    ///
+    /// The token buffer is a local too, taken out of `self.tokens` for the
+    /// whole run, so its pointer, length and capacity stay in registers. No
+    /// method pushes a token: a literal's method hands back its kind and
+    /// payload, and the arm pushes it here.
     fn run(&mut self) {
         use TokenKind::*;
         let src = self.src;
@@ -1190,21 +1167,31 @@ impl<'a> Lexer<'a> {
         let blank = |gap: usize| gap & !HELD >= 2;
         let mut gap = held(self.has_trivia);
         let mut pos = self.pos;
+        let mut records = std::mem::take(&mut self.tokens.records);
         // What was written above the token about to be read goes to the
         // trivia table first, keyed by the index the token is about to get.
         macro_rules! settled {
             () => {{
                 if gap >= 2 {
-                    self.settle(blank(gap), self.tokens.len());
+                    self.settle(blank(gap), records.len());
                 }
                 gap = 0;
             }};
         }
-        macro_rules! handoff {
-            ($call:expr) => {{
+        // A literal: its method reads it and hands back its kind and payload,
+        // and the token is pushed here.
+        macro_rules! literal {
+            ($start:ident, $call:expr) => {{
+                settled!();
                 self.pos = pos;
-                $call;
+                let (kind, pay) = $call;
                 pos = self.pos;
+                let loc = Location {
+                    start: $start as u32,
+                    end: pos as u32,
+                };
+                push_paid(&mut records, &mut self.tokens.wide, kind, pay, loc);
+                continue;
             }};
         }
         loop {
@@ -1232,7 +1219,7 @@ impl<'a> Lexer<'a> {
                             Ident
                         }
                     };
-                    push_plain(&mut self.tokens.records, kind, start, pos);
+                    push_plain(&mut records, kind, start, pos);
                     continue;
                 }
                 // A run of blanks — an indentation, mostly — is stepped over
@@ -1266,27 +1253,16 @@ impl<'a> Lexer<'a> {
                 },
                 Class::Nul if start >= src.len() => {
                     if gap >= 2 {
-                        self.settle(blank(gap), self.tokens.len());
+                        self.settle(blank(gap), records.len());
                     }
-                    push_plain(&mut self.tokens.records, Eof, start, start);
+                    push_plain(&mut records, Eof, start, start);
+                    self.tokens.records = records;
                     self.pos = start;
                     return;
                 }
-                Class::Digit => {
-                    settled!();
-                    handoff!(self.number(start));
-                    continue;
-                }
-                Class::Quote => {
-                    settled!();
-                    handoff!(self.string_or_template(start));
-                    continue;
-                }
-                Class::Apostrophe => {
-                    settled!();
-                    handoff!(self.char_literal(start));
-                    continue;
-                }
+                Class::Digit => literal!(start, self.number(start)),
+                Class::Quote => literal!(start, self.string_or_template(records.len())),
+                Class::Apostrophe => literal!(start, (Char, self.char_literal(start))),
                 Class::LBrace => {
                     if let Some(open) = self.holes.last_mut() {
                         *open = open.saturating_add(1);
@@ -1300,10 +1276,8 @@ impl<'a> Lexer<'a> {
                         // block. The hole stays on the stack until the
                         // template itself ends.
                         Some(0) => {
-                            settled!();
                             pos = start.wrapping_add(1);
-                            handoff!(self.resume_template(start));
-                            continue;
+                            literal!(start, self.resume_template(records.len()))
                         }
                         Some(open) => *open = open.saturating_sub(1),
                         // No hole is open. This `}` closes a block, or closes
@@ -1344,7 +1318,7 @@ impl<'a> Lexer<'a> {
             // stepped over the first.
             settled!();
             pos = pos.wrapping_add(1);
-            push_plain(&mut self.tokens.records, kind, start, pos);
+            push_plain(&mut records, kind, start, pos);
         }
     }
 
@@ -1492,11 +1466,10 @@ impl<'a> Lexer<'a> {
         self.has_trivia = true;
     }
 
-    fn number(&mut self, start: usize) {
+    fn number(&mut self, start: usize) -> (TokenKind, u32) {
         if let Some((value, end)) = plain_decimal(self.src, start) {
             self.pos = end;
-            self.push_int(u128::from(value), start);
-            return;
+            return self.int(u128::from(value));
         }
         // Radix prefixes. `0x`, `0o`, `0b` are integers only.
         if self.peek() == b'0' && matches!(self.peek_at(1), b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
@@ -1518,20 +1491,18 @@ impl<'a> Lexer<'a> {
                 let span = self.span(start);
                 self.templated("integer-missing-digits", span)
                     .bind("literal", raw);
-                self.push_int(0, start);
-                return;
+                return self.int(0);
             }
-            match u128::from_str_radix(&digits, radix) {
-                Ok(v) => self.push_int(v, start),
+            return match u128::from_str_radix(&digits, radix) {
+                Ok(v) => self.int(v),
                 Err(_) => {
                     let span = self.span(start);
                     self.templated("invalid-integer", span)
                         .bind("literal", raw)
                         .bind("radix", radix.to_string());
-                    self.push_int(0, start);
+                    self.int(0)
                 }
-            }
-            return;
+            };
         }
 
         while self.peek().is_ascii_digit() || self.peek() == b'_' {
@@ -1568,21 +1539,21 @@ impl<'a> Lexer<'a> {
         let clean = without_underscores(raw);
         if is_float {
             match clean.parse::<f64>() {
-                Ok(v) => self.push_float(v, start),
+                Ok(v) => self.float(v),
                 Err(_) => {
                     let span = self.span(start);
                     self.templated("invalid-float", span).bind("literal", raw);
-                    self.push_float(0.0, start);
+                    self.float(0.0)
                 }
             }
         } else {
             match clean.parse::<u128>() {
-                Ok(v) => self.push_int(v, start),
+                Ok(v) => self.int(v),
                 Err(_) => {
                     let span = self.span(start);
                     self.templated("integer-too-wide", span)
                         .bind("literal", raw);
-                    self.push_int(0, start);
+                    self.int(0)
                 }
             }
         }
@@ -1721,43 +1692,43 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn string_or_template(&mut self, start: usize) {
+    /// A string, or a template's head, as token `at`.
+    fn string_or_template(&mut self, at: usize) -> (TokenKind, u32) {
         self.pos = self.pos.saturating_add(1); // the opening quote
         let from = self.tokens.cooked.len();
         let end = self.scan_str_body();
         if end == StrEnd::Hole {
-            self.push_text(TokenKind::TemplateHead, from, start);
             self.holes.push(0);
+            self.text(TokenKind::TemplateHead, from)
         } else {
-            self.push_text(TokenKind::Str, from, start);
-            self.mark(end);
+            self.mark(end, at);
+            self.text(TokenKind::Str, from)
         }
     }
 
-    /// Resumes template text after the `}` that closes a hole.
-    fn resume_template(&mut self, start: usize) {
+    /// Resumes template text after the `}` that closes a hole, as token `at`.
+    fn resume_template(&mut self, at: usize) -> (TokenKind, u32) {
         let from = self.tokens.cooked.len();
         let end = self.scan_str_body();
         if end == StrEnd::Hole {
-            self.push_text(TokenKind::TemplateSpan, from, start);
+            self.text(TokenKind::TemplateSpan, from)
         } else {
-            self.push_text(TokenKind::TemplateTail, from, start);
-            self.mark(end);
+            self.mark(end, at);
             debug_assert_eq!(self.holes.last(), Some(&0));
             self.holes.pop();
+            self.text(TokenKind::TemplateTail, from)
         }
     }
 
-    /// Records the token just pushed as one the parser must not read a
-    /// construct out of. Ascending by construction: tokens are pushed in
-    /// source order, so [`Tokens::is_unterminated`] can binary-search.
-    fn mark(&mut self, end: StrEnd) {
+    /// Records token `at` as one the parser must not read a construct out
+    /// of. Ascending by construction: tokens are read in source order, so
+    /// [`Tokens::is_unterminated`] can binary-search.
+    fn mark(&mut self, end: StrEnd, at: usize) {
         if end != StrEnd::Unterminated {
             return;
         }
-        // A token index fits a `u32` the way the payload index `push` takes does.
-        let at = self.tokens.len().saturating_sub(1) as u32;
-        self.tokens.unterminated.push(at);
+        // A token index fits a `u32` the way a payload index does.
+        self.tokens.unterminated.push(at as u32);
     }
 
     /// Whether `self.pos` is at a line break or the end of the file.
@@ -1765,7 +1736,8 @@ impl<'a> Lexer<'a> {
         self.pos >= self.src.len() || self.peek() == b'\n'
     }
 
-    fn char_literal(&mut self, start: usize) {
+    /// A character literal, as its scalar value.
+    fn char_literal(&mut self, start: usize) -> u32 {
         self.pos = self.pos.saturating_add(1);
         let escaped = self.peek() == b'\\';
         if escaped {
@@ -1776,8 +1748,7 @@ impl<'a> Lexer<'a> {
         if self.at_line_end() {
             let span = self.span(start);
             self.templated("unterminated-character", span);
-            self.push(TokenKind::Char, 0, start);
-            return;
+            return 0;
         }
         let c = if escaped {
             self.escape(self.pos.saturating_sub(1)).unwrap_or('\0')
@@ -1795,7 +1766,7 @@ impl<'a> Lexer<'a> {
         if self.peek() == b'\'' {
             self.pos = self.pos.saturating_add(1);
         }
-        self.push(TokenKind::Char, c as u32, start);
+        c as u32
     }
 }
 
@@ -1914,6 +1885,29 @@ fn push_plain(records: &mut Vec<Record>, kind: TokenKind, start: usize, end: usi
         loc,
         kind,
         pay: [0; 3],
+    });
+}
+
+/// Append a token with a payload, putting one too wide for the record in
+/// [`Tokens::wide`].
+#[inline]
+fn push_paid(
+    records: &mut Vec<Record>,
+    wide: &mut Vec<(u32, u32)>,
+    kind: TokenKind,
+    pay: u32,
+    loc: Location,
+) {
+    let mut word = pay;
+    if pay >= WIDE {
+        wide.push((records.len() as u32, pay));
+        word = WIDE;
+    }
+    let [a, b, c, _] = word.to_le_bytes();
+    records.push(Record {
+        loc,
+        kind,
+        pay: [a, b, c],
     });
 }
 

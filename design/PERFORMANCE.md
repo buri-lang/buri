@@ -9154,6 +9154,45 @@ went from about 2,000 blocks to under 200 per shape. `run-dev/kvstore` went
 from 1,358.4 M to 1,356.0 M instructions on arm64 (-0.17%), and the aarch64
 row is tightened to 1355992566. Its retains plus releases stay at 12.37 M.
 
+### 6.113 The lexer's token buffer is a local, and the parser's stacks start sized, 2026-11-09
+
+```rust
+let mut records = std::mem::take(&mut self.tokens.records); // in Lexer::run
+Class::Digit => literal!(start, self.number(start)),        // number returns (kind, payload)
+```
+
+`Lexer::run` pushed onto `self.tokens.records`, so every token loaded the
+buffer's pointer, length and capacity from memory and stored the length.
+Now the buffer is a local for the whole run, and no method pushes a token: a
+literal's method returns its kind and payload, and the arm pushes it. Each
+push still goes through the stack, because `Vec::push`'s growth takes the
+buffer's address, but at a fixed offset from `sp`.
+
+`Scratch`, the parser's stacks for nested lists, now starts with room for 8 to
+32 entries per stack instead of growing from empty in every file.
+
+Parse instructions per line, aarch64:
+
+| Build | Before | After |
+|---|---:|---:|
+| `ci` | 1,686.4 | 1,677.0 (-0.56%) |
+| `monorepo-ci` | 2,141.7 | 2,130.5 (-0.52%) |
+| `monorepo-ci` test build | 2,142.1 | 2,130.9 (-0.52%) |
+
+These ideas measured worse or no better:
+
+- **Pre-sizing records at one per three bytes** instead of one per four
+  changed nothing. Growing the token and tree arenas costs little; the large
+  `realloc`s in the parse rows come from elsewhere.
+- **Staging records in a 256-entry stack array**, copied onto the buffer
+  when full, cost +1.06%. Clearing 3 KiB per file outweighed the saved loads.
+- **Growing the buffer by value** (`reserve_one` handing it back) cost +1.9%,
+  because `push` keeps its own growth path.
+
+`cli/tests/language/lexing.rs` reads a file with one token a byte, four
+times the pre-sized room, followed by literals of every kind and nested
+lists.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
