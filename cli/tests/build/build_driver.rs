@@ -371,6 +371,9 @@ fn buri_linker_picks_the_linker() {
 /// and still runs. The backends write none for Buri code, so all of it was the
 /// runtime's and the C library's, most of it for code the link dropped: the
 /// linker copied and relocated it into every program.
+///
+/// A toolchain built for Valgrind keeps it, so a report's stacks reach past
+/// musl's threads and name each frame's file and line.
 #[test]
 fn a_linux_artifact_carries_no_debug_information() {
     if !cfg!(target_os = "linux") {
@@ -401,7 +404,14 @@ fn a_linux_artifact_carries_no_debug_information() {
             .into_iter()
             .filter(|name| name.starts_with(".debug"))
             .collect();
-        assert!(debug.is_empty(), "BURI_LINKER={linker} kept {debug:?}");
+        if cfg!(feature = "valgrind") {
+            assert!(
+                debug.iter().any(|name| name == ".debug_info"),
+                "BURI_LINKER={linker} dropped the debug information Valgrind reads"
+            );
+        } else {
+            assert!(debug.is_empty(), "BURI_LINKER={linker} kept {debug:?}");
+        }
         let out = std::process::Command::new(&app).capped_output().unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),

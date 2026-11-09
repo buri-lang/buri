@@ -445,7 +445,17 @@ impl Refusal {
 /// every program: 47 M of a 213 M-instruction link, and 3.3 MB of a 5.7 MB
 /// artifact. A macOS link never copies it either; `ld64` leaves it in the
 /// archive.
-const STRIP_DEBUG: &str = "-Wl,--strip-debug";
+///
+/// A toolchain built with the `valgrind` feature keeps it. Without it musl's
+/// hand-written assembly has no unwind table Valgrind can read, so a stack
+/// stops at `pthread_create` or `???`, and every frame loses its file and line:
+/// a report can no longer tell the C library's and `std`'s own locks from the
+/// runtime's (`cli/tests/native/valgrind.rs`, `UNSEEN`).
+const STRIP_DEBUG: &[&str] = if cfg!(feature = "valgrind") {
+    &[]
+} else {
+    &["-Wl,--strip-debug"]
+};
 
 /// Which linker the C driver is told to run.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1688,13 +1698,13 @@ impl CDriver {
                 flags.push("-lunwind".into());
                 flags.push("musl/lib/crtendS.o".into());
                 flags.push("musl/lib/crtn.o".into());
-                flags.push(STRIP_DEBUG.into());
+                flags.extend(STRIP_DEBUG.iter().map(|&flag| flag.into()));
             }
             _ => {
                 // A build id is a hash of content that is about to be compared
                 // byte for byte.
                 flags.push("-Wl,--build-id=none".into());
-                flags.push(STRIP_DEBUG.into());
+                flags.extend(STRIP_DEBUG.iter().map(|&flag| flag.into()));
                 // `-dead_strip`'s counterpart: the artifact keeps the part of
                 // the archive it reaches. Measured by relinking the x86-64
                 // Linux CI job's own objects and archive with and without it,
