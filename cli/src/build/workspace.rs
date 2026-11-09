@@ -968,21 +968,15 @@ impl Workspace {
     pub fn rel_of(&self, p: &Path) -> String {
         // Nearly every path asked about is the root, a `/` and a plain
         // relative path, which is its own answer without walking the
-        // components. Anything with an empty or `.` component at either end
-        // of the rest takes the walk, which drops those.
+        // components. Anything with an empty or `.` component takes the
+        // walk, which drops those.
         let plain = p
             .as_os_str()
             .as_encoded_bytes()
             .strip_prefix(self.root.as_os_str().as_encoded_bytes())
             .and_then(|rest| rest.strip_prefix(b"/"))
             .and_then(|rest| std::str::from_utf8(rest).ok())
-            .filter(|rest| {
-                !(rest.starts_with('/')
-                    || rest.starts_with("./")
-                    || rest.ends_with('/')
-                    || rest.ends_with("/.")
-                    || *rest == ".")
-            });
+            .filter(|rest| !rest.split('/').any(|c| matches!(c, "" | ".")));
         match plain {
             Some(rest) => rest.replace('\\', "/"),
             None => p
