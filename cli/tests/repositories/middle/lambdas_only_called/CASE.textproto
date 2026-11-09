@@ -1,0 +1,16 @@
+# Lambdas a test names and only ever calls, with every shape of body: one
+# expression, and blocks that open with a destructuring `let`, with a read of
+# a tuple argument, and with captures the body goes on past. Such a lambda is
+# never a value anybody holds, so a native backend may call it directly; each
+# answers as written on both backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "lambdas that are only called answer as written on both backends"
+
+run {
+  args: ["test", "//lib/calls", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

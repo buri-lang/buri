@@ -2448,17 +2448,19 @@ impl Replay {
     }
 }
 
-/// `args` with each library directory after its first `-L<dir>` dropped.
+/// `args` with each absolute library directory after its first `-L/<dir>`
+/// dropped.
 ///
 /// A linker searches the directories in order and takes the first match, so a
 /// directory named again can't change what's found. nix's wrappers name each
 /// of theirs three times or more, and the linker checks every one for every
 /// library: 59 M of a 784 M-instruction `ld64.lld` link, and 13 M of a 275 M
-/// mold one. The two-argument `-L <dir>` is left alone.
+/// mold one. Every directory they name is absolute, so a relative one and the
+/// two-argument `-L <dir>` are left alone.
 fn searched_once(args: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     args.iter()
-        .filter(|arg| !arg.starts_with("-L") || arg.len() == 2 || seen.insert(arg.as_str()))
+        .filter(|arg| !arg.starts_with("-L/") || seen.insert(arg.as_str()))
         .cloned()
         .collect()
 }

@@ -243,6 +243,85 @@ fn a_cross_build_runs_its_generator_on_the_host() {
     let _ = std::fs::remove_dir_all(&scratch);
 }
 
+/// A library whose function hands `map` a lambda over its argument.
+const SHIFT_LIBRARY: &str = r#"from "platform/effect" import { Allocator };
+
+export fn shift<C: Allocator>(ctx: C, xs: [Int], by: Int): [Int] {
+    xs.map(ctx, fn(x) => x + by)
+}
+"#;
+
+/// A program that hands `map` a lambda over a local too, and prints `33`.
+const SHIFT_PROGRAM: &str = r#"from "platform/effect" import { Allocator, Stdout };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "//lib/shift" import { shift };
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let k = shift(ctx, [1, 2, 3], 4).length();
+    let ys = [5, 6].map(ctx, fn(x) => x * k);
+    io.println(ctx, "${ys.sum()}").mapErr(fn(_e) => "could not write to standard output")
+}
+"#;
+
+/// Lambdas over a value, handed on as values in two packages, cross-build to an
+/// x86-64 Linux executable that prints what they compute.
+#[test]
+fn closures_in_two_packages_cross_build_for_linux_x86_64() {
+    if !cross_ready() {
+        return;
+    }
+    let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("cross-closures-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    let repo = scratch.join("repo");
+    let files = [
+        ("REPO.buri", ""),
+        (
+            "lib/shift/BUILD.buri",
+            "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+        ),
+        ("lib/shift/lib.buri", SHIFT_LIBRARY),
+        (
+            "cmd/hello/BUILD.buri",
+            "binary {\n    dependencies: [\"//lib/shift\"]\n\n    outputs: [\n        { platform: \"native\", variant: \"linux-x86_64\" },\n    ]\n}\n",
+        ),
+        ("cmd/hello/main.buri", SHIFT_PROGRAM),
+    ];
+    for (path, text) in files {
+        let path = repo.join(path);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("create a directory");
+        std::fs::write(path, text).expect("write a file");
+    }
+    let home = crate::sweep::kept::shared_cross_home();
+    crate::sweep::kept::warm_cross_runtime();
+
+    let out = buri(&repo, home)
+        .args(["build", "//cmd/hello", "--output=native/linux-x86_64"])
+        .capped_output()
+        .expect("run buri build");
+    assert!(
+        out.status.success(),
+        "the cross build with closures failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let artifact = repo.join(".buri/out/native/linux-x86_64/cmd/hello/hello");
+    let bytes = std::fs::read(&artifact).expect("the cross-built artifact");
+    assert!(
+        is_linux_x86_64_pie(&bytes),
+        "the artifact is not a 64-bit x86-64 static-PIE ELF"
+    );
+    if let Some(ran) = run_in_container(&artifact) {
+        assert_eq!(ran.trim(), "33", "the closures computed the wrong thing");
+    }
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
 /// Runs `artifact` in a `docker.io/library/rust` container and answers its
 /// standard output, or `None` when no container could be started.
 fn run_in_container(artifact: &Path) -> Option<String> {

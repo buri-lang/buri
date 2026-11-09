@@ -1,0 +1,37 @@
+from "core/testing/assert" import * as assert;
+
+fn pair(n: Int): (Int, Int) {
+    (n, n * 2)
+}
+
+test "a named lambda whose body is one expression" {
+    let triple = fn(k: Int): Int => k * 3;
+    assert.equal(triple(4) + triple(1), 15);
+}
+
+test "a named lambda whose body opens with a destructuring let" {
+    let split = fn(k: Int): Int => {
+        let (a, b) = pair(k);
+        a + b
+    };
+    assert.equal(split(4), 12);
+}
+
+test "a named lambda whose body opens by reading its tuple argument" {
+    let second = fn(p: (Int, Int)): Int => {
+        let b = p.1;
+        b * 5
+    };
+    assert.equal(second((4, 3)), 15);
+}
+
+test "a named lambda over two captures whose body goes on after reading them" {
+    let xs = [5, 6, 7];
+    let n = 4;
+    let steps = fn(k: Int): Int => {
+        let first = xs.get(k % 3).withDefault(0);
+        let next = first + n;
+        next * 2
+    };
+    assert.equal(steps(1) + steps(2), 42);
+}
