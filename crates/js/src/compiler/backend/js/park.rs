@@ -740,15 +740,10 @@ pub fn answers_too_late(
         TyKind::Fn(_, ret) => *ret.kind() != TyKind::Unit && w.effects.fn_takes_effect(&t),
         _ => false,
     };
-    let mut callers: Dense<FuncIdx, Vec<(FuncIdx, &Vec<Expr>)>> = program.funcs.map(|_| Vec::new());
     let mut written: Vec<(FuncIdx, &Expr)> = Vec::new();
     for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, args } => callers.get_mut(*func).push((i, args)),
-            ExprKind::Continue { func, args, .. } => {
-                callers.get_mut(func.unwrap_or(i)).push((i, args));
-            }
             ExprKind::StructLit {
                 con,
                 fields: values,
@@ -763,11 +758,9 @@ pub fn answers_too_late(
             _ => {}
         });
     }
-    let lets: Dense<FuncIdx, Vec<(LocalId, &Expr)>> = program
-        .funcs
-        .iter()
-        .map(|f| f.body().map(fn_lets).unwrap_or_default())
-        .collect();
+    // The callers and lets only matter to a value that waits, which almost
+    // no program writes, so they are built when the first one turns up.
+    let mut searched: Option<(Callers, Lets)> = None;
     let mut blamed = Vec::new();
     for (i, v) in written {
         // An optional handler is asked about through the `.Some` that holds
@@ -797,11 +790,30 @@ pub fn answers_too_late(
         if !answers(v.ty) || !w.value_parks(full(i), v) {
             continue;
         }
+        let (callers, lets) = searched.get_or_insert_with(|| {
+            let mut callers: Callers = program.funcs.map(|_| Vec::new());
+            for (i, f) in program.funcs.entries() {
+                let Some(body) = f.body() else { continue };
+                typed::walk(body, &mut |e| match &e.kind {
+                    ExprKind::CallFunc { func, args } => callers.get_mut(*func).push((i, args)),
+                    ExprKind::Continue { func, args, .. } => {
+                        callers.get_mut(func.unwrap_or(i)).push((i, args));
+                    }
+                    _ => {}
+                });
+            }
+            let lets = program
+                .funcs
+                .iter()
+                .map(|f| f.body().map(fn_lets).unwrap_or_default())
+                .collect();
+            (callers, lets)
+        });
         let mut blame = Blame {
             program,
             w,
-            callers: &callers,
-            lets: &lets,
+            callers,
+            lets,
             seen: HashSet::default(),
             blamed: &mut blamed,
         };
@@ -812,12 +824,17 @@ pub fn answers_too_late(
     blamed
 }
 
+/// Each function's calls to it, with their arguments.
+type Callers<'p> = Dense<FuncIdx, Vec<(FuncIdx, &'p Vec<Expr>)>>;
+/// Each function's `let`s of a function value.
+type Lets<'p> = Dense<FuncIdx, Vec<(LocalId, &'p Expr)>>;
+
 /// [`answers_too_late`]'s search for the function values to blame.
 struct Blame<'a, 'p> {
     program: &'p Program,
     w: &'a Parking,
-    callers: &'a Dense<FuncIdx, Vec<(FuncIdx, &'p Vec<Expr>)>>,
-    lets: &'a Dense<FuncIdx, Vec<(LocalId, &'p Expr)>>,
+    callers: &'a Callers<'p>,
+    lets: &'a Lets<'p>,
     seen: HashSet<FuncIdx>,
     blamed: &'a mut Vec<Span>,
 }

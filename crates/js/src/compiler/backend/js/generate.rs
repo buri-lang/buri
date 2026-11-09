@@ -381,12 +381,13 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
 
 pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
     let (sharing, parking) = analyses(program);
-    let tree = program.shapes.node.map(|node| tables.tycon(node).module);
-    let waits = park::answers_too_late(
-        program,
-        |con| Some(tables.tycon(con).module) == tree,
-        &parking,
-    );
+    // A program with no `ui/node` writes no user interface for a row to wait in.
+    let waits = match program.shapes.node.map(|node| tables.tycon(node).module) {
+        Some(tree) => {
+            park::answers_too_late(program, |con| tables.tycon(con).module == tree, &parking)
+        }
+        None => Vec::new(),
+    };
     let mut g = Gen::over(program, tables, profile, &sharing);
     g.parking = Some(&parking);
 
