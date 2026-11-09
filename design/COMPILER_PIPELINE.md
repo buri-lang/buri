@@ -264,10 +264,10 @@ repeated across programs until units got the same key in every program; now
 **Why `full` lags `monorepo`.** The link fixes above save a fixed amount per
 link and per unit, and mostly on Linux. `monorepo` has many small programs, so
 they add up. `full` has 12 links over 262k lines, and its cost is the back half
-running once per program over 1.65 M reached lines. Sharing codegen skips only
-stencil emit. `monomorphize` and the middle end, about 35% of dev codegen, still
-run for every program. Keying units before the middle end is the fix
-(proposal 2).
+running once per program over 1.65 M reached lines. A shared unit now skips
+emit, `rc`'s scan, `lower` and its key
+([Lowering a shared unit once](#lowering-a-shared-unit-once)), but
+`monomorphize` and the whole-program middle passes still run for every program.
 
 **A syscall per unit is expensive on macOS.** Each costs tens of thousands of
 instructions. Linking a cached unit took a `stat` and a `getxattr` to confirm
@@ -294,13 +294,11 @@ above.
 1. **Make codegen units the same across programs.** Done: 15% of dev CPU and
    76% of release; see
    [Sharing codegen across programs](#sharing-codegen-across-programs).
-2. **Key units before the middle end.** Up to a third of dev codegen on
-   `full`. Evidence: units come back from the cache only after `monomorphize`
-   and the middle end ran for that program, and those two repeat for every one
-   of the 12 programs. Key each unit from the lowered, pre-middle IR of the
-   functions it holds, and skip the middle end for units the cache has. Risk:
-   high; `inline` and `dce` cross unit boundaries, so a key has to cover every
-   body the middle end may pull in.
+2. **Key units before lowering.** Done for dev: 6.2% of dev codegen on `ci`,
+   0.8% on `monorepo-ci`; see
+   [Lowering a shared unit once](#lowering-a-shared-unit-once). Keying before
+   the whole middle end can't work: `inline`, `dce` and `rc`'s fixpoints read
+   the whole program, so a unit's code isn't known until they've run.
 3. **Hash unit keys from the IR, not from its text.** About 4% of dev, 0.3 s
    in release. Evidence: `unit_hashes` is 0.32 s, and formatting
    (`render_func_into`, `fmt::write`, `Layout`'s `Debug`) is most of it.
@@ -522,3 +520,55 @@ Cold `buri build //...` on the `full` workspace, `BURI_THREADS=1`, a
 On the `ci` workspace, 88 of 178 units come back.
 `cli/tests/build/codegen_sharing.rs` holds it by the profile's
 `objects restored` count.
+
+### Lowering a shared unit once
+
+A unit another program already built now skips `rc`'s per-function scan,
+`lower` and its key, not just emit.
+
+These passes still run for every program, because each one reads the whole
+program:
+
+- `monomorphize`, `inline` and `dce`
+- derives, closures and known calls
+- `rc`'s ownership, purity and can-abort fixpoints
+- `crosses_tasks`
+
+After them, `middle::fingerprint` hashes each unit into 128 bits. It covers:
+
+- every member function's body and locals
+- each callee's symbol, kind, parameter and return types, env and loop entries
+- the `rc` answers the unit reads
+
+A function the unit names but doesn't build adds only its parameters' locals.
+Hashing all its locals left 40 of the 88 shared `ci` units unmatched.
+
+The memo maps a fingerprint to the unit's IR and layout hashes. It lives on the
+shared `Tables`, and fills in after each program stores its objects. A unit is
+a hit when the memo has its fingerprint and the cache still holds its object.
+If an object turns out missing, that program lowers again without it.
+
+The memo has three limits:
+
+- **Stencil only.** An LLVM key depends on which functions other units name,
+  and that isn't known until every unit is lowered.
+- **Off with `--force`.**
+- **Only for a multi-program `buri build`.** Fingerprinting costs about 1%, and
+  a lone program, `buri test` included, has nobody to share with.
+
+Debug builds lower every hit too, and assert that the hashes, test entry and
+shared-unit counts agree. With and without `--force`, `buri build //...` writes
+the same executables on `ci` and `monorepo-ci`.
+
+`cli/tests/build/codegen_sharing.rs` holds it by the profile's
+`units restored before lowering` count.
+
+Dev codegen instructions per line, Linux callgrind:
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| `ci` | 66,182 | 62,050 | −6.2% |
+| `monorepo-ci` build | 25,225 | 25,011 | −0.8% |
+| `monorepo-ci` test build | 26,236 | 26,228 | flat |
+
+Units that skip lowering: 88 of 178 on `ci`, every shared one, and 20 of 116 on `monorepo-ci`.
