@@ -252,11 +252,13 @@ impl NativeBackend {
     /// The backend, before a program is resolved: for what it answers of
     /// every program, such as its name and identity.
     pub fn backend(&self) -> &dyn Backend {
-        match self {
+        // `*self`, not `self`: with neither backend feature the enum has no
+        // variants, and only a match on the enum itself may then be empty.
+        match *self {
             #[cfg(feature = "backend-stencil")]
-            NativeBackend::Stencil(b) => b,
+            NativeBackend::Stencil(ref b) => b,
             #[cfg(feature = "backend-llvm")]
-            NativeBackend::Llvm(b) => b,
+            NativeBackend::Llvm(ref b) => b,
         }
     }
 
@@ -271,6 +273,10 @@ impl NativeBackend {
 
     /// This backend, with every key `lowered` names resolved — or its name and
     /// every key it has no route for.
+    #[cfg_attr(
+        not(any(feature = "backend-stencil", feature = "backend-llvm")),
+        expect(unused_variables)
+    )]
     pub fn resolve<'p>(
         self,
         lowered: &'p ir::Program,
@@ -299,12 +305,14 @@ pub trait Ready {
     ) -> Result<Vec<Emitted>, Diagnostics>;
 }
 
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 struct Resolved<'p, B: Native> {
     backend: B,
     lowered: &'p ir::Program,
     routes: B::Routes<'p>,
 }
 
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 impl<B: Native> Ready for Resolved<'_, B> {
     fn backend(&self) -> &dyn Backend {
         &self.backend
@@ -322,6 +330,7 @@ impl<B: Native> Ready for Resolved<'_, B> {
     }
 }
 
+#[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 fn ready<'p, B: Native + 'p>(
     backend: B,
     lowered: &'p ir::Program,
@@ -337,6 +346,7 @@ fn ready<'p, B: Native + 'p>(
 }
 
 /// [`select`]'s native rows: the target is `linux` or `macos`.
+#[cfg_attr(not(feature = "backend-stencil"), expect(unused_variables))]
 pub fn native(target: Target, profile: Profile) -> Result<NativeBackend, String> {
     match profile {
         #[cfg(feature = "backend-stencil")]
