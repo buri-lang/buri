@@ -804,7 +804,7 @@ fn the_release_build_keeps_its_measured_settings() {
         pgo,
         [
             "run: sh .github/pgo.sh aarch64-apple-darwin train",
-            "run: sh .github/pgo.sh \"${{ matrix.target }}\" use",
+            "run: sh .github/pgo.sh aarch64-apple-darwin use",
             "sh .github/pgo.sh \"$TARGET\"",
         ],
         "every nightly build goes through `.github/pgo.sh`: macOS trains in `pgo-train` and \
@@ -819,12 +819,17 @@ fn the_release_build_keeps_its_measured_settings() {
             && train.contains("path: target/pgo/buri.profdata"),
         "nightly.yml's `pgo-train` job trains on macOS and uploads the profile:\n{train}"
     );
-    let build = &jobs["build"];
+    let build = &jobs["build-macos"];
     assert!(
         build.contains("needs: [version, pgo-train]")
-            && build.contains("name: profdata-${{ matrix.target }}")
+            && build.contains("name: profdata-aarch64-apple-darwin")
             && build.contains("path: target/pgo\n"),
         "nightly.yml's macOS build downloads the profile `pgo-train` uploads:\n{build}"
+    );
+    assert!(
+        jobs["publish"].contains("needs: [version, build, build-macos]\n"),
+        "nightly.yml publishes only after every build:\n{}",
+        jobs["publish"]
     );
 }
 

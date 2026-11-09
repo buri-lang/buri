@@ -1,0 +1,55 @@
+name: Release tarball
+description: >
+  The nightly's last steps for one target, after `buri` is built: a smoke test
+  that the binary runs and reports the release's version, then the tarball and
+  its .sha256 sidecar, uploaded as `tarball-<target>`. The sidecar, not a job
+  output, carries the hash to publish: a matrix's job outputs collide (last leg
+  wins, with no per-leg key), so publish reads each target's hash out of its
+  own artifact instead.
+
+inputs:
+  target:
+    description: The release triple, built at target/<target>/release/buri.
+    required: true
+  version:
+    description: The release's version, which `buri version` must print.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The binary is a static-PIE musl (Linux) or native arm64 (macOS)
+    # executable, so it runs on the runner directly.
+    - name: smoke test (buri version)
+      shell: bash
+      run: |
+        set -eu
+        bin="target/${{ inputs.target }}/release/buri"
+        got="$("$bin" version)"
+        echo "$got"
+        test "$got" = "buri ${{ inputs.version }}"
+
+    - name: package
+      id: package
+      shell: bash
+      run: |
+        set -eu
+        v="${{ inputs.version }}"
+        t="${{ inputs.target }}"
+        tarball="buri-$v-$t.tar.gz"
+        tar -C "target/$t/release" -czf "$tarball" buri
+        if command -v sha256sum >/dev/null; then
+          sha256sum "$tarball" > "$tarball.sha256"
+        else
+          shasum -a 256 "$tarball" > "$tarball.sha256"
+        fi
+        cat "$tarball.sha256"
+        echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/upload-artifact@v7
+      with:
+        name: tarball-${{ inputs.target }}
+        path: |
+          ${{ steps.package.outputs.tarball }}
+          ${{ steps.package.outputs.tarball }}.sha256
+        if-no-files-found: error

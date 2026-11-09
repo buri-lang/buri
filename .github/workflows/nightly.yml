@@ -95,9 +95,8 @@ jobs:
   # build in one job lost the free runner (3 cores, 7 GB, 14 GB of disk) 56 to
   # 61 minutes in, twice (runs 42387323533 and 42536342333), so this job only
   # builds the instrumented compiler, runs the training suites, and uploads the
-  # merged profile; the macOS leg of `build` downloads it on a fresh runner.
-  # The Linux legs train and build in one job, inside Alpine, but wait for this
-  # one too: a matrix's legs share one `needs`, and publish needs every leg.
+  # merged profile; `build-macos` downloads it on a fresh runner. The Linux
+  # legs train and build in one job each, inside Alpine.
   pgo-train:
     name: pgo-train (aarch64-apple-darwin)
     needs: version
@@ -122,84 +121,89 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # The three release targets. Every leg checks out, packages, and uploads on the
-  # HOST runner; the only difference is where `buri` is compiled.
-  #
-  #   * macOS arm64 builds natively on its runner with Homebrew LLVM 21.
-  #   * The two Linux legs compile INSIDE an alpine:edge container invoked with a
-  #     plain `docker run`, so `buri` links against Alpine's own musl-built LLVM
-  #     21 (21.1.8) and comes out a truly static-PIE musl executable that runs on
-  #     any Linux. apt.llvm.org's glibc LLVM cannot satisfy a static-PIE musl link
-  #     (undefined `__isoc23_*@GLIBC`).
-  #
-  # Why `docker run` and NOT a `container:` job for Linux: a JavaScript action
-  # (actions/checkout, upload-artifact, …) cannot run inside a musl container on
-  # an arm64 runner — GitHub supports JS-actions-in-container on x64 Linux ONLY,
-  # and the arm64 leg fails at checkout with "JavaScript Actions in Alpine
-  # containers are only supported on x64 Linux runners. Detected Linux Arm64". So
-  # the JS actions stay on the glibc host (where they work on both arches) and
-  # only the compile runs in Alpine. Both Linux legs use the same shape so there
-  # is one mechanism, not two. `alpine:edge` is the only Alpine tag that packages
-  # LLVM 21 (21.1.8; stable 3.21/3.22 top out earlier) — verified before this
-  # rework — and its multi-arch tag pulls the arm64 image on the arm runner.
-  #
-  # A static-PIE musl binary has no interpreter and no libc dependency, so it runs
-  # on the glibc host directly — the smoke test, the static-PIE check, and the
-  # packaging all run on the host, uniformly, for every leg. The .sha256 sidecar —
-  # not a matrix job output — is the sha256's source of truth downstream: a
-  # matrix's job outputs collide (last leg wins, with no per-leg key), so publish
-  # reads each target's hash out of its own artifact instead.
-  build:
-    name: build (${{ matrix.target }})
+  # macOS arm64, built natively with Homebrew LLVM 21 and the optimizing backend
+  # (not optional here), reading the profile `pgo-train` trained.
+  build-macos:
+    name: build (aarch64-apple-darwin)
     needs: [version, pgo-train]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, target: aarch64-apple-darwin }
-          - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl }
-          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
-    runs-on: ${{ matrix.os }}
-    # ~20 min cold compile per leg with the LLVM backend on larger runners, and the
-    # free runners have three to four cores; on Linux PGO compiles twice more and
-    # runs half the e2e suites. 150 leaves headroom for setup and the pull.
-    timeout-minutes: 150
+    runs-on: macos-latest
+    # A release build with fat LTO on three cores.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-
-      # --- macOS toolchain (native). None of this runs on the Linux legs, whose
-      # toolchain lives inside the Alpine container below.
-      - if: runner.os == 'macOS'
-        uses: ./.github/actions/macos-toolchain
-      - if: runner.os == 'macOS'
-        uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/macos-toolchain
+      - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: nightly-${{ matrix.target }}
-
-      # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
-      # version` prints, so editing it before the build is what makes the binary
-      # report 0.3.N. Done on the HOST for every leg — the Linux docker build reads
-      # the edited file from the mounted workspace. perl, not sed: macOS's BSD sed
-      # has neither the GNU `0,/re/` address nor in-place `-i` without an argument.
-      # The one-liner rewrites only the first `version = "..."` — the package
-      # version — and leaves `rust-version` alone.
+          shared-key: nightly-aarch64-apple-darwin
+      # See the Linux legs' step of the same name.
       - name: set version to ${{ needs.version.outputs.version }}
         run: |
           set -eu
           v="${{ needs.version.outputs.version }}"
           perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
           grep -m1 '^version' cli/Cargo.toml
-
-      # --- macOS native build with the optimizing backend (not optional here),
-      # reading the profile the `pgo-train` job trained on a runner of its own.
-      - if: runner.os == 'macOS'
-        uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v8
         with:
-          name: profdata-${{ matrix.target }}
+          name: profdata-aarch64-apple-darwin
           path: target/pgo
-      - if: runner.os == 'macOS'
-        name: build buri --release --features backend-llvm with the trained profile
-        run: sh .github/pgo.sh "${{ matrix.target }}" use
+      - name: build buri --release --features backend-llvm with the trained profile
+        run: sh .github/pgo.sh aarch64-apple-darwin use
+      - uses: ./.github/actions/release-tarball
+        with:
+          target: aarch64-apple-darwin
+          version: ${{ needs.version.outputs.version }}
+
+  # The two Linux targets. Each leg checks out, packages, and uploads on the
+  # HOST runner, and compiles INSIDE an alpine:edge container invoked with a
+  # plain `docker run`, so `buri` links against Alpine's own musl-built LLVM 21
+  # (21.1.8) and comes out a truly static-PIE musl executable that runs on any
+  # Linux. apt.llvm.org's glibc LLVM cannot satisfy a static-PIE musl link
+  # (undefined `__isoc23_*@GLIBC`).
+  #
+  # Why `docker run` and NOT a `container:` job: a JavaScript action
+  # (actions/checkout, upload-artifact, …) cannot run inside a musl container on
+  # an arm64 runner — GitHub supports JS-actions-in-container on x64 Linux ONLY,
+  # and the arm64 leg fails at checkout with "JavaScript Actions in Alpine
+  # containers are only supported on x64 Linux runners. Detected Linux Arm64". So
+  # the JS actions stay on the glibc host (where they work on both arches) and
+  # only the compile runs in Alpine. Both legs use the same shape so there
+  # is one mechanism, not two. `alpine:edge` is the only Alpine tag that packages
+  # LLVM 21 (21.1.8; stable 3.21/3.22 top out earlier) — verified before this
+  # rework — and its multi-arch tag pulls the arm64 image on the arm runner.
+  #
+  # A static-PIE musl binary has no interpreter and no libc dependency, so it runs
+  # on the glibc host directly — the smoke test, the static-PIE check, and the
+  # packaging all run on the host.
+  build:
+    name: build (${{ matrix.target }})
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+    runs-on: ${{ matrix.os }}
+    # ~20 min cold compile per leg with the LLVM backend on larger runners, and the
+    # free runners have four cores; PGO compiles twice more and runs half the e2e
+    # suites. 150 leaves headroom for setup and the pull.
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+
+      # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
+      # version` prints, so editing it before the build is what makes the binary
+      # report 0.3.N. Done on the HOST — the docker build reads the edited file
+      # from the mounted workspace. perl, not sed: macOS's BSD sed has neither
+      # the GNU `0,/re/` address nor in-place `-i` without an argument, and the
+      # macOS jobs make the same edit. The one-liner rewrites only the first
+      # `version = "..."` — the package version — and leaves `rust-version` alone.
+      - name: set version to ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          v="${{ needs.version.outputs.version }}"
+          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
+          grep -m1 '^version' cli/Cargo.toml
 
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
       # bind-mounted so the checked-out source (with the version already bumped on
@@ -217,8 +221,7 @@ jobs:
       # packages them. libffi/ncurses are not in the static system-libs set but
       # are cheap insurance across LLVM configs. findutils gives `.github/pgo.sh`
       # an `xargs -P`.
-      - if: runner.os == 'Linux'
-        name: build buri in Alpine (musl-native LLVM 21)
+      - name: build buri in Alpine (musl-native LLVM 21)
         run: |
           set -euo pipefail
           docker run --rm \
@@ -244,22 +247,10 @@ jobs:
               chmod -R a+rX "target/$TARGET/release"
             '
 
-      # --- smoke test: the binary runs and reports the computed version. It is a
-      # static-PIE musl (Linux) / native arm64 (macOS) executable, so it runs on
-      # the runner directly.
-      - name: smoke test (buri version)
-        run: |
-          set -eu
-          bin="target/${{ matrix.target }}/release/buri"
-          got="$("$bin" version)"
-          echo "$got"
-          test "$got" = "buri ${{ needs.version.outputs.version }}"
-
-      # --- static-PIE musl proof (Linux only): the whole reason for Alpine is a
+      # --- static-PIE musl proof: the whole reason for Alpine is a
       # binary with no shared-library dependencies. `file` must report it static,
       # and `ldd` must refuse it as a dynamic executable.
-      - if: runner.os == 'Linux'
-        name: verify static-PIE musl
+      - name: verify static-PIE musl
         run: |
           set -eu
           bin="target/${{ matrix.target }}/release/buri"
@@ -276,37 +267,17 @@ jobs:
             ldd "$bin" 2>&1 || true
           fi
 
-      # --- package + hash
-      - name: package
-        id: package
-        run: |
-          set -eu
-          v="${{ needs.version.outputs.version }}"
-          t="${{ matrix.target }}"
-          tarball="buri-$v-$t.tar.gz"
-          tar -C "target/$t/release" -czf "$tarball" buri
-          if command -v sha256sum >/dev/null; then
-            sha256sum "$tarball" > "$tarball.sha256"
-          else
-            shasum -a 256 "$tarball" > "$tarball.sha256"
-          fi
-          cat "$tarball.sha256"
-          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/upload-artifact@v7
+      - uses: ./.github/actions/release-tarball
         with:
-          name: tarball-${{ matrix.target }}
-          path: |
-            ${{ steps.package.outputs.tarball }}
-            ${{ steps.package.outputs.tarball }}.sha256
-          if-no-files-found: error
+          target: ${{ matrix.target }}
+          version: ${{ needs.version.outputs.version }}
 
   # Templating and publication: downloads the three tarballs, rewrites flake.nix /
   # Formula/buri.rb / Cargo.{toml,lock} to the version and the three sha256s,
   # commits to main, tags, and cuts the prerelease.
   publish:
     name: publish
-    needs: [version, build]
+    needs: [version, build, build-macos]
     runs-on: ubuntu-24.04
     steps:
       # fetch-depth 0 for the tag history.
@@ -326,7 +297,7 @@ jobs:
           ls -R artifacts
 
           # Per-target sha256, read from each tarball's sidecar (the source of
-          # truth; see the build job's note on matrix output collision). A
+          # truth; see .github/actions/release-tarball). A
           # missing sidecar is a hard error — all three targets must have built.
           hash_for() { cut -d' ' -f1 < "artifacts/buri-$v-$1.tar.gz.sha256"; }
           darwin_arm64=$(hash_for aarch64-apple-darwin)
