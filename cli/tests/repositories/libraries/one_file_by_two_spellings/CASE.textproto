@@ -1,0 +1,27 @@
+# One file reached by both of its spellings from one importer: a library's
+# own suite naming the library as `//lib/money` and its root file as
+# `//lib/money/lib.buri`. Both are one module, so the type each import brings
+# in is one type, and a mistake in the file is read and reported once.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a file named by both of its spellings in one import list is one module, read once"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+edit {
+  file: "lib/money/lib.buri"
+  replace: "Cents(c)"
+  with: "Cents(c"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "broken.txt"
+}

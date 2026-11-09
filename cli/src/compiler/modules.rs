@@ -46,9 +46,9 @@ pub struct Loader<'a> {
     /// What each module path an import wrote resolved to. Resolving asks the
     /// disk whether the file is there, and one import line asked three times.
     resolved: HashMap<String, std::rc::Rc<Result<ModuleLocation, String>>>,
-    /// Files read and parsed ahead of the walk, by where they are on disk —
-    /// see [`Loader::prefetch`].
-    prefetched: HashMap<PathBuf, (String, crate::parsing::parser::Parsed)>,
+    /// Files read and parsed ahead of the walk, by their path from the
+    /// repository root — see [`Loader::prefetch`].
+    prefetched: HashMap<String, (String, crate::parsing::parser::Parsed)>,
 }
 
 /// The file id a file is parsed under before the walk reaches it and the
@@ -475,7 +475,8 @@ impl<'a> Loader<'a> {
         // The path *is* the file, so nothing is stripped: what a rule listed
         // in `sources` and what an import writes are one string.
         let path = pkg.module_path(rel);
-        self.load_file(&path, disk, role, span)
+        let rel = ws.rel_of(&disk);
+        self.load_file(&path, &rel, disk, role, span)
     }
 
     /// Every rule in this target's closure that declares a generator.
@@ -728,10 +729,9 @@ impl<'a> Loader<'a> {
         let resolved = self.resolve(ws, path);
         match &*resolved {
             Ok(ModuleLocation::InPackage(m)) => {
-                let (canonical, kind, file) = (m.path.clone(), m.kind, m.file.clone());
-                let id = match kind {
-                    ModuleKind::Generated => self.load_generated(&canonical, role),
-                    _ => self.load_file(&canonical, file, role, span),
+                let id = match m.kind {
+                    ModuleKind::Generated => self.load_generated(&m.path, role),
+                    _ => self.load_file(&m.path, &m.rel, m.file.clone(), role, span),
                 };
                 if let Some(id) = id {
                     self.alias(path, id);
@@ -764,22 +764,27 @@ impl<'a> Loader<'a> {
         }
     }
 
-    fn load_file(&mut self, path: &str, disk: PathBuf, role: Role, span: Span) -> Option<ModuleId> {
+    /// Loads the file `rel`, at `disk`, as the module `path`. `rel` is the
+    /// file's path from the repository root, which the caller already has.
+    fn load_file(
+        &mut self,
+        path: &str,
+        rel: &str,
+        disk: PathBuf,
+        role: Role,
+        span: Span,
+    ) -> Option<ModuleId> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
         MODULES_LOADED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let rel = match self.ws {
-            Some(ws) => ws.rel_of(&disk),
-            None => disk.display().to_string(),
-        };
-        let ahead = match self.map.find(&rel) {
-            None => self.prefetched.remove(&disk),
+        let ahead = match self.map.find(rel) {
+            None => self.prefetched.remove(rel),
             Some(_) => None,
         };
         let (file, ahead) = match ahead {
-            Some((text, parsed)) => (self.map.add(rel.clone(), disk.clone(), text), Some(parsed)),
-            None => match self.map.load(&rel, &disk) {
+            Some((text, parsed)) => (self.map.add(rel, disk.clone(), text), Some(parsed)),
+            None => match self.map.load(rel, &disk) {
                 Ok(f) => (f, None),
                 Err(e) => {
                     self.diags.push(
@@ -805,7 +810,7 @@ impl<'a> Loader<'a> {
         };
         self.diags.extend(errors.iter().cloned());
 
-        let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
+        let pkg = self.ws.and_then(|ws| ws.package_of_file(rel));
         let id = self.modules.push(|id| ModuleData {
             id,
             path: path.to_string(),
@@ -890,7 +895,7 @@ impl<'a> Loader<'a> {
     /// nothing else; one that cannot be read is left for the walk to report.
     fn prefetch<'p>(&mut self, paths: impl Iterator<Item = &'p str>) {
         let Some(ws) = self.ws else { return };
-        let mut wanted: Vec<(PathBuf, bool)> = Vec::new();
+        let mut wanted: Vec<(PathBuf, String, bool)> = Vec::new();
         let mut seen = crate::hash::Set::default();
         for path in paths {
             if self.by_path.contains_key(path) {
@@ -902,21 +907,21 @@ impl<'a> Loader<'a> {
             };
             if m.kind == ModuleKind::Generated
                 || self.by_path.contains_key(&m.path)
-                || self.prefetched.contains_key(&m.file)
-                || self.map.find(&ws.rel_of(&m.file)).is_some()
-                || !seen.insert(m.file.clone())
+                || self.prefetched.contains_key(&m.rel)
+                || self.map.find(&m.rel).is_some()
+                || !seen.insert(m.rel.clone())
             {
                 continue;
             }
             let bodyless = self.is_platform_surface(&m.path);
-            wanted.push((m.file.clone(), bodyless));
+            wanted.push((m.file.clone(), m.rel.clone(), bodyless));
         }
         // One file is no faster read beside nothing.
         if wanted.len() < 2 {
             return;
         }
         let one = |i: usize| {
-            let (disk, bodyless) = wanted.get(i)?;
+            let (disk, _, bodyless) = wanted.get(i)?;
             let text = SourceMap::read(disk).ok()?;
             let parsed = if *bodyless {
                 crate::parsing::parser::parse_stdlib(&text, UNFILED)
@@ -939,8 +944,8 @@ impl<'a> Loader<'a> {
                 .collect::<Vec<_>>()
         });
         for (i, ahead) in done.into_iter().flatten() {
-            if let (Some((disk, _)), Some(ahead)) = (wanted.get(i), ahead) {
-                self.prefetched.insert(disk.clone(), ahead);
+            if let (Some((_, rel, _)), Some(ahead)) = (wanted.get(i), ahead) {
+                self.prefetched.insert(rel.clone(), ahead);
             }
         }
     }

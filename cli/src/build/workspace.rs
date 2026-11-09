@@ -1002,7 +1002,12 @@ impl Workspace {
     /// The package a path on disk belongs to: the nearest ancestor with a
     /// `BUILD.buri`.
     pub fn owning_package(&self, p: &Path) -> Option<PackageId> {
-        let rel = self.rel_of(p);
+        self.package_of_file(&self.rel_of(p))
+    }
+
+    /// [`Workspace::owning_package`] of a file by its path from the
+    /// repository root, for a caller that already has that path.
+    pub fn package_of_file(&self, rel: &str) -> Option<PackageId> {
         let mut dir = rel.rsplit_once('/').map_or("", |(d, _)| d);
         loop {
             if let Some(id) = self.package_by_path(dir) {

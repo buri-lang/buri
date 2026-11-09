@@ -1,0 +1,8 @@
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { Cents };
+from "//lib/money/lib.buri" import { make };
+
+test "both spellings bring in one type" {
+    let c: Cents = make(5);
+    assert.equal(c.0, 5);
+}

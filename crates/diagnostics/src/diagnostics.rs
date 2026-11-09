@@ -813,7 +813,7 @@ pub struct SourceMap {
     /// asks for. Scanning `files` made loading a repository quadratic in the
     /// number of files it has — invisible at ten and not at a thousand — and
     /// the map is append-only, so an index costs one insert per file.
-    by_name: HashMap<String, FileId>,
+    by_name: crate::hash::Map<String, FileId>,
     /// What [`SourceMap::get`] answers for a [`FileId`] this map never minted —
     /// `FileId::NONE` above all, which is the file of every span that has no
     /// location. Rendering a diagnostic is the last thing that happens before
@@ -829,7 +829,7 @@ impl Default for SourceMap {
     fn default() -> SourceMap {
         SourceMap {
             files: Vec::new(),
-            by_name: HashMap::new(),
+            by_name: Default::default(),
             missing: Arc::new(SourceFile::new(
                 "<none>".to_string(),
                 PathBuf::new(),

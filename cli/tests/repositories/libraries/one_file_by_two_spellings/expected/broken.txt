@@ -1,0 +1,20 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/money/lib.buri:5:1
+  |
+5 | }
+  | ^
+  |
+ --> lib/money/lib.buri:4:10
+  |
+4 |     Cents(c
+  |          ^ opened here
+  |
+  = fix: write `)` here
+
+    An unclosed construct claims the next closer it meets, and every error after
+    that would be about the miscount. Naming the opener stops that cascade.
+
+    Where an unclosed block ends is the parser's guess, so this is the only
+    error you get about it. The editor still completes and hovers the names
+    bound inside, but nothing else in it is reported until you close it.
+
