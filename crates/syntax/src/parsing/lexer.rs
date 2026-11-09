@@ -1181,23 +1181,23 @@ impl<'a> Lexer<'a> {
     fn run(&mut self) {
         use TokenKind::*;
         let src = self.src;
-        // The line breaks read since the last comment or token. Two of them
-        // with nothing between is a blank line.
-        let mut newlines = 0usize;
-        // `self.has_trivia || newlines >= 2`: whether the next token has
-        // something to settle before it. Kept here, so the test each token
-        // makes is one register.
-        let mut pending = self.has_trivia;
+        // The line breaks read since the last comment or token, plus `HELD`
+        // while `self.has_trivia` is set. Two breaks with nothing between is
+        // a blank line, so `gap >= 2` is whether the next token has something
+        // to settle before it: one register, and one comparison a token.
+        const HELD: usize = !(usize::MAX >> 1);
+        let held = |has_trivia: bool| if has_trivia { HELD } else { 0 };
+        let blank = |gap: usize| gap & !HELD >= 2;
+        let mut gap = held(self.has_trivia);
         let mut pos = self.pos;
         // What was written above the token about to be read goes to the
         // trivia table first, keyed by the index the token is about to get.
         macro_rules! settled {
             () => {{
-                if pending {
-                    self.settle(newlines >= 2, self.tokens.len());
-                    pending = false;
+                if gap >= 2 {
+                    self.settle(blank(gap), self.tokens.len());
                 }
-                newlines = 0;
+                gap = 0;
             }};
         }
         macro_rules! handoff {
@@ -1243,33 +1243,30 @@ impl<'a> Lexer<'a> {
                     continue;
                 }
                 Class::Newline => {
-                    newlines = newlines.wrapping_add(1);
-                    pending |= newlines >= 2;
+                    gap = gap.wrapping_add(1);
                     pos = blanks(src, start.wrapping_add(1));
                     continue;
                 }
                 Class::Slash => match byte_at(src, pos.wrapping_add(1)) {
                     b'/' => {
                         self.pos = pos;
-                        self.line_comment(start, newlines >= 2);
+                        self.line_comment(start, blank(gap));
                         pos = self.pos;
-                        newlines = 0;
-                        pending = self.has_trivia;
+                        gap = held(self.has_trivia);
                         continue;
                     }
                     b'*' => {
                         self.pos = pos;
-                        self.block_comment(start, newlines >= 2);
+                        self.block_comment(start, blank(gap));
                         pos = self.pos;
-                        newlines = 0;
-                        pending = self.has_trivia;
+                        gap = held(self.has_trivia);
                         continue;
                     }
                     _ => Slash,
                 },
                 Class::Nul if start >= src.len() => {
-                    if pending {
-                        self.settle(newlines >= 2, self.tokens.len());
+                    if gap >= 2 {
+                        self.settle(blank(gap), self.tokens.len());
                     }
                     push_plain(&mut self.tokens.records, Eof, start, start);
                     self.pos = start;
@@ -1392,7 +1389,7 @@ impl<'a> Lexer<'a> {
             self.detached = blank;
         }
         // Something is always held here: a run of comments, or the blank line
-        // that made the caller's `pending` true.
+        // that made the caller's `gap` reach two.
         self.attach_trivia(at as u32);
     }
 

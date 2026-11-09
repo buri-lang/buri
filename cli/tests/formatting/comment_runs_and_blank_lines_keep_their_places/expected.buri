@@ -1,0 +1,13 @@
+// Above `a`, with nothing between.
+export fn a(): Int {
+    1
+}
+
+// A note on its own.
+
+// Above `b`, after blank lines.
+/* And a block comment. */
+
+export fn b(): Int {
+    2
+}
