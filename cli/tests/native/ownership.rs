@@ -1095,6 +1095,206 @@ fn overwriting_an_unshared_ordered_map_writes_in_place() {
     }
 }
 
+/// An ordered map of a thousand keys, built, then its first and last entries
+/// popped and put back `n` times. With `kept`, the map as it was before the
+/// churn is printed after it.
+fn churned(n: u32, kept: bool) -> String {
+    let keep = if kept {
+        "let before = m0;"
+    } else {
+        "let before = orderedmap.empty<Int, Int>();"
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+
+fn build<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == 1000) {{ m }} else {{ build(ctx, m.insert(ctx, (i * 7919) % 1000, i), i + 1) }}
+}}
+
+fn churn<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == {n}) {{ m }} else {{ churn(ctx, last(ctx, first(ctx, m)), i + 1) }}
+}}
+
+fn first<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>): OrderedMap<Int, Int> {{
+  match (m.popFirst(ctx)) {{
+    .None => orderedmap.empty<Int, Int>(),
+    .Some(taken) => {{
+      let ((k, v), rest) = taken;
+      rest.insert(ctx, k, v)
+    }},
+  }}
+}}
+
+fn last<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>): OrderedMap<Int, Int> {{
+  match (m.popLast(ctx)) {{
+    .None => orderedmap.empty<Int, Int>(),
+    .Some(taken) => {{
+      let ((k, v), rest) = taken;
+      rest.insert(ctx, k, v)
+    }},
+  }}
+}}
+
+fn total(m: OrderedMap<Int, Int>): Int {{
+  m.fold(fn(acc, _k, v) => acc + v, 0)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let m0 = build(ctx, orderedmap.empty<Int, Int>(), 0);
+  {keep}
+  let m = churn(ctx, m0, 0);
+  let keys = m.keys(ctx);
+  let ordered = keys == keys.sort(ctx);
+  let _ = io.println(host.stdout, "${{m.length()}} ${{total(m)}} ${{ordered}} ${{before.length()}} ${{total(before)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Ten thousand `popFirst`s and ten thousand `popLast`s on an ordered map,
+/// each put back. Nothing else holds the map, so a pop writes the path down in
+/// place, as an insert does: the churn allocates almost nothing the building
+/// did not. A map held elsewhere keeps every entry it had.
+#[test]
+fn popping_from_an_unshared_ordered_map_writes_in_place() {
+    let idle = run_each("pop-ordered-map-idle", &churned(0, false));
+    let busy = run_each("pop-ordered-map", &churned(10_000, false));
+    let kept = run_each("pop-ordered-map-kept", &churned(10_000, true));
+    for (((backend, idle), (_, busy)), (_, kept)) in idle.into_iter().zip(busy).zip(kept) {
+        assert_eq!(
+            idle.stdout, "1000 499500 true 0 0\n",
+            "{backend}: {}",
+            idle.stderr
+        );
+        assert_eq!(
+            busy.stdout, "1000 499500 true 0 0\n",
+            "{backend}: {}",
+            busy.stderr
+        );
+        assert_eq!(
+            kept.stdout, "1000 499500 true 1000 499500\n",
+            "{backend}: {}",
+            kept.stderr
+        );
+        let (built, idle_live) = probed(&idle.stderr);
+        let (blocks, live) = probed(&busy.stderr);
+        let (_, kept_live) = probed(&kept.stderr);
+        assert!(
+            blocks < built + 50,
+            "{backend}: twenty thousand pops and puts back allocated {} blocks beyond the \
+             {built} building took: a pop copied the path to its key",
+            blocks.saturating_sub(built)
+        );
+        assert_eq!(
+            (idle_live, live, kept_live),
+            (0, 0, 0),
+            "{backend}: blocks still live at exit"
+        );
+    }
+}
+
+/// An ordered map of two hundred `Str` keys kept in a record's field, built
+/// and then overwritten for `n` rounds through a functional update, with
+/// `insert` called from that one place only. With `kept`, the map as it was
+/// after building is printed after the churn.
+fn recorded(n: u32, kept: bool) -> String {
+    let keep = if kept {
+        "s0"
+    } else {
+        "Store { name: \"t\", m: orderedmap.empty<Str, Int>() }"
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+from "core/str" import * as str;
+
+struct Store {{ name: Str, m: OrderedMap<Str, Int> }}
+
+fn named<C: Allocator>(ctx: C, out: [Str], i: Int): [Str] {{
+  if (i == 200) {{ out }} else {{ named(ctx, out.push(ctx, str.format(ctx, "key-${{(i * 37) % 200}}")), i + 1) }}
+}}
+
+fn step<C: Allocator>(ctx: C, s: Store, keys: [Str], i: Int): Store {{
+  Store {{ ..s, m: s.m.insert(ctx, keys.get(i % 200).withDefault(""), i / 200 + i % 200) }}
+}}
+
+fn run<C: Allocator>(ctx: C, s: Store, keys: [Str], i: Int, n: Int): Store {{
+  if (i == n) {{ s }} else {{ run(ctx, step(ctx, s, keys, i), keys, i + 1, n) }}
+}}
+
+fn total(m: OrderedMap<Str, Int>): Int {{
+  m.fold(fn(acc, _k, v) => acc + v, 0)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let keys = named(ctx, [], 0);
+  let s0 = run(ctx, Store {{ name: "s", m: orderedmap.empty<Str, Int>() }}, keys, 0, 200);
+  let before = {keep};
+  let s = run(ctx, s0, keys, 200, {n} + 200);
+  let names = s.m.keys(ctx);
+  let ordered = names == names.sort(ctx);
+  let _ = io.println(host.stdout, "${{s.m.length()}} ${{total(s.m)}} ${{ordered}} ${{before.m.length()}} ${{total(before.m)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Ten thousand overwrites of `Str` keys in an ordered map kept in a record's
+/// field, written `S { ..s, m: s.m.insert(ctx, k, v) }` in one place.
+/// Nothing else holds the map, so each writes its path down in place: the
+/// churn allocates almost nothing the building did not. A map held elsewhere
+/// keeps every entry it had.
+#[test]
+fn an_ordered_map_in_a_record_field_updates_in_place() {
+    let idle = run_each("record-ordered-map-idle", &recorded(0, false));
+    let busy = run_each("record-ordered-map", &recorded(10_000, false));
+    let kept = run_each("record-ordered-map-kept", &recorded(10_000, true));
+    for (((backend, idle), (_, busy)), (_, kept)) in idle.into_iter().zip(busy).zip(kept) {
+        assert_eq!(
+            idle.stdout, "200 19900 true 0 0\n",
+            "{backend}: {}",
+            idle.stderr
+        );
+        assert_eq!(
+            busy.stdout, "200 29900 true 0 0\n",
+            "{backend}: {}",
+            busy.stderr
+        );
+        assert_eq!(
+            kept.stdout, "200 29900 true 200 19900\n",
+            "{backend}: {}",
+            kept.stderr
+        );
+        let (built, idle_live) = probed(&idle.stderr);
+        let (blocks, live) = probed(&busy.stderr);
+        let (_, kept_live) = probed(&kept.stderr);
+        assert!(
+            blocks < built + 50,
+            "{backend}: ten thousand inserts allocated {} blocks beyond the {built} building \
+             took: an insert copied the path to its key",
+            blocks.saturating_sub(built)
+        );
+        assert_eq!(
+            (idle_live, live, kept_live),
+            (0, 0, 0),
+            "{backend}: blocks still live at exit"
+        );
+    }
+}
+
 /// Two thousand rounds that each replace an element of a record's list in a
 /// `match` arm that binds nothing of what it matched, an element of that same
 /// list. Nothing the arm reads points into the record, so the record can go

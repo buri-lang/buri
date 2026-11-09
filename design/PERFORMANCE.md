@@ -8956,6 +8956,57 @@ instructions than `-O0`.
 that owns its list allocated 2,366 blocks, and the test fails at 200. A list
 another name still holds must read the same afterwards.
 
+### 6.108 An ordered map in a record's field takes its insert in place, 2026-11-08
+
+Ordered maps are about half of `run-dev/kvstore` (739 M of 1,439 M
+instructions, callgrind on an arm64 VM):
+
+- copying nodes, with the retains inside the copies: about 270 M. Over half
+  the 509 K `replaceAt` splices copied.
+- comparing keys: about 163 M. `seek` is 101 M of that, and
+  `buri_rt_str_compare` 63 M.
+- rebalancing: under 10 M.
+
+Most copies are the shared node §6.107 describes, which needs a way to move a
+value out of a map. One more came from the inliner:
+
+```buri
+fn send<C: Allocator>(ctx: C, s: Store, i: Int): Store {
+    Store { ..s, m: s.m.insert(ctx, i % 50, i) }
+}
+```
+
+With one call site, `insert` is pasted into the update as `let self = s.m`.
+`middle/forward.rs` turns that into `s.m.root` and `s.m.size`, so the update
+reads `s.m` twice and `rc::moved_fields` doesn't move it. The root then stood
+at two and every insert copied its path. With a second call site anywhere in
+the program, nothing copied.
+
+`OrderedMap.insert` now takes `self` apart once:
+
+```buri
+let OrderedMap { root, size } = self;
+```
+
+That's one read of `s.m`, which moves. Twenty-one thousand inserts into a
+50-key map in a record went from 76.9 M instructions and 83,856 copies to
+44.9 M and none.
+
+`popFirst` and `popLast` now also hand the path down unshared, as `descend`
+does for an insert: the child comes out with `get`, and an empty leaf takes
+its place until it goes back. `remove` was tried the same way and left. A
+key that isn't there then cost a shared map a path copy, where it used to
+cost nothing, and kvstore rose 0.27%.
+
+`run-dev/kvstore` went from 1,439.3 M to 1,436.3 M instructions, and its
+release build from 886.9 M to 885.5 M. The maps program uses `core/map` and
+didn't move. Every stencil build still runs fewer instructions than `-O0`.
+
+`cli/tests/native/ownership.rs` guards both: ten thousand overwrites through a
+record's field, with `insert` called from one place, and twenty thousand pops.
+Each may allocate at most 50 blocks more than building the map did. A copy
+taken first must read the same afterwards.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

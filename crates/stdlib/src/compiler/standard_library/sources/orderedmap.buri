@@ -823,6 +823,22 @@ fn removeFrom<K: Ordered, V, C: Allocator>(
     }
 }
 
+/// The branch over `keys` and `children` with child `at` taken out, and an
+/// empty leaf, which allocates nothing, in its place.
+///
+/// So a tree nothing else shares hands every node on the path down unshared,
+/// and a pop writes each one in place rather than copying it, as `descend`
+/// does for an insert. `removeFrom` doesn't: a key that isn't there would cost
+/// a shared tree a copy of its path.
+fn taken<K, V, C: Allocator>(
+    ctx: C,
+    keys: [K],
+    children: [Node<K, V>],
+    at: Int,
+): Node<K, V> {
+    branch(keys, replaceAt(ctx, children, at, leaf([], [])))
+}
+
 /// A root branch left with no separators has exactly one child, and that child
 /// is the tree. This is the only place the tree gets shallower.
 fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
@@ -842,18 +858,24 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 /// walks the left spine to the leaf the entry sits in, takes it out, and
 /// repairs every node on the way back up.
 fn dropFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
-    match (n.children[0]) {
+    match (n.children.get(0)) {
         .None => without(ctx, n, 0),
-        .Some(child) => fixChild(ctx, n, 0, dropFirst(ctx, child)),
+        .Some(child) => {
+            let rest = taken(ctx, n.keys, n.children, 0);
+            fixChild(ctx, rest, 0, dropFirst(ctx, child))
+        },
     }
 }
 
 /// The mirror of [`dropFirst`], down the right spine.
 fn dropLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
     let at = n.children.length() - 1;
-    match (n.children[at]) {
+    match (n.children.get(at)) {
         .None => without(ctx, n, n.keys.length() - 1),
-        .Some(child) => fixChild(ctx, n, at, dropLast(ctx, child)),
+        .Some(child) => {
+            let rest = taken(ctx, n.keys, n.children, at);
+            fixChild(ctx, rest, at, dropLast(ctx, child))
+        },
     }
 }
 
@@ -1119,13 +1141,17 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// The map you called it on is unchanged, and the two share every node
     /// outside the one root-to-leaf path this copied.
     export fn insert<C: Allocator>(self, ctx: C, key: K, value: V): OrderedMap<K, V> {
-        let (grown, added) = insertInto(ctx, self.root, key, value);
-        let root = match (grown) {
+        // `self` is read once, taken apart: a map kept in a record's field,
+        // `S { ..s, m: s.m.insert(ctx, k, v) }`, is then moved out of the
+        // record whole, so its path down is written in place.
+        let OrderedMap { root, size } = self;
+        let (grown, added) = insertInto(ctx, root, key, value);
+        let top = match (grown) {
             .Fit(one) => one,
             // The tree gets taller only here, and by one level all at once.
             .Split(left, up, right) => branch([up], [left, right]),
         };
-        OrderedMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
+        OrderedMap { root: top, size: if (added) { size + 1 } else { size } }
     }
 
     /// Removes `key`, if it is there. Removing what is absent is not an
