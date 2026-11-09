@@ -578,7 +578,7 @@ fn since<T>(v: &[T], base: usize) -> &[T] {
     v.get(base..).unwrap_or(&[])
 }
 
-/// Every arena length and every scratch depth at one point in time.
+/// The node arenas' lengths and every scratch depth at one point in time.
 ///
 /// A production that fails leaves both partly written, and the six sites that
 /// catch [`Bail`] and carry on — `module`, `block_inner` twice, `match_expr`,
@@ -1637,7 +1637,7 @@ impl<'a> Parser<'a> {
         true
     }
 
-    /// Every arena length and scratch depth, for a rollback.
+    /// The node arenas' lengths and every scratch depth, for a rollback.
     fn save(&self) -> Save {
         Save {
             pos: self.pos,

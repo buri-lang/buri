@@ -1,0 +1,10 @@
+// EXPECT: one syntax error for the broken `let`, and the last call's only mistake is its own second argument
+fn pair(a: Int, b: Int): Int {
+  a + b
+}
+
+export fn total(a: Int): Int {
+  let broken = pair(a, [1, 2, "two"] +);
+  let kept = pair(a, 3);
+  pair(kept, "four")
+}

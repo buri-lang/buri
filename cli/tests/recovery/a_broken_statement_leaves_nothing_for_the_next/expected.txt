@@ -1,0 +1,7 @@
+error [unexpected-token] 7:39-7:40
+message: expected an expression, found `)`
+fix: write a value here
+
+error [type-mismatch] 9:14-9:20
+message: expected `I64`, found `Str`
+

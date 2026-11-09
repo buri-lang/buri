@@ -649,45 +649,18 @@ impl Default for Tree {
     }
 }
 
-/// Every arena length at a point in time.
+/// The lengths of the three node arenas at a point in time.
 ///
-/// Declared field for field beside the arena list, and both are kept in step
-/// by [`Tree::mark`] and [`Tree::rewind`] having to name every one: adding an
-/// arena without adding a field here is a compile error, which is the only
-/// mechanism that keeps a rollback from silently forgetting one.
+/// These are the arenas something walks end to end: a node's `subtree` is a
+/// range of its own arena, and the language server reads every node, pattern
+/// and type in turn. Every other arena is read only through a range or an id
+/// that a node or a declaration holds, so what a failed production left in
+/// one is out of reach, and a rollback leaves it where it is.
 #[derive(Clone, Copy, Debug)]
 pub struct Mark {
     nodes: u32,
-    spans: u32,
     pnodes: u32,
-    pspans: u32,
-    kids: u32,
-    pkids: u32,
-    tkids: u32,
-    names: u32,
-    blocks: u32,
-    stmts: u32,
-    arms: u32,
-    inits: u32,
-    fpats: u32,
-    lparams: u32,
-    parts: u32,
-    ctxb: u32,
-    ctxbind: u32,
-    ppay: u32,
     types: u32,
-    ints: u32,
-    floats: u32,
-    cooked: u32,
-    strs: u32,
-    generics: u32,
-    params: u32,
-    fields: u32,
-    tfields: u32,
-    variants: u32,
-    methods: u32,
-    specs: u32,
-    docs: u32,
 }
 
 impl Tree {
@@ -1582,84 +1555,31 @@ impl Tree {
         }
     }
 
-    /// Every arena length, for a rollback.
+    /// The node arenas' lengths, for a rollback.
     pub fn mark(&self) -> Mark {
         Mark {
             nodes: self.nodes.len() as u32,
-            spans: self.spans.len() as u32,
             pnodes: self.pnodes.len() as u32,
-            pspans: self.pspans.len() as u32,
-            kids: self.kids.len() as u32,
-            pkids: self.pkids.len() as u32,
-            tkids: self.tkids.len() as u32,
-            names: self.names.len() as u32,
-            blocks: self.blocks.len() as u32,
-            stmts: self.stmts.len() as u32,
-            arms: self.arms.len() as u32,
-            inits: self.inits.len() as u32,
-            fpats: self.fpats.len() as u32,
-            lparams: self.lparams.len() as u32,
-            parts: self.parts.len() as u32,
-            ctxb: self.ctxb.len() as u32,
-            ctxbind: self.ctxbind.len() as u32,
-            ppay: self.ppay.len() as u32,
             types: self.types.len() as u32,
-            ints: self.ints.len() as u32,
-            floats: self.floats.len() as u32,
-            cooked: self.cooked.len() as u32,
-            strs: self.strs.len() as u32,
-            generics: self.generics.len() as u32,
-            params: self.params.len() as u32,
-            fields: self.fields.len() as u32,
-            tfields: self.tfields.len() as u32,
-            variants: self.variants.len() as u32,
-            methods: self.methods.len() as u32,
-            specs: self.specs.len() as u32,
-            docs: self.docs.len() as u32,
         }
     }
 
-    /// Drop everything appended since `m`.
+    /// Drop every node appended since `m`.
     ///
     /// The four sites that catch `Bail` and carry on — `module`, `block_inner`
     /// twice, `match_expr`, and the two declaration bodies — leave nodes in
     /// the arenas that nothing references. They are harmless for correctness,
     /// but they sit inside the `subtree` count of whichever enclosing node
-    /// recorded its start before them, so rewinding is what keeps "descendants
-    /// and self" exact on a file with a syntax error in it. Nothing abandoned
-    /// is reachable, so this is always safe where it is called.
+    /// recorded its start before them, and in every walk over all nodes, so
+    /// rewinding is what keeps "descendants and self" exact on a file with a
+    /// syntax error in it. Nothing abandoned is reachable, so this is always
+    /// safe where it is called.
     pub fn rewind(&mut self, m: Mark) {
         self.nodes.truncate(m.nodes as usize);
-        self.spans.truncate(m.spans as usize);
+        self.spans.truncate(m.nodes as usize);
         self.pnodes.truncate(m.pnodes as usize);
-        self.pspans.truncate(m.pspans as usize);
-        self.kids.truncate(m.kids as usize);
-        self.pkids.truncate(m.pkids as usize);
-        self.tkids.truncate(m.tkids as usize);
-        self.names.truncate(m.names as usize);
-        self.blocks.truncate(m.blocks as usize);
-        self.stmts.truncate(m.stmts as usize);
-        self.arms.truncate(m.arms as usize);
-        self.inits.truncate(m.inits as usize);
-        self.fpats.truncate(m.fpats as usize);
-        self.lparams.truncate(m.lparams as usize);
-        self.parts.truncate(m.parts as usize);
-        self.ctxb.truncate(m.ctxb as usize);
-        self.ctxbind.truncate(m.ctxbind as usize);
-        self.ppay.truncate(m.ppay as usize);
+        self.pspans.truncate(m.pnodes as usize);
         self.types.truncate(m.types as usize);
-        self.ints.truncate(m.ints as usize);
-        self.floats.truncate(m.floats as usize);
-        self.cooked.truncate(m.cooked as usize);
-        self.strs.truncate(m.strs as usize);
-        self.generics.truncate(m.generics as usize);
-        self.params.truncate(m.params as usize);
-        self.fields.truncate(m.fields as usize);
-        self.tfields.truncate(m.tfields as usize);
-        self.variants.truncate(m.variants as usize);
-        self.methods.truncate(m.methods as usize);
-        self.specs.truncate(m.specs as usize);
-        self.docs.truncate(m.docs as usize);
     }
 }
 
