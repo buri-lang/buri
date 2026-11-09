@@ -434,6 +434,12 @@ export fn worker(host: WorkerHost, request: Request): Response {
 }
 "#,
     );
+    scratch
+}
+
+/// [`greeting_rows`], built.
+fn greeting_page(name: &str, check: &str) -> Scratch {
+    let scratch = greeting_rows(name, check);
     scratch.run(&["build", "//cmd/app"]).ok();
     scratch
 }
@@ -449,7 +455,7 @@ const CHECK: &str =
 /// are built render, as `web`'s address bar does (buri-lang/buri#330).
 #[test]
 fn rows_that_call_a_platform_s_synchronous_methods_while_they_are_built_render() {
-    let scratch = greeting_rows(
+    let scratch = greeting_page(
         r#"(self) => { console.log("named"); return "page"; }"#,
         CHECK,
     );
@@ -473,7 +479,7 @@ fn rows_that_call_a_platform_s_synchronous_methods_while_they_are_built_render()
 /// promise for a name.
 #[test]
 fn a_synchronous_method_that_answers_a_promise_fails_naming_itself() {
-    let scratch = greeting_rows(r#"(self) => Promise.resolve("page")"#, CHECK);
+    let scratch = greeting_page(r#"(self) => Promise.resolve("page")"#, CHECK);
     let out = run_page(&scratch, PAGE_ARTIFACT, "");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "the page ran:\n{stderr}");
@@ -487,7 +493,7 @@ fn a_synchronous_method_that_answers_a_promise_fails_naming_itself() {
 /// mistake, not the method's `.Err`.
 #[test]
 fn a_synchronous_result_method_that_answers_a_promise_fails_naming_itself() {
-    let scratch = greeting_rows(r#"(self) => "page""#, r#"(self, s) => Promise.resolve(s)"#);
+    let scratch = greeting_page(r#"(self) => "page""#, r#"(self, s) => Promise.resolve(s)"#);
     let out = run_page(&scratch, PAGE_ARTIFACT, "");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "the page ran:\n{stderr}");
@@ -495,6 +501,18 @@ fn a_synchronous_result_method_that_answers_a_promise_fails_naming_itself() {
         stderr.contains("`HostGreet.check` answered a promise; write it `async` in the js file"),
         "{stderr}"
     );
+}
+
+/// Rows that call an `async` method while they are built wait, and the page
+/// builds rows without waiting, so the build refuses them.
+#[test]
+fn rows_that_call_a_platform_s_async_method_while_they_are_built_are_refused() {
+    let scratch = greeting_rows(r#"async (self) => "page""#, CHECK);
+    scratch
+        .run(&["build", "//cmd/app"])
+        .exits(1)
+        .says("this function waits, and the page needs its answer at once")
+        .says("main.buri:25:");
 }
 
 /// An `async` method is still awaited where nothing calls it without waiting:
@@ -886,4 +904,174 @@ console.log(moves.join("\n"));
 "#,
     );
     assert_eq!(printed, "a:shown b:shown\npushed a\npushed b\n");
+}
+
+/// Builds `source` as a page, expecting the build to refuse it, and answers
+/// what it printed.
+fn refused(name: &str, source: &str) -> String {
+    let scratch = Scratch::repo(name);
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/page/main.buri", source);
+    let run = scratch.run(&["build", "//cmd/page"]);
+    run.exits(1);
+    run.all()
+}
+
+/// A page whose `ui.each` rows wait while they are built: one row sleeps
+/// itself, one goes through a helper that only passes it on to `ui.each`,
+/// and one goes through a helper that passes it to itself first. A row
+/// beside them that doesn't wait is not blamed.
+const WAITING_ROWS_PAGE: &str = r#"from "core/time" import * as time;
+from "platform/effect" import { Allocator, Clock, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "web" import { WebHost };
+
+fn row<C: Clock + Ui>(ctx: C, s: Str): Node<C> {
+    let _ = time.sleep(ctx, time.milliseconds(1));
+    ui.text({ content: .Const(s) })
+}
+
+fn list<C: Clock + Ui>(rows: fn(C, Str, Int) => Node<C>): Node<C> {
+    ui.each(.Const(["b"]), fn(s) => s, fn(c, s, i) => rows(c, s, i))
+}
+
+fn deep<C: Clock + Ui>(n: Int, rows: fn(C, Str, Int) => Node<C>): Node<C> {
+    if (n <= 0) {
+        ui.each(.Const(["c"]), fn(s) => s, rows)
+    } else {
+        deep(n - 1, rows)
+    }
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const(["a"]), fn(s) => s, fn(c, s, _i) => row(c, s)),
+                list(fn(c, s, _i) => row(c, s)),
+                deep(2, fn(c, s, _i) => row(c, s)),
+                ui.each(.Const(["d"]), fn(s) => s, fn(_c, s, _i) => ui.text({ content: .Const(s) })),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn rows_that_wait_while_they_are_built_are_refused_where_they_are_written() {
+    let printed = refused("waiting-rows-page", WAITING_ROWS_PAGE);
+    assert_eq!(
+        printed
+            .matches("this function waits, and the page needs its answer at once")
+            .count(),
+        3,
+        "{printed}"
+    );
+    assert!(printed.contains("main.buri:35:"), "{printed}");
+    assert!(printed.contains("main.buri:36:"), "{printed}");
+    assert!(printed.contains("main.buri:37:"), "{printed}");
+}
+
+/// A page whose key handlers wait before they answer whether they claimed
+/// the key: one written in place, and one a helper is handed.
+const WAITING_KEYS_PAGE: &str = r#"from "core/time" import * as time;
+from "platform/effect" import { Allocator, Clock, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "web" import { WebHost };
+
+fn keyed<C: Clock + Ui>(handler: Option<fn(C, Str) => Bool>): Node<C> {
+    ui.stack({ styles: [], children: [], onKey: handler })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [],
+                    onKey: .Some(fn(c, key) => {
+                        let _ = time.sleep(c, time.milliseconds(1));
+                        key == "Enter"
+                    }),
+                }),
+                keyed(.Some(fn(c, key) => {
+                    let _ = time.sleep(c, time.milliseconds(1));
+                    key == "Enter"
+                })),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn key_handlers_that_wait_before_they_answer_are_refused() {
+    let printed = refused("waiting-keys-page", WAITING_KEYS_PAGE);
+    assert_eq!(
+        printed
+            .matches("this function waits, and the page needs its answer at once")
+            .count(),
+        2,
+        "{printed}"
+    );
+    assert!(printed.contains("main.buri:25:"), "{printed}");
+    assert!(printed.contains("main.buri:8:"), "{printed}");
+}
+
+/// A key handler a helper is handed that answers at once claims its key.
+const KEYED_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "web" import { WebHost };
+
+fn keyed<C: Ui>(handler: Option<fn(C, Str) => Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [ui.button({ label: .Const("Go"), styles: [], onPress: .None })],
+        onKey: handler,
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(ctx, keyed(.Some(fn(_c, key) => key == "Enter")), [])
+}
+"#;
+
+#[test]
+fn a_key_handler_a_helper_is_handed_that_answers_at_once_claims_its_key() {
+    let printed = drive(
+        "keyed-page",
+        KEYED_PAGE,
+        r#"
+labelled("Go").focus();
+console.log(`Enter:${press("Enter").defaultPrevented} x:${press("x").defaultPrevented}`);
+"#,
+    );
+    assert_eq!(printed, "Enter:true x:false\n");
 }

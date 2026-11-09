@@ -163,6 +163,11 @@ impl FileId {
         FileId(STANDARD_FILES.saturating_add(u32::try_from(index).unwrap_or(u32::MAX)))
     }
 
+    /// Whether this is the file of a standard library module.
+    pub fn is_standard(self) -> bool {
+        self.standard_index().is_some()
+    }
+
     /// Which standard library module this is the file of, if it is one.
     fn standard_index(self) -> Option<usize> {
         match self == FileId::NONE {

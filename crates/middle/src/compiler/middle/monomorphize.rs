@@ -465,6 +465,9 @@ pub struct Shapes {
     /// `Option`, which a generated decoder spells to index a list
     /// (`middle::derives`).
     pub option: Option<TyConId>,
+    /// `ui/node`'s `NodeKind`, whose module is the user interface tree a
+    /// backend's runtime reads (`js::park::answers_too_late`).
+    pub node: Option<TyConId>,
 }
 
 /// What one type constructor is made of.
@@ -602,6 +605,7 @@ fn shapes_of(tables: &Tables) -> Shapes {
         ctxs,
         effects,
         option: None,
+        node: None,
     }
 }
 
@@ -820,6 +824,7 @@ fn run_on(
 
     let shapes = Shapes {
         option: checked.known_types.get("Option").copied(),
+        node: checked.node_con,
         ..shapes_of(&checked.tables)
     };
     // What the program's styles are, and whether it has a theme at all. Asked

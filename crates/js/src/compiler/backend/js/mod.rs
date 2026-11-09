@@ -148,8 +148,16 @@ impl Js {
             stmts,
             roots,
             chunks,
+            waits,
             ..
         } = out;
+        if !waits.is_empty() {
+            let mut diags = Diagnostics::new();
+            for span in waits {
+                diags.push(Diagnostic::templated("answer-waits", span));
+            }
+            return Err(diags);
+        }
         let mut emitted = Vec::with_capacity(chunks.len().saturating_add(1));
         let bytes = render(stmts, &roots);
         emitted.push(Emitted {

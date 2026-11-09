@@ -94,6 +94,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A method two bounds share needs qualifying"
     ),
     e!(
+        "answer-waits",
+        "A function the page asks for an answer doesn't wait",
+        &["guides/user-interfaces"]
+    ),
+    e!(
         "argument-count",
         "A call passes the arguments its callee declares"
     ),

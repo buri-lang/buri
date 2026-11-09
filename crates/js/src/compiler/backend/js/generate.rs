@@ -37,6 +37,9 @@ pub struct Output {
     /// Names the minifier must not rename.
     pub roots: Vec<String>,
     pub missing_intrinsics: Vec<String>,
+    /// The function values the page asks for an answer at once but which
+    /// wait ([`park::answers_too_late`]). Empty in every chunk.
+    pub waits: Vec<crate::diagnostics::Span>,
     /// The chunks `core/lazy` split out, in the order `middle::chunks`
     /// numbered them. Empty for nearly every program.
     pub chunks: Vec<Output>,
@@ -378,6 +381,12 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
 
 pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
     let (sharing, parking) = analyses(program);
+    let tree = program.shapes.node.map(|node| tables.tycon(node).module);
+    let waits = park::answers_too_late(
+        program,
+        |con| Some(tables.tycon(con).module) == tree,
+        &parking,
+    );
     let mut g = Gen::over(program, tables, profile, &sharing);
     g.parking = Some(&parking);
 
@@ -592,6 +601,7 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         stmts,
         roots,
         missing_intrinsics: g.missing,
+        waits,
         chunks,
     }
 }
@@ -966,6 +976,7 @@ fn split_chunks(
             // The two names the artifact reads off this module.
             roots: vec![String::from(BIND), entry],
             missing_intrinsics: Vec::new(),
+            waits: Vec::new(),
             chunks: Vec::new(),
         });
     }

@@ -13,7 +13,8 @@ use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::monomorphize::{self, FuncKind, Program};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyConId, TyKind};
+use crate::diagnostics::Span;
 use crate::hash::Set as HashSet;
 
 /// Whether an intrinsic key names a host operation that **blocks**: the call
@@ -705,4 +706,179 @@ pub fn parkability(program: &Program) -> Parking {
         }
     }
     w
+}
+
+/// The function values the page asks for an answer at once but which wait,
+/// each as the span to blame: in the program's own code wherever the wait
+/// came from there.
+///
+/// The page calls two kinds of function inside a call of its own and reads
+/// the answer straight away. It builds a `ui.each` or `ui.rebuild` row while
+/// it draws the list, and asks an `onKey` whether it claimed the key while
+/// the browser is still dispatching it. A row that waits hands back a promise
+/// where a node belongs, and an `onKey` that waits claims its key after the
+/// browser has handled it. A page that drew and handled keys later than
+/// asked would be a different page, so the program is refused instead
+/// (`answer-waits`).
+///
+/// Both are a function written into a `ui/node` value whose type takes a
+/// context and answers something other than `()`, and that is the rule. The
+/// page runs a function answering `()`, such as a press handler, through
+/// `$ui_flush`, which waits for whatever it hands back. One that takes no
+/// context can't wait at all (rule 1).
+///
+/// A function that writes the row it was handed, as `ui.each` does, waits
+/// only when a caller hands it one that waits. So the blame follows that
+/// argument back, through every function that only passed it on, to the
+/// function value that waits itself.
+pub fn answers_too_late(
+    program: &Program,
+    tree: impl Fn(TyConId) -> bool,
+    w: &Parking,
+) -> Vec<Span> {
+    let answers = |t: Ty| match t.kind() {
+        TyKind::Fn(_, ret) => *ret.kind() != TyKind::Unit && w.effects.fn_takes_effect(&t),
+        _ => false,
+    };
+    let mut callers: Dense<FuncIdx, Vec<(FuncIdx, &Vec<Expr>)>> = program.funcs.map(|_| Vec::new());
+    let mut written: Vec<(FuncIdx, &Expr)> = Vec::new();
+    for (i, f) in program.funcs.entries() {
+        let Some(body) = f.body() else { continue };
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::CallFunc { func, args } => callers.get_mut(*func).push((i, args)),
+            ExprKind::Continue { func, args, .. } => {
+                callers.get_mut(func.unwrap_or(i)).push((i, args));
+            }
+            ExprKind::StructLit {
+                con,
+                fields: values,
+                ..
+            }
+            | ExprKind::EnumLit {
+                con, args: values, ..
+            } if tree(*con) => written.extend(values.iter().map(|v| (i, v))),
+            ExprKind::StructUpdate { con, updates, .. } if tree(*con) => {
+                written.extend(updates.iter().map(|(_, v)| (i, v)));
+            }
+            _ => {}
+        });
+    }
+    let lets: Dense<FuncIdx, Vec<(LocalId, &Expr)>> = program
+        .funcs
+        .iter()
+        .map(|f| f.body().map(fn_lets).unwrap_or_default())
+        .collect();
+    let mut blamed = Vec::new();
+    for (i, v) in written {
+        // An optional handler is asked about through the `.Some` that holds
+        // it. One that arrives already wrapped is worth what its type is, and
+        // is asked about where the program's own code writes it, since a
+        // library only passes on what it was handed.
+        let v = match (&v.kind, v.ty.kind()) {
+            (ExprKind::EnumLit { args, .. }, TyKind::Con(con, _))
+                if Some(*con) == program.shapes.option =>
+            {
+                match args.first() {
+                    Some(handler) => handler,
+                    None => continue,
+                }
+            }
+            (_, TyKind::Con(con, [handler])) if Some(*con) == program.shapes.option => {
+                if answers(*handler)
+                    && !v.span.file.is_standard()
+                    && w.parking_types.contains(handler)
+                {
+                    blamed.push(v.span);
+                }
+                continue;
+            }
+            _ => v,
+        };
+        if !answers(v.ty) || !w.value_parks(full(i), v) {
+            continue;
+        }
+        let mut blame = Blame {
+            program,
+            w,
+            callers: &callers,
+            lets: &lets,
+            seen: HashSet::default(),
+            blamed: &mut blamed,
+        };
+        blame.value(i, v);
+    }
+    let mut once = HashSet::default();
+    blamed.retain(|s| once.insert(*s));
+    blamed
+}
+
+/// [`answers_too_late`]'s search for the function values to blame.
+struct Blame<'a, 'p> {
+    program: &'p Program,
+    w: &'a Parking,
+    callers: &'a Dense<FuncIdx, Vec<(FuncIdx, &'p Vec<Expr>)>>,
+    lets: &'a Dense<FuncIdx, Vec<(LocalId, &'p Expr)>>,
+    seen: HashSet<FuncIdx>,
+    blamed: &'a mut Vec<Span>,
+}
+
+impl Blame<'_, '_> {
+    /// Blames the function value `v`, written in `slot`, if it waits. Where it
+    /// waits only on a parameter, the blame goes to what each call handed
+    /// that parameter, and where it waits on a `let`, to what the `let` holds.
+    /// So it lands on the function value that waits itself, wherever a helper
+    /// passed it on or was inlined.
+    fn value(&mut self, slot: FuncIdx, v: &Expr) {
+        if !self.w.value_parks(full(slot), v) {
+            return;
+        }
+        let before = self.blamed.len();
+        if self.w.value_parks(sync(slot), v) {
+            for (local, held) in self.lets.get(slot) {
+                if self.w.parking_sync.get(slot).contains(*local) && reads(v, *local) {
+                    self.value(slot, held);
+                }
+            }
+        } else if !self.seen.insert(slot) {
+            // A loop back into a function already being followed: its other
+            // callers are already being asked.
+            return;
+        } else {
+            let params = handed(self.program, self.w, slot, v);
+            for &(from, args) in self.callers.get(slot) {
+                for a in params.iter().filter_map(|&k| args.get(k)) {
+                    self.value(from, a);
+                }
+            }
+        }
+        if self.blamed.len() == before {
+            self.blamed.push(v.span);
+        }
+    }
+}
+
+/// Whether `e` reads `local` anywhere, a lambda's body included.
+fn reads(e: &Expr, local: LocalId) -> bool {
+    let mut found = false;
+    typed::walk(e, &mut |x| {
+        found |= matches!(x.kind, ExprKind::Local(l) if l == local)
+    });
+    found
+}
+
+/// The positions of the parameters of `slot` that `e` reads and that a call
+/// hands a function value that waits.
+fn handed(program: &Program, w: &Parking, slot: FuncIdx, e: &Expr) -> Vec<usize> {
+    let params = &program.funcs.get(slot).params;
+    let mut out = Vec::new();
+    typed::walk(e, &mut |x| {
+        if let ExprKind::Local(l) = x.kind {
+            if let Some(k) = params.iter().position(|p| *p == l) {
+                if w.parking.get(slot).contains(l) {
+                    out.push(k);
+                }
+            }
+        }
+    });
+    out
 }
