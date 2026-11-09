@@ -466,11 +466,12 @@ pub struct Shapes {
 #[derive(Clone, Debug)]
 pub enum ConShape {
     Prim(Prim),
-    /// A struct's declared fields, or every variant's fields concatenated. A
-    /// type carries a count when *any* variant's field does, so the union over
-    /// variants is the accumulation the question wants and the tags are not
-    /// part of it.
-    Fields(Vec<Ty>),
+    /// A struct's declared fields, in declaration order.
+    Struct(Vec<Ty>),
+    /// Every variant's fields concatenated. A type carries a count when *any*
+    /// variant's field does, so the union over variants is the accumulation
+    /// the question wants and the tags are not part of it.
+    Enum(Vec<Ty>),
 }
 
 /// `Tables::is_effect_carrying`, in a form a pass holding no `Tables` can ask
@@ -565,8 +566,8 @@ fn shapes_of(tables: &Tables) -> Shapes {
         .iter()
         .map(|c| match &c.def {
             TyDef::Prim(p) => ConShape::Prim(*p),
-            TyDef::Struct { fields, .. } => ConShape::Fields(fields.iter().map(|f| f.ty).collect()),
-            TyDef::Enum { variants } => ConShape::Fields(
+            TyDef::Struct { fields, .. } => ConShape::Struct(fields.iter().map(|f| f.ty).collect()),
+            TyDef::Enum { variants } => ConShape::Enum(
                 variants
                     .iter()
                     .flat_map(|v| v.fields.iter().map(|f| f.ty))

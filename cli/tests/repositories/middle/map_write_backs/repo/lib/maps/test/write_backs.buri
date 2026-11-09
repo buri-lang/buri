@@ -1,0 +1,308 @@
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Inner {
+    id: Str,
+    m: OrderedMap<Int, Int>,
+    n: Int,
+}
+
+struct Tag {
+    id: Str,
+}
+
+struct Outer {
+    name: Str,
+    nodes: OrderedMap<Str, Inner>,
+    now: Int,
+}
+
+struct Pair {
+    now: Outer,
+    was: Outer,
+}
+
+fn inner<C: Allocator>(ctx: C, id: Str): Inner {
+    Inner { id: id, m: orderedmap.empty<Int, Int>().insert(ctx, 1, 1), n: 0 }
+}
+
+fn outer<C: Allocator>(ctx: C): Outer {
+    Outer {
+        name: "o",
+        nodes: orderedmap
+            .empty<Str, Inner>()
+            .insert(ctx, "a", inner(ctx, "a"))
+            .insert(ctx, "b", inner(ctx, "b")),
+        now: 0,
+    }
+}
+
+fn handle<C: Allocator>(ctx: C, x: Inner, k: Int): Inner {
+    Inner { ..x, m: x.m.insert(ctx, k, k), n: x.n + 1 }
+}
+
+fn named(o: Outer, name: Str): Outer {
+    Outer { ..o, name: name }
+}
+
+// What a reader of `id` sees: how often it changed, and its map's size.
+fn seen(o: Outer, id: Str): Int {
+    match (o.nodes.get(id)) {
+        .Some(t) => t.n * 100 + t.m.length(),
+        .None => -1,
+    }
+}
+
+// The record leaves the map, changes, and goes back under its own key.
+fn plain<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }
+        },
+        .None => o,
+    }
+}
+
+fn many<C: Allocator>(ctx: C, o: Outer, i: Int): Outer {
+    if (i == 0) { o } else { many(ctx, plain(ctx, o, "a", i), i - 1) }
+}
+
+test "a record written back under its key changes only the new map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    let o2 = plain(ctx, o, "a", 5);
+    assert.equal(seen(o2, "a"), 102);
+    assert.equal(seen(o2, "b"), 1);
+    assert.equal(seen(o, "a"), 1);
+    assert.equal(seen(plain(ctx, o, "z", 5), "z"), -1);
+    assert.equal(seen(many(ctx, outer(ctx), 10), "a"), 1010);
+}
+
+// The key is read off another record.
+fn tagged<C: Allocator>(ctx: C, o: Outer, tag: Tag, k: Int): Outer {
+    match (o.nodes.get(tag.id)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Outer { ..o, nodes: o.nodes.insert(ctx, tag.id, after) }
+        },
+        .None => o,
+    }
+}
+
+test "a record written back under a key read off another record" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    let o2 = tagged(ctx, o, Tag { id: "b" }, 7);
+    assert.equal(seen(o2, "b"), 102);
+    assert.equal(seen(o, "b"), 1);
+}
+
+// The write reads the map it replaces.
+fn reads<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Outer {
+                ..o,
+                nodes: o.nodes.insert(ctx, t.id, after),
+                now: o.nodes.length(),
+            }
+        },
+        .None => o,
+    }
+}
+
+// The write sits in a block of its own, which never reads the record whole.
+fn deeper<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            let o2 = {
+                let n = after.n + o.now;
+                Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after), now: n * n }
+            };
+            o2
+        },
+        .None => o,
+    }
+}
+
+// The record is read again after the write.
+fn later<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let o2 = {
+                let after = handle(ctx, t, k);
+                Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after), now: after.n }
+            };
+            let o3 = named(o2, o2.name.concat(ctx, "!"));
+            Outer { ..o3, now: o3.now + t.n }
+        },
+        .None => o,
+    }
+}
+
+// The old record is kept beside the new one.
+fn kept<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Pair {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Pair { now: Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }, was: o }
+        },
+        .None => Pair { now: o, was: o },
+    }
+}
+
+test "a record written back while its map is read elsewhere" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    let r = reads(ctx, o, "a", 5);
+    assert.equal(seen(r, "a"), 102);
+    assert.equal(r.now, 2);
+    let d = deeper(ctx, o, "a", 5);
+    assert.equal(seen(d, "a"), 102);
+    assert.equal(d.now, 1);
+    let l = later(ctx, o, "a", 5);
+    assert.equal(seen(l, "a"), 102);
+    assert.equal(l.now, 1);
+    assert.equal(l.name, "o!");
+    let p = kept(ctx, o, "a", 5);
+    assert.equal(seen(p.now, "a"), 102);
+    assert.equal(seen(p.was, "a"), 1);
+    assert.equal(seen(o, "a"), 1);
+}
+
+// The write's base is a new name for the map's holder.
+fn renamed<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let p = named(o, "p");
+            let after = handle(ctx, t, k);
+            Outer { ..p, nodes: p.nodes.insert(ctx, t.id, after) }
+        },
+        .None => o,
+    }
+}
+
+// The record is made where it is written.
+fn made<C: Allocator>(ctx: C, o: Outer, id: Str, k: Int): Outer {
+    let t = handle(ctx, inner(ctx, id), k);
+    Outer { ..o, nodes: o.nodes.insert(ctx, t.id, t) }
+}
+
+// The record came from no map.
+fn put<C: Allocator>(ctx: C, o: Outer, t: Inner, k: Int): Outer {
+    let after = handle(ctx, t, k);
+    Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }
+}
+
+test "a record written back under names the block gives it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    let r = renamed(ctx, o, "a", 5);
+    assert.equal(seen(r, "a"), 102);
+    assert.equal(r.name, "p");
+    let m = made(ctx, o, "c", 4);
+    assert.equal(seen(m, "c"), 102);
+    assert.equal(m.nodes.length(), 3);
+    let u = put(ctx, o, inner(ctx, "c"), 2);
+    assert.equal(seen(u, "c"), 102);
+    // A context named in the block, around a statement of its own.
+    let w = match (o.nodes.get("a")) {
+        .Some(t) => {
+            let c2 = context {
+                Allocator: alloc(),
+            };
+            assert.equal(o.now, 0);
+            let after = handle(c2, t, 1);
+            Outer { ..o, nodes: o.nodes.insert(c2, t.id, after) }
+        },
+        .None => o,
+    };
+    assert.equal(seen(w, "a"), 101);
+    assert.equal(seen(o, "a"), 1);
+}
+
+// A guard on a later arm.
+fn guarded<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }
+        },
+        .None if k > 3 => named(o, "big"),
+        .None => o,
+    }
+}
+
+test "a record written back beside a guarded arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    assert.equal(seen(guarded(ctx, o, "a", 5), "a"), 102);
+    assert.equal(guarded(ctx, o, "z", 5).name, "big");
+    assert.equal(guarded(ctx, o, "z", 1).name, "o");
+}
+
+// The write is the scrutinee of a match.
+fn scrutinee<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Int {
+    match (o.nodes.get(to)) {
+        .Some(t) => {
+            match (
+                {
+                    let after = handle(ctx, t, k);
+                    Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }
+                }
+            ) {
+                x => seen(x, to),
+            }
+        },
+        .None => -1,
+    }
+}
+
+struct Hashed {
+    nodes: Map<Str, Inner>,
+}
+
+// The record goes back into a hash map.
+fn hashed<C: Allocator>(ctx: C, h: Hashed, to: Str, k: Int): Hashed {
+    match (h.nodes.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            Hashed { ..h, nodes: h.nodes.insert(ctx, t.id, after) }
+        },
+        .None => h,
+    }
+}
+
+test "a record written back inside a match, or into a hash map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    assert.equal(scrutinee(ctx, o, "a", 5), 102);
+    assert.equal(scrutinee(ctx, o, "z", 5), -1);
+    assert.equal(seen(o, "a"), 1);
+    let h = Hashed { nodes: map.empty<Str, Inner>().insert(ctx, "a", inner(ctx, "a")) };
+    let h2 = hashed(ctx, h, "a", 5);
+    assert.equal(h2.nodes.get("a").map(fn(t) => t.n).withDefault(0), 1);
+    assert.equal(h.nodes.get("a").map(fn(t) => t.n).withDefault(0), 0);
+}

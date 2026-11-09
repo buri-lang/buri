@@ -574,7 +574,7 @@ impl Cycles {
     pub fn from_shapes(shapes: &crate::compiler::middle::monomorphize::Shapes) -> Cycles {
         use crate::compiler::middle::monomorphize::ConShape;
         Cycles::from_fields(shapes.cons.iter().map(|con| match con {
-            ConShape::Fields(tys) => tys.clone(),
+            ConShape::Struct(tys) | ConShape::Enum(tys) => tys.clone(),
             ConShape::Prim(_) => Vec::new(),
         }))
     }

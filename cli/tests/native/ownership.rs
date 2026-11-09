@@ -1970,3 +1970,182 @@ export fn main(host: NativeHost): Result<(), Str> {
         );
     }
 }
+
+/// How [`arrivals`] writes a record back.
+#[derive(Clone, Copy, Debug)]
+enum Arrival {
+    Plain,
+    Guarded,
+    Alias,
+    Reads,
+}
+
+/// A record read out of an ordered map, handed to a step that changes the map
+/// inside it, and written back under its key, as `arrive` says: `Plain`
+/// writes it back at once; `Guarded` behind a branch on the record, reading
+/// the key again after the write, as `cluster.arrive` does; `Alias` under a
+/// second key the record holds, so both are kept; `Reads` reads the outer
+/// map's length in the same update. Five records, each holding a map of two
+/// hundred keys, get `n` arrivals between them. With `kept`, the record as it
+/// was before the arrivals is printed after them.
+fn arrivals(arrive: Arrival, n: u32, kept: bool) -> String {
+    let arrive = match arrive {
+        Arrival::Plain => {
+            "match (o.nodes.get(to)) {
+    .Some(t) => {
+      let after = handle(ctx, t, k);
+      Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after) }
+    },
+    .None => o,
+  }"
+        }
+        Arrival::Guarded => {
+            "match (o.nodes.get(to)) {
+    .Some(t) => if (o.now < 0 || t.n < 0) { o } else {
+      let after = handle(ctx, t, k);
+      named(Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after), now: o.now + after.n }, t.id)
+    },
+    .None => o,
+  }"
+        }
+        Arrival::Alias => {
+            "match (o.nodes.get(to)) {
+    .Some(t) => {
+      let after = handle(ctx, t, k);
+      Outer { ..o, nodes: o.nodes.insert(ctx, t.alias, after) }
+    },
+    .None => o,
+  }"
+        }
+        Arrival::Reads => {
+            "match (o.nodes.get(to)) {
+    .Some(t) => {
+      let after = handle(ctx, t, k);
+      Outer { ..o, nodes: o.nodes.insert(ctx, t.id, after), now: o.now + o.nodes.length() }
+    },
+    .None => o,
+  }"
+        }
+    };
+    let keep = if kept {
+        "let before = o0;"
+    } else {
+        "let before = Outer { name: \"none\", nodes: orderedmap.empty<Str, Inner>(), now: 0 };"
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+
+struct Inner {{ id: Str, alias: Str, m: OrderedMap<Int, Int>, n: Int }}
+struct Outer {{ name: Str, nodes: OrderedMap<Str, Inner>, now: Int }}
+
+fn build<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == 200) {{ m }} else {{ build(ctx, m.insert(ctx, i, 1), i + 1) }}
+}}
+
+fn handle<C: Allocator>(ctx: C, x: Inner, k: Int): Inner {{
+  Inner {{ ..x, m: x.m.insert(ctx, k, k), n: x.n + 1 }}
+}}
+
+fn named(o: Outer, id: Str): Outer {{
+  Outer {{ ..o, name: id }}
+}}
+
+fn arrive<C: Allocator>(ctx: C, o: Outer, to: Str, k: Int): Outer {{
+  {arrive}
+}}
+
+fn run<C: Allocator>(ctx: C, o: Outer, names: [Str], i: Int): Outer {{
+  if (i == {n}) {{ o }} else {{
+    let to = names.get(i % 5).withDefault("none");
+    run(ctx, arrive(ctx, o, to, i % 7), names, i + 1)
+  }}
+}}
+
+fn add<C: Allocator>(ctx: C, m: OrderedMap<Str, Inner>, name: Str): OrderedMap<Str, Inner> {{
+  let inner = Inner {{ id: name, alias: name.concat(ctx, "2"), m: build(ctx, orderedmap.empty<Int, Int>(), 0), n: 0 }};
+  m.insert(ctx, name, inner)
+}}
+
+fn total(o: Outer): Int {{
+  o.nodes.fold(fn(acc, _k, x) => acc + x.n * 1000 + x.m.length(), 0)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let names = ["a", "b", "c", "d", "e"];
+  let nodes = names.foldCtx(ctx, fn(c, m, name) => add(c, m, name), orderedmap.empty<Str, Inner>());
+  let o0 = Outer {{ name: "o", nodes: nodes, now: 0 }};
+  {keep}
+  let o = run(ctx, o0, names, 0);
+  let _ = io.println(host.stdout, "${{o.nodes.length()}} ${{total(o)}} ${{o.now}} ${{o.name}} ${{before.nodes.length()}} ${{total(before)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Two thousand arrivals, each reading a record out of a map, changing the
+/// map inside it and writing it back under its key. Nothing else holds the
+/// outer value, so the map's slot is the record's only other holder, and every
+/// write changes the inner map in place: the arrivals allocate almost nothing
+/// the building did not.
+#[test]
+fn a_record_read_out_of_an_ordered_map_and_written_back_changes_in_place() {
+    for (arrive, out) in [
+        (Arrival::Plain, "5 2001000 0 o 0 0\n"),
+        (Arrival::Guarded, "5 2001000 401000 e 0 0\n"),
+    ] {
+        let idle = run_each(
+            &format!("arrive-{arrive:?}-idle"),
+            &arrivals(arrive, 0, false),
+        );
+        let busy = run_each(
+            &format!("arrive-{arrive:?}"),
+            &arrivals(arrive, 2000, false),
+        );
+        for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+            assert_eq!(busy.stdout, out, "{backend} {arrive:?}: {}", busy.stderr);
+            let (built, idle_live) = probed(&idle.stderr);
+            let (blocks, live) = probed(&busy.stderr);
+            assert!(
+                blocks < built + 20,
+                "{backend} {arrive:?}: two thousand arrivals allocated {} blocks beyond the \
+                 {built} building took: an arrival copied the record's map",
+                blocks.saturating_sub(built)
+            );
+            assert_eq!(
+                (idle_live, live),
+                (0, 0),
+                "{backend} {arrive:?}: blocks still live at exit"
+            );
+        }
+    }
+}
+
+/// Arrivals that keep the record as it was before them, that write it back
+/// under a second key, or that read the outer map's length in the update
+/// writing it back. Each sees the maps as the program wrote them.
+#[test]
+fn a_record_written_back_into_an_ordered_map_keeps_every_readers_view() {
+    for (arrive, kept, out) in [
+        (Arrival::Plain, true, "5 2001000 0 o 5 1000\n"),
+        (Arrival::Guarded, true, "5 2001000 401000 e 5 1000\n"),
+        (Arrival::Alias, false, "10 7000 0 o 0 0\n"),
+        (Arrival::Reads, false, "5 2001000 10000 o 0 0\n"),
+    ] {
+        let name = format!("arrive-{arrive:?}-{kept}-held");
+        for (backend, r) in run_each(&name, &arrivals(arrive, 2000, kept)) {
+            assert_eq!(r.stdout, out, "{backend} {arrive:?} {kept}: {}", r.stderr);
+            let (blocks, live) = probed(&r.stderr);
+            assert_eq!(
+                live, 0,
+                "{backend} {arrive:?} {kept}: {blocks} blocks allocated and {live} still live at exit"
+            );
+        }
+    }
+}

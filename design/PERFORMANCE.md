@@ -9042,6 +9042,49 @@ beyond the build and may now allocate 20. A record still held elsewhere keeps
 its counts, and a length read after the insert, in another field, sees the map
 from before it.
 
+### 6.110 A record read out of a map goes back without a second holder, 2026-11-09
+
+kvstore's `cluster.arrive` takes a node out of a map, changes it, and writes
+it back:
+
+```buri
+match (cluster.nodes.get(to)) {
+    .Some(t) => {
+        let after = node.handle(ctx, t, message);
+        Cluster { ..cluster, nodes: cluster.nodes.insert(ctx, t.id, after) }
+    },
+    .None => cluster,
+}
+```
+
+While `handle` runs, the map still holds the node, so `t` is its second
+holder. Every map inside the node is shared, and each change copied a path.
+
+`middle/vacate.rs` now writes the slot first, with a placeholder:
+
+```buri
+let k = t.id;
+let c2 = Cluster { ..cluster, nodes: cluster.nodes.insert(ctx, k, placeholder) };
+let after = node.handle(ctx, t, message);
+Cluster { ..c2, nodes: c2.nodes.insert(ctx, k, after) }
+```
+
+The placeholder is `t` with every string, list and nested record emptied. The
+second insert replaces it, so nothing can read it. The rewrite needs a block
+that reads the map only in the final insert, a record that came out of a match
+on that map, and a holder and record that die in the block. A key read off
+another record, a base or record read after the write, or a later guarded arm
+leaves the block as it was.
+
+`run-dev/kvstore` went from 1,399.7 M to 1,394.2 M instructions on an arm64
+VM. Retains and releases fell from 13.61 M to 12.65 M.
+
+`cli/tests/native/ownership.rs` guards it: two thousand write-backs of
+records holding a 200-key map allocated 10,030 blocks beyond the build and may
+now allocate 20. A copy kept from before the writes still reads as it did.
+`cli/tests/repositories/middle/map_write_backs` runs every shape the rewrite
+leaves alone, on both backends.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

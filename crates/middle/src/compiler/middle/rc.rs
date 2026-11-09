@@ -684,7 +684,8 @@ impl Syntactic {
                         Answer::No
                     }
                 }
-                monomorphize::ConShape::Fields(declared) => {
+                monomorphize::ConShape::Struct(declared)
+                | monomorphize::ConShape::Enum(declared) => {
                     // The declared fields still carry the type's own
                     // `Ty::Param`s, so this instantiation's arguments are what
                     // turn `Option<T>`'s payload into the `Str` it is here.

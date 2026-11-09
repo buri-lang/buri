@@ -76,6 +76,7 @@ pub mod pairs;
 pub mod rc;
 pub mod slices;
 pub mod tail_calls;
+pub mod vacate;
 
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::layered::{Dense, DenseId};
@@ -165,6 +166,9 @@ pub fn native(program: &mut Program) -> Planned {
     // body, and before `rc`, whose moves out of a dying update see a field
     // read where the program read a name for it.
     forward::run(program);
+    // After `forward`, which would put a field read back where this names
+    // the key, and before `rc`, which the rewrite is for.
+    vacate::run(program);
     // The last thing before the analysis, because it is the analysis's own
     // precondition rather than a transformation anybody else wants: a value a
     // `let` pattern skips over has no name, and `rc`'s plan can only release

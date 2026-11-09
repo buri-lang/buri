@@ -1,0 +1,18 @@
+# A record read out of an ordered map, changed, and written back under its
+# key, in the shapes the native middle end rewrites and the ones it leaves
+# alone: a key read off another record, a block that also reads the map, the
+# base or the record read after the write, a renamed base, context or record,
+# a record that came from no map, a match with guards, a write inside a
+# match's scrutinee, and a hash map. Every reader keeps its own view, on both
+# backends.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a record written back into an ordered map leaves every other holder's view as it was"
+
+run {
+  args: ["test", "//lib/maps", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
