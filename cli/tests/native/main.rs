@@ -222,6 +222,9 @@ mod cross;
 mod conformance;
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod reproducible;
+// A native build whose cache is read-only still builds the changed program.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod read_only_cache;
 // The conformance corpus under `--coverage` and `--coverage=mcdc` gives every
 // test the verdict it gets without, on JavaScript and every backend built in.
 #[cfg(feature = "backend-stencil")]
