@@ -165,6 +165,10 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if shared.is_none() && !linted.is_empty() {
         shared = check(&built);
     }
+    // Programs built from one analysis share the units they lower alike.
+    if let Some(shared) = shared.as_ref().filter(|_| programs.len() > 1) {
+        actions::share_units(&shared.analysis.checked.tables);
+    }
     // Each binary's outputs are built side by side, on the pool's workers, and
     // everything is printed in target order however the builds finish. This
     // thread checks the libraries, asks the cache about each output, and

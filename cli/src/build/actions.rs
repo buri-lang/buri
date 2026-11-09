@@ -2417,19 +2417,33 @@ struct UnitHashes {
 ///
 /// Kept with the `Tables` ([`Tables::later`]), because a fingerprint means
 /// nothing against other tables, and dropped with them, so it lasts one
-/// process's build of one analysis: `buri build //...` and `buri test //...`
-/// building many programs from one. A unit another program lowered is not
+/// process's build of one analysis. A unit another program lowered is not
 /// lowered again; its key is the one that program computed, and its object is
 /// the one that program's build stored.
+///
+/// Used only where [`share_units`] said several programs will be built from
+/// the tables, because fingerprinting a program costs about 1% of its dev
+/// codegen, and a lone program has nobody to share with.
 #[derive(Default)]
-struct UnitMemo(std::sync::Mutex<crate::hash::Map<u128, UnitHashes>>);
+struct UnitMemo {
+    shared: std::sync::atomic::AtomicBool,
+    hashes: std::sync::Mutex<crate::hash::Map<u128, UnitHashes>>,
+}
 
 impl UnitMemo {
     fn lock(&self) -> std::sync::MutexGuard<'_, crate::hash::Map<u128, UnitHashes>> {
-        self.0
+        self.hashes
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// Says several native programs will be built from `tables`, so each unit one
+/// of them lowers is remembered for the others ([`UnitMemo`]).
+pub fn share_units(tables: &Tables) {
+    let memo = tables.later::<UnitMemo>();
+    memo.shared
+        .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// What every unit's `codegen` key of one native build shares.
@@ -2515,7 +2529,11 @@ fn lower_unbuilt<'a>(
     // rather than to `other`.
     let _phase = crate::profile::enter(crate::profile::Phase::Middle);
     let units = lower::units(program);
-    let prints = if reuse {
+    let shared = tables
+        .later::<UnitMemo>()
+        .shared
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let prints = if reuse && shared {
         middle::fingerprint::units(program, &planned.answers, &units)
     } else {
         Vec::new()
