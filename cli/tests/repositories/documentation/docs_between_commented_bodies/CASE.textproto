@@ -1,0 +1,14 @@
+# Each declaration keeps its own doc comment however much is written between
+# them: comments and blank lines inside bodies, a doc comment on a local, a
+# call whose type arguments are read on trial, and undocumented items in
+# between. None of that lends its words to the next item or takes an item's.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "doc comments stay on their own items across commented bodies"
+
+run {
+  args: ["docs", "//lib/shop/lib.buri", "--format=markdown"]
+  exit: 0
+  golden: "shop.md"
+}

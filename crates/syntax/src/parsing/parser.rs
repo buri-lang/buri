@@ -171,6 +171,7 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
         file,
         tokens: lexed.tokens,
         trivia: lexed.trivia,
+        trivia_seen: 0,
         pos: 0,
         reported: lexed
             .errors
@@ -618,9 +619,12 @@ struct Parser<'a> {
     scratch: Scratch,
     tokens: Tokens<'a>,
     /// What was written above a token, by token index, ascending — see
-    /// [`Trivia`]. Only declarations read it, so it is searched rather than
+    /// [`Trivia`]. Only declarations read it, so it is walked rather than
     /// indexed.
     trivia: Vec<(u32, Trivia)>,
+    /// How many of those are behind every declaration read so far — see
+    /// [`Parser::docs`].
+    trivia_seen: usize,
     /// The index of the `Eof` every stream ends with, so that clamping a read
     /// to the end of the stream is one comparison rather than a length
     /// lookup and a subtraction on every token access.
@@ -784,17 +788,20 @@ impl<'a> Parser<'a> {
     /// The table is read, not taken from, so the formatter can read it again
     /// after the parse ([`Kept`]).
     ///
-    /// A binary search rather than an index because the table holds only the
-    /// tokens that have something above them, which is a small fraction of the
-    /// file — and this is called once per declaration, not once per token.
-    fn docs(&self) -> Docs {
+    /// A walk forward from where the last one stopped rather than a search,
+    /// because declarations are read in order: every entry is stepped over
+    /// once in the whole file, where a binary search paid a dozen probes per
+    /// declaration. The only reads that move the cursor back are the trials
+    /// inside a type or a `self` annotation, and no declaration is read there.
+    fn docs(&mut self) -> Docs {
         let at = self.pos as u32;
-        let Ok(i) = self.trivia.binary_search_by_key(&at, |(a, _)| *a) else {
-            return Docs::default();
-        };
-        self.trivia
-            .get(i)
-            .map_or_else(Docs::default, |(_, t)| t.docs)
+        let rest = self.trivia.get(self.trivia_seen..).unwrap_or(&[]);
+        let behind = rest.iter().take_while(|(a, _)| *a < at).count();
+        self.trivia_seen = self.trivia_seen.wrapping_add(behind);
+        match rest.get(behind) {
+            Some((a, t)) if *a == at => t.docs,
+            _ => Docs::default(),
+        }
     }
 
     /// The source under a span, empty if it does not describe one.

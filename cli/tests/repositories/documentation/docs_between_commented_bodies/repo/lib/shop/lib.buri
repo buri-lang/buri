@@ -1,0 +1,65 @@
+//! A corner shop.
+
+/// The first of two prices.
+export fn first<T>(a: T, b: T): T {
+    // Keep the first.
+
+    // The second is dropped.
+    a
+}
+
+export fn undocumented(a: I64): I64 {
+    /// Written on a local, which has no page.
+    let twice = a * 2;
+
+    // A call whose type arguments are read on trial.
+    first<I64>(twice, a)
+}
+
+// An ordinary comment, which is not documentation.
+
+/// What a shelf holds.
+export struct Shelf {
+    // Not a field's documentation.
+    export height: I64,
+
+    /// How many tins fit.
+    export tins: I64,
+    export label: Str,
+}
+
+/// How a sale is paid.
+export enum Payment {
+    /// Notes and coins.
+    Cash,
+
+    // Not a variant's documentation.
+    Card,
+    /// A note to pay later.
+    Tab,
+}
+
+/// Something with a price.
+export trait Priced {
+    fn cents(self): I64;
+
+    /// The price in whole units, rounded down.
+    fn units(self): I64;
+}
+
+impl Shelf {
+    export fn empty(): Shelf {
+        // Nothing on it yet.
+        Shelf { height: 0, tins: 0, label: "" }
+    }
+
+    /// A shelf one tin fuller.
+    export fn stocked(self): Shelf {
+        Shelf { height: self.height, tins: self.tins + 1, label: self.label }
+    }
+}
+
+/// Closes the shop.
+export fn close(): Bool {
+    true
+}
