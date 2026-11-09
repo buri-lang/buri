@@ -634,8 +634,71 @@ fn a_chain_of_enums_each_wrapping_the_last_derives_and_matches() {
 fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
     unless_ready!();
     let (source, expected) = struct_chain(5000);
+    runs("struct-chain", &source, &expected);
+}
+
+/// A record holding two of an enum whose variant carries `n` fields, so the
+/// variant's tag sits `n` words or more into the record.
+fn wide_variant_record(n: usize) -> (String, Vec<String>) {
+    let strs = kinds(n);
+    let types = join(strs.iter().map(|s| if *s { "Str" } else { "Int" }), ", ");
+    let values = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                String::from("s")
+            } else {
+                format!("k + {i}")
+            }
+        }),
+        ", ",
+    );
+    let binds = join((0..n).map(|i| format!("a{i}")), ", ");
+    let summed = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                format!("a{i}.length()")
+            } else {
+                format!("a{i}")
+            }
+        }),
+        " + ",
+    );
+    let source = format!(
+        "{HEAD}\nenum W {{\n    T({types}),\n    Empty,\n}}\n\n\
+         struct Pair {{\n    a: W,\n    b: W,\n    label: Str,\n}}\n\n\
+         fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
+         let s = \"w\".repeat(ctx, k);\n    .T({values})\n}}\n\n\
+         fn sum(w: W): Int {{\n    match (w) {{\n        \
+         .T({binds}) => {summed},\n        .Empty => 0 - 1,\n    }}\n}}\n\n{MAIN}\
+         \x20   let p = Pair {{ a: make(ctx, 1), b: make(ctx, 2), label: \"p\".repeat(ctx, 3) }};\n\
+         \x20   let q = Pair {{ ..p, a: W.Empty }};\n\
+         \x20   let both = [p, q];\n{}    .Ok(())\n}}\n",
+        say("\"${sum(p.a)} ${sum(q.a)} ${sum(q.b)} ${both.length()} ${q.label}\""),
+    );
+    let sum = |k: usize| -> usize {
+        strs.iter()
+            .enumerate()
+            .map(|(i, s)| if *s { k } else { k + i })
+            .sum()
+    };
+    (source, vec![format!("{} -1 {} 2 ppp", sum(1), sum(2))])
+}
+
+/// **A record holding a variant wider than four kilobytes is built, updated,
+/// listed and dropped.** Each release reads the tag through the record's
+/// address, further in than one arm64 load instruction reaches.
+#[test]
+fn a_record_holding_a_variant_wider_than_four_kilobytes_gives_every_block_back() {
+    unless_ready!();
+    let (source, expected) = wide_variant_record(512);
+    runs("wide-variant-record", &source, &expected);
+}
+
+/// `source` built and run by `buri run` on the native platform, under the heap
+/// check, and on JavaScript where there is an engine, printing `expected`.
+fn runs(name: &str, source: &str, expected: &[String]) {
     let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("e2e-shape-struct-chain-{}", std::process::id()));
+        .join(format!("e2e-shape-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let mut targets = vec![("native", "NativeHost")];
     if crate::shared::js_engine().is_some() {
