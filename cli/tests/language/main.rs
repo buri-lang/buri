@@ -68,6 +68,7 @@ mod js_streams;
 mod js_words;
 mod js_wrapping;
 mod lexing;
+mod page_output;
 mod pages;
 mod parsing;
 mod round_trip;

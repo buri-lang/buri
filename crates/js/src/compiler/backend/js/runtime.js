@@ -2062,6 +2062,25 @@ const $host = {
     this.pending = null;
     return e === null ? $ok(0) : $err($ioErr(e));
   },
+  // **Text goes out by the time the program next returns to the event loop.**
+  // A page's handlers, rows and timers, a task, and everything after an
+  // `await` run from the loop long after `main` has returned, and most of them
+  // never wait, so neither the exit path nor `$aboutToBlock` comes after what
+  // they print. One flush per turn, armed by the first write since the last,
+  // covers every one of them without each having to remember.
+  armed: false,
+  push(buffer, t) {
+    buffer.push(t);
+    if (!this.armed) {
+      this.armed = true;
+      setTimeout(() => {
+        this.armed = false;
+        this.flush();
+      }, 0);
+    }
+    if (this.out.length > 64) this.flush();
+    return this.reported();
+  },
   flush() {
     if (this.out.length) {
       const text = this.out.join("");
@@ -2340,15 +2359,11 @@ function $alloc_arenaLeave(previous) {
 }
 
 function $host_HostStdout_print(self, t) {
-  $host.out.push(t);
-  if ($host.out.length > 64) $host.flush();
-  return $host.reported();
+  return $host.push($host.out, t);
 }
 
 function $host_HostStdout_println(self, t) {
-  $host.out.push(t + "\n");
-  if ($host.out.length > 64) $host.flush();
-  return $host.reported();
+  return $host.push($host.out, t + "\n");
 }
 
 // Octets, written through unchanged. The buffered text stream is flushed
@@ -2375,13 +2390,11 @@ function $writeRaw(fd, bytes) {
 }
 
 function $host_HostStderr_eprint(self, t) {
-  $host.err.push(t);
-  return $host.reported();
+  return $host.push($host.err, t);
 }
 
 function $host_HostStderr_eprintln(self, t) {
-  $host.err.push(t + "\n");
-  return $host.reported();
+  return $host.push($host.err, t + "\n");
 }
 
 // --- Standard input ---------------------------------------------------------
@@ -3890,8 +3903,7 @@ function $tasks_scopeRan(c, handle, task) {
 
 // `core/tasks`'s timers: a `setTimeout` each, which is what keeps a process
 // alive while one is pending and lets it end once none is. `run` is handed the
-// context `after` was called with, and its own handle. What it printed goes
-// out when it returns, because nothing else flushes once `main` has.
+// context `after` was called with, and its own handle.
 const $task_timers = new Map();
 let $task_timer_next = 1;
 
@@ -3903,7 +3915,6 @@ function $tasks_timerStart(c, millis, run) {
       $task_timers.delete(handle);
       try {
         await run(c, BigInt(handle));
-        $host.flush();
       } catch (e) {
         $failed(e);
       }
