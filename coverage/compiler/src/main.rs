@@ -397,11 +397,12 @@ impl Gate {
         self.merge(&profiles)
     }
 
-    /// A `cargo` in the workspace without `cargo run`'s own state.
+    /// A `cargo` in the workspace without `cargo run`'s own state. It keeps
+    /// `CARGO_BUILD_JOBS`, so a caller that bounds its jobs bounds these too.
     fn cargo(&self) -> Command {
         let mut cargo = Command::new("cargo");
         for (name, _) in std::env::vars() {
-            if name.starts_with("CARGO_") && name != "CARGO_HOME" {
+            if name.starts_with("CARGO_") && name != "CARGO_HOME" && name != "CARGO_BUILD_JOBS" {
                 cargo.env_remove(&name);
             }
         }
