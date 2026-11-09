@@ -1068,6 +1068,65 @@ impl Inst {
             Inst::IncRef { value } | Inst::DecRef { value, .. } => out.push(*value),
         }
     }
+
+    /// Reads `to` wherever this instruction read `old`.
+    pub fn rename(&mut self, old: ValueId, to: ValueId) {
+        let swap = renamer(old, to);
+        match self {
+            Inst::Const { .. } | Inst::Abort { .. } => {}
+            Inst::Unary { arg: v, .. }
+            | Inst::GetField { agg: v, .. }
+            | Inst::GetPayload { agg: v, .. }
+            | Inst::GetTag { agg: v, .. }
+            | Inst::ArrayLen { array: v, .. }
+            | Inst::ArrayAlloc { len: v, .. }
+            | Inst::ShowPrim { value: v, .. }
+            | Inst::IncRef { value: v }
+            | Inst::DecRef { value: v } => swap(v),
+            Inst::Binary { lhs: a, rhs: b, .. }
+            | Inst::ArrayGet {
+                array: a, index: b, ..
+            }
+            | Inst::ArraySlice {
+                array: a, from: b, ..
+            }
+            | Inst::ArrayPrefix {
+                array: a, len: b, ..
+            } => {
+                swap(a);
+                swap(b);
+            }
+            Inst::ArraySet {
+                array,
+                index,
+                value,
+                ..
+            } => [array, index, value].into_iter().for_each(swap),
+            Inst::MakeStruct { fields: vs, .. }
+            | Inst::MakeEnum { fields: vs, .. }
+            | Inst::MakeArray { elems: vs, .. }
+            | Inst::Call { args: vs, .. } => vs.iter_mut().for_each(swap),
+            Inst::CallIntrinsic { args, .. } => args.iter_mut().for_each(swap),
+            Inst::MakeClosure { env, .. } => env.iter_mut().for_each(|e| swap(&mut e.value)),
+            Inst::Parallel(p) => [&mut p.sched, &mut p.ctx, &mut p.items, &mut p.step]
+                .into_iter()
+                .for_each(swap),
+            Inst::Handover(h) => h.args.iter_mut().chain([&mut h.closure]).for_each(swap),
+            Inst::CallIndirect { callee, args, .. } => {
+                swap(callee);
+                args.iter_mut().for_each(swap);
+            }
+        }
+    }
+}
+
+/// Makes a value that read `old` read `to`.
+fn renamer(old: ValueId, to: ValueId) -> impl Fn(&mut ValueId) + Copy {
+    move |v| {
+        if *v == old {
+            *v = to;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1145,6 +1204,32 @@ impl Term {
             .flatten()
             .chain(cases.iter().map(|(_, t)| t))
             .chain(default)
+    }
+
+    /// [`Term::targets`], to change in place.
+    pub fn targets_mut(&mut self) -> impl Iterator<Item = &mut Target> {
+        let (pair, cases, default) = match self {
+            Term::Jump(t) => ([Some(t), None], &mut [][..], None),
+            Term::Branch { then, else_, .. } => ([Some(then), Some(else_)], &mut [][..], None),
+            Term::Switch { cases, default, .. } => ([None, None], &mut cases[..], default.as_mut()),
+            Term::Return(_) | Term::Unreachable => ([None, None], &mut [][..], None),
+        };
+        pair.into_iter()
+            .flatten()
+            .chain(cases.iter_mut().map(|(_, t)| t))
+            .chain(default)
+    }
+
+    /// Reads `to` wherever this terminator or one of its edges read `old`.
+    pub fn rename(&mut self, old: ValueId, to: ValueId) {
+        let swap = renamer(old, to);
+        match self {
+            Term::Branch { cond: v, .. } | Term::Switch { on: v, .. } | Term::Return(v) => swap(v),
+            Term::Jump(_) | Term::Unreachable => {}
+        }
+        self.targets_mut()
+            .flat_map(|t| t.args.iter_mut())
+            .for_each(swap);
     }
 
     /// The `k`th of [`Term::targets`], without walking the ones before it.
@@ -1601,22 +1686,8 @@ impl Code {
         self.blocks
             .retain(|_| kept.next().copied().unwrap_or(false));
         for b in &mut self.blocks {
-            let retarget = |t: &mut Target| t.block = *renumber.get(t.block);
-            match &mut b.term {
-                Term::Jump(t) => retarget(t),
-                Term::Branch { then, else_, .. } => {
-                    retarget(then);
-                    retarget(else_);
-                }
-                Term::Switch { cases, default, .. } => {
-                    for (_, t) in cases.iter_mut() {
-                        retarget(t);
-                    }
-                    if let Some(t) = default {
-                        retarget(t);
-                    }
-                }
-                Term::Return(_) | Term::Unreachable => {}
+            for t in b.term.targets_mut() {
+                t.block = *renumber.get(t.block);
             }
         }
     }

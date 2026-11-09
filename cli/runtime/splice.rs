@@ -374,6 +374,17 @@ pub unsafe extern "C" fn buri_rt_list_slice_owned(
         };
         return;
     }
+    if from == 0 {
+        // The whole list: its count is the answer's, held or shared.
+        // SAFETY: the caller promises `out`.
+        unsafe {
+            out.write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            })
+        };
+        return;
+    }
     // SAFETY: the caller promises a live block.
     if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
         let p = ptr.cast_mut();

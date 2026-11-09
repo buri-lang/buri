@@ -1,0 +1,290 @@
+// Recursions over `[x, ..rest]` that hand `rest` back to themselves, in the
+// shapes a loop can walk without moving the list: a list nothing else holds
+// and one another name still reads, a list read whole on the way out, one
+// handed on unchanged or swapped for another list, and two walked at once.
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn words<C: Allocator>(ctx: C, n: Int): [Str] {
+    list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => str.format(c, "w${i}"))
+}
+
+fn lengths(xs: [Str], acc: Int): Int {
+    match (xs) {
+        [] => acc,
+        [x, ..rest] => lengths(rest, acc + x.length()),
+    }
+}
+
+// The list from the first word at least `n` long, returned whole.
+fn fromLong(xs: [Str], n: Int): [Str] {
+    match (xs) {
+        [] => xs,
+        [x, ..rest] => if (x.length() >= n) { xs } else { fromLong(rest, n) },
+    }
+}
+
+// `kept` and the rest of the list from the first word not shorter than `n`,
+// as `mergeEntries` appends what its log lacks.
+fn join<C: Allocator>(ctx: C, kept: [Str], xs: [Str], n: Int): [Str] {
+    match (xs) {
+        [] => kept,
+        [x, ..rest] => {
+            if (x.length() >= n) {
+                kept.concat(ctx, xs)
+            } else {
+                join(ctx, kept, rest, n)
+            }
+        },
+    }
+}
+
+// Every element `times` times: the list goes round unchanged between them.
+fn repeated(xs: [Str], times: Int, left: Int, acc: Int): Int {
+    match (xs) {
+        [] => acc,
+        [x, ..rest] => {
+            if (left > 1) {
+                repeated(xs, times, left - 1, acc + x.length())
+            } else {
+                repeated(rest, times, times, acc + x.length())
+            }
+        },
+    }
+}
+
+// The first list, then the second: the loop takes a list of another name.
+fn both(xs: [Str], next: [Str], acc: Int): Int {
+    match (xs) {
+        [] => if (next.isEmpty()) { acc } else { both(next, [], acc) },
+        [x, ..rest] => both(rest, next, acc * 3 + x.length()),
+    }
+}
+
+// Words longer than two letters, counted by a loop with two ways round.
+fn long(xs: [Str], acc: Int): Int {
+    match (xs) {
+        [] => acc,
+        [x, ..rest] => {
+            if (x.length() > 2) { long(rest, acc + 1) } else { long(rest, acc - 1) }
+        },
+    }
+}
+
+// Each word's length times the other list's first, plus its rest's length;
+// with no other list, a thousand for each word left.
+fn scaled(xs: [Str], ys: [Str], acc: Int): Int {
+    match (xs) {
+        [] => acc,
+        [x, ..rest] => {
+            match (ys) {
+                [y, ..yr] => {
+                    scaled(rest, ys, acc + x.length() * y.length() + yr.length())
+                },
+                [] => acc + xs.length() * 1000,
+            }
+        },
+    }
+}
+
+// From the first word at least `n` long: the joined lists, if long enough.
+fn joinedLong<C: Allocator>(ctx: C, kept: [Str], xs: [Str], n: Int): Int {
+    match (xs) {
+        [] => 0,
+        [x, ..rest] => {
+            if (x.length() >= n) {
+                let ys = kept.concat(ctx, xs);
+                if (ys.length() > 3) { ys.length() } else { 0 }
+            } else {
+                joinedLong(ctx, kept, rest, n)
+            }
+        },
+    }
+}
+
+// From the first word at least `n` long: the joined lists, then the list again.
+fn joinedTwice<C: Allocator>(ctx: C, kept: [Str], xs: [Str], n: Int): Int {
+    match (xs) {
+        [] => 0,
+        [x, ..rest] => {
+            if (x.length() >= n) {
+                let ys = kept.concat(ctx, xs);
+                if (ys.length() > 3) { ys.length() * 100 + xs.length() } else { 0 }
+            } else {
+                joinedTwice(ctx, kept, rest, n)
+            }
+        },
+    }
+}
+
+// Words two at a time, or the last one alone: two arms drop the head.
+fn byTwos(xs: [Str], acc: Int): Int {
+    match (xs) {
+        [] => acc,
+        [x, y, ..rest] => byTwos(rest, acc + x.length() * y.length()),
+        [x, ..rest] => byTwos(rest, acc + x.length()),
+    }
+}
+
+// The list without its first word, returned rather than walked.
+fn tail(xs: [Str]): [Str] {
+    match (xs) {
+        [] => [],
+        [_, ..rest] => rest,
+    }
+}
+
+// Two lists, walked a step at a time together.
+fn pairs(xs: [Str], ys: [Str], acc: Int): Int {
+    match ((xs, ys)) {
+        ([x, ..xr], [y, ..yr]) => pairs(xr, yr, acc + x.length() * y.length()),
+        _ => acc + xs.length() * 1000 + ys.length(),
+    }
+}
+
+// The loop swaps its two lists, so neither stays where it was.
+fn swapped(xs: [Str], ys: [Str], acc: Int): Int {
+    match (xs) {
+        [] => acc + ys.length(),
+        [x, ..rest] => swapped(ys, rest, acc + x.length()),
+    }
+}
+
+test "a walk over a list nothing else holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(lengths(words(ctx, 2000), 0), 8890);
+    assert.equal(lengths([], 0), 0)
+}
+
+test "a walk over a list another name still holds leaves it as it was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 200);
+    assert.equal(lengths(xs, 0), 690);
+    assert.equal(xs.length(), 200);
+    assert.equal(xs.get(0).withDefault(""), "w0");
+    assert.equal(xs.get(199).withDefault(""), "w199")
+}
+
+test "a list returned whole from the middle of a walk" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let late = fromLong(words(ctx, 200), 4);
+    assert.equal(late.length(), 100);
+    assert.equal(late.get(0).withDefault(""), "w100");
+    let xs = words(ctx, 50);
+    let held = fromLong(xs, 3);
+    assert.equal(held.length(), 40);
+    assert.equal(held.get(0).withDefault(""), "w10");
+    assert.equal(xs.length(), 50);
+    assert.equal(xs.get(0).withDefault(""), "w0");
+    assert.equal(fromLong(xs, 2).length(), 50);
+    assert.equal(fromLong(xs, 9).length(), 0)
+}
+
+test "a list read whole by a call on the way out" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let kept = ["k"];
+    let joined = join(ctx, kept, words(ctx, 120), 4);
+    assert.equal(joined.length(), 21);
+    assert.equal(joined.get(1).withDefault(""), "w100");
+    let xs = words(ctx, 30);
+    let early = join(ctx, kept, xs, 2);
+    assert.equal(early.length(), 31);
+    assert.equal(early.get(1).withDefault(""), "w0");
+    assert.equal(join(ctx, kept, xs, 3).length(), 21);
+    assert.equal(join(ctx, kept, xs, 9), kept);
+    assert.equal(xs.get(10).withDefault(""), "w10");
+    assert.equal(kept, ["k"])
+}
+
+test "a list handed on unchanged between steps" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 100);
+    assert.equal(repeated(xs, 3, 3, 0), 870);
+    assert.equal(repeated(words(ctx, 10), 1, 1, 0), 20);
+    assert.equal(xs.length(), 100)
+}
+
+test "a loop that takes another list in place of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 4);
+    let ys = ["abc", "de"];
+    assert.equal(both(xs, ys, 0), 731);
+    assert.equal(both([], ys, 0), 11);
+    assert.equal(xs.length() + ys.length(), 6)
+}
+
+test "a loop that drops the head on either of two ways round" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 150);
+    assert.equal(long(xs, 0), 130);
+    assert.equal(long(words(ctx, 20), 0), 0);
+    assert.equal(byTwos(xs, 0), 825);
+    assert.equal(byTwos(words(ctx, 3), 0), 6);
+    assert.equal(xs.length(), 150)
+}
+
+test "a walk that reads another list each step" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let ys = words(ctx, 3);
+    assert.equal(scaled(words(ctx, 12), ys, 0), 76);
+    assert.equal(scaled(words(ctx, 2), [], 5), 2005);
+    assert.equal(ys, ["w0", "w1", "w2"])
+}
+
+test "a list read whole and then read again on the way out" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let kept = ["k"];
+    let xs = words(ctx, 30);
+    assert.equal(joinedLong(ctx, kept, xs, 3), 21);
+    assert.equal(joinedLong(ctx, kept, words(ctx, 12), 3), 0);
+    assert.equal(joinedTwice(ctx, kept, words(ctx, 30), 3), 2120);
+    assert.equal(joinedTwice(ctx, kept, xs, 2), 3130);
+    assert.equal(xs.length(), 30);
+    assert.equal(kept, ["k"])
+}
+
+test "a list's rest returned without a loop" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 3);
+    assert.equal(tail(xs), ["w1", "w2"]);
+    assert.equal(tail(words(ctx, 2)), ["w1"]);
+    assert.equal(tail([]), []);
+    assert.equal(xs.length(), 3)
+}
+
+test "two lists walked together, and two the loop swaps" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = words(ctx, 12);
+    let ys = words(ctx, 5);
+    assert.equal(pairs(xs, ys, 0), 7020);
+    assert.equal(pairs(ys, words(ctx, 5), 0), 20);
+    assert.equal(swapped(xs, ys, 0), 28);
+    assert.equal(xs.length() * 100 + ys.length(), 1205)
+}

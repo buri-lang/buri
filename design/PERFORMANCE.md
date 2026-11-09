@@ -9085,6 +9085,42 @@ now allocate 20. A copy kept from before the writes still reads as it did.
 `cli/tests/repositories/middle/map_write_backs` runs every shape the rewrite
 leaves alone, on both backends.
 
+### 6.111 A loop over `[x, ..rest]` keeps its list and moves an offset, 2026-11-09
+
+§6.107's `slice.owned` still moves the tail down on every step, so
+`mergeEntries` moved its log of `n` entries `n` times: 48 K memmoves and
+18.5 M instructions on kvstore.
+
+`slices::offsets` now gives the loop header the list unchanged plus an `I64`
+offset:
+
+```text
+b1(v5: [Entry], v69: i64):
+  v71 = len v5
+  v8 = sub.I64 v71, v69        // the rest's length
+  v73 = add.I64 v14, v69
+  v15 = elem v5, v73           // the rest's element v14
+  ...
+  v74 = add.I64 v69, v16
+  jump b1(v5, v74)             // was: jump b1(slice.owned v5, v16)
+```
+
+A block that reads the list any other way, such as `concat` or a `return`,
+first makes it whole with one `slice.owned v5, v69`. Only a block on the way
+out of the loop may, and no block after it may name the list. Otherwise the
+loop keeps §6.107's slices. The elements before the offset are now released
+with the list rather than at each step.
+
+`buri_rt_list_slice_owned` from 0 now hands the list back as it is.
+
+`run-dev/kvstore` went from 1,394.2 M to 1,358.4 M instructions on an arm64 VM.
+Retains and releases fell from 12.65 M to 12.37 M.
+
+`cli/tests/repositories/middle/rest_offsets` runs each shape on both backends
+with the heap checked: a list held elsewhere, returned whole or handed to a
+call partway, handed on unchanged, swapped for another list, and dropped on two
+ways round. The tightened kvstore row guards the gain.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
