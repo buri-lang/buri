@@ -261,6 +261,31 @@ repeated across programs until units got the same key in every program; now
 2,481 come back from the cache (see
 [Sharing codegen across programs](#sharing-codegen-across-programs)).
 
+**Why `full` lags `monorepo`.** The link fixes above save a fixed amount per
+link and per unit, and mostly on Linux. `monorepo` has many small programs, so
+they add up. `full` has 12 links over 262k lines, and its cost is the back half
+running once per program over 1.65 M reached lines. Sharing codegen skips only
+stencil emit. `monomorphize` and the middle end, about 35% of dev codegen, still
+run for every program. Keying units before the middle end is the fix
+(proposal 2).
+
+**A syscall per unit is expensive on macOS.** Each costs tens of thousands of
+instructions. Linking a cached unit took a `stat` and a `getxattr` to confirm
+the entry's length, and reading or writing one opened the file once for the
+bytes and again, by path, for the tag. Now one `stat` answers the link, and
+`fgetxattr` and `fsetxattr` work on the file already open. In-process link
+instructions fell from about 1.0 G to 0.37 G on `full` and from 1.95 G to
+0.79 G on `monorepo`. Linux syscalls are cheaper, and the gate's dev codegen
+moved only 0.1%.
+
+**What one macOS link costs before it reads an object.** About 450 to 520 M
+instructions, in three parts:
+
+- `ld64.lld` starting up: 143 M, mostly `libLLVM.dylib`'s static initializers.
+- Parsing libSystem's `.tbd` stubs: 176 M.
+- The runtime archive: 130 M. Every link pulls the same 75 members, 14.8 MB,
+  because the runtime builds with `codegen-units = 1` and each member is big.
+
 ## Proposals
 
 Ranked by CPU saved per unit of complexity. Savings are of the cold builds
@@ -269,19 +294,26 @@ above.
 1. **Make codegen units the same across programs.** Done: 15% of dev CPU and
    76% of release; see
    [Sharing codegen across programs](#sharing-codegen-across-programs).
-2. **Hash unit keys from the IR, not from its text.** About 4% of dev, 0.3 s
+2. **Key units before the middle end.** Up to a third of dev codegen on
+   `full`. Evidence: units come back from the cache only after `monomorphize`
+   and the middle end ran for that program, and those two repeat for every one
+   of the 12 programs. Key each unit from the lowered, pre-middle IR of the
+   functions it holds, and skip the middle end for units the cache has. Risk:
+   high; `inline` and `dce` cross unit boundaries, so a key has to cover every
+   body the middle end may pull in.
+3. **Hash unit keys from the IR, not from its text.** About 4% of dev, 0.3 s
    in release. Evidence: `unit_hashes` is 0.32 s, and formatting
    (`render_func_into`, `fmt::write`, `Layout`'s `Debug`) is most of it.
    Feed a streaming hasher from each function as `lower_one` builds it, and
    hash layouts by field rather than by `Debug` string. Risk: low; the hash
    must spell types by module path, not `TyConId`, as §6.97 requires. It takes
    the text renderer out of the build; tests keep using it.
-3. **Write a program's objects as one cache entry.** Up to 5% of dev. Evidence:
-   0.54 s goes to one open, write, `setxattr` and rename per unit, 3,231 times.
+4. **Write a program's objects as one cache entry.** Up to 5% of dev. Evidence:
+   0.54 s goes to one open, write, `fsetxattr` and rename per unit, 3,231 times.
    Write one pack per program with an index of unit keys, and keep reading per
    unit. Risk: medium; the cache layout, `buri clean` and the cache's own
    tests change.
-4. **Instantiate while copying.** About 1.5% of dev. Evidence: `monomorphize`
+5. **Instantiate while copying.** About 1.5% of dev. Evidence: `monomorphize`
    clones each body whole (24% of the pass) and then walks the copy to
    substitute (60%). One walk that builds the substituted tree from the
    borrowed generic one does both. Risk: medium; `rewrite` is large, and
@@ -311,7 +343,7 @@ Not worth proposing:
   traversal. The six small passes together are 2.4%.
 - **An arena for the typed tree.** §6.52 measured it at 3–4% after the
   allocator change, under its 5% bar. Clones and drops of typed trees are still
-  about 5% of dev here, so it may be worth measuring again once proposal 4
+  about 5% of dev here, so it may be worth measuring again once proposal 5
   removes the biggest clone.
 - **A lower `-O` for release.** The release backend stays at `default<O2>`.
 - **A flat libSystem stub for macOS links.** `ld64.lld` spends much of a link
@@ -384,7 +416,7 @@ Each of these is fixed except the partition.
 - **The partition is per program and module**, so a unit's key covers every
   function the program reaches in that module.
 
-The rendered text in the key costs time (proposal 2), but it doesn't stop
+The rendered text in the key costs time (proposal 3), but it doesn't stop
 matches: it's built from content, not from ids.
 
 ### The real saving

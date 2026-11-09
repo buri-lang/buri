@@ -313,10 +313,19 @@ impl Cache {
     /// [`Cache::get`] for an entry [`Cache::put_checked`] stored, or `None`
     /// when its bytes are no longer the ones stored, as a crash or a full disk
     /// can leave them. The caller then rebuilds it, as for a miss.
+    ///
+    /// Read through one open file: the tag off the descriptor rather than the
+    /// path, and exactly the length the file has, so a hit walks the path once
+    /// and asks for no read past the end. An entry arrives by `rename`, so the
+    /// file opened keeps that length.
     pub fn get_checked(&self, key: &ActionKey) -> Option<Vec<u8>> {
-        let path = self.path(key);
-        let bytes = std::fs::read(&path).ok()?;
-        match tag::get(&path) {
+        use std::io::Read as _;
+        let mut file = std::fs::File::open(self.path(key)).ok()?;
+        let tag = tag::get_open(&file);
+        let len = usize::try_from(file.metadata().ok()?.len()).ok()?;
+        let mut bytes = vec![0; len];
+        file.read_exact(&mut bytes).ok()?;
+        match tag {
             Some(tag) if tag != tag::of(&bytes) => None,
             _ => Some(bytes),
         }
@@ -374,18 +383,24 @@ impl Cache {
     }
 
     fn put_tagged(&self, key: &ActionKey, data: &[u8], tag: &[u8]) {
+        use std::io::Write as _;
         let p = self.path(key);
         let tmp = p.with_extension(temporary_extension());
+        // Tagged through the open file rather than by path, so a store walks
+        // the path once to make the file and once to rename it.
+        let write = || {
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(data)?;
+            tag::set_open(&file, tag);
+            Ok::<(), std::io::Error>(())
+        };
         // The entry's directory is made only when the write finds it missing.
-        let stored = std::fs::write(&tmp, data)
+        let stored = write()
             .or_else(|_| {
                 crate::build::create_parent(&p);
-                std::fs::write(&tmp, data)
+                write()
             })
-            .and_then(|()| {
-                tag::set(&tmp, tag);
-                std::fs::rename(&tmp, &p)
-            });
+            .and_then(|()| std::fs::rename(&tmp, &p));
         // The temporary is left only by a failure.
         let _ = stored.or_else(|_| std::fs::remove_file(&tmp));
     }
@@ -453,6 +468,7 @@ impl Cache {
 mod tag {
     use std::ffi::{c_char, CString};
     use std::hash::Hasher as _;
+    use std::os::fd::AsRawFd as _;
     use std::os::unix::ffi::OsStrExt as _;
     use std::path::Path;
 
@@ -476,6 +492,41 @@ mod tag {
             // SAFETY: two NUL-terminated strings and a buffer of the length given.
             unsafe { setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0) }
         });
+    }
+
+    /// Tags an open file, best effort.
+    pub fn set_open(file: &std::fs::File, tag: &[u8]) {
+        // SAFETY: an open descriptor, a NUL-terminated string and a buffer of
+        // the length given.
+        unsafe {
+            fsetxattr(
+                file.as_raw_fd(),
+                NAME.as_ptr(),
+                tag.as_ptr(),
+                tag.len(),
+                0,
+                0,
+            )
+        };
+    }
+
+    /// The tag on an open file, if it has one.
+    pub fn get_open(file: &std::fs::File) -> Option<Vec<u8>> {
+        let mut tag = vec![0; 16];
+        // SAFETY: an open descriptor, a NUL-terminated string and a buffer of
+        // the length given.
+        let n = unsafe {
+            fgetxattr(
+                file.as_raw_fd(),
+                NAME.as_ptr(),
+                tag.as_mut_ptr(),
+                tag.len(),
+                0,
+                0,
+            )
+        };
+        tag.truncate(usize::try_from(n).ok()?);
+        Some(tag)
     }
 
     /// The tag on the file at `path`, if it has one.
@@ -516,6 +567,22 @@ mod tag {
             at: u32,
             opt: i32,
         ) -> isize;
+        fn fsetxattr(
+            fd: i32,
+            name: *const c_char,
+            value: *const u8,
+            size: usize,
+            at: u32,
+            opt: i32,
+        ) -> i32;
+        fn fgetxattr(
+            fd: i32,
+            name: *const c_char,
+            value: *mut u8,
+            size: usize,
+            at: u32,
+            opt: i32,
+        ) -> isize;
     }
 
     #[cfg(target_os = "linux")]
@@ -535,6 +602,16 @@ mod tag {
             value: *mut u8,
             size: usize,
         ) -> isize;
+        #[link_name = "fsetxattr"]
+        fn linux_fsetxattr(
+            fd: i32,
+            name: *const c_char,
+            value: *const u8,
+            size: usize,
+            flags: i32,
+        ) -> i32;
+        #[link_name = "fgetxattr"]
+        fn linux_fgetxattr(fd: i32, name: *const c_char, value: *mut u8, size: usize) -> isize;
     }
 
     /// Linux's, which take no position or options, called as macOS's are.
@@ -562,6 +639,32 @@ mod tag {
     ) -> isize {
         // SAFETY: the caller's arguments, passed on.
         unsafe { linux_getxattr(path, name, value, size) }
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe fn fsetxattr(
+        fd: i32,
+        name: *const c_char,
+        value: *const u8,
+        size: usize,
+        _: u32,
+        _: i32,
+    ) -> i32 {
+        // SAFETY: the caller's arguments, passed on.
+        unsafe { linux_fsetxattr(fd, name, value, size, 0) }
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe fn fgetxattr(
+        fd: i32,
+        name: *const c_char,
+        value: *mut u8,
+        size: usize,
+        _: u32,
+        _: i32,
+    ) -> isize {
+        // SAFETY: the caller's arguments, passed on.
+        unsafe { linux_fgetxattr(fd, name, value, size) }
     }
 }
 

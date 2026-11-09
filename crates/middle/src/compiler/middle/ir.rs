@@ -2138,7 +2138,9 @@ impl Program {
         self.ty_into(func.sig.ret, out);
         let code = match &func.body {
             Body::Runtime(r) => {
-                let _ = writeln!(out, " = runtime {:?}", self.runtime(r.key));
+                out.push_str(" = runtime ");
+                quoted(out, self.runtime(r.key));
+                out.push('\n');
                 return;
             }
             Body::Code(c) => c,
@@ -2381,7 +2383,8 @@ impl Program {
                 dest: d, key, args, ..
             } => {
                 dest(out, d);
-                let _ = write!(out, "intrinsic {:?}", self.intrinsic(*key));
+                out.push_str("intrinsic ");
+                quoted(out, self.intrinsic(*key));
                 wrapped(out, args);
             }
             Inst::Parallel(p) => {
@@ -2414,7 +2417,8 @@ impl Program {
                 value(out, *v);
             }
             Inst::Abort { message } => {
-                let _ = write!(out, "abort {message:?}");
+                out.push_str("abort ");
+                quoted(out, message);
             }
         }
     }
@@ -2438,6 +2442,21 @@ fn num(out: &mut String, mut n: u64) {
     }
     for b in buf.get(at..).unwrap_or_default() {
         out.push(char::from(*b));
+    }
+}
+
+/// `s` as `{s:?}` spells it, without going through `fmt` for the text that
+/// needs no escape: printable ASCII but a quote or a backslash, which is what
+/// almost every key and string in a program is.
+fn quoted(out: &mut String, s: &str) {
+    if s.bytes()
+        .all(|b| (b' '..=b'~').contains(&b) && b != b'"' && b != b'\\')
+    {
+        out.push('"');
+        out.push_str(s);
+        out.push('"');
+    } else {
+        let _ = write!(out, "{s:?}");
     }
 }
 
@@ -2536,9 +2555,7 @@ fn constant_into(c: &Const, out: &mut String) {
         Const::Float(v) => {
             let _ = write!(out, "{v:?}");
         }
-        Const::Str(s) => {
-            let _ = write!(out, "{s:?}");
-        }
+        Const::Str(s) => quoted(out, s),
         Const::Char(c) => {
             let _ = write!(out, "{c:?}");
         }
@@ -2773,5 +2790,28 @@ mod tests {
             report.contains("m:add: b0 continues after an abort"),
             "{report}"
         );
+    }
+
+    /// A unit key hashes this text, so the shortcut must spell every string
+    /// exactly as `{:?}` does.
+    #[test]
+    fn a_quoted_string_is_spelled_as_debug_spells_it() {
+        for s in [
+            "",
+            "list.get",
+            "a b~",
+            "say \"hi\"",
+            "back\\slash",
+            "tab\there",
+            "nl\n",
+            "\u{7f}",
+            "é",
+            "\u{301}e",
+            "it's",
+        ] {
+            let mut out = String::new();
+            quoted(&mut out, s);
+            assert_eq!(out, format!("{s:?}"));
+        }
     }
 }

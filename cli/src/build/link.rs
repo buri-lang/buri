@@ -2032,14 +2032,18 @@ impl CDriver {
                 // the cache has not already paid for, and a cold link makes no
                 // hard link per object (about 0.3 ms each on APFS). The length is
                 // checked because the entry is named by the unit's key, and the
-                // bytes in hand are what this link is of.
+                // bytes in hand are what this link is of. That check is the
+                // whole of what `Cache::entry` adds, against the stored length
+                // rather than the length in hand, so one `stat` answers both
+                // and the entry's tag is not read again.
                 let entry = self
                     .store
                     .as_ref()
                     .zip(unit.key.as_ref())
-                    .and_then(|(cache, key)| cache.entry(key))
+                    .map(|(cache, key)| cache.path(key))
                     .filter(|e| {
-                        std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64)
+                        std::fs::metadata(e)
+                            .is_ok_and(|m| m.is_file() && m.len() == unit.bytes.len() as u64)
                     });
                 if let Some(entry) = entry {
                     return Ok(entry);
