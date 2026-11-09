@@ -38,7 +38,7 @@ pub struct Output {
     pub roots: Vec<String>,
     pub missing_intrinsics: Vec<String>,
     /// The function values the page asks for an answer at once but which
-    /// wait ([`park::answers_too_late`]). Empty in every chunk.
+    /// wait ([`Parking::waits`]). Empty in every chunk.
     pub waits: Vec<crate::diagnostics::Span>,
     /// The chunks `core/lazy` split out, in the order `middle::chunks`
     /// numbered them. Empty for nearly every program.
@@ -380,14 +380,8 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
 }
 
 pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
-    let (sharing, parking) = analyses(program);
-    // A program with no `ui/node` writes no user interface for a row to wait in.
-    let waits = match program.shapes.node.map(|node| tables.tycon(node).module) {
-        Some(tree) => {
-            park::answers_too_late(program, |con| tables.tycon(con).module == tree, &parking)
-        }
-        None => Vec::new(),
-    };
+    let (sharing, mut parking) = analyses(program, tables);
+    let waits = std::mem::take(&mut parking.waits);
     let mut g = Gen::over(program, tables, profile, &sharing);
     g.parking = Some(&parking);
 
@@ -629,19 +623,18 @@ fn defined_functions<'p>(
         .map(|(_, f)| f.symbol.as_str())
         .collect();
     let mut intrinsics: HashSet<&str> = HashSet::default();
+    let mut out = Vec::with_capacity(program.funcs.len());
     // `rc::analyze` plans each function in `program.funcs` order.
-    program
-        .funcs
-        .entries()
-        .zip(&sharing.funcs)
-        .filter(|((_, f), _)| {
-            !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol)
-        })
-        .flat_map(|((fi, f), plan)| {
-            let twin = twins.contains(f.symbol.as_str());
-            std::iter::once((fi, f, plan, false)).chain(twin.then_some((fi, f, plan, true)))
-        })
-        .collect()
+    for ((fi, f), plan) in program.funcs.entries().zip(&sharing.funcs) {
+        if matches!(f.kind, FuncKind::Intrinsic(_)) && !intrinsics.insert(&f.symbol) {
+            continue;
+        }
+        out.push((fi, f, plan, false));
+        if !twins.is_empty() && twins.contains(f.symbol.as_str()) {
+            out.push((fi, f, plan, true));
+        }
+    }
+    out
 }
 
 /// The name of a slot's plain twin: the body a call enters when none of its
@@ -658,22 +651,30 @@ const TWIN: &str = "$sync";
 ///
 /// Neither reads the other, so the column is worked out on a thread of its own
 /// beside the plan.
-fn analyses(program: &Program) -> (rc::Plan, Parking) {
+fn analyses(program: &Program, tables: &Tables) -> (rc::Plan, Parking) {
+    // A program with no `ui/node` writes no user interface for a row to wait
+    // in.
+    let tree = program.shapes.node.map(|node| tables.tycon(node).module);
+    let parkability = || {
+        park::parkability(program, |con| {
+            tree.is_some_and(|tree| tables.tycon(con).module == tree)
+        })
+    };
     if !javascript::worth_workers(program.funcs.len()) {
-        return (rc::sharing(program), park::parkability(program));
+        return (rc::sharing(program), parkability());
     }
     std::thread::scope(|scope| {
         let parking = std::thread::Builder::new()
             .name("buri-worker".into())
             .stack_size(crate::parallel::STACK)
-            .spawn_scoped(scope, || park::parkability(program));
+            .spawn_scoped(scope, parkability);
         let sharing = rc::sharing(program);
         // No thread to be had, or one that did not finish, is the column
         // worked out here instead.
         let parking = parking
             .ok()
             .and_then(|worker| worker.join().ok())
-            .unwrap_or_else(|| park::parkability(program));
+            .unwrap_or_else(parkability);
         (sharing, parking)
     })
 }

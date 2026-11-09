@@ -75,7 +75,11 @@ const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
 // callee of every `CallFunc` already a `FuncIdx`.
 
 fn parked(program: &Program) -> Vec<bool> {
-    parkability(program).parks.iter().copied().collect()
+    parkability(program, |_| false)
+        .parks
+        .iter()
+        .copied()
+        .collect()
 }
 
 fn intrinsic_func(name: &str, key: &str) -> Func {
@@ -379,7 +383,7 @@ fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
 #[test]
 fn a_map_shaped_wrapper_cannot_park_and_a_map_ctx_shaped_one_may() {
     let program = compile(PRECISION);
-    let parking = parkability(&program);
+    let parking = parkability(&program, |_| false);
     let park = |name: &str| parking.parks(find(&program, name));
     assert!(
         !park("applyN"),
@@ -432,7 +436,7 @@ fn the_parking_count_of_a_representative_program_is_a_golden() {
 #[test]
 fn every_parking_function_value_takes_something_effect_carrying() {
     let program = compile(PRECISION);
-    let parking = parkability(&program);
+    let parking = parkability(&program, |_| false);
     let loose: Vec<String> = parking
         .parking_types
         .iter()
@@ -494,7 +498,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 "#;
     let program = compile(src);
-    let parking = parkability(&program);
+    let parking = parkability(&program, |_| false);
     assert!(
         !parking.parks(find(&program, "double")),
         "multiplication waits on nothing"

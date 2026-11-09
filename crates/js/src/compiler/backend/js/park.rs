@@ -237,6 +237,9 @@ pub struct Parking {
     /// The struct fields, by struct type and field index, that some literal
     /// or update writes a parking function value into.
     parking_fields: HashSet<(Ty, usize)>,
+    /// The function values the page asks for an answer at once but which
+    /// wait ([`answers_too_late`]).
+    pub waits: Vec<Span>,
     /// [`monomorphize::Program::shapes`]'s effect table, so rule 1 above can be
     /// asked without a `Tables`.
     pub effects: monomorphize::Effects,
@@ -285,7 +288,17 @@ impl Parking {
     /// A call with a parking function value among its arguments enters the
     /// `async` body; every other call enters the sync one, which is the twin
     /// where the two differ and the one body where they do not.
+    ///
+    /// A callee that never parks answers without reading the arguments: its
+    /// sync row is never above its own (see [`parkability`]), so both bodies
+    /// are the one plain body.
     pub fn call(&self, at: In, callee: FuncIdx, args: &[Expr]) -> Call {
+        if !self.parks(callee) {
+            return Call {
+                parks: false,
+                twin: false,
+            };
+        }
         let handed = args
             .iter()
             .any(|a| is_fn_ty(&a.ty) && self.value_parks(at, a));
@@ -420,56 +433,6 @@ fn is_fn_ty(t: &Ty) -> bool {
     matches!(t.kind(), TyKind::Fn(..))
 }
 
-/// The `let`s of one body that bind a single name to a single function value.
-///
-/// A destructuring pattern is deliberately not one: the local it binds stays
-/// unresolved, and an unresolved fn-typed local is worth what
-/// [`Parking::unfollowed`] says of its type.
-fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
-    let mut out = Vec::new();
-    typed::walk(body, &mut |e| {
-        let ExprKind::Block { stmts, .. } = &e.kind else {
-            return;
-        };
-        for s in stmts {
-            let Stmt::Let { pattern, value, .. } = s else {
-                continue;
-            };
-            let typed::PatKind::Bind { local, sub: None } = &pattern.kind else {
-                continue;
-            };
-            if is_fn_ty(&value.ty) {
-                out.push((*local, value));
-            }
-        }
-    });
-    out
-}
-
-/// The function slots whose **address is taken**: named by an `FuncRef` or a
-/// `Closure` rather than called.
-///
-/// One of these can be called from a position no `CallFunc` names, so nothing can
-/// be proved about what its parameters hold. Every other slot receives
-/// arguments only where this pass can see them.
-fn address_taken(program: &Program) -> Dense<FuncIdx, bool> {
-    let mut out = program.funcs.map(|_| false);
-    for f in &program.funcs {
-        let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| {
-            let taken = match &e.kind {
-                ExprKind::FuncRef(c) => Some(*c),
-                ExprKind::Closure { func, .. } => Some(*func),
-                _ => None,
-            };
-            if let Some(i) = taken {
-                *out.get_mut(i) = true;
-            }
-        });
-    }
-    out
-}
-
 /// A set of one function's locals, one bit per [`LocalId`]: dense, because a
 /// function's locals are numbered from zero.
 #[derive(Clone, Debug, Default)]
@@ -509,8 +472,9 @@ fn sync(slot: FuncIdx) -> In {
     In { slot, sync: true }
 }
 
-/// [`Parking`], computed.
-pub fn parkability(program: &Program) -> Parking {
+/// [`Parking`], computed. `tree` names the type constructors of the
+/// user interface tree the page reads, for [`Parking::waits`].
+pub fn parkability(program: &Program, tree: impl Fn(TyConId) -> bool) -> Parking {
     let mut w = Parking {
         // An unbuilt body is lowered to an abort, which is the one thing that
         // certainly does not wait, so only a suspending intrinsic seeds `true`.
@@ -540,18 +504,94 @@ pub fn parkability(program: &Program) -> Parking {
         }),
         parking_types: HashSet::default(),
         parking_fields: HashSet::default(),
+        waits: Vec::new(),
         effects: program.shapes.effects.clone(),
     };
     // The sync row starts from the same seed: what a key waits on is its own.
     w.parks_sync = w.parks.clone();
 
-    // What can be followed, decided once: the tree does not move.
-    let addressed = address_taken(program);
-    let lets: Dense<FuncIdx, Vec<(LocalId, &Expr)>> = program
-        .funcs
-        .iter()
-        .map(|f| f.body().map(fn_lets).unwrap_or_default())
-        .collect();
+    // One walk of every body collects what the loop below reads, none of
+    // which moves:
+    //
+    // - arguments, with the parameters they are bound to;
+    // - every node that *is* a function value — an `FuncRef`, a `Closure` or
+    //   a `Lambda` — with the slot it is written in;
+    // - what a struct literal or update writes into each field of function
+    //   type, with the struct's type and the field's index;
+    // - every value written into a `tree` value, for [`answers_too_late`];
+    // - the slots whose **address is taken**: named by an `FuncRef` or a
+    //   `Closure` rather than called. One of these can be called from a
+    //   position no `CallFunc` names, so nothing can be proved about what its
+    //   parameters hold. Every other slot receives arguments only where this
+    //   pass can see them;
+    // - each body's `let`s that bind a single name to a single function
+    //   value. A destructuring pattern is deliberately not one: the local it
+    //   binds stays unresolved, and an unresolved fn-typed local is worth
+    //   what [`Parking::unfollowed`] says of its type.
+    let mut edges: Vec<(FuncIdx, FuncIdx, &Vec<Expr>)> = Vec::new();
+    let mut values: Vec<(FuncIdx, &Expr)> = Vec::new();
+    let mut writes: Vec<(FuncIdx, (Ty, usize), &Expr)> = Vec::new();
+    let mut written: Vec<(FuncIdx, &Expr)> = Vec::new();
+    let mut addressed = program.funcs.map(|_| false);
+    let mut lets: Lets = program.funcs.map(|_| Vec::new());
+    for (i, f) in program.funcs.entries() {
+        let Some(body) = f.body() else { continue };
+        let mut binds = Vec::new();
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::StructLit { con, fields, .. } => {
+                if tree(*con) {
+                    written.extend(fields.iter().map(|v| (i, v)));
+                }
+                for (k, v) in fields.iter().enumerate() {
+                    if is_fn_ty(&v.ty) {
+                        writes.push((i, (e.ty, k), v));
+                    }
+                }
+            }
+            ExprKind::StructUpdate { con, updates, .. } => {
+                if tree(*con) {
+                    written.extend(updates.iter().map(|(_, v)| (i, v)));
+                }
+                for (k, v) in updates {
+                    if is_fn_ty(&v.ty) {
+                        writes.push((i, (e.ty, k.index()), v));
+                    }
+                }
+            }
+            ExprKind::EnumLit { con, args, .. } if tree(*con) => {
+                written.extend(args.iter().map(|v| (i, v)));
+            }
+            ExprKind::CallFunc { func, args } => edges.push((*func, i, args)),
+            // A `Continue` rebinds the parameters of the function it enters, in
+            // order — the dispatch index the backend prepends is not one of
+            // them.
+            ExprKind::Continue { func, args, .. } => {
+                edges.push((func.unwrap_or(i), i, args));
+            }
+            ExprKind::FuncRef(c) | ExprKind::Closure { func: c, .. } => {
+                *addressed.get_mut(*c) = true;
+                values.push((i, e));
+            }
+            ExprKind::Lambda { .. } => values.push((i, e)),
+            ExprKind::Block { stmts, .. } => {
+                for s in stmts {
+                    let Stmt::Let { pattern, value, .. } = s else {
+                        continue;
+                    };
+                    let typed::PatKind::Bind { local, sub: None } = &pattern.kind else {
+                        continue;
+                    };
+                    if is_fn_ty(&value.ty) {
+                        binds.push((*local, value));
+                    }
+                }
+            }
+            _ => {}
+        });
+        *lets.get_mut(i) = binds;
+    }
+
+    // What can be followed, decided once.
     for (((f, slot), addressed), lets) in program
         .funcs
         .iter()
@@ -567,41 +607,6 @@ pub fn parkability(program: &Program) -> Parking {
         for (local, _) in lets {
             slot.insert(*local);
         }
-    }
-
-    // Arguments, into the parameters they are bound to, and every node that
-    // *is* a function value — an `FuncRef`, a `Closure` or a `Lambda` — with the
-    // slot it is written in. Both are read every round and neither moves.
-    // And what a struct literal or update writes into each field, with the
-    // struct's type and the field's index.
-    let mut edges: Vec<(FuncIdx, FuncIdx, &Vec<Expr>)> = Vec::new();
-    let mut values: Vec<(FuncIdx, &Expr)> = Vec::new();
-    let mut writes: Vec<(FuncIdx, (Ty, usize), &Expr)> = Vec::new();
-    for (i, f) in program.funcs.entries() {
-        let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::StructLit { fields, .. } => {
-                for (k, v) in fields.iter().enumerate() {
-                    writes.push((i, (e.ty, k), v));
-                }
-            }
-            ExprKind::StructUpdate { updates, .. } => {
-                for (k, v) in updates {
-                    writes.push((i, (e.ty, k.index()), v));
-                }
-            }
-            ExprKind::CallFunc { func, args } => edges.push((*func, i, args)),
-            // A `Continue` rebinds the parameters of the function it enters, in
-            // order — the dispatch index the backend prepends is not one of
-            // them.
-            ExprKind::Continue { func, args, .. } => {
-                edges.push((func.unwrap_or(i), i, args));
-            }
-            ExprKind::FuncRef(_) | ExprKind::Closure { .. } | ExprKind::Lambda { .. } => {
-                values.push((i, e));
-            }
-            _ => {}
-        });
     }
 
     // Monotone in every column — a row only ever climbs — so the loop
@@ -623,10 +628,15 @@ pub fn parkability(program: &Program) -> Parking {
             }
         }
 
-        // The `let`s that hold one, in both bodies.
+        // The `let`s that hold one, in both bodies. The sync body sees no
+        // more parking values than the `async` one, so a `let` that does not
+        // park there does not park in the sync body either.
         for (i, binds) in lets.entries() {
             for (local, value) in binds {
-                if w.value_parks(full(i), value) && w.parking.get_mut(i).insert(*local) {
+                if !w.value_parks(full(i), value) {
+                    continue;
+                }
+                if w.parking.get_mut(i).insert(*local) {
                     changed = true;
                 }
                 if w.value_parks(sync(i), value) && w.parking_sync.get_mut(i).insert(*local) {
@@ -656,7 +666,7 @@ pub fn parkability(program: &Program) -> Parking {
             }
         }
         for &(i, key, v) in &writes {
-            if is_fn_ty(&v.ty) && w.value_parks(full(i), v) && w.parking_fields.insert(key) {
+            if w.value_parks(full(i), v) && w.parking_fields.insert(key) {
                 changed = true;
             }
         }
@@ -665,9 +675,15 @@ pub fn parkability(program: &Program) -> Parking {
         // has no body and is never reached here; one with a body starts at
         // `false` and only ever climbs, so the seed is not lost.
         for (i, f) in program.funcs.entries() {
+            if !*w.parks.get(i) && parks_here(&w, i, f) {
+                *w.parks.get_mut(i) = true;
+                changed = true;
+            }
             // The sync body, where no parameter parks: a combinator that runs
-            // a step is only its own seed there.
-            if !*w.parks_sync.get(i) {
+            // a step is only its own seed there. It sees no more parking
+            // values than the `async` body, so it is asked only once that one
+            // parks, and the sync row never rises above the other.
+            if *w.parks.get(i) && !*w.parks_sync.get(i) {
                 if let FuncKind::Body(body) = &f.kind {
                     if w.body_parks(sync(i), body) {
                         *w.parks_sync.get_mut(i) = true;
@@ -675,37 +691,35 @@ pub fn parkability(program: &Program) -> Parking {
                     }
                 }
             }
-            if *w.parks.get(i) {
-                continue;
-            }
-            // A combinator that **runs a step it was handed the context for**
-            // waits exactly when that step waits, and no seed can say which:
-            // `list.mapCtx` over a rendering is a loop, and over a socket dial
-            // it is a wait. So the answer is read off the argument edges the
-            // loop above already walked — the step that actually arrived at
-            // this instantiation — and a key with a parking step joins the
-            // column beside the keys whose wait is their own.
-            //
-            // Per instantiation, so `mapCtx` at one element type does not
-            // colour `mapCtx` at another. Two call sites that share an
-            // instantiation and disagree do not share the answer: the one
-            // whose step does not park calls the plain twin, whose sync row is
-            // the seed alone (see "The call site").
-            let parks = match &f.kind {
-                FuncKind::Intrinsic(key) => {
-                    intrinsic_keys::ctx_step_key(key)
-                        && f.params.iter().any(|p| w.parking.get(i).contains(*p))
-                }
-                FuncKind::Body(body) => w.body_parks(full(i), body),
-                FuncKind::Unbuilt => false,
-            };
-            if parks {
-                *w.parks.get_mut(i) = true;
-                changed = true;
-            }
         }
     }
+    w.waits = answers_too_late(program, written, &edges, &lets, &w);
     w
+}
+
+/// Whether the `async` body of slot `i`, `f`, parks as [`parkability`] has
+/// it so far.
+fn parks_here(w: &Parking, i: FuncIdx, f: &monomorphize::Func) -> bool {
+    // A combinator that **runs a step it was handed the context for** waits
+    // exactly when that step waits, and no seed can say which: `list.mapCtx`
+    // over a rendering is a loop, and over a socket dial it is a wait. So the
+    // answer is read off the argument edges the loop already walked — the step
+    // that actually arrived at this instantiation — and a key with a parking
+    // step joins the column beside the keys whose wait is their own.
+    //
+    // Per instantiation, so `mapCtx` at one element type does not colour
+    // `mapCtx` at another. Two call sites that share an instantiation and
+    // disagree do not share the answer: the one whose step does not park
+    // calls the plain twin, whose sync row is the seed alone (see "The call
+    // site").
+    match &f.kind {
+        FuncKind::Intrinsic(key) => {
+            intrinsic_keys::ctx_step_key(key)
+                && f.params.iter().any(|p| w.parking.get(i).contains(*p))
+        }
+        FuncKind::Body(body) => w.body_parks(full(i), body),
+        FuncKind::Unbuilt => false,
+    }
 }
 
 /// The function values the page asks for an answer at once but which wait,
@@ -731,36 +745,20 @@ pub fn parkability(program: &Program) -> Parking {
 /// only when a caller hands it one that waits. So the blame follows that
 /// argument back, through every function that only passed it on, to the
 /// function value that waits itself.
-pub fn answers_too_late(
-    program: &Program,
-    tree: impl Fn(TyConId) -> bool,
+fn answers_too_late<'p>(
+    program: &'p Program,
+    written: Vec<(FuncIdx, &'p Expr)>,
+    edges: &[(FuncIdx, FuncIdx, &'p Vec<Expr>)],
+    lets: &Lets<'p>,
     w: &Parking,
 ) -> Vec<Span> {
     let answers = |t: Ty| match t.kind() {
         TyKind::Fn(_, ret) => *ret.kind() != TyKind::Unit && w.effects.fn_takes_effect(&t),
         _ => false,
     };
-    let mut written: Vec<(FuncIdx, &Expr)> = Vec::new();
-    for (i, f) in program.funcs.entries() {
-        let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::StructLit {
-                con,
-                fields: values,
-                ..
-            }
-            | ExprKind::EnumLit {
-                con, args: values, ..
-            } if tree(*con) => written.extend(values.iter().map(|v| (i, v))),
-            ExprKind::StructUpdate { con, updates, .. } if tree(*con) => {
-                written.extend(updates.iter().map(|(_, v)| (i, v)));
-            }
-            _ => {}
-        });
-    }
-    // The callers and lets only matter to a value that waits, which almost
-    // no program writes, so they are built when the first one turns up.
-    let mut searched: Option<(Callers, Lets)> = None;
+    // The callers only matter to a value that waits, which almost no program
+    // writes, so they are built when the first one turns up.
+    let mut searched: Option<Callers> = None;
     let mut blamed = Vec::new();
     for (i, v) in written {
         // An optional handler is asked about through the `.Some` that holds
@@ -790,24 +788,12 @@ pub fn answers_too_late(
         if !answers(v.ty) || !w.value_parks(full(i), v) {
             continue;
         }
-        let (callers, lets) = searched.get_or_insert_with(|| {
+        let callers = searched.get_or_insert_with(|| {
             let mut callers: Callers = program.funcs.map(|_| Vec::new());
-            for (i, f) in program.funcs.entries() {
-                let Some(body) = f.body() else { continue };
-                typed::walk(body, &mut |e| match &e.kind {
-                    ExprKind::CallFunc { func, args } => callers.get_mut(*func).push((i, args)),
-                    ExprKind::Continue { func, args, .. } => {
-                        callers.get_mut(func.unwrap_or(i)).push((i, args));
-                    }
-                    _ => {}
-                });
+            for &(target, from, args) in edges {
+                callers.get_mut(target).push((from, args));
             }
-            let lets = program
-                .funcs
-                .iter()
-                .map(|f| f.body().map(fn_lets).unwrap_or_default())
-                .collect();
-            (callers, lets)
+            callers
         });
         let mut blame = Blame {
             program,
@@ -826,7 +812,7 @@ pub fn answers_too_late(
 
 /// Each function's calls to it, with their arguments.
 type Callers<'p> = Dense<FuncIdx, Vec<(FuncIdx, &'p Vec<Expr>)>>;
-/// Each function's `let`s of a function value.
+/// Each function's `let`s of a single name to a single function value.
 type Lets<'p> = Dense<FuncIdx, Vec<(LocalId, &'p Expr)>>;
 
 /// [`answers_too_late`]'s search for the function values to blame.
