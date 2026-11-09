@@ -691,9 +691,14 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
         });
     }
 
-    let lowered = checked(run_with(&program, &analysis.checked.tables, &plan, &|_| {
-        true
-    }));
+    let units = crate::compiler::middle::lower::units(&program);
+    let lowered = checked(run_with(
+        &program,
+        &analysis.checked.tables,
+        &plan,
+        units,
+        &|_| true,
+    ));
     let f = lowered
         .funcs
         .iter()

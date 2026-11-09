@@ -1748,6 +1748,7 @@ impl Program {
 }
 
 /// One codegen unit (ARCHITECTURE.md §5).
+#[derive(Clone)]
 pub struct Unit {
     pub name: String,
     /// The index of every function the unit owns, ascending — exactly the

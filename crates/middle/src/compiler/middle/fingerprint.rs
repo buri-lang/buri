@@ -24,7 +24,7 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::middle::{ir, rc};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{
-    ArrayRest, Expr, ExprKind, NumberLit, PatKind, Pattern, Stmt, TemplatePart,
+    ArrayRest, Expr, ExprKind, Local, NumberLit, PatKind, Pattern, Stmt, TemplatePart,
 };
 use crate::compiler::semantics::types::{FuncIdx, Ty};
 use std::hash::Hash as _;
@@ -183,19 +183,28 @@ fn func(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, i: FuncIdx, f: &Func) 
     h.str(debug_name);
     h.word(params.len() as u64);
     params.iter().for_each(|p| h.word(p.index() as u64));
-    h.word(locals.len() as u64);
-    for local in locals.iter() {
-        local.name.hash(h);
-        h.ty(local.ty);
-        local.span.hash(h);
-    }
     // `lower` drops the descriptor (its module docs say why), and its index
     // is the program's, so only whether there is one is hashed.
     h.word(u64::from(desc.is_some()));
     span.hash(h);
-    if let FuncKind::Body(body) = kind {
-        expr(h, summaries, body);
+    match kind {
+        FuncKind::Body(body) => {
+            h.word(locals.len() as u64);
+            locals.iter().for_each(|l| local(h, l));
+            expr(h, summaries, body);
+        }
+        // Lowered from its parameters alone. Two programs can leave a
+        // function they don't build with different locals.
+        FuncKind::Unbuilt | FuncKind::Intrinsic(_) => {
+            params.iter().for_each(|p| local(h, locals.get(*p)));
+        }
     }
+}
+
+fn local(h: &mut Hasher, l: &Local) {
+    l.name.hash(h);
+    h.ty(l.ty);
+    l.span.hash(h);
 }
 
 fn callee(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, f: FuncIdx) {

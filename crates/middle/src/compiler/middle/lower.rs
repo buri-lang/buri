@@ -125,7 +125,7 @@ pub fn lowers(key: &str) -> bool {
 pub fn run(program: &Program, tables: &Tables) -> ir::Program {
     let mut counted = rc::Syntactic::new(program);
     let plan = rc::analyze(program, &mut counted, &rc::Options::default());
-    run_with(program, tables, &plan, &|_| true)
+    run_with(program, tables, &plan, units(program), &|_| true)
 }
 
 /// The same, against a caller's own reference-counting plan.
@@ -138,17 +138,24 @@ pub fn run(program: &Program, tables: &Tables) -> ir::Program {
 /// the same classifier both native backends build from the same `Program` — see
 /// `rc.rs`, "which types carry a count", for why it has to be.
 ///
-/// Only the bodies `built` answers true for are lowered. Every other function
-/// keeps its signature, its facts and its unit, and gets the abort body an
-/// unbuilt function gets: for a build that already has its code, and only
-/// needs it there for its callers. An intrinsic is always lowered.
+/// `units` is [`units`]'s partition of `program`. Only the bodies `built`
+/// answers true for are lowered. Every other function keeps its signature, its
+/// facts and its unit, and gets the abort body an unbuilt function gets: for a
+/// build that already has its code, and only needs it there for its callers.
+/// An intrinsic is always lowered.
 pub fn run_with(
     program: &Program,
     tables: &Tables,
     plan: &rc::Plan,
+    units: Vec<ir::Unit>,
     built: &(dyn Fn(FuncIdx) -> bool + Sync),
 ) -> ir::Program {
-    let units = Units::assign(program);
+    let mut unit_of = program.funcs.map(|_| 0);
+    for (n, unit) in units.iter().enumerate() {
+        unit.funcs
+            .iter()
+            .for_each(|&f| *unit_of.get_mut(f) = n as u32);
+    }
     // How many loop entries each function has, which is how a `Continue` into
     // another function knows whether to pass a dispatch index. Computed for
     // the whole program first because a forwarder is lowered before the merged
@@ -167,8 +174,8 @@ pub fn run_with(
         let mut keys = Keys::default();
         let body = f.body().filter(|_| built(i));
         let func = lower_one(
-            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, &mut keys, i, f,
-            body,
+            program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types, &mut keys, i,
+            f, body,
         );
         (func, types.list, keys)
     });
@@ -204,7 +211,7 @@ pub fn run_with(
 
     ir::Program {
         funcs,
-        units: units.into_units(),
+        units,
         types: types.list,
         crosses_tasks: plan.crosses_tasks,
         cell_equal: program.cell_equal.clone(),
@@ -231,7 +238,7 @@ fn lower_one(
     counts: &lists::Counts<'_>,
     cycles: &layout::Cycles,
     entries: &Dense<FuncIdx, usize>,
-    units: &Units,
+    unit_of: &Dense<FuncIdx, u32>,
     types: &mut Types,
     keys: &mut Keys,
     i: FuncIdx,
@@ -301,7 +308,7 @@ fn lower_one(
         debug_name: f.debug_name.clone(),
         env: f.env,
         sig,
-        unit: units.of(i),
+        unit: *unit_of.get(i),
         body,
         span: f.span,
     }
@@ -389,8 +396,6 @@ pub fn units(program: &Program) -> Vec<ir::Unit> {
 struct Units {
     /// Each unit by name: its number, by first appearance, and its functions.
     by_name: HashMap<String, (u32, Vec<FuncIdx>)>,
-    /// Each function's unit.
-    by_func: Dense<FuncIdx, u32>,
 }
 
 impl Units {
@@ -399,29 +404,20 @@ impl Units {
     /// the same on two builds of one commit.
     fn assign(program: &Program) -> Units {
         let mut units = Units::default();
-        let by_func = program
-            .funcs
-            .entries()
-            .map(|(i, f)| units.add(i, &f.debug_name))
-            .collect();
-        units.by_func = by_func;
+        for (i, f) in program.funcs.entries() {
+            units.add(i, &f.debug_name);
+        }
         units
     }
 
-    /// Puts function `func` in the unit its debug name names, and answers
-    /// that unit's number.
-    fn add(&mut self, func: FuncIdx, debug_name: &str) -> u32 {
+    /// Puts function `func` in the unit its debug name names.
+    fn add(&mut self, func: FuncIdx, debug_name: &str) {
         let next = self.by_name.len() as u32;
-        let (i, funcs) = self
+        let (_, funcs) = self
             .by_name
             .entry(unit_name(debug_name))
             .or_insert((next, Vec::new()));
         funcs.push(func);
-        *i
-    }
-
-    fn of(&self, func: FuncIdx) -> u32 {
-        *self.by_func.get(func)
     }
 
     /// The units, by number.

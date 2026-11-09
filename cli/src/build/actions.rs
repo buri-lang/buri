@@ -2551,7 +2551,7 @@ fn lower_unbuilt<'a>(
         }
         let built = |f: crate::compiler::semantics::types::FuncIdx| *built.get(f);
         let plan = planned.plan(program, &built);
-        let lowered = lower::run_with(program, tables, &plan, &built);
+        let lowered = lower::run_with(program, tables, &plan, units.clone(), &built);
         let keys = UnitKeys {
             base,
             entry: test_entry_signature(program, &lowered),
@@ -2598,9 +2598,8 @@ fn agrees_with_full_lowering(
     if known.iter().all(Option::is_none) {
         return;
     }
-    let full = lower::run_with(program, tables, &planned.plan(program, &|_| true), &|_| {
-        true
-    });
+    let plan = planned.plan(program, &|_| true);
+    let full = lower::run_with(program, tables, &plan, lowered.units.clone(), &|_| true);
     let none = vec![None; known.len()];
     assert_eq!(
         unit_hashes(lowered, tables, linkage, known),
