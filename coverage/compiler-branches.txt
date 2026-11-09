@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15680 15775 99.40%
-area cli/build 1697 1703 99.65%
+total 15692 15787 99.40%
+area cli/build 1705 1711 99.65%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
@@ -17,7 +17,7 @@ area crates/backend 68 68 100.00%
 area crates/diagnostics 287 288 99.65%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 1000 1024 97.66%
+area crates/js 1004 1028 97.67%
 area crates/llvm 580 580 100.00%
 area crates/middle 2317 2344 98.85%
 area crates/project 1335 1338 99.78%
@@ -31,7 +31,7 @@ area crates/syntax 1268 1268 100.00%
 94 94 cli/src/build/coverage.rs
 32 32 cli/src/build/exe_identity.rs
 142 142 cli/src/build/generators.rs
-230 230 cli/src/build/hosted.rs
+238 238 cli/src/build/hosted.rs
 30 30 cli/src/build/image.rs
 163 168 cli/src/build/link.rs
 0 0 cli/src/build/mod.rs
@@ -121,12 +121,12 @@ area crates/syntax 1268 1268 100.00%
 2 2 crates/hash/src/build/action_key.rs
 8 8 crates/hash/src/build/sha256.rs
 8 8 crates/hash/src/hash.rs
-10 10 crates/js/src/compiler/backend/js/crossing.rs
+12 12 crates/js/src/compiler/backend/js/crossing.rs
 301 304 crates/js/src/compiler/backend/js/generate.rs
 100 100 crates/js/src/compiler/backend/js/intrinsics.rs
 526 546 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
-60 60 crates/js/src/compiler/backend/js/park.rs
+62 62 crates/js/src/compiler/backend/js/park.rs
 58 58 crates/llvm/src/compiler/backend/llvm/attrs.rs
 10 10 crates/llvm/src/compiler/backend/llvm/build.rs
 430 430 crates/llvm/src/compiler/backend/llvm/emit.rs
