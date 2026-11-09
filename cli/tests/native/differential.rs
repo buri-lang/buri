@@ -10,8 +10,8 @@
 //! This file asserts it. For every package in `cli/tests/conformance/lib`:
 //!
 //! ```text
-//! test source -> monomorphize(Roots::Tests) -> prepare(Js)     -> main.mjs  -> engine  -> [ {name, ok}, ... ]
-//!             \-> monomorphize(Roots::Tests) -> prepare(native) -> objects -> cc -> a.out -> exit status + records
+//! test source -> monomorphize(Roots::Tests) -> prepare_for_js     -> main.mjs  -> engine  -> [ {name, ok}, ... ]
+//!             \-> monomorphize(Roots::Tests) -> prepare_for_native -> objects -> cc -> a.out -> exit status + records
 //! ```
 //!
 //! and the **per-block verdicts** are compared: the same number of blocks, in
@@ -172,7 +172,7 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
         platform: Platform::Js,
         arch: None,
     };
-    actions::prepare(&mut program, target);
+    actions::prepare_for_js(&mut program);
     let opts = Options {
         profile: Profile::Debug,
         target,

@@ -36,9 +36,9 @@
 //! and lowering a tree that has not been through it meets structural
 //! operations and unlifted lambdas. A caller that has not run `middle::native`
 //! therefore gets a diagnostic naming the pass rather than an object file that
-//! is quietly wrong. `actions::prepare` is where the
-//! composition lives — `middle::run`, then `middle::native` on a native
-//! target — and [`Backend::adopt_lowering`] hands this backend the
+//! is quietly wrong. `actions::prepare_for_native` is where the
+//! composition lives — `middle::run`, then `middle::native` —
+//! and [`Backend::adopt_lowering`] hands this backend the
 //! `ir::Program` the build already lowered from it.
 //!
 //! # Two things this backend deliberately does not emit

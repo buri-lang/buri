@@ -363,3 +363,87 @@ fn programs_built_together_skip_lowering_what_they_share() {
         );
     }
 }
+
+/// A native program over `//lib/shared` and the libraries in `imports` whose
+/// `main` prints `body`, an `Int`. With `fan_out`, `main` adds a parallel sum
+/// of four steps first, so the program shares counts across threads.
+fn fanning_program(imports: &str, body: &str, fan_out: bool) -> String {
+    let (effects, tasks, sum) = if fan_out {
+        (
+            "Allocator, Stdout, Tasks",
+            "from \"core/list\" import * as list;\nfrom \"core/tasks\" import * as tasks;\n",
+            "tasks.parallel(ctx, list.range(ctx, 0, 4), fn(c, i, x) => x + i)\
+             .fold(fn(a, y) => a + y, 0) + ",
+        )
+    } else {
+        ("Allocator, Stdout", "", "")
+    };
+    let tasks_field = if fan_out { ", Tasks: host.tasks" } else { "" };
+    format!(
+        "from \"platform/effect\" import {{ {effects} }};\n\
+         from \"native\" import {{ NativeHost }};\n\
+         from \"core/io\" import * as io;\n{tasks}\
+         from \"//lib/shared\" import {{ scaled, shifted }};\n{imports}\n\
+         export fn main(host: NativeHost): Result<(), Str> {{\n    \
+         let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout{tasks_field} }};\n    \
+         let _ = io.println(ctx, \"${{{sum}{body}}}\").ignore();\n    \
+         .Ok(())\n}}\n"
+    )
+}
+
+/// **A program restores the units an earlier program like it stored, and
+/// lowers the ones only a different program stored.** In one build, `//cmd/a`
+/// fans out, `//cmd/b` doesn't, and `//cmd/c` fans out. `//cmd/c` restores the
+/// units it shares with `//cmd/a`, and lowers and compiles `//lib/extra`, whose
+/// object only `//cmd/b` stored. Every executable prints the same and is byte
+/// for byte the one a build of that program alone makes.
+#[test]
+fn a_unit_only_a_different_program_stored_is_lowered_again() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::codegen_sharing", &why);
+        return;
+    }
+    let scratch = Scratch::repo("codegen-sharing-mixed");
+    let binary = format!(
+        "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{}\" }}]\n}}\n",
+        host_variant()
+    );
+    let library = "library {\n  visibility: [\"//visibility:public\"]\n}\n";
+    scratch.write("lib/shared/BUILD.buri", library);
+    scratch.write("lib/shared/lib.buri", SHARED);
+    scratch.write("lib/extra/BUILD.buri", library);
+    scratch.write(
+        "lib/extra/lib.buri",
+        "export fn mixed(k: Int, x: Int): Int {\n    (x * 7 + k) % 1013\n}\n",
+    );
+    let extra = "from \"//lib/extra\" import { mixed };\n";
+    let both = "mixed(1, mixed(2, scaled(3, scaled(1, shifted(2, 5)))))";
+    for (package, imports, body, fan_out) in [
+        ("cmd/a", "", "scaled(3, scaled(1, shifted(2, 5)))", true),
+        ("cmd/b", extra, both, false),
+        ("cmd/c", extra, both, true),
+    ] {
+        scratch.write(&format!("{package}/BUILD.buri"), &binary);
+        scratch.write(
+            &format!("{package}/main.buri"),
+            &fanning_program(imports, body, fan_out),
+        );
+    }
+
+    let together = counted_build(&scratch, &["//..."]);
+    let skipped = together.get("units restored before lowering").copied();
+    assert!(skipped.unwrap_or(0) > 0, "{together:?}");
+    let mut built = Vec::new();
+    for (package, want) in [("cmd/a", "33\n"), ("cmd/b", "31\n"), ("cmd/c", "43\n")] {
+        assert_eq!(printed(&scratch, package), want, "//{package}");
+        built.push((package, executable(&scratch, package)));
+    }
+    for (package, built) in built {
+        scratch.run(&["clean"]).ok();
+        counted_build(&scratch, &[&format!("//{package}")]);
+        assert!(
+            executable(&scratch, package) == built,
+            "//{package} differs built alone"
+        );
+    }
+}

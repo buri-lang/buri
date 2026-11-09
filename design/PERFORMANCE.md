@@ -647,15 +647,15 @@ lex              parsing::lexer::lex                       text     -> tokens
 lex+parse        parsing::parser::parse                    text     -> tree          (goal 1)
 sema             semantics::resolve::Checker::resume+run   Loaded   -> Checked       (goal 2)
 lower+js         monomorphize::run + actions::emit         Checked  -> JavaScript    (goal 3)
-lower+<triple>   monomorphize::run + actions::prepare
+lower+<triple>   monomorphize::run + actions::prepare_for_native
                                    + Backend::emit         Checked  -> object bytes  (goal 3)
 ```
 
-`actions::emit` is the same call `buri build --output=js` makes, `prepare` — and
+`actions::emit` is the same call `buri build --output=js` makes, `prepare_for_js` — and
 therefore `middle::run` — included.
 
 The native rows make the same two calls `actions::objects_of` makes below the
-front end — `prepare`, the one place that picks the middle-end pipeline, and
+front end — `prepare_for_native`, which picks the native middle-end pipeline, and
 `Backend::emit` — and stop there. **Nothing is linked and nothing is run**: the
 link is the only host-only step, and goal 3 covers lowering rather than
 producing an executable. The rows leave out the second `lower::run` that

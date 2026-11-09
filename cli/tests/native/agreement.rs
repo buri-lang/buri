@@ -52,12 +52,12 @@
 //! One `.buri` source, compiled twice from one analysis:
 //!
 //! ```text
-//! source -> analyze_snippet -> monomorphize -> prepare(Js)     -> select(Js)     -> main.mjs -> bun
-//!                          \-> monomorphize -> prepare(native) -> select(native) -> objects  -> cc -> a.out
+//! source -> analyze_snippet -> monomorphize -> prepare_for_js     -> select(Js)     -> main.mjs -> bun
+//!                          \-> monomorphize -> prepare_for_native -> select(native) -> objects  -> cc -> a.out
 //! ```
 //!
-//! `actions::prepare` is the product's own seam — it is "the one place a
-//! pipeline is chosen", and it is what decides that JavaScript does not run
+//! `actions::prepare_for_js` and `actions::prepare_for_native` are the product's own seam,
+//! "the one place a pipeline is chosen", and they decide that JavaScript does not run
 //! `middle::native` — so the two halves here differ in exactly the way a real
 //! build's two halves differ, and in nothing else. Then stdout is compared
 //! **byte for byte**, and so are the exit status and, where a row is about one,
@@ -419,7 +419,11 @@ fn prepared(
     assert!(!diagnostics.has_errors(), "{row}: monomorphization failed");
     // The product's own seam: `middle::run` for everybody, `middle::native`
     // for the platforms that are not JavaScript.
-    actions::prepare(&mut program, target);
+    if target.platform.is_native() {
+        actions::prepare_for_native(&mut program);
+    } else {
+        actions::prepare_for_js(&mut program);
+    }
     program
 }
 
@@ -475,7 +479,7 @@ pub(crate) fn emit_js(row: &str, checked: &Checked, paths: &[String]) -> PathBuf
 }
 
 /// Monomorphize and run the middle end for this host, once for every native
-/// backend: `actions::prepare` reads the target alone, and every native
+/// backend: `actions::prepare_for_native` reads no target, and every native
 /// backend here builds for the host.
 pub(crate) fn prepared_native(
     row: &str,

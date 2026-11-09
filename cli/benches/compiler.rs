@@ -31,7 +31,7 @@
 //! lex+parse        parsing::parser::parse                   text    -> tree     (goal 1)
 //! sema             semantics::resolve::Checker::resume+run  Loaded  -> Checked  (goal 2)
 //! lower+js         monomorphize::run + actions::emit        Checked -> JavaScript    (goal 3)
-//! lower+<triple>   monomorphize::run + actions::prepare
+//! lower+<triple>   monomorphize::run + actions::prepare_for_native
 //!                                    + Backend::emit        Checked -> object bytes  (goal 3)
 //! ```
 //!
@@ -1494,7 +1494,7 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
             let out = actions::emit(&mut prog, &checked.tables, target, &flags, &mut d);
             std::hint::black_box(&out);
         } else {
-            actions::prepare(&mut prog, target);
+            actions::prepare_for_native(&mut prog);
             let Ok(mut b) = backend::select(target, profile) else {
                 return;
             };
@@ -2129,7 +2129,7 @@ fn measure(
             let mut d = Diagnostics::new();
             monomorphize::run(&checked, module_paths.clone(), &mut d, Roots::Main(entry))
         };
-        actions::prepare(&mut probe, target);
+        actions::prepare_for_native(&mut probe);
         let mut selected = match backend::select(target, profile) {
             Ok(b) => b,
             Err(reason) => {
@@ -2174,7 +2174,7 @@ fn measure(
             let mut d = Diagnostics::new();
             let mut prog =
                 monomorphize::run(&checked, module_paths.clone(), &mut d, Roots::Main(entry));
-            actions::prepare(&mut prog, target);
+            actions::prepare_for_native(&mut prog);
             let mut b = backend::select(target, profile).expect("checked above");
             let opts = Options { profile, target };
             let out = b.emit(&prog, &checked.tables, &opts);
@@ -2272,7 +2272,7 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
         };
         let (all, _, _, _) = bench(cfg, || {
             let mut p = build();
-            actions::prepare(&mut p, target);
+            actions::prepare_for_native(&mut p);
             let mut b = backend::select(target, profile).expect("checked above");
             let opts = Options { profile, target };
             std::hint::black_box(b.emit(&p, &checked.tables, &opts).is_ok());

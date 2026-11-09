@@ -1111,7 +1111,7 @@ run `chrome-headless-shell --dump-dom` over it. That is what found the empty
 
 `native/agreement.rs` is the one such check outside `language/conformance.rs`,
 and it is about the *pair* of backends. It compiles a single `.buri` source
-through `actions::prepare` and `backend::select` twice — JavaScript under `bun`,
+through `actions::prepare_for_js` or `prepare_for_native` and `backend::select` twice — JavaScript under `bun`,
 native through the copy-and-patch backend or LLVM and `cc` — then compares the
 two outputs byte for byte. Every row of `design/native/VALUE-MODEL.md` §12 is a
 `#[test]`, so a failure names the row, and

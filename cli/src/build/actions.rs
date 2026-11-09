@@ -1830,13 +1830,12 @@ pub fn golden_files(package_dir: &std::path::Path) -> Vec<String> {
     names
 }
 
-/// The middle end and then a backend, over one monomorphized program.
+/// The middle end and then the JavaScript backend, over one monomorphized
+/// program, for a JS or WEB `target`.
 ///
-/// This is the seam the native backends arrive at: everything above it is
-/// shared, everything below it is [`backend::select`]'s answer. The one thing
-/// that is still JavaScript-shaped is the return type — a `String`, because a
-/// JavaScript artifact is text. A native artifact is bytes, and it is the
-/// `link` step rather than this function that will produce it.
+/// A JavaScript artifact is text, so the answer is a `String`. A native
+/// artifact is objects and then a link, which [`compile_objects`] and the
+/// `link` step produce.
 pub fn emit(
     program: &mut monomorphize::Program,
     tables: &crate::compiler::semantics::types::Tables,
@@ -1860,13 +1859,7 @@ pub fn emit_test_bundle(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
-    prepare(
-        program,
-        Target {
-            platform: crate::build::buildfile::Platform::Js,
-            arch: None,
-        },
-    );
+    prepare_for_js(program);
     let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match crate::compiler::backend::js::Js.emit_unminified(
         program,
@@ -1910,27 +1903,15 @@ pub fn emit_all(
     diagnostics: &mut Diagnostics,
 ) -> Result<(String, Vec<String>), Diagnostics> {
     let profile = profile_of(flags);
-    prepare(program, target);
-
-    let mut backend = match backend::select(target, profile) {
-        Ok(b) => b,
-        Err(_) => {
-            // The same sentence `prepare_artifact` refuses with, from the same
-            // function: `select`'s own message is one of the three [`native_gap`]
-            // chooses between, and reporting it here without the other two would
-            // be this site disagreeing with that one about what is wrong.
-            let gap = native_gap(target, profile).unwrap_or_else(|| NativeGap {
-                output: target.platform.machine().to_string(),
-                reason: "this toolchain has no backend for it".to_string(),
-                fix: "add `{ platform: \"node\" }` to `outputs`".to_string(),
-            });
-            diagnostics.push(no_native_artifact(&gap, Span::NONE));
-            return Err(std::mem::take(diagnostics));
-        }
-    };
+    prepare_for_js(program);
     let opts = BackendOptions { profile, target };
     let emitting = crate::profile::enter(crate::profile::Phase::Emit);
-    let units = match backend.emit(program, tables, &opts) {
+    let units = match backend::Backend::emit(
+        &mut crate::compiler::backend::js::Js,
+        program,
+        tables,
+        &opts,
+    ) {
         Ok(units) => units,
         Err(errors) => {
             diagnostics.extend(errors.items);
@@ -1968,47 +1949,39 @@ pub fn emit_all(
     }
 }
 
-/// The middle end, composed for one target.
+/// The middle end, composed for JavaScript, which a WEB artifact is too.
 ///
-/// **This is the one place a pipeline is chosen.** `middle::run` is layer A, and
-/// every backend consumes it; `middle::native` is the native branch —
-/// `derives`, `closures`, `rc` — and JavaScript must not run it: closure
-/// conversion is a pessimisation in a language with closures, a run-time
-/// descriptor walk is what the JS runtime wants, and reference counting is
-/// pointless in front of a garbage collector (`middle/mod.rs`, "Two layers").
+/// **This and [`prepare_for_native`] are the one place a pipeline is chosen.**
+/// `middle::run` is layer A, and every backend consumes it; `middle::native` is
+/// the native branch — `derives`, `closures`, `rc` — and JavaScript must not
+/// run it: closure conversion is a pessimisation in a language with closures, a
+/// run-time descriptor walk is what the JS runtime wants, and reference
+/// counting is pointless in front of a garbage collector (`middle/mod.rs`, "Two
+/// layers").
 ///
-/// It lives here rather than behind [`Backend::emit`](backend::Backend::emit)
+/// They live here rather than behind [`Backend::emit`](backend::Backend::emit)
 /// because `middle::native` needs the program by `&mut` and a backend is handed
 /// it by `&` — which is the type saying that a backend transforms nothing. So
-/// the composition is the build system's, and there is exactly one of it:
-/// [`emit`], [`emit_test_bundle`] and [`compile_objects`] all call this, and
-/// none of them decides anything else about the middle end.
+/// the composition is the build system's: [`emit`] and [`emit_test_bundle`]
+/// call this, [`compile_objects`] calls [`prepare_for_native`], and none of
+/// them decides anything else about the middle end.
 ///
 /// Both profiles run the same passes, so that `release_and_debug_agree` keeps
 /// covering the middle end rather than only the part of it release turns on.
-///
-/// The reference-counting analysis comes back out, because the native branch's
-/// last pass is the analysis [`lower::run`] would otherwise redo. `None` is the
-/// JavaScript answer and means there is no analysis rather than an empty one: a
-/// garbage-collected target has no `incref` to place.
-pub fn prepare(program: &mut monomorphize::Program, target: Target) -> Option<middle::Planned> {
-    // The native branch is chosen by what the artifact *is*, and a WEB artifact
-    // is JavaScript: closure conversion and reference counting are the same
-    // pessimisation for a page that they are for a script.
-    if target.platform.is_native() {
-        return Some(prepare_for_native(program));
-    }
+pub fn prepare_for_js(program: &mut monomorphize::Program) {
     let _phase = crate::profile::enter(crate::profile::Phase::Middle);
     // A chunk is a second file beside the artifact, so only a target that
     // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
     // back out everywhere else, which is the identity the module promises.
     middle::use_engine(program);
     middle::run(program, &middle::Options { split_lazy: true });
-    None
 }
 
-/// [`prepare`] for a native target.
-fn prepare_for_native(program: &mut monomorphize::Program) -> middle::Planned {
+/// The middle end, composed for a native target ([`prepare_for_js`]).
+///
+/// The reference-counting analysis comes back out, because the native branch's
+/// last pass is the analysis [`lower::run`] would otherwise redo.
+pub fn prepare_for_native(program: &mut monomorphize::Program) -> middle::Planned {
     let _phase = crate::profile::enter(crate::profile::Phase::Middle);
     middle::run(program, &middle::Options { split_lazy: false });
     middle::native(program)

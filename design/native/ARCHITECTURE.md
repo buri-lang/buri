@@ -153,10 +153,10 @@ indices never move — `inline.rs`'s own invariant.
 
 **The build system composes; a backend cannot ask.** `middle::native` needs the
 program by `&mut` and `Backend::emit` gets it by `&`, which is the type saying
-that a backend transforms nothing. The composition is one function,
-`actions::prepare(program, target)`: layer A always, the native branch when the
-target is not `Js`. Both callers that reach a backend go through it
-(`actions::emit` for a text artifact, `actions::objects_of` for objects), so one
+that a backend transforms nothing. The composition is two functions:
+`actions::prepare_for_js` runs layer A, and `actions::prepare_for_native` runs
+layer A and then the native branch. The callers that reach a backend go through them
+(`actions::emit` for a text artifact, `actions::compile_objects` for objects), so one
 place decides which passes a target gets, and `backend::select` is the only
 other thing the two paths share.
 
@@ -331,7 +331,7 @@ Two things sit on top of the table:
   Selection is `backend::select(target, profile)` and it takes no name, so what
   is being built chooses a backend rather than an argument a user passes. The
   cross-backend differential test is `cli/tests/native/agreement.rs`: it
-  compiles one source twice from one analysis, through `actions::prepare` and
+  compiles one source twice from one analysis, through `actions::prepare_for_js` or `prepare_for_native` and
   `select` for each side, and compares stdout byte for byte. It is written
   against VALUE-MODEL.md §12's divergence table, one `#[test]` per row, so a
   failure names the row.

@@ -626,6 +626,57 @@ fn deriving_hash_is_linear_in_a_structs_fields() {
     );
 }
 
+/// A struct of `n` fields, alternately `Int` and `Str`, that derives
+/// `FromJson` and is decoded from an object with every member.
+fn wide_decoded_struct(n: usize) -> (String, String) {
+    let fields: String = (0..n)
+        .map(|i| format!("    f{i}: {},\n", if i % 2 == 0 { "Int" } else { "Str" }))
+        .collect();
+    let members: Vec<String> = (0..n)
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("\\\"f{i}\\\":{i}")
+            } else {
+                format!("\\\"f{i}\\\":\\\"s\\\"")
+            }
+        })
+        .collect();
+    let items = format!(
+        "from \"core/json\" import * as json;\n\
+         from \"core/json\" import {{ DecodeError, FromJson, Json }};\n\n\
+         derive FromJson for W;\nstruct W {{\n{fields}}}\n",
+    );
+    let body = format!(
+        "    let doc = json.parse(ctx, \"{{{}}}\").withDefault(Json.Null);\n    \
+         let w: Result<W, DecodeError> = json.decode(ctx, doc);\n    \
+         let got = match (w) {{\n        .Ok(v) => v.f{last},\n        .Err(_) => 0 - 1,\n    }};\n    \
+         let _ = io.println(ctx, \"${{got}}\").ignore();\n",
+        members.join(","),
+        last = (n - 1) / 2 * 2,
+    );
+    (items, body)
+}
+
+/// **Deriving `FromJson` is linear in a struct's fields.** Each field is one
+/// member lookup and one decode, through helpers built once.
+///
+/// Counted in the expression nodes deriving built, helpers included.
+#[test]
+fn deriving_from_json_is_linear_in_a_structs_fields() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::profile", &why);
+        return;
+    }
+    grows_linearly(
+        "deriving a wide struct's decoder",
+        |n| {
+            let (items, body) = wide_decoded_struct(n);
+            counted_work("native", &items, &body, "derive nodes built")
+        },
+        200,
+    );
+}
+
 /// A variant of `n` fields, alternately `Int` and `Str`, built and taken apart.
 fn wide_variant(n: usize) -> (String, String) {
     let types: Vec<&str> = (0..n)

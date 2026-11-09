@@ -79,7 +79,7 @@ impl Lowered {
 
 /// Source text through the whole middle end.
 ///
-/// This is `actions::prepare`'s path, spelled out: `middle::run` and then
+/// This is `actions::prepare_for_native`'s path, spelled out: `middle::run` and then
 /// `middle::native`. `Backend::emit` takes the program by shared reference and
 /// `middle::native` needs `&mut`, so the backend cannot run it — the build
 /// composes the two, and so does this.

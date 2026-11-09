@@ -1201,7 +1201,7 @@ const JS_CPU_CEILING: Duration = Duration::from_secs(30);
 ///
 /// `Ok(None)` is "this host has no engine", which is a skip. `Err` is "the
 /// reference backend would not produce an answer", which is a finding: this is
-/// the pipeline `actions::prepare` composes for `Platform::Js`, so a program
+/// the pipeline `actions::prepare_for_js` composes, so a program
 /// it refuses is a program `buri run` refuses.
 ///
 /// **Emitted and run here rather than through `driver::run_snippet`**, which
@@ -1209,7 +1209,7 @@ const JS_CPU_CEILING: Duration = Duration::from_secs(30);
 /// `Command::output()` and no deadline, so an artifact that loops takes the
 /// suite with it and there is no child for anything to kill. This is the same
 /// three steps `native/agreement.rs::run_js` takes — one analysis,
-/// `actions::prepare` for the JavaScript target, the backend `select`
+/// `actions::prepare_for_js`, the backend `select`
 /// answers — with [`JS_DEADLINE`] and [`JS_CPU_CEILING`] around the run.
 fn run_on_js(input: &str) -> Result<Option<String>, String> {
     if !engine_present() {
@@ -1253,7 +1253,7 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
         platform: buri::build::buildfile::Platform::Js,
         arch: None,
     };
-    buri::build::actions::prepare(&mut program, target);
+    buri::build::actions::prepare_for_js(&mut program);
     let profile = buri::compiler::backend::Profile::Debug;
     let opts = buri::compiler::backend::Options { profile, target };
     let mut backend = buri::compiler::backend::select(target, profile)
@@ -1598,7 +1598,7 @@ mod native {
                 continue;
             }
             let target = host_target();
-            actions::prepare(&mut program, target);
+            actions::prepare_for_native(&mut program);
             let opts = Options {
                 profile: *profile,
                 target,
@@ -1670,7 +1670,7 @@ mod native {
                 return None;
             }
             let target = host_target();
-            actions::prepare(&mut program, target);
+            actions::prepare_for_native(&mut program);
             let opts = Options {
                 profile: *profile,
                 target,
