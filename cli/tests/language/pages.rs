@@ -821,3 +821,69 @@ console.log(moves.join("\n"));
          pushed chosen\n"
     );
 }
+
+/// Rows built by a function that runs a hook out of a struct field, while a
+/// press handler of the same type sleeps and then navigates. The hook in the
+/// field waits on nothing, so every row renders: one whose struct was built
+/// by a literal, and one by an update.
+const HOOKS_PAGE: &str = r#"from "platform/effect" import { Allocator, Clock, Location, Ui };
+from "core/time" import * as time;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+struct Hooks<C> {
+    seen: fn(C) => (),
+    name: Str,
+}
+
+fn later<C: Clock + Location + Ui>(ctx: C, path: Str): () {
+    let _ = time.sleep(ctx, time.milliseconds(1));
+    web.navigate(ctx, path)
+}
+
+fn row<C: Clock + Location + Ui>(ctx: C, hooks: Hooks<C>, s: Str): Node<C> {
+    let _ = hooks.seen(ctx);
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(fn(d) => later(d, s)) })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Clock: host.clock,
+        Location: host.location,
+    };
+    let hooks = Hooks { seen: fn(_c) => (), name: "plain" };
+    let updated = Hooks { ..hooks, seen: fn(_c) => () };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const(["a"]), fn(s) => s, fn(c, s, _i) => row(c, hooks, s)),
+                ui.each(.Const(["b"]), fn(s) => s, fn(c, s, _i) => row(c, updated, s)),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn rows_running_a_hook_from_a_struct_field_render_and_navigate() {
+    let printed = drive(
+        "hooks-page",
+        HOOKS_PAGE,
+        r#"
+console.log(["a", "b"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
+fire(labelled("a"), "click");
+await new Promise((done) => setTimeout(done, 30));
+fire(labelled("b"), "click");
+await new Promise((done) => setTimeout(done, 30));
+console.log(moves.join("\n"));
+"#,
+    );
+    assert_eq!(printed, "a:shown b:shown\npushed a\npushed b\n");
+}

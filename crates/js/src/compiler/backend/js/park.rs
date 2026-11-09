@@ -180,12 +180,20 @@ pub fn suspends(key: &str) -> bool {
 /// `fn(Scope) => T`; they never meet. Soundness rests on the program being
 /// well typed, which everything downstream of the checker already assumes.
 ///
+/// A struct field is the exception: a call through `hooks.seen` is worth the
+/// values written into `seen` of that struct type, by every struct literal
+/// and update, rather than every value of its type. A `ui.each` row that runs
+/// a hook it was handed does not wait because a press handler of the same
+/// type does. This rests on every struct being built by a literal or an
+/// update in the program: the runtime hands structs back and forth but never
+/// builds one around a function the program made.
+///
 /// **What is given up**, recorded rather than hidden: a parking function value
 /// that shares a type with a callee position it can never reach makes that call
-/// parkable. The precise alternative — values through struct fields, enum
-/// payloads, array elements and returns — is a real higher-order flow analysis
-/// and buys nothing today, since nothing in this tree stores a parking callback
-/// anywhere.
+/// parkable. Enum payloads, array and map elements and returns stay under the
+/// type: the runtime builds `Option`s and lists out of each other
+/// (`$list_get`, `map`), so keying them by container would mean following the
+/// runtime too.
 ///
 /// [`ExprKind::CallTrait`] stays conservative. Monomorphization resolves every
 /// one it can, and one that survives is a program the backends already turn
@@ -225,6 +233,9 @@ pub struct Parking {
     params: Dense<FuncIdx, LocalSet>,
     /// The types of the parking function values this program builds.
     pub parking_types: HashSet<Ty>,
+    /// The struct fields, by struct type and field index, that some literal
+    /// or update writes a parking function value into.
+    parking_fields: HashSet<(Ty, usize)>,
     /// [`monomorphize::Program::shapes`]'s effect table, so rule 1 above can be
     /// asked without a `Tables`.
     pub effects: monomorphize::Effects,
@@ -330,6 +341,11 @@ impl Parking {
                 self.value_parks(at, then) || self.value_parks(at, else_)
             }
             ExprKind::Match { arms, .. } => arms.iter().any(|a| self.value_parks(at, &a.body)),
+            // A function value out of a struct field is one some literal or
+            // update wrote there.
+            ExprKind::Field { base, index } => {
+                self.parking_fields.contains(&(base.ty, index.index()))
+            }
             _ => self.unfollowed(&e.ty),
         }
     }
@@ -522,6 +538,7 @@ pub fn parkability(program: &Program) -> Parking {
             set
         }),
         parking_types: HashSet::default(),
+        parking_fields: HashSet::default(),
         effects: program.shapes.effects.clone(),
     };
     // The sync row starts from the same seed: what a key waits on is its own.
@@ -554,11 +571,24 @@ pub fn parkability(program: &Program) -> Parking {
     // Arguments, into the parameters they are bound to, and every node that
     // *is* a function value — an `FuncRef`, a `Closure` or a `Lambda` — with the
     // slot it is written in. Both are read every round and neither moves.
+    // And what a struct literal or update writes into each field, with the
+    // struct's type and the field's index.
     let mut edges: Vec<(FuncIdx, FuncIdx, &Vec<Expr>)> = Vec::new();
     let mut values: Vec<(FuncIdx, &Expr)> = Vec::new();
+    let mut writes: Vec<(FuncIdx, (Ty, usize), &Expr)> = Vec::new();
     for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::StructLit { fields, .. } => {
+                for (k, v) in fields.iter().enumerate() {
+                    writes.push((i, (e.ty, k), v));
+                }
+            }
+            ExprKind::StructUpdate { updates, .. } => {
+                for (k, v) in updates {
+                    writes.push((i, (e.ty, k.index()), v));
+                }
+            }
             ExprKind::CallFunc { func, args } => edges.push((*func, i, args)),
             // A `Continue` rebinds the parameters of the function it enters, in
             // order — the dispatch index the backend prepends is not one of
@@ -621,6 +651,11 @@ pub fn parkability(program: &Program) -> Parking {
         }
         for ty in found {
             if w.parking_types.insert(*ty) {
+                changed = true;
+            }
+        }
+        for &(i, key, v) in &writes {
+            if is_fn_ty(&v.ty) && w.value_parks(full(i), v) && w.parking_fields.insert(key) {
                 changed = true;
             }
         }
