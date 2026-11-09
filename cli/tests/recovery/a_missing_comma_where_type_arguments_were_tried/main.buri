@@ -1,0 +1,8 @@
+// EXPECT: the parser tries `< b c` as type arguments and backs out, and the missing comma still goes right after `b`
+fn pair(a: Bool, b: Int): Int {
+  b
+}
+
+export fn total(a: Int, b: Int, c: Int): Int {
+  pair(a < b c)
+}

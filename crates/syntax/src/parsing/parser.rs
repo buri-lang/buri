@@ -167,7 +167,6 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
         last: lexed.tokens.len().saturating_sub(1),
         cur: lexed.tokens.kind(0),
         here: lexed.tokens.loc(0),
-        before: lexed.tokens.loc(0),
         file,
         tokens: lexed.tokens,
         trivia: lexed.trivia,
@@ -630,13 +629,11 @@ struct Parser<'a> {
     /// lookup and a subtraction on every token access.
     last: usize,
     pos: usize,
-    /// The kind and location of the token at `pos`, and the location of the
-    /// one before it. The parser asks these several times a token, and
-    /// [`Parser::bump`] and [`Parser::seek`], the only two places that move
-    /// `pos`, keep them.
+    /// The kind and location of the token at `pos`. The parser asks these
+    /// several times a token, and [`Parser::bump`] and [`Parser::seek`], the
+    /// only two places that move `pos`, keep them.
     cur: TokenKind,
     here: Location,
-    before: Location,
     file: FileId,
     errors: Vec<Diagnostic>,
     /// The spans already reported, so that "one syntax error per location" is
@@ -773,12 +770,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The span of the token before the cursor, read from the buffer rather
+    /// than kept beside `here`: a token is read once a step and this is asked
+    /// far less often, so copying it on every [`Parser::take`] cost more than
+    /// the lookup. On the first token it is that token's own.
     fn prev_span(&self) -> Span {
-        Span {
-            file: self.file,
-            start: self.before.start,
-            end: self.before.end,
-        }
+        self.tokens.span(self.pos.saturating_sub(1))
     }
 
     /// The doc lines attached to the token about to be read, taken out of the
@@ -873,7 +870,6 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn take(&mut self) -> (Span, Consumed) {
         let span = self.span();
-        self.before = self.here;
         let next = self.pos.wrapping_add(1);
         self.pos = self.tokens.record(next).map_or(self.pos, |record| {
             (self.cur, self.here) = record;
@@ -886,7 +882,6 @@ impl<'a> Parser<'a> {
     fn seek(&mut self, pos: usize) {
         self.pos = pos;
         (self.cur, self.here) = (self.tokens.kind(self.pos), self.tokens.loc(self.pos));
-        self.before = self.tokens.loc(self.pos.saturating_sub(1));
     }
 
     /// The cooked text of the string or template piece under the cursor. Every
