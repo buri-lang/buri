@@ -2443,9 +2443,10 @@ struct Scan<'a> {
     /// on whole — see [`handed_on_fields`]. Innermost last. `sharing` only.
     handed_on: Vec<(LocalId, Vec<FieldId>)>,
     /// The fields of a dying base each functional update being scanned may
-    /// move out of it ([`moved_fields`]), with the update's node. Innermost
-    /// last. Native only.
-    moving: Vec<(LocalId, NodeId, Vec<FieldId>)>,
+    /// move out of it ([`moved_fields`]), with the update's node and the reads
+    /// of those fields that lend them ([`lent_reads`]), which never move.
+    /// Innermost last. Native only.
+    moving: Vec<(LocalId, NodeId, Vec<FieldId>, Vec<*const Expr>)>,
     /// Dying update bases whose `?` escapes release them without the fields
     /// the update moved out, as a mask ([`Target::LocalExcept`]).
     escape_except: Vec<(LocalId, u64)>,
@@ -2855,12 +2856,12 @@ impl Scan<'_> {
         let (ExprKind::Field { index, .. }, ExprKind::Local(l)) = (&e.kind, &base.kind) else {
             return None;
         };
-        let update = self
-            .moving
-            .iter()
-            .rev()
-            .find(|(r, _, _)| r == l)
-            .and_then(|(_, update, fields)| fields.contains(index).then_some(*update))?;
+        let update = self.moving.iter().rev().find(|(r, ..)| r == l).and_then(
+            |(_, update, fields, lent)| {
+                (fields.contains(index) && !lent.contains(&std::ptr::from_ref(e)))
+                    .then_some(*update)
+            },
+        )?;
         self.counted_ty(&e.ty.clone()).then_some((update, *index))
     }
 
@@ -2935,9 +2936,9 @@ impl Scan<'_> {
         live: &mut Live,
     ) {
         self.enliven(live, root);
-        let moved = moved_fields(root, updates);
+        let (moved, lent) = moved_fields(root, updates);
         let mask = moved.iter().fold(0u64, |m, f| m | (1u64 << f.index()));
-        self.moving.push((root, id, moved));
+        self.moving.push((root, id, moved, lent));
         self.escape_except.push((root, mask));
         let first = self.sites.len();
         for (k, (_, value)) in updates.iter().enumerate().rev() {
@@ -4913,6 +4914,128 @@ fn handed_on_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Option<Vec<Fi
     )
 }
 
+/// One step of [`lent_reads`]'s walk: a read of `root.f`, with the call it is
+/// handed to whole or through fields, if any, and whether it is `root.f`
+/// itself; or a call, once its arguments have all run.
+enum Step {
+    Read(*const Expr, Option<usize>, bool),
+    Ran(usize),
+}
+
+/// The read of `root.f` at the bottom of `e`, a chain of fields and tuple
+/// positions over it.
+fn chain_over(root: LocalId, f: FieldId, e: &Expr) -> Option<&Expr> {
+    match &e.kind {
+        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
+            (*index == f).then_some(e)
+        }
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => {
+            chain_over(root, f, base)
+        }
+        _ => None,
+    }
+}
+
+/// Every read of `root.f` in `e`.
+fn reads_of(root: LocalId, f: FieldId, e: &Expr) -> usize {
+    match &e.kind {
+        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
+            usize::from(*index == f)
+        }
+        _ => kids(e).into_iter().map(|k| reads_of(root, f, k)).sum(),
+    }
+}
+
+/// Walks `e` in evaluation order. `false` where a read of `root.f` is under a
+/// branch or a lambda, or is projected anywhere but straight into a call.
+fn steps(root: LocalId, f: FieldId, e: &Expr, calls: &mut usize, out: &mut Vec<Step>) -> bool {
+    match &e.kind {
+        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
+            if *index == f {
+                out.push(Step::Read(std::ptr::from_ref(e), None, true));
+            }
+            true
+        }
+        _ if chain_over(root, f, e).is_some() => false,
+        ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::And { .. }
+        | ExprKind::Or { .. }
+        | ExprKind::Lambda { .. } => reads_of(root, f, e) == 0,
+        ExprKind::CallFunc { args, .. } => {
+            let call = *calls;
+            *calls += 1;
+            for a in args {
+                match chain_over(root, f, a) {
+                    Some(r) => out.push(Step::Read(
+                        std::ptr::from_ref(r),
+                        Some(call),
+                        std::ptr::eq(r, a),
+                    )),
+                    None if !steps(root, f, a, calls, out) => return false,
+                    None => {}
+                }
+            }
+            out.push(Step::Ran(call));
+            true
+        }
+        _ => kids(e).into_iter().all(|k| steps(root, f, k, calls, out)),
+    }
+}
+
+/// The reads of `root.f` in `values` that only **lend** the field, when one
+/// other read takes it: each hands the field, or a field of it, to a call
+/// that has returned before whoever took the field can write to it. `None`
+/// where the reads are not that shape.
+///
+/// The read that takes it is `root.f` itself, and is the one that finishes
+/// last: at once for a `let`, once its call runs for an argument. Both of
+///
+/// ```buri
+/// S { ..s, m: s.m.insert(ctx, k, s.m.get(k).withDefault(0) + 1) }
+/// S { ..s, m: { let n = s.m.get(k); s.m.insert(ctx, k, n) } }
+/// ```
+///
+/// are that, and so is what inlining `get` and `insert` makes of them. A
+/// call's arguments are lent to it, so the `get` is done with the map before
+/// the `insert` gets it, and the insert finds the map at `rc == 1`.
+fn lent_reads(root: LocalId, f: FieldId, values: &[&Expr]) -> Option<Vec<*const Expr>> {
+    let mut out = Vec::new();
+    let mut calls = 0;
+    for v in values {
+        if !steps(root, f, v, &mut calls, &mut out) {
+            return None;
+        }
+    }
+    // Where a read is done with: at once, or when its call runs.
+    let done = |at: usize, call: Option<usize>| match call {
+        Some(c) => out
+            .iter()
+            .position(|s| matches!(s, Step::Ran(r) if *r == c))
+            .unwrap_or(at),
+        None => at,
+    };
+    let mut reads = Vec::new();
+    for (at, s) in out.iter().enumerate() {
+        if let Step::Read(e, call, whole) = s {
+            reads.push((*e, *call, *whole, done(at, *call)));
+        }
+    }
+    let last = reads.iter().map(|r| r.3).max()?;
+    let takers: Vec<_> = reads.iter().filter(|r| r.3 == last).collect();
+    let [taker] = takers[..] else {
+        return None;
+    };
+    if !taker.2 {
+        return None;
+    }
+    reads
+        .iter()
+        .filter(|r| !std::ptr::eq(r.0, taker.0))
+        .map(|r| r.1.map(|_| r.0))
+        .collect()
+}
+
 /// The fields of a dying `root` a native functional update may **move** out of
 /// it rather than count again: fields the update replaces, with `root` never
 /// read whole or captured ([`handed_on_fields`] answers `None` then), each read
@@ -4934,7 +5057,17 @@ fn handed_on_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Option<Vec<Fi
 ///    escape releases the base ([`Scan::update_dying`]) without the moved
 ///    fields, which whoever took them now holds, so a `?` that could run
 ///    before a field was taken would leave that field unreleased.
-fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
+///
+/// A read that only lends the field to a call inside a later argument of the
+/// call that takes it doesn't count ([`lent_reads`]):
+///
+/// ```buri
+/// Cluster { ..c, counts: c.counts.insert(ctx, what, c.counts.get(what).withDefault(0) + 1) }
+/// ```
+///
+/// `get` has finished before `insert` runs, so the field moves and the insert
+/// writes in place, as it does when the `get` is a `let` before the update.
+fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> (Vec<FieldId>, Vec<*const Expr>) {
     /// How many times `e` reads `root.f` on every path through it, or `None`
     /// where two paths read it a different number of times.
     fn on_every_path(root: LocalId, f: FieldId, e: &Expr) -> Option<usize> {
@@ -4978,29 +5111,37 @@ fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
     }
     /// Walks `e` in evaluation order with `seen`, the fields read on every
     /// path so far, and narrows `before` to the fields seen at each `?`.
-    fn taken(root: LocalId, e: &Expr, seen: &mut Vec<FieldId>, before: &mut Option<Vec<FieldId>>) {
+    fn taken(
+        root: LocalId,
+        lent: &[*const Expr],
+        e: &Expr,
+        seen: &mut Vec<FieldId>,
+        before: &mut Option<Vec<FieldId>>,
+    ) {
         match &e.kind {
+            // A lent read is always a call's argument or a projection's base,
+            // so the walk meets it below, in `held`.
             ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
                 seen.push(*index);
             }
             ExprKind::If { cond, then, else_ } => {
-                taken(root, cond, seen, before);
+                taken(root, lent, cond, seen, before);
                 let mut other = seen.clone();
-                taken(root, then, seen, before);
-                taken(root, else_, &mut other, before);
+                taken(root, lent, then, seen, before);
+                taken(root, lent, else_, &mut other, before);
                 seen.retain(|f| other.contains(f));
             }
             ExprKind::Match { scrutinee, arms } => {
-                taken(root, scrutinee, seen, before);
+                taken(root, lent, scrutinee, seen, before);
                 let start = seen.clone();
                 let mut all: Option<Vec<FieldId>> = None;
                 for arm in arms {
                     let mut path = start.clone();
                     if let Some(g) = &arm.guard {
-                        taken(root, g, &mut path, before);
+                        taken(root, lent, g, &mut path, before);
                     }
-                    taken(root, &arm.body, &mut path, before);
+                    taken(root, lent, &arm.body, &mut path, before);
                     all = Some(match all {
                         Some(a) => a.into_iter().filter(|f| path.contains(f)).collect(),
                         None => path,
@@ -5009,11 +5150,11 @@ fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
                 *seen = all.unwrap_or(start);
             }
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
-                taken(root, lhs, seen, before);
-                taken(root, rhs, &mut seen.clone(), before);
+                taken(root, lent, lhs, seen, before);
+                taken(root, lent, rhs, &mut seen.clone(), before);
             }
             ExprKind::Try { base, .. } => {
-                taken(root, base, seen, before);
+                taken(root, lent, base, seen, before);
                 let now = before.take().map_or_else(
                     || seen.clone(),
                     |b| b.into_iter().filter(|f| seen.contains(f)).collect(),
@@ -5027,11 +5168,12 @@ fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
                 let mut held = Vec::new();
                 for k in kids(e) {
                     match &k.kind {
-                        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
-                        {
-                            held.push(*index);
+                        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
+                            if !lent.contains(&std::ptr::from_ref(k)) {
+                                held.push(*index);
+                            }
                         }
-                        _ => taken(root, k, seen, before),
+                        _ => taken(root, lent, k, seen, before),
                     }
                 }
                 seen.extend(held);
@@ -5039,27 +5181,36 @@ fn moved_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Vec<FieldId> {
         }
     }
     if handed_on_fields(root, updates).is_none() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let mut ordered: Vec<&(FieldId, Expr)> = updates.iter().collect();
     ordered.sort_by_key(|(f, _)| *f);
-    let mut seen = Vec::new();
-    let mut before = None;
-    for (_, v) in &ordered {
-        taken(root, v, &mut seen, &mut before);
-    }
-    let values: Vec<&Expr> = updates.iter().map(|(_, v)| v).collect();
-    updates
+    let values: Vec<&Expr> = ordered.iter().map(|(_, v)| v).collect();
+    let mut lent = Vec::new();
+    let once: Vec<FieldId> = updates
         .iter()
         .map(|(f, _)| *f)
-        .filter(|f| f.index() < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
+        .filter(|f| f.index() < 64)
         .filter(|f| {
             values
                 .iter()
                 .try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m))
                 == Some(1)
+                || lent_reads(root, *f, &values)
+                    .map(|l| lent.extend(l))
+                    .is_some()
         })
-        .collect()
+        .collect();
+    let mut seen = Vec::new();
+    let mut before = None;
+    for v in &values {
+        taken(root, &lent, v, &mut seen, &mut before);
+    }
+    let moved = once
+        .into_iter()
+        .filter(|f| before.as_ref().is_none_or(|b| b.contains(f)))
+        .collect();
+    (moved, lent)
 }
 
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that

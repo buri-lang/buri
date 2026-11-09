@@ -1200,6 +1200,182 @@ fn popping_from_an_unshared_ordered_map_writes_in_place() {
     }
 }
 
+/// A record whose ordered map counts how often each key is seen, `n` times.
+/// `step` names how each count reads the map before writing it: `nested`
+/// reads it inside the insert's arguments, `named` in a `let` before the
+/// insert, and `after` also reads the map's length after the insert, in
+/// another field. The map starts with `keys` keys counted once each; with
+/// `kept`, the record as it was before the counting is printed after it.
+fn tallied(step: &str, keys: u32, n: u32, kept: bool) -> String {
+    let keep = if kept {
+        "let before = t0;"
+    } else {
+        "let before = Tally { name: \"none\", m: orderedmap.empty<Int, Int>(), seen: 0 };"
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+
+struct Tally {{ name: Str, m: OrderedMap<Int, Int>, seen: Int }}
+
+fn build<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int): OrderedMap<Int, Int> {{
+  if (i == {keys}) {{ m }} else {{ build(ctx, m.insert(ctx, i, 1), i + 1) }}
+}}
+
+fn nested<C: Allocator>(ctx: C, t: Tally, k: Int): Tally {{
+  Tally {{ ..t, m: t.m.insert(ctx, k, t.m.get(k).withDefault(0) + 1) }}
+}}
+
+fn named<C: Allocator>(ctx: C, t: Tally, k: Int): Tally {{
+  Tally {{ ..t, m: {{ let c = t.m.get(k).withDefault(0); t.m.insert(ctx, k, c + 1) }} }}
+}}
+
+fn after<C: Allocator>(ctx: C, t: Tally, k: Int): Tally {{
+  Tally {{ ..t, m: t.m.insert(ctx, k, t.m.get(k).withDefault(0) + 1), seen: t.seen + t.m.length() }}
+}}
+
+fn count<C: Allocator>(ctx: C, t: Tally, i: Int): Tally {{
+  if (i == {n}) {{ t }} else {{ count(ctx, {step}(ctx, t, (i * 7) % 2000), i + 1) }}
+}}
+
+fn total(m: OrderedMap<Int, Int>): Int {{
+  m.fold(fn(acc, _k, v) => acc + v, 0)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let t0 = Tally {{ name: "t", m: build(ctx, orderedmap.empty<Int, Int>(), 0), seen: 0 }};
+  {keep}
+  let t = count(ctx, t0, 0);
+  let _ = io.println(host.stdout, "${{t.m.length()}} ${{total(t.m)}} ${{t.seen}} ${{before.m.length()}} ${{total(before.m)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Ten thousand counts into a record's ordered map of two thousand keys, each
+/// reading the key's count and then writing it: inside the insert's
+/// arguments, and in a `let` before it. The read is done before the insert
+/// starts, and nothing else holds the record, so every insert writes the path
+/// to its key in place: the counting allocates almost nothing the building did
+/// not.
+#[test]
+fn counting_into_an_unshared_ordered_map_field_writes_in_place() {
+    for step in ["nested", "named"] {
+        let idle = run_each(
+            &format!("tally-{step}-idle"),
+            &tallied(step, 2000, 0, false),
+        );
+        let busy = run_each(
+            &format!("tally-{step}"),
+            &tallied(step, 2000, 10_000, false),
+        );
+        for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+            assert_eq!(
+                idle.stdout, "2000 2000 0 0 0\n",
+                "{backend} {step}: {}",
+                idle.stderr
+            );
+            assert_eq!(
+                busy.stdout, "2000 12000 0 0 0\n",
+                "{backend} {step}: {}",
+                busy.stderr
+            );
+            let (built, idle_live) = probed(&idle.stderr);
+            let (blocks, live) = probed(&busy.stderr);
+            assert!(
+                blocks < built + 20,
+                "{backend} {step}: ten thousand counts allocated {} blocks beyond the {built} \
+                 building took: a count copied the path to its key",
+                blocks.saturating_sub(built)
+            );
+            assert_eq!(
+                (idle_live, live),
+                (0, 0),
+                "{backend} {step}: blocks still live at exit"
+            );
+        }
+    }
+}
+
+/// Counting into a map another value still holds leaves that value's counts as
+/// they were, and a length read after the insert, in another field, sees the
+/// map as it was before the insert.
+#[test]
+fn counting_into_a_held_ordered_map_field_keeps_every_readers_view() {
+    for (step, keys, kept, seen) in [
+        ("nested", 2000, true, "0 2000 2000"),
+        ("named", 2000, true, "0 2000 2000"),
+        ("after", 0, false, "3999000 0 0"),
+        ("after", 2000, true, "6000000 2000 2000"),
+    ] {
+        let name = format!("tally-{step}-{keys}-held");
+        for (backend, r) in run_each(&name, &tallied(step, keys, 3000, kept)) {
+            assert_eq!(
+                r.stdout,
+                format!("2000 {} {seen}\n", keys + 3000),
+                "{backend} {step} {keys}: {}",
+                r.stderr
+            );
+            let (blocks, live) = probed(&r.stderr);
+            assert_eq!(
+                live, 0,
+                "{backend} {step} {keys}: {blocks} blocks allocated and {live} still live at exit"
+            );
+        }
+    }
+}
+
+/// A record's field handed to a call along with a tuple holding a field of
+/// it, `h.b` and `(h.b.items, 1)`. Each round the list grows by one, and a
+/// copy of the record taken first keeps its list.
+#[test]
+fn a_field_read_through_a_field_of_it_keeps_every_readers_view() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Bag { items: [Int], n: Int }
+struct Holder { name: Str, b: Bag }
+
+fn grow<C: Allocator>(ctx: C, b: Bag, seen: ([Int], Int)): Bag {
+  Bag { items: b.items.push(ctx, seen.1 + seen.0.length()), n: b.n + 1 }
+}
+
+fn bump<C: Allocator>(ctx: C, h: Holder): Holder {
+  Holder { ..h, b: grow(ctx, h.b, (h.b.items, 1)) }
+}
+
+fn step<C: Allocator>(ctx: C, h: Holder, left: Int): Holder {
+  if (left == 0) { h } else { step(ctx, bump(ctx, h), left - 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let h0 = Holder { name: "h", b: Bag { items: list.empty<Int>(), n: 0 } };
+  let h = step(ctx, h0, 500);
+  let sum = h.b.items.fold(fn(acc, x) => acc + x, 0);
+  let _ = io.println(host.stdout, "${h.b.items.length()} ${h.b.n} ${sum} ${h0.b.items.length()}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("field-through-field", source) {
+        assert_eq!(r.stdout, "500 500 125250 0\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}
+
 /// An ordered map of two hundred `Str` keys kept in a record's field, built
 /// and then overwritten for `n` rounds through a functional update, with
 /// `insert` called from that one place only. With `kept`, the map as it was

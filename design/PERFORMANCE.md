@@ -9007,6 +9007,35 @@ record's field, with `insert` called from one place, and twenty thousand pops.
 Each may allocate at most 50 blocks more than building the map did. A copy
 taken first must read the same afterwards.
 
+### 6.109 A field read before the update writes it still moves, 2026-11-08
+
+kvstore counts every event in an ordered map that lives in a record's field:
+
+```buri
+counts: cluster.counts.insert(ctx, what, cluster.counts.get(what).withDefault(0) + 1)
+```
+
+The update reads `cluster.counts` twice, so `rc::moved_fields` didn't move it.
+The update held a second count and every insert copied its path. Hoisting the
+`get` into a `let` before the update made it move.
+
+`rc::lent_reads` now lets one read take the field while the others only lend
+it. A lending read hands `root.f`, or a field of it, straight to a call, and
+that call returns before the taking read is done with: at once for a `let`,
+or when its own call runs for an argument. Both spellings qualify, and so does
+the inlined form, where `insert` takes `self` apart with a `let` after `get`
+has run. A read under a branch or lambda, or anywhere else, keeps the old rule.
+
+`run-dev/kvstore` went from 1,436.3 M to 1,399.7 M instructions on an arm64 VM.
+Retains and releases, counted at the stencils' count sites, fell from 14.03 M
+to 13.61 M.
+
+`cli/tests/native/ownership.rs` guards it: ten thousand counts into a
+2,000-key map, read inside the insert and in a `let`, allocated 60,000 blocks
+beyond the build and may now allocate 20. A record still held elsewhere keeps
+its counts, and a length read after the insert, in another field, sees the map
+from before it.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
