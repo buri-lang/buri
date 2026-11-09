@@ -1021,7 +1021,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 array,
                 ty,
                 from,
+                owned: false,
             } => self.array_slice(state, code, *dest, (*array, *ty), *from),
+            ir::Inst::ArraySlice {
+                dest,
+                array,
+                ty,
+                from,
+                owned: true,
+            } => self.array_slice_owned(state, code, *dest, (*array, *ty), *from),
             ir::Inst::ArrayAlloc { dest, ty, len } => self.array_alloc(state, *dest, *ty, *len),
             ir::Inst::ArraySet {
                 array,
@@ -2143,6 +2151,41 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let out = repr::assemble(self.ctx, b, &slots, &[block.into(), count.into()]);
         self.set(state, dest, out);
+    }
+
+    /// [`Unit::array_slice`] over a list the slice takes the count of
+    /// (`middle::slices`), through `buri_rt_list_slice_owned`, which drops the
+    /// head in place where nothing else holds the list.
+    fn array_slice_owned(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        (array, list): (ir::ValueId, ir::ListTy),
+        from: ir::ValueId,
+    ) {
+        let element = self.program.types.elem(list);
+        let stride = self.reprs.of_ty(&element).layout.stride;
+        let value = self.get(state, array);
+        let [base, len] = repr::disassemble_n(state.b, value);
+        let start = self.get(state, from);
+        let null = self.ptr_ty().const_null();
+        let retain = self
+            .glue(Op::Retain, &element)
+            .map_or(null, function_pointer);
+        let release = self
+            .glue(Op::Release, &element)
+            .map_or(null, function_pointer);
+        let word = self.ctx.i64_type();
+        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![
+            base.into(),
+            len.into(),
+            start.into(),
+            word.const_int(u64::from(stride), false).into(),
+            retain.into(),
+            release.into(),
+        ];
+        self.call_out(state, code, dest, "buri_rt_list_slice_owned", &mut argv);
     }
 
     /// An element, with the bounds check already done: every emission site is
@@ -9209,9 +9252,11 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                         o.reads_far = true;
                     }
                 }
+                // The runtime, which may free the list or write into it.
+                ir::Inst::ArraySlice { owned: true, .. } => o.join(Observed::opaque()),
                 // A fresh block, and a retain of every element it copies —
                 // counts reached through loads (`Unit::array_slice`).
-                ir::Inst::ArraySlice { .. } => {
+                ir::Inst::ArraySlice { owned: false, .. } => {
                     o.allocates = true;
                     o.reads_far = true;
                     o.writes_far = true;

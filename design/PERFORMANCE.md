@@ -8838,7 +8838,8 @@ in a release build:
 
 - 60% of block retains are runtime list copies retaining each element. Most
   copy a list another holder still has: a node read out of a map, updated,
-  then inserted back, and `[x, ..rest]`, whose `rest` is always a copy.
+  then inserted back, and `[x, ..rest]`, whose `rest` was always a copy
+  (§6.107).
 - Parameter passing is about a tenth of the counts the middle end places.
 - The largest single site left is `entryAt(i).map(fn(e) => e.term)`:
   `log.get` retains the entry and `Option.map`'s thunk releases it, about
@@ -8905,6 +8906,55 @@ the change. §6.104 didn't raise it either: 6.8 to 10.1 s before it, 6.7 to
   suite walks that one function again and nothing else;
 - that style stays out of the matching suite's stylesheet. A restyle that
   took kept walks without checking their answers fails this case.
+
+### 6.107 A `..rest` handed on where its list dies drops the head in place, 2026-11-08
+
+```buri
+fn mergeEntries<C: Allocator>(ctx: C, node: Node, entries: [Entry]): Node {
+    match (entries) {
+        [] => node,
+        [entry, ..rest] => if (...) { mergeEntries(ctx, node, rest) } else { ... },
+    }
+}
+```
+
+`lower` copied `rest` as soon as the pattern matched: a fresh block, a memcpy
+and a retain per element. The recursion then released `entries`, and with it
+every element again. On kvstore that was 59 K slices and 1.8 M block
+retains and releases.
+
+`middle/slices.rs` now moves each slice to the blocks that read it:
+
+- a block that only drops it loses the `decref`, and nothing is copied;
+- a block that releases the list and then jumps with the slice gets
+  `slice.owned` in place of the `decref`. It takes the list's count.
+
+`buri_rt_list_slice_owned` releases the head of a list it holds once and
+moves the rest down in place. A shared list is copied as before. Both
+backends call it.
+
+The larger share of kvstore's runtime copies is still out of reach.
+`cluster.arrive` reads a node out of a map, updates it and inserts it back
+under a key the compiler can't match with the read's, and the map is read in
+between. The node's log and maps are shared at every update, so each one
+copies. That needs a way to move a value out of a map.
+
+Release build, counted per operation on macOS:
+
+| kvstore | before | after |
+| --- | ---: | ---: |
+| block retains | 10.11 M | 9.26 M |
+| block releases | 10.84 M | 9.92 M |
+| all retains and releases | 25.8 M | 24.0 M |
+
+On an arm64 VM, `run-dev/kvstore` went from 1,475.6 M to 1,439.3 M
+instructions, and its release build from 904.9 M to 886.9 M. The other
+`--levels` programs didn't move, and every stencil build still runs fewer
+instructions than `-O0`.
+
+`cli/tests/native/ownership.rs` guards it: two thousand steps of a recursion
+that owns its list allocated 2,366 blocks, and the test fails at 200. A list
+another name still holds must read the same afterwards.
 
 ## 7. Profiling, on this platform
 

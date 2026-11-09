@@ -73,6 +73,7 @@ pub mod lower;
 pub mod monomorphize;
 pub mod pairs;
 pub mod rc;
+pub mod slices;
 pub mod tail_calls;
 
 use crate::compiler::middle::monomorphize::Program;

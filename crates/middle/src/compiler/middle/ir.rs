@@ -750,11 +750,16 @@ pub enum Inst {
         index: ValueId,
     },
     /// `xs[from..]`, for the `..rest` of an array pattern.
+    ///
+    /// An `owned` slice also takes `array`'s count, in place of the `decref`
+    /// that followed it, so a list nothing else holds loses its head in place
+    /// rather than being copied (`middle::slices`).
     ArraySlice {
         dest: ValueId,
         array: ValueId,
         ty: ListTy,
         from: ValueId,
+        owned: bool,
     },
     /// A fresh `[T]` of `len` elements that nothing has stored yet. A loop
     /// fills it with [`Inst::ArraySet`] before anything else reads it, and
@@ -2327,10 +2332,11 @@ impl Program {
                 dest: d,
                 array,
                 from,
+                owned,
                 ..
             } => {
                 dest(out, d);
-                out.push_str("slice ");
+                out.push_str(if *owned { "slice.owned " } else { "slice " });
                 pair(out, *array, *from);
             }
             Inst::ArrayAlloc { dest: d, len, .. } => {

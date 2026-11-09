@@ -555,6 +555,34 @@ impl<'a> Jit<'a> {
                 array,
                 ty,
                 from,
+                owned: true,
+            } => {
+                let (stride, _, _) = self.list_elem(prog, *ty);
+                let elem = prog.types.elem(*ty);
+                let glue = |name: Option<String>| name.map_or(Src::Imm(0), Src::Sym);
+                let retain = glue(self.element_glue(elem));
+                let release = glue(self.value_release(elem));
+                let src = st.at(*array);
+                let dst = st.at(*dest);
+                // `buri_rt_list_slice_owned(ptr, len, from, stride, retain,
+                // release, out)`, which takes the list's count.
+                let args = [
+                    Src::Word(src),
+                    Src::Word(src + 8),
+                    Src::Word(st.at(*from)),
+                    Src::Imm(u64::from(stride)),
+                    retain,
+                    release,
+                    Src::Addr(dst),
+                ];
+                self.c_call("buri_rt_list_slice_owned", st, &args, &[], dst, "v");
+            }
+            Inst::ArraySlice {
+                dest,
+                array,
+                ty,
+                from,
+                owned: false,
             } => {
                 let (stride, _, _) = self.list_elem(prog, *ty);
                 let glue = self.element_glue(prog.types.elem(*ty));

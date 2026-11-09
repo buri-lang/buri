@@ -184,7 +184,7 @@ fn partner(
             Inst::GetTag { .. }
             | Inst::ArrayLen { .. }
             | Inst::ArrayGet { .. }
-            | Inst::ArraySlice { .. }
+            | Inst::ArraySlice { owned: false, .. }
             | Inst::IncRef { .. } => given,
             _ => true,
         };

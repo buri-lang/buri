@@ -692,7 +692,7 @@ impl Jit<'_> {
     /// The same walk `emit.rs` emits for a value going out of scope. It is
     /// reached from here because the runtime is the side that knows *when* a
     /// store ends and this is the side that knows *what* is in it.
-    fn value_release(&mut self, ty: Ty) -> Option<String> {
+    pub(crate) fn value_release(&mut self, ty: Ty) -> Option<String> {
         self.rc_counted(&ty).then(|| {
             self.helper(super::glue::Helper::Walk {
                 ty,

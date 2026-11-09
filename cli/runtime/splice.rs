@@ -339,6 +339,78 @@ pub unsafe extern "C" fn buri_rt_map_remove_at(
     }
 }
 
+/// `xs[from..]` for the `..rest` of an array pattern, where the pattern's
+/// list dies with the match: the middle end hands this the list's count in
+/// place of the `decref` it would have run after the copy (`middle::slices`).
+///
+/// A list held once loses its first `from` elements in place: they are
+/// released, the rest moves down, and the slots that frees up are zeroed for
+/// the block's glue, as in [`buri_rt_map_remove_at`]. A shared one is copied
+/// and the count given back.
+///
+/// # Safety
+/// `ptr` covers `len * stride` bytes and the call owns a count of it; `out` is
+/// writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_list_slice_owned(
+    ptr: *const u8,
+    len: u64,
+    from: i64,
+    stride: u64,
+    retain: Retain,
+    release: Release,
+    out: *mut BuriList,
+) {
+    let (n, s) = (len as usize, stride as usize);
+    let from = (from.max(0) as usize).min(n);
+    let total = n - from;
+    if ptr.is_null() || s == 0 {
+        // SAFETY: the caller promises `out`; a null block holds nothing.
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: total as u64,
+            })
+        };
+        return;
+    }
+    // SAFETY: the caller promises a live block.
+    if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
+        let p = ptr.cast_mut();
+        // SAFETY: the block is the caller's alone, and `from <= n`.
+        unsafe {
+            for i in 0..from {
+                release_one(p.add(i * s), s, release);
+            }
+            std::ptr::copy(p.add(from * s), p, total * s);
+            std::ptr::write_bytes(p.add(total * s), 0, from * s);
+            if total == 0 {
+                give_back(p, s, release);
+                out.write(BuriList {
+                    ptr: std::ptr::null_mut(),
+                    len: 0,
+                });
+            } else {
+                out.write(BuriList {
+                    ptr: p,
+                    len: total as u64,
+                });
+            }
+        }
+        return;
+    }
+    let fresh = block(total, s);
+    // SAFETY: the fresh block covers `total` elements, disjoint from the
+    // source; an empty one is null and takes nothing.
+    unsafe {
+        if !fresh.ptr.is_null() {
+            copy_retaining(fresh.ptr, ptr.add(from * s), total, s, retain);
+        }
+        give_back(ptr, s, release);
+        out.write(fresh);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,6 +592,113 @@ mod tests {
             );
             assert!(out.ptr.is_null());
             assert_eq!(out.len, 0);
+            buri_rt_free(spare_block);
+        }
+    }
+
+    thread_local! {
+        /// The elements [`count_release`] was handed, on this test's thread.
+        static RELEASED: Cell<Vec<i64>> = const { Cell::new(Vec::new()) };
+    }
+
+    extern "C" fn count_release(p: *mut u8) {
+        // SAFETY: the slice hands its release glue one live `i64` element.
+        let x = unsafe { p.cast::<i64>().read() };
+        let mut seen = RELEASED.take();
+        seen.push(x);
+        RELEASED.set(seen);
+    }
+
+    /// Takes `memory::latch`, as [`a_list_held_once_is_spliced_in_place`]
+    /// does.
+    #[test]
+    fn a_rest_slice_of_a_list_held_once_drops_its_head_in_place() {
+        let _latch = crate::memory::latch();
+        let xs = ints(&[1, 2, 3, 4], 4);
+        let mut out = empty();
+        // SAFETY: the call owns the one count, and hands it to its result.
+        unsafe {
+            buri_rt_list_slice_owned(
+                xs.ptr,
+                xs.len,
+                2,
+                8,
+                None,
+                Some(count_release),
+                &raw mut out,
+            );
+            assert_eq!(out.ptr, xs.ptr);
+            assert_eq!(read(&out), [3, 4]);
+            assert_eq!(RELEASED.take(), [1, 2]);
+            // The slots the head freed are spare again.
+            assert_eq!(out.ptr.add(16).cast::<i64>().read(), 0);
+            assert_eq!(out.ptr.add(24).cast::<i64>().read(), 0);
+            assert_eq!(buri_rt_rc(out.ptr), 1);
+            buri_rt_free(out.ptr);
+        }
+    }
+
+    #[test]
+    fn a_rest_slice_of_a_list_held_twice_is_a_copy() {
+        let xs = ints(&[1, 2, 3], 4);
+        let mut out = empty();
+        // SAFETY: a second count stands for a second holder; the slice owns
+        // one of the two and gives it back.
+        unsafe {
+            buri_rt_incref(xs.ptr);
+            buri_rt_list_slice_owned(
+                xs.ptr,
+                xs.len,
+                1,
+                8,
+                None,
+                Some(count_release),
+                &raw mut out,
+            );
+            assert_ne!(out.ptr, xs.ptr);
+            assert_eq!(read(&out), [2, 3]);
+            assert_eq!(read(&xs), [1, 2, 3]);
+            assert_eq!(RELEASED.take(), Vec::<i64>::new());
+            assert_eq!(buri_rt_rc(xs.ptr), 1);
+            buri_rt_free(out.ptr);
+            buri_rt_free(xs.ptr);
+        }
+    }
+
+    #[test]
+    fn a_rest_slice_that_keeps_nothing_frees_the_block() {
+        let _latch = crate::memory::latch();
+        let xs = ints(&[7], 1);
+        let mut out = ints(&[], 1);
+        let spare_block = out.ptr;
+        // SAFETY: the call owns the one count.
+        unsafe {
+            buri_rt_list_slice_owned(
+                xs.ptr,
+                xs.len,
+                1,
+                8,
+                None,
+                Some(count_release),
+                &raw mut out,
+            );
+            assert!(out.ptr.is_null());
+            assert_eq!(out.len, 0);
+            assert_eq!(RELEASED.take(), [7]);
+            buri_rt_free(spare_block);
+        }
+    }
+
+    /// A list of zero-sized elements has no block, only a length.
+    #[test]
+    fn a_rest_slice_of_zero_sized_elements_is_a_length() {
+        let mut out = ints(&[], 1);
+        let spare_block = out.ptr;
+        // SAFETY: a null block owns nothing.
+        unsafe {
+            buri_rt_list_slice_owned(std::ptr::null(), 5, 1, 0, None, None, &raw mut out);
+            assert!(out.ptr.is_null());
+            assert_eq!(out.len, 4);
             buri_rt_free(spare_block);
         }
     }

@@ -1505,3 +1505,92 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "{backend}: {live} blocks still live at exit");
     }
 }
+
+/// A recursion over `[x, ..rest]` that owns its list hands `rest` on where the
+/// list dies. Two thousand steps over a fresh list must drop each head in
+/// place rather than copy the tail, while a list another name still holds is
+/// copied once and left as it was. A `rest` read some other way gives the
+/// same answers as before.
+#[test]
+fn a_rest_handed_on_by_a_recursion_that_owns_its_list_is_not_copied() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+fn skip(xs: [Int], n: Int): [Int] {
+  match (xs) {
+    [] => xs,
+    [x, ..rest] => if (x >= n) { xs } else { skip(rest, n) },
+  }
+}
+
+fn names(xs: [Str], n: Int): [Str] {
+  match (xs) {
+    [] => xs,
+    [x, ..rest] => if (x.length() >= n) { xs } else { names(rest, n) },
+  }
+}
+
+fn second(xs: [Int]): Int {
+  match (xs) {
+    [_, ..rest] => match (rest) {
+      [y, ..] => y,
+      [] => -1,
+    },
+    [] => -1,
+  }
+}
+
+fn total(xs: [Int]): Int {
+  match (xs) {
+    [] => 0,
+    [x, ..rest] => x + total(rest),
+  }
+}
+
+fn after(xs: [Int]): [Int] {
+  match (xs) {
+    [_, ..rest] => skip(rest, 3),
+    [] => xs,
+  }
+}
+
+fn tailOf(xs: [Int]): [Int] {
+  match (xs) {
+    [_, ..rest] => rest,
+    [] => list.empty<Int>(),
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let fresh = skip(list.range(ctx, 0, 2000), 1990);
+  let kept = list.range(ctx, 0, 50);
+  let tail = skip(kept, 45);
+  let words = list.range(ctx, 0, 300).map(ctx, fn(i) => if (i == 250) { "long word" } else { "w" });
+  let found = names(words, 5);
+  let line = "${fresh.length()} ${total(fresh)} ${tail.length()} ${total(tail)} ${kept.length()} ${total(kept)} ${found.length()} ${found.get(0).withDefault("")} ${words.length()} ${words.get(0).withDefault("")} ${second(kept)} ${after(kept).length()} ${total(tailOf(kept))}";
+  let _ = io.println(host.stdout, line).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("rest-handed-on", source) {
+        assert_eq!(
+            r.stdout, "10 19945 5 235 50 1225 50 long word 300 w 1 47 1225\n",
+            "{backend}: {}",
+            r.stderr
+        );
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 200,
+            "{backend}: two thousand steps over a fresh list allocated {blocks} blocks: every \
+             step copied the rest"
+        );
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
+    }
+}
