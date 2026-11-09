@@ -100,6 +100,20 @@ run {
   golden: "format_path_outer.txt"
 }
 
+# A trailing `/` or `/.` on the directory names the same nested repository,
+# by its plain path.
+run {
+  args: ["format", "lib/rate/clock/"]
+  exit: 2
+  golden: "format_path_outer_slash.txt"
+}
+
+run {
+  args: ["format", "lib/rate/clock/."]
+  exit: 2
+  golden: "format_path_outer_dot.txt"
+}
+
 run {
   args: ["format", "--check", "lib/rate/clock/lib/tick/tick.buri"]
   exit: 2

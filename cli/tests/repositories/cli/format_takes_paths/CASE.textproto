@@ -41,6 +41,13 @@ run {
   golden: "check_reports.txt"
 }
 
+# Spelled from `.`, the path still names the file by its plain path.
+run {
+  args: ["format", "--check", "./libs/greeting"]
+  exit: 1
+  golden: "check_reports.txt"
+}
+
 # A path is repository-absolute the way a label is, so it means the same thing
 # from a directory that is not the root.
 run {
