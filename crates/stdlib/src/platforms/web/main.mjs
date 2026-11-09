@@ -97,10 +97,10 @@ function startingWith(prefix) {
 }
 
 export const IndexedDb = {
-  get: (self, key) => transact("readonly", (store) => store.get(key)),
-  put: (self, key, value) => transact("readwrite", (store) => store.put(value, key)),
-  delete: (self, key) => transact("readwrite", (store) => store.delete(key)),
-  keys: (self, prefix) => transact("readonly", (store) => store.getAllKeys(startingWith(prefix))),
+  get: async (self, key) => transact("readonly", (store) => store.get(key)),
+  put: async (self, key, value) => transact("readwrite", (store) => store.put(value, key)),
+  delete: async (self, key) => transact("readwrite", (store) => store.delete(key)),
+  keys: async (self, prefix) => transact("readonly", (store) => store.getAllKeys(startingWith(prefix))),
 };
 
 // `.Err(msg)` arrives as a thrown `Error`, and the message goes to the console.

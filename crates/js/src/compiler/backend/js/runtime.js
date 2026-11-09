@@ -2944,6 +2944,28 @@ async function $crossCatch(thunk) {
   }
 }
 
+// The same for a method the file writes without `async`: `call` answers at
+// once, and `convert` crosses what it answered. A throw from `convert` is
+// `$crossSync`'s refusal, which is the file's mistake rather than an `.Err`.
+function $crossCatchSync(call, convert) {
+  let v;
+  try {
+    v = call();
+  } catch (e) {
+    return $err(String((e && e.message) || e));
+  }
+  return $ok(convert(v));
+}
+
+// What a method written without `async` answered. The caller doesn't wait, so
+// a promise here would reach the program as the value itself.
+function $crossSync(method, v) {
+  if (v instanceof Promise) {
+    throw new Error(`\`${method}\` answered a promise; write it \`async\` in the js file`);
+  }
+  return v;
+}
+
 function $host_HostClock_nowMilliseconds(self) {
   return BigInt(Date.now());
 }

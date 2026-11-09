@@ -95,7 +95,7 @@ export default { fetch(request, env) { bindings = env; return fetch(request); } 
 /// The walkthrough's `HostKv`, which implements `Kv` as `platform.buri` asks.
 const KV: &str = r#"export const HostKv = {
   get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,
-  put: (self, namespace, key, value) => bindings[namespace].put(key, value),
+  put: async (self, namespace, key, value) => bindings[namespace].put(key, value),
 };
 "#;
 

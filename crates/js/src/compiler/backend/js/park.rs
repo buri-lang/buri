@@ -383,10 +383,15 @@ pub fn parkability(program: &Program) -> Parking {
         // An unbuilt body is lowered to an abort, which is the one thing that
         // certainly does not wait, so only a suspending intrinsic seeds `true`.
         parks: program.funcs.map(|f| match &f.kind {
-            // A method a platform's `js` file implements may suspend, and
-            // nothing in the file says whether it does: always awaited.
+            // A method a platform's `js` file implements suspends when the
+            // file writes it `async`, which is the one thing a file can say
+            // about it. One written without answers at once, and a caller the
+            // runtime calls without waiting, such as a `ui.each` row, has to
+            // stay a function that answers a value (buri-lang/buri#330).
             FuncKind::Intrinsic(key) => {
-                suspends(key) || program.hosted.js_implemented.contains(key)
+                let hosted = &program.hosted;
+                suspends(key)
+                    || (hosted.js_implemented.contains(key) && !hosted.synchronous.contains(key))
             }
             FuncKind::Unbuilt | FuncKind::Body(_) => false,
         }),

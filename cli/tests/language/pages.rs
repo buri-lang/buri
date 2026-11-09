@@ -13,7 +13,7 @@
 //! doesn't have.
 
 use crate::harness::hang::Capped;
-use crate::harness::{js_runtime, Scratch};
+use crate::harness::{js_runtime, tests_dir, Scratch};
 use std::process::Command;
 
 /// A document a page can mount into, with the events and the focus a reader
@@ -220,6 +220,20 @@ globalThis.document = {
   },
 };
 listening(globalThis.document);
+
+// The address bar: where the page is, and every move it made, in order.
+const moves = [];
+globalThis.location = { pathname: "/" };
+globalThis.history = {
+  pushState(_state, _title, path) {
+    location.pathname = path;
+    moves.push(`pushed ${path}`);
+  },
+  replaceState(_state, _title, path) {
+    location.pathname = path;
+    moves.push(`replaced ${path}`);
+  },
+};
 "##;
 
 /// Builds `source` as a page and runs `driver` against it on top of
@@ -232,13 +246,7 @@ fn drive(name: &str, source: &str, driver: &str) -> String {
     );
     scratch.write("cmd/page/main.buri", source);
     scratch.run(&["build", "//cmd/page"]).ok();
-    let script =
-        format!("{BROWSER}\nawait import(\"./.buri/out/web/cmd/page/main.mjs\");\n{driver}");
-    let path = scratch.write("drive.mjs", &script);
-    let out = Command::new(js_runtime())
-        .arg(&path)
-        .capped_output()
-        .expect("the javascript runtime runs");
+    let out = run_page(&scratch, ".buri/out/web/cmd/page/main.mjs", driver);
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert_eq!(
         out.status.code(),
@@ -247,6 +255,17 @@ fn drive(name: &str, source: &str, driver: &str) -> String {
         String::from_utf8_lossy(&out.stderr)
     );
     stdout
+}
+
+/// Imports the module `artifact` names on top of [`BROWSER`], then runs
+/// `driver`.
+fn run_page(scratch: &Scratch, artifact: &str, driver: &str) -> std::process::Output {
+    let script = format!("{BROWSER}\nawait import(\"./{artifact}\");\n{driver}");
+    let path = scratch.write("drive.mjs", &script);
+    Command::new(js_runtime())
+        .arg(&path)
+        .capped_output()
+        .expect("the javascript runtime runs")
 }
 
 /// A copy button with a description, and a paste button beside it.
@@ -476,13 +495,281 @@ fn rows_built_by_a_function_holding_a_navigating_handler_render_and_navigate() {
         "rows-page",
         ROWS_PAGE,
         r#"
-globalThis.history = { pushState: (_state, _title, path) => console.log(`pushed ${path}`) };
 console.log(["a", "b", "c"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
 fire(labelled("b"), "click");
 await new Promise((done) => setTimeout(done, 0));
 fire(labelled("c"), "click");
 await new Promise((done) => setTimeout(done, 0));
+console.log(moves.join("\n"));
 "#,
     );
     assert_eq!(printed, "a:shown b:shown c:shown\npushed b\npushed c\n");
+}
+
+/// A page whose `ui.each` rows each run `act` with their context while they
+/// are built: `act` is the row function's body, and ends in the row's node.
+fn acting_rows(act: &str) -> String {
+    format!(
+        r#"from "platform/effect" import {{ Allocator, Location, Ui }};
+from "ui/node" import * as ui;
+from "ui/node" import {{ Node }};
+from "ui/web" import * as web;
+from "web" import {{ WebHost }};
+
+fn row<C: Location + Ui>(ctx: C, s: Str): Node<C> {{
+    {act}
+}}
+
+export fn main(host: WebHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Location: host.location,
+    }};
+    ui.mount(ctx, ui.each(.Const(["a", "b"]), fn(s) => s, fn(c, s, _i) => row(c, s)), [])
+}}
+"#
+    )
+}
+
+/// What a row driver prints: whether each row's button is there, then every
+/// move the address bar made.
+const ROWS_AND_MOVES: &str = r#"
+console.log(["a", "b"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
+console.log(moves.join("\n"));
+"#;
+
+/// A row that redirects while it is built calls the address bar's `replace`,
+/// which answers at once, so the row is a node rather than a promise and both
+/// rows render (buri-lang/buri#330).
+#[test]
+fn rows_that_replace_the_address_while_they_are_built_render() {
+    let page = acting_rows(
+        r#"let _ = web.replace(ctx, "/x");
+    ui.button({ label: .Const(s), styles: [], onPress: .None })"#,
+    );
+    let printed = drive("rows-replace", &page, ROWS_AND_MOVES);
+    assert_eq!(printed, "a:shown b:shown\nreplaced /x\nreplaced /x\n");
+}
+
+/// The same for `push`, which `navigate` calls.
+#[test]
+fn rows_that_navigate_while_they_are_built_render() {
+    let page = acting_rows(
+        r#"let _ = web.navigate(ctx, "/y");
+    ui.button({ label: .Const(s), styles: [], onPress: .None })"#,
+    );
+    let printed = drive("rows-navigate", &page, ROWS_AND_MOVES);
+    assert_eq!(printed, "a:shown b:shown\npushed /y\npushed /y\n");
+}
+
+/// The same for `path`, which `route` reads: each row shows the address, `/`.
+#[test]
+fn rows_that_read_the_route_while_they_are_built_render() {
+    let page = acting_rows(r#"ui.text({ content: web.route(ctx) })"#);
+    let printed = drive(
+        "rows-route",
+        &page,
+        "console.log(body.childNodes.filter((n) => n.nodeType === 3).map((n) => n.data).join(\" \"));\n",
+    );
+    assert_eq!(printed, "/ /\n");
+}
+
+/// `//platform/two` with `HostUi` on its page's host and a second method on
+/// `Greet`, `check`, which answers a `Result`. The page mounts rows that each
+/// ask for a name and label themselves with what `check` says of their item.
+/// `name` and `check` are the `js` file's two methods of `HostGreet`.
+fn greeting_rows(name: &str, check: &str) -> Scratch {
+    let scratch = Scratch::copy_of(
+        "greeting-rows",
+        &tests_dir().join("repositories/platform/two_entries_two_hosts/repo"),
+    );
+    let edit = |path: &str, from: &str, to: &str| {
+        let held = scratch.read(path);
+        assert!(held.contains(from), "{path} holds {from}");
+        scratch.write(path, &held.replace(from, to));
+    };
+    let platform = "platform/two/platform.buri";
+    edit(platform, "{ HostAllocator }", "{ HostAllocator, HostUi }");
+    edit(
+        platform,
+        "export greet: HostGreet,\n}",
+        "export greet: HostGreet,\n    export ui: HostUi,\n}",
+    );
+    let checks = "    fn check(self, s: Str): Result<Str, Str>;\n}";
+    edit(
+        platform,
+        "    fn name(self): Str;\n}",
+        &format!("    fn name(self): Str;\n\n{checks}"),
+    );
+    edit(
+        "platform/effect/greet/lib.buri",
+        "    fn name(self): Str;\n}",
+        &format!(
+            "    fn name(self): Str;\n\n{checks}\n\n\
+             export fn check<C: Greet>(ctx: C, s: Str): Result<Str, Str> {{\n    ctx.check(s)\n}}"
+        ),
+    );
+    edit(
+        "platform/effect/greet/testing/lib.buri",
+        "        \"test\"\n    }\n",
+        "        \"test\"\n    }\n\n    fn check(self, s: Str): Result<Str, Str> {\n        .Ok(s)\n    }\n",
+    );
+    scratch.write(
+        "platform/two/page.mjs",
+        &format!(
+            "import {{ page }} from \"buri:program\";\n\n\
+             export const HostGreet = {{\n  name: {name},\n  check: {check},\n}};\nawait page();\n"
+        ),
+    );
+    scratch.write(
+        "cmd/app/main.buri",
+        r#"from "core/net/http" import * as http;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "//platform/effect/count" import * as count;
+from "//platform/effect/greet" import * as greet;
+from "//platform/effect/greet" import { Greet };
+from "//platform/two" import { PageHost, WorkerHost };
+
+fn row<C: Greet + Ui>(ctx: C, s: Str): Node<C> {
+    let _ = greet.name(ctx);
+    let label = match (greet.check(ctx, s)) {
+        .Ok(said) => said,
+        .Err(refused) => refused,
+    };
+    ui.button({ label: .Const(label), styles: [], onPress: .None })
+}
+
+export fn page(host: PageHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Greet: host.greet,
+    };
+    ui.mount(ctx, ui.each(.Const(["a", "b"]), fn(s) => s, fn(c, s, _i) => row(c, s)), [])
+}
+
+export fn worker(host: WorkerHost, request: Request): Response {
+    let _ = count.next(host.count);
+    http.status(200)
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch
+}
+
+const PAGE_ARTIFACT: &str = ".buri/out/platform/two/cmd/app/page.mjs";
+
+/// A `check` that answers `a` in capitals and refuses `b`.
+const CHECK: &str =
+    r#"(self, s) => { if (s === "b") throw new Error("no b"); return s.toUpperCase(); }"#;
+
+/// A repository platform's methods that its `js` file writes without `async`
+/// answer at once, a thrown error included, so rows that call them while they
+/// are built render, as `web`'s address bar does (buri-lang/buri#330).
+#[test]
+fn rows_that_call_a_platform_s_synchronous_methods_while_they_are_built_render() {
+    let scratch = greeting_rows(
+        r#"(self) => { console.log("named"); return "page"; }"#,
+        CHECK,
+    );
+    let out = run_page(
+        &scratch,
+        PAGE_ARTIFACT,
+        r#"console.log(["A", "no b"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));"#,
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "named\nnamed\nA:shown no b:shown\n",
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success());
+}
+
+/// A method written without `async` that answers a promise anyway is a
+/// mistake in the `js` file that the program can't wait out. It fails at the
+/// call, naming the method and the fix, rather than handing the program a
+/// promise for a name.
+#[test]
+fn a_synchronous_method_that_answers_a_promise_fails_naming_itself() {
+    let scratch = greeting_rows(r#"(self) => Promise.resolve("page")"#, CHECK);
+    let out = run_page(&scratch, PAGE_ARTIFACT, "");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "the page ran:\n{stderr}");
+    assert!(
+        stderr.contains("`HostGreet.name` answered a promise; write it `async` in the js file"),
+        "{stderr}"
+    );
+}
+
+/// The same for a method that answers a `Result`: the promise is the file's
+/// mistake, not the method's `.Err`.
+#[test]
+fn a_synchronous_result_method_that_answers_a_promise_fails_naming_itself() {
+    let scratch = greeting_rows(r#"(self) => "page""#, r#"(self, s) => Promise.resolve(s)"#);
+    let out = run_page(&scratch, PAGE_ARTIFACT, "");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "the page ran:\n{stderr}");
+    assert!(
+        stderr.contains("`HostGreet.check` answered a promise; write it `async` in the js file"),
+        "{stderr}"
+    );
+}
+
+/// An `async` method is still awaited where nothing calls it without waiting:
+/// the page asks for its name before it mounts.
+#[test]
+fn a_platform_s_async_method_is_awaited() {
+    let scratch = greeting_rows(r#"async (self) => "page""#, CHECK);
+    assert_eq!(named_before_mount(&scratch), "page\n");
+}
+
+/// A method the file writes as a name rather than a function may be `async`,
+/// so it's awaited too.
+#[test]
+fn a_platform_s_method_written_as_a_name_is_awaited() {
+    let scratch = greeting_rows("greetName", CHECK);
+    let file = "platform/two/page.mjs";
+    let held = scratch.read(file);
+    scratch.write(
+        file,
+        &held.replace(
+            "export const HostGreet",
+            "const greetName = async (self) => \"page\";\nexport const HostGreet",
+        ),
+    );
+    assert_eq!(named_before_mount(&scratch), "page\n");
+}
+
+/// Rebuilds a [`greeting_rows`] page to ask for its name before it mounts,
+/// and runs it, answering the text the name went into.
+fn named_before_mount(scratch: &Scratch) -> String {
+    let main = "cmd/app/main.buri";
+    let held = scratch.read(main);
+    scratch.write(
+        main,
+        &held
+            .replace("    let _ = greet.name(ctx);\n", "")
+            .replace(
+                "    ui.mount(ctx, ui.each(",
+                "    let named = greet.name(ctx);\n    ui.mount(ctx, ui.stack({ styles: [], children: [ui.text({ content: .Const(named) }), ui.each(",
+            )
+            .replace("row(c, s)), [])", "row(c, s))] }), [])"),
+    );
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let out = run_page(
+        scratch,
+        PAGE_ARTIFACT,
+        "console.log(body.childNodes[0].childNodes[0].data);\n",
+    );
+    assert!(
+        out.status.success(),
+        "the page did not run:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).to_string()
 }

@@ -397,9 +397,14 @@ pub struct Hosted {
     /// platform's `platform.buri` declares without a body, such as
     /// `//platform/cloudflare_worker.HostKv.get` or `web.HostLocation.path`.
     ///
-    /// A call to one may suspend on JavaScript, so `middle::rc` seeds its
-    /// parking column with them as it does with the host's blocking keys.
+    /// A call to one may suspend on JavaScript, so the JavaScript backend's
+    /// parking column is seeded with them as it is with the host's blocking
+    /// keys, except for the ones in `synchronous`.
     pub js_implemented: std::collections::BTreeSet<String>,
+    /// The keys of `js_implemented` whose function the `js` file writes
+    /// without `async`: a call answers at once, so it does not park, and the
+    /// backend checks at the call that it did not answer a promise anyway.
+    pub synchronous: std::collections::BTreeSet<String>,
     /// `platform/effect`'s `Request` and `Response`, which cross as the Fetch
     /// standard's.
     pub request: Option<TyConId>,
@@ -942,6 +947,7 @@ fn run_on(
             request: checked.known_types.get("Request").copied(),
             response: checked.known_types.get("Response").copied(),
             js_implemented: m.js_implemented,
+            synchronous: std::collections::BTreeSet::new(),
             export,
             ui: false,
         },

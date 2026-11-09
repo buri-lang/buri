@@ -49,7 +49,7 @@ run {
 # The file must implement every method `HostKv`'s effect declares.
 edit {
   file: "platform/cloudflare_worker/fetch.mjs"
-  replace: "  put: (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
+  replace: "  put: async (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
   with: ""
 }
 
@@ -62,7 +62,7 @@ run {
 edit {
   file: "platform/cloudflare_worker/fetch.mjs"
   replace: "  get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,\n"
-  with: "  get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,\n  put: (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
+  with: "  get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,\n  put: async (self, namespace, key, value) => bindings[namespace].put(key, value),\n"
 }
 
 # The entry takes the platform's host, and no other.

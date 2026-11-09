@@ -97,7 +97,7 @@ let bindings = {};
 export default { fetch(request, env) { bindings = env; return fetch(request); } };
 export const HostKv = {
   get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,
-  put: (self, namespace, key, value) => bindings[namespace].put(key, value),
+  put: async (self, namespace, key, value) => bindings[namespace].put(key, value),
 };
 ```
 
@@ -110,8 +110,11 @@ export const HostKv = {
 - **`buri:program` exports the artifact's entry**, by the entry's name, and
   nothing else. Importing another name, a default included, is
   `unknown-export`.
-- **Every call to a method the file implements is awaited**, so a method may
-  return a promise.
+- **An `async` method is awaited, and any other answers at once.** Write a
+  method that returns a promise `async`, and leave `async` off one that
+  doesn't: a caller of an `async` method waits too, and a `ui.each` row can't.
+  A method without `async` that returns a promise throws at the call, naming
+  itself.
 - **`buri:ui` hands the file the reactive graph**, for a method that answers a
   signal: `signal(value)` makes one and answers its id, and `write(id, value)`
   replaces its value. A `Str` is a string.

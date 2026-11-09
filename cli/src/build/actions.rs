@@ -569,6 +569,20 @@ fn compile_analyzed(
     let host_file = host_file(session, output, analysis, module, js, diagnostics)?;
     if let Some(file) = &host_file {
         program.hosted.ui = file.exports.ui;
+        // A key is `<module>.<struct>.<method>`, as the backend splits it.
+        let synchronous = file.exports.synchronous();
+        let hosted = &mut program.hosted;
+        hosted.synchronous = hosted
+            .js_implemented
+            .iter()
+            .filter(|key| {
+                let mut tail = key.rsplitn(3, '.');
+                let method = tail.next().unwrap_or_default();
+                let strukt = tail.next().unwrap_or_default();
+                synchronous.contains(&format!("{strukt}.{method}"))
+            })
+            .cloned()
+            .collect();
     }
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below

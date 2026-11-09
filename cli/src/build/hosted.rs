@@ -213,8 +213,8 @@ fn lex(src: &str) -> Vec<Lexeme> {
 pub enum Shape {
     /// `export const X = { key: (a, b) => ... }`: each key, with how many
     /// parameters its function takes, or `None` where the value is not a
-    /// function the reader can count.
-    Object(Vec<(String, Option<usize>)>),
+    /// function the reader can count, and whether that function is `async`.
+    Object(Vec<(String, Option<usize>, bool)>),
     /// `export function X(a, b)`: how many parameters it takes.
     Function(usize),
     /// Anything else: a call, a class, a re-export.
@@ -269,6 +269,24 @@ impl Exports {
     pub fn get(&self, name: &str) -> Option<&Export> {
         self.exports.iter().find(|e| e.name == name)
     }
+
+    /// Every `Export.method` the file writes as a function that isn't `async`,
+    /// so a call to it answers at once and the program need not wait. A
+    /// method written any other way, such as a name, may be `async`.
+    pub fn synchronous(&self) -> std::collections::BTreeSet<String> {
+        let mut out = std::collections::BTreeSet::new();
+        for e in &self.exports {
+            let Shape::Object(keys) = &e.shape else {
+                continue;
+            };
+            for (k, count, waits) in keys {
+                if count.is_some() && !waits {
+                    out.insert(format!("{}.{k}", e.name));
+                }
+            }
+        }
+        out
+    }
 }
 
 /// How many parameters a parenthesised list starting at `open` holds, and the
@@ -314,7 +332,7 @@ fn count_params(lexemes: &[Lexeme], open: usize) -> Option<(usize, usize)> {
 /// How many parameters the function value starting at `i` takes:
 /// `(a, b) => ...`, `a => ...`, `async (a) => ...`, `function (a) {}`.
 fn function_value(lexemes: &[Lexeme], mut i: usize) -> Option<usize> {
-    if matches!(lexemes.get(i).map(|l| &l.token), Some(Token::Ident(w)) if w == "async") {
+    if is_async(lexemes, i) {
         i = i.saturating_add(1);
     }
     match &lexemes.get(i)?.token {
@@ -337,9 +355,14 @@ fn function_value(lexemes: &[Lexeme], mut i: usize) -> Option<usize> {
     }
 }
 
+/// Whether the token at `i` is the word `async`.
+fn is_async(lexemes: &[Lexeme], i: usize) -> bool {
+    matches!(lexemes.get(i).map(|l| &l.token), Some(Token::Ident(w)) if w == "async")
+}
+
 /// The keys of an object literal starting at `open`, each with the parameter
-/// count of its function value.
-fn object_keys(lexemes: &[Lexeme], open: usize) -> Vec<(String, Option<usize>)> {
+/// count of its function value and whether that function is `async`.
+fn object_keys(lexemes: &[Lexeme], open: usize) -> Vec<(String, Option<usize>, bool)> {
     let mut out = Vec::new();
     let mut depth = 0usize;
     let mut i = open;
@@ -366,27 +389,31 @@ fn object_keys(lexemes: &[Lexeme], open: usize) -> Vec<(String, Option<usize>)> 
                 // `async get(...) {}` and `get: async (...) => ...` both start
                 // with the word `async`; it is a key only when `:` or `(`
                 // follows it directly.
-                if matches!(&l.token, Token::Ident(w) if w == "async")
+                let shorthand = is_async(lexemes, i)
                     && !matches!(
                         lexemes.get(i.saturating_add(1)).map(|l| &l.token),
                         Some(Token::Punct(':' | '(' | ','))
-                    )
-                {
+                    );
+                if shorthand {
                     k = k.saturating_add(1);
                 }
                 let key = match lexemes.get(k).map(|l| &l.token) {
                     Some(Token::Ident(w)) | Some(Token::Str(w)) => w.clone(),
                     _ => continue,
                 };
-                let count = match lexemes.get(k.saturating_add(1)).map(|l| &l.token) {
-                    Some(Token::Punct(':')) => function_value(lexemes, k.saturating_add(2)),
+                let (count, waits) = match lexemes.get(k.saturating_add(1)).map(|l| &l.token) {
+                    Some(Token::Punct(':')) => (
+                        function_value(lexemes, k.saturating_add(2)),
+                        is_async(lexemes, k.saturating_add(2)),
+                    ),
                     // A method: `get(self, key) { ... }`.
-                    Some(Token::Punct('(')) => {
-                        count_params(lexemes, k.saturating_add(1)).map(|(n, _)| n)
-                    }
-                    _ => None,
+                    Some(Token::Punct('(')) => (
+                        count_params(lexemes, k.saturating_add(1)).map(|(n, _)| n),
+                        shorthand,
+                    ),
+                    _ => (None, false),
                 };
-                out.push((key, count));
+                out.push((key, count, waits));
             }
             _ => {}
         }
@@ -954,7 +981,7 @@ pub fn gaps(exports: &Exports, needed: &[Needed]) -> Vec<Gap> {
         match &export.shape {
             Shape::Object(keys) => {
                 for m in &s.methods {
-                    match keys.iter().find(|(k, _)| *k == m.name) {
+                    match keys.iter().find(|(k, ..)| *k == m.name) {
                         None => out.push(Gap {
                             at: export.at,
                             gap: format!(
@@ -963,7 +990,7 @@ pub fn gaps(exports: &Exports, needed: &[Needed]) -> Vec<Gap> {
                             ),
                             note: None,
                         }),
-                        Some((_, Some(n))) if *n != m.params => out.push(Gap {
+                        Some((_, Some(n), _)) if *n != m.params => out.push(Gap {
                             at: export.at,
                             gap: format!(
                                 "exports `{}` whose `{}` takes {n} parameters, where `{}` declares {}",
@@ -1097,8 +1124,8 @@ export const HostKv = {
         assert_eq!(
             read.get("HostKv").map(|e| e.shape.clone()),
             Some(Shape::Object(vec![
-                (String::from("get"), Some(3)),
-                (String::from("put"), Some(4))
+                (String::from("get"), Some(3), true),
+                (String::from("put"), Some(4), false)
             ]))
         );
         assert!(!read.waits);
@@ -1148,12 +1175,12 @@ export const HostKv = {
         assert_eq!(
             read.get("S").map(|e| e.shape.clone()),
             Some(Shape::Object(vec![
-                (String::from("a"), Some(1)),
-                (String::from("b"), Some(2)),
-                (String::from("c"), Some(3)),
-                (String::from("d"), Some(1)),
-                (String::from("e"), Some(3)),
-                (String::from("f"), Some(2)),
+                (String::from("a"), Some(1), false),
+                (String::from("b"), Some(2), true),
+                (String::from("c"), Some(3), false),
+                (String::from("d"), Some(1), false),
+                (String::from("e"), Some(3), true),
+                (String::from("f"), Some(2), false),
             ]))
         );
         assert_eq!(

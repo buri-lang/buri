@@ -195,6 +195,34 @@ pub fn answer_from_js(c: &Crossing, call: Expr) -> Expr {
     }
 }
 
+/// [`answer_from_js`] for a method the file writes without `async`: nothing is
+/// awaited, and `$crossSync` refuses an answer that is a promise anyway, naming
+/// the method, since the caller can't wait for it.
+pub fn answer_from_sync_js(c: &Crossing, call: Expr, method: &str) -> Expr {
+    let checked = |e: Expr| {
+        Expr::call(
+            Expr::ident("$crossSync"),
+            vec![Expr::Str(method.to_string()), e],
+        )
+    };
+    match c {
+        Crossing::Result(inner) => {
+            let call = Expr::Arrow {
+                params: Vec::new(),
+                body: Box::new(call),
+                is_async: false,
+            };
+            let convert = Expr::Arrow {
+                params: vec![String::from("$v")],
+                body: Box::new(from_js(inner, checked(Expr::ident("$v")), 0)),
+                is_async: false,
+            };
+            Expr::call(Expr::ident("$crossCatchSync"), vec![call, convert])
+        }
+        other => from_js(other, checked(call), 0),
+    }
+}
+
 /// The binding an artifact hands a `js` file its entries in. The bundle the
 /// build writes reads it, so it keeps its name through minification.
 pub const HOSTED_PROGRAM: &str = "$buri$program";
@@ -247,7 +275,15 @@ impl Gen<'_> {
         }
         let implementation = Expr::member(Expr::call(Expr::ident(HOST_LOOKUP), Vec::new()), strukt);
         let call = Expr::call(Expr::member(implementation, method), crossed);
-        Some(answer_from_js(&self.crossing(&f.ret, true), call))
+        let answer = self.crossing(&f.ret, true);
+        if self.program.hosted.synchronous.contains(key) {
+            return Some(answer_from_sync_js(
+                &answer,
+                call,
+                &format!("{strukt}.{method}"),
+            ));
+        }
+        Some(answer_from_js(&answer, call))
     }
 
     /// `const $buri$program = { fetch: async (...) => ... }`: the entry, as

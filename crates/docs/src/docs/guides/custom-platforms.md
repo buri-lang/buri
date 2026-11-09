@@ -127,12 +127,13 @@ let bindings = {};
 export default { fetch(request, env) { bindings = env; return fetch(request); } };
 export const HostKv = {
   get: async (self, namespace, key) => (await bindings[namespace].get(key)) ?? undefined,
-  put: (self, namespace, key, value) => bindings[namespace].put(key, value),
+  put: async (self, namespace, key, value) => bindings[namespace].put(key, value),
 };
 ```
 
-The build checks `HostKv` has `get` and `put`, with three and four parameters,
-and awaits every call to them. A `Request` arrives as the Fetch standard's, and
+The build checks `HostKv` has `get` and `put`, with three and four parameters.
+It awaits both because they're `async`. A method without `async` answers at
+once. A `Request` arrives as the Fetch standard's, and
 the `Response` leaves as one. [The crossing table](../reference/build/platforms.md#the-crossing-table)
 says how every other type crosses.
 
