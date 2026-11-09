@@ -2,12 +2,12 @@
 //!
 //! A page's handlers, rows, timers and tasks run from the browser's event
 //! loop, long after `main` has returned. Each test here builds one page for
-//! `web`, imports it on top of the document double in `harness::browser`,
+//! `web`, imports it into happy-dom's document through `harness::browser`,
 //! drives one of those entry points the way a reader would, and asserts what
 //! the page printed. The driver prints nothing of its own, so the output is
 //! the page's alone. The page's mount prints `row a` and `typed ` first.
 
-use crate::harness::browser::BROWSER;
+use crate::harness::browser::browser;
 use crate::harness::hang::Capped;
 use crate::harness::{js_runtime, Scratch};
 use std::process::Command;
@@ -149,9 +149,8 @@ fn printed(name: &str, driver: &str) -> (String, String) {
     scratch.write("cmd/page/main.buri", PAGE);
     scratch.run(&["build", "//cmd/page"]).ok();
     let script = format!(
-        "{BROWSER}\nawait import(\"./.buri/out/web/cmd/page/main.mjs\");\n\
-         const input = (at = body) => at.nodeName === \"INPUT\" ? at : at.childNodes.map((c) => input(c)).find((c) => c) ?? null;\n\
-         {driver}"
+        "{}\nawait import(\"./.buri/out/web/cmd/page/main.mjs\");\n{driver}",
+        browser()
     );
     let path = scratch.write("drive.mjs", &script);
     let out = Command::new(js_runtime())
@@ -180,49 +179,49 @@ fn stdout_after(name: &str, driver: &str) -> String {
 
 #[test]
 fn a_press_handler_that_does_not_wait_prints() {
-    let out = stdout_after("print-press", r#"fire(labelled("Press"), "click");"#);
+    let out = stdout_after("print-press", r#"labelled("Press").click();"#);
     assert_eq!(out, "pressed\n");
 }
 
 #[test]
 fn a_press_handler_that_does_not_wait_writes_stderr() {
-    let (_, stderr) = printed("print-press-stderr", r#"fire(labelled("Warn"), "click");"#);
+    let (_, stderr) = printed("print-press-stderr", r#"labelled("Warn").click();"#);
     assert_eq!(stderr, "warned\n");
 }
 
 #[test]
 fn a_press_handler_prints_after_it_waits() {
-    let out = stdout_after("print-wait", r#"fire(labelled("Wait"), "click");"#);
+    let out = stdout_after("print-wait", r#"labelled("Wait").click();"#);
     assert_eq!(out, "before\nafter\n");
 }
 
 #[test]
 fn a_page_timer_prints() {
-    let out = stdout_after("print-page-timer", r#"fire(labelled("Later"), "click");"#);
+    let out = stdout_after("print-page-timer", r#"labelled("Later").click();"#);
     assert_eq!(out, "fired\n");
 }
 
 #[test]
 fn a_task_timer_prints() {
-    let out = stdout_after("print-task-timer", r#"fire(labelled("Tick"), "click");"#);
+    let out = stdout_after("print-task-timer", r#"labelled("Tick").click();"#);
     assert_eq!(out, "ticked\n");
 }
 
 #[test]
 fn a_spawned_task_prints() {
-    let out = stdout_after("print-spawn", r#"fire(labelled("Spawn"), "click");"#);
+    let out = stdout_after("print-spawn", r#"labelled("Spawn").click();"#);
     assert_eq!(out, "spawned\n");
 }
 
 #[test]
 fn a_lazily_loaded_function_prints() {
-    let out = stdout_after("print-lazy", r#"fire(labelled("Lazy"), "click");"#);
+    let out = stdout_after("print-lazy", r#"labelled("Lazy").click();"#);
     assert_eq!(out, "loaded\n");
 }
 
 #[test]
 fn rows_built_after_a_press_print() {
-    let out = stdout_after("print-rows", r#"fire(labelled("Add"), "click");"#);
+    let out = stdout_after("print-rows", r#"labelled("Add").click();"#);
     assert_eq!(out, "row b\n");
 }
 
@@ -230,7 +229,7 @@ fn rows_built_after_a_press_print() {
 fn a_subtree_rebuilt_as_the_reader_types_prints() {
     let out = stdout_after(
         "print-typed",
-        r#"const field = input(); field.value = "x"; fire(field, "input");"#,
+        r#"const field = document.querySelector("input"); field.value = "x"; fire(field, "input");"#,
     );
     assert_eq!(out, "typed x\n");
 }
@@ -245,7 +244,7 @@ fn a_key_handler_prints() {
 fn a_submit_handler_prints() {
     let out = stdout_after(
         "print-submit",
-        r#"fire(labelled("Send").parentNode, "submit");"#,
+        r#"labelled("Send").parentNode.requestSubmit();"#,
     );
     assert_eq!(out, "submitted\n");
 }

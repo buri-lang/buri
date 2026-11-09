@@ -1,0 +1,8 @@
+{
+  "name": "buri-test-happy-dom",
+  "private": true,
+  "dependencies": {
+    "@happy-dom/global-registrator": "21.0.4",
+    "happy-dom": "21.0.4"
+  }
+}

@@ -11,7 +11,7 @@
 //!
 //! So [`render_corpus`] turns each test source that calls `snapshot` into a
 //! page, builds every page of a case in one `buri build`, and imports them
-//! under `js_runtime()` on top of the document double in [`super::browser`]:
+//! under `js_runtime()` into happy-dom's document, through [`super::browser`]:
 //!
 //!  * every `test` block that calls `snapshot` or `snapshotWide` becomes a block
 //!    in the page's `main`, with each expression statement bound to `let _`, as
@@ -31,7 +31,7 @@
 //! It also drives every element the way the snapshot's state describes, and
 //! clicks everything with a click listener, failing on anything that throws.
 
-use super::browser::BROWSER;
+use super::browser::browser;
 use super::hang::Capped;
 use super::{case_dirs, copy_tree, js_runtime, pool, Scratch};
 use std::path::Path;
@@ -114,7 +114,8 @@ fn render_case(case: &Path) -> Rendered {
         .map(|t| format!("\"./.buri/out/web/{t}/main.mjs\""))
         .collect();
     let script = format!(
-        "{BROWSER}\nconst PAGES = [{}];\nconst EXPECTED = {snapshots};\n{DRIVER}",
+        "{}\nconst PAGES = [{}];\nconst EXPECTED = {snapshots};\n{DRIVER}",
+        browser(),
         imports.join(", ")
     );
     let path = scratch.write("drive.mjs", &script);
@@ -578,30 +579,46 @@ const ALL_RENDERED: &str = "every snapshot rendered";
 const DRIVER: &str = r#"
 const problems = [];
 process.on("unhandledRejection", (e) => problems.push(`a promise was rejected: ${e?.stack ?? e}`));
-console.error = (...args) => problems.push(`the page wrote to console.error: ${args.join(" ")}`);
+// What the driver is doing, for a problem the page reports while it does it.
+let doing = "";
+console.error = (...args) => problems.push(`the page wrote to console.error${doing}: ${args.join(" ")}`);
 const settle = () => new Promise((done) => setTimeout(done, 0));
+
+// Every element with a click listener, to click each one later.
+const clicked = new Map();
+const listen = EventTarget.prototype.addEventListener;
+const unlisten = EventTarget.prototype.removeEventListener;
+EventTarget.prototype.addEventListener = function (type, handler, options) {
+  if (type === "click") clicked.set(this, (clicked.get(this) ?? new Set()).add(handler));
+  return listen.call(this, type, handler, options);
+};
+EventTarget.prototype.removeEventListener = function (type, handler, options) {
+  if (type === "click") clicked.get(this)?.delete(handler);
+  return unlisten.call(this, type, handler, options);
+};
 
 // Everything a reader sees of `n`: its text, and the attributes and values a
 // control shows as text.
 function seen(n) {
   if (n.nodeType === 3) return n.data;
   if (n.nodeType !== 1) return "";
-  const own = [...Object.values(n.attributes), typeof n.value === "string" ? n.value : ""];
-  return own.join("\n") + "\n" + n.childNodes.map(seen).join("");
+  const own = [...[...n.attributes].map((a) => a.value), typeof n.value === "string" ? n.value : ""];
+  return own.join("\n") + "\n" + [...n.childNodes].map(seen).join("");
 }
 const unescape = (t) => t.replace(/\\(.)/g, (_, c) => (c === "n" ? "\n" : c === "r" ? "\r" : c));
 
 // A snapshot root: its mark, then the tree.
 const marked = (root) => {
-  const mark = root.childNodes[0];
-  return mark !== undefined && mark.nodeType === 3 && mark.data.startsWith("buri-snapshot\n");
+  const mark = root.firstChild;
+  return mark !== null && mark.nodeType === 3 && mark.data.startsWith("buri-snapshot\n");
 };
 const snapshots = [];
 // The tree the last mount put on the page, read as the snapshot saw it: every
 // text the scene holds is on the page.
 function check(end) {
-  const at = body.childNodes.indexOf(end);
-  const root = body.childNodes.at(at < 0 ? -1 : at - 1);
+  const mounted = [...body.childNodes];
+  const at = mounted.indexOf(end);
+  const root = mounted.at(at < 0 ? -1 : at - 1);
   if (root === undefined || !marked(root)) {
     problems.push(`something other than a snapshot was mounted: ${showing()}`);
     return;
@@ -610,8 +627,8 @@ function check(end) {
     problems.push(`a snapshot did not mount: ${showing()}`);
     return;
   }
-  const [, state, name, ...scene] = root.childNodes[0].data.split("\n");
-  const tree = root.childNodes.slice(1);
+  const [, state, name, ...scene] = root.firstChild.data.split("\n");
+  const tree = [...root.childNodes].slice(1);
   const page = tree.map(seen).join("\n");
   for (const line of scene) {
     if (!line.startsWith("t ")) continue;
@@ -622,14 +639,14 @@ function check(end) {
 }
 // A text is made empty and given its words after, so the end text is caught as
 // its words are written.
-const createTextNode = document.createTextNode;
-document.createTextNode = (data) => {
-  const text = createTextNode(data);
-  let held = text.data;
+const data = Object.getOwnPropertyDescriptor(CharacterData.prototype, "data");
+const createTextNode = document.createTextNode.bind(document);
+document.createTextNode = (words) => {
+  const text = createTextNode(words);
   Object.defineProperty(text, "data", {
-    get: () => held,
+    get: () => data.get.call(text),
     set: (value) => {
-      held = value;
+      data.set.call(text, value);
       if (value === "buri-snapshot-end") check(text);
     },
   });
@@ -652,7 +669,6 @@ function* elements(n) {
   if (n.nodeType === 1) yield n;
   for (const child of n.childNodes) yield* elements(child);
 }
-const connected = (n) => n === body || (n.parentNode !== null && connected(n.parentNode));
 const EVENTS = {
   hover: ["pointerenter", "mouseenter", "pointerleave", "mouseleave"],
   active: ["pointerdown", "mousedown", "pointerup", "mouseup"],
@@ -660,12 +676,14 @@ const EVENTS = {
 for (const { name, state, tree } of snapshots) {
   const all = tree.flatMap((n) => [...elements(n)]);
   const act = (what, element, run) => {
-    if (!connected(element)) return;
+    if (!element.isConnected) return;
+    doing = ` while ${what} <${element.localName}> in "${name}"`;
     try {
       run();
     } catch (e) {
-      problems.push(`"${name}": ${what} <${element.nodeName.toLowerCase()}> threw: ${e?.stack ?? e}`);
+      problems.push(`"${name}": ${what} <${element.localName}> threw: ${e?.stack ?? e}`);
     }
+    doing = "";
   };
   for (const element of all) {
     for (const type of EVENTS[state] ?? []) act(type, element, () => fire(element, type));
@@ -675,7 +693,7 @@ for (const { name, state, tree } of snapshots) {
     }
   }
   for (const element of all) {
-    if ((element.listeners.click ?? []).length > 0) act("clicking", element, () => fire(element, "click"));
+    if ((clicked.get(element)?.size ?? 0) > 0) act("clicking", element, () => element.click());
   }
   await settle();
 }

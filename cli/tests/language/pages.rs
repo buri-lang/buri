@@ -4,17 +4,16 @@
 //! `conformance/lib/web` asserts the HTML a worker sends. Neither runs the
 //! half of `runtime.js` a browser runs after `mount`: the listeners that show a
 //! tooltip and the calls that move the focus. So each test here builds a page
-//! for `web`, imports it on top of the document double in `harness::browser`,
-//! which dispatches events and keeps a focused element, and drives it the way a
-//! reader would.
+//! for `web`, imports it into happy-dom's document through `harness::browser`,
+//! and drives it the way a reader would.
 
-use crate::harness::browser::BROWSER;
+use crate::harness::browser::browser;
 use crate::harness::hang::Capped;
 use crate::harness::{js_runtime, tests_dir, Scratch};
 use std::process::Command;
 
-/// Builds `source` as a page and runs `driver` against it on top of
-/// [`BROWSER`], answering what the driver printed.
+/// Builds `source` as a page and runs `driver` against it in [`browser`],
+/// answering what the driver printed.
 fn drive(name: &str, source: &str, driver: &str) -> String {
     let scratch = Scratch::repo(name);
     scratch.write(
@@ -34,10 +33,9 @@ fn drive(name: &str, source: &str, driver: &str) -> String {
     stdout
 }
 
-/// Imports the module `artifact` names on top of [`BROWSER`], then runs
-/// `driver`.
+/// Imports the module `artifact` names in [`browser`], then runs `driver`.
 fn run_page(scratch: &Scratch, artifact: &str, driver: &str) -> std::process::Output {
-    let script = format!("{BROWSER}\nawait import(\"./{artifact}\");\n{driver}");
+    let script = format!("{}\nawait import(\"./{artifact}\");\n{driver}", browser());
     let path = scratch.write("drive.mjs", &script);
     Command::new(js_runtime())
         .arg(&path)
@@ -155,16 +153,16 @@ fn a_menu_takes_the_focus_and_escape_hands_it_back_to_its_trigger() {
         "focus-page",
         MENU_PAGE,
         r#"
-const said = () => body.childNodes[0].childNodes.at(-1).data;
-const name = () => document.activeElement?.attributes["aria-label"] ?? "nothing";
+const said = () => body.firstChild.lastChild.data;
+const name = () => document.activeElement.getAttribute("aria-label") ?? "nothing";
 const actions = labelled("Actions");
 console.log(said());
 // A browser focuses what the pointer presses, then clicks it.
 actions.focus();
 console.log(`pressed ${name()} ${said()}`);
-fire(actions, "click");
+actions.click();
 console.log(`opened ${name()} ${said()}`);
-console.log(`order ${labelled("Delete").attributes.tabindex}`);
+console.log(`order ${labelled("Delete").getAttribute("tabindex")}`);
 const escaped = press("Escape");
 console.log(`escaped ${name()} ${said()} claimed:${escaped.defaultPrevented}`);
 console.log(`menu ${labelled("Rename") === null ? "gone" : "there"}`);
@@ -193,7 +191,7 @@ fn a_tooltip_shows_on_hover_and_on_focus_and_escape_hides_it() {
 const copy = labelled("Copy");
 const paste = labelled("Paste");
 const tip = copy.parentNode;
-const shown = () => (tip.childNodes[1].attributes.hidden === undefined ? "shown" : "hidden");
+const shown = () => (tip.childNodes[1].hasAttribute("hidden") ? "hidden" : "shown");
 console.log(showing());
 fire(tip, "pointerenter");
 console.log(`hovered ${shown()}`);
@@ -273,9 +271,9 @@ fn rows_built_by_a_function_holding_a_navigating_handler_render_and_navigate() {
         ROWS_PAGE,
         r#"
 console.log(["a", "b", "c"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
-fire(labelled("b"), "click");
+labelled("b").click();
 await new Promise((done) => setTimeout(done, 0));
-fire(labelled("c"), "click");
+labelled("c").click();
 await new Promise((done) => setTimeout(done, 0));
 console.log(moves.join("\n"));
 "#,
@@ -347,7 +345,7 @@ fn rows_that_read_the_route_while_they_are_built_render() {
     let printed = drive(
         "rows-route",
         &page,
-        "console.log(body.childNodes.filter((n) => n.nodeType === 3).map((n) => n.data).join(\" \"));\n",
+        "console.log([...body.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join(\" \"));\n",
     );
     assert_eq!(printed, "/ /\n");
 }
@@ -559,7 +557,7 @@ fn named_before_mount(scratch: &Scratch) -> String {
     let out = run_page(
         scratch,
         PAGE_ARTIFACT,
-        "console.log(body.childNodes[0].childNodes[0].data);\n",
+        "console.log(body.firstChild.firstChild.data);\n",
     );
     assert!(
         out.status.success(),
@@ -683,11 +681,11 @@ fn rows_calling_a_helper_a_waiting_handler_also_calls_render_and_navigate() {
         SHARED_HELPER_PAGE,
         r#"
 console.log(["a", "b", "c", "d"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
-fire(labelled("b"), "click");
+labelled("b").click();
 await new Promise((done) => setTimeout(done, 30));
-fire(labelled("c"), "click");
+labelled("c").click();
 await new Promise((done) => setTimeout(done, 30));
-fire(labelled("d"), "click");
+labelled("d").click();
 await new Promise((done) => setTimeout(done, 30));
 console.log(moves.join("\n"));
 "#,
@@ -823,7 +821,7 @@ const labels = ["record", "list", "option", "named", "method", "trait", "closure
 console.log(labels.map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
 for (const l of labels) {
   if (labelled(l) !== null) {
-    fire(labelled(l), "click");
+    labelled(l).click();
     await new Promise((done) => setTimeout(done, 30));
   }
 }
@@ -896,9 +894,9 @@ fn rows_running_a_hook_from_a_struct_field_render_and_navigate() {
         HOOKS_PAGE,
         r#"
 console.log(["a", "b"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
-fire(labelled("a"), "click");
+labelled("a").click();
 await new Promise((done) => setTimeout(done, 30));
-fire(labelled("b"), "click");
+labelled("b").click();
 await new Promise((done) => setTimeout(done, 30));
 console.log(moves.join("\n"));
 "#,

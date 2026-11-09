@@ -644,7 +644,7 @@ fn snapshots() {
 }
 
 /// Every case above that calls `snapshot`, mounted again as a page built for
-/// `web` and driven in a document double, so a tree the JavaScript backend
+/// `web` and driven in happy-dom's document, so a tree the JavaScript backend
 /// gets wrong fails here rather than only in a browser. `harness::web_pages`
 /// says how a test source becomes a page and what the driver checks.
 #[test]
