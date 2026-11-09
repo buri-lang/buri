@@ -887,10 +887,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 ///  * the mapping whose step only renders keeps `$list_mapCtx`, and nothing
 ///    around it is awaited.
 ///
-/// The second maps to `Str` rather than to `Int` on purpose. The column is per
-/// *instantiation* — the same granularity every other column in that pass
-/// has — so two calls at one element type share one answer, and asking the
-/// question of two element types is asking it of two rows.
+/// The second maps to `Str` rather than to `Int`, so the two are two
+/// instantiations. Two calls that share one are told apart by their steps
+/// too; `rows_calling_a_helper_a_waiting_handler_also_calls_render_and_navigate`
+/// in `pages.rs` is that case.
 #[test]
 fn a_combinator_awaits_its_step_only_when_the_step_waits() {
     let program = "\
@@ -1021,4 +1021,200 @@ export fn main(host: NodeHost): Result<(), Str> {
     let out = scratch.exec_js("cmd/x");
     out.ok();
     assert_eq!(out.stdout, "6 13 25\n", "{}", out.stderr);
+}
+
+/// Callbacks that sleep reach their caller every way a function value can,
+/// and each caller gets the number back rather than a promise of one:
+///
+///  * out of a struct field, a list and an option;
+///  * through a generic helper handed a sleeping callback at one call and a
+///    plain one at another, and through a loop that passes its callback on;
+///  * through mutual recursion and a clock the program implements itself;
+///  * inside `tasks.scope`'s spawned task, `tasks.parallel`'s steps and a
+///    `tasks.after` timer.
+#[test]
+fn a_sleeping_callback_answers_its_caller_every_way_it_is_reached() {
+    let program = "\
+from \"platform/effect\" import { Allocator, Clock, Stdout, Tasks };
+from \"node\" import { NodeHost };
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
+from \"core/tasks\" import * as tasks;
+
+fn nap<C: Clock>(ctx: C): Int {
+  let _ = time.sleep(ctx, time.milliseconds(1));
+  3
+}
+
+struct Steps<C> {
+  slow: fn(C) => Int,
+  fast: fn(C) => Int,
+}
+
+fn run<C: Clock>(ctx: C, s: Steps<C>): Int {
+  s.slow(ctx) + s.fast(ctx)
+}
+
+fn sumAll<C: Clock>(ctx: C, fs: [fn(C) => Int], at: Int): Int {
+  match (fs.get(at)) {
+    .Some(f) => f(ctx) + sumAll(ctx, fs, at + 1),
+    .None => 0,
+  }
+}
+
+fn maybe<C: Clock>(ctx: C, f: Option<fn(C) => Int>): Int {
+  match (f) {
+    .Some(g) => g(ctx),
+    .None => 0,
+  }
+}
+
+fn tap<C>(ctx: C, f: fn(C) => Int): Int {
+  f(ctx)
+}
+
+fn again<C>(ctx: C, n: Int, f: fn(C) => Int, acc: Int): Int {
+  if (n <= 0) { acc } else { again(ctx, n - 1, f, acc + f(ctx)) }
+}
+
+fn ping<C: Clock>(ctx: C, n: Int): Int {
+  if (n <= 0) { 0 } else { nap(ctx) + pong(ctx, n - 1) }
+}
+
+fn pong<C: Clock>(ctx: C, n: Int): Int {
+  if (n <= 0) { 0 } else { 1 + ping(ctx, n - 1) }
+}
+
+struct Slow<K> {
+  clock: K,
+}
+
+impl<K: Clock> Clock for Slow<K> {
+  fn nowMilliseconds(self): I64 {
+    self.clock.nowMilliseconds()
+  }
+
+  fn sleepMilliseconds(self, milliseconds: Int): () {
+    self.clock.sleepMilliseconds(milliseconds + 1)
+  }
+
+  fn monotonicNanoseconds(self): I64 {
+    self.clock.monotonicNanoseconds()
+  }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks };
+  let field = run(ctx, Steps { slow: fn(c) => nap(c), fast: fn(c) => 1 });
+  let list = sumAll(ctx, [nap, fn(c) => 2], 0);
+  let option = maybe(ctx, .Some(nap));
+  let helper = tap(ctx, fn(c) => 1) + tap(ctx, fn(c) => nap(c));
+  let looped = again(ctx, 3, fn(c) => nap(c), 0) + again(ctx, 2, fn(c) => 1, 0);
+  let mutual = ping(ctx, 4);
+  let own = nap(context { Allocator: host.alloc, Clock: Slow { clock: host.clock }, Stdout: host.stdout });
+  let spawned = tasks.scope(ctx, fn(c, s) => {
+    let _ = tasks.spawn(c, s, fn(d) => {
+      let _ = nap(d);
+      io.println(d, \"spawned ran\").ignore()
+    });
+    7
+  });
+  let parallel = tasks.parallel(ctx, [1, 2], fn(c, i, x) => tap(c, fn(d) => nap(d) + x));
+  let _ = io.println(
+    ctx,
+    \"${field} ${list} ${option} ${helper} ${looped} ${mutual} ${own} ${spawned} ${parallel.length()}\",
+  ).ignore();
+  let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => {
+    let _ = nap(c);
+    io.println(c, \"timer ran\").ignore()
+  });
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("a-sleeping-callback-every-way");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(
+        out.stdout, "spawned ran\n4 5 3 4 11 8 3 7 2\ntimer ran\n",
+        "{}",
+        out.stderr
+    );
+}
+
+/// A helper handed a sleeping callback at one call and a plain one at another,
+/// reached only from a function `lazy.load` splits into a chunk of its own.
+/// Both calls answer from inside the chunk: `12 + 3`.
+#[test]
+fn a_helper_called_both_ways_inside_a_lazy_chunk_answers() {
+    let program = "\
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
+from \"core/io\" import * as io;
+from \"core/lazy\" import * as lazy;
+from \"core/time\" import * as time;
+
+fn tap<C>(ctx: C, f: fn(C) => Int, n: Int): Int {
+  if (n <= 0) { 0 } else { f(ctx) + tap(ctx, f, n - 1) }
+}
+
+fn nap<C: Clock>(ctx: C): Int {
+  let _ = time.sleep(ctx, time.milliseconds(1));
+  3
+}
+
+fn report<C: Allocator + Clock + Stdout>(ctx: C, rows: Int): Int {
+  tap(ctx, fn(c) => rows, 1) + tap(ctx, fn(c) => nap(c), 1)
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let reporter = lazy.load(report);
+  let n = reporter(ctx, 12);
+  let _ = io.println(ctx, \"${n}\").ignore();
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("a-helper-both-ways-in-a-chunk");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "15\n", "{}", out.stderr);
+}
+
+/// A loop that starts with the plain callback it was handed and goes round
+/// with one that sleeps: every turn after the first waits, so the whole loop
+/// is awaited and answers `1 + 3 + 3`.
+#[test]
+fn a_loop_that_swaps_in_a_sleeping_callback_answers() {
+    let program = "\
+from \"platform/effect\" import { Allocator, Clock, Stdout };
+from \"node\" import { NodeHost };
+from \"core/io\" import * as io;
+from \"core/time\" import * as time;
+
+fn nap<C: Clock>(ctx: C): Int {
+  let _ = time.sleep(ctx, time.milliseconds(1));
+  3
+}
+
+fn swap<C: Clock>(ctx: C, n: Int, f: fn(C) => Int, acc: Int): Int {
+  if (n <= 0) { acc } else { swap(ctx, n - 1, fn(c) => nap(c), acc + f(ctx)) }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let n = swap(ctx, 3, fn(c) => 1, 0);
+  let _ = io.println(ctx, \"${n}\").ignore();
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("a-loop-that-swaps-its-callback");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "7\n", "{}", out.stderr);
 }

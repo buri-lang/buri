@@ -190,14 +190,39 @@ pub fn suspends(key: &str) -> bool {
 /// [`ExprKind::CallTrait`] stays conservative. Monomorphization resolves every
 /// one it can, and one that survives is a program the backends already turn
 /// into an abort.
+///
+/// # The call site
+///
+/// A function handed a function value is only as parkable as the value it
+/// was handed *at that call*. `fn tap<C>(ctx: C, f: fn(C) => ()) { f(ctx) }`
+/// called from a handler with a callback that sleeps, and from a `ui.each`
+/// row with one that only reads, is one instantiation, so its parameters
+/// hold the union of both arguments. Printing that one body `async` makes
+/// the row `async` too, and the runtime that builds the row gets a promise
+/// where it wanted a node (the class of buri-lang/buri#325).
+///
+/// So each slot has two rows: [`Parking::parks`], over every argument any
+/// call hands it, and the **sync** row, over a call whose function-typed
+/// arguments none park. A call site takes the second whenever its own
+/// arguments allow, and where the two rows differ the emitter prints the
+/// slot twice: the `async` body, and a plain twin ([`Parking::twin`]) that
+/// such a call names instead.
 #[derive(Clone, Debug, Default)]
 pub struct Parking {
-    /// One row per [`Program::funcs`] slot: whether it can park.
+    /// One row per [`Program::funcs`] slot: whether it can park, over every
+    /// argument any call hands it.
     pub parks: Dense<FuncIdx, bool>,
+    /// The same, for a call none of whose function-typed arguments park.
+    parks_sync: Dense<FuncIdx, bool>,
     /// Per slot, the locals whose function value may park.
     parking: Dense<FuncIdx, LocalSet>,
+    /// The same, in the sync body, where no parameter parks.
+    parking_sync: Dense<FuncIdx, LocalSet>,
     /// Per slot, the locals whose function value this pass followed.
     resolved: Dense<FuncIdx, LocalSet>,
+    /// Per slot, its parameters: followed in every sync body, since the sync
+    /// body is only ever entered with arguments that do not park.
+    params: Dense<FuncIdx, LocalSet>,
     /// The types of the parking function values this program builds.
     pub parking_types: HashSet<Ty>,
     /// [`monomorphize::Program::shapes`]'s effect table, so rule 1 above can be
@@ -205,19 +230,72 @@ pub struct Parking {
     pub effects: monomorphize::Effects,
 }
 
+/// Which of a slot's two bodies is being asked about: `sync` is the body a
+/// call enters when none of its function-typed arguments park.
+#[derive(Clone, Copy, Debug)]
+pub struct In {
+    pub slot: FuncIdx,
+    pub sync: bool,
+}
+
+/// What one call does: whether it is awaited, and whether it names the
+/// callee's plain twin rather than its `async` body.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Call {
+    pub parks: bool,
+    pub twin: bool,
+}
+
 impl Parking {
     /// Whether the function in this slot, or anything it calls, can reach a
-    /// host operation that blocks.
+    /// host operation that blocks, over every argument any call hands it.
     pub fn parks(&self, index: FuncIdx) -> bool {
         *self.parks.get(index)
+    }
+
+    /// Whether this slot is printed twice: an `async` body and a plain twin,
+    /// for a call none of whose function-typed arguments park.
+    pub fn twin(&self, index: FuncIdx) -> bool {
+        self.parks(index) && !*self.parks_sync.get(index)
+    }
+
+    /// Whether the body this asks about is printed `async`.
+    pub fn body_is_async(&self, at: In) -> bool {
+        if at.sync {
+            *self.parks_sync.get(at.slot)
+        } else {
+            self.parks(at.slot)
+        }
+    }
+
+    /// A call to `callee` with these arguments, written in the body `at`.
+    ///
+    /// A call with a parking function value among its arguments enters the
+    /// `async` body; every other call enters the sync one, which is the twin
+    /// where the two differ and the one body where they do not.
+    pub fn call(&self, at: In, callee: FuncIdx, args: &[Expr]) -> Call {
+        let handed = args
+            .iter()
+            .any(|a| is_fn_ty(&a.ty) && self.value_parks(at, a));
+        if handed {
+            Call {
+                parks: self.parks(callee),
+                twin: false,
+            }
+        } else {
+            Call {
+                parks: *self.parks_sync.get(callee),
+                twin: self.twin(callee),
+            }
+        }
     }
 
     /// Whether a call **through** the function value this expression produces
     /// can park.
     ///
-    /// `fi` is the slot whose body the expression is written in, because a
-    /// local means nothing without one.
-    pub fn value_parks(&self, fi: FuncIdx, e: &Expr) -> bool {
+    /// `at` is the body the expression is written in, because a local means
+    /// nothing without one.
+    pub fn value_parks(&self, at: In, e: &Expr) -> bool {
         // Rule 1: the type. Asked first because it holds whatever else the
         // program contains, and because it is the common case — a comparator,
         // a predicate, a `fn(A) => B` — answered without looking anything up.
@@ -225,24 +303,33 @@ impl Parking {
             return false;
         }
         match &e.kind {
+            // A function named as a value is its `async` body: nothing at the
+            // call through it can say which arguments it will get.
             ExprKind::FuncRef(c) => self.parks(*c),
             ExprKind::Closure { func, .. } => self.parks(*func),
-            ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
+            ExprKind::Lambda { body, .. } => self.body_parks(at, body),
             ExprKind::Local(l) => {
-                if self.parking.get(fi).contains(*l) {
+                let parking = if at.sync {
+                    &self.parking_sync
+                } else {
+                    &self.parking
+                };
+                if parking.get(at.slot).contains(*l) {
                     true
-                } else if self.resolved.get(fi).contains(*l) {
+                } else if self.resolved.get(at.slot).contains(*l)
+                    || (at.sync && self.params.get(at.slot).contains(*l))
+                {
                     false
                 } else {
                     self.unfollowed(&e.ty)
                 }
             }
             // A function value is whatever the branch that produced it is.
-            ExprKind::Block { tail: Some(t), .. } => self.value_parks(fi, t),
+            ExprKind::Block { tail: Some(t), .. } => self.value_parks(at, t),
             ExprKind::If { then, else_, .. } => {
-                self.value_parks(fi, then) || self.value_parks(fi, else_)
+                self.value_parks(at, then) || self.value_parks(at, else_)
             }
-            ExprKind::Match { arms, .. } => arms.iter().any(|a| self.value_parks(fi, &a.body)),
+            ExprKind::Match { arms, .. } => arms.iter().any(|a| self.value_parks(at, &a.body)),
             _ => self.unfollowed(&e.ty),
         }
     }
@@ -264,31 +351,49 @@ impl Parking {
     /// a `ui.each` row built by one hands back a node rather than a promise
     /// (buri-lang/buri#325). A call *through* a lambda asks
     /// [`Parking::value_parks`], which reads its body.
-    fn body_parks(&self, fi: FuncIdx, body: &Expr) -> bool {
+    fn body_parks(&self, at: In, body: &Expr) -> bool {
         let mut k = false;
-        self.walk_runs(fi, body, &mut k);
+        self.walk_runs(at, body, &mut k);
         k
     }
 
     /// [`Parking::body_parks`]'s walk, outermost first, skipping lambda
     /// bodies.
-    fn walk_runs(&self, fi: FuncIdx, e: &Expr, k: &mut bool) {
+    fn walk_runs(&self, at: In, e: &Expr, k: &mut bool) {
         if *k {
             return;
         }
         match &e.kind {
             ExprKind::Lambda { .. } => return,
-            ExprKind::CallFunc { func, .. } => *k = self.parks(*func),
+            ExprKind::CallFunc { func, args } => *k = self.call(at, *func, args).parks,
             // A jump into another function's loop is a call.
-            ExprKind::Continue { func: Some(c), .. } => *k = self.parks(*c),
-            ExprKind::CallValue { callee, .. } => *k = self.value_parks(fi, callee),
+            ExprKind::Continue {
+                func: Some(c),
+                args,
+                ..
+            } => *k = self.call(at, *c, args).parks,
+            // A jump back to the top of this body's own loop rebinds its
+            // parameters, and the sync body cannot turn into the `async` one
+            // halfway round. A jump that hands a parameter a parking value
+            // makes the two bodies one.
+            ExprKind::Continue {
+                func: None, args, ..
+            } if at.sync => {
+                if args
+                    .iter()
+                    .any(|a| is_fn_ty(&a.ty) && self.value_parks(at, a))
+                {
+                    *k = self.parks(at.slot);
+                }
+            }
+            ExprKind::CallValue { callee, .. } => *k = self.value_parks(at, callee),
             ExprKind::CallTrait { .. } => *k = true,
             // A host call spelled as an inline node rather than reached
             // through an intrinsic *function*; the same seed answers both.
             ExprKind::Intrinsic { name, .. } => *k = suspends(name),
             _ => {}
         }
-        typed::children(e, &mut |c| self.walk_runs(fi, c, k));
+        typed::children(e, &mut |c| self.walk_runs(at, c, k));
     }
 }
 
@@ -377,6 +482,16 @@ impl LocalSet {
     }
 }
 
+/// The `async` body of a slot.
+fn full(slot: FuncIdx) -> In {
+    In { slot, sync: false }
+}
+
+/// The sync body of a slot.
+fn sync(slot: FuncIdx) -> In {
+    In { slot, sync: true }
+}
+
 /// [`Parking`], computed.
 pub fn parkability(program: &Program) -> Parking {
     let mut w = Parking {
@@ -395,11 +510,22 @@ pub fn parkability(program: &Program) -> Parking {
             }
             FuncKind::Unbuilt | FuncKind::Body(_) => false,
         }),
+        parks_sync: Dense::new(),
         parking: program.funcs.map(|_| LocalSet::default()),
+        parking_sync: program.funcs.map(|_| LocalSet::default()),
         resolved: program.funcs.map(|_| LocalSet::default()),
+        params: program.funcs.map(|f| {
+            let mut set = LocalSet::default();
+            for p in &f.params {
+                set.insert(*p);
+            }
+            set
+        }),
         parking_types: HashSet::default(),
         effects: program.shapes.effects.clone(),
     };
+    // The sync row starts from the same seed: what a key waits on is its own.
+    w.parks_sync = w.parks.clone();
 
     // What can be followed, decided once: the tree does not move.
     let addressed = address_taken(program);
@@ -457,7 +583,7 @@ pub fn parkability(program: &Program) -> Parking {
             let tf = program.funcs.get(target);
             // A call passes one argument per parameter, and so does a jump.
             for (a, &p) in args.iter().zip(&tf.params) {
-                if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
+                if !is_fn_ty(&a.ty) || !w.value_parks(full(from), a) {
                     continue;
                 }
                 if w.parking.get_mut(target).insert(p) {
@@ -466,13 +592,13 @@ pub fn parkability(program: &Program) -> Parking {
             }
         }
 
-        // The `let`s that hold one.
+        // The `let`s that hold one, in both bodies.
         for (i, binds) in lets.entries() {
             for (local, value) in binds {
-                if !w.value_parks(i, value) {
-                    continue;
+                if w.value_parks(full(i), value) && w.parking.get_mut(i).insert(*local) {
+                    changed = true;
                 }
-                if w.parking.get_mut(i).insert(*local) {
+                if w.value_parks(sync(i), value) && w.parking_sync.get_mut(i).insert(*local) {
                     changed = true;
                 }
             }
@@ -486,7 +612,7 @@ pub fn parkability(program: &Program) -> Parking {
             let parks = match &e.kind {
                 ExprKind::FuncRef(c) => w.parks(*c),
                 ExprKind::Closure { func, .. } => w.parks(*func),
-                ExprKind::Lambda { body, .. } => w.body_parks(i, body),
+                ExprKind::Lambda { body, .. } => w.body_parks(full(i), body),
                 _ => false,
             };
             if parks {
@@ -503,6 +629,16 @@ pub fn parkability(program: &Program) -> Parking {
         // has no body and is never reached here; one with a body starts at
         // `false` and only ever climbs, so the seed is not lost.
         for (i, f) in program.funcs.entries() {
+            // The sync body, where no parameter parks: a combinator that runs
+            // a step is only its own seed there.
+            if !*w.parks_sync.get(i) {
+                if let FuncKind::Body(body) = &f.kind {
+                    if w.body_parks(sync(i), body) {
+                        *w.parks_sync.get_mut(i) = true;
+                        changed = true;
+                    }
+                }
+            }
             if *w.parks.get(i) {
                 continue;
             }
@@ -516,14 +652,15 @@ pub fn parkability(program: &Program) -> Parking {
             //
             // Per instantiation, so `mapCtx` at one element type does not
             // colour `mapCtx` at another. Two call sites that share an
-            // instantiation and disagree share the answer, which is the
-            // direction that costs a microtask rather than a result.
+            // instantiation and disagree do not share the answer: the one
+            // whose step does not park calls the plain twin, whose sync row is
+            // the seed alone (see "The call site").
             let parks = match &f.kind {
                 FuncKind::Intrinsic(key) => {
                     intrinsic_keys::ctx_step_key(key)
                         && f.params.iter().any(|p| w.parking.get(i).contains(*p))
                 }
-                FuncKind::Body(body) => w.body_parks(i, body),
+                FuncKind::Body(body) => w.body_parks(full(i), body),
                 FuncKind::Unbuilt => false,
             };
             if parks {

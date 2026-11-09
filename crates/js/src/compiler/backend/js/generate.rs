@@ -20,7 +20,7 @@ use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
 use crate::compiler::backend::js::javascript::{
     self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind,
 };
-use crate::compiler::backend::js::park::{self, Parking};
+use crate::compiler::backend::js::park::{self, Call, In, Parking};
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
@@ -144,6 +144,9 @@ pub struct Gen<'a> {
     /// [`Parking::value_parks`] reads a local and a local means nothing
     /// without one. `None` until [`Gen::function`] starts one.
     slot: Option<FuncIdx>,
+    /// Whether the body being emitted is the slot's plain twin: the one a
+    /// call enters when none of its function-typed arguments park.
+    sync: bool,
 }
 
 /// The runtime's exports, so a missing one is a build error rather than a
@@ -227,6 +230,7 @@ impl<'a> Gen<'a> {
             sharing,
             parking: None,
             slot: None,
+            sync: false,
         }
     }
 
@@ -255,8 +259,39 @@ impl<'a> Gen<'a> {
     /// it under, and the reason [`Parking`] tracks function values at all.
     fn value_parks(&self, callee: &typed::Expr) -> bool {
         self.parking
-            .zip(self.slot)
-            .is_some_and(|(p, slot)| p.value_parks(slot, callee))
+            .zip(self.here())
+            .is_some_and(|(p, at)| p.value_parks(at, callee))
+    }
+
+    /// The body being emitted, as [`Parking`] names it.
+    fn here(&self) -> Option<In> {
+        self.slot.map(|slot| In {
+            slot,
+            sync: self.sync,
+        })
+    }
+
+    /// What a call to `callee` with these arguments does here: whether it is
+    /// awaited, and whether it names the callee's plain twin.
+    fn call_of(&self, callee: FuncIdx, args: &[typed::Expr]) -> Call {
+        match self.parking.zip(self.here()) {
+            Some((p, at)) => p.call(at, callee, args),
+            None => Call {
+                parks: false,
+                twin: false,
+            },
+        }
+    }
+
+    /// The name a call reaches `callee` by: its own symbol, or its plain
+    /// twin's.
+    fn callee_symbol(&self, callee: FuncIdx, call: Call) -> String {
+        let sym = self.symbol(callee);
+        if call.twin {
+            twin_symbol(&sym)
+        } else {
+            sym
+        }
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -324,7 +359,7 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
     let no_sharing = rc::Plan::default();
     let mut g = Gen::over(program, tables, Profile::Debug, &no_sharing);
     let mut out = Vec::new();
-    for (i, f) in program.funcs.entries() {
+    for f in program.funcs.iter() {
         let FuncKind::Intrinsic(key) = &f.kind else {
             continue;
         };
@@ -334,7 +369,7 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
             .iter()
             .map(|p| Expr::ident(g.local_name_of(p)))
             .collect();
-        if g.intrinsic(i, key, &args, f).is_none() {
+        if g.intrinsic(false, key, &args, f).is_none() {
             out.push(key.clone());
         }
     }
@@ -463,18 +498,22 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // Each function on a worker, with a generator of its own; see
     // [`Gen::function`] for what it hands back and [`Gen::adopt`] for how the
     // constants it shared join the program's.
-    let defined = defined_functions(program, &sharing);
+    //
+    // A slot whose two bodies differ is emitted twice: its `async` body, and
+    // the plain twin a call none of whose function-typed arguments park
+    // enters instead ([`Parking::twin`]).
+    let defined = defined_functions(program, &sharing, &parking);
     let emitted: Vec<Emitted> = if javascript::worth_workers(defined.len()) {
         crate::parallel::map_items_with(
             &defined,
             || g.worker(),
-            |w, _, &(fi, f, plan)| w.function(fi, f, plan),
+            |w, _, &(fi, f, plan, sync)| w.function(fi, f, plan, sync),
         )
     } else {
         let mut w = g.worker();
         defined
             .iter()
-            .map(|&(fi, f, plan)| w.function(fi, f, plan))
+            .map(|&(fi, f, plan, sync)| w.function(fi, f, plan, sync))
             .collect()
     };
     for e in emitted {
@@ -568,7 +607,16 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 fn defined_functions<'p>(
     program: &'p Program,
     sharing: &'p rc::Plan,
-) -> Vec<(FuncIdx, &'p monomorphize::Func, &'p rc::FuncPlan)> {
+    parking: &Parking,
+) -> Vec<(FuncIdx, &'p monomorphize::Func, &'p rc::FuncPlan, bool)> {
+    // An intrinsic is declared once per symbol, so its plain twin is wanted
+    // when any slot under that symbol has one.
+    let twins: HashSet<&str> = program
+        .funcs
+        .entries()
+        .filter(|(fi, _)| parking.twin(*fi))
+        .map(|(_, f)| f.symbol.as_str())
+        .collect();
     let mut intrinsics: HashSet<&str> = HashSet::default();
     // `rc::analyze` plans each function in `program.funcs` order.
     program
@@ -578,9 +626,21 @@ fn defined_functions<'p>(
         .filter(|((_, f), _)| {
             !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol)
         })
-        .map(|((fi, f), plan)| (fi, f, plan))
+        .flat_map(|((fi, f), plan)| {
+            let twin = twins.contains(f.symbol.as_str());
+            std::iter::once((fi, f, plan, false)).chain(twin.then_some((fi, f, plan, true)))
+        })
         .collect()
 }
+
+/// The name of a slot's plain twin: the body a call enters when none of its
+/// function-typed arguments park.
+pub(crate) fn twin_symbol(symbol: &str) -> String {
+    format!("{symbol}{TWIN}")
+}
+
+/// What [`twin_symbol`] appends.
+const TWIN: &str = "$sync";
 
 /// The ownership half of `middle::rc`, which this branch of the pipeline runs
 /// for its increments alone (MEMORY.md §5.5), and the `async` column.
@@ -631,17 +691,27 @@ impl<'a> Gen<'a> {
         }
     }
 
-    /// Emits `f`, the function in slot `fi`, whose sharing plan is `plan`.
-    fn function(&mut self, fi: FuncIdx, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Emitted {
+    /// Emits `f`, the function in slot `fi`, whose sharing plan is `plan`:
+    /// its plain twin when `sync` is set, and its own body otherwise.
+    fn function(
+        &mut self,
+        fi: FuncIdx,
+        f: &monomorphize::Func,
+        plan: &rc::FuncPlan,
+        sync: bool,
+    ) -> Emitted {
         self.consts.clear();
         self.const_index.clear();
         self.func = FnState::for_locals(&f.locals);
         self.slot = Some(fi);
+        self.sync = sync;
         // `async` iff this instantiation waits. A suspending intrinsic's own
         // wrapper is included: no `await` lands in it, but it returns what
         // the host hands back, and an `async` function returns that through
         // the promise its caller is already awaiting.
-        let is_async = self.parks(fi);
+        let is_async = self
+            .parking
+            .is_some_and(|p| p.body_is_async(In { slot: fi, sync }));
         self.func.marks = self.marks_for(f, plan);
         let mut params: Vec<String> = f.params.iter().map(|p| self.local_name_of(p)).collect();
 
@@ -664,7 +734,7 @@ impl<'a> Gen<'a> {
             }
             FuncKind::Intrinsic(key) => {
                 let args: Vec<Expr> = params.iter().map(|p| Expr::ident(p.clone())).collect();
-                match self.intrinsic(fi, key, &args, f) {
+                match self.intrinsic(is_async, key, &args, f) {
                     Some(e) => vec![Stmt::Return(Some(e))],
                     None => {
                         self.missing.push(key.clone());
@@ -703,7 +773,11 @@ impl<'a> Gen<'a> {
 
         Emitted {
             decl: Stmt::Func {
-                name: f.symbol.clone(),
+                name: if sync {
+                    twin_symbol(&f.symbol)
+                } else {
+                    f.symbol.clone()
+                },
                 params,
                 body,
                 is_async,
@@ -795,8 +869,9 @@ fn split_chunks(
             .unwrap_or_default()
     };
 
+    // A plain twin goes wherever the body it is a twin of goes.
     let chunks_of = |s: &Stmt| match s {
-        Stmt::Func { name, .. } => chunk_of(name),
+        Stmt::Func { name, .. } => chunk_of(name.strip_suffix(TWIN).unwrap_or(name)),
         _ => &[],
     };
     let (moving, mut kept): (Vec<Stmt>, Vec<Stmt>) =
@@ -1154,7 +1229,7 @@ impl<'a> Gen<'a> {
     ///
     /// A literal argument is exempt from all three: duplicating, skipping or
     /// reordering one is unobservable.
-    fn inline_intrinsic(&mut self, index: FuncIdx, args: &[Expr]) -> Option<Expr> {
+    fn inline_intrinsic(&mut self, index: FuncIdx, waits: bool, args: &[Expr]) -> Option<Expr> {
         // Copied out of `self` so the callee's borrow does not outlive the
         // `&mut self` the expansion needs.
         let program = self.program;
@@ -1173,7 +1248,7 @@ impl<'a> Gen<'a> {
         // does with each argument.
         let names: Vec<String> = (0..args.len()).map(|i| format!("$$arg{i}")).collect();
         let probe: Vec<Expr> = names.iter().map(|n| Expr::ident(n.clone())).collect();
-        let shape = self.intrinsic(index, &key, &probe, callee)?;
+        let shape = self.intrinsic(waits, &key, &probe, callee)?;
         if js_size(&shape) > MAX_INLINE_INTRINSIC {
             return None;
         }
@@ -1200,7 +1275,7 @@ impl<'a> Gen<'a> {
             }
         }
 
-        self.intrinsic(index, &key, args, callee)
+        self.intrinsic(waits, &key, args, callee)
     }
 }
 
@@ -2399,15 +2474,15 @@ impl<'a> Gen<'a> {
             ExprKind::CallFn { .. } | ExprKind::FnRef(_) => self.abort_unmonomorphized(),
             ExprKind::FuncRef(f) => Expr::ident(self.symbol(*f)),
             ExprKind::CallFunc { func: idx, args } => {
+                let at = self.call_of(*idx, args);
                 let args = self.exprs(args, out);
-                let parks = self.parks(*idx);
-                let call = match self.inline_intrinsic(*idx, &args) {
+                let call = match self.inline_intrinsic(*idx, at.parks, &args) {
                     // An inlined intrinsic is the same callee spelled at the
                     // call site, so it is awaited on the same answer.
                     Some(x) => x,
-                    None => Expr::call(Expr::ident(self.symbol(*idx)), args),
+                    None => Expr::call(Expr::ident(self.callee_symbol(*idx, at)), args),
                 };
-                if parks {
+                if at.parks {
                     Expr::awaited(call)
                 } else {
                     call
@@ -2632,11 +2707,12 @@ impl<'a> Gen<'a> {
                 entry,
                 args,
             } => {
+                let at = self.call_of(*target, args);
                 let args = std::iter::once(Expr::Num(*entry as f64))
                     .chain(self.exprs(args, out))
                     .collect();
-                let call = Expr::call(Expr::ident(self.symbol(*target)), args);
-                if self.parks(*target) {
+                let call = Expr::call(Expr::ident(self.callee_symbol(*target, at)), args);
+                if at.parks {
                     Expr::awaited(call)
                 } else {
                     call

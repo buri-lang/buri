@@ -10,18 +10,19 @@ use crate::compiler::backend::js::generate::{as_int_n, as_uint_n, Gen};
 use crate::compiler::backend::js::javascript::{BinOp, Expr};
 use crate::compiler::middle::monomorphize::Func;
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{FuncIdx, Prim};
+use crate::compiler::semantics::types::Prim;
 
 impl<'a> Gen<'a> {
     /// The body of one intrinsic instantiation.
     ///
-    /// `slot` is that instantiation's [`crate::compiler::middle::monomorphize::Program::funcs`]
-    /// index rather than whatever the emitter is in the middle of, because a
-    /// combinator's answer depends on the **step it was handed** and an
-    /// inlined intrinsic is emitted from its caller's body.
+    /// `waits` is whether the call this body answers is awaited, rather than
+    /// whatever the emitter is in the middle of, because a combinator's answer
+    /// depends on the **step it was handed** and an inlined intrinsic is
+    /// emitted from its caller's body. A combinator whose step parks there
+    /// runs the runtime's awaiting twin.
     pub(crate) fn intrinsic(
         &mut self,
-        slot: FuncIdx,
+        waits: bool,
         key: &str,
         args: &[Expr],
         f: &Func,
@@ -97,7 +98,7 @@ impl<'a> Gen<'a> {
         name.push('$');
         name.extend(key.chars().map(|c| if c == '.' { '_' } else { c }));
         let plain = name.len();
-        if self.parks(slot) {
+        if waits {
             name.push_str("Await");
             if !self.runtime_has(&name) {
                 name.truncate(plain);

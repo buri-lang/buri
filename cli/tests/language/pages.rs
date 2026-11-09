@@ -584,3 +584,240 @@ fn rows_worked_out_from_their_index_render() {
     let printed = drive("numbered-page", NUMBERED_PAGE, "console.log(showing());\n");
     assert_eq!(printed, "<div>a:0b:1c:0</div>\n");
 }
+
+/// Rows built by functions that call a helper which a press handler also
+/// calls, once with a callback that does nothing and once with one that
+/// waits: a generic `tap`, `mapCtx`, and a `tapped` the handler calls through
+/// a local holding it. The row's call waits on nothing, so every row renders,
+/// and the press still waits and then navigates.
+const SHARED_HELPER_PAGE: &str = r#"from "platform/effect" import { Allocator, Clock, Location, Ui };
+from "core/time" import * as time;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+fn tap<C>(ctx: C, f: fn(C) => ()): () {
+    f(ctx)
+}
+
+fn tapped<C>(ctx: C, f: fn(C) => ()): () {
+    f(ctx)
+}
+
+fn later<C: Clock + Location + Ui>(ctx: C, path: Str): () {
+    let _ = time.sleep(ctx, time.milliseconds(1));
+    web.navigate(ctx, path)
+}
+
+fn row<C: Allocator + Clock + Location + Ui>(ctx: C, s: Str): Node<C> {
+    let _ = tap(ctx, fn(_d) => ());
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(fn(d) => tap(d, fn(e) => later(e, s))) })
+}
+
+fn held<C: Allocator + Clock + Location + Ui>(ctx: C, s: Str): Node<C> {
+    let _ = tapped(ctx, fn(_d) => ());
+    let go = fn(d: C) => {
+        let t = tapped;
+        t(d, fn(e) => later(e, s))
+    };
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(go) })
+}
+
+fn mapped<C: Allocator + Clock + Location + Ui>(ctx: C, s: Str): Node<C> {
+    let labels = [s].mapCtx(ctx, fn(_d, l) => l);
+    let go = fn(d: C) => {
+        let paths = [s].mapCtx(d, fn(e, l) => {
+            let _ = time.sleep(e, time.milliseconds(1));
+            l
+        });
+        web.navigate(d, paths.join(d, ""))
+    };
+    ui.button({ label: .Const(labels.join(ctx, "")), styles: [], onPress: .Some(go) })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Clock: host.clock,
+        Location: host.location,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const(["a", "b"]), fn(s) => s, fn(c, s, _i) => row(c, s)),
+                ui.each(.Const(["c"]), fn(s) => s, fn(c, s, _i) => mapped(c, s)),
+                ui.each(.Const(["d"]), fn(s) => s, fn(c, s, _i) => held(c, s)),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn rows_calling_a_helper_a_waiting_handler_also_calls_render_and_navigate() {
+    let printed = drive(
+        "shared-helper-page",
+        SHARED_HELPER_PAGE,
+        r#"
+console.log(["a", "b", "c", "d"].map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
+fire(labelled("b"), "click");
+await new Promise((done) => setTimeout(done, 30));
+fire(labelled("c"), "click");
+await new Promise((done) => setTimeout(done, 30));
+fire(labelled("d"), "click");
+await new Promise((done) => setTimeout(done, 30));
+console.log(moves.join("\n"));
+"#,
+    );
+    assert_eq!(
+        printed,
+        "a:shown b:shown c:shown d:shown\npushed b\npushed c\npushed d\n"
+    );
+}
+
+/// One button per way a row can be reached: a builder held in a record, in a
+/// list, in an option, a builder passed by name, a method, a trait method, a
+/// closure a function returned, a recursive builder, and the `ui.rebuild`,
+/// `ui.computed` and `ui.choose` callbacks. Every button's handler sleeps and
+/// then navigates, and no builder waits, so every button renders and every
+/// press navigates.
+const FORMS_PAGE: &str = r#"from "platform/effect" import { Allocator, Clock, Location, Ui };
+from "core/time" import * as time;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+fn later<C: Clock + Location + Ui>(ctx: C, path: Str): () {
+    let _ = time.sleep(ctx, time.milliseconds(1));
+    web.navigate(ctx, path)
+}
+
+fn button<C: Clock + Location + Ui>(s: Str): Node<C> {
+    ui.button({ label: .Const(s), styles: [], onPress: .Some(fn(d) => later(d, s)) })
+}
+
+struct Kit<C> {
+    make: fn(Str) => Node<C>,
+}
+
+fn named<C: Clock + Location + Ui>(ctx: C, s: Str, _i: Int): Node<C> {
+    button(s)
+}
+
+struct Maker {
+    prefix: Str,
+}
+
+impl Maker {
+    fn build<C: Clock + Location + Ui>(self, s: Str): Node<C> {
+        button(s)
+    }
+}
+
+trait Shows {
+    fn node<C: Clock + Location + Ui>(self): Node<C>;
+}
+
+struct Label {
+    text: Str,
+}
+
+impl Shows for Label {
+    fn node<C: Clock + Location + Ui>(self): Node<C> {
+        button(self.text)
+    }
+}
+
+fn viaTrait<T: Shows, C: Clock + Location + Ui>(x: T): Node<C> {
+    x.node()
+}
+
+fn maker<C: Clock + Location + Ui>(): fn(C, Str, Int) => Node<C> {
+    let wrap = fn(s: Str) => button(s);
+    fn(_c, s, _i) => wrap(s)
+}
+
+fn nested<C: Clock + Location + Ui>(s: Str, depth: Int): Node<C> {
+    if (depth <= 0) {
+        button(s)
+    } else {
+        ui.stack({ styles: [], children: [nested(s, depth - 1)] })
+    }
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Clock: host.clock,
+        Location: host.location,
+    };
+    let kit = Kit { make: fn(s) => button(s) };
+    let kits = [kit];
+    let held = Option.Some(fn(s: Str) => button(s));
+    let m = Maker { prefix: "m" };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const(["record"]), fn(s) => s, fn(_c, s, _i) => kit.make(s)),
+                ui.each(.Const(["list"]), fn(s) => s, fn(_c, s, _i) => {
+                    match (kits.get(0)) {
+                        .Some(k) => k.make(s),
+                        .None => ui.empty(),
+                    }
+                }),
+                ui.each(.Const(["option"]), fn(s) => s, fn(_c, s, _i) => {
+                    match (held) {
+                        .Some(f) => f(s),
+                        .None => ui.empty(),
+                    }
+                }),
+                ui.each(.Const(["named"]), fn(s) => s, named),
+                ui.each(.Const(["method"]), fn(s) => s, fn(_c, s, _i) => m.build(s)),
+                ui.each(.Const(["trait"]), fn(s) => s, fn(_c, s, _i) => viaTrait(Label { text: s })),
+                ui.each(.Const(["closure"]), fn(s) => s, maker()),
+                ui.each(.Const(["nested"]), fn(s) => s, fn(_c, s, _i) => nested(s, 2)),
+                ui.rebuild(.Const("rebuilt"), fn(_c, k) => button(k)),
+                ui.computed(fn(_scope) => button("computed")),
+                ui.choose(.Const(true), button("chosen"), button("other")),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn rows_reached_every_way_render_and_their_waiting_presses_navigate() {
+    let printed = drive(
+        "forms-page",
+        FORMS_PAGE,
+        r#"
+const labels = ["record", "list", "option", "named", "method", "trait", "closure", "nested", "rebuilt", "computed", "chosen"];
+console.log(labels.map((l) => `${l}:${labelled(l) === null ? "missing" : "shown"}`).join(" "));
+for (const l of labels) {
+  if (labelled(l) !== null) {
+    fire(labelled(l), "click");
+    await new Promise((done) => setTimeout(done, 30));
+  }
+}
+console.log(moves.join("\n"));
+"#,
+    );
+    assert_eq!(
+        printed,
+        "record:shown list:shown option:shown named:shown method:shown trait:shown \
+         closure:shown nested:shown rebuilt:shown computed:shown chosen:shown\n\
+         pushed record\npushed list\npushed option\npushed named\npushed method\n\
+         pushed trait\npushed closure\npushed nested\npushed rebuilt\npushed computed\n\
+         pushed chosen\n"
+    );
+}
