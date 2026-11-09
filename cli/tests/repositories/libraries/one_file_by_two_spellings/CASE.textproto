@@ -25,3 +25,11 @@ run {
   exit: 1
   golden: "broken.txt"
 }
+
+# The file is named from the repository root wherever the command runs.
+run {
+  args: ["lint"]
+  exit: 1
+  golden: "broken_from_inside.txt"
+  cwd: "lib/money/test"
+}
