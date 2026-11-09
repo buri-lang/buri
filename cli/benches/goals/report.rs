@@ -40,7 +40,7 @@ impl Profile {
                 p.lines = rest.split_whitespace().next().and_then(|n| n.parse().ok());
             } else if let Some(rest) = line.strip_prefix("process: ") {
                 let numbers = numbers(rest);
-                if let [(Some(instructions), "G"), (Some(cpu), "s"), ..] = numbers[..] {
+                if let [(Some(instructions), "B"), (Some(cpu), "s"), ..] = numbers[..] {
                     p.process = Some((instructions * 1e9, cpu));
                 }
             } else if let Some(rest) = line.strip_prefix("child processes: ") {
@@ -129,7 +129,7 @@ fn numbers(text: &str) -> Vec<(Option<f64>, &str)> {
         let unit = words
             .get(i + 1)
             .copied()
-            .filter(|u| matches!(*u, "M" | "G" | "s"));
+            .filter(|u| matches!(*u, "M" | "B" | "s"));
         // A bare `-` is a count this machine didn't take, in millions.
         let unit = unit.unwrap_or(if words[i] == "-" { "M" } else { "" });
         out.push((value, unit));

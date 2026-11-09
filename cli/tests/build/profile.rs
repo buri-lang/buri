@@ -68,6 +68,29 @@ fn a_phase_that_waited_for_no_child_counts_no_child_instructions() {
     );
 }
 
+/// **The whole process's instructions read in billions, as `B`.** Only macOS
+/// counts the whole process.
+#[test]
+fn a_profiled_run_counts_the_process_in_billions() {
+    let scratch = repo();
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    let report = run.all();
+    let Some(line) = report.lines().find(|l| l.starts_with("process: ")) else {
+        assert!(
+            !cfg!(target_os = "macos"),
+            "no process line in\n{}",
+            indent(&report)
+        );
+        return;
+    };
+    let words: Vec<&str> = line.split_whitespace().collect();
+    assert!(
+        words[1].parse::<f64>().is_ok() && words[2..4] == ["B", "instructions,"],
+        "{line}"
+    );
+}
+
 #[test]
 fn an_unprofiled_run_prints_no_profile() {
     let scratch = repo();

@@ -119,7 +119,7 @@ buri profile           instructions        cpu       busy  child instructions  c
   other                    250.0 M    0.025 s    1.414 s               0.0 M    0.000 s
   all phases              1300.0 M    0.130 s    1.727 s           90000.0 M    9.000 s
 source: 1000 lines of code lexed, each file once
-process: 1.400 G instructions, 0.140 s cpu, 0.220 s runnable but not running, peak 83 MB
+process: 1.400 B instructions, 0.140 s cpu, 0.220 s runnable but not running, peak 83 MB
 child processes: 9.100 s cpu
 ";
 

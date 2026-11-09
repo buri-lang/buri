@@ -581,7 +581,7 @@ pub fn report(started: Instant) -> Option<String> {
         out.push_str(&format!(
             "process: {} instructions, {} cpu, {} runnable but not running, peak {} MB\n\
              child processes: {} cpu\n",
-            giga(p.instructions),
+            billions(p.instructions),
             seconds(p.cpu_ns),
             seconds(p.runnable_ns),
             p.peak_bytes / 1_000_000,
@@ -629,8 +629,8 @@ fn mega(n: u64) -> String {
     format!("{:.1} M", n as f64 / 1e6)
 }
 
-fn giga(n: u64) -> String {
-    format!("{:.3} G", n as f64 / 1e9)
+fn billions(n: u64) -> String {
+    format!("{:.3} B", n as f64 / 1e9)
 }
 
 fn seconds(ns: u64) -> String {

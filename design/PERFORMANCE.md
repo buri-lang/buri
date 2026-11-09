@@ -9217,7 +9217,7 @@ buri profile           instructions        cpu       busy  child instructions  c
   other                  27494.5 M    4.730 s  458.686 s                   -    0.000 s
   all phases            132750.7 M   18.965 s 1054.389 s         1253532.8 M  159.283 s
 wall 105.049 s
-process: 135.920 G instructions, 19.646 s cpu, 66.326 s runnable but not running, peak 1814 MB
+process: 135.920 B instructions, 19.646 s cpu, 66.326 s runnable but not running, peak 1814 MB
 child processes: 174.066 s cpu
 ```
 
