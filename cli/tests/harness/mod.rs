@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+pub mod browser;
 mod case;
 pub mod ci;
 pub mod hang;
@@ -28,6 +29,7 @@ mod signals;
 #[macro_use]
 pub mod shard;
 pub mod sweep;
+pub mod web_pages;
 // The far side of a `core/net/websocket` row: a hand-written server, because a
 // client needs somebody to dial and this repository may not depend on an RFC
 // 6455 crate outside the runtime archive.

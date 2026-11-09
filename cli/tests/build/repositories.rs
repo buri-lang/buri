@@ -643,6 +643,15 @@ fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 67);
 }
 
+/// Every case above that calls `snapshot`, mounted again as a page built for
+/// `web` and driven in a document double, so a tree the JavaScript backend
+/// gets wrong fails here rather than only in a browser. `harness::web_pages`
+/// says how a test source becomes a page and what the driver checks.
+#[test]
+fn snapshots_render_as_pages() {
+    crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 60);
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

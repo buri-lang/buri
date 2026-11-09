@@ -5953,7 +5953,8 @@ function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   const rowOwner = $ui_under(owner, () => $ui_cell(3, undefined, null));
   $ui_under(rowOwner, () => {
-    $tree_render(ctx, rowAt(ctx, [rowOwner], index), parent, end);
+    // A row's index is an `Int`, as every `Int` is here: a `BigInt`.
+    $tree_render(ctx, rowAt(ctx, [rowOwner], BigInt(index)), parent, end);
     return 0;
   });
   if (adopting) $dom_insert(parent, end, $adopt.ops.at(parent));
@@ -6033,7 +6034,7 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
       const seen = new Set();
       const n = count(scope);
       for (let i = 0; i < n; i++) {
-        const key = keyAt(scope, i);
+        const key = keyAt(scope, BigInt(i));
         // Two rows with one key is not a thing to resolve: whichever way it is
         // resolved, one of the two rows is wrong, and the list will go on
         // rebuilding both. Refusing it at the point it happens is the only
