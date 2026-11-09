@@ -1189,16 +1189,12 @@ impl<'a> Lexer<'a> {
         // makes is one register.
         let mut pending = self.has_trivia;
         let mut pos = self.pos;
-        // The token buffer, out of `self` so that its length and capacity
-        // stay in registers. An arm that hands off to a method that pushes a
-        // token puts it back for the call.
-        let mut records = std::mem::take(&mut self.tokens.records);
         // What was written above the token about to be read goes to the
         // trivia table first, keyed by the index the token is about to get.
         macro_rules! settled {
             () => {{
                 if pending {
-                    self.settle(newlines >= 2, records.len());
+                    self.settle(newlines >= 2, self.tokens.len());
                     pending = false;
                 }
                 newlines = 0;
@@ -1206,11 +1202,9 @@ impl<'a> Lexer<'a> {
         }
         macro_rules! handoff {
             ($call:expr) => {{
-                self.tokens.records = records;
                 self.pos = pos;
                 $call;
                 pos = self.pos;
-                records = std::mem::take(&mut self.tokens.records);
             }};
         }
         loop {
@@ -1238,7 +1232,7 @@ impl<'a> Lexer<'a> {
                             Ident
                         }
                     };
-                    push_plain(&mut records, kind, start, pos);
+                    push_plain(&mut self.tokens.records, kind, start, pos);
                     continue;
                 }
                 // A run of blanks — an indentation, mostly — is stepped over
@@ -1275,10 +1269,9 @@ impl<'a> Lexer<'a> {
                 },
                 Class::Nul if start >= src.len() => {
                     if pending {
-                        self.settle(newlines >= 2, records.len());
+                        self.settle(newlines >= 2, self.tokens.len());
                     }
-                    push_plain(&mut records, Eof, start, start);
-                    self.tokens.records = records;
+                    push_plain(&mut self.tokens.records, Eof, start, start);
                     self.pos = start;
                     return;
                 }
@@ -1354,7 +1347,7 @@ impl<'a> Lexer<'a> {
             // stepped over the first.
             settled!();
             pos = pos.wrapping_add(1);
-            push_plain(&mut records, kind, start, pos);
+            push_plain(&mut self.tokens.records, kind, start, pos);
         }
     }
 
