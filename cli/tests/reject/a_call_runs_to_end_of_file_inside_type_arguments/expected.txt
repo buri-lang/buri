@@ -1,0 +1,9 @@
+error: expected an expression, found end of file [unexpected-token]
+  --> cmd/a_call_runs_to_end_of_file_inside_type_arguments/main.buri:10:17
+   |
+10 |   add(1, f<(Int,
+   |                 ^
+   |
+   = expected: an expression
+   = actual: end of file
+   = fix: write a value here

@@ -800,12 +800,9 @@ impl<'a> Tokens<'a> {
         u32::try_from(i).is_ok_and(|i| self.unterminated.binary_search(&i).is_ok())
     }
 
-    /// The kind and location of the token at `i`: `Eof` and an empty
-    /// location past the end, as [`Tokens::kind`] and [`Tokens::loc`] read.
-    pub fn record(&self, i: usize) -> (TokenKind, Location) {
-        self.records
-            .get(i)
-            .map_or((TokenKind::Eof, Location::default()), |r| (r.kind, r.loc))
+    /// The kind and location of the token at `i`, if there is one.
+    pub fn record(&self, i: usize) -> Option<(TokenKind, Location)> {
+        self.records.get(i).map(|r| (r.kind, r.loc))
     }
 
     pub fn loc(&self, i: usize) -> Location {

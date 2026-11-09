@@ -755,8 +755,10 @@ impl<'a> Parser<'a> {
         self.cur
     }
 
+    /// The kind `i` tokens along: past the end, the `Eof` that ends the
+    /// stream, which [`Tokens::kind`] already reads there.
     fn kind_at(&self, i: usize) -> TokenKind {
-        self.tokens.kind(self.at(i))
+        self.tokens.kind(i)
     }
 
     fn span(&self) -> Span {
@@ -812,14 +814,14 @@ impl<'a> Parser<'a> {
     /// This is where a numeric literal's spelling comes from: `0xFF` and `255`
     /// are one value and two literals, and the token carries only the value.
     fn raw(&self) -> &'a str {
-        self.tokens.text(self.at(self.pos))
+        self.tokens.text(self.pos)
     }
 
     /// The same, as a message names it — see
     /// [`crate::parsing::lexer::Token::describe`]. Every "expected …, found …"
     /// goes through this.
     fn found(&self) -> String {
-        self.tokens.describe(self.at(self.pos))
+        self.tokens.describe(self.pos)
     }
 
     fn at_eof(&self) -> bool {
@@ -834,15 +836,15 @@ impl<'a> Parser<'a> {
     /// them. Each of these is reached only from the arm that has already read
     /// the kind, so a token that is not a literal of that kind cannot get here.
     fn int_value(&self) -> u128 {
-        self.tokens.int(self.at(self.pos))
+        self.tokens.int(self.pos)
     }
 
     fn float_value(&self) -> f64 {
-        self.tokens.float(self.at(self.pos))
+        self.tokens.float(self.pos)
     }
 
     fn char_value(&self) -> u32 {
-        self.tokens.ch(self.at(self.pos)) as u32
+        self.tokens.ch(self.pos) as u32
     }
 
     /// Consume the current token and hand back its span.
@@ -858,20 +860,26 @@ impl<'a> Parser<'a> {
     }
 
     /// [`Parser::bump`], with the proof that the cursor moved.
+    ///
+    /// The `Eof` is the last record, so there being no next one is what keeps
+    /// the cursor on it: one bounds check, with nothing to clamp.
     #[inline(always)]
     fn take(&mut self) -> (Span, Consumed) {
         let span = self.span();
-        self.pos = self.pos.saturating_add(1).min(self.last);
         self.before = self.here;
-        (self.cur, self.here) = self.tokens.record(self.pos);
+        let next = self.pos.wrapping_add(1);
+        self.pos = self.tokens.record(next).map_or(self.pos, |record| {
+            (self.cur, self.here) = record;
+            next
+        });
         (span, Consumed(()))
     }
 
-    /// Put the cursor back where a trial parse began.
+    /// Put the cursor back where a trial parse began, a place it has been.
     fn seek(&mut self, pos: usize) {
         self.pos = pos;
-        (self.cur, self.here) = self.tokens.record(self.at(pos));
-        self.before = self.tokens.loc(self.at(pos.saturating_sub(1)));
+        (self.cur, self.here) = (self.tokens.kind(self.pos), self.tokens.loc(self.pos));
+        self.before = self.tokens.loc(self.pos.saturating_sub(1));
     }
 
     /// The cooked text of the string or template piece under the cursor. Every
@@ -881,13 +889,13 @@ impl<'a> Parser<'a> {
     /// span, so it is borrowed rather than owned and there is nothing to copy.
     /// See [`Parser::expect_name`].
     fn text_here(&self) -> &str {
-        self.tokens.str_at(self.at(self.pos))
+        self.tokens.str_at(self.pos)
     }
 
     /// The text under the cursor, copied onto the end of the tree's cooked
     /// text, and the index the tree keeps it at.
     fn text_into_tree(&mut self) -> u32 {
-        let pos = self.at(self.pos);
+        let pos = self.pos;
         let text = match self.tokens.kind(pos) {
             TokenKind::Str
             | TokenKind::TemplateHead
@@ -907,7 +915,7 @@ impl<'a> Parser<'a> {
     /// every diagnostic it draws is about text nobody wrote. So the production
     /// abandons the construct and the one syntax error stands.
     fn on_an_unterminated_string(&self) -> bool {
-        self.tokens.is_unterminated(self.at(self.pos))
+        self.tokens.is_unterminated(self.pos)
     }
 
     /// Whether the token just read was one of those strings.
@@ -919,7 +927,7 @@ impl<'a> Parser<'a> {
     fn after_an_unterminated_string(&self) -> bool {
         self.pos
             .checked_sub(1)
-            .is_some_and(|p| self.tokens.is_unterminated(self.at(p)))
+            .is_some_and(|p| self.tokens.is_unterminated(p))
     }
 
     fn is(&self, p: Punctuation) -> bool {
@@ -988,7 +996,7 @@ impl<'a> Parser<'a> {
     ) -> &mut Diagnostic {
         // A string with no closing quote is the mistake, and the lexer said so.
         // What it stands in place of is hidden in the rest of its line.
-        if span == self.span() && self.tokens.is_unterminated(self.at(self.pos)) {
+        if span == self.span() && self.tokens.is_unterminated(self.pos) {
             return self.discard();
         }
         if self.trial > 0 || !self.reported.insert((span.start, span.end)) {
@@ -1617,7 +1625,7 @@ impl<'a> Parser<'a> {
         let repaired = format!("let {written}");
         self.expected(name, "`let`", &found, fix)
             .edit(name.to(keyword), &repaired);
-        self.early = Some(self.at(self.pos));
+        self.early = Some(self.pos);
         self.bump();
         true
     }
@@ -1860,7 +1868,7 @@ impl<'a> Parser<'a> {
                     read
                 }
                 Declared::Read(Err(Bail), read) => {
-                    let from = self.tokens.span(self.at(save.pos));
+                    let from = self.tokens.span(save.pos);
                     let depth = self.open_braces_since(save.pos);
                     self.restore(save);
                     self.sync_item(depth);
@@ -1868,7 +1876,7 @@ impl<'a> Parser<'a> {
                     read
                 }
                 Declared::Stray => {
-                    let from = self.tokens.span(self.at(save.pos));
+                    let from = self.tokens.span(save.pos);
                     self.restore(save);
                     let read = self.skip_stray();
                     items.push(Item::Error(from.to(self.prev_span())));
@@ -2045,7 +2053,7 @@ impl<'a> Parser<'a> {
         let repaired = format!("{written} {}", self.slice(early));
         self.expected(early, &want, &found, fix)
             .edit(early.to(at), &repaired);
-        self.early = Some(self.at(self.pos));
+        self.early = Some(self.pos);
         Some(self.take().1)
     }
 
@@ -3133,7 +3141,7 @@ impl<'a> Parser<'a> {
                 }
                 Err(Bail) => {
                     let depth = self.open_delimiters_since(save.pos);
-                    let from = self.tokens.span(self.at(save.pos));
+                    let from = self.tokens.span(save.pos);
                     self.restore(save);
                     let synced = self.sync_stmt(depth);
                     *broken = self.error_expr(from.to(self.prev_span())).0;
@@ -3218,7 +3226,7 @@ impl<'a> Parser<'a> {
                 }
                 Err(Bail) => {
                     let depth = self.open_delimiters_since(save.pos);
-                    let from = self.tokens.span(self.at(save.pos));
+                    let from = self.tokens.span(save.pos);
                     self.restore(save);
                     let synced = self.sync_stmt(depth);
                     *broken = self.error_expr(from.to(self.prev_span())).0;
@@ -3295,7 +3303,7 @@ impl<'a> Parser<'a> {
         let (value, end) = match self.assigned_value() {
             Ok((value, end)) => (value.0, end),
             Err(Bail) => {
-                let from = self.tokens.span(self.at(save.pos));
+                let from = self.tokens.span(save.pos);
                 let depth = self.open_delimiters_since(save.pos);
                 self.restore(save);
                 self.sync_stmt(depth);
@@ -3716,7 +3724,7 @@ impl<'a> Parser<'a> {
             }
             Err(Bail) => {
                 let depth = self.open_delimiters_since(save.pos);
-                let from = self.tokens.span(self.at(save.pos));
+                let from = self.tokens.span(save.pos);
                 self.restore(save);
                 let end = self.sync_match_arm(depth);
                 // The arm stays, as the leaf that says a mistake was here.

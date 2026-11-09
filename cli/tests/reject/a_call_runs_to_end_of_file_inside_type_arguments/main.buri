@@ -1,0 +1,10 @@
+// EXPECT: expected an expression, found end of file
+//
+// The file ends inside a call whose argument might be a generic call:
+// `f<(Int,` is read on trial as type arguments and then again as an
+// expression, and both readings reach the end of the file. The one
+// error is at the end of the file, where the missing argument would be.
+fn add(a: Int, b: Int): Int { a + b }
+
+fn total(): Int {
+  add(1, f<(Int,

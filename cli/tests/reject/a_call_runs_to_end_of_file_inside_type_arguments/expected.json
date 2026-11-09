@@ -1,0 +1,1 @@
+{"severity":"error","message":"expected an expression, found end of file","code":"unexpected-token","location":{"file":"cmd/a_call_runs_to_end_of_file_inside_type_arguments/main.buri","line":10,"column":17,"endLine":10,"endColumn":17,"text":"  add(1, f<(Int,"},"expected":"an expression","actual":"end of file","fix":"write a value here","notes":[],"related":[]}
