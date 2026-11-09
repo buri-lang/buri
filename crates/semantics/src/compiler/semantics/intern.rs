@@ -160,6 +160,14 @@ impl Ty {
     /// `Self` inside a trait or impl body.
     pub const SELF: Ty = Ty(&SELF);
 
+    /// Which interned type this is, for as long as the process runs: two
+    /// `Ty`s have the same identity exactly when they're equal. Unlike the
+    /// structural hash `Hash` writes, two types never share one.
+    #[inline]
+    pub fn identity(self) -> usize {
+        std::ptr::from_ref(self.0) as usize
+    }
+
     /// What this type is.
     #[inline]
     pub fn kind(self) -> &'static TyKind {

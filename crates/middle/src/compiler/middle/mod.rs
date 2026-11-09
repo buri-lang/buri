@@ -62,6 +62,7 @@ pub mod coverage;
 pub mod dce;
 pub mod decision;
 pub mod derives;
+pub mod fingerprint;
 pub mod flags;
 pub mod forward;
 pub mod fuse;
@@ -135,7 +136,7 @@ pub fn run(program: &mut Program, opts: &Options) {
 /// in a nursery there — while leaving JavaScript as the unfused reference the
 /// agreement tests compare both natives against (`fuse.rs`'s header).
 ///
-/// **The [`rc::Plan`] is returned rather than dropped.** `rc` is an analysis —
+/// **The `rc` analysis is returned rather than dropped.** `rc` is an analysis —
 /// `rc::run` takes the program by shared reference — and the plan it produces
 /// is exactly what [`lower::run`] recomputes for itself a moment later. Computing it here and throwing it away was a whole-program
 /// ownership, purity and placement analysis run twice per native build, 55 ms
@@ -143,7 +144,10 @@ pub fn run(program: &mut Program, opts: &Options) {
 /// unchanged; `rc` still runs between `closures` and `lower`, and it runs
 /// *there*, on the program in exactly the state `lower` will see, because
 /// nothing between here and the backend takes the program by `&mut`.
-pub fn native(program: &mut Program) -> rc::Plan {
+///
+/// Its whole-program half, the fixpoints, runs here. The per-function half
+/// runs in [`Planned::plan`], for the functions the build still has to lower.
+pub fn native(program: &mut Program) -> Planned {
     derives::run(program);
     // `derives` is the one pass past monomorphization that mints symbols, so
     // the one-symbol claim is asked again now that every minter has run.
@@ -172,7 +176,27 @@ pub fn native(program: &mut Program) -> rc::Plan {
     // classifier of its own would.
     let counted = rc::Syntactic::new(program);
     rc::name_discards(program, &mut counted.clone());
-    rc::analyze(program, &mut counted.clone(), &rc::Options::default())
+    let answers = rc::answers(program, &mut counted.clone(), &rc::Options::default());
+    Planned { answers, counted }
+}
+
+/// [`native`]'s `rc` analysis, before its per-function half.
+pub struct Planned {
+    pub answers: rc::Answers,
+    counted: rc::Syntactic,
+}
+
+impl Planned {
+    /// The plan, with the sites of every function `scan` answers true for, as
+    /// [`rc::Answers::plan`] has it.
+    pub fn plan(
+        &self,
+        program: &Program,
+        scan: &(dyn Fn(crate::compiler::semantics::types::FuncIdx) -> bool + Sync),
+    ) -> rc::Plan {
+        self.answers
+            .plan(program, &self.counted, &rc::Options::default(), scan)
+    }
 }
 
 /// What Tarjan's algorithm needs to know about one node, as one row rather than

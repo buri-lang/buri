@@ -62,6 +62,11 @@ impl Backend for Js {
         None
     }
 
+    /// One bundle, so nothing is named from another unit.
+    fn reads_linkage(&self) -> bool {
+        false
+    }
+
     /// Which intrinsics this backend has no body for, asked of the program
     /// rather than accumulated as a side effect of a failed emission.
     ///

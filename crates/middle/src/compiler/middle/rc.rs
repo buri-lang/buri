@@ -901,26 +901,22 @@ pub fn analyze<C: Counted + Clone + Sync>(
     counted: &mut C,
     opts: &Options,
 ) -> Plan {
+    answers(program, counted, opts).plan(program, counted, opts, &|_| true)
+}
+
+/// The whole-program half of [`analyze`]: each function's ownership row and
+/// effects, which are fixpoints over the call graph, and whether values cross
+/// tasks.
+///
+/// A build that already has a function's code doesn't need the rest of its
+/// plan, the sites, which [`Answers::plan`] scans function by function.
+pub fn answers(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Answers {
     // One call graph and one callees-first order, shared by both fixpoints
     // that close over it.
     let deps = ownership_dependencies(program);
     let order = super::strongly_connected(&deps);
     let ownership = infer_ownership(program, counted, opts, &deps, &order);
     let (purity, can_abort) = infer_effects(program, &deps, &order);
-    // One `FuncPlan` per function, across the cores. Every scan is a pure
-    // function of its function, the whole-program answers above, and a
-    // classifier of its own — the memo is a cache, so a per-worker clone gives
-    // the same answers as one shared table. `parallel::map_with` returns the
-    // plans in index order, so the vector is the same as the serial one.
-    let base: &C = counted;
-    let entries: Vec<(FuncIdx, &Func)> = program.funcs.entries().collect();
-    let funcs: Dense<FuncIdx, FuncPlan> = crate::parallel::map_items_with(
-        &entries,
-        || base.clone(),
-        |worker, _, &(i, f)| scan_func(worker, &ownership, &purity, &can_abort, opts, i, f),
-    )
-    .into_iter()
-    .collect();
     // The whole-program escape answer. `program.funcs` is the
     // post-monomorphization set, so an intrinsic present in it is one the
     // program can *reach* — the same reachability `infer_effects`'s fixpoint
@@ -931,42 +927,98 @@ pub fn analyze<C: Counted + Clone + Sync>(
         .funcs
         .iter()
         .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
-    Plan {
-        funcs,
+    Answers {
+        ownership,
+        purity,
+        can_abort,
         crosses_tasks,
+    }
+}
+
+/// [`answers`]'s result: what a function's plan takes from the whole program.
+pub struct Answers {
+    ownership: Own,
+    purity: Dense<FuncIdx, ir::Purity>,
+    can_abort: Dense<FuncIdx, bool>,
+    /// [`Plan::crosses_tasks`].
+    pub crosses_tasks: bool,
+}
+
+impl Answers {
+    /// Function `f`'s ownership row, one per parameter.
+    pub fn params(&self, f: FuncIdx) -> &[ir::Ownership] {
+        self.ownership.get(f)
+    }
+
+    pub fn purity(&self, f: FuncIdx) -> ir::Purity {
+        *self.purity.get(f)
+    }
+
+    pub fn can_abort(&self, f: FuncIdx) -> bool {
+        *self.can_abort.get(f)
+    }
+
+    /// The plan, with the sites of every function `scan` answers true for.
+    /// Every other function gets its row and effects and no sites, which is
+    /// all a caller of it reads.
+    pub fn plan<C: Counted + Clone + Sync>(
+        &self,
+        program: &Program,
+        counted: &C,
+        opts: &Options,
+        scan: &(dyn Fn(FuncIdx) -> bool + Sync),
+    ) -> Plan {
+        // One `FuncPlan` per function, across the cores. Every scan is a pure
+        // function of its function, the whole-program answers above, and a
+        // classifier of its own — the memo is a cache, so a per-worker clone
+        // gives the same answers as one shared table. `parallel::map_with`
+        // returns the plans in index order, so the vector is the same as the
+        // serial one.
+        let entries: Vec<(FuncIdx, &Func)> = program.funcs.entries().collect();
+        let funcs: Dense<FuncIdx, FuncPlan> = crate::parallel::map_items_with(
+            &entries,
+            || counted.clone(),
+            |worker, _, &(i, f)| {
+                let body = f.body().filter(|_| scan(i));
+                scan_func(worker, self, opts, i, f, body)
+            },
+        )
+        .into_iter()
+        .collect();
+        Plan {
+            funcs,
+            crosses_tasks: self.crosses_tasks,
+        }
     }
 }
 
 /// One function's reference-counting plan: its ownership row, its effects, and
 /// where every `incref`/`decref` goes. Pure in `i` — it reads the whole-program
 /// answers and its own classifier, and writes nothing shared — which is what
-/// lets `analyze` run it across the cores.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the whole-program answers a scan reads"
-)]
+/// lets `analyze` run it across the cores. Its sites come from `body`, which
+/// is `f`'s body or nothing.
 fn scan_func(
     counted: &mut dyn Counted,
-    ownership: &Own,
-    purity: &Dense<FuncIdx, ir::Purity>,
-    can_abort: &Dense<FuncIdx, bool>,
+    answers: &Answers,
     opts: &Options,
     i: FuncIdx,
     f: &Func,
+    body: Option<&Expr>,
 ) -> FuncPlan {
     {
+        let ownership = &answers.ownership;
         let params = ownership.get(i).clone();
         let mut plan = FuncPlan {
             params,
-            purity: *purity.get(i),
-            can_abort: *can_abort.get(i),
+            purity: answers.purity(i),
+            can_abort: answers.can_abort(i),
             sites: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
             taken_apart: Vec::new(),
         };
-        if let Some(body) = f.body() {
+        if let Some(body) = body {
             let BodyIndex {
                 sizes,
                 mut jumps_before,

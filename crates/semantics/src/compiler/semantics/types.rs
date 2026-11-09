@@ -999,6 +999,21 @@ pub struct Tables {
     /// settled gets the conservative answer rather than a wrong one, and a
     /// type constructor minted afterwards is treated as holding everything.
     variance: Layered<Vec<bool>>,
+    /// What a later stage worked out from these tables: see [`Tables::later`].
+    later: Later,
+}
+
+/// One answer a later stage keeps against a [`Tables`], for as long as the
+/// tables live.
+#[derive(Default)]
+struct Later(std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>);
+
+impl Clone for Later {
+    /// Empty, because a clone can be changed afterwards, and an answer about
+    /// the original might not hold of it.
+    fn clone(&self) -> Later {
+        Later::default()
+    }
 }
 
 /// `compute_variance`'s table while the fixpoint runs: the rows a base
@@ -1055,6 +1070,7 @@ impl Default for Tables {
             prims: Prim::all().map(|p| Ty::con(p.con(), [])),
             member_index: IdMap::default(),
             variance: Layered::default(),
+            later: Later::default(),
         };
         // The primitives live in a synthetic module so that every table entry
         // has an owner, but their *defining* modules — where their methods are
@@ -1162,7 +1178,24 @@ impl Tables {
             prims: self.prims,
             member_index: self.member_index.layer(),
             variance: self.variance.layer(),
+            later: Later::default(),
         }
+    }
+
+    /// The one value of type `T` kept with these tables, made the first time
+    /// it's asked for.
+    ///
+    /// For a memo a later stage fills from these tables, such as the build's
+    /// codegen keys of units it has lowered, which are valid for as long as
+    /// the tables are and no longer. A clone or a layer starts empty. One type
+    /// asks for it.
+    pub fn later<T: std::any::Any + Send + Sync + Default>(&self) -> &T {
+        use crate::diagnostics::Invariant as _;
+        self.later
+            .0
+            .get_or_init(|| Box::new(T::default()))
+            .downcast_ref()
+            .or_ice("`Tables::later` was asked for two types")
     }
 
     /// The same entries, for the phases that fill them in. Ids come from the

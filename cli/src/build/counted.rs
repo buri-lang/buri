@@ -27,6 +27,9 @@ pub enum Count {
     /// A codegen unit a program took from the cache rather than emitting it:
     /// `cached codegen`, or `run codegen` for one another program emitted.
     ObjectsRestored,
+    /// A restored codegen unit this program never lowered, because another
+    /// program over the same `Tables` lowered the same unit first.
+    UnitsRestoredUnlowered,
     /// A function in a codegen unit emitted, so one generic function's
     /// instantiations count once each.
     FunctionsCompiled,
@@ -55,6 +58,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "suites reused",
     "objects compiled",
     "objects restored",
+    "units restored before lowering",
     "functions compiled",
     "links",
     "images linked",

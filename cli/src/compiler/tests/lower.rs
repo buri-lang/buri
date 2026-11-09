@@ -691,7 +691,9 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
         });
     }
 
-    let lowered = checked(run_with(&program, &analysis.checked.tables, &plan));
+    let lowered = checked(run_with(&program, &analysis.checked.tables, &plan, &|_| {
+        true
+    }));
     let f = lowered
         .funcs
         .iter()

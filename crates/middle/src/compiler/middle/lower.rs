@@ -125,7 +125,7 @@ pub fn lowers(key: &str) -> bool {
 pub fn run(program: &Program, tables: &Tables) -> ir::Program {
     let mut counted = rc::Syntactic::new(program);
     let plan = rc::analyze(program, &mut counted, &rc::Options::default());
-    run_with(program, tables, &plan)
+    run_with(program, tables, &plan, &|_| true)
 }
 
 /// The same, against a caller's own reference-counting plan.
@@ -137,7 +137,17 @@ pub fn run(program: &Program, tables: &Tables) -> ir::Program {
 /// the operations go"). [`run`] asks for a plan from `rc::Syntactic`, which is
 /// the same classifier both native backends build from the same `Program` — see
 /// `rc.rs`, "which types carry a count", for why it has to be.
-pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Program {
+///
+/// Only the bodies `built` answers true for are lowered. Every other function
+/// keeps its signature, its facts and its unit, and gets the abort body an
+/// unbuilt function gets: for a build that already has its code, and only
+/// needs it there for its callers. An intrinsic is always lowered.
+pub fn run_with(
+    program: &Program,
+    tables: &Tables,
+    plan: &rc::Plan,
+    built: &(dyn Fn(FuncIdx) -> bool + Sync),
+) -> ir::Program {
     let units = Units::assign(program);
     // How many loop entries each function has, which is how a `Continue` into
     // another function knows whether to pass a dispatch index. Computed for
@@ -155,8 +165,10 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let lowered: Vec<(Func, TypeList, Keys)> = crate::parallel::map_items(&funcs, |_, &(i, f)| {
         let mut types = Types::default();
         let mut keys = Keys::default();
+        let body = f.body().filter(|_| built(i));
         let func = lower_one(
             program, tables, plan, &counts, &cycles, &entries, &units, &mut types, &mut keys, i, f,
+            body,
         );
         (func, types.list, keys)
     });
@@ -207,6 +219,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
 /// Pure in `i`: it reads the program, the plan and the two whole-program tables,
 /// and writes only its own `types`. That is what lets [`run_with`] run it over
 /// the cores; the `TypeId`s it mints are local to `types` and remapped there.
+/// `body` is `f`'s body, or nothing for a function lowered to an abort.
 #[allow(
     clippy::too_many_arguments,
     reason = "the whole-program tables one lowering reads"
@@ -223,6 +236,7 @@ fn lower_one(
     keys: &mut Keys,
     i: FuncIdx,
     f: &crate::compiler::middle::monomorphize::Func,
+    body: Option<&Expr>,
 ) -> Func {
     let dispatch = *entries.get(i) > 1;
     let mut params = Vec::new();
@@ -266,7 +280,7 @@ fn lower_one(
                 loops: Vec::new(),
                 unmatched: None,
                 slices: Vec::new(),
-                sites: Sites::of(fplan, f.body()),
+                sites: Sites::of(fplan, body),
                 node_values: HashMap::default(),
                 #[cfg(debug_assertions)]
                 debug_name: &f.debug_name,
@@ -276,7 +290,7 @@ fn lower_one(
                 // the function through a function value and so cannot have the
                 // loop at its call site.
                 FuncKind::Intrinsic(key) => lower.list_body(key, &f.params),
-                FuncKind::Unbuilt | FuncKind::Body(_) => lower.func(&f.params, f.body(), dispatch),
+                FuncKind::Unbuilt | FuncKind::Body(_) => lower.func(&f.params, body, dispatch),
             })
         }
     };
@@ -353,7 +367,7 @@ fn returns(f: &crate::compiler::middle::monomorphize::Func) -> Ty {
 
 /// The number of entries the body's loop has, or zero where the body is not a
 /// loop.
-fn loop_entries(body: Option<&Expr>) -> usize {
+pub(crate) fn loop_entries(body: Option<&Expr>) -> usize {
     match body.map(|b| &b.kind) {
         Some(ExprKind::Loop { entries }) => entries.len(),
         _ => 0,
@@ -363,6 +377,12 @@ fn loop_entries(body: Option<&Expr>) -> usize {
 // ---------------------------------------------------------------------------
 // Codegen units
 // ---------------------------------------------------------------------------
+
+/// The units [`run_with`] puts `program`'s functions in, as its
+/// `ir::Program::units` has them.
+pub fn units(program: &Program) -> Vec<ir::Unit> {
+    Units::assign(program).into_units()
+}
 
 /// The codegen-unit partition: one unit per source module (ARCHITECTURE.md §5).
 #[derive(Default)]

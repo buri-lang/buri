@@ -332,6 +332,11 @@ impl Backend for Stencil {
         None
     }
 
+    /// Every function keeps its symbol, named or not.
+    fn reads_linkage(&self) -> bool {
+        false
+    }
+
     fn identity(&self) -> String {
         let mut id = String::from("stencil");
         for t in abi::StencilTarget::ALL {

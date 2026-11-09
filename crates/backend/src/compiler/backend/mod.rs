@@ -273,6 +273,13 @@ pub trait Backend {
     ///
     /// No default, for [`Backend::forks_read_shared_mask`]'s reason.
     fn shared_unit(&self) -> Option<&'static str>;
+
+    /// Whether a unit's object depends on which of its functions other units
+    /// name ([`linkage`](crate::compiler::backend::linkage)), and so on the
+    /// code of every unit, as well as on its own.
+    ///
+    /// No default, for [`Backend::forks_read_shared_mask`]'s reason.
+    fn reads_linkage(&self) -> bool;
 }
 
 /// A backend that emits from the lowered IR: `stencil` and `llvm`.

@@ -216,6 +216,12 @@ impl Backend for Llvm {
     fn shared_unit(&self) -> Option<&'static str> {
         Some(GLUE_UNIT)
     }
+
+    /// A function no other unit names is internal, so `default<O2>` may drop
+    /// it.
+    fn reads_linkage(&self) -> bool {
+        true
+    }
 }
 
 impl Native for Llvm {

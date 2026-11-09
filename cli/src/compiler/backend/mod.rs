@@ -124,6 +124,10 @@ impl<B: Backend> Backend for WithRuntime<B> {
     fn shared_unit(&self) -> Option<&'static str> {
         self.0.shared_unit()
     }
+
+    fn reads_linkage(&self) -> bool {
+        self.0.reads_linkage()
+    }
 }
 
 impl<B: Native> Native for WithRuntime<B> {
@@ -245,6 +249,17 @@ pub enum NativeBackend {
 }
 
 impl NativeBackend {
+    /// The backend, before a program is resolved: for what it answers of
+    /// every program, such as its name and identity.
+    pub fn backend(&self) -> &dyn Backend {
+        match self {
+            #[cfg(feature = "backend-stencil")]
+            NativeBackend::Stencil(b) => b,
+            #[cfg(feature = "backend-llvm")]
+            NativeBackend::Llvm(b) => b,
+        }
+    }
+
     fn boxed(self) -> Box<dyn Backend> {
         match self {
             #[cfg(feature = "backend-stencil")]

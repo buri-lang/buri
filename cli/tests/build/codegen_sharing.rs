@@ -308,3 +308,58 @@ fn programs_built_together_report_a_shared_unit_alike() {
         indent(&warm.stdout)
     );
 }
+
+/// One build of `labels`, one program at a time, profiled: its counts by name.
+fn counted_build(scratch: &Scratch, labels: &[&str]) -> std::collections::HashMap<String, u64> {
+    let mut args = vec!["build"];
+    args.extend_from_slice(labels);
+    let run = scratch.run_with_env(&args, &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")]);
+    run.ok();
+    run.all()
+        .lines()
+        .filter_map(|l| {
+            let (name, n) = l.rsplit_once(' ')?;
+            Some((name.to_string(), n.parse().ok()?))
+        })
+        .collect()
+}
+
+/// The executable `package`'s last build left.
+fn executable(scratch: &Scratch, package: &str) -> Vec<u8> {
+    let name = package.rsplit('/').next().unwrap();
+    std::fs::read(scratch.path(&format!(
+        ".buri/out/native/{}/{package}/{name}",
+        host_variant()
+    )))
+    .unwrap()
+}
+
+/// **Programs built together skip lowering the units they share, and build the
+/// same executables as alone.** `//cmd/b` restores `//lib/shared` and the
+/// standard library it shares with `//cmd/a` without lowering them again. Each
+/// executable is byte for byte the one a build of that program alone makes, and
+/// prints the same.
+#[test]
+fn programs_built_together_skip_lowering_what_they_share() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::codegen_sharing", &why);
+        return;
+    }
+    let scratch = repo("codegen-sharing-unlowered");
+    let together = counted_build(&scratch, &["//..."]);
+    let skipped = together.get("units restored before lowering").copied();
+    assert!(skipped.unwrap_or(0) > 0, "{together:?}");
+    assert_eq!(printed(&scratch, "cmd/a"), "20\n");
+    assert_eq!(printed(&scratch, "cmd/b"), "29\n");
+    let (a, b) = (executable(&scratch, "cmd/a"), executable(&scratch, "cmd/b"));
+
+    for (package, built) in [("cmd/a", a), ("cmd/b", b)] {
+        scratch.run(&["clean"]).ok();
+        let alone = counted_build(&scratch, &[&format!("//{package}")]);
+        assert_eq!(alone.get("units restored before lowering"), Some(&0));
+        assert!(
+            executable(&scratch, package) == built,
+            "//{package} differs built alone"
+        );
+    }
+}

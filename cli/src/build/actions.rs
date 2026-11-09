@@ -1987,32 +1987,31 @@ pub fn emit_all(
 /// Both profiles run the same passes, so that `release_and_debug_agree` keeps
 /// covering the middle end rather than only the part of it release turns on.
 ///
-/// The reference-counting plan comes back out, because the native branch's last
-/// pass is the analysis [`lower::run`] would otherwise redo. `None` is the
-/// JavaScript answer and means there is no plan rather than an empty one: a
+/// The reference-counting analysis comes back out, because the native branch's
+/// last pass is the analysis [`lower::run`] would otherwise redo. `None` is the
+/// JavaScript answer and means there is no analysis rather than an empty one: a
 /// garbage-collected target has no `incref` to place.
-pub fn prepare(
-    program: &mut monomorphize::Program,
-    target: Target,
-) -> Option<crate::compiler::middle::rc::Plan> {
-    // A chunk is a second file beside the artifact, so only a target that
-    // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
-    // back out everywhere else, which is the identity the module promises.
-    let _phase = crate::profile::enter(crate::profile::Phase::Middle);
-    let opts = middle::Options {
-        split_lazy: !target.platform.is_native(),
-    };
-    if !target.platform.is_native() {
-        middle::use_engine(program);
-    }
-    middle::run(program, &opts);
+pub fn prepare(program: &mut monomorphize::Program, target: Target) -> Option<middle::Planned> {
     // The native branch is chosen by what the artifact *is*, and a WEB artifact
     // is JavaScript: closure conversion and reference counting are the same
     // pessimisation for a page that they are for a script.
     if target.platform.is_native() {
-        return Some(middle::native(program));
+        return Some(prepare_for_native(program));
     }
+    let _phase = crate::profile::enter(crate::profile::Phase::Middle);
+    // A chunk is a second file beside the artifact, so only a target that
+    // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
+    // back out everywhere else, which is the identity the module promises.
+    middle::use_engine(program);
+    middle::run(program, &middle::Options { split_lazy: true });
     None
+}
+
+/// [`prepare`] for a native target.
+fn prepare_for_native(program: &mut monomorphize::Program) -> middle::Planned {
+    let _phase = crate::profile::enter(crate::profile::Phase::Middle);
+    middle::run(program, &middle::Options { split_lazy: false });
+    middle::native(program)
 }
 
 /// The profile a set of flags names. One place, because `--release` decides
@@ -2356,8 +2355,18 @@ pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
 /// first — the same defect the IR rendering had when it named callees by
 /// `FuncIdx`. Sorting the rendered lines gives a total order derived from the
 /// content, so the string moves only when a layout this unit names moves.
-fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, String)> {
-    let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
+///
+/// A unit `known` has hashes for is not rendered: they are its hashes, from
+/// another program's lowering of it ([`lower_unbuilt`]). Who names a function
+/// from another unit is in the hash only where `linkage` says the backend
+/// reads it.
+fn unit_hashes(
+    program: &ir::Program,
+    tables: &Tables,
+    linkage: bool,
+    known: &[Option<UnitHashes>],
+) -> Vec<UnitHashes> {
+    let elsewhere = linkage.then(|| crate::compiler::backend::linkage::named_elsewhere(program));
     // A unit at a time, over the cores this machine has. Each unit's two hashes
     // are a pure function of the unit's members and of `tables`, and nothing
     // here writes to the program — so the only per-worker state is the
@@ -2365,20 +2374,21 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
     // accumulates. `parallel::map_with` returns in index order, which is what
     // keeps `keys` in unit order for `codegen_units_for` and in link order for
     // `link_key`.
-    crate::parallel::map_with(
-        program.units.len(),
+    let units: Vec<_> = program.units.iter().zip(known).collect();
+    crate::parallel::map_items_with(
+        &units,
         || Shapes::new(tables),
-        |shapes, u| {
-            let unit = program.units.get(u);
-            let name = unit.map_or_else(String::new, |unit| unit.name.clone());
+        |shapes, _, &(unit, known)| {
+            if let Some(known) = known {
+                return known.clone();
+            }
             let mut text = String::new();
             let mut types: Vec<ir::TypeId> = Vec::new();
-            let members = unit.map_or(&[][..], |unit| unit.funcs.as_slice());
-            for (at, func) in members.iter().map(|&at| (at, program.funcs.get(at))) {
+            for (at, func) in unit.funcs.iter().map(|&at| (at, program.funcs.get(at))) {
                 program.render_func_into(func, &mut text);
                 // The LLVM backend drops a function no other unit names
                 // (`backend::linkage`), so who names it is part of the object.
-                if *elsewhere.get(at) {
+                if elsewhere.as_ref().is_some_and(|named| *named.get(at)) {
                     text.push_str("named elsewhere\n");
                 }
                 collect_types(func, &mut types);
@@ -2387,13 +2397,203 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             types.dedup();
             let seeds = types.iter().map(|id| program.types.get(*id).ty);
             let layout = shapes.closure_signature(seeds);
-            (
-                name,
-                hash_bytes(text.as_bytes()),
-                hash_bytes(layout.as_bytes()),
-            )
+            UnitHashes {
+                ir: hash_bytes(text.as_bytes()),
+                layout: hash_bytes(layout.as_bytes()),
+            }
         },
     )
+}
+
+/// A unit's two [`unit_hashes`]: its rendered IR and its layout term.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct UnitHashes {
+    ir: String,
+    layout: String,
+}
+
+/// The [`UnitHashes`] of every unit a native program over one `Tables` has
+/// lowered, by the unit's [`fingerprint`](middle::fingerprint).
+///
+/// Kept with the `Tables` ([`Tables::later`]), because a fingerprint means
+/// nothing against other tables, and dropped with them, so it lasts one
+/// process's build of one analysis: `buri build //...` and `buri test //...`
+/// building many programs from one. A unit another program lowered is not
+/// lowered again; its key is the one that program computed, and its object is
+/// the one that program's build stored.
+#[derive(Default)]
+struct UnitMemo(std::sync::Mutex<crate::hash::Map<u128, UnitHashes>>);
+
+impl UnitMemo {
+    fn lock(&self) -> std::sync::MutexGuard<'_, crate::hash::Map<u128, UnitHashes>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// What every unit's `codegen` key of one native build shares.
+#[derive(Clone, Copy)]
+struct KeyBase<'a> {
+    output: &'a Output,
+    flags: &'a Flags,
+    /// The backend's name and [`identity`](backend::Backend::identity).
+    name: &'a str,
+    identity: &'a str,
+}
+
+/// The `codegen` key of each unit of one lowered native program.
+struct UnitKeys<'a> {
+    base: KeyBase<'a>,
+    /// The one unit whose object depends on the set of tests rather than on
+    /// the functions it renders — the entry point the backend synthesises.
+    /// Folding the set into its `ir` term is what relinks a test binary from
+    /// scratch when a test is added or removed, instead of serving a stale
+    /// entry that names a `test$N` no longer defined ([`test_entry_signature`],
+    /// buri-lang/buri#175).
+    entry: Option<(usize, String)>,
+    /// Every unit's forks read `buri_rt_shared_mask` in a program that can fan
+    /// out, on both native backends, so the answer is in every unit's key
+    /// (buri-lang/buri#243).
+    shares: bool,
+}
+
+impl UnitKeys<'_> {
+    fn key(&self, u: usize, hashes: &UnitHashes) -> ActionKey {
+        let ir_hash = match &self.entry {
+            Some((entry_unit, sig)) if *entry_unit == u => {
+                hash_bytes(format!("{}\n{sig}", hashes.ir).as_bytes())
+            }
+            _ => hashes.ir.clone(),
+        };
+        let ir_hash = if self.shares {
+            hash_bytes(format!("{ir_hash}\nshares-counts").as_bytes())
+        } else {
+            ir_hash
+        };
+        let KeyBase {
+            output,
+            flags,
+            name,
+            identity,
+        } = self.base;
+        codegen_key(output, flags, name, identity, &ir_hash, &hashes.layout)
+    }
+}
+
+/// One native program, lowered but for the units another program lowered.
+struct Lowered<'a> {
+    lowered: ir::Program,
+    keys: UnitKeys<'a>,
+    /// Each unit's fingerprint, or none where the memo isn't used.
+    prints: Vec<u128>,
+    /// The hashes of each unit restored before lowering, from the memo.
+    known: Vec<Option<UnitHashes>>,
+    /// The object of each unit restored before lowering, from the cache.
+    restored: Vec<Option<Vec<u8>>>,
+}
+
+/// Lowers `program`, but for each unit with a fingerprint in the memo and its
+/// object in the cache: those keep their signatures for their callers and
+/// lose their bodies ([`lower::run_with`]), and skip `rc`'s scan too.
+///
+/// Whether such a unit's key is the one the memo's program composed depends on
+/// this program's test entry and whether it shares counts, which lowering
+/// decides, so the keys are composed after lowering. Every unit lowered to a
+/// stub keeps both answers: they come from the intrinsics, which are always
+/// lowered, and from the program's roots. A unit whose object turns out to be
+/// missing after all is lowered with the rest on a second pass.
+fn lower_unbuilt<'a>(
+    program: &monomorphize::Program,
+    tables: &Tables,
+    planned: &middle::Planned,
+    cache: &Cache,
+    reuse: bool,
+    base: KeyBase<'a>,
+) -> Lowered<'a> {
+    // Lowering is the middle end's last step, so `BURI_PROFILE` bills it there
+    // rather than to `other`.
+    let _phase = crate::profile::enter(crate::profile::Phase::Middle);
+    let units = lower::units(program);
+    let prints = if reuse {
+        middle::fingerprint::units(program, &planned.answers, &units)
+    } else {
+        Vec::new()
+    };
+    let mut known: Vec<Option<UnitHashes>> = {
+        let memo = tables.later::<UnitMemo>().lock();
+        (0..units.len())
+            .map(|u| prints.get(u).and_then(|print| memo.get(print)).cloned())
+            .collect()
+    };
+    loop {
+        let mut built = program.funcs.map(|_| true);
+        for unit in units.iter().zip(&known).filter(|(_, k)| k.is_some()) {
+            unit.0.funcs.iter().for_each(|&f| *built.get_mut(f) = false);
+        }
+        let built = |f: crate::compiler::semantics::types::FuncIdx| *built.get(f);
+        let plan = planned.plan(program, &built);
+        let lowered = lower::run_with(program, tables, &plan, &built);
+        let keys = UnitKeys {
+            base,
+            entry: test_entry_signature(program, &lowered),
+            shares: crate::compiler::backend::runtime_table::shares_counts(&lowered),
+        };
+        let restored: Vec<Option<Vec<u8>>> = known
+            .iter()
+            .enumerate()
+            .map(|(u, hashes)| cache.get_checked(&keys.key(u, hashes.as_ref()?)))
+            .collect();
+        if known
+            .iter()
+            .zip(&restored)
+            .all(|(k, r)| k.is_some() == r.is_some())
+        {
+            return Lowered {
+                lowered,
+                keys,
+                prints,
+                known,
+                restored,
+            };
+        }
+        for (k, r) in known.iter_mut().zip(&restored) {
+            if r.is_none() {
+                *k = None;
+            }
+        }
+    }
+}
+
+/// That lowering every unit gives the hashes and the keys [`lower_unbuilt`]
+/// gave, where it lowered some units to stubs.
+#[cfg(debug_assertions)]
+fn agrees_with_full_lowering(
+    program: &monomorphize::Program,
+    tables: &Tables,
+    planned: &middle::Planned,
+    lowered: &ir::Program,
+    keys: &UnitKeys<'_>,
+    known: &[Option<UnitHashes>],
+    linkage: bool,
+) {
+    if known.iter().all(Option::is_none) {
+        return;
+    }
+    let full = lower::run_with(program, tables, &planned.plan(program, &|_| true), &|_| {
+        true
+    });
+    let none = vec![None; known.len()];
+    assert_eq!(
+        unit_hashes(lowered, tables, linkage, known),
+        unit_hashes(&full, tables, linkage, &none),
+        "a unit's fingerprint matched another program's, but its code did not"
+    );
+    assert_eq!(keys.entry, test_entry_signature(program, &full));
+    assert_eq!(
+        keys.shares,
+        crate::compiler::backend::runtime_table::shares_counts(&full)
+    );
 }
 
 /// One type's line in a unit's layout term, and the types it reaches.
@@ -2621,7 +2821,7 @@ pub fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
     force: bool,
-    mut emit: F,
+    emit: F,
 ) -> Result<Vec<(Emitted, bool)>, Diagnostics>
 where
     F: FnMut(&[usize]) -> Result<Vec<Emitted>, Diagnostics>,
@@ -2630,6 +2830,20 @@ where
         .iter()
         .map(|(_, k)| if force { None } else { cache.get_checked(k) })
         .collect();
+    codegen_units_with(cache, keys, hits, emit)
+}
+
+/// [`codegen_units_for`], with each unit's cached bytes already read: `hits`
+/// is one entry per key, `None` for a unit to emit.
+fn codegen_units_with<F>(
+    cache: &Cache,
+    keys: &[(String, ActionKey)],
+    hits: Vec<Option<Vec<u8>>>,
+    mut emit: F,
+) -> Result<Vec<(Emitted, bool)>, Diagnostics>
+where
+    F: FnMut(&[usize]) -> Result<Vec<Emitted>, Diagnostics>,
+{
     // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
     // a position in it is the `Func::unit` the backend selects on.
     let missing: Vec<Coded<'_>> = keys
@@ -2958,31 +3172,6 @@ fn objects_named(
 ) -> Result<Objects, Diagnostics> {
     let profile = profile_of(flags);
     let back_target = target_of(output);
-    // The same composition `emit` runs, from the same function: this path
-    // reaches a native backend and that one reaches JavaScript, and which
-    // passes a target gets must not be a fact stated twice.
-    let plan = prepare(program, back_target);
-    // Lowered once, here: for the unit *keys*, for the backend to resolve its
-    // intrinsic keys against, and for the bytes. Lowering it a second time was
-    // one second of an eight-second `buri test //...` on a real repository:
-    // `middle::rc::analyze` twice over the whole program and
-    // `middle::lower::run_with` twice.
-    //
-    // Against the plan `prepare` already produced. `lower::run` would compute
-    // an identical one — it is a pure function of the program, and nothing has
-    // taken the program by `&mut` since — so this is the same lowering with one
-    // whole-program analysis in it instead of two.
-    //
-    // Lowering is the middle end's last step, so `BURI_PROFILE` bills it there
-    // rather than to `other`.
-    let lowered = {
-        let _phase = crate::profile::enter(crate::profile::Phase::Middle);
-        match &plan {
-            Some(plan) => lower::run_with(program, tables, plan),
-            None => lower::run(program, tables),
-        }
-    };
-
     let backend = match backend::native(back_target, profile) {
         Ok(b) => b,
         Err(message) => {
@@ -2990,6 +3179,47 @@ fn objects_named(
             return Err(std::mem::take(diagnostics));
         }
     };
+    let name = backend.backend().name().to_string();
+    let identity = backend.backend().identity();
+    let linkage = backend.backend().reads_linkage();
+    // The same composition `emit` runs, from the same function: this path
+    // reaches a native backend and that one reaches JavaScript, and which
+    // passes a target gets must not be a fact stated twice.
+    let planned = prepare_for_native(program);
+    let cache = Cache::open(root);
+    // Lowered once, here: for the unit *keys*, for the backend to resolve its
+    // intrinsic keys against, and for the bytes. Lowering it a second time was
+    // one second of an eight-second `buri test //...` on a real repository:
+    // `middle::rc::analyze` twice over the whole program and
+    // `middle::lower::run_with` twice.
+    //
+    // A unit another program over these `Tables` already lowered, and whose
+    // object is in the cache, is not lowered at all ([`lower_unbuilt`]).
+    // `--force` builds everything, and an object the LLVM backend emits
+    // depends on which of its functions other units name, which is a fact
+    // about every unit of the program, so the memo is for the stencil backend.
+    let base = KeyBase {
+        output,
+        flags,
+        name: &name,
+        identity: &identity,
+    };
+    let reuse = !linkage && !flags.force;
+    let Lowered {
+        lowered,
+        keys: unit_keys,
+        prints,
+        known,
+        restored,
+    } = lower_unbuilt(program, tables, &planned, &cache, reuse, base);
+    crate::build::counted::add_n(
+        crate::build::counted::Count::UnitsRestoredUnlowered,
+        restored.iter().flatten().count() as u64,
+    );
+    #[cfg(debug_assertions)]
+    agrees_with_full_lowering(
+        program, tables, &planned, &lowered, &unit_keys, &known, linkage,
+    );
     // The **target's** runtime capabilities, which are the host's for a host
     // build and the cross archive's for a cross one. The host's own gaps are
     // the seam `WithRuntime` has always had, and a cross target is against an
@@ -3014,43 +3244,19 @@ fn objects_named(
         return Err(refuse_missing(name, gaps, net, crypto, diagnostics));
     }
 
-    let name = backend.backend().name().to_string();
-    let identity = backend.backend().identity();
-    // The one unit whose object depends on the set of tests rather than on the
-    // functions it renders — the entry point the backend synthesises. Folding
-    // the set into its `ir` term is what relinks a test binary from scratch when
-    // a test is added or removed, instead of serving a stale entry that names a
-    // `test$N` no longer defined ([`test_entry_signature`], buri-lang/buri#175).
-    let entry = test_entry_signature(program, &lowered);
-    // Every unit's forks read `buri_rt_shared_mask` in a program that can fan
-    // out, on both native backends, so the answer is in every unit's key
-    // (buri-lang/buri#243).
-    let shares = crate::compiler::backend::runtime_table::shares_counts(&lowered);
     // Rendering and hashing every unit is codegen's work whether or not a unit
     // turns out to be cached, so `BURI_PROFILE` bills it to `emit`.
     let keying = crate::profile::enter(crate::profile::Phase::Emit);
-    let keys: Vec<(String, ActionKey)> = unit_hashes(&lowered, tables)
-        .into_iter()
+    let hashes = unit_hashes(&lowered, tables, linkage, &known);
+    let mut keys: Vec<(String, ActionKey)> = lowered
+        .units
+        .iter()
+        .zip(&hashes)
         .enumerate()
-        .map(|(u, (unit, ir_hash, layout_hash))| {
-            let ir_hash = match &entry {
-                Some((entry_unit, sig)) if *entry_unit == u => {
-                    hash_bytes(format!("{ir_hash}\n{sig}").as_bytes())
-                }
-                _ => ir_hash,
-            };
-            let ir_hash = if shares {
-                hash_bytes(format!("{ir_hash}\nshares-counts").as_bytes())
-            } else {
-                ir_hash
-            };
-            let key = codegen_key(output, flags, &name, &identity, &ir_hash, &layout_hash);
-            (unit, key)
-        })
+        .map(|(u, (unit, hashes))| (unit.name.clone(), unit_keys.key(u, hashes)))
         .collect();
     // What the units share, such as the LLVM backend's glue, is a function of
     // all of them, so its key is every unit's key in unit order.
-    let mut keys = keys;
     if let Some(shared) = backend.backend().shared_unit() {
         let every: Vec<&str> = keys.iter().map(|(_, k)| k.as_str()).collect();
         let ir_hash = hash_bytes(format!("{shared}\n{}", every.join("\n")).as_bytes());
@@ -3059,8 +3265,15 @@ fn objects_named(
     }
     drop(keying);
 
-    let cache = Cache::open(root);
-    let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
+    // The units restored before lowering, then every other unit the cache has.
+    let hits: Vec<Option<Vec<u8>>> = keys
+        .iter()
+        .zip(restored.into_iter().chain(std::iter::repeat(None)))
+        .map(|((_, key), restored)| {
+            restored.or_else(|| (!flags.force).then(|| cache.get_checked(key)).flatten())
+        })
+        .collect();
+    let emitted = codegen_units_with(&cache, &keys, hits, |wanted| {
         let opts = BackendOptions {
             profile,
             target: back_target,
@@ -3076,6 +3289,15 @@ fn objects_named(
         let _phase = crate::profile::enter(crate::profile::Phase::Emit);
         backend.emit_units(program, tables, &opts, selection)
     })?;
+    // Remembered once the objects are stored, so a program that finds a unit
+    // here finds its object in the cache.
+    let mut memo = tables.later::<UnitMemo>().lock();
+    for ((print, hashes), known) in prints.iter().zip(hashes).zip(&known) {
+        if known.is_none() {
+            memo.entry(*print).or_insert(hashes);
+        }
+    }
+    drop(memo);
 
     let mut units = Vec::with_capacity(emitted.len());
     let mut rows = Vec::with_capacity(emitted.len());
