@@ -341,6 +341,9 @@ fn a_release_build_builds_each_llvm_module_once() {
 
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
+///
+/// For a count the compiler keeps, which load can't move. Instructions go
+/// through [`instructions_grow_linearly`].
 fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
     let (Some(small), Some(large)) = (work(n), work(2 * n)) else {
         return;
@@ -351,6 +354,26 @@ fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
         2 * n,
         large / small
     );
+}
+
+/// [`grows_linearly`] for instructions: each size counts the fewest of three
+/// runs of `work`.
+///
+/// The count includes the kernel's work on the thread, such as interrupts and
+/// switching threads, and that work only ever adds. Under load it once added
+/// more than half to one build's `middle`, which a growth bound can't tell from
+/// a quadratic. Now it takes that in all three runs of one size.
+fn instructions_grow_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
+    grows_linearly(what, |n| fewest(|| work(n)), n);
+}
+
+/// The fewest of three runs of `count`, or `None` where any counted nothing.
+fn fewest(count: impl Fn() -> Option<f64>) -> Option<f64> {
+    (0..3)
+        .map(|_| count())
+        .collect::<Option<Vec<f64>>>()?
+        .into_iter()
+        .reduce(f64::min)
 }
 
 /// Builds tuples of `n` elements, takes one apart and compares two.
@@ -442,7 +465,7 @@ fn a_debug_builds_emission_is_linear_in_a_functions_length() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "emitting a long tuple's functions",
         |n| {
             let (items, body) = long_tuple(n);
@@ -457,7 +480,7 @@ fn a_debug_builds_emission_is_linear_in_a_functions_length() {
 /// conditional copied the rest of the chain at every arm.
 #[test]
 fn javascript_emission_is_linear_in_a_matchs_arms() {
-    grows_linearly(
+    instructions_grow_linearly(
         "emitting long matches as JavaScript",
         |n| {
             let (items, body) = long_matches(n, false);
@@ -471,7 +494,7 @@ fn javascript_emission_is_linear_in_a_matchs_arms() {
 /// pair is asked whether the arms before it already cover it.
 #[test]
 fn checking_a_match_over_pairs_is_linear_in_its_arms() {
-    grows_linearly(
+    instructions_grow_linearly(
         "checking a match over pairs",
         |n| {
             let (items, body) = long_matches(n, true);
@@ -487,7 +510,7 @@ fn checking_a_match_over_pairs_is_linear_in_its_arms() {
 /// took 1.2 G instructions to check.
 #[test]
 fn checking_a_pattern_is_linear_in_the_names_it_binds() {
-    grows_linearly(
+    instructions_grow_linearly(
         "checking a long tuple's functions",
         |n| {
             let (items, body) = long_tuple(n);
@@ -535,7 +558,7 @@ fn reference_counting_is_linear_in_a_long_branching_expression() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "planning the reference counts of a long `else if` chain",
         |n| {
             let (items, body) = long_branching(n);
@@ -583,7 +606,7 @@ fn deriving_hash_is_linear_in_a_structs_fields() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "deriving a wide struct's hash",
         |n| {
             let (items, body) = wide_hashed_struct(n);
@@ -647,7 +670,7 @@ fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "emitting a wide variant's functions",
         |n| {
             let (items, body) = wide_variant(n);
@@ -675,7 +698,7 @@ fn many_lets(n: usize) -> (String, String) {
 /// walked all of them every time. PERFORMANCE.md §6.41.
 #[test]
 fn checking_is_linear_in_a_bodys_lets() {
-    grows_linearly(
+    instructions_grow_linearly(
         "checking a long body",
         |n| {
             let (items, body) = many_lets(n);
@@ -697,7 +720,7 @@ fn commented_file(n: usize) -> String {
 /// lines spent most of its formatting there. PERFORMANCE.md §6.41.
 #[test]
 fn formatting_is_linear_in_a_files_comments() {
-    grows_linearly(
+    instructions_grow_linearly(
         "formatting a long commented file",
         |n| {
             let scratch = Scratch::repo("profile-format");
@@ -741,7 +764,7 @@ fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "forwarding a long body's field reads",
         |n| {
             let (items, body) = field_lets(n);
@@ -778,7 +801,7 @@ fn closure_conversion_is_linear_in_a_functions_lambdas() {
         ci::skipped("build::profile", &why);
         return;
     }
-    grows_linearly(
+    instructions_grow_linearly(
         "lifting many lambdas out of one function",
         |n| {
             let (items, body) = many_lambdas(n);
@@ -828,7 +851,7 @@ fn library_chain(scratch: &Scratch, n: usize) {
 /// to build. PERFORMANCE.md §6.47.
 #[test]
 fn linting_checks_each_library_once() {
-    grows_linearly(
+    instructions_grow_linearly(
         "checking a chain of libraries for lint",
         |n| linted("profile-lint-chain", |s| library_chain(s, n), "check"),
         60,
@@ -912,7 +935,7 @@ fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
         |n| loaded(&cold(n)),
         100,
     );
-    grows_linearly(
+    instructions_grow_linearly(
         "a cold build of a chain of libraries, checking",
         |n| phase_instructions(&cold(n), "check"),
         100,
@@ -983,7 +1006,7 @@ fn many_declarations(scratch: &Scratch, n: usize) {
 /// PERFORMANCE.md §6.47.
 #[test]
 fn the_lint_rules_are_linear_in_a_files_length() {
-    grows_linearly(
+    instructions_grow_linearly(
         "the lint rules over one long file",
         |n| {
             linted(
@@ -1034,7 +1057,7 @@ fn unused_context_is_linear_in_its_findings() {
         );
         phase_instructions(&run.all(), "other")
     };
-    grows_linearly("unused-context over one file", linted, 500);
+    instructions_grow_linearly("unused-context over one file", linted, 500);
 }
 
 /// A library of `n` functions, each with a context bound its body never uses.
@@ -1085,7 +1108,7 @@ fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
         );
         phase_instructions(&run.stderr, "other")
     };
-    grows_linearly("publishing one file's findings", published, 200);
+    instructions_grow_linearly("publishing one file's findings", published, 200);
 }
 
 /// **A `format --check` of an unchanged tree formats nothing.** It formatted
@@ -1585,7 +1608,7 @@ fn many_files_suite(n: usize) -> Scratch {
 /// grew with the square of its files.
 #[test]
 fn the_test_filesystem_is_linear_in_its_files() {
-    grows_linearly(
+    instructions_grow_linearly(
         "a suite over many files",
         |n| {
             let run =
@@ -1771,18 +1794,14 @@ fn page_and_program(page: bool, program: Option<usize>) -> Option<f64> {
     }
     // The kernel's work on the thread only ever adds, by up to a fifth here,
     // so the fewest of three builds is the one it left alone.
-    (0..3)
-        .map(|_| {
-            let run = scratch.run_with_env(
-                &["build", "//...", "--force"],
-                &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
-            );
-            run.ok();
-            phase_instructions(&run.all(), "monomorphize")
-        })
-        .collect::<Option<Vec<f64>>>()?
-        .into_iter()
-        .reduce(f64::min)
+    fewest(|| {
+        let run = scratch.run_with_env(
+            &["build", "//...", "--force"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        phase_instructions(&run.all(), "monomorphize")
+    })
 }
 
 /// **A program with no styles pays nothing for a page built beside it.** One
