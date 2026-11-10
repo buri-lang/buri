@@ -41,8 +41,12 @@
 //!                            color-mix(in srgb, <colour> <n>%, transparent)
 //! ```
 //!
+//! `text` is drawn too, as one run in the painter's own face: its words up to
+//! the first tag inside it, at `x`, `y`, `font-size` and `text-anchor`. A
+//! `tspan` and the text after one are not.
+//!
 //! Outside that subset nothing is drawn and the rest of the picture still is:
-//! `text`, `image`, `use`, gradients, patterns, filters, masks, clip paths,
+//! `image`, `use`, gradients, patterns, filters, masks, clip paths,
 //! markers, a `style` element or attribute, `fill-rule`, `skewX`/`skewY`, and
 //! `preserveAspectRatio` — a picture fills the box the layout gave it, which is
 //! the rule the raster half has always followed.
@@ -71,7 +75,7 @@ use tiny_skia::{
     FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, Transform,
 };
 
-use super::{Box2, DISTANCES, LENGTHS, Rgba, mul255, over, paeth};
+use super::{Box2, DISTANCES, Fonts, LENGTHS, Rgba, mul255, over, paeth};
 
 // ---------------------------------------------------------------------------
 // The public surface
@@ -110,11 +114,13 @@ impl Picture {
 
 /// The picture a `data:` URI holds, or `None` for a source this painter cannot
 /// read.
-pub(super) fn read(source: &str) -> Option<Picture> {
+pub(super) fn read(source: &str, fonts: &mut Fonts) -> Option<Picture> {
     let (kind, body) = data_uri(source)?;
     match kind.as_str() {
         "image/png" => decode(&body).ok().map(Picture::Raster),
-        "image/svg+xml" => Svg::parse(core::str::from_utf8(&body).ok()?).map(Picture::Vector),
+        "image/svg+xml" => {
+            Svg::parse(core::str::from_utf8(&body).ok()?, fonts).map(Picture::Vector)
+        }
         _ => None,
     }
 }
@@ -125,8 +131,8 @@ pub(super) fn read(source: &str) -> Option<Picture> {
 /// Nothing is decoded on the way in: the scene holds the drawing whole, which
 /// is what lets `paint.rs` draw it with `currentColor` bound to the colour the
 /// element paints in.
-pub(super) fn artwork(source: &str) -> Option<Picture> {
-    Svg::parse(source).map(Picture::Vector)
+pub(super) fn artwork(source: &str, fonts: &mut Fonts) -> Option<Picture> {
+    Svg::parse(source, fonts).map(Picture::Vector)
 }
 
 /// `data:<type>[;charset=…][;base64],<body>`, split into the type and the
@@ -1204,7 +1210,7 @@ const NOT_DRAWN: [&str; 14] = [
 impl Svg {
     /// The shapes of an SVG document, or `None` for one with no coordinate
     /// system to draw them in.
-    fn parse(text: &str) -> Option<Self> {
+    fn parse(text: &str, fonts: &mut Fonts) -> Option<Self> {
         let mut tags = Tags::new(text);
         let mut stack: Vec<Inherited> = vec![Inherited::default()];
         let mut shapes: Vec<Shape> = Vec::new();
@@ -1225,6 +1231,14 @@ impl Svg {
                             let inherited = stack.last()?.apply(&attributes);
                             if name == "svg" && root.is_none() {
                                 root = frame(&attributes);
+                            } else if name == "text" && !empty {
+                                lettering(
+                                    &attributes,
+                                    &tags.words(),
+                                    &inherited,
+                                    fonts,
+                                    &mut shapes,
+                                );
                             } else {
                                 shape(&name, &attributes, &inherited, &mut shapes);
                             }
@@ -1919,6 +1933,42 @@ fn arc(
     }
 }
 
+/// A `text` element's words as one outline, appended if it paints: set
+/// `font-size` units tall in the painter's own face, its baseline on `y`, and
+/// placed along `x` by `text-anchor`, the way a page sets a run of SVG text.
+fn lettering(
+    attributes: &[(String, String)],
+    words: &str,
+    inherited: &Inherited,
+    fonts: &mut Fonts,
+    out: &mut Vec<Shape>,
+) {
+    let number = |key: &str| attribute(attributes, key).and_then(|v| length(&v));
+    let size = number("font-size").unwrap_or(super::ROOT_FONT_SIZE);
+    let Some((path, advance)) = super::lettering(fonts, words, size) else {
+        return;
+    };
+    let shift = match attribute(attributes, "text-anchor").as_deref() {
+        Some("middle") => advance / 2.0,
+        Some("end") => advance,
+        _ => 0.0,
+    };
+    let (x, y) = (number("x").unwrap_or(0.0), number("y").unwrap_or(0.0));
+    let Some(path) = path.transform(Transform::from_translate(x - shift, y)) else {
+        return;
+    };
+    let (fill, stroke) = (inherited.fill_ink(), inherited.stroke_ink());
+    if fill.is_none() && stroke.is_none() {
+        return;
+    }
+    out.push(Shape {
+        path,
+        transform: inherited.transform,
+        fill,
+        stroke,
+    });
+}
+
 /// The numbers and command letters of a `d` attribute, in order.
 struct Numbers<'a> {
     bytes: &'a [u8],
@@ -2011,6 +2061,16 @@ struct Tags<'a> {
 impl<'a> Tags<'a> {
     fn new(text: &'a str) -> Self {
         Self { text, at: 0 }
+    }
+
+    /// The text from here to the next tag, its entities read and its white
+    /// space collapsed the way SVG collapses a `text` element's: each run of
+    /// it one space, and none at either end.
+    fn words(&self) -> String {
+        let rest = self.text.get(self.at..).unwrap_or("");
+        let until = rest.find('<').unwrap_or(rest.len());
+        let raw = entities(rest.get(..until).unwrap_or(""));
+        raw.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     fn next(&mut self) -> Option<Tag> {
@@ -2157,6 +2217,11 @@ fn entities(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`super::read`], with a fresh set of faces.
+    fn read(source: &str) -> Option<Picture> {
+        super::read(source, &mut Fonts::new())
+    }
 
     // The PNG fixtures are written by an encoder that is not this one: Python's
     // `zlib` at level 9 over hand-built chunks. So what they prove is that this

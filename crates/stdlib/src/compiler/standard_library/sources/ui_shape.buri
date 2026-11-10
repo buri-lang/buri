@@ -31,10 +31,11 @@ export enum Segment {
 ///
 /// Opaque: the constructors below are the whole vocabulary. It holds the
 /// element a shape lowers to, its attributes, its paint, which the browser
-/// sets as CSS so a design token's `var()` resolves, the shapes inside it, and,
-/// for `each`, the rows it stands for. The order is load-bearing: the
-/// JavaScript runtime reads a shape by position (`$tree_shape`).
-export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], Option<Rows<C>>);
+/// sets as CSS so a design token's `var()` resolves, the shapes inside it,
+/// for `each` the rows it stands for, and for `text` what it says. The order is
+/// load-bearing: the JavaScript runtime reads a shape by position
+/// (`$tree_shape`).
+export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], Option<Rows<C>>, Option<Prop<Str>>);
 
 /// What `each` stands for: the key at an index, and the row built there. Both
 /// answer `.None` past the end of the list.
@@ -53,10 +54,20 @@ impl<C> Shape<C> {
                 str.format(s, " ${pair.0}='${pair.1.read(s)}'")
             })
             .join(ctx, "");
-        if (self.3.isEmpty()) {
+        // A text's words are text, never markup.
+        let inner = match (self.5) {
+            .Some(words) => {
+                words
+                    .read(ctx)
+                    .replace(ctx, "&", "&amp;")
+                    .replace(ctx, "<", "&lt;")
+                    .replace(ctx, ">", "&gt;")
+            },
+            .None => self.3.mapCtx(ctx, fn(s, child) => child.svg(s)).join(ctx, ""),
+        };
+        if (inner.isEmpty()) {
             str.format(ctx, "<${self.0}${attributes}/>")
         } else {
-            let inner = self.3.mapCtx(ctx, fn(s, child) => child.svg(s)).join(ctx, "");
             str.format(ctx, "<${self.0}${attributes}>${inner}</${self.0}>")
         }
     }
@@ -76,7 +87,7 @@ impl<C> Shape<C> {
                 if (self.1.isEmpty()) {
                     inner
                 } else {
-                    [Shape(self.0, self.1, self.2, inner, .None)]
+                    [Shape(self.0, self.1, self.2, inner, .None, self.5)]
                 }
             },
         }
@@ -138,7 +149,8 @@ struct Path {
 
 /// An outline built from segments: a line, a polygon, or several of them.
 ///
-/// `.Inherit` paints in the colour of the text around the drawing.
+/// `.Inherit` paints in the colour of the text around the drawing, and so does
+/// a design token no theme gives a colour.
 ///
 /// ```buri
 /// from "ui/shape" import * as shape;
@@ -165,6 +177,7 @@ export fn path<C>(config: Path): Shape<C> {
         ],
         [("fill", paintOf(config.fill)), ("stroke", paintOf(config.stroke))],
         [],
+        .None,
         .None,
     )
 }
@@ -202,6 +215,7 @@ export fn rect<C>(config: Rect): Shape<C> {
         [("fill", paintOf(config.fill))],
         [],
         .None,
+        .None,
     )
 }
 
@@ -238,6 +252,46 @@ export fn circle<C>(config: Circle): Shape<C> {
         [("fill", paintOf(config.fill))],
         [],
         .None,
+        .None,
+    )
+}
+
+/// What `text` takes.
+struct Text {
+    /// Where the middle of its baseline sits, `(x, y)`.
+    export at: Prop<(Float, Float)>,
+    /// What it says.
+    export content: Prop<Str>,
+}
+
+/// A run of text: a month's name under its bar, or a value beside a point.
+///
+/// It's centred on `at`'s `x`, with its baseline on `at`'s `y`. It's set `5`
+/// units tall, in the colour of the text around the drawing, and it stretches
+/// with the drawing as its other shapes do.
+///
+/// ```buri
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn label<C>(name: Str): Shape<C> {
+///     shape.text({ at: .Const((5.0, 48.0)), content: .Const(name) })
+/// }
+/// ```
+export fn text<C>(config: Text): Shape<C> {
+    let (x, y) = coordinates(config.at);
+    Shape(
+        "text",
+        [
+            ("x", x),
+            ("y", y),
+            ("text-anchor", .Const("middle")),
+            ("font-size", .Const("5")),
+        ],
+        [("fill", .Const("currentColor"))],
+        [],
+        .None,
+        .Some(config.content),
     )
 }
 
@@ -276,7 +330,7 @@ export fn group<C>(config: Group<C>): Shape<C> {
         },
         .None => [],
     };
-    Shape("g", moved, [], config.shapes, .None)
+    Shape("g", moved, [], config.shapes, .None, .None)
 }
 
 /// One shape per item, kept by key, the way `ui/node`'s `each` keeps a row.
@@ -323,6 +377,7 @@ export fn each<C, T: Equal>(
                 },
             ),
         ),
+        .None,
     )
 }
 
@@ -373,19 +428,24 @@ fn paintOf(color: Option<Prop<Color>>): Prop<Str> {
 }
 
 /// A colour as SVG paint. `.Inherit` is the text's colour, `currentColor`,
-/// and a design token stays a `var()` the page's theme fills in.
+/// and a design token stays a `var()` the page's theme fills in. A token no
+/// theme gives a colour, or one a theme binds to `.Inherit`, is the text's
+/// colour too: that's the `var()`'s fallback.
 fn paint(ctx: Scope, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
         .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${number(ctx, a)})"),
         .Token(reference) => {
-            str.format(ctx, "var(--${reference.namespace()}-${reference.name()})")
+            str.format(
+                ctx,
+                "var(--${reference.namespace()}-${reference.name()},currentColor)",
+            )
         },
         .Faded(reference, a) => {
             let percent = number(ctx, a * 100.0);
             str.format(
                 ctx,
-                "color-mix(in srgb,var(--${reference.namespace()}-${reference.name()}) ${percent}%,transparent)",
+                "color-mix(in srgb,var(--${reference.namespace()}-${reference.name()},currentColor) ${percent}%,transparent)",
             )
         },
         .Transparent => "none",

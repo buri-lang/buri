@@ -1,0 +1,9 @@
+# One library and one test source: a card holding a panel and a drawing in
+# tokens.
+library {
+    sources: ["inherit.buri"]
+
+    test {
+        sources: ["test/inherit.buri"]
+    }
+}

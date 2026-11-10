@@ -1,0 +1,72 @@
+//! A card with a quarter's sales drawn as one bar per month, each month's name
+//! under its bar.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+
+derive Equal for Month;
+/// A month's name and its total, out of `40`.
+struct Month {
+    name: Str,
+    total: Float,
+}
+
+/// One bar per month, `10` units apart in a drawing `30` wide and `50` tall,
+/// with the month's name centred under it in the card's text colour.
+export fn card<C>(names: (Str, Str, Str)): Node<C> {
+    let (first, second, third) = names;
+    let months = [
+        Month { name: first, total: 12.0 },
+        Month { name: second, total: 30.0 },
+        Month { name: third, total: 22.0 },
+    ];
+    ui.stack({
+        styles: [
+            .Padding(.Px(16)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(30, 90, 200)),
+        ],
+        children: [
+            ui.drawing({
+                alt: .AccessibilityText("Sales by month"),
+                size: .Const((30.0, 50.0)),
+                styles: [.Width(.Px(150)), .Height(.Px(250))],
+                shapes: [
+                    shape.each(.Const(months), fn(m) => m.name, fn(_c, m, i) => {
+                        shape.group({
+                            offset: .Some(.Const((i.toF64() * 10.0, 0.0))),
+                            shapes: [
+                                shape.rect({
+                                    at: .Const((1.0, 40.0 - m.total)),
+                                    size: .Const((8.0, m.total)),
+                                    fill: .Some(.Const(.Rgb(120, 190, 120))),
+                                }),
+                                shape.text({
+                                    at: .Const((5.0, 47.0)),
+                                    content: .Const(m.name),
+                                }),
+                            ],
+                        })
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+/// Three names in an SVG image of their own, in the card's text colour.
+export fn picture<C>(): Node<C> {
+    ui.stack({
+        styles: [.Padding(.Px(16)), .Background(.Rgb(255, 255, 255))],
+        children: [
+            ui.image({
+                source: .Const(
+                    "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 50' preserveAspectRatio='none'%3E%3Cg fill='rgb(30,90,200)'%3E%3Ctext x='5' y='47' text-anchor='middle' font-size='5'%3EJan%3C/text%3E%3Ctext x='15' y='47' text-anchor='middle' font-size='5'%3EF%C3%A9v%3C/text%3E%3Ctext x='25' y='47' text-anchor='middle' font-size='5'%3EMar%3C/text%3E%3C/g%3E%3C/svg%3E",
+                ),
+                alt: .AccessibilityText("Jan, Fév and Mar"),
+                styles: [.Width(.Px(150)), .Height(.Px(250))],
+            }),
+        ],
+    })
+}

@@ -17,11 +17,13 @@ Each phase ends at a commit landed with `/tmp/buri-land.sh`.
 1. **Drawing and static path.** `ui.drawing({ alt, size, styles, shapes })`, `shape.path({ segments, fill, stroke, strokeWidth })`, and `Segment` `MoveTo`/`LineTo`/`Close`. Colours: `Rgb`, `Rgba`, `Inherit` (`currentColor`), `Transparent`. Renders in the browser, in `render` (both back ends) and in snapshots. A UI snapshot case, happy-dom page tests, conformance tests, docs. About 250 turns.
 2. **Reactivity and tokens.** `.Cell` and `.Computed` segments, size and colours update in place: the browser already binds each prop, and the native `render` document needs a watcher that patches the drawing's body. `style.token` and `alpha` (`Token`, `Faded`) as fill and stroke, following the theme in the browser and in the painter, light and dark. About 250 turns.
 3. **More shapes.** `shape.rect`, `shape.circle`, `shape.text` (a run of text in the drawing), `shape.group` with `offset`, and keyed `shape.each` (reconciled like `ui.each` in the browser and in `render`; add it to `semantics::reactive`'s builders). About 300 turns.
-4. **Text and interaction.** `shape.text`, then: A shape with a `label` joins the focus order with that name; `onFocus` on shapes; `onPointerMove` on the drawing, in drawing units. Both in the browser and in `platform/effect/testing`'s `render`. Close #332. About 250 turns.
+4. **Text.** `shape.text`, and a token bound to `.Inherit`.
+5. **Interaction.** A shape with a `label` joins the focus order with that name; `onFocus` on shapes; `onPointerMove` on the drawing, in drawing units. Both in the browser and in `platform/effect/testing`'s `render`. About 250 turns.
+6. **The `each` gaps** listed under phase 3, then close #332.
 
 ## Status
 
-Phases 1, 2 and 3 are done, except `shape.text`, which moved to phase 4.
+Phases 1 to 4 are done.
 
 Phase 1 (393c5a197) added:
 
@@ -39,7 +41,9 @@ Phase 2 added:
   - `language::pages::a_drawing_follows_its_size_outline_and_paint_in_place`
   - UI case `a_drawing_paints_tokens_light_and_dark`: each token picture shares a golden with the same card in its theme's colours
   - `image::tests::a_colour_mixed_with_transparent_is_that_colour_faded`
-- Docs: the guide's drawing paragraph says propPhase 3 added:
+- Docs: the guide's drawing paragraph says props update in place.
+
+Phase 3 added:
 
 - `ui_shape.buri`: `rect`, `circle`, `group` (with `offset`, as `translate(x y)`) and keyed `each`. `Shape` gained its children and an `each`'s rows (`Rows`: a key and a row per index). `built(ctx, c)` puts an `each`'s rows where it was, and `keys(ctx)` reads every key so a watcher can follow the lists.
 - `ui_node.buri`: `.Drawing` holds the artwork as a builder over `C` plus its keys. A watcher can't capture a `C`, so `emitNode` rebuilds the drawing's region whenever the keys change (the runtime hands the region its `C`), and a nested watcher patches the markup.
@@ -57,8 +61,16 @@ Known gaps:
 - An `each` inside another `each`'s row isn't followed natively: `keys` reads only the rows built at the top level.
 - Duplicate keys abort in the browser but not natively (as with `ui.each`).
 
-Phase 4 starts here:
+Phase 4 added:
 
-1. `shape.text({ at, content })`, centred at `x`. `image.rs` skips SVG `text`. The simplest faithful approach: in `paint.rs`, shape the run with `cosmic_text`, turn each glyph's outline commands (`SwashCache`) into a `tiny_skia` path, and fill it where `text-anchor='middle'` puts it.
-2. A token bound to `.Inherit` puts `inherit` in the artwork, which `image.rs` paints as nothing. Nothing does that yet.
-3. Then the interaction work in the phase list.
+- `shape.text({ at, content })`: `Shape`'s sixth field holds the words. `svg` escapes them; `runtime.js` binds `shape[5]` as a text node. The text is centred on `x` (`text-anchor='middle'`), `font-size='5'` drawing units, `fill='currentColor'`.
+- `image.rs` paints `text` as one run (no `tspan`): `paint.rs`'s `lettering` shapes it with `cosmic_text` and fills each glyph's `SwashCache` outline with `tiny_skia`. Space is collapsed the way a page does it. Image parsing takes `&mut Fonts`, because `paint_with` already borrows `FACES`. This also draws text in a `data:` SVG image.
+- A token's paint is `var(--ns-name,currentColor)`. A token bound to `.Inherit` puts `inherit` at `:root`, which a page treats as unset, so the fallback applies. `parse_variables` drops `inherit` bindings and any binding whose `var()` chain doesn't resolve, so the painter agrees: a drawing paints in the text's colour and a `.Background` stays clear.
+- Tests: conformance `tree.buri` "a text is centred on its point, …", `language::pages::a_drawing_s_text_is_centred_on_its_point_and_follows_its_words_in_place`, UI cases `a_drawing_paints_its_labels` and `a_token_bound_to_inherit_paints_as_inherit`.
+- Docs: the guide's text example, and the snapshot list says SVG text paints.
+
+Phase 5 starts here:
+
+1. A shape with a `label` joins the focus order with that name. Shapes are positional tuples read by `runtime.js` `$tree_shape` (`shape[0]` to `shape[5]`); a label is another field, and `svg` writes it as `aria-label` plus `tabindex`.
+2. `onFocus` on shapes, and `onPointerMove` on the drawing in drawing units, in the browser and in `render`.
+3. Then phase 6.

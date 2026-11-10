@@ -3094,7 +3094,7 @@ test "a path is painted in any colour, and inherits the colour around it" {
             style.token("brand", "accent"),
             style.token("brand", "accent").alpha(0.5),
         ),
-        "fill='var(--brand-accent)' stroke='color-mix(in srgb,var(--brand-accent) 50%,transparent)'",
+        "fill='var(--brand-accent,currentColor)' stroke='color-mix(in srgb,var(--brand-accent,currentColor) 50%,transparent)'",
     );
 }
 
@@ -3192,7 +3192,7 @@ test "a drawing follows its size, segments, paint and styles, and stays the same
     // Each write lands on the same element: the drawing is not built again.
     assert.equal(
         page.markup(),
-        "e 0 class:w-var;icon:<svg viewBox='0 0 20 8' preserveAspectRatio='none'><path d='M0 8 L20 0 Z' stroke-width='1.5' fill='color-mix(in srgb,var(--brand-accent) 50%,transparent)' stroke='var(--brand-accent)'/></svg>;--buri-w:40px",
+        "e 0 class:w-var;icon:<svg viewBox='0 0 20 8' preserveAspectRatio='none'><path d='M0 8 L20 0 Z' stroke-width='1.5' fill='color-mix(in srgb,var(--brand-accent,currentColor) 50%,transparent)' stroke='var(--brand-accent,currentColor)'/></svg>;--buri-w:40px",
     );
     assert.equal(page.identity("svg", 0), drawn);
 }
@@ -3263,6 +3263,32 @@ test "a rectangle and a circle are drawn where their props put them" {
     assert.equal(
         dot.markup(),
         drawingLine(ctx, "<circle cx='50' cy='20' r='1.5' fill='none'/>"),
+    );
+}
+
+test "a text is centred on its point, in the colour around the drawing, and follows what it says" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let says = signal(ctx, "Jan");
+    let page = render(
+        ctx,
+        drawingOf(shape.text({ at: .Const((5.0, 48.5)), content: .Cell(says) })),
+    );
+    assert.equal(
+        page.markup(),
+        drawingLine(
+            ctx,
+            "<text x='5' y='48.5' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>",
+        ),
+    );
+    // What it says is text, never markup. The scene escapes each `;`.
+    says.set(ctx, "<b>Q1 & Q2</b>");
+    assert.containsText(
+        page.markup(),
+        "font-size='5' fill='currentColor'>&lt\\;b&gt\\;Q1 &amp\\; Q2&lt\\;/b&gt\\;</text>",
     );
 }
 

@@ -1,0 +1,79 @@
+//! A card whose inner panel and drawing are coloured by this package's design
+//! tokens.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/style" import { Color, token };
+from "ui/theme" import { Theme, themed };
+
+/// This package's tokens. What each one is worth is the app's to say.
+export enum Token {
+    Panel,
+    Accent,
+}
+
+impl Token {
+    /// The custom property this token is.
+    export fn color(self): Color {
+        match (self) {
+            .Panel => token("inherit", "panel"),
+            .Accent => token("inherit", "accent"),
+        }
+    }
+}
+
+/// This package's tokens, resolved by `mapping`.
+export fn themedBy(mapping: fn(Token) => Color): Theme {
+    themed([
+        (Token.Panel.color(), mapping(.Panel)),
+        (Token.Accent.color(), mapping(.Accent)),
+    ])
+}
+
+/// A card shaded a quarter black, in red text, holding a panel on `panel` with
+/// a bar filled `fill` and a ring stroked `fill`.
+export fn card<C>(panel: Color, fill: Color): Node<C> {
+    ui.stack({
+        styles: [
+            .Padding(.Px(16)),
+            .Background(.Rgba(0, 0, 0, 0.25)),
+            .Foreground(.Rgb(200, 40, 40)),
+        ],
+        children: [
+            ui.stack({
+                styles: [.Padding(.Px(8)), .Background(panel)],
+                children: [
+                    ui.drawing({
+                        alt: .AccessibilityText("A bar and a ring"),
+                        size: .Const((40.0, 20.0)),
+                        styles: [.Width(.Px(160)), .Height(.Px(80))],
+                        shapes: [
+                            shape.rect({
+                                at: .Const((2.0, 4.0)),
+                                size: .Const((16.0, 12.0)),
+                                fill: .Some(.Const(fill)),
+                            }),
+                            shape.path({
+                                segments: .Const([
+                                    .MoveTo(24.0, 4.0),
+                                    .LineTo(36.0, 4.0),
+                                    .LineTo(36.0, 16.0),
+                                    .LineTo(24.0, 16.0),
+                                    .Close,
+                                ]),
+                                stroke: .Some(.Const(fill)),
+                                strokeWidth: .Some(.Const(2.0)),
+                            }),
+                        ],
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+/// The card in tokens.
+export fn themedCard<C>(): Node<C> {
+    card(Token.Panel.color(), Token.Accent.color())
+}

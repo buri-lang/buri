@@ -252,8 +252,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use cosmic_text::{
-    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache,
-    Weight, Wrap, fontdb,
+    Attrs, Buffer, CacheKey, CacheKeyFlags, Command, Family, FontSystem, Hinting, Metrics, Shaping,
+    SwashCache, Weight, Wrap, fontdb,
 };
 use taffy::prelude::*;
 use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
@@ -594,6 +594,18 @@ fn parse_variables(text: &str) -> Vec<(String, String)> {
                 Some(slot) => slot.1 = value,
                 None => out.push((name.to_string(), value)),
             }
+        }
+    }
+    // What a page does with a token at the root: `inherit` has nothing above
+    // it to inherit, and a token that reads one with no value has none either.
+    // Both are unbound, so a `var()` reading one takes its fallback, and a
+    // declaration with none is a token nothing bound.
+    out.retain(|(_, value)| value != "inherit");
+    loop {
+        let bound = out.clone();
+        out.retain(|(_, value)| !substitute(value, &bound).contains("var("));
+        if out.len() == bound.len() {
+            break;
         }
     }
     out
@@ -2971,6 +2983,73 @@ fn broken(buffer: &Buffer, text: &str) -> String {
     out
 }
 
+/// A run of text as one outline, `size` units tall in the regular face, and how
+/// far it advances. Its baseline is on `y = 0` and it starts at `x = 0`.
+///
+/// `image.rs` fills one where a drawing's `text` stands. The outline is the
+/// face's own, unhinted, rather than a glyph image, so a drawing stretched over
+/// any box draws its text as sharp as its other shapes, and stretched the same
+/// way. `None` for a run with nothing to draw.
+fn lettering(faces: &mut Fonts, text: &str, size: f32) -> Option<(tiny_skia::Path, f32)> {
+    if text.is_empty() || !size.is_finite() || size <= 0.0 {
+        return None;
+    }
+    let (fonts, cache) = faces.pair(false);
+    let mut buffer = Buffer::new(fonts, Metrics::new(size, size));
+    buffer.set_hinting(Hinting::Disabled);
+    buffer.set_wrap(Wrap::None);
+    buffer.set_size(None, None);
+    let attrs = Attrs::new()
+        .family(Family::Name(FAMILY))
+        .cache_key_flags(CacheKeyFlags::DISABLE_HINTING);
+    lay(fonts, &mut buffer, text, &attrs, cosmic_text::Align::Left);
+    let mut builder = PathBuilder::new();
+    let mut advance = 0.0_f32;
+    for run in buffer.layout_runs() {
+        advance = advance.max(run.line_w);
+        for glyph in run.glyphs {
+            let (key, _, _) = CacheKey::new(
+                glyph.font_id,
+                glyph.glyph_id,
+                glyph.font_size,
+                (0.0, 0.0),
+                glyph.font_weight,
+                glyph.cache_key_flags,
+            );
+            let Some(commands) = cache.get_outline_commands(fonts, key) else {
+                continue;
+            };
+            // The pen, and the outline's y turned down the page: a face
+            // measures up from its baseline.
+            let pen_x = glyph.x + glyph.font_size * glyph.x_offset;
+            let pen_y = glyph.y - glyph.font_size * glyph.y_offset;
+            let at = |x: f32, y: f32| (pen_x + x, pen_y - y);
+            for command in commands {
+                match *command {
+                    Command::MoveTo(p) => {
+                        let (x, y) = at(p.x, p.y);
+                        builder.move_to(x, y);
+                    }
+                    Command::LineTo(p) => {
+                        let (x, y) = at(p.x, p.y);
+                        builder.line_to(x, y);
+                    }
+                    Command::QuadTo(c, p) => {
+                        let ((cx, cy), (x, y)) = (at(c.x, c.y), at(p.x, p.y));
+                        builder.quad_to(cx, cy, x, y);
+                    }
+                    Command::CurveTo(c1, c2, p) => {
+                        let (a, b, (x, y)) = (at(c1.x, c1.y), at(c2.x, c2.y), at(p.x, p.y));
+                        builder.cubic_to(a.0, a.1, b.0, b.1, x, y);
+                    }
+                    Command::Close => builder.close(),
+                }
+            }
+        }
+    }
+    Some((builder.finish()?, advance))
+}
+
 /// The width and height a shaped buffer occupies.
 fn extent(buffer: &Buffer) -> (f32, f32) {
     let mut width = 0.0_f32;
@@ -3015,7 +3094,7 @@ fn paint_with(
     let pictures: Vec<Option<Picture>> = scene
         .nodes
         .iter()
-        .map(|node| node.picture.as_ref().and_then(picture))
+        .map(|node| node.picture.as_ref().and_then(|art| picture(art, fonts)))
         .collect();
 
     let mut built = Built {
@@ -4886,10 +4965,10 @@ const PLACEHOLDER_FILL: Rgba = Rgba {
 /// holding a PNG or an SVG. Every other source — an `http` URL, a path, a
 /// media type this does not decode — is a placeholder, and [`Painter::picture`]
 /// paints it as one.
-fn picture(art: &Art) -> Option<Picture> {
+fn picture(art: &Art, fonts: &mut Fonts) -> Option<Picture> {
     match art {
-        Art::Source(source) => image::read(source),
-        Art::Artwork(source) => image::artwork(source),
+        Art::Source(source) => image::read(source, fonts),
+        Art::Artwork(source) => image::artwork(source, fonts),
     }
 }
 

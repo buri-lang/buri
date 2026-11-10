@@ -1,0 +1,5 @@
+FAIL //lib/inherit  test/inherit.buri  "tokens bound to inherit paint the drawing in the text's colour and leave the panel clear"
+  the snapshot "inherit" changed: see test/__snapshots__/inherit.diff.png
+  --> lib/inherit/test/inherit.buri:15:1
+
+2 passed, 1 failed, 0 skipped (0.0s)

@@ -6467,6 +6467,8 @@ function $tree_shape(ctx, shape, parent, anchor) {
     });
   }
   for (const child of shape[3]) $tree_shape(ctx, child, element, null);
+  // A text's words, bound as a text node, so they are never read as markup.
+  if (shape[5] !== undefined) $tree_text(shape[5], element, null);
 }
 
 // Shows the bubble while the pointer is over the tooltip or the focus is inside

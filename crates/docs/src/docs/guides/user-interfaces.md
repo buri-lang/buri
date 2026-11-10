@@ -166,8 +166,9 @@ export fn sparkline<C>(): Node<C> {
 `size` sets the drawing's own units, and the drawing stretches them over the
 box its styles give it. Shapes paint in order, each over the ones before it.
 A path's `fill` and `stroke` take any `Color`, and `.Inherit` is the colour of
-the text around it. A design token follows the theme, faded or not. A fill or
-stroke left out paints nothing. `alt` works as it does for an `image`.
+the text around it. A design token follows the theme, faded or not, and one no
+theme sets is the colour of the text. A fill or stroke left out paints nothing.
+`alt` works as it does for an `image`.
 
 Every prop can be a `.Cell` or a `.Computed`: when the size, the segments or a
 colour changes, the drawing updates in place.
@@ -212,6 +213,21 @@ export fn bars<C>(totals: Prop<[Float]>): Node<C> {
 
 When the list changes, the browser keeps the elements of rows whose keys stay
 and moves them into the new order.
+
+**A label is a `shape.text`.** It's centred on its point's `x`, with its
+baseline on `y`, 5 units tall, in the colour of the text around the drawing:
+
+```buri
+from "ui/shape" import * as shape;
+from "ui/shape" import { Shape };
+
+fn month<C>(name: Str, i: Int): Shape<C> {
+    shape.text({ at: .Const((i.toF64() * 10.0 + 5.0, 47.0)), content: .Const(name) })
+}
+```
+
+The words stay words: `<b>` in `content` is drawn as `<b>`, never read as
+markup.
 
 **A box can be decorative too, and it can be the current page.** A `stack`'s
 `isDecorative` hides it and everything in it from a screen reader: the slash
@@ -1612,10 +1628,10 @@ The rest is short:
   says, because its source is a document of its own.
 - **A snapshot fetches nothing**, so an image paints from its source or not at
   all. A `data:` URI holding a PNG paints at its own pixel size, and one holding
-  an SVG is drawn at whatever size the box is — shapes, paths and transforms,
-  but no text, gradients or CSS. Every other source — an address, a path, an
-  interlaced PNG — paints a framed grey placeholder at the size the box around
-  it declared.
+  an SVG is drawn at whatever size the box is — shapes, paths, transforms and
+  text, but no `tspan`, gradients or CSS. Every other source — an address, a
+  path, an interlaced PNG — paints a framed grey placeholder at the size the box
+  around it declared.
 - `.Position(.PinViewport)` is measured against the page, so a dock pinned to
   the bottom right lands in the bottom right however deep it was written, and it
   paints over everything else. The page it is measured against is the flow's:

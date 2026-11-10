@@ -1,0 +1,37 @@
+// The card in tokens a theme binds to `.Inherit`, and in tokens no theme
+// binds, against the same card in the colours a page gives them. All three
+// share one golden.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/style" import { Color };
+from "//lib/inherit" import { card, themedBy, themedCard, Token };
+
+/// Every token bound to `.Inherit`.
+fn inherited(_t: Token): Color {
+    .Inherit
+}
+
+test "tokens bound to inherit paint the drawing in the text's colour and leave the panel clear" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "inherit", themedCard(), .Hover, [themedBy(inherited)]);
+}
+
+test "tokens no theme binds paint the same" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "inherit", themedCard(), .Hover, []);
+}
+
+test "the card with a clear panel and its drawing in the text's colour" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "inherit", card(.Transparent, .Inherit), .Hover, []);
+}

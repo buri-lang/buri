@@ -1,0 +1,33 @@
+# A bar chart in a card, each month's name centred under its bar in the colour
+# of the card's text. The same card with space around each name shares the
+# golden: the space isn't drawn, as a page doesn't draw it. An SVG image of
+# the names alone paints them where the drawing does.
+#
+# The last step moves the names up two units. A painter that drew no text
+# would pass it; this one fails and leaves the diff.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a drawing's text paints each month's name under its bar, and a new name fails the golden"
+
+run {
+  args: ["test", "//lib/labels", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/labels/test/__snapshots__/labels.diff.png"  exists: false }
+
+edit {
+  file: "lib/labels/labels.buri"
+  replace: "at: .Const((5.0, 47.0))"
+  with: "at: .Const((5.0, 45.0))"
+}
+
+run {
+  args: ["test", "//lib/labels", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/labels/test/__snapshots__/labels.diff.png"  exists: true }

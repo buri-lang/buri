@@ -1,0 +1,31 @@
+# Design tokens a theme binds to `.Inherit`, and tokens no theme binds.
+#
+# A page gives such a token no value. A panel's background in one is clear,
+# and a drawing's fill or stroke in one is the colour of the text around it,
+# as `.Inherit` is. Each token picture shares one golden with the card in
+# those colours. Before, the painter filled the panel with the card's own
+# shade and drew nothing of the drawing.
+#
+# Then the theme binds every token to green, and the theme's picture fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "tokens bound to inherit, or bound by no theme, paint a clear panel and a drawing in the text's colour, and binding them to a colour fails the golden"
+
+run {
+  args: ["test", "//lib/inherit", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/inherit/test/inherit.buri"
+  replace: "fn inherited(_t: Token): Color {\n    .Inherit\n}"
+  with: "fn inherited(_t: Token): Color {\n    .Rgb(30, 160, 60)\n}"
+}
+
+run {
+  args: ["test", "//lib/inherit", "--force"]
+  exit: 1
+  golden: "bound.txt"
+}

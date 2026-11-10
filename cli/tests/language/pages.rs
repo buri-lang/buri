@@ -1220,7 +1220,7 @@ console.log(`same ${labelled("Growth") === svg} paths ${svg.querySelectorAll("pa
     assert_eq!(
         printed,
         "0 0 10 4 d=M0 4 L10 0 width=0.5 fill=rgba(1,2,3,0.5) stroke=rgb(1,2,3)\n\
-         0 0 20 8 d=M0 8 L20 0 Z width=1.5 fill=color-mix(in srgb,var(--brand-accent) 50%,transparent) stroke=var(--brand-accent)\n\
+         0 0 20 8 d=M0 8 L20 0 Z width=1.5 fill=color-mix(in srgb,var(--brand-accent,currentColor) 50%,transparent) stroke=var(--brand-accent, currentColor)\n\
          same true paths 1\n"
     );
 }
@@ -1314,5 +1314,68 @@ console.log(`kept ${first === mar} ${second === jan} count ${svg.children.length
          http://www.w3.org/2000/svg g translate(20 0) rect 1 10 8 30 rgb(30,120,60) dot 5 10 1.5 none\n\
          http://www.w3.org/2000/svg g translate(0 0) rect 1 30 8 10 rgb(30,120,60) dot 5 30 1.5 none\n\
          kept true true count 2\n"
+    );
+}
+
+/// A label in a drawing, whose words are a signal, and a button that changes
+/// them to words that look like markup.
+const LABEL_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let says = signal(ctx, "Jan");
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((10.0, 50.0)),
+                    styles: [],
+                    shapes: [shape.text({ at: .Const((5.0, 48.5)), content: .Cell(says) })],
+                }),
+                ui.button({
+                    label: .Const("Rename"),
+                    styles: [],
+                    onPress: .Some(fn(c) => says.set(c, "<b>Q1 & Q2</b>")),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_s_text_is_centred_on_its_point_and_follows_its_words_in_place() {
+    let printed = drive(
+        "label-page",
+        LABEL_PAGE,
+        r#"
+const svg = labelled("Sales by month");
+const show = () => {
+  const text = svg.querySelector("text");
+  console.log(`${text.namespaceURI} x=${text.getAttribute("x")} y=${text.getAttribute("y")} anchor=${text.getAttribute("text-anchor")} size=${text.getAttribute("font-size")} fill=${text.style.getPropertyValue("fill")} says=${text.textContent} children=${text.children.length}`);
+};
+show();
+const before = svg.querySelector("text");
+labelled("Rename").click();
+show();
+console.log(`same ${svg.querySelector("text") === before} texts ${svg.querySelectorAll("text").length}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "http://www.w3.org/2000/svg x=5 y=48.5 anchor=middle size=5 fill=currentColor says=Jan children=0\n\
+         http://www.w3.org/2000/svg x=5 y=48.5 anchor=middle size=5 fill=currentColor says=<b>Q1 & Q2</b> children=0\n\
+         same true texts 1\n"
     );
 }
