@@ -1073,3 +1073,74 @@ console.log(`Enter:${press("Enter").defaultPrevented} x:${press("x").defaultPrev
     );
     assert_eq!(printed, "Enter:true x:false\n");
 }
+
+/// A sparkline drawn twice: once as decoration, once as the content with a
+/// name. Its line is in the colour of the text around it, and the area under
+/// the line has a fill of its own.
+const DRAWING_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Alt, Node };
+from "ui/shape" import * as shape;
+from "web" import { WebHost };
+
+fn sparkline<C>(alt: Alt): Node<C> {
+    ui.drawing({
+        alt: alt,
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Px(100)), .Height(.Px(40))],
+        shapes: [
+            shape.path({
+                segments: .Const([.MoveTo(0.0, 40.0), .LineTo(50.5, 10.0), .LineTo(100.0, 40.0), .Close]),
+                fill: .Some(.Const(.Rgba(30, 120, 60, 0.25))),
+            }),
+            shape.path({
+                segments: .Const([.MoveTo(0.0, 40.0), .LineTo(50.5, 10.0), .LineTo(100.0, 40.0)]),
+                stroke: .Some(.Const(.Inherit)),
+                strokeWidth: .Some(.Const(2.0)),
+            }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [sparkline(.Decorative), sparkline(.AccessibilityText("Sales this week"))],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_is_svg_its_paths_are_painted_and_its_alt_names_it() {
+    let printed = drive(
+        "drawing-page",
+        DRAWING_PAGE,
+        r#"
+const [decorative, named] = document.querySelectorAll("svg");
+console.log(`namespace ${decorative.namespaceURI}`);
+console.log(`decorative ${decorative.getAttribute("aria-hidden")} ${decorative.getAttribute("role")}`);
+console.log(`named ${named.getAttribute("role")} ${named.getAttribute("aria-label")} ${named.getAttribute("aria-hidden")}`);
+console.log(`box ${named.getAttribute("viewBox")} ${named.getAttribute("preserveAspectRatio")}`);
+for (const path of named.querySelectorAll("path")) {
+  console.log(`${path.namespaceURI} d=${path.getAttribute("d")} width=${path.getAttribute("stroke-width")} fill=${path.style.getPropertyValue("fill")} stroke=${path.style.getPropertyValue("stroke")}`);
+}
+"#,
+    );
+    assert_eq!(
+        printed,
+        "namespace http://www.w3.org/2000/svg\n\
+         decorative true null\n\
+         named img Sales this week null\n\
+         box 0 0 100 40 none\n\
+         http://www.w3.org/2000/svg d=M0 40 L50.5 10 L100 40 Z width=1 fill=rgba(30,120,60,0.25) stroke=none\n\
+         http://www.w3.org/2000/svg d=M0 40 L50.5 10 L100 40 width=2 fill=none stroke=currentColor\n"
+    );
+}

@@ -736,6 +736,7 @@ mod tests {
             inline_animations: false,
             icons: false,
             tooltips: false,
+            drawings: false,
             themes: false,
             chunks: Vec::new(),
             hosted: Default::default(),

@@ -365,6 +365,10 @@ pub struct Program {
     /// `icons`: the listeners that show and hide a bubble ship only in an
     /// artifact that has one.
     pub tooltips: bool,
+    /// Whether this program can build a `ui/node` drawing — the same shape as
+    /// `tooltips`: the renderer that builds its shapes ships only in an
+    /// artifact that has one.
+    pub drawings: bool,
     /// The chunks `core/lazy`'s `load` split out of this artifact, numbered by
     /// their position here.
     ///
@@ -944,6 +948,7 @@ fn run_on(
         themes: reached.themes,
         icons: reached.icons,
         tooltips: reached.reset.tooltip,
+        drawings: reached.reset.drawing,
         // `middle::chunks` is the only thing that fills this, and it runs after
         // inlining and dead-code elimination have settled which functions
         // there still are.

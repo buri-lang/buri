@@ -30,6 +30,8 @@ from "platform/effect/testing" import {
 from "ui/node" import * as ui;
 from "ui/node" import { FieldKind, Node, PickedFile, PointerAt };
 from "ui/prop" import { Prop };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Segment, Shape };
 from "ui/signal" import { Signal, signal, watch };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, Style };
@@ -2982,6 +2984,205 @@ test "an icon in a state carries that state's classes and no other's" {
     let hovered = check([.On(.Hover, [.Foreground(.Rgb(200, 30, 30))])]);
     assert.containsText(ui.describe(ctx, hovered, .Hover), "class:");
     assert.isFalse(ui.describe(ctx, hovered, .Focus).contains("class:"));
+}
+
+// --- drawings --------------------------------------------------------------------------
+//
+// A `drawing` is artwork built from typed shapes rather than read from a
+// source, so its geometry can come from data. It is written into the tree as
+// the same `icon:` artwork an icon is, which is what the painter reads.
+
+/// A drawing `100` by `40` units holding `path`.
+fn drawingOf<C>(path: Shape<C>): Node<C> {
+    ui.drawing({
+        alt: .Decorative,
+        size: .Const((100.0, 40.0)),
+        styles: [],
+        shapes: [path],
+    })
+}
+
+/// The scene line a drawing holding `inner` writes, unstyled.
+fn drawingLine<C: Allocator>(ctx: C, inner: Str): Str {
+    str.format(
+        ctx,
+        "e 0 icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'>${inner}</svg>",
+    )
+}
+
+test "a path's segments are its outline, in the drawing's own units" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let line = drawingOf(
+        shape.path({
+            segments: .Const([
+                .MoveTo(0.0, 40.0),
+                .LineTo(50.5, 10.0),
+                .LineTo(100.0, 25.0),
+                .Close,
+            ]),
+            stroke: .Some(.Const(.Rgb(200, 30, 30))),
+        }),
+    );
+    // Whole numbers are written without a `.0`, and the stroke is `1` wide
+    // when nothing says otherwise. With no fill, nothing fills it.
+    assert.equal(
+        render(ctx, line).markup(),
+        drawingLine(
+            ctx,
+            "<path d='M0 40 L50.5 10 L100 25 Z' stroke-width='1' fill='none' stroke='rgb(200,30,30)'/>",
+        ),
+    );
+}
+
+test "a drawing's size is the units its shapes are laid out in" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let wide = render(
+        ctx,
+        ui.drawing({
+            alt: .Decorative,
+            size: .Const((320.5, 8.0)),
+            styles: [.Width(.Px(16))],
+            shapes: [],
+        }),
+    );
+    // Its styles land on the artwork, as an icon's do.
+    assert.equal(
+        wide.markup(),
+        "e 0 class:w-16;icon:<svg viewBox='0 0 320.5 8' preserveAspectRatio='none'></svg>",
+    );
+}
+
+/// The markup of a one-point path painted `fill` and `stroke`, `2.5` units wide.
+fn paintedPath<C: Ui>(ctx: C, fill: Color, stroke: Color): Str {
+    render(
+        ctx,
+        drawingOf(
+            shape.path({
+                segments: .Const([.MoveTo(1.0, 2.0)]),
+                fill: .Some(.Const(fill)),
+                stroke: .Some(.Const(stroke)),
+                strokeWidth: .Some(.Const(2.5)),
+            }),
+        ),
+    ).markup()
+}
+
+test "a path is painted in any colour, and inherits the colour around it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    assert.containsText(
+        paintedPath(ctx, .Rgba(30, 120, 60, 0.25), .Inherit),
+        "<path d='M1 2' stroke-width='2.5' fill='rgba(30,120,60,0.25)' stroke='currentColor'/>",
+    );
+    assert.containsText(
+        paintedPath(ctx, .Transparent, .Rgb(0, 0, 0)),
+        "fill='none' stroke='rgb(0,0,0)'",
+    );
+    // A design token stays a `var()` the page's theme fills in, and a faded one
+    // is that token mixed with nothing.
+    assert.containsText(
+        paintedPath(
+            ctx,
+            style.token("brand", "accent"),
+            style.token("brand", "accent").alpha(0.5),
+        ),
+        "fill='var(--brand-accent)' stroke='color-mix(in srgb,var(--brand-accent) 50%,transparent)'",
+    );
+}
+
+test "a drawing reads its size, segments and paint from signals and computations" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, (10.0, 4.0));
+    let segments: Signal<[Segment]> = signal(ctx, [
+        .MoveTo(0.0, 4.0),
+        .LineTo(10.0, 0.0),
+    ]);
+    let ink = signal(ctx, Color.Rgb(1, 2, 3));
+    let width = signal(ctx, 0.5);
+    let fromSignals = render(
+        ctx,
+        ui.drawing({
+            alt: .Decorative,
+            size: .Cell(size),
+            styles: [],
+            shapes: [
+                shape.path({
+                    segments: .Cell(segments),
+                    fill: .Some(.Cell(ink)),
+                    stroke: .Some(.Cell(ink)),
+                    strokeWidth: .Some(.Cell(width)),
+                }),
+            ],
+        }),
+    );
+    let fromComputations = render(
+        ctx,
+        ui.drawing({
+            alt: .Decorative,
+            size: .Computed(fn(s) => size.get(s)),
+            styles: [],
+            shapes: [
+                shape.path({
+                    segments: .Computed(fn(s) => segments.get(s)),
+                    fill: .Some(.Computed(fn(s) => ink.get(s))),
+                    stroke: .Some(.Computed(fn(s) => ink.get(s))),
+                    strokeWidth: .Some(.Computed(fn(s) => width.get(s))),
+                }),
+            ],
+        }),
+    );
+    let expected =
+        "e 0 icon:<svg viewBox='0 0 10 4' preserveAspectRatio='none'><path d='M0 4 L10 0' stroke-width='0.5' fill='rgb(1,2,3)' stroke='rgb(1,2,3)'/></svg>";
+    assert.equal(fromSignals.markup(), expected);
+    assert.equal(fromComputations.markup(), expected);
+}
+
+test "a drawing's paths are drawn in order, each over the ones before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let area = shape.path({
+        segments: .Const([
+            .MoveTo(0.0, 40.0),
+            .LineTo(100.0, 0.0),
+            .LineTo(100.0, 40.0),
+            .Close,
+        ]),
+        fill: .Some(.Const(.Rgb(220, 240, 220))),
+    });
+    let edge = shape.path({
+        segments: .Const([.MoveTo(0.0, 40.0), .LineTo(100.0, 0.0)]),
+        stroke: .Some(.Const(.Inherit)),
+    });
+    let scene = ui.describe(
+        ctx,
+        ui.drawing({
+            alt: .AccessibilityText("Sales this week"),
+            size: .Const((100.0, 40.0)),
+            styles: [],
+            shapes: [area, edge],
+        }),
+        .Hover,
+    );
+    assert.containsText(
+        scene,
+        "<path d='M0 40 L100 0 L100 40 Z' stroke-width='1' fill='rgb(220,240,220)' stroke='none'/><path d='M0 40 L100 0' stroke-width='1' fill='none' stroke='currentColor'/></svg>",
+    );
+    // A picture holds no children: the shapes are its artwork.
+    assert.equal(scene.lines(ctx).length(), 3);
 }
 
 test "a field is labelled, and what is typed into it is in its signal" {

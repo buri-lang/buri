@@ -155,6 +155,8 @@ const NODE_FILE_PICKER: usize = 23;
 /// A tooltip, whose bubble a browser has to be told where to put and to hide:
 /// the reset's `display` beats a browser's own `[hidden]`.
 const NODE_TOOLTIP: usize = 24;
+/// A drawing, an inlined `<svg>` like an icon's, which takes the same reset.
+const NODE_DRAWING: usize = 25;
 
 /// `ui/node`'s `Role::List` and `Role::Separator`, the two roles that lower to
 /// an element a browser paints something on by itself. A role is written at the
@@ -2783,6 +2785,7 @@ pub struct Reset {
     pub disclosure: bool,
     pub table: bool,
     pub tooltip: bool,
+    pub drawing: bool,
 }
 
 /// The declarations a control drops. `font` and `color` are inherited rather
@@ -3107,6 +3110,10 @@ fn reset_in(
             NODE_PICKER => out.radiogroup = true,
             NODE_DISCLOSURE => out.disclosure = true,
             NODE_TOOLTIP => out.tooltip = true,
+            NODE_DRAWING => {
+                out.image = true;
+                out.drawing = true;
+            }
             _ => {}
         }
     }

@@ -90,8 +90,8 @@ reference to it goes, and there is no budget on a computation.
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
-twenty functions that build one. `ui/style` is how a container arranges and
-paints what is inside it. `mount`, the twenty-first function, puts a tree on the
+twenty-one functions that build one. `ui/style` is how a container arranges and
+paints what is inside it. `mount`, the twenty-second function, puts a tree on the
 screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** A `stack` given a
@@ -134,6 +134,40 @@ data URI paints whatever colour was baked into it. The decorative artwork is
 written out at the call site because the compiler reads it: an `<svg>` and the
 shapes inside it, and a script or a reference to somewhere else is
 `icon-not-drawable` rather than something the renderer quietly drops.
+
+**Artwork whose geometry comes from data is a `drawing`.** It holds typed
+shapes from `ui/shape`, so there's no markup string to build:
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+
+export fn sparkline<C>(): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Sales this week"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Px(200)), .Height(.Px(80))],
+        shapes: [
+            shape.path({
+                segments: .Const([
+                    .MoveTo(0.0, 32.0),
+                    .LineTo(50.0, 6.0),
+                    .LineTo(100.0, 10.0),
+                ]),
+                stroke: .Some(.Const(.Inherit)),
+                strokeWidth: .Some(.Const(2.0)),
+            }),
+        ],
+    })
+}
+```
+
+`size` sets the drawing's own units, and the drawing stretches them over the
+box its styles give it. Shapes paint in order, each over the ones before it.
+A path's `fill` and `stroke` take any `Color`, and `.Inherit` is the colour of
+the text around it. A fill or stroke left out paints nothing. `alt` works as it
+does for an `image`.
 
 **A box can be decorative too, and it can be the current page.** A `stack`'s
 `isDecorative` hides it and everything in it from a screen reader: the slash

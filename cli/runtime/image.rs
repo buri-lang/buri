@@ -1149,8 +1149,8 @@ struct Pen {
 /// What an element inherits from the element above it.
 #[derive(Clone)]
 struct Inherited {
-    fill: Option<Option<[u8; 3]>>,
-    stroke: Option<Option<[u8; 3]>>,
+    fill: Option<Ink>,
+    stroke: Option<Ink>,
     width: f32,
     cap: LineCap,
     join: LineJoin,
@@ -1165,7 +1165,10 @@ impl Default for Inherited {
         Self {
             // A page paints an unfilled shape black, which is what an icon with
             // no `fill` anywhere depends on.
-            fill: Some(Some([0, 0, 0])),
+            fill: Some(Ink {
+                colour: Some([0, 0, 0]),
+                alpha: 1.0,
+            }),
             stroke: None,
             width: 1.0,
             cap: LineCap::Butt,
@@ -1390,18 +1393,18 @@ impl Inherited {
     }
 
     fn fill_ink(&self) -> Option<Ink> {
-        self.fill.map(|colour| Ink {
-            colour,
-            alpha: self.opacity * self.fill_opacity,
+        self.fill.map(|ink| Ink {
+            alpha: ink.alpha * self.opacity * self.fill_opacity,
+            ..ink
         })
     }
 
     fn stroke_ink(&self) -> Option<(Ink, Pen)> {
-        let colour = self.stroke?;
+        let ink = self.stroke?;
         Some((
             Ink {
-                colour,
-                alpha: self.opacity * self.stroke_opacity,
+                alpha: ink.alpha * self.opacity * self.stroke_opacity,
+                ..ink
             },
             Pen {
                 width: self.width,
@@ -1559,25 +1562,33 @@ const NAMED: [(&str, [u8; 3]); 17] = [
     ("aqua", [0, 255, 255]),
 ];
 
-/// `Some(None)` is `currentColor`; `None` is `none`, which paints nothing.
-fn ink(value: &str) -> Option<Option<[u8; 3]>> {
+/// A paint attribute's colour and the alpha it carries itself. A colour of
+/// `None` is `currentColor`; `None` itself is `none`, which paints nothing.
+fn ink(value: &str) -> Option<Ink> {
+    let solid = |colour| Some(Ink { colour, alpha: 1.0 });
     let text = value.trim();
     if text.eq_ignore_ascii_case("none") || text.eq_ignore_ascii_case("transparent") {
         return None;
     }
     if text.eq_ignore_ascii_case("currentcolor") {
-        return Some(None);
+        return solid(None);
     }
     if let Some(hex) = text.strip_prefix('#') {
         let digit = |c: u8| char::from(c).to_digit(16).map(|d| d as u8);
         let bytes = hex.as_bytes();
         let short = |i: usize| digit(*bytes.get(i)?).map(|d| d * 17);
         let long = |i: usize| Some(digit(*bytes.get(i)?)? * 16 + digit(*bytes.get(i + 1)?)?);
-        return match bytes.len() {
-            3 | 4 => Some(Some([short(0)?, short(1)?, short(2)?])),
-            6 | 8 => Some(Some([long(0)?, long(2)?, long(4)?])),
-            _ => None,
+        let (colour, alpha) = match bytes.len() {
+            3 => ([short(0)?, short(1)?, short(2)?], 255),
+            4 => ([short(0)?, short(1)?, short(2)?], short(3)?),
+            6 => ([long(0)?, long(2)?, long(4)?], 255),
+            8 => ([long(0)?, long(2)?, long(4)?], long(6)?),
+            _ => return None,
         };
+        return Some(Ink {
+            colour: Some(colour),
+            alpha: f32::from(alpha) / 255.0,
+        });
     }
     let lowered = text.to_ascii_lowercase();
     if let Some(inner) = lowered
@@ -1587,22 +1598,25 @@ fn ink(value: &str) -> Option<Option<[u8; 3]>> {
     {
         let inner = inner.strip_suffix(')')?;
         let mut parts = inner.split([',', ' ', '/']).filter(|p| !p.is_empty());
-        let mut channel = || {
+        // A channel's percent is of 255, and an alpha's is of 1.
+        let mut next = |scale: f32| {
             let part = parts.next()?.trim();
             match part.strip_suffix('%') {
-                Some(percent) => {
-                    let value = percent.parse::<f32>().ok()?;
-                    Some((value * 255.0 / 100.0).clamp(0.0, 255.0) as u8)
-                }
-                None => Some(part.parse::<f32>().ok()?.clamp(0.0, 255.0) as u8),
+                Some(percent) => Some(percent.parse::<f32>().ok()? * scale / 100.0),
+                None => part.parse::<f32>().ok(),
             }
         };
-        return Some(Some([channel()?, channel()?, channel()?]));
+        let mut channel = || Some(next(255.0)?.clamp(0.0, 255.0) as u8);
+        let colour = [channel()?, channel()?, channel()?];
+        return Some(Ink {
+            colour: Some(colour),
+            alpha: next(1.0).unwrap_or(1.0).clamp(0.0, 1.0),
+        });
     }
     NAMED
         .iter()
         .find(|(name, _)| *name == lowered)
-        .map(|(_, rgb)| Some(*rgb))
+        .and_then(|(_, rgb)| solid(Some(*rgb)))
 }
 
 // ---------------------------------------------------------------------------
@@ -2505,6 +2519,31 @@ mod tests {
             let canvas = box10(&format!("<rect width='10' height='10' fill='{form}'/>"));
             assert_eq!(at(&canvas, 10, 10), RED, "`{form}` did not read as red");
         }
+    }
+
+    /// Every form that carries an alpha halves the red against white, as a
+    /// browser paints it, and a stroke takes it the way a fill does.
+    #[test]
+    fn a_colour_s_own_alpha_is_painted() {
+        for form in [
+            "#f008",
+            "#ff000080",
+            "rgba(255,0,0,0.5)",
+            "rgba(255, 0, 0, 50%)",
+            "rgb(255 0 0 / 0.5)",
+        ] {
+            let canvas = box10(&format!("<rect width='10' height='10' fill='{form}'/>"));
+            let [r, g, b, a] = at(&canvas, 10, 10);
+            assert!(
+                r == 255 && (119..=136).contains(&g) && g == b && a == 255,
+                "`{form}` painted {:?}",
+                [r, g, b, a]
+            );
+        }
+        let canvas = box10(
+            "<line x1='0' y1='5' x2='10' y2='5' stroke='rgba(255,0,0,0.5)' stroke-width='4'/>",
+        );
+        assert_eq!(at(&canvas, 10, 10), [255, 127, 127, 255]);
     }
 
     /// The three opacities, each halving what is under it against white.

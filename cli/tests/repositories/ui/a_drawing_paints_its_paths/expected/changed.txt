@@ -1,0 +1,5 @@
+FAIL //lib/charts  test/pictures.buri  "a sparkline's area is filled and its line stroked in the card's colour"
+  the snapshot "sparkline" changed: see test/__snapshots__/sparkline.diff.png
+  --> lib/charts/test/pictures.buri:7:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

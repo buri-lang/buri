@@ -36,6 +36,7 @@ from "core/bytes" import * as bytes;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
+from "ui/shape" import { Shape };
 from "ui/signal" import { Signal };
 from "ui/style" import {
     Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout,
@@ -351,6 +352,12 @@ enum NodeKind<C> {
     // the bubble's styles, the trigger, and the wrapper's events. Appended last,
     // the order being append-only.
     Tooltip(Prop<Str>, [Style], [Node<C>], Events<C>),
+    // Shapes in a drawing of their own units: what a reader is told, the
+    // `viewBox` the size becomes, the whole drawing as SVG markup, the styles,
+    // the shapes, and the events. The markup is a prop the constructor builds,
+    // so only a program that draws compiles the code that writes it. Appended
+    // last, the order being append-only.
+    Drawing(Alt, Prop<Str>, Prop<Str>, [Style], [Shape<C>], Events<C>),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -869,6 +876,67 @@ export fn image<C>(config: Image<C>): Node<C> {
             Node(.Image(config.source, name, config.styles, events))
         },
     }
+}
+
+/// What `drawing` takes.
+struct Drawing<C> {
+    /// What the drawing is to a reader, required. `.Decorative` for one a
+    /// reader is told nothing about, `.AccessibilityText(name)` for one that
+    /// is the content.
+    export alt: Alt,
+    /// The width and height of the drawing's own units. The shapes are laid
+    /// out in them, and the drawing stretches them over its box.
+    export size: Prop<(Float, Float)>,
+    /// Applied to the drawing. Size it here: it fills the box they give it.
+    export styles: [Style],
+    /// What it shows, in order, each one over the ones before it.
+    export shapes: [Shape<C>],
+}
+
+/// A picture built from shapes, so its geometry can come from data.
+///
+/// The shapes are `ui/shape`'s, in units of the drawing's own: `size` is how
+/// wide and tall those units span, and the drawing stretches them over the
+/// box its styles give it.
+///
+/// ```buri
+/// from "ui/node" import * as ui;
+/// from "ui/node" import { Node };
+/// from "ui/shape" import * as shape;
+///
+/// export fn rising<C>(): Node<C> {
+///     ui.drawing({
+///         alt: .Decorative,
+///         size: .Const((100.0, 40.0)),
+///         styles: [.Width(.Px(80)), .Height(.Px(24))],
+///         shapes: [
+///             shape.path({
+///                 segments: .Const([.MoveTo(0.0, 40.0), .LineTo(100.0, 0.0)]),
+///                 stroke: .Some(.Const(.Inherit)),
+///             }),
+///         ],
+///     })
+/// }
+/// ```
+export fn drawing<C>(config: Drawing<C>): Node<C> {
+    let size = config.size;
+    let box: Prop<Str> = .Computed(fn(s) => {
+        let (width, height) = size.read(s);
+        str.format(s, "0 0 ${cssNumber(s, width)} ${cssNumber(s, height)}")
+    });
+    let shapes = config.shapes;
+    let artwork: Prop<Str> = .Computed(fn(s) => drawn(s, box, shapes));
+    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, noEvents()))
+}
+
+/// The `<svg>` a drawing is, read through `ctx`: what the scene carries, the
+/// way it carries an icon's artwork.
+fn drawn<C>(ctx: Scope, box: Prop<Str>, shapes: [Shape<C>]): Str {
+    let inner = shapes.mapCtx(ctx, fn(s, shape) => shape.svg(s)).join(ctx, "");
+    str.format(
+        ctx,
+        "<svg viewBox='${box.read(ctx)}' preserveAspectRatio='none'>${inner}</svg>",
+    )
 }
 
 /// A decorative picture's source is inline artwork the compiler reads, so it is
@@ -2140,6 +2208,16 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         },
         .Icon(styles, source, events) => {
             let artwork = decl(mem, "icon", escapeInline(mem, source));
+            let _ = emitElement(
+                builder,
+                "svg",
+                widgetBody(mem, plain(state), [artwork], styles),
+            );
+            let _ = registerEvents(builder, events);
+            exitElement(builder)
+        },
+        .Drawing(_alt, _box, markup, styles, _shapes, events) => {
+            let artwork = decl(mem, "icon", escapeInline(mem, markup.read(scope)));
             let _ = emitElement(
                 builder,
                 "svg",
@@ -3606,6 +3684,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // wins over it.
         .Icon(styles, source, _events) => {
             let artwork = decl(ctx, "icon", escapeInline(ctx, source));
+            [widgetLine(ctx, plain(state), [artwork], styles, depth)]
+        },
+        // A drawing is artwork the shapes write out, so the painter draws it
+        // the way it draws an icon's. Its `alt` is what a reader is told.
+        .Drawing(_alt, _box, markup, styles, _shapes, _events) => {
+            let artwork = decl(ctx, "icon", escapeInline(ctx, markup.read(scope)));
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the

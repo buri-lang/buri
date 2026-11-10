@@ -451,6 +451,7 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         (program.themes, "$ui_theme_hook", "$ui_theme_install"),
         (program.icons, "$tree_icon_hook", "$tree_icon"),
         (program.tooltips, "$tree_tooltip_hook", "$tree_tooltip"),
+        (program.drawings, "$tree_drawing_hook", "$tree_drawing"),
     ] {
         if flag {
             // An `Animation` in the inline tier needs the lowering that knows

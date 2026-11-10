@@ -1,0 +1,32 @@
+# A sparkline in a card: the area under the line filled, the line stroked in the
+# colour of the card's text, and the drawing stretched over the box its styles
+# give it.
+#
+# The last step makes the line thicker. A painter that drew a drawing as a
+# grey box, or not at all, would pass it; this one fails and leaves the diff.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a sparkline's area and line are painted, and a thicker line fails the golden"
+
+run {
+  args: ["test", "//lib/charts", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/charts/test/__snapshots__/sparkline.diff.png"  exists: false }
+
+edit {
+  file: "lib/charts/charts.buri"
+  replace: "strokeWidth: .Some(.Const(2.0))"
+  with: "strokeWidth: .Some(.Const(6.0))"
+}
+
+run {
+  args: ["test", "//lib/charts", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/charts/test/__snapshots__/sparkline.diff.png"  exists: true }

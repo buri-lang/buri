@@ -5205,7 +5205,7 @@ function $dom_markup(node) {
 //   0 Empty    1 Text    2 Heading  3 Stack   4 Region  5 Button  6 Link
 //   7 Image    8 Icon    9 Field   10 Slider 11 Toggle 12 Picker 13 Form
 //  14 Submit  15 Dialog 16 Disclosure 17 Progress 18 When 19 Computed 20 Each
-//  21 Raw     22 Fragment 23 FilePicker 24 Tooltip
+//  21 Raw     22 Fragment 23 FilePicker 24 Tooltip 25 Drawing
 //
 // Every element-producing node ends with an `Events` struct — eight optional
 // listeners `$tree_events` wires on — and `Raw` and `Fragment` are the
@@ -5348,6 +5348,11 @@ let $tree_icon_hook = null;
 // trigger walk ship only in an artifact that builds a tooltip. The backend
 // assigns this when `Program::tooltips` says the program can.
 let $tree_tooltip_hook = null;
+
+// The drawing renderer, through the same kind of hole: it ships only in an
+// artifact that builds a drawing. The backend assigns this when
+// `Program::drawings` says the program can.
+let $tree_drawing_hook = null;
 
 // The theme installer, through the same kind of hole and for the same reason:
 // `$ui_node_mount` installs themes before it renders, so the seven functions
@@ -6408,6 +6413,42 @@ function $tree_tooltip(ctx, node, parent, anchor) {
   $tree_events(ctx, wrapper, node[4]);
 }
 
+// A drawing, lowered, through the hole `$tree_drawing_hook` names: an `<svg>`
+// stretched over its box, holding one element per shape. `ui/shape` already
+// worked out each shape's attributes and paint, so this only binds them.
+function $tree_drawing(ctx, node, parent, anchor) {
+  const element = $tree_element(parent, "svg", anchor, true);
+  $tree_bind(node[2], (box) => $dom_attribute(element, "viewBox", box));
+  $dom_attribute(element, "preserveAspectRatio", "none");
+  // `Alt`: a decorative drawing is hidden from a reader, and a meaningful one
+  // is a picture carrying the name a reader hears.
+  const alt = node[1];
+  if (alt[0] === 0) {
+    $dom_attribute(element, "aria-hidden", "true");
+  } else {
+    $dom_attribute(element, "role", "img");
+    $dom_attribute(element, "aria-label", alt[1]);
+  }
+  $tree_styles(element, node[4]);
+  for (const shape of node[5]) $tree_shape(element, shape);
+  $tree_events(ctx, element, node[6]);
+}
+
+// One shape: its element, its attributes, and its paint. Paint is CSS rather
+// than an attribute, because a design token's `var()` resolves only in CSS.
+function $tree_shape(parent, shape) {
+  const element = $tree_element(parent, shape[0], null, true);
+  for (const [name, prop] of shape[1]) {
+    $tree_bind(prop, (value) => $dom_attribute(element, name, value));
+  }
+  for (const [name, prop] of shape[2]) {
+    $tree_bind(prop, (value) => {
+      if (element.$shim) element.styles[name] = value;
+      else element.style.setProperty(name, value);
+    });
+  }
+}
+
 // Shows the bubble while the pointer is over the tooltip or the focus is inside
 // it, and hides it on an Escape nothing claimed until both have left.
 function $tree_bubble(wrapper, bubble) {
@@ -7076,6 +7117,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       $abort("a tooltip was rendered in a program that was said to have none");
     }
     $tree_tooltip_hook(ctx, node, parent, anchor);
+    return;
+  }
+  if (tag === 25) {
+    if ($tree_drawing_hook === null) {
+      // The tooltip hole's reason and wording.
+      $abort("a drawing was rendered in a program that was said to have none");
+    }
+    $tree_drawing_hook(ctx, node, parent, anchor);
     return;
   }
   // Every tag the vocabulary has an arm above. Reaching here is a node carrying

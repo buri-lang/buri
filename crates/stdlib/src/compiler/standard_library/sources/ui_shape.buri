@@ -1,0 +1,154 @@
+//! ui/shape — what a drawing is made of.
+//!
+//! A `ui.drawing` holds a list of shapes, laid out in the drawing's own units:
+//! its `size` is the width and height those units span, and the drawing
+//! stretches them over the box its styles give it.
+//!
+//! Each constructor here is typed, so a shape is drawable by construction.
+//! There is no markup string to get wrong, and nothing a program builds reaches
+//! the page as anything but the shape it asked for.
+//!
+//! A shape keeps the element it lowers to, worked out here when it is built:
+//! the outline a path's segments trace, and the paint a colour becomes. Every
+//! renderer draws from that one answer, so a browser and a snapshot agree.
+
+from "core/str" import * as str;
+from "platform/effect" import { Scope };
+from "ui/prop" import { Prop };
+from "ui/style" import { Color };
+
+/// One step of a path's outline, in the drawing's units.
+export enum Segment {
+    /// Lifts the pen and puts it down at `(x, y)`.
+    MoveTo(Float, Float),
+    /// A straight line from the pen to `(x, y)`.
+    LineTo(Float, Float),
+    /// A straight line back to where this part of the outline started.
+    Close,
+}
+
+/// One thing a drawing shows.
+///
+/// Opaque: the constructors below are the whole vocabulary. It holds the
+/// element a shape lowers to, its attributes, and its paint, which the browser
+/// sets as CSS so a design token's `var()` resolves. The order is load-bearing:
+/// the JavaScript runtime reads a shape by position (`$tree_shape`).
+export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)]);
+
+impl<C> Shape<C> {
+    /// The shape written out as SVG, its props read through `ctx`.
+    ///
+    /// Reading one is not making one. `ui/node` writes a drawing into a
+    /// snapshot's scene with this.
+    export fn svg(self, ctx: Scope): Str {
+        let attributes = self.1
+            .concat(ctx, self.2)
+            .mapCtx(ctx, fn(s, pair) => {
+                str.format(s, " ${pair.0}='${pair.1.read(s)}'")
+            });
+        str.format(ctx, "<${self.0}${attributes.join(ctx, "")}/>")
+    }
+}
+
+/// What `path` takes.
+struct Path {
+    /// The outline, in order. It may lift the pen and start again, so one path
+    /// can draw several pieces.
+    export segments: Prop<[Segment]>,
+    /// What fills the outline. Left out, nothing does.
+    export fill: Option<Prop<Color>>,
+    /// What strokes the outline. Left out, nothing does.
+    export stroke: Option<Prop<Color>>,
+    /// How wide the stroke is, in the drawing's units. Left out, it's `1.0`.
+    export strokeWidth: Option<Prop<Float>>,
+}
+
+/// An outline built from segments: a line, a polygon, or several of them.
+///
+/// `.Inherit` paints in the colour of the text around the drawing.
+///
+/// ```buri
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn line<C>(): Shape<C> {
+///     shape.path({
+///         segments: .Const([
+///             .MoveTo(0.0, 40.0),
+///             .LineTo(50.0, 10.0),
+///             .LineTo(100.0, 25.0),
+///         ]),
+///         stroke: .Some(.Const(.Inherit)),
+///     })
+/// }
+/// ```
+export fn path<C>(config: Path): Shape<C> {
+    let segments = config.segments;
+    Shape(
+        "path",
+        [
+            ("d", .Computed(fn(s) => outline(s, segments.read(s)))),
+            ("stroke-width", widthOf(config.strokeWidth)),
+        ],
+        [("fill", paintOf(config.fill)), ("stroke", paintOf(config.stroke))],
+    )
+}
+
+/// A stroke's width as SVG writes it: `1` when it was left out.
+fn widthOf(width: Option<Prop<Float>>): Prop<Str> {
+    match (width) {
+        .Some(prop) => .Computed(fn(s) => number(s, prop.read(s))),
+        .None => .Const("1"),
+    }
+}
+
+/// The SVG `d` a list of segments traces.
+fn outline(ctx: Scope, segments: [Segment]): Str {
+    segments.mapCtx(ctx, fn(s, segment) => step(s, segment)).join(ctx, " ")
+}
+
+fn step(ctx: Scope, segment: Segment): Str {
+    match (segment) {
+        .MoveTo(x, y) => str.format(ctx, "M${number(ctx, x)} ${number(ctx, y)}"),
+        .LineTo(x, y) => str.format(ctx, "L${number(ctx, x)} ${number(ctx, y)}"),
+        .Close => "Z",
+    }
+}
+
+/// A number as SVG writes one: `40`, not the `40.0` a `Float` shows as.
+fn number(ctx: Scope, value: Float): Str {
+    let shown = str.fromFloat(ctx, value);
+    match (shown.stripSuffix(".0")) {
+        .Some(trimmed) => trimmed,
+        .None => shown,
+    }
+}
+
+/// A fill or a stroke as CSS: `none` when it was left out.
+fn paintOf(color: Option<Prop<Color>>): Prop<Str> {
+    match (color) {
+        .Some(prop) => .Computed(fn(s) => paint(s, prop.read(s))),
+        .None => .Const("none"),
+    }
+}
+
+/// A colour as SVG paint. `.Inherit` is the text's colour, `currentColor`,
+/// and a design token stays a `var()` the page's theme fills in.
+fn paint(ctx: Scope, color: Color): Str {
+    match (color) {
+        .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
+        .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${number(ctx, a)})"),
+        .Token(reference) => {
+            str.format(ctx, "var(--${reference.namespace()}-${reference.name()})")
+        },
+        .Faded(reference, a) => {
+            let percent = number(ctx, a * 100.0);
+            str.format(
+                ctx,
+                "color-mix(in srgb,var(--${reference.namespace()}-${reference.name()}) ${percent}%,transparent)",
+            )
+        },
+        .Transparent => "none",
+        .Inherit => "currentColor",
+    }
+}

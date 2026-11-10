@@ -414,6 +414,7 @@ pub const MODULES: &[StdModule] = &[
         )
     },
     m("ui/theme", include_str!("sources/ui_theme.buri")),
+    m("ui/shape", include_str!("sources/ui_shape.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
     // A website: the same tree, rendered to HTML on a worker and resumed on
     // the page. Not a platform module — it declares no effect.

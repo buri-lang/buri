@@ -1,0 +1,13 @@
+// The card as a picture: the sparkline's area and line, painted.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/charts" import { card };
+
+test "a sparkline's area is filled and its line stroked in the card's colour" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sparkline", card(), .Checked, []);
+}

@@ -953,6 +953,7 @@ millisecond. A bearer token is [`crypto.token`](#cryptography).
 [`ui/signal`](../../../../stdlib/src/compiler/standard_library/sources/ui_signal.buri),
 [`ui/prop`](../../../../stdlib/src/compiler/standard_library/sources/ui_prop.buri),
 [`ui/node`](../../../../stdlib/src/compiler/standard_library/sources/ui_node.buri),
+[`ui/shape`](../../../../stdlib/src/compiler/standard_library/sources/ui_shape.buri),
 [`ui/style`](../../../../stdlib/src/compiler/standard_library/sources/ui_style.buri),
 [`ui/theme`](../../../../stdlib/src/compiler/standard_library/sources/ui_theme.buri),
 [`ui/web`](../../../../stdlib/src/compiler/standard_library/sources/web.buri) are the second
