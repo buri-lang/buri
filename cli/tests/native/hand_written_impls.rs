@@ -610,3 +610,68 @@ fn a_wide_value_reaching_a_hand_written_show_comes_out_of_an_assertion_on_every_
         }
     }
 }
+
+const MIXED: &str = r#"from "core/testing/assert" import * as assert;
+from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// No `Show`, so the map's own doesn't apply to a map of it.
+struct Item {
+    weight: Int,
+}
+
+struct Secret {
+    value: Str,
+}
+
+impl Show for Secret {
+    fn show<C: Allocator>(self, ctx: C): Str {
+        "***"
+    }
+}
+
+// One map whose values have a `Show`, and one whose values have none.
+struct Shelf {
+    secrets: OrderedMap<Int, Secret>,
+    items: OrderedMap<Int, Item>,
+}
+
+test "a shelf that fails" {
+    let shelf = Shelf {
+        secrets: ordmap.empty().insert(alloc(), 1, Secret { value: "hunter2" }),
+        items: ordmap.empty().insert(alloc(), 2, Item { weight: 4 }),
+    };
+    assert.none(.Some(shelf));
+}
+"#;
+
+/// A report of a type with one field whose hand-written `Show` applies and one
+/// whose doesn't renders the first through it and walks the second by shape.
+#[test]
+fn a_type_mixing_maps_that_show_and_maps_that_dont_is_reported_on_every_backend() {
+    let repo = repository("mixed", MIXED);
+    let mut printed = Vec::new();
+    for (backend, status, stdout, stderr) in every_backend(&repo) {
+        let context = format!("{backend}:\n{stdout}\n{stderr}");
+        assert_eq!(status, 1, "{context}");
+        assert!(stdout.contains("0 passed, 1 failed"), "{context}");
+        let failure = stdout
+            .split("assert.none failed")
+            .nth(1)
+            .unwrap_or_default();
+        let shown = failure.lines().nth(1).unwrap_or_default().to_string();
+        assert!(shown.contains("secrets: {1: ***}"), "{context}");
+        assert!(shown.contains("Item { weight: 4 }"), "{context}");
+        assert!(!stdout.contains("hunter2"), "{context}");
+        printed.push((backend, shown));
+    }
+    for (backend, shown) in &printed {
+        assert_eq!(
+            shown, &printed[0].1,
+            "{backend} disagrees with {}",
+            printed[0].0
+        );
+    }
+}
