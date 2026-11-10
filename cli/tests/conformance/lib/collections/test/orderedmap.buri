@@ -743,7 +743,7 @@ fn changedFrom<V, C: Allocator>(
         match (m.get(key)) {
             .None => {
                 assert.equal(sumFrom(updated, look, 0), total);
-                assert.isTrue(taken.isNone());
+                assert.equal(taken.map(look), .None);
                 assert.equal(rest.length(), m.length());
                 assert.equal(sumFrom(rest, look, 0), total);
             },
@@ -753,7 +753,7 @@ fn changedFrom<V, C: Allocator>(
                 assert.equal(updated.get(key).map(look), .Some(now));
                 assert.equal(sumFrom(updated, look, 0), total - was + now);
                 assert.equal(taken.map(look), .Some(was));
-                assert.isTrue(rest.get(key).isNone());
+                assert.equal(rest.get(key).map(look), .None);
                 assert.equal(rest.length(), m.length() - 1);
                 assert.equal(sumFrom(rest, look, 0), total - was);
             },
@@ -780,7 +780,7 @@ fn emptied<V, C: Allocator>(
         .Some(key) => {
             let (value, rest) = m.take(ctx, key);
             let (again, same) = rest.take(ctx, key);
-            assert.isTrue(again.isNone());
+            assert.equal(again.map(look), .None);
             let here = match (value) {
                 .None => 0,
                 .Some(v) => look(v),

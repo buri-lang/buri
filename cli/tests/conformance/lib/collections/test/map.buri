@@ -730,7 +730,7 @@ fn changesFrom<V, C: Allocator>(
         match (m.get(key)) {
             .None => {
                 assert.equal(sumOf(updated, look, 0), total);
-                assert.isTrue(taken.isNone());
+                assert.equal(taken.map(look), .None);
                 assert.equal(rest.length(), m.length());
                 assert.equal(sumOf(rest, look, 0), total);
             },
@@ -740,7 +740,7 @@ fn changesFrom<V, C: Allocator>(
                 assert.equal(updated.get(key).map(look), .Some(now));
                 assert.equal(sumOf(updated, look, 0), total - was + now);
                 assert.equal(taken.map(look), .Some(was));
-                assert.isTrue(rest.get(key).isNone());
+                assert.equal(rest.get(key).map(look), .None);
                 assert.equal(rest.length(), m.length() - 1);
                 assert.equal(sumOf(rest, look, 0), total - was);
             },
