@@ -470,7 +470,12 @@ cannot name a map. `alter` is insert, replace and remove in one call, which is
 what a counter needs; both maps have it. `mapValues` puts every value through a
 function without touching the keys, and `filterMapValues` drops the ones it
 answers nothing for. `merge` is right-biased and `mergeWith` decides a key that
-is in both. `filter`, `pop`, `takeKeys` and `dropKeys` are the rest.
+is in both. `update` puts one value through a function, and `take` is `pop`
+that hands the map back when the key is missing. On a map nothing else holds,
+both give the value out with nothing else holding it, so changing it doesn't
+copy it, where a `get` and then an `insert` does. `updateCtx` is `update` for a
+function that needs the context. `filter`, `pop`, `takeKeys` and `dropKeys` are
+the rest.
 `OrderedMap.popFirst` and `popLast` take an entry off an end in **one descent**,
 where `first` and then `remove` is two — which is what a sorted work queue does
 on every step — and `floor` and `ceiling` answer the nearest key at or below, or

@@ -839,6 +839,66 @@ fn taken<K, V, C: Allocator>(
     branch(keys, replaceAt(ctx, children, at, leaf([], [])))
 }
 
+/// The subtree with `key`'s value put through `change`, or unchanged when
+/// `key` isn't in it. Each child on the way down is `taken`, so a tree nothing
+/// else shares hands `change` a value nothing else holds either.
+fn updateIn<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    key: K,
+    change: fn(C, V) => V,
+): Node<K, V> {
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => {
+            let value = if (found) { n.values.get(seen) } else { .None };
+            match (value) {
+                .None => n,
+                .Some(v) => {
+                    let Node { keys, values, children: _ } = n;
+                    let rest = removeAt(ctx, values, seen);
+                    let changed = change(ctx, v);
+                    leaf(keys, insertAt(ctx, rest, seen, changed))
+                },
+            }
+        },
+        .Some(child) => {
+            let rest = taken(ctx, n.keys, n.children, at);
+            placed(ctx, rest, at, updateIn(ctx, child, key, change))
+        },
+    }
+}
+
+/// `key`'s value in the subtree, if it's there, and the subtree without it.
+/// Each child on the way down is `taken`, as in `updateIn`, so the value
+/// comes out of a tree nothing else shares with nothing else holding it.
+fn takeIn<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    key: K,
+): (Option<V>, Node<K, V>) {
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => {
+            let value = if (found) { n.values.get(seen) } else { .None };
+            match (value) {
+                .None => (.None, n),
+                .Some(v) => (.Some(v), without(ctx, n, seen)),
+            }
+        },
+        .Some(child) => {
+            let rest = taken(ctx, n.keys, n.children, at);
+            let (value, left) = takeIn(ctx, child, key);
+            match (value) {
+                .None => (.None, placed(ctx, rest, at, left)),
+                .Some(v) => (.Some(v), fixChild(ctx, rest, at, left)),
+            }
+        },
+    }
+}
+
 /// A root branch left with no separators has exactly one child, and that child
 /// is the tree. This is the only place the tree gets shallower.
 fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
@@ -1218,6 +1278,128 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         match (self.get(key)) {
             .None => .None,
             .Some(v) => .Some((v, self.remove(ctx, key))),
+        }
+    }
+
+    /// `key`'s value put through `change`. A missing key leaves the map as it
+    /// is and never calls `change`; reach for `alter` to insert as well.
+    /// `core/map` has the same method.
+    ///
+    /// On a map nothing else holds, `change` gets the value with nothing else
+    /// holding it either, so a list or map in it is changed in place. A `get`
+    /// and then an `insert` leaves the map holding it too, and that copies it.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let scores = orderedmap
+    ///         .of(ctx, [("ana", 2)])
+    ///         .update(ctx, "ana", fn(n) => n + 1)
+    ///         .update(ctx, "bo", fn(n) => n + 1);
+    ///     let ana = scores.get("ana").withDefault(0);
+    ///     let _ = io.println(ctx, "ana=${ana}, ${scores.length()} entry").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// ana=3, 1 entry
+    /// ```
+    export fn update<C: Allocator>(
+        self,
+        ctx: C,
+        key: K,
+        change: fn(V) => V,
+    ): OrderedMap<K, V> {
+        self.updateCtx(ctx, key, fn(_c, v) => change(v))
+    }
+
+    /// `update` for a `change` that needs the context: a lambda can't capture
+    /// one, so it arrives as `change`'s first argument.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let inboxes = orderedmap
+    ///         .of(ctx, [("ana", ["hi"])])
+    ///         .updateCtx(ctx, "ana", fn(c, msgs) => msgs.push(c, "bye"));
+    ///     let ana = inboxes.get("ana").withDefault([]).join(ctx, ", ");
+    ///     let _ = io.println(ctx, ana).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// hi, bye
+    /// ```
+    export fn updateCtx<C: Allocator>(
+        self,
+        ctx: C,
+        key: K,
+        change: fn(C, V) => V,
+    ): OrderedMap<K, V> {
+        let OrderedMap { root, size } = self;
+        OrderedMap { root: updateIn(ctx, root, key, change), size: size }
+    }
+
+    /// The value under `key` and the map without it, or `.None` and the map as
+    /// it was. `pop` that hands the map back when the key is missing.
+    ///
+    /// On a map nothing else holds, neither answer copies: the value comes out
+    /// with nothing else holding it, so taking it, changing it and inserting
+    /// it back writes it in place.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/orderedmap" import * as orderedmap;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let queues = orderedmap.of(ctx, [("a", [1, 2])]);
+    ///     // One item off the front, and the rest back under its key.
+    ///     let (waiting, rest) = queues.take(ctx, "a");
+    ///     let next = match (waiting.withDefault([]).splitFirst(ctx)) {
+    ///         .Some((first, others)) => rest.insert(ctx, "a", others.push(ctx, first * 10)),
+    ///         .None => rest,
+    ///     };
+    ///     let a = next.get("a").withDefault([]);
+    ///     let _ = io.println(ctx, "${a.length()} waiting, ${a.sum()} in all").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 2 waiting, 12 in all
+    /// ```
+    export fn take<C: Allocator>(self, ctx: C, key: K): (Option<V>, OrderedMap<K, V>) {
+        let OrderedMap { root, size } = self;
+        let (value, rest) = takeIn(ctx, root, key);
+        match (value) {
+            .None => (.None, OrderedMap { root: rest, size: size }),
+            .Some(v) => {
+                (.Some(v), OrderedMap { root: shrinkRoot(rest), size: size - 1 })
+            },
         }
     }
 

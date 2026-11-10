@@ -685,6 +685,204 @@ test "pop answers the value and the map without it" {
     assert.isFalse(m.pop(ctx, 2).isNone());
 }
 
+// --- update / updateCtx / take -------------------------------------------------------
+
+/// A change that must never run: the test fails if it does.
+fn never(_v: Int): Int {
+    assert.some(list.empty<Int>().first())
+}
+
+/// How many keys the shape tests put in: enough for a tree three levels deep.
+let SPREAD: Int = 200;
+
+/// The keys `0, 2, 4, ...` below `SPREAD * 2`, put in out of order, each to
+/// `make(key)`, so every odd key falls between two that are there.
+fn evens<V, C: Allocator>(
+    ctx: C,
+    i: Int,
+    make: fn(C, Int) => V,
+    acc: OrderedMap<Int, V>,
+): OrderedMap<Int, V> {
+    if (i < SPREAD) {
+        let key = i * 137 % SPREAD * 2;
+        evens(ctx, i + 1, make, acc.insert(ctx, key, make(ctx, key)))
+    } else {
+        acc
+    }
+}
+
+/// The sum of `look` over the values under every key from `key` up to
+/// `SPREAD * 2`.
+fn sumFrom<V>(m: OrderedMap<Int, V>, look: fn(V) => Int, key: Int): Int {
+    if (key <= SPREAD * 2) {
+        let here = match (m.get(key)) {
+            .None => 0,
+            .Some(v) => look(v),
+        };
+        here + sumFrom(m, look, key + 1)
+    } else {
+        0
+    }
+}
+
+/// Updates and takes each key from `key` up to `SPREAD * 2` in `m`, and checks
+/// each answer against what `m` held. `m` is shared by then, so it must still
+/// hold it.
+fn changedFrom<V, C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, V>,
+    key: Int,
+    change: fn(C, V) => V,
+    look: fn(V) => Int,
+    total: Int,
+): () {
+    if (key <= SPREAD * 2) {
+        let updated = m.updateCtx(ctx, key, change);
+        let (taken, rest) = m.take(ctx, key);
+        assert.equal(updated.length(), m.length());
+        match (m.get(key)) {
+            .None => {
+                assert.equal(sumFrom(updated, look, 0), total);
+                assert.isTrue(taken.isNone());
+                assert.equal(rest.length(), m.length());
+                assert.equal(sumFrom(rest, look, 0), total);
+            },
+            .Some(v) => {
+                let was = look(v);
+                let now = look(change(ctx, v));
+                assert.equal(updated.get(key).map(look), .Some(now));
+                assert.equal(sumFrom(updated, look, 0), total - was + now);
+                assert.equal(taken.map(look), .Some(was));
+                assert.isTrue(rest.get(key).isNone());
+                assert.equal(rest.length(), m.length() - 1);
+                assert.equal(sumFrom(rest, look, 0), total - was);
+            },
+        };
+        assert.equal(sumFrom(m, look, 0), total);
+        changedFrom(ctx, m, key + 1, change, look, total)
+    } else {
+        ()
+    }
+}
+
+/// Takes each key of `keys` from `at` on out of `m`, one at a time, checking
+/// that it's gone, and answers the sum of `look` over what came out and how
+/// many entries are left.
+fn emptied<V, C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, V>,
+    keys: [Int],
+    at: Int,
+    look: fn(V) => Int,
+): (Int, Int) {
+    match (keys.get(at)) {
+        .None => (0, m.length()),
+        .Some(key) => {
+            let (value, rest) = m.take(ctx, key);
+            let (again, same) = rest.take(ctx, key);
+            assert.isTrue(again.isNone());
+            let here = match (value) {
+                .None => 0,
+                .Some(v) => look(v),
+            };
+            let (sum, left) = emptied(ctx, same, keys, at + 1, look);
+            (here + sum, left)
+        },
+    }
+}
+
+/// Puts `updateCtx` and `take` through every place a key can sit in, or be
+/// missing from, in ordered maps whose values `make` builds.
+fn everyPlace<V, C: Allocator>(
+    ctx: C,
+    make: fn(C, Int) => V,
+    change: fn(C, V) => V,
+    look: fn(V) => Int,
+): () {
+    let full = evens(ctx, 0, make, orderedmap.empty<Int, V>());
+    let total = sumFrom(full, look, 0);
+    changedFrom(ctx, full, 0, change, look, total);
+    // Put in twice, so the second replaces the first.
+    let one = orderedmap
+        .empty<Int, V>()
+        .insert(ctx, 2, make(ctx, 0))
+        .insert(ctx, 2, make(ctx, 2));
+    changedFrom(ctx, one, 0, change, look, sumFrom(one, look, 0));
+    changedFrom(ctx, orderedmap.empty<Int, V>(), 0, change, look, 0);
+    // Out of key order, so every rebalance is reached.
+    let order = list.range(ctx, 0, SPREAD).map(ctx, fn(i) => i * 91 % SPREAD * 2);
+    assert.equal(emptied(ctx, full, order, 0, look), (total, 0));
+}
+
+test "update and take answer as get does wherever the key sits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    everyPlace(ctx, fn(_c, key) => key * 10, fn(_c, v) => v + 1, fn(v) => v);
+}
+
+test "update and take change an ordered map inside an ordered map wherever the key sits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The inner change is itself an `updateCtx`, a level down.
+    everyPlace(
+        ctx,
+        fn(c, key) => orderedmap.empty<Int, Int>().insert(c, 0, key),
+        fn(c, inner: OrderedMap<Int, Int>) => {
+            inner.updateCtx(c, 0, fn(_c, n) => n + 1).insert(c, 1, 7)
+        },
+        fn(inner) => inner.length() * 1000 + inner.get(0).withDefault(-100),
+    );
+}
+
+test "update changes the value under a key and nothing else" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, [(1, 1), (2, 2)]).update(ctx, 1, fn(v) => v + 10);
+    assert.equal(m.entries(ctx), [(1, 11), (2, 2)]);
+}
+
+test "updating a missing key never runs the change" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, [(2, 2)]);
+    assert.equal(m.update(ctx, 1, never).entries(ctx), [(2, 2)]);
+    assert.equal(m.update(ctx, 3, never).entries(ctx), [(2, 2)]);
+    assert.isTrue(orderedmap.empty<Int, Int>().update(ctx, 1, never).isEmpty());
+    let big = scattered(ctx, 200);
+    assert.equal(big.update(ctx, 1000, never).length(), 200);
+}
+
+test "updating a shared ordered map leaves the other holder's value as it was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let before = orderedmap.of(ctx, [(1, 1), (2, 2)]);
+    let after = before.update(ctx, 1, fn(v) => v * 9);
+    assert.equal(after.entries(ctx), [(1, 9), (2, 2)]);
+    assert.equal(before.entries(ctx), [(1, 1), (2, 2)]);
+}
+
+test "take answers the value and the ordered map without it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, [(1, 10), (2, 20)]);
+    let (found, rest) = m.take(ctx, 1);
+    assert.equal(found, .Some(10));
+    assert.equal(rest.entries(ctx), [(2, 20)]);
+    assert.equal(m.length(), 2);
+    let (missing, same) = m.take(ctx, 99);
+    assert.isTrue(missing.isNone());
+    assert.equal(same.entries(ctx), [(1, 10), (2, 20)]);
+    let (nothing, empty) = orderedmap.empty<Int, Int>().take(ctx, 1);
+    assert.isTrue(nothing.isNone());
+    assert.isTrue(empty.isEmpty());
+}
+
 test "popFirst and popLast take the ends" {
     let ctx = context {
         Allocator: alloc(),

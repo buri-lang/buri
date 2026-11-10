@@ -349,6 +349,100 @@ fn removeNode<K: Equal, V, C: Allocator>(
     }
 }
 
+/// The subtree with `key`'s value put through `change`, or unchanged when
+/// `key` isn't in it. Each node on the way down leaves its list, and an empty
+/// branch holds its place, so a subtree nothing else holds hands `change` a
+/// value nothing else holds either.
+fn updateNode<K: Equal, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    shifted: U64,
+    key: K,
+    change: fn(C, V) => V,
+): Node<K, V> {
+    match (n) {
+        .Entry(h, k, v) => {
+            if (k == key) { .Entry(h, k, change(ctx, v)) } else { .Entry(h, k, v) }
+        },
+        .Collision(h, ks, vs) => {
+            let at = positionOf(ks, key, 0);
+            match (vs.get(at)) {
+                .None => .Collision(h, ks, vs),
+                .Some(v) => {
+                    let rest = removeAt(ctx, vs, at);
+                    let changed = change(ctx, v);
+                    .Collision(h, ks, insertAt(ctx, rest, at, changed))
+                },
+            }
+        },
+        .Branch(bitmap, children) => {
+            let bit = bitOf(chunkOf(shifted));
+            let idx = indexOf(bitmap, bit);
+            let found = if (hasSlot(bitmap, bit)) { children.get(idx) } else { .None };
+            match (found) {
+                .None => .Branch(bitmap, children),
+                .Some(child) => {
+                    let rest = replaceAt(ctx, children, idx, empty<K, V>().root);
+                    let changed = updateNode(ctx, child, below(shifted), key, change);
+                    .Branch(bitmap, replaceAt(ctx, rest, idx, changed))
+                },
+            }
+        },
+    }
+}
+
+/// `key`'s value in the subtree, if it's there, and the subtree without it:
+/// `.None` when that emptied it. Each node on the way down leaves its list,
+/// as in `updateNode`, so the value comes out of a subtree nothing else holds
+/// with nothing else holding it.
+fn takeNode<K: Equal, V, C: Allocator>(
+    ctx: C,
+    n: Node<K, V>,
+    shifted: U64,
+    key: K,
+): (Option<V>, Option<Node<K, V>>) {
+    match (n) {
+        .Entry(h, k, v) => {
+            if (k == key) { (.Some(v), .None) } else { (.None, .Some(.Entry(h, k, v))) }
+        },
+        .Collision(h, ks, vs) => {
+            let at = positionOf(ks, key, 0);
+            match (vs.get(at)) {
+                .None => (.None, .Some(.Collision(h, ks, vs))),
+                .Some(v) => {
+                    let keys = removeAt(ctx, ks, at);
+                    let values = removeAt(ctx, vs, at);
+                    if (keys.isEmpty()) {
+                        (.Some(v), .None)
+                    } else {
+                        (.Some(v), .Some(.Collision(h, keys, values)))
+                    }
+                },
+            }
+        },
+        .Branch(bitmap, children) => {
+            let bit = bitOf(chunkOf(shifted));
+            let idx = indexOf(bitmap, bit);
+            let found = if (hasSlot(bitmap, bit)) { children.get(idx) } else { .None };
+            match (found) {
+                .None => (.None, .Some(.Branch(bitmap, children))),
+                .Some(child) => {
+                    let rest = replaceAt(ctx, children, idx, empty<K, V>().root);
+                    let (value, left) = takeNode(ctx, child, below(shifted), key);
+                    match (left) {
+                        .None => {
+                            (value, compact(bitmap & ~bit, removeAt(ctx, rest, idx)))
+                        },
+                        .Some(c) => {
+                            (value, compact(bitmap, replaceAt(ctx, rest, idx, c)))
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Walking
 //
@@ -497,6 +591,84 @@ impl<K: Hash + Equal, V> Map<K, V> {
         }
     }
 
+    /// `key`'s value put through `change`. A missing key leaves the map as it
+    /// is and never calls `change`, like `list.updateAt` past the end; reach
+    /// for `alter` to insert as well.
+    ///
+    /// On a map nothing else holds, `change` gets the value with nothing else
+    /// holding it either, so a list or map in it is changed in place. A `get`
+    /// and then an `insert` leaves the map holding it too, and that copies it.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/map" import * as map;
+    /// from "core/str" import * as str;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let scores = map
+    ///         .of(ctx, [("ana", 2)])
+    ///         .update(ctx, "ana", fn(n) => n + 1)
+    ///         .update(ctx, "bo", fn(n) => n + 1);
+    ///     let ana = str.fromInt(ctx, scores.get("ana").withDefault(0));
+    ///     let _ = io.println(ctx, "ana=${ana}, ${scores.length()} entry").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// ana=3, 1 entry
+    /// ```
+    export fn update<C: Allocator>(
+        self,
+        ctx: C,
+        key: K,
+        change: fn(V) => V,
+    ): Map<K, V> {
+        self.updateCtx(ctx, key, fn(_c, v) => change(v))
+    }
+
+    /// `update` for a `change` that needs the context: a lambda can't capture
+    /// one, so it arrives as `change`'s first argument.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/map" import * as map;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let inboxes = map
+    ///         .of(ctx, [("ana", ["hi"])])
+    ///         .updateCtx(ctx, "ana", fn(c, msgs) => msgs.push(c, "bye"));
+    ///     let ana = inboxes.get("ana").withDefault([]).join(ctx, ", ");
+    ///     let _ = io.println(ctx, ana).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// hi, bye
+    /// ```
+    export fn updateCtx<C: Allocator>(
+        self,
+        ctx: C,
+        key: K,
+        change: fn(C, V) => V,
+    ): Map<K, V> {
+        let Map { root, size } = self;
+        Map { root: updateNode(ctx, root, key.hash(), key, change), size: size }
+    }
+
     /// The same keys, every value put through `transform`.
     ///
     /// It rebuilds the map rather than copying the tree, so it costs one insert
@@ -627,6 +799,47 @@ impl<K: Hash + Equal, V> Map<K, V> {
         match (self.get(key)) {
             .None => .None,
             .Some(v) => .Some((v, self.remove(ctx, key))),
+        }
+    }
+
+    /// The value under `key` and the map without it, or `.None` and the map as
+    /// it was. `pop` that hands the map back when the key is missing.
+    ///
+    /// On a map nothing else holds, neither answer copies: the value comes out
+    /// with nothing else holding it, so taking it, changing it and inserting
+    /// it back writes it in place.
+    ///
+    /// ```buri run
+    /// from "core/io" import * as io;
+    /// from "core/map" import * as map;
+    /// from "core/str" import * as str;
+    /// from "node" import { NodeHost };
+    /// from "platform/effect" import { Allocator, Stdout };
+    ///
+    /// export fn main(host: NodeHost): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Allocator: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let stock = map.of(ctx, [("pear", 3)]);
+    ///     let (pears, rest) = stock.take(ctx, "pear");
+    ///     let (plums, same) = rest.take(ctx, "plum");
+    ///     let n = str.fromInt(ctx, pears.withDefault(0));
+    ///     let _ = io.println(ctx, "${n} ${plums.isNone()} ${same.length()}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 3 true 0
+    /// ```
+    export fn take<C: Allocator>(self, ctx: C, key: K): (Option<V>, Map<K, V>) {
+        let Map { root, size } = self;
+        let (value, rest) = takeNode(ctx, root, key.hash(), key);
+        let left = if (value.isSome()) { size - 1 } else { size };
+        match (rest) {
+            .None => (value, empty<K, V>()),
+            .Some(r) => (value, Map { root: r, size: left }),
         }
     }
 

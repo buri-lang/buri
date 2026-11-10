@@ -665,6 +665,260 @@ test "popping what is not there is nothing" {
     assert.isFalse(map.of(ctx, [("a", 1)]).pop(ctx, "a").isNone());
 }
 
+// --- update / updateCtx / take -------------------------------------------------------
+//
+// These use `Placed` keys (see the deep-trie tests below), whose hashes put a
+// key in every place one can sit: alone at the top, below a branch, and in a
+// list of keys that share a hash.
+
+/// A change that must never run: the test fails if it does.
+fn never(_v: Int): Int {
+    assert.some(list.empty<Int>().first())
+}
+
+/// `acc` with `Placed { id }` mapped to `make(id)` for each id of `ids` from
+/// `at` on.
+fn placedOf<V, C: Allocator>(
+    ctx: C,
+    ids: [Int],
+    at: Int,
+    make: fn(C, Int) => V,
+    acc: Map<Placed, V>,
+): Map<Placed, V> {
+    match (ids.get(at)) {
+        .None => acc,
+        .Some(id) => {
+            placedOf(
+                ctx,
+                ids,
+                at + 1,
+                make,
+                acc.insert(ctx, Placed { id: id }, make(ctx, id)),
+            )
+        },
+    }
+}
+
+/// The sum of `look` over the values under every id from `id` on.
+fn sumOf<V>(m: Map<Placed, V>, look: fn(V) => Int, id: Int): Int {
+    if (id < PLACED) {
+        let here = match (m.get(Placed { id: id })) {
+            .None => 0,
+            .Some(v) => look(v),
+        };
+        here + sumOf(m, look, id + 1)
+    } else {
+        0
+    }
+}
+
+/// Updates and takes each id from `id` on in `m`, and checks each answer
+/// against what `m` held. `m` is shared by then, so it must still hold it.
+fn changesFrom<V, C: Allocator>(
+    ctx: C,
+    m: Map<Placed, V>,
+    id: Int,
+    change: fn(C, V) => V,
+    look: fn(V) => Int,
+): () {
+    if (id < PLACED) {
+        let key = Placed { id: id };
+        let total = sumOf(m, look, 0);
+        let updated = m.updateCtx(ctx, key, change);
+        let (taken, rest) = m.take(ctx, key);
+        assert.equal(updated.length(), m.length());
+        match (m.get(key)) {
+            .None => {
+                assert.equal(sumOf(updated, look, 0), total);
+                assert.isTrue(taken.isNone());
+                assert.equal(rest.length(), m.length());
+                assert.equal(sumOf(rest, look, 0), total);
+            },
+            .Some(v) => {
+                let was = look(v);
+                let now = look(change(ctx, v));
+                assert.equal(updated.get(key).map(look), .Some(now));
+                assert.equal(sumOf(updated, look, 0), total - was + now);
+                assert.equal(taken.map(look), .Some(was));
+                assert.isTrue(rest.get(key).isNone());
+                assert.equal(rest.length(), m.length() - 1);
+                assert.equal(sumOf(rest, look, 0), total - was);
+            },
+        };
+        assert.equal(sumOf(m, look, 0), total);
+        changesFrom(ctx, m, id + 1, change, look)
+    } else {
+        ()
+    }
+}
+
+/// Takes each id of `ids` from `at` on out of `m`, one at a time, and answers
+/// the sum of `look` over what came out and how many entries are left.
+fn drained<V, C: Allocator>(
+    ctx: C,
+    m: Map<Placed, V>,
+    ids: [Int],
+    at: Int,
+    look: fn(V) => Int,
+): (Int, Int) {
+    match (ids.get(at)) {
+        .None => (0, m.length()),
+        .Some(id) => {
+            let (value, rest) = m.take(ctx, Placed { id: id });
+            let here = match (value) {
+                .None => 0,
+                .Some(v) => look(v),
+            };
+            let (sum, left) = drained(ctx, rest, ids, at + 1, look);
+            (here + sum, left)
+        },
+    }
+}
+
+/// Puts `updateCtx` and `take` through every place a key can sit in, or be
+/// missing from, in maps whose values `make` builds.
+fn everyShape<V, C: Allocator>(
+    ctx: C,
+    make: fn(C, Int) => V,
+    change: fn(C, V) => V,
+    look: fn(V) => Int,
+): () {
+    let all = list.range(ctx, 0, PLACED);
+    let full = placedOf(ctx, all, 0, make, map.empty<Placed, V>());
+    // Missing 11 to 14, so 12 and 13 miss in a list of keys sharing a hash.
+    let some = placedOf(ctx, [0, 1, 4, 5, 6, 7, 10], 0, make, map.empty<Placed, V>());
+    // 1 meets the list 0 and 6 make, and 0 and 4 come again.
+    let again = placedOf(ctx, [0, 6, 1, 10, 4, 0, 4], 0, make, map.empty<Placed, V>());
+    changesFrom(ctx, full, 0, change, look);
+    changesFrom(ctx, some, 0, change, look);
+    changesFrom(ctx, again, 0, change, look);
+    changesFrom(
+        ctx,
+        placedOf(ctx, [0], 0, make, map.empty<Placed, V>()),
+        0,
+        change,
+        look,
+    );
+    changesFrom(ctx, map.empty<Placed, V>(), 0, change, look);
+    let total = sumOf(full, look, 0);
+    assert.equal(drained(ctx, full, all, 0, look), (total, 0));
+    assert.equal(drained(ctx, full, all.reverse(ctx), 0, look), (total, 0));
+}
+
+test "update and take answer as get does wherever the key sits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    everyShape(ctx, fn(_c, id) => id * 10, fn(_c, v) => v + 1, fn(v) => v);
+}
+
+test "update and take change a map inside a map wherever the key sits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The inner change is itself an `updateCtx`, a level down.
+    everyShape(
+        ctx,
+        fn(c, id) => map.of(c, [(Placed { id: 0 }, id)]),
+        fn(c, inner: Map<Placed, Int>) => {
+            inner
+                .updateCtx(c, Placed { id: 0 }, fn(_c, n) => n + 1)
+                .insert(c, Placed { id: 4 }, 7)
+        },
+        fn(inner) => {
+            inner.length() * 1000 + inner.get(Placed { id: 0 }).withDefault(-100)
+        },
+    );
+}
+
+test "update changes the value under a key and nothing else" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map
+        .of(ctx, [(Placed { id: 1 }, 1), (Placed { id: 2 }, 2)])
+        .update(ctx, Placed { id: 1 }, fn(v) => v + 10);
+    assert.equal(m.get(Placed { id: 1 }), .Some(11));
+    assert.equal(m.get(Placed { id: 2 }), .Some(2));
+    assert.equal(m.length(), 2);
+}
+
+test "updating a missing key never runs the change" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // 10 shares 1's hash, 12 shares 0's, 14 shares 4's path, and 11 lands
+    // where nothing is.
+    let m = map.of(ctx, [
+        (Placed { id: 0 }, 0),
+        (Placed { id: 1 }, 1),
+        (Placed { id: 4 }, 4),
+    ]);
+    let same = [10, 11, 12, 14].foldCtx(
+        ctx,
+        fn(c, acc: Map<Placed, Int>, id) => acc.update(c, Placed { id: id }, never),
+        m,
+    );
+    assert.equal(same.length(), 3);
+    assert.equal(same.get(Placed { id: 4 }), .Some(4));
+    assert.equal(
+        map.empty<Placed, Int>().update(ctx, Placed { id: 0 }, never).length(),
+        0,
+    );
+}
+
+test "updating a shared map leaves the other holder's value as it was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let before = map.of(ctx, [(Placed { id: 1 }, 1), (Placed { id: 10 }, 10)]);
+    let after = before.update(ctx, Placed { id: 10 }, fn(v) => v * 2);
+    assert.equal(after.get(Placed { id: 10 }), .Some(20));
+    assert.equal(before.get(Placed { id: 10 }), .Some(10));
+    assert.equal(before.get(Placed { id: 1 }), after.get(Placed { id: 1 }));
+}
+
+test "take answers the value and the map without it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, [(Placed { id: 1 }, 1), (Placed { id: 2 }, 2)]);
+    let (found, rest) = m.take(ctx, Placed { id: 1 });
+    assert.equal(found, .Some(1));
+    assert.equal(rest.length(), 1);
+    assert.isTrue(rest.get(Placed { id: 1 }).isNone());
+    assert.equal(rest.get(Placed { id: 2 }), .Some(2));
+    // The map it came from still holds both.
+    assert.equal(m.get(Placed { id: 1 }), .Some(1));
+    assert.equal(m.length(), 2);
+}
+
+test "taking a missing key hands the map back as it was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, [(Placed { id: 1 }, 1)]);
+    let (found, same) = m.take(ctx, Placed { id: 2 });
+    assert.isTrue(found.isNone());
+    assert.equal(same.length(), 1);
+    assert.equal(same.get(Placed { id: 1 }), .Some(1));
+    let (nothing, empty) = map.empty<Placed, Int>().take(ctx, Placed { id: 1 });
+    assert.isTrue(nothing.isNone());
+    assert.equal(empty.length(), 0);
+}
+
+test "taking the only key leaves the empty map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let (found, rest) = map
+        .of(ctx, [(Placed { id: 1 }, 1)])
+        .take(ctx, Placed { id: 1 });
+    assert.equal(found, .Some(1));
+    assert.equal(rest.length(), 0);
+    assert.equal(rest.insert(ctx, Placed { id: 2 }, 2).get(Placed { id: 2 }), .Some(2));
+}
+
 // --- takeKeys / dropKeys -------------------------------------------------------------
 
 test "takeKeys keeps the keys it names and skips the ones it does not have" {

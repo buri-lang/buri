@@ -2310,3 +2310,157 @@ fn a_record_written_back_into_an_ordered_map_keeps_every_readers_view() {
         }
     }
 }
+
+/// A map of two hundred one-element lists, `kind` `core/map` or
+/// `core/orderedmap`, changed `n` times through `how`: `update` with a push, or
+/// `take`, a push and an `insert` back. Even steps push a list's length onto
+/// it, for one of four keys in turn, and odd steps name a key that isn't
+/// there. The lambda captures nothing, so it allocates nothing. With `kept`, the map as it was
+/// before the changes is printed after them.
+fn changed_in_place(kind: &str, how: &str, n: u32, kept: bool) -> String {
+    let ty = if kind == "map" { "Map" } else { "OrderedMap" };
+    let keep = if kept {
+        "let before = m0;"
+    } else {
+        "let before = maps.empty<Int, [Int]>();"
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/{kind}" import * as maps;
+from "core/{kind}" import {{ {ty} }};
+
+fn build<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, i: Int): {ty}<Int, [Int]> {{
+  if (i == 200) {{ m }} else {{ build(ctx, m.insert(ctx, i, [i]), i + 1) }}
+}}
+
+fn update<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  m.updateCtx(ctx, k, fn(c, xs) => xs.push(c, xs.length()))
+}}
+
+fn take<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  let (found, rest) = m.take(ctx, k);
+  match (found) {{
+    .Some(xs) => rest.insert(ctx, k, xs.push(ctx, xs.length())),
+    .None => rest,
+  }}
+}}
+
+fn change<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, i: Int): {ty}<Int, [Int]> {{
+  if (i == {n}) {{
+    m
+  }} else {{
+    let k = if (i % 2 == 0) {{ i / 2 % 4 }} else {{ 1000 + i }};
+    change(ctx, {how}(ctx, m, k), i + 1)
+  }}
+}}
+
+fn total<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>): (Int, Int) {{
+  m.values(ctx).fold(fn(acc, xs) => (acc.0 + xs.length(), acc.1 + xs.sum()), (0, 0))
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let m0 = build(ctx, maps.empty<Int, [Int]>(), 0);
+  {keep}
+  let m = change(ctx, m0, 0);
+  let (count, sum) = total(ctx, m);
+  let (was, wasSum) = total(ctx, before);
+  let _ = io.println(host.stdout, "${{m.length()}} ${{count}} ${{sum}} ${{was}} ${{wasSum}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// What [`changed_in_place`] prints after `n` changes: the map's size, how
+/// many elements its lists hold and their sum, then the same two for the map
+/// kept from before.
+fn changed_output(n: u64, kept: bool) -> String {
+    let hits = n / 2;
+    // Each of the four keys gets `per` pushes: 1, 2, ..., `per`.
+    let per = hits / 4;
+    let built = 200 * 199 / 2;
+    let before = if kept {
+        format!("200 {built}")
+    } else {
+        "0 0".to_string()
+    };
+    format!(
+        "200 {} {} {before}\n",
+        200 + hits,
+        built + 2 * per * (per + 1)
+    )
+}
+
+/// Ten thousand changes to a map nothing else holds, half of them to a key
+/// that isn't there, through `update` and through `take` and `insert`, on
+/// both stdlib maps. Each list comes out with nothing else holding it, so a
+/// push grows it in place: the changes allocate a block per doubling, not one
+/// per push, and a missing key allocates nothing.
+#[test]
+fn changing_a_value_in_an_unshared_map_writes_it_in_place() {
+    for kind in ["map", "orderedmap"] {
+        for how in ["update", "take"] {
+            let name = format!("change-{kind}-{how}");
+            let idle = run_each(
+                &format!("{name}-idle"),
+                &changed_in_place(kind, how, 0, false),
+            );
+            let busy = run_each(&name, &changed_in_place(kind, how, 10_000, false));
+            for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+                assert_eq!(
+                    idle.stdout,
+                    changed_output(0, false),
+                    "{backend} {kind} {how}: {}",
+                    idle.stderr
+                );
+                assert_eq!(
+                    busy.stdout,
+                    changed_output(10_000, false),
+                    "{backend} {kind} {how}: {}",
+                    busy.stderr
+                );
+                let (built, idle_live) = probed(&idle.stderr);
+                let (blocks, live) = probed(&busy.stderr);
+                assert!(
+                    blocks < built + 100,
+                    "{backend} {kind} {how}: ten thousand changes allocated {} blocks beyond \
+                     the {built} building took: a change copied a value or the path to it",
+                    blocks.saturating_sub(built)
+                );
+                assert_eq!(
+                    (idle_live, live),
+                    (0, 0),
+                    "{backend} {kind} {how}: blocks still live at exit"
+                );
+            }
+        }
+    }
+}
+
+/// The same changes to a map another value still holds: that value keeps
+/// every list as it was.
+#[test]
+fn changing_a_value_in_a_held_map_keeps_the_other_holders_view() {
+    for kind in ["map", "orderedmap"] {
+        for how in ["update", "take"] {
+            let name = format!("change-{kind}-{how}-held");
+            for (backend, r) in run_each(&name, &changed_in_place(kind, how, 3000, true)) {
+                assert_eq!(
+                    r.stdout,
+                    changed_output(3000, true),
+                    "{backend} {kind} {how}: {}",
+                    r.stderr
+                );
+                let (blocks, live) = probed(&r.stderr);
+                assert_eq!(
+                    live, 0,
+                    "{backend} {kind} {how}: {blocks} blocks allocated and {live} still live at exit"
+                );
+            }
+        }
+    }
+}
