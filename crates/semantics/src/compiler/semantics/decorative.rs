@@ -27,18 +27,20 @@ const OPTION_NONE: usize = 1;
 /// One `Stack` value as written: refused unless its role is provably left out
 /// or its `isDecorative` provably isn't `true`. An update that sets neither
 /// field keeps its base's pair, which was read where the base was written.
+/// `stack` is `ui/node`'s `Stack`, which a compilation that loaded the module
+/// has.
 pub(crate) fn check(
     e: &typed::Expr,
-    stack: TyConId,
+    stack: Option<TyConId>,
     tables: &Tables,
     bodies: &BodyMap,
     consts: &ConstMap,
     diags: &mut Diagnostics,
 ) {
     match &e.kind {
-        ExprKind::StructLit { con, .. } if *con == stack => {}
+        ExprKind::StructLit { con, .. } if Some(*con) == stack => {}
         ExprKind::StructUpdate { con, updates, .. }
-            if *con == stack
+            if Some(*con) == stack
                 && updates
                     .iter()
                     .any(|(i, _)| [STACK_ROLE, STACK_DECORATIVE].contains(i)) => {}

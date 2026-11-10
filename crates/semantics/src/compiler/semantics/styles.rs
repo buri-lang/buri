@@ -832,7 +832,7 @@ impl<'a> Extractor<'a> {
             return kept.mentions;
         }
         let from = self.diags.items.len();
-        let mentions = self.alphas(e);
+        let mentions = self.alphas(e, true);
         if let Side::Record(kept) = &mut self.scanned {
             let diags = (self.diags.items.get(from..))
                 .map(<[Diagnostic]>::to_vec)
@@ -842,21 +842,21 @@ impl<'a> Extractor<'a> {
         mentions
     }
 
-    /// Refuses every colour whose alpha is outside `0.0..=1.0`, and answers
-    /// whether anything under `e` is a style or a list of them, as
-    /// [`Extractor::mentions_style`] does.
+    /// Refuses every colour whose alpha is outside `0.0..=1.0`, where
+    /// `report`, and answers whether anything under `e` is a style or a list
+    /// of them: the only nodes [`Extractor::visit`] rewrites or reports on.
     ///
     /// Its own walk, before the extraction one, for two reasons. A colour has
     /// to be refused wherever it was written — inside a `Computed`'s closure
     /// as much as in a folded list — and the extraction walk reaches a folded
     /// style's colour only as part of the value it folded, which has no span
-    /// of its own. And it fires **once**: a colour that folded is not descended
-    /// into, and a bare `Const` reference is left to the declaration that wrote
-    /// it, so a module-level colour is reported where it is written rather than
+    /// of its own. And it fires **once**: nothing inside a colour that folded
+    /// is reported, and a bare `Const` reference is left to the declaration
+    /// that wrote it, so a module-level colour is reported where it is written rather than
     /// once more at every use.
-    fn alphas(&mut self, e: &typed::Expr) -> bool {
+    fn alphas(&mut self, e: &typed::Expr, mut report: bool) -> bool {
         let mut mentions = self.is_style(&e.ty) || self.is_style_list(&e.ty);
-        if self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
+        if report && self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
             if let Some(value) = self.folder().eval(e, &Env::default()) {
                 if let Some(a) = alpha_of(&value) {
                     if !(0.0..=1.0).contains(&a) {
@@ -866,27 +866,17 @@ impl<'a> Extractor<'a> {
                         );
                     }
                 }
-                return mentions || self.mentions_style(e);
+                // Read for styles still, but reported once.
+                report = false;
             }
         }
-        typed::children(e, &mut |child| mentions |= self.alphas(child));
+        typed::children(e, &mut |child| mentions |= self.alphas(child, report));
         mentions
     }
 
     fn is_color(&self, ty: &Ty) -> bool {
         // `Color` takes no type arguments either.
         matches!(ty.kind(), TyKind::Con(id, _) if Some(*id) == self.color_con)
-    }
-
-    /// Whether anything under `e` is a style or a list of them: the only
-    /// nodes [`Extractor::visit`] rewrites or reports on.
-    fn mentions_style(&self, e: &typed::Expr) -> bool {
-        if self.is_style(&e.ty) || self.is_style_list(&e.ty) {
-            return true;
-        }
-        let mut found = false;
-        typed::children(e, &mut |child| found = found || self.mentions_style(child));
-        found
     }
 
     /// One expression, given to `sink` when it goes where a node reads.
@@ -2002,7 +1992,7 @@ struct Flow<'a> {
     passing: HashSet<FnId>,
     /// The questions [`Remembered`] keeps, as they are asked, while it is
     /// keeping them.
-    asked: RefCell<Option<Asked>>,
+    asked: RefCell<Asked>,
     /// Whether `asked` is keeping them: read on every question, so it costs
     /// one load where nothing is kept, which is every run but the first.
     keeping: Cell<bool>,
@@ -2176,14 +2166,14 @@ impl<'a> Flow<'a> {
 
     /// Starts keeping the questions asked.
     fn asking(&self) {
-        *self.asked.borrow_mut() = Some(Vec::new());
+        self.asked.borrow_mut().clear();
         self.keeping.set(true);
     }
 
     /// The questions asked since [`Flow::asking`], each once.
     fn asked(&self) -> Asked {
         self.keeping.set(false);
-        once(self.asked.borrow_mut().take().unwrap_or_default())
+        once(std::mem::take(&mut *self.asked.borrow_mut()))
     }
 
     /// The answer to `q`, kept where questions are.
@@ -2198,9 +2188,7 @@ impl<'a> Flow<'a> {
     #[inline]
     fn note(&self, q: Query, answer: bool) {
         if self.keeping.get() {
-            if let Some(asked) = self.asked.borrow_mut().as_mut() {
-                asked.push((q, answer));
-            }
+            self.asked.borrow_mut().push((q, answer));
         }
     }
 

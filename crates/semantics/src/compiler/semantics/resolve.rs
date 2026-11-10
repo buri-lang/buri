@@ -1053,24 +1053,19 @@ impl<'a> Checker<'a> {
         // image's artwork is read, and a decorative stack may not take a role.
         // Before extraction, so the folder reads bodies nothing has rewritten.
         // A compilation that did not load `ui/node` has neither, which is
-        // every program that is not a user interface.
-        let image = own_type(self.loaded, &self.scopes, "ui/node", "Image");
-        let stack = own_type(self.loaded, &self.scopes, "ui/node", "Stack");
-        if image.is_some() || stack.is_some() {
+        // every program that is not a user interface; one that did has both.
+        if let Some(image) = own_type(self.loaded, &self.scopes, "ui/node", "Image") {
+            let stack = own_type(self.loaded, &self.scopes, "ui/node", "Stack");
             let (tables, bodies, consts) = (&self.tables, &self.bodies, &self.const_values);
             let diags = &mut *self.diags;
             let mut each = |e: &typed::Expr| {
                 typed::walk(e, &mut |e| {
-                    if let Some(image) = image {
-                        crate::compiler::semantics::icons::check(
-                            e, image, tables, bodies, consts, diags,
-                        );
-                    }
-                    if let Some(stack) = stack {
-                        crate::compiler::semantics::decorative::check(
-                            e, stack, tables, bodies, consts, diags,
-                        );
-                    }
+                    crate::compiler::semantics::icons::check(
+                        e, image, tables, bodies, consts, diags,
+                    );
+                    crate::compiler::semantics::decorative::check(
+                        e, stack, tables, bodies, consts, diags,
+                    );
                 });
             };
             for (_, init) in walked.constants(tables, consts) {
