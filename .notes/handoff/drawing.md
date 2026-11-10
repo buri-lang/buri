@@ -21,21 +21,29 @@ Each phase ends at a commit landed with `/tmp/buri-land.sh`.
 
 ## Status
 
-Phase 1 is done. What landed:
+Phases 1 and 2 are done.
 
-- `sources/ui_shape.buri`: `Segment` (`MoveTo`, `LineTo`, `Close`), `Shape<C>` with its reader `svg(ctx)`, and `path`. Every `Color` already lowers, tokens included (`var(--ns-name)`, and `color-mix(…)` for `Faded`).
+Phase 1 (393c5a197) added:
+
+- `sources/ui_shape.buri`: `Segment` (`MoveTo`, `LineTo`, `Close`), `Shape<C>` with its reader `svg(ctx)`, and `path`. Every `Color` lowers, tokens included (`var(--ns-name)`, and `color-mix(…)` for `Faded`).
 - `ui_node.buri`: `drawing`, `NodeKind::Drawing` (tag 25), and the `drawn` helper both `emitNode` and `nodeLines` use.
-- `runtime.js`: `$tree_drawing` and `$tree_shape`, behind `$tree_drawing_hook`. Attributes are set with `setAttribute`, and `fill`/`stroke` as style properties. Each prop goes through `$tree_bind`, so the browser already updates `.Cell` and `.Computed` props.
-- `cli/runtime/image.rs`: the painter now paints a colour's own alpha (`rgba()`, `#rgba`, `#rrggbbaa`, `rgb(… / a)`). Before this it dropped it.
+- `runtime.js`: `$tree_drawing` and `$tree_shape`, behind `$tree_drawing_hook`. Attributes are set with `setAttribute`, and `fill`/`stroke` as style properties. Each prop goes through `$tree_bind`, so the browser updates `.Cell` and `.Computed` props.
+- `cli/runtime/image.rs`: the painter paints a colour's own alpha (`rgba()`, `#rgba`, `#rrggbbaa`, `rgb(… / a)`). c66aea4d7 added its UI case, `an_icon_paints_a_colour_s_own_alpha`. No other paint path had the bug: the scene's colours are all `rgba(r,g,b,a)` written by the compiler.
+
+Phase 2 added:
+
+- `emitNode`'s `.Drawing` arm opens the `svg` once and registers one watcher, which re-reads the artwork and the styles and patches the body in place. The element keeps its identity. `describe` still reads once, as it does for every node.
+- `paint.rs`'s `raster` puts the themes' values in place of every `var()` in an `icon:` artwork before painting. `image.rs`'s `ink` reads `color-mix(in srgb,<colour> <n>%,transparent)`, nested up to `MIX_DEPTH`, which is what `.Faded` becomes.
 - Tests:
-  - conformance: `tree.buri` "drawings" section and `render.buri` "a drawing and its paths"
-  - `language::pages::a_drawing_is_svg_its_paths_are_painted_and_its_alt_names_it`
-  - UI case `a_drawing_paints_its_paths`
-  - `image::tests::a_colour_s_own_alpha_is_painted`
-- Docs: the guide's drawing paragraph in `user-interfaces.md`, and the `ui/shape` link in the reference.
+  - conformance: `tree.buri` "a drawing follows its size, segments, paint and styles, and stays the same element"
+  - `language::pages::a_drawing_follows_its_size_outline_and_paint_in_place`
+  - UI case `a_drawing_paints_tokens_light_and_dark`: each token picture shares a golden with the same card in its theme's colours
+  - `image::tests::a_colour_mixed_with_transparent_is_that_colour_faded`
+- Docs: the guide's drawing paragraph says props update in place and tokens follow the theme.
 
-Phase 2 starts here:
+Phase 3 starts here:
 
-1. The native `render` document reads a drawing's props once. `emitNode`'s `.Drawing` arm needs a watcher that rewrites the `icon` declaration when `size`, segments or paint change, following how other reactive leaves in `emitNode` register one.
-2. Write e2e tests for updates in `tree.buri`, in the browser (`pages.rs`), and in `render`.
-3. The painter has no `var()`, so a token fill paints nothing in a snapshot. Make `drawn` resolve tokens against the theme for the scene, or teach `image.rs` the scene's token values. Then add a light and a dark UI case.
+1. `shape.rect`, `shape.circle` and `shape.text` lower in `ui_shape.buri` the way `path` does. `image.rs` paints `rect` and `circle` but not `text`, so a text run needs the painter to draw SVG `text`, or `drawn` to lower it to something it can draw.
+2. `shape.group` with `offset` lowers to `<g transform='translate(…)'>`, which `image.rs` reads. `Shape` has no children yet (its fields are the element, its attributes and its paint), so a group needs a children field, `svg(ctx)` must write them, and `$tree_shape` must build them.
+3. Keyed `shape.each` reconciles like `ui.each` in the browser. The native watcher re-serialises the whole artwork on any change, which is enough for `render` and snapshots. Add `each` to `semantics::reactive`'s builders.
+4. A token bound to `.Inherit` puts `inherit` in the artwork, which `image.rs` paints as nothing. Nothing does that yet.

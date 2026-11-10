@@ -37,7 +37,8 @@
 //! opacity fill-opacity stroke-opacity
 //! transform                  translate scale rotate matrix
 //! colours                    #rgb #rgba #rrggbb #rrggbbaa, rgb(), rgba(),
-//!                            currentColor, none, and the basic HTML names
+//!                            currentColor, none, the basic HTML names, and
+//!                            color-mix(in srgb, <colour> <n>%, transparent)
 //! ```
 //!
 //! Outside that subset nothing is drawn and the rest of the picture still is:
@@ -1562,9 +1563,18 @@ const NAMED: [(&str, [u8; 3]); 17] = [
     ("aqua", [0, 255, 255]),
 ];
 
+/// How many `color-mix`es may nest, `paint.rs`'s bound: a theme can bind a
+/// token to a faded token, which nests one mix per link.
+const MIX_DEPTH: usize = 4;
+
 /// A paint attribute's colour and the alpha it carries itself. A colour of
 /// `None` is `currentColor`; `None` itself is `none`, which paints nothing.
 fn ink(value: &str) -> Option<Ink> {
+    ink_at(value, 0)
+}
+
+/// [`ink`], with the nesting `color-mix` puts in bounded by [`MIX_DEPTH`].
+fn ink_at(value: &str, depth: usize) -> Option<Ink> {
     let solid = |colour| Some(Ink { colour, alpha: 1.0 });
     let text = value.trim();
     if text.eq_ignore_ascii_case("none") || text.eq_ignore_ascii_case("transparent") {
@@ -1572,6 +1582,27 @@ fn ink(value: &str) -> Option<Ink> {
     }
     if text.eq_ignore_ascii_case("currentcolor") {
         return solid(None);
+    }
+    // `Color.alpha` on a token, as `ui/shape` writes it, once `paint.rs` has
+    // put the theme's colour in place of the `var()`: that colour, with that
+    // share of its alpha.
+    if let Some(inner) = text.strip_prefix("color-mix(in srgb,") {
+        if depth >= MIX_DEPTH {
+            return None;
+        }
+        let mixed = inner
+            .strip_suffix(')')?
+            .trim_end()
+            .strip_suffix("transparent")?
+            .trim_end()
+            .strip_suffix(',')?;
+        let (base, share) = mixed.trim().rsplit_once(' ')?;
+        let fraction = share.strip_suffix('%')?.parse::<f32>().ok()? / 100.0;
+        let ink = ink_at(base, depth + 1)?;
+        return Some(Ink {
+            alpha: (ink.alpha * fraction).clamp(0.0, 1.0),
+            ..ink
+        });
     }
     if let Some(hex) = text.strip_prefix('#') {
         let digit = |c: u8| char::from(c).to_digit(16).map(|d| d as u8);
@@ -2544,6 +2575,45 @@ mod tests {
             "<line x1='0' y1='5' x2='10' y2='5' stroke='rgba(255,0,0,0.5)' stroke-width='4'/>",
         );
         assert_eq!(at(&canvas, 10, 10), [255, 127, 127, 255]);
+    }
+
+    /// A faded token's mix, once its `var()` is a colour: that colour at the
+    /// mix's share, a mix of a mix at both shares, and nothing past the bound
+    /// or for a mix this does not read.
+    #[test]
+    fn a_colour_mixed_with_transparent_is_that_colour_faded() {
+        let painted = |paint: &str| {
+            let canvas = box10(&format!("<rect width='10' height='10' fill='{paint}'/>"));
+            at(&canvas, 10, 10)
+        };
+        let half = painted("rgb(255,0,0)");
+        assert_eq!(half, [255, 0, 0, 255]);
+        assert_eq!(
+            painted("color-mix(in srgb,rgb(255,0,0) 50%,transparent)"),
+            painted("rgba(255,0,0,0.5)")
+        );
+        assert_eq!(
+            painted(
+                "color-mix(in srgb,color-mix(in srgb,rgba(255,0,0,0.5) 50%,transparent) 50%,transparent)"
+            ),
+            painted("rgba(255,0,0,0.125)")
+        );
+        let white = [255, 255, 255, 255];
+        let nested = (0..=MIX_DEPTH).fold("rgb(255,0,0)".to_string(), |inner, _| {
+            format!("color-mix(in srgb,{inner} 100%,transparent)")
+        });
+        assert_eq!(painted(&nested), white);
+        for unread in [
+            "color-mix(in srgb,rgb(255,0,0) 50%,white)",
+            "color-mix(in srgb,rgb(255,0,0) 50%,transparent",
+            "color-mix(in srgb,rgb(255,0,0) half,transparent)",
+            "color-mix(in srgb,rgb(255,0,0) 50,transparent)",
+            "color-mix(in srgb,rgb(255,0,0) 50% transparent)",
+            "color-mix(in srgb,rgb(255,0,0),transparent)",
+            "color-mix(in srgb,var(--unbound) 50%,transparent)",
+        ] {
+            assert_eq!(painted(unread), white, "`{unread}` painted");
+        }
     }
 
     /// The three opacities, each halving what is under it against white.

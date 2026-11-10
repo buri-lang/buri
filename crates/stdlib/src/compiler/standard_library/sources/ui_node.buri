@@ -2216,13 +2216,19 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
+        // A drawing is emitted once and kept. Its artwork reads every prop of
+        // its shapes, so one watcher over the artwork and the styles patches
+        // the body in place whenever any of them changes.
         .Drawing(_alt, _box, markup, styles, _shapes, events) => {
-            let artwork = decl(mem, "icon", escapeInline(mem, markup.read(scope)));
-            let _ = emitElement(
-                builder,
-                "svg",
-                widgetBody(mem, plain(state), [artwork], styles),
-            );
+            let opened = openElement(builder, "svg", "");
+            let _ = reactive(fn(s) => {
+                let artwork = decl(s, "icon", escapeInline(s, markup.read(s)));
+                patchBody(
+                    builder,
+                    opened,
+                    widgetBodyUnder(s, plain(state), [artwork], styles),
+                )
+            });
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },

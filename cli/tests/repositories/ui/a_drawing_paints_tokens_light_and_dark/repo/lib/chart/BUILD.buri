@@ -1,0 +1,8 @@
+# One library and one test source: a card holding a sparkline in tokens.
+library {
+    sources: ["chart.buri"]
+
+    test {
+        sources: ["test/chart.buri"]
+    }
+}

@@ -1,0 +1,68 @@
+// The sparkline in tokens, light and dark, each against the same card in the
+// colours its theme binds the tokens to. Each pair shares one golden, so a
+// token has to paint what its theme says it is worth.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/style" import { Color };
+from "//lib/chart" import { card, themedBy, themedCard, Token };
+
+/// The app's light mapping.
+fn light(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(250, 250, 252),
+        .Accent => .Rgb(30, 90, 200),
+    }
+}
+
+/// And its dark one.
+fn dark(t: Token): Color {
+    match (t) {
+        .Surface => .Rgb(24, 24, 28),
+        .Accent => .Rgb(120, 180, 255),
+    }
+}
+
+test "a drawing's token fill and stroke follow the light theme" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "chart-light", themedCard(), .Hover, [themedBy(light)]);
+}
+
+test "the light card in the colours its theme binds" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "chart-light",
+        card(.Rgb(250, 250, 252), .Rgba(30, 90, 200, 0.25), .Rgb(30, 90, 200)),
+        .Hover,
+        [],
+    );
+}
+
+test "a drawing's token fill and stroke follow the dark theme" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "chart-dark", themedCard(), .Hover, [themedBy(dark)]);
+}
+
+test "the dark card in the colours its theme binds" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "chart-dark",
+        card(.Rgb(24, 24, 28), .Rgba(120, 180, 255, 0.25), .Rgb(120, 180, 255)),
+        .Hover,
+        [],
+    );
+}

@@ -166,8 +166,11 @@ export fn sparkline<C>(): Node<C> {
 `size` sets the drawing's own units, and the drawing stretches them over the
 box its styles give it. Shapes paint in order, each over the ones before it.
 A path's `fill` and `stroke` take any `Color`, and `.Inherit` is the colour of
-the text around it. A fill or stroke left out paints nothing. `alt` works as it
-does for an `image`.
+the text around it. A design token follows the theme, faded or not. A fill or
+stroke left out paints nothing. `alt` works as it does for an `image`.
+
+Every prop can be a `.Cell` or a `.Computed`: when the size, the segments or a
+colour changes, the drawing updates in place.
 
 **A box can be decorative too, and it can be the current page.** A `stack`'s
 `isDecorative` hides it and everything in it from a screen reader: the slash

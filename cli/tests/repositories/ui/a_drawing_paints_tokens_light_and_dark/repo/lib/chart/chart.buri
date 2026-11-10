@@ -1,0 +1,88 @@
+//! A card holding a sparkline, coloured by this package's design tokens.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Segment };
+from "ui/style" import { Color, token };
+from "ui/theme" import { Theme, themed };
+
+/// This package's tokens. What each one is worth is the app's to say.
+export enum Token {
+    Surface,
+    Accent,
+}
+
+impl Token {
+    /// The custom property this token is.
+    export fn color(self): Color {
+        match (self) {
+            .Surface => token("chart", "surface"),
+            .Accent => token("chart", "accent"),
+        }
+    }
+}
+
+/// This package's tokens, resolved by `mapping`.
+export fn themedBy(mapping: fn(Token) => Color): Theme {
+    themed([
+        (Token.Surface.color(), mapping(.Surface)),
+        (Token.Accent.color(), mapping(.Accent)),
+    ])
+}
+
+/// The week's points, in a drawing `100` units wide and `40` tall.
+fn points(): [Segment] {
+    [
+        .MoveTo(0.0, 32.0),
+        .LineTo(20.0, 24.0),
+        .LineTo(40.0, 28.0),
+        .LineTo(60.0, 6.0),
+        .LineTo(80.0, 14.0),
+        .LineTo(100.0, 10.0),
+    ]
+}
+
+/// The same points, closed along the bottom edge.
+fn area(): [Segment] {
+    [
+        .MoveTo(0.0, 40.0),
+        .LineTo(0.0, 32.0),
+        .LineTo(20.0, 24.0),
+        .LineTo(40.0, 28.0),
+        .LineTo(60.0, 6.0),
+        .LineTo(80.0, 14.0),
+        .LineTo(100.0, 10.0),
+        .LineTo(100.0, 40.0),
+        .Close,
+    ]
+}
+
+/// A card on `surface`, its area filled with `fill` and its line stroked in
+/// `line`.
+export fn card<C>(surface: Color, fill: Color, line: Color): Node<C> {
+    ui.stack({
+        styles: [.Padding(.Px(16)), .Background(surface)],
+        children: [
+            ui.drawing({
+                alt: .AccessibilityText("Sales this week"),
+                size: .Const((100.0, 40.0)),
+                styles: [.Width(.Px(200)), .Height(.Px(80))],
+                shapes: [
+                    shape.path({ segments: .Const(area()), fill: .Some(.Const(fill)) }),
+                    shape.path({
+                        segments: .Const(points()),
+                        stroke: .Some(.Const(line)),
+                        strokeWidth: .Some(.Const(2.0)),
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+/// The card in tokens: the area is the accent at a quarter, the line the
+/// accent itself.
+export fn themedCard<C>(): Node<C> {
+    card(Token.Surface.color(), Token.Accent.color().alpha(0.25), Token.Accent.color())
+}

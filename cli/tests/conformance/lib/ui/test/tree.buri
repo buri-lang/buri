@@ -3149,6 +3149,54 @@ test "a drawing reads its size, segments and paint from signals and computations
     assert.equal(fromComputations.markup(), expected);
 }
 
+test "a drawing follows its size, segments, paint and styles, and stays the same element" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, (10.0, 4.0));
+    let segments: Signal<[Segment]> = signal(ctx, [
+        .MoveTo(0.0, 4.0),
+        .LineTo(10.0, 0.0),
+    ]);
+    let ink = signal(ctx, Color.Rgb(1, 2, 3));
+    let width = signal(ctx, 0.5);
+    let wide = signal(ctx, 16);
+    let page = render(
+        ctx,
+        ui.drawing({
+            alt: .Decorative,
+            size: .Cell(size),
+            styles: [.Computed(fn(s) => [.Width(.Px(wide.get(s)))])],
+            shapes: [
+                shape.path({
+                    segments: .Cell(segments),
+                    fill: .Some(.Computed(fn(s) => ink.get(s).alpha(0.5))),
+                    stroke: .Some(.Cell(ink)),
+                    strokeWidth: .Some(.Cell(width)),
+                }),
+            ],
+        }),
+    );
+    assert.equal(
+        page.markup(),
+        "e 0 class:w-var;icon:<svg viewBox='0 0 10 4' preserveAspectRatio='none'><path d='M0 4 L10 0' stroke-width='0.5' fill='rgba(1,2,3,0.5)' stroke='rgb(1,2,3)'/></svg>;--buri-w:16px",
+    );
+    let drawn = page.identity("svg", 0);
+    size.set(ctx, (20.0, 8.0));
+    segments.set(ctx, [.MoveTo(0.0, 8.0), .LineTo(20.0, 0.0), .Close]);
+    ink.set(ctx, style.token("brand", "accent"));
+    width.set(ctx, 1.5);
+    wide.set(ctx, 40);
+    // Each write lands on the same element: the drawing is not built again.
+    assert.equal(
+        page.markup(),
+        "e 0 class:w-var;icon:<svg viewBox='0 0 20 8' preserveAspectRatio='none'><path d='M0 8 L20 0 Z' stroke-width='1.5' fill='color-mix(in srgb,var(--brand-accent) 50%,transparent)' stroke='var(--brand-accent)'/></svg>;--buri-w:40px",
+    );
+    assert.equal(page.identity("svg", 0), drawn);
+}
+
 test "a drawing's paths are drawn in order, each over the ones before it" {
     let ctx = context {
         Allocator: alloc(),

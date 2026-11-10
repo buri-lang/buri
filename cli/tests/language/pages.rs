@@ -1144,3 +1144,83 @@ for (const path of named.querySelectorAll("path")) {
          http://www.w3.org/2000/svg d=M0 40 L50.5 10 L100 40 width=2 fill=none stroke=currentColor\n"
     );
 }
+
+/// A drawing whose size, outline, paint and width are signals, and a button
+/// that writes all four.
+const GROWING_DRAWING_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/shape" import { Segment };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import * as style;
+from "ui/style" import { Color };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let size = signal(ctx, (10.0, 4.0));
+    let segments: Signal<[Segment]> = signal(ctx, [.MoveTo(0.0, 4.0), .LineTo(10.0, 0.0)]);
+    let ink = signal(ctx, Color.Rgb(1, 2, 3));
+    let width = signal(ctx, 0.5);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Growth"),
+                    size: .Cell(size),
+                    styles: [],
+                    shapes: [
+                        shape.path({
+                            segments: .Cell(segments),
+                            fill: .Some(.Computed(fn(s) => ink.get(s).alpha(0.5))),
+                            stroke: .Some(.Cell(ink)),
+                            strokeWidth: .Some(.Cell(width)),
+                        }),
+                    ],
+                }),
+                ui.button({
+                    label: .Const("Grow"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = size.set(c, (20.0, 8.0));
+                        let _ = segments.set(c, [.MoveTo(0.0, 8.0), .LineTo(20.0, 0.0), .Close]);
+                        let _ = ink.set(c, style.token("brand", "accent"));
+                        width.set(c, 1.5)
+                    }),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_follows_its_size_outline_and_paint_in_place() {
+    let printed = drive(
+        "growing-drawing-page",
+        GROWING_DRAWING_PAGE,
+        r#"
+const svg = labelled("Growth");
+const show = () => {
+  const path = svg.querySelector("path");
+  console.log(`${svg.getAttribute("viewBox")} d=${path.getAttribute("d")} width=${path.getAttribute("stroke-width")} fill=${path.style.getPropertyValue("fill")} stroke=${path.style.getPropertyValue("stroke")}`);
+};
+show();
+labelled("Grow").click();
+show();
+console.log(`same ${labelled("Growth") === svg} paths ${svg.querySelectorAll("path").length}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "0 0 10 4 d=M0 4 L10 0 width=0.5 fill=rgba(1,2,3,0.5) stroke=rgb(1,2,3)\n\
+         0 0 20 8 d=M0 8 L20 0 Z width=1.5 fill=color-mix(in srgb,var(--brand-accent) 50%,transparent) stroke=var(--brand-accent)\n\
+         same true paths 1\n"
+    );
+}

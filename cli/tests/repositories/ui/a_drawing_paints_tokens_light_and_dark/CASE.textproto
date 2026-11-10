@@ -1,0 +1,39 @@
+# A drawing's paint in design tokens, painted under a light theme and a dark
+# one.
+#
+# The card's area is the accent token at a quarter and its line is the accent
+# itself. Each theme's picture is painted twice: once in tokens under the
+# theme, and once in the colours that theme binds, with no theme. Each pair
+# shares one golden, so a token has to paint what its theme says it's worth.
+# Before the painter resolved tokens in artwork, the token pictures had no
+# area and no line.
+#
+# Then the two theme lists are swapped, and both token pictures fail.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a drawing's token fill and stroke paint the colours its light and dark themes bind, and swapping the themes fails both"
+
+run {
+  args: ["test", "//lib/chart", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/chart/test/chart.buri"
+  replace: "snapshot(ctx, \"chart-light\", themedCard(), .Hover, [themedBy(light)]);"
+  with: "snapshot(ctx, \"chart-light\", themedCard(), .Hover, [themedBy(dark)]);"
+}
+
+edit {
+  file: "lib/chart/test/chart.buri"
+  replace: "snapshot(ctx, \"chart-dark\", themedCard(), .Hover, [themedBy(dark)]);"
+  with: "snapshot(ctx, \"chart-dark\", themedCard(), .Hover, [themedBy(light)]);"
+}
+
+run {
+  args: ["test", "//lib/chart", "--force"]
+  exit: 1
+  golden: "swapped.txt"
+}

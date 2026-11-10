@@ -159,7 +159,8 @@
 //! written into the scene itself. Its `currentColor` is the colour the element
 //! paints in, so an icon follows the `Foreground` around it and turns over
 //! between themes — which an `image` cannot, its source being a document of its
-//! own, where `currentColor` is black whatever the page says.
+//! own, where `currentColor` is black whatever the page says. For the same
+//! reason a `var()` in it is worth what the themes say.
 //!
 //! An `e` line may also carry `mark:<shape>`, which makes the box a mark a
 //! widget draws for itself rather than a container: `thumb`, the disc a switch
@@ -412,11 +413,20 @@ pub fn render(request: &Request) -> Result<Vec<u8>, String> {
 /// Answers `Err` with one sentence for any scene, stylesheet or state it
 /// cannot read.
 pub fn raster(request: &Request) -> Result<Pixmap, String> {
-    let scene = Scene::parse(request.scene)?;
+    let mut scene = Scene::parse(request.scene)?;
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
     let variables = parse_variables(request.variables);
     let page = parse_page(request.variables, &variables);
+    // An icon's artwork is in the tree, so a token in a drawing's paint is
+    // worth what the themes say, as it is in a declaration.
+    for node in &mut scene.nodes {
+        if let Some(Art::Artwork(artwork)) = &mut node.picture {
+            if let Cow::Owned(resolved) = substitute(artwork, &variables) {
+                *artwork = resolved;
+            }
+        }
+    }
 
     let styles = resolve(&scene, &sheet, state, &variables, page.ink);
     paint(&scene, &styles, page.background)

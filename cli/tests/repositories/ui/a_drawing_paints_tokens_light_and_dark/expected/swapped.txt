@@ -1,0 +1,8 @@
+FAIL //lib/chart  test/chart.buri  "a drawing's token fill and stroke follow the light theme"
+  the snapshot "chart-light" changed: see test/__snapshots__/chart-light.diff.png
+  --> lib/chart/test/chart.buri:26:1
+FAIL //lib/chart  test/chart.buri  "a drawing's token fill and stroke follow the dark theme"
+  the snapshot "chart-dark" changed: see test/__snapshots__/chart-dark.diff.png
+  --> lib/chart/test/chart.buri:48:1
+
+2 passed, 2 failed, 0 skipped (0.0s)
