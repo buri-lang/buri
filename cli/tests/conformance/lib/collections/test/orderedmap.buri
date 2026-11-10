@@ -1818,6 +1818,14 @@ test "a map of ints to strings splits, borrows and merges like one of ints" {
     let (gone, rest) = assert.some(grown.pop(ctx, 600));
     assert.equal(gone, "v600");
     assert.isFalse(rest.has(600));
+    // `take` agrees with `pop`, and a key past every other misses at a leaf
+    // below the branches.
+    let (taken, smaller) = grown.take(ctx, 600);
+    assert.equal(taken, .Some("v600"));
+    assert.equal(smaller.keys(ctx), rest.keys(ctx));
+    let (missing, same) = grown.take(ctx, 5000);
+    assert.isTrue(missing.isNone());
+    assert.equal(same.keys(ctx), list.range(ctx, 0, 1200));
     assert.equal(
         namesFromFront(ctx, grown, list.empty<Int>()),
         list.range(ctx, 0, 1200),

@@ -2396,6 +2396,17 @@ fn popped<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {
   }}
 }}
 
+fn checked<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  if (m.has(k)) {{
+    match (m.pop(ctx, k)) {{
+      .Some((xs, rest)) => rest.insert(ctx, k, xs.push(ctx, xs.length())),
+      .None => maps.empty<Int, [Int]>(),
+    }}
+  }} else {{
+    m
+  }}
+}}
+
 fn change<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, i: Int): {ty}<Int, [Int]> {{
   if (i == {n}) {{
     m
@@ -2453,12 +2464,13 @@ fn changing_a_value_in_an_unshared_map_writes_it_in_place() {
     changes_in_place(&["update", "take"]);
 }
 
-/// The same changes written with `get` and `insert` alone: matched out and
-/// inserted back into a map in a local or in a record's field. The compiler,
-/// not the stdlib's `update`, keeps each list unshared.
+/// The same changes written with `get`, `pop` and `insert` alone: matched out
+/// and inserted back into a map in a local or in a record's field, or popped
+/// once the map says it holds the key. The compiler and `pop`, not the
+/// stdlib's `update`, keep each list unshared.
 #[test]
 fn changing_a_value_read_out_of_an_unshared_map_writes_it_in_place() {
-    changes_in_place(&["got", "field"]);
+    changes_in_place(&["got", "field", "checked"]);
 }
 
 fn changes_in_place(hows: &[&str]) {
@@ -2518,7 +2530,7 @@ fn changing_a_value_in_a_held_map_keeps_the_other_holders_view() {
 /// and so do a value read with `withDefault`, or popped, and inserted back.
 #[test]
 fn changing_a_value_read_out_of_a_held_map_keeps_the_other_holders_view() {
-    changes_keep_views(&["got", "field", "defaulted", "removed", "popped"]);
+    changes_keep_views(&["got", "field", "defaulted", "removed", "popped", "checked"]);
 }
 
 fn changes_keep_views(hows: &[&str]) {

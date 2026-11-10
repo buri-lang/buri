@@ -9242,6 +9242,34 @@ adds the shapes left alone, such as a map read again before the write, a
 renamed key, a write inside a function made in the arm, and a value put back
 under another key. It runs once more under `--coverage`.
 
+### 6.115 An ordered map's `pop` takes the path down in place, 2026-11-10
+
+`OrderedMap.pop` found the key, then removed it with `remove`, which copies
+the path down even in a tree nothing else holds. `pop` knows the key is there,
+so it now removes it the way `take` does, through `takeIn`, writing each node
+on the path in place:
+
+```buri
+if (m.has(k)) {
+    match (m.pop(ctx, k)) {
+        .Some((xs, rest)) => rest.insert(ctx, k, xs.push(ctx, xs.length())),
+        .None => maps.empty<Int, [Int]>(),
+    }
+} else {
+    m
+}
+```
+
+Ten thousand of these on a 200-key map allocated 35,036 blocks beyond the
+build. They now stay under 100. `cli/tests/native/ownership.rs` guards both
+the count and a held map's view.
+
+`remove` keeps `removeFrom`. Asking `holds` first so it could take the same
+path costs a second descent: `run-dev/kvstore` rose 0.18% with no fewer
+allocations. A `pop` whose `.None` arm returns `m` still copies, because `m`
+is alive through the call. `run-dev/kvstore` holds at 1,334.8 M instructions
+and 702,632 allocations.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -829,7 +829,7 @@ fn removeFrom<K: Ordered, V, C: Allocator>(
 /// So a tree nothing else shares hands every node on the path down unshared,
 /// and a pop writes each one in place rather than copying it, as `descend`
 /// does for an insert. `removeFrom` doesn't: a key that isn't there would cost
-/// a shared tree a copy of its path.
+/// a shared tree a copy of its path, and asking first costs a second descent.
 fn taken<K, V, C: Allocator>(
     ctx: C,
     keys: [K],
@@ -897,6 +897,17 @@ fn takeIn<K: Ordered, V, C: Allocator>(
             }
         },
     }
+}
+
+/// `m` without `key`, which is in it, the path down `taken` as in `takeIn`.
+fn removed<K: Ordered, V, C: Allocator>(
+    ctx: C,
+    m: OrderedMap<K, V>,
+    key: K,
+): OrderedMap<K, V> {
+    let OrderedMap { root, size } = m;
+    let (_, rest) = takeIn(ctx, root, key);
+    OrderedMap { root: shrinkRoot(rest), size: size - 1 }
 }
 
 /// A root branch left with no separators has exactly one child, and that child
@@ -1277,7 +1288,7 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     export fn pop<C: Allocator>(self, ctx: C, key: K): Option<(V, OrderedMap<K, V>)> {
         match (self.get(key)) {
             .None => .None,
-            .Some(v) => .Some((v, self.remove(ctx, key))),
+            .Some(v) => .Some((v, removed(ctx, self, key))),
         }
     }
 
