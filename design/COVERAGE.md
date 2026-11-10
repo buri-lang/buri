@@ -248,8 +248,8 @@ derived code and built-ins joined it, so it's a different measure from
 before. A larger share
 anywhere is a rise: on main, CI's `stdlib-coverage` job commits the new baseline
 itself, as the compiler's coverage job does, and elsewhere it prints the commit.
-The baseline is x86_64 Linux's, so on any other host the gate prints its
-numbers and compares nothing.
+The counts don't depend on the host: a Mac measures what CI's x86_64 Linux
+does, so the gate compares on any machine.
 
 Each instantiation of a generic function counts on its own, as under
 `--coverage=mcdc` anywhere, so a test that calls `list.map` at a new type adds
@@ -274,6 +274,10 @@ Those shards measured the green run's commit, so:
 - A side this host took then and doesn't now counts as untaken everywhere: a
   change that stops it here most likely stops it everywhere. A difference
   between this machine and CI's macOS runner can do it too.
+- A side this host takes in an unchanged line that CI's runner for this host
+  didn't take counts as untaken. A physical Mac has instruction counters and
+  CI's virtual one doesn't, so a branch on them would hide a fall CI sees. A
+  new test reaching an old branch is held back too; CI counts it.
 - A change that names `target_os = "linux"`, or changes a branch only the
   other platforms took, gets a warning that their shards are stale.
 

@@ -78,7 +78,7 @@ fn main() {
         .flat_map(|&(a, b)| disagree(&runs[a], &runs[b]))
         .collect();
     let merged = merge(runs.iter().map(|(_, m)| m));
-    let now = Baseline::of(&gate.host, &merged);
+    let now = Baseline::of(&merged);
 
     let baseline_path = gate.root.join("coverage").join("stdlib-mcdc.txt");
     let summary_path = gate.root.join("coverage").join("stdlib.txt");
@@ -95,32 +95,12 @@ fn main() {
 
     let baseline = Baseline::parse(&std::fs::read_to_string(&baseline_path).unwrap_or_default());
     if bless {
-        if !baseline.host.is_empty() && baseline.host != gate.host {
-            eprintln!(
-                "the baseline was measured on {}, and this is {}. Bless on {} or commit the CI \
-                 run's artifact.",
-                baseline.host, gate.host, baseline.host
-            );
-            std::process::exit(2);
-        }
         std::fs::write(&baseline_path, now.render()).unwrap();
         std::fs::write(&summary_path, summary(&merged)).unwrap();
         println!(
             "\nwrote {} and {}",
             baseline_path.display(),
             summary_path.display()
-        );
-        return;
-    }
-    if baseline.host != gate.host {
-        println!(
-            "\nThe baseline is for {}, not {}, so nothing was compared.",
-            if baseline.host.is_empty() {
-                "no host"
-            } else {
-                &baseline.host
-            },
-            gate.host
         );
         return;
     }
@@ -136,8 +116,6 @@ struct Gate {
     root: PathBuf,
     /// `target/stdlib-coverage`: the corpus copies and what they measured.
     target: PathBuf,
-    /// rustc's host triple.
-    host: String,
 }
 
 impl Gate {
@@ -148,14 +126,7 @@ impl Gate {
             .unwrap();
         let target = root.join("target").join("stdlib-coverage");
         std::fs::create_dir_all(&target).unwrap();
-        let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-        let version = output(Command::new(rustc).arg("-vV"));
-        let host = version
-            .lines()
-            .find_map(|l| l.strip_prefix("host: "))
-            .expect("rustc -vV names a host")
-            .to_string();
-        Gate { root, target, host }
+        Gate { root, target }
     }
 
     /// The ratchet: replaces the checked-in baseline and summary with the last
@@ -515,16 +486,15 @@ fn summary(modules: &BTreeMap<String, Stats>) -> String {
     out
 }
 
-/// `stdlib-mcdc.txt`: the host, then conditions shown and conditions per module.
+/// `stdlib-mcdc.txt`: conditions shown and conditions per module. They don't
+/// depend on the host, so every machine compares.
 struct Baseline {
-    host: String,
     modules: BTreeMap<String, (u64, u64)>,
 }
 
 impl Baseline {
-    fn of(host: &str, modules: &BTreeMap<String, Stats>) -> Baseline {
+    fn of(modules: &BTreeMap<String, Stats>) -> Baseline {
         Baseline {
-            host: host.to_string(),
             modules: modules
                 .iter()
                 .map(|(n, s)| (n.clone(), (s.shown, s.conditions)))
@@ -533,16 +503,11 @@ impl Baseline {
     }
 
     fn parse(text: &str) -> Baseline {
-        let mut host = String::new();
         let mut modules = BTreeMap::new();
         for line in text
             .lines()
             .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
         {
-            if let Some(h) = line.strip_prefix("host ") {
-                host = h.trim().to_string();
-                continue;
-            }
             let mut words = line.splitn(3, ' ');
             let (Some(shown), Some(total), Some(module)) =
                 (words.next(), words.next(), words.next())
@@ -553,7 +518,7 @@ impl Baseline {
                 modules.insert(module.to_string(), (shown, total));
             }
         }
-        Baseline { host, modules }
+        Baseline { modules }
     }
 
     fn total(&self) -> (u64, u64) {
@@ -568,12 +533,10 @@ impl Baseline {
             "# The standard library's MC/DC conditions shown, per module: shown, total,\n\
              # module. CI's stdlib-coverage job raises it on main; never edit a count\n\
              # by hand. coverage/stdlib/src/main.rs has the rest.\n\
-             # total {} {} ({})\n\
-             host {}\n",
+             # total {} {} ({})\n",
             total.0,
             total.1,
-            percent(total),
-            self.host
+            percent(total)
         );
         for (module, (shown, total)) in &self.modules {
             out.push_str(&format!("{shown} {total} {module}\n"));
@@ -589,8 +552,7 @@ fn cmp((a, at): (u64, u64), (b, bt): (u64, u64)) -> std::cmp::Ordering {
 
 /// Whether a module or the total shows a larger share than the baseline did.
 fn rises(was: &Baseline, now: &Baseline) -> bool {
-    was.host != now.host
-        || cmp(now.total(), was.total()).is_gt()
+    cmp(now.total(), was.total()).is_gt()
         || now.modules.iter().any(|(m, &s)| {
             was.modules
                 .get(m)
@@ -653,21 +615,12 @@ fn run(command: &mut Command) {
     assert!(status.success(), "{command:?} failed: {status}");
 }
 
-fn output(command: &mut Command) -> String {
-    let out = command
-        .output()
-        .unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
-    assert!(out.status.success(), "{command:?} failed: {}", out.status);
-    String::from_utf8(out.stdout).unwrap()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn baseline(modules: &[(&str, u64, u64)]) -> Baseline {
         Baseline {
-            host: "h".to_string(),
             modules: modules
                 .iter()
                 .map(|(m, s, t)| (m.to_string(), (*s, *t)))

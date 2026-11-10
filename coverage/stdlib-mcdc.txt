@@ -2,7 +2,6 @@
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
 # total 10110 10223 (98.9%)
-host x86_64-unknown-linux-gnu
 274 274 core/actor
 3 3 core/alloc
 82 84 core/bigint

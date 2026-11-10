@@ -6,6 +6,9 @@
 //! where `git diff` from that commit puts it, and a line the diff changed is
 //! dropped, since nothing measured it as it is now. A side this host took
 //! then and doesn't now counts as untaken everywhere.
+//! A side this host takes in an unchanged line that CI's runner for this
+//! host didn't take counts as untaken: that's most likely a difference between
+//! the two machines.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -58,6 +61,8 @@ pub(crate) fn against_ci(
         println!("warning: {warning}");
     }
     let then = changes.remap(&green, &starts);
+    let mut here = here;
+    let held = hold_to_ci(&then, &mut here);
     let mut now = then.clone();
     now.extend(here.clone());
     stop_everywhere(&then, &mut now, &here);
@@ -75,6 +80,16 @@ pub(crate) fn against_ci(
             })
             .collect::<String>()
     };
+    if !held.is_empty() {
+        println!(
+            "\nThis host takes these {} branch side(s) in unchanged lines, and CI run {id}'s \
+             runner for this host didn't, so they count as untaken. A difference between this \
+             machine and CI's runner does that, such as instruction counters only a physical Mac \
+             has. A new test reaching them does too, and CI will count those:{}",
+            held.len(),
+            named(&held)
+        );
+    }
     if !unchanged.is_empty() {
         println!(
             "\nNo test takes these {} branch side(s), which CI run {id} took. This host's tests \
@@ -365,6 +380,35 @@ impl Changes {
     }
 }
 
+/// Zeroes each side `here` takes that the same platform left untaken in
+/// `then`, and returns them. `then` holds only unchanged lines, so this
+/// machine taking a side CI's runner for it didn't is most likely a
+/// difference between the two, which CI would never count. Without it, a
+/// side only this machine takes hides a fall CI sees.
+fn hold_to_ci(
+    then: &BTreeMap<String, Measured>,
+    here: &mut BTreeMap<String, Measured>,
+) -> Vec<(String, Side)> {
+    let mut held = Vec::new();
+    for (host, measured) in here.iter_mut() {
+        let Some(ci) = then.get(host) else { continue };
+        for (path, record) in &mut measured.files {
+            for (side, taken) in &mut record.branches {
+                let untaken_on_ci = ci
+                    .files
+                    .get(path)
+                    .and_then(|r| r.branches.get(side))
+                    .is_some_and(|&t| t == 0);
+                if *taken > 0 && untaken_on_ci {
+                    *taken = 0;
+                    held.push((path.clone(), *side));
+                }
+            }
+        }
+    }
+    held
+}
+
 /// Takes each side `here`'s platforms took in `then` and don't now out of
 /// every platform in `now`: a change that stops a side here most likely stops
 /// it everywhere.
@@ -558,6 +602,27 @@ deleted file mode 100644
               from CI, measured before it, are stale"
             ]
         );
+    }
+
+    #[test]
+    fn a_side_only_this_machine_takes_counts_as_untaken() {
+        let then = platforms(&[
+            (LINUX, measured(&[(BUILD, 4, 0, 0), (BUILD, 5, 0, 0)])),
+            (MAC, measured(&[(BUILD, 4, 0, 0), (BUILD, 5, 0, 1)])),
+        ]);
+        // Line 6's side is new, so CI's runner can't vouch either way.
+        let mut here = platforms(&[(
+            MAC,
+            measured(&[(BUILD, 4, 0, 7), (BUILD, 5, 0, 1), (BUILD, 6, 0, 1)]),
+        )]);
+        assert_eq!(
+            hold_to_ci(&then, &mut here),
+            [(BUILD.to_string(), side(4, 0))]
+        );
+        let branches = &here[MAC].files[BUILD].branches;
+        assert_eq!(branches[&side(4, 0)], 0);
+        assert_eq!(branches[&side(5, 0)], 1);
+        assert_eq!(branches[&side(6, 0)], 1);
     }
 
     #[test]
