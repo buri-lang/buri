@@ -140,6 +140,7 @@ impl Jump {
 
 impl Bind {
     /// The hole this binds.
+    #[inline]
     fn slot(&self) -> Slot {
         match *self {
             Bind::Lit(l, _) => Slot::Lit(l),
@@ -157,7 +158,9 @@ impl Bind {
     }
 }
 
-/// The bind for hole `h`, where the caller named it.
+/// The bind for hole `h`, where the caller named it. Asked for every hole of
+/// every emitted stencil, so it is inlined.
+#[inline]
 fn bind_of<'b>(binds: &'b [Bind], h: &Hole) -> Option<&'b Bind> {
     match h.name {
         HoleName::Slot(slot) => binds.iter().find(|b| b.slot() == slot),
