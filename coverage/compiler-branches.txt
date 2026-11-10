@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15780 15875 99.40%
+total 15773 15867 99.41%
 area cli/build 1705 1711 99.65%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
@@ -17,7 +17,7 @@ area crates/backend 68 68 100.00%
 area crates/diagnostics 287 288 99.65%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 1092 1116 97.85%
+area crates/js 1089 1112 97.93%
 area crates/llvm 580 580 100.00%
 area crates/middle 2317 2344 98.85%
 area crates/project 1335 1338 99.78%
@@ -122,11 +122,11 @@ area crates/syntax 1268 1268 100.00%
 8 8 crates/hash/src/build/sha256.rs
 8 8 crates/hash/src/hash.rs
 12 12 crates/js/src/compiler/backend/js/crossing.rs
-305 308 crates/js/src/compiler/backend/js/generate.rs
+309 312 crates/js/src/compiler/backend/js/generate.rs
 100 100 crates/js/src/compiler/backend/js/intrinsics.rs
-526 546 crates/js/src/compiler/backend/js/javascript.rs
+523 542 crates/js/src/compiler/backend/js/javascript.rs
 5 6 crates/js/src/compiler/backend/js/mod.rs
-144 144 crates/js/src/compiler/backend/js/park.rs
+140 140 crates/js/src/compiler/backend/js/park.rs
 58 58 crates/llvm/src/compiler/backend/llvm/attrs.rs
 10 10 crates/llvm/src/compiler/backend/llvm/build.rs
 430 430 crates/llvm/src/compiler/backend/llvm/emit.rs
@@ -181,21 +181,21 @@ area crates/syntax 1268 1268 100.00%
 38 38 crates/semantics/src/compiler/semantics/builtins.rs
 54 54 crates/semantics/src/compiler/semantics/consteval.rs
 34 34 crates/semantics/src/compiler/semantics/crossing.rs
-12 12 crates/semantics/src/compiler/semantics/decorative.rs
+10 10 crates/semantics/src/compiler/semantics/decorative.rs
 84 84 crates/semantics/src/compiler/semantics/exhaustiveness.rs
 426 426 crates/semantics/src/compiler/semantics/expressions.rs
-52 52 crates/semantics/src/compiler/semantics/icons.rs
+50 50 crates/semantics/src/compiler/semantics/icons.rs
 242 242 crates/semantics/src/compiler/semantics/inference.rs
 4 4 crates/semantics/src/compiler/semantics/intern.rs
 6 6 crates/semantics/src/compiler/semantics/layered.rs
 2 2 crates/semantics/src/compiler/semantics/name.rs
 84 84 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-406 406 crates/semantics/src/compiler/semantics/resolve.rs
+408 408 crates/semantics/src/compiler/semantics/resolve.rs
 24 24 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 150 150 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-366 366 crates/semantics/src/compiler/semantics/styles.rs
+364 364 crates/semantics/src/compiler/semantics/styles.rs
 22 22 crates/semantics/src/compiler/semantics/typed.rs
 116 116 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
