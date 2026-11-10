@@ -1,7 +1,7 @@
 # The standard library's MC/DC conditions shown, per module: shown, total,
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
-# total 10175 10288 (98.9%)
+# total 10183 10296 (98.9%)
 274 274 core/actor
 3 3 core/alloc
 82 84 core/bigint
@@ -58,9 +58,9 @@
 348 349 std/codegen/proto
 414 414 std/codegen/proto/schema
 21 21 std/codegen/proto/wellknown
-763 770 ui/node
+767 774 ui/node
 30 30 ui/prop
-35 35 ui/shape
+39 39 ui/shape
 0 0 ui/signal
 6 6 ui/style
 225 226 ui/style/classify
