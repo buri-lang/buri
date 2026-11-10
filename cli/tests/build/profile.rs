@@ -480,7 +480,7 @@ fn long_matches(n: usize, pairs: bool) -> (String, String) {
 /// copy-and-patch backend asked, for every branch it might fuse with the
 /// comparison before it, how often the compared value is used, and answered by
 /// reading the whole function: a function of `n` instructions took `n²`. A
-/// tuple of 400 elements built and taken apart took 1.24 G instructions to
+/// tuple of 400 elements built and taken apart took 1.24 B instructions to
 /// emit, 3.5 times what 200 took. PERFORMANCE.md §6.32.
 ///
 /// Counted in operand lists read and dominator steps, which no load can move.
@@ -531,7 +531,7 @@ fn checking_a_match_over_pairs_is_linear_in_its_arms() {
 /// **Checking a pattern is linear in the names it binds.** A `let` asked
 /// whether the whole value could carry an effect once per name it binds, a
 /// walk of the value's type each time: a tuple of 2,000 elements taken apart
-/// took 1.2 G instructions to check.
+/// took 1.2 B instructions to check.
 #[test]
 fn checking_a_pattern_is_linear_in_the_names_it_binds() {
     grows_linearly(
@@ -579,7 +579,7 @@ fn long_branching(n: usize) -> (String, String) {
 /// **Reference counting is linear in the length of a branching expression.**
 /// The `rc` pass copied its live set at every node and at every branch, so an
 /// `else if` chain over `n` live fields copied `n` sets of up to `n` names:
-/// 0.16 G instructions at 800 fields, 3.5 times what 400 took.
+/// 0.16 B instructions at 800 fields, 3.5 times what 400 took.
 /// PERFORMANCE.md §6.32.
 ///
 /// Counted in the live set's entries written, walked and copied.
@@ -629,7 +629,7 @@ fn wide_hashed_struct(n: usize) -> (String, String) {
 
 /// **Deriving `Hash` is linear in a struct's fields.** The hash threads one
 /// accumulator through every field, and inlining a field's hash copied the
-/// accumulator built so far: 0.55 G instructions in `middle` at 800 fields,
+/// accumulator built so far: 0.55 B instructions in `middle` at 800 fields,
 /// 3.8 times what 400 took. PERFORMANCE.md §6.36.
 ///
 /// Counted in the expression nodes deriving built, copies included.
@@ -746,7 +746,7 @@ fn wide_variant(n: usize) -> (String, String) {
 /// **A debug build's emission is linear in a variant's fields.** Reading one
 /// payload field typed every field in the variant, and building one scanned
 /// back from each field for writes to its slot, so both were `n²`. §6.32's wide
-/// variants took 2.7 G instructions at 1,600 fields, 2.9 times what 800 took.
+/// variants took 2.7 B instructions at 1,600 fields, 2.9 times what 800 took.
 /// PERFORMANCE.md §6.37.
 #[test]
 fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
@@ -839,7 +839,7 @@ fn field_lets(n: usize) -> (String, String) {
 
 /// **Forwarding field reads is linear in a body's `let`s.** Each forwarded
 /// path was substituted by a walk of every later statement, and every nested
-/// block walked its whole subtree again: 12 G instructions in `middle` at
+/// block walked its whole subtree again: 12 B instructions in `middle` at
 /// 8,000 `let`s, 3.96 times what 4,000 took. PERFORMANCE.md §6.42.
 #[test]
 fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
@@ -876,7 +876,7 @@ fn many_lambdas(n: usize) -> (String, String) {
 
 /// **Closure conversion is linear in a function's lambdas.** Every lifted
 /// lambda took a copy of its parent's whole table of locals, and every later
-/// pass sized itself by it: 2.3 G instructions in `middle` at 4,000 lambdas,
+/// pass sized itself by it: 2.3 B instructions in `middle` at 4,000 lambdas,
 /// 3 times what 2,000 took. PERFORMANCE.md §6.42.
 #[test]
 fn closure_conversion_is_linear_in_a_functions_lambdas() {
@@ -930,7 +930,7 @@ fn library_chain(scratch: &Scratch, n: usize) {
 
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
-/// it: a chain of 200 libraries took 24.8 G instructions to lint, against 2.4 G
+/// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B
 /// to build. PERFORMANCE.md §6.47.
 #[test]
 fn linting_checks_each_library_once() {
@@ -974,8 +974,8 @@ fn graph_work(name: &str, n: usize, args: &[&str]) -> Option<f64> {
 /// **A command walks the build graph once.** Each target walked its closure
 /// from scratch, each library's check key folded every library below it, and
 /// `buri lint` re-read dependency edges per target, so a chain of 800
-/// libraries spent 11.7 G instructions outside the compiler to lint, against
-/// 1.8 G at 200. PERFORMANCE.md §6.43.
+/// libraries spent 11.7 B instructions outside the compiler to lint, against
+/// 1.8 B at 200. PERFORMANCE.md §6.43.
 #[test]
 fn linting_a_chain_of_libraries_walks_the_graph_once() {
     grows_linearly(
@@ -1089,7 +1089,7 @@ fn many_declarations(scratch: &Scratch, n: usize) {
 
 /// **The lint rules are linear in the length of a file.** The type census
 /// asked every type a module declares about every identifier in it: a file of
-/// 1,000 types took 1.5 G instructions to lint, three times what 500 took.
+/// 1,000 types took 1.5 B instructions to lint, three times what 500 took.
 /// PERFORMANCE.md §6.47.
 #[test]
 fn the_lint_rules_are_linear_in_a_files_length() {
@@ -1108,7 +1108,7 @@ fn the_lint_rules_are_linear_in_a_files_length() {
 
 /// **`unused-context` is linear in its findings.** Each finding's fix walked
 /// every body in the package for call sites: a file of 4,000 functions that
-/// never read their `ctx` took 6.5 G instructions to lint. PERFORMANCE.md §6.71.
+/// never read their `ctx` took 6.5 B instructions to lint. PERFORMANCE.md §6.71.
 #[test]
 fn unused_context_is_linear_in_its_findings() {
     let linted = |n: usize| {
@@ -1164,7 +1164,7 @@ fn unused_bounds(scratch: &Scratch, n: usize) {
 
 /// **The language server publishes a file's findings in time linear in how
 /// many it has.** Each finding's range was counted from the top of the file and
-/// compared with every finding before it: a file with 4,000 took 26 G
+/// compared with every finding before it: a file with 4,000 took 26 B
 /// instructions a keystroke. PERFORMANCE.md §6.70.
 #[test]
 fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
@@ -1617,7 +1617,7 @@ fn type_values_searched(all: &str) -> Option<u64> {
 /// **Finding that each of a chain of structs has a value searches each
 /// once.** Each struct holding the last inline was searched for a value from
 /// scratch, through every struct below it: a chain of five thousand took
-/// 129 G instructions to check, against 0.2 G now.
+/// 129 B instructions to check, against 0.2 B now.
 #[test]
 fn a_chain_of_structs_each_holding_the_last_is_searched_for_values_once() {
     let searched = |n: usize| {

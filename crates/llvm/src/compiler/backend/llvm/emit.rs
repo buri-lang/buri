@@ -4354,7 +4354,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Every block ends in a terminator: the one structural fact a release
     /// build checks, because LLVM crashes on a block without one rather than
     /// rejecting it. It costs 3 M instructions on `mixed-10k`, whose `emit` is
-    /// 20 G.
+    /// 20 B.
     fn check_terminators(&self) {
         let mut function = self.module.get_first_function();
         while let Some(f) = function {

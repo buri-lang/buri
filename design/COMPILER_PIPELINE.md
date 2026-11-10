@@ -193,8 +193,8 @@ Cold release build: 294.3 s in-process plus 1.1 s of `lld`. `emit` is 290.3 s,
 as in dev.
 
 A glue pre-pass used to build every module a second time, 1.6% (4.75 s).
-Building each module once took a cold release build from 3,538 G
-instructions to 3,458 G (−2.3%) and from 342.5 to 326.5 CPU-seconds, on a
+Building each module once took a cold release build from 3,538 B
+instructions to 3,458 B (−2.3%) and from 342.5 to 326.5 CPU-seconds, on a
 loaded machine. The 24 outputs are byte-identical.
 `profile::a_release_build_builds_each_llvm_module_once` holds `llvm modules
 built` to `objects compiled`.
@@ -274,8 +274,8 @@ instructions. Linking a cached unit took a `stat` and a `getxattr` to confirm
 the entry's length, and reading or writing one opened the file once for the
 bytes and again, by path, for the tag. Now one `stat` answers the link, and
 `fgetxattr` and `fsetxattr` work on the file already open. In-process link
-instructions fell from about 1.0 G to 0.37 G on `full` and from 1.95 G to
-0.79 G on `monorepo`. Linux syscalls are cheaper, and the gate's dev codegen
+instructions fell from about 1.0 B to 0.37 B on `full` and from 1.95 B to
+0.79 B on `monorepo`. Linux syscalls are cheaper, and the gate's dev codegen
 moved only 0.1%.
 
 **What one macOS link costs before it reads an object.** About 450 to 520 M

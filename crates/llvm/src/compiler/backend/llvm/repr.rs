@@ -603,7 +603,7 @@ pub fn ir_slots(reprs: &mut Reprs<'_>, program: &ir::Program, ty: ir::Type) -> V
 ///
 /// Moved slot by slot, a value is a run of loads and stores between two calls,
 /// and `llc`'s two schedulers are quadratic in such a run: a 200-field struct
-/// cost `llc` 174 G instructions in one unit (PERFORMANCE.md §6.31). The
+/// cost `llc` 174 B instructions in one unit (PERFORMANCE.md §6.31). The
 /// measured crossover was between 8 and 16 three-word fields.
 pub const WIDEST_IN_REGISTERS: u32 = 256;
 

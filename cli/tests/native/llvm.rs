@@ -6187,7 +6187,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// slots, every call took 600 parameters or answered a 600-member struct, and
 /// every move was 600 `insertvalue`s or `extractvalue`s. After `opt`, each
 /// move was a run of 1,200 loads and stores between two calls, and `llc`'s
-/// schedulers are quadratic in such a run: `e2e.rs`'s `deep_big` spent 174 G
+/// schedulers are quadratic in such a run: `e2e.rs`'s `deep_big` spent 174 B
 /// instructions in `llc`. Held in memory, a large value crosses a call as one
 /// pointer, comes back through `sret`, and moves by `memcpy`.
 ///
@@ -6284,7 +6284,7 @@ fn longest_store_run(ir: &str) -> usize {
 /// **A template of hundreds of parts is joined in bounded pieces.** It was one
 /// `[Str]` of all its parts, three stores apiece in one straight line, and
 /// `llc`'s schedulers are quadratic in a line that long: a template of 400
-/// holes took 34.5 G instructions to emit under `--release`, 2.6 times as
+/// holes took 34.5 B instructions to emit under `--release`, 2.6 times as
 /// much for each doubling. A derived `Show` on a wide struct is such a
 /// template. PERFORMANCE.md §6.32.
 #[test]
@@ -6382,7 +6382,7 @@ fn definition<'a>(ir: &'a str, suffix: &str) -> &'a str {
 /// element an `extractvalue` apiece. `opt`'s first `SimplifyCFG` only folds a
 /// chain into a `switch` where each block is a compare and a branch, so the
 /// chain reached InstCombine, which asks every dominating branch about every
-/// compare: a match of 400 arms took 5.5 G instructions to emit under
+/// compare: a match of 400 arms took 5.5 B instructions to emit under
 /// `--release`, 2.4 times as much for each doubling. PERFORMANCE.md §6.33.
 #[test]
 fn a_matchs_tests_of_one_value_read_its_tag_once() {

@@ -2051,7 +2051,7 @@ impl FnLower<'_> {
     /// More than [`JOIN_PIECE`] parts are joined a piece at a time, and then the
     /// pieces. One list of every part is three stores a part in one straight
     /// line, and `llc`'s schedulers are quadratic in a line with no call in it:
-    /// a template of 801 parts took 34.5 G instructions to emit
+    /// a template of 801 parts took 34.5 B instructions to emit
     /// (PERFORMANCE.md §6.32). A piece ends at its `list.join` call.
     fn template_joined(
         &mut self,

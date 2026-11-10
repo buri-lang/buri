@@ -1963,16 +1963,16 @@ are `--alloc` on `sema`.
 
 | Change | Recovery test: instructions, CPU | `mixed-1k` / `mixed-10k` allocations |
 |---|---:|---:|
-| `main` | 175.8 G, 25.4 s | 63,850 / 194,362 |
-| Layered tables instead of the copy | 42.2 G, 5.6 s | |
-| Passes after checking start at the base's last id; style extraction skips anything with no style in it | 35.4 G, 3.2 s | 54,742 / 185,258 |
-| Resolve a body in place; locals in one flat list of name hashes; no copy of the `FnInfo` per body | 30.1 G, 3.3 s | 44,853 / 153,474 |
+| `main` | 175.8 B, 25.4 s | 63,850 / 194,362 |
+| Layered tables instead of the copy | 42.2 B, 5.6 s | |
+| Passes after checking start at the base's last id; style extraction skips anything with no style in it | 35.4 B, 3.2 s | 54,742 / 185,258 |
+| Resolve a body in place; locals in one flat list of name hashes; no copy of the `FnInfo` per body | 30.1 B, 3.3 s | 44,853 / 153,474 |
 | Unify borrows what no variable stood for; literal checks borrow their spelling | | 40,622 / 144,644 |
-| The base keeps the prelude; known names are recorded once | 29.0 G, 3.1 s | |
-| Methods and conformances in an `IdMap` | 28.6 G, 3.1 s | 40,578 / 144,601 |
+| The base keeps the prelude; known names are recorded once | 29.0 B, 3.1 s | |
+| Methods and conformances in an `IdMap` | 28.6 B, 3.1 s | 40,578 / 144,601 |
 
 The first two rows ran before `main`'s lex+parse and driver changes merged
-in. Those took the starting point from 179.0 G to 175.8 G.
+in. Those took the starting point from 179.0 B to 175.8 B.
 
 | End to end, `main` against all of it | before | after |
 |---|---:|---:|
@@ -2048,7 +2048,7 @@ Times are the fastest sample.
 | `mixed/100k` lex+parse peak RSS | 37.5 MB | 34.1 MB | −9% |
 | `mixed/100k` lex peak RSS | 27.9 MB | 25.0 MB | −10% |
 | `mixed/100k` sema peak RSS | 134.1 MB | 132.0 MB | −1.6% |
-| recovery test, instructions | 34.10–34.14 G | 33.88–33.97 G | −0.5% |
+| recovery test, instructions | 34.10–34.14 B | 33.88–33.97 B | −0.5% |
 | recovery test, peak memory | 222–257 MB | 214–251 MB | noise |
 | cold `buri build` of the 365 repositories, CPU (user) | 16.9–17.5 s | 17.4–17.6 s | flat |
 | cold `buri build //...` of `cli/tests/example`, CPU (user) | 1.14–1.20 s | 1.13–1.15 s | flat |
@@ -2074,10 +2074,10 @@ changes, each measured A/B against the one before:
 | Change | Commit | What it bought |
 |---|---|---|
 | Each runtime declaration carries its identifiers, scanned once a process; identifier walks borrow names | `b9edfaa00` | `lower` floor 3.9 → 0.5 ms; `mixed/1k` `lower+js` 7.2–7.5 → 4.0–4.1 ms |
-| `distinct` keys switch labels in a hash set | `918e5fa81` | `wide-match/40k` `lower+js` 13.2 G → 2.6 G instructions; now linear |
+| `distinct` keys switch labels in a hash set | `918e5fa81` | `wide-match/40k` `lower+js` 13.2 B → 2.6 B instructions; now linear |
 | Fold, clean and `switches` per top-level statement on `parallel::map`; mangling too | `c8b37efd4` | `mixed/100k` emit 268–293 → 187 ms |
 | Each function generated on a worker; `merge_identical` keys a tree, not its printed text | `9dfd77111` | `mixed/100k` emit 154 ms |
-| Rewrites and the simplifying constructors keep their boxes; one map of compact records in local cleanup | `f216959a6` | `mixed/100k` 4.68 G → 3.79 G instructions (−19%); emit 124 ms |
+| Rewrites and the simplifying constructors keep their boxes; one map of compact records in local cleanup | `f216959a6` | `mixed/100k` 4.68 B → 3.79 B instructions (−19%); emit 124 ms |
 | Programs under 64 functions stay on one thread | `6904f19e9` | floor 1.1 → 0.5 ms again |
 
 Output is byte-identical: every corpus in `--quick --set=full`, plus
@@ -2199,7 +2199,7 @@ Each row is the inclusive time in one `samply` profile per side, at load
 4.29 → 3.08 s, unit keys 1.70 → 1.14 s, `prepare` 1.60 → 1.18 s. Wall time
 at that load moved by more than the change, so the A/B that holds is
 instructions retired by the whole run, test binaries and linker included:
-116.0–116.5 G before, 95.8–96.5 G after, two alternating runs each (−17%).
+116.0–116.5 B before, 95.8–96.5 B after, two alternating runs each (−17%).
 
 Every object the run links is byte-identical to `main`'s: 889 objects,
 compared by SHA-256.
@@ -2315,10 +2315,10 @@ are net of the phase before: `sema` minus `lex+parse`, the lowering rows minus
 | `saved:mixed-10k` sema allocations, per 1,000 lines | 11,560 | 10,101 (−13%) |
 | `saved:mixed-10k` sema, fastest sample | 6.94–8.22 ms | 5.42–5.62 ms (−22%) |
 | `saved:mixed-1k` sema, fastest sample | 2.13–2.18 ms | 1.53–1.65 ms (−28%) |
-| recovery test, instructions | 31.3–31.5 G | 28.0–28.1 G (−11%) |
+| recovery test, instructions | 31.3–31.5 B | 28.0–28.1 B (−11%) |
 | recovery test, CPU | 3.51–3.53 s | 3.32–3.34 s |
 | recovery test, peak memory | 237–254 MB | 190–198 MB (−20%) |
-| cold `buri test //...` on the monorepo copy, instructions | 94.4–94.5 G | 78.9–79.2 G (−16%) |
+| cold `buri test //...` on the monorepo copy, instructions | 94.4–94.5 B | 78.9–79.2 B (−16%) |
 | cold `buri test //...`, peak memory | 2,100–2,176 MB | 1,703–1,869 MB |
 | cold `buri test //...`, CPU (user) | 74–76 s | 78–79 s |
 
@@ -2555,7 +2555,7 @@ each (`8feca4d4`). Lex+parse allocations fell 10.6% on `mixed-100k` and 28% on
 | `string-heavy-100k` lex+parse allocations | 51,872 | 37,318 (−28%) |
 | `mixed-100k` peak RSS after `sema` | 109.7 MB | 100.2 MB (−8.7%) |
 | `generic-blowup-100k` peak RSS after `sema` | 121.9 MB | 109.5 MB (−10%) |
-| cold `buri lint //...` on the monorepo copy, instructions | 19.0–19.2 G | 17.9 G (−6%) |
+| cold `buri lint //...` on the monorepo copy, instructions | 19.0–19.2 B | 17.9 B (−6%) |
 
 The lint's output is byte-identical, and the full suite passes unmodified.
 
@@ -2606,9 +2606,9 @@ requests of two tools:
   again with the files.
 - One proto `generate` over all 16, and one `//tools/app_manifest` `generate`.
 
-Loading the 316 KB proto tool costs about 0.24 G instructions before it
-reads a byte, and a cold JIT makes each check cost 0.33–0.8 G. Replayed
-through one warm process, all 29 checks take 2.2 G in total.
+Loading the 316 KB proto tool costs about 0.24 B instructions before it
+reads a byte, and a cold JIT makes each check cost 0.33–0.8 B. Replayed
+through one warm process, all 29 checks take 2.2 B in total.
 
 So `core/tool`'s `serve` now answers requests until its input ends. One
 request and then EOF behaves as it always did. While `prepare_rules` runs,
@@ -2623,21 +2623,21 @@ under 3%:
 
 | | `main` | now |
 |---|---:|---:|
-| `buri clean`, fresh: own instructions | 3.46 G | 0.02 G |
-| `buri clean`, fresh: bun runs, instructions | 37, 30.5 G | 0 |
+| `buri clean`, fresh: own instructions | 3.46 B | 0.02 B |
+| `buri clean`, fresh: bun runs, instructions | 37, 30.5 B | 0 |
 | `buri clean`, fresh: wall | 1.5 s | 0.03 s |
 | `build //apps/store_server`: bun runs | 31 | 11 |
-| `build //apps/store_server`: bun instructions | 17.6–18.1 G | 11.3–11.8 G (−36%) |
+| `build //apps/store_server`: bun instructions | 17.6–18.1 B | 11.3–11.8 B (−36%) |
 | `build //apps/store_server`: bun user+sys | 2.1–2.6 s | 1.4–1.5 s |
 | `query`, which runs every generator: bun runs | 37 | 17 |
-| `query`: bun instructions | 31.3–31.5 G | 24.1–25.5 G (−21%) |
+| `query`: bun instructions | 31.3–31.5 B | 24.1–25.5 B (−21%) |
 
 Wall time moved within noise. The checks still fan out across cores, so
 `store_server` still starts about ten processes.
 
-**What's left.** The proto `generate` over 16 schemas is 3.4 G even warm.
+**What's left.** The proto `generate` over 16 schemas is 3.4 B even warm.
 That's `std/proto`'s own work, not process overhead. Capping processes per
-tool would push the checks toward 2.2 G, but they'd run in series, which costs
+tool would push the checks toward 2.2 B, but they'd run in series, which costs
 wall time.
 
 Running a tool by hand with a regular file as standard input now hangs at the
@@ -2798,7 +2798,7 @@ struct BlockUses { block: u32, count: u32, first: usize, last: usize }
 
 | Cold `buri test //...` on the monorepo copy, two alternating pairs | before | after |
 |---|---:|---:|
-| instructions, `buri` process | 77.3–77.7 G | 68.5–68.6 G (−12%) |
+| instructions, `buri` process | 77.3–77.7 B | 68.5–68.6 B (−12%) |
 | peak memory | 1,420–1,519 MB | 1,382–1,430 MB |
 | wall, at load 13–23 | 14–15 s | 14–15 s |
 
@@ -3002,7 +3002,7 @@ off native: one `dests` list per call.
 
 | Cold `buri test //...` on the monorepo copy | before | after |
 |---|---:|---:|
-| instructions, `buri` process | 68.7–69.1 G | 67.7 G (−1.5%) |
+| instructions, `buri` process | 68.7–69.1 B | 67.7 B (−1.5%) |
 | peak memory | 1,483–1,486 MB | 1,317–1,386 MB |
 | allocations | 53.1 M | 51.0 M (−3.8%) |
 | `middle` phase allocations | 7.37 M | 6.37 M (−14%) |
@@ -3027,7 +3027,7 @@ plus two switches: `BURI_DUMP=<dir>` writes a `--rss-child` lowering's
 output for hashing, and `BURI_ALL_TARGETS=1` makes the child emit the
 `--targets=` it was given even above the size where it would only take the
 host. One cold monorepo run hung for 21 minutes on its `bun` generators,
-with 2.8 G instructions retired; it was killed and rerun, and the hang didn't
+with 2.8 B instructions retired; it was killed and rerun, and the hang didn't
 recur in the runs after it.
 
 ### 6.28 Snippets already share the standard library, 2026-10-05
@@ -3064,27 +3064,27 @@ same filter, cargo included:
 
 | Binary | Tests | Instructions | Snapshots built | Snapshot share | CPU |
 |---|---:|---:|---:|---:|---:|
-| `recovery` | 38 | 53.0 G | 5 | 2.9% | 12.0 s |
-| `checking` | 29 | 8.0 G | 3 | 11.4% | 4.5 s |
-| `fuzz` | 41 | 85.8 G | 14 | 3.7% | 28.4 s |
-| `language` | 103 | 79.7 G | 9 | 1.0% | 256.6 s |
-| `buri` unit tests | 371 | 52.5 G | 114 | 63.6% | 44.2 s |
-| `native`, `agreement::` | 71 | 35.9 G | 70 | 58.6% | 35.6 s |
-| `docs` | 56 | 40.9 G | 18 | 9.9% | |
+| `recovery` | 38 | 53.0 B | 5 | 2.9% | 12.0 s |
+| `checking` | 29 | 8.0 B | 3 | 11.4% | 4.5 s |
+| `fuzz` | 41 | 85.8 B | 14 | 3.7% | 28.4 s |
+| `language` | 103 | 79.7 B | 9 | 1.0% | 256.6 s |
+| `buri` unit tests | 371 | 52.5 B | 114 | 63.6% | 44.2 s |
+| `native`, `agreement::` | 71 | 35.9 B | 70 | 58.6% | 35.6 s |
+| `docs` | 56 | 40.9 B | 18 | 9.9% | |
 
 `language`'s instructions leave out the `buri` processes it starts, which is
 where its CPU goes. `recovery::a_syntax_error_does_not_become_a_type_error`
-takes 26.8 G instructions and 3.3 s of CPU for its 7,000 analyses, not 650 s.
+takes 26.8 B instructions and 3.3 s of CPU for its 7,000 analyses, not 650 s.
 
 **Across the full suite it's 2%.** The same patch, over one full run at the
 default thread count:
 
 | Who builds it | Builds | Instructions | CPU |
 |---|---:|---:|---:|
-| `buri` processes, `Builtin` | 2,316 | 82.5 G | 9.6 s |
-| `buri` processes, `Library` | 104 | 31.5 G | 3.6 s |
-| test processes | 397 | 111.8 G | 13.0 s |
-| **total** | | **225.7 G** | **26.2 s** |
+| `buri` processes, `Builtin` | 2,316 | 82.5 B | 9.6 s |
+| `buri` processes, `Library` | 104 | 31.5 B | 3.6 s |
+| test processes | 397 | 111.8 B | 13.0 s |
+| **total** | | **225.7 B** | **26.2 s** |
 
 That run took 274 s of wall time and 1,200 s of CPU, at load 35–51. One
 without the patch took 277 s and 1,202 s, at load 26–81. Both had the tests
@@ -3105,7 +3105,7 @@ took a minute or two when the struct sat in a `Result` or was matched three
 levels deep. `opt -time-passes` on the module the backend emitted:
 
 ```text
-InstCombinePass   56.9 s of 58.0 s   690 G instructions
+InstCombinePass   56.9 s of 58.0 s   690 B instructions
 ```
 
 The trigger is a tagged enum's payload area. `repr.rs` held it as one integer
@@ -3136,9 +3136,9 @@ of 64 bytes or less keep the integer form they had.
 
 | Program | Before | After |
 |---|---:|---:|
-| `Result<Option<Big>, Str>`, built and matched | 721.5 G, 59.8 s CPU | 16.9 G, 1.4 s |
-| `Option<Holder>` matched three levels deep in one pattern | 947.6 G, 75.0 s | 23.6 G, 1.8 s |
-| `e2e.rs`'s `deep_big`, still matching one level at a time | 360.3 G, 32.3 s | 301.3 G, 27.9 s |
+| `Result<Option<Big>, Str>`, built and matched | 721.5 B, 59.8 s CPU | 16.9 B, 1.4 s |
+| `Option<Holder>` matched three levels deep in one pattern | 947.6 B, 75.0 s | 23.6 B, 1.8 s |
+| `e2e.rs`'s `deep_big`, still matching one level at a time | 360.3 B, 32.3 s | 301.3 B, 27.9 s |
 
 `deep_big` now takes the deep pattern and the `Result<Option<Big>, Str>` too.
 Its remaining cost isn't payloads. Its derived `Equal`, `Hash` and
@@ -3201,19 +3201,19 @@ LLVM instructions in the derived functions, debug-profile IR:
 
 | Program | Before | After |
 |---|---:|---:|
-| `Big`, no derives | 13.6 G | 13.6 G |
-| `derive Equal` | 20.0 G | 18.9 G |
-| `derive Hash` | 16.4 G | 15.8 G |
-| `derive Show` | 74.7 G, 7.9 s | 30.4 G, 2.3 s |
-| `derive Equal, Hash, Show` | 86.7 G, 9.1 s | 40.5 G, 3.2 s |
+| `Big`, no derives | 13.6 B | 13.6 B |
+| `derive Equal` | 20.0 B | 18.9 B |
+| `derive Hash` | 16.4 B | 15.8 B |
+| `derive Show` | 74.7 B, 7.9 s | 30.4 B, 2.3 s |
+| `derive Equal, Hash, Show` | 86.7 B, 9.1 s | 40.5 B, 3.2 s |
 
 The stencil backend reads a field as an offset load and was never affected.
-Its emit phase is under 0.1 G either way.
+Its emit phase is under 0.1 B either way.
 
-`e2e.rs`'s `deep_big` test process went from 364.7 G and 34.6 s CPU to 308.9 G
+`e2e.rs`'s `deep_big` test process went from 364.7 B and 34.6 s CPU to 308.9 B
 and 25.9 s. Its derived functions are now small. What's left is `main` itself:
 77k instructions of 600-slot aggregates passed through `insertvalue` and
-`extractvalue`, and `llc -O2` spends 170 G on that unit.
+`extractvalue`, and `llc -O2` spends 170 B on that unit.
 
 **Nothing else moved.** Every `lower` row of `--set=native --rss` is within
 1.6% of its old instruction count, which is the noise of a parallel row (§8).
@@ -3225,14 +3225,14 @@ text and its blocks.
 
 ### 6.31 A large value copied slot by slot is quadratic in `llc`, 2026-10-05
 
-`deep_big`'s `--release` emit phase was 261.8 G instructions, and
-`llc -O2 -time-passes` on its main unit was 174 G:
+`deep_big`'s `--release` emit phase was 261.8 B instructions, and
+`llc -O2 -time-passes` on its main unit was 174 B:
 
 ```text
-Machine Instruction Scheduler          72.1 G
-PostRA Machine Instruction Scheduler   53.6 G
-Greedy Register Allocator              20.7 G
-AArch64 Instruction Selection          15.3 G
+Machine Instruction Scheduler          72.1 B
+PostRA Machine Instruction Scheduler   53.6 B
+Greedy Register Allocator              20.7 B
+AArch64 Instruction Selection          15.3 B
 ```
 
 After `opt -O2`, `main` is 55k instructions: 20k `store`s, 20k GEPs and 7k
@@ -3241,26 +3241,26 @@ at a time: out of the 600-slot return of each `big` call, and into the
 entry-block scratch buffers that runtime calls and glue take a pointer to.
 Calls split scheduling regions, so each move is one region of about 1,200
 memory operations, and both schedulers are quadratic in a region's size.
-`-enable-misched=false -enable-post-misched=false` takes `llc` from 174 G to
-53.6 G.
+`-enable-misched=false -enable-post-misched=false` takes `llc` from 174 B to
+53.6 B.
 
 A synthetic unit has twelve calls returning such a value, each copied into
 three buffers. `llc -O2` on it:
 
 | Fields | First-class aggregate, a store per slot | `sret` into an `alloca`, `memcpy` |
 |---:|---:|---:|
-| 2 | 0.17 G | 0.16 G |
-| 4 | 0.27 G | 0.19 G |
-| 8 | 0.51 G | 0.29 G |
-| 16 | 1.9 G | 0.16 G |
-| 32 | 6.7 G | 0.16 G |
-| 64 | 21.7 G | 0.16 G |
-| 128 | 63.3 G | 0.16 G |
-| 200 | 125.7 G | 0.16 G |
+| 2 | 0.17 B | 0.16 B |
+| 4 | 0.27 B | 0.19 B |
+| 8 | 0.51 B | 0.29 B |
+| 16 | 1.9 B | 0.16 B |
+| 32 | 6.7 B | 0.16 B |
+| 64 | 21.7 B | 0.16 B |
+| 128 | 63.3 B | 0.16 B |
+| 200 | 125.7 B | 0.16 B |
 
 Keeping the value in SSA inside the function doesn't help. Spilling the
-returned value once and `memcpy`ing it on costs the same 125.8 G, and taking
-the return by `sret` and then loading its slots still costs 61.9 G. The value
+returned value once and `memcpy`ing it on costs the same 125.8 B, and taking
+the return by `sret` and then loading its slots still costs 61.9 B. The value
 has to stay in memory from the call that makes it to the copy that consumes it.
 
 **The fix:** a value wider than 256 bytes (`repr::WIDEST_IN_REGISTERS`, from
@@ -3293,15 +3293,15 @@ call void @llvm.memcpy.p0.p0.i64(ptr align 1 %pay, ptr align 16 %out2, i64 4800,
 
 | | Before | After |
 |---|---:|---:|
-| instructions retired | 174.5 G | 17.8 G |
-| both schedulers, `-time-passes` | 125.7 G | 5.3 G |
+| instructions retired | 174.5 B | 17.8 B |
+| both schedulers, `-time-passes` | 125.7 B | 5.3 B |
 | `main`, instructions | 55,216 | 2,514 |
 | the unit's `insertvalue`s and `extractvalue`s | 9,615 | 6 |
 | the unit's `store`s | 22,743 | 3,337 |
 
 What's left is per field and linear: the derived `Show`, the release and retain
 glue, and `big` building its 600 slots. The greedy register allocator is the
-largest pass on it, at 6.7 G.
+largest pass on it, at 6.7 B.
 
 **Nothing below the threshold moved.** All 641 release objects of 104
 programs, every `cli/tests/matches` batch and every fourth `cli/tests/growth`
@@ -3327,16 +3327,16 @@ the phase that grew; `--release` counts `emit`. The "after" column includes
 
 | Shape, largest size | Debug (stencil) | `--release` (LLVM) | JavaScript |
 |---|---:|---:|---:|
-| enum of 400 unit variants, derives | emit 17.1 G → 0.08 G | 346 G → 2.6 G | linear |
-| enum of 400 payload variants, derives | panicked from 100 → 0.23 G | 325 G → 38 G | linear |
-| variants carrying 200 fields | emit 1.2 G → 0.15 G | 221 G → 46 G | linear |
-| `Option`/`Result` 100 deep | linear | 213 G → 30 G | linear |
-| chain of 100 enums | linear | 100 G → 12 G | linear |
-| tuple of 400 | emit 1.24 G → 0.15 G, check 0.09 G → 0.04 G | 398 G → 38 G | linear |
-| records of 200 fields in lists and maps | emit 0.41 G → 0.13 G | 352 G → 18 G | linear |
+| enum of 400 unit variants, derives | emit 17.1 B → 0.08 B | 346 B → 2.6 B | linear |
+| enum of 400 payload variants, derives | panicked from 100 → 0.23 B | 325 B → 38 B | linear |
+| variants carrying 200 fields | emit 1.2 B → 0.15 B | 221 B → 46 B | linear |
+| `Option`/`Result` 100 deep | linear | 213 B → 30 B | linear |
+| chain of 100 enums | linear | 100 B → 12 B | linear |
+| tuple of 400 | emit 1.24 B → 0.15 B, check 0.09 B → 0.04 B | 398 B → 38 B | linear |
+| records of 200 fields in lists and maps | emit 0.41 B → 0.13 B | 352 B → 18 B | linear |
 | 400 records of 12 fields | linear | flat | linear |
-| matches of 400 arms | emit 0.84 G → 0.09 G, check 0.14 G → 0.06 G | 5.5 G → 4.1 G (§6.33) | emit 1.16 G → 0.13 G |
-| template of 400 holes | linear | 34.5 G → 15.4 G | linear |
+| matches of 400 arms | emit 0.84 B → 0.09 B, check 0.14 B → 0.06 B | 5.5 B → 4.1 B (§6.33) | emit 1.16 B → 0.13 B |
+| template of 400 holes | linear | 34.5 B → 15.4 B | linear |
 
 Eight causes, each fixed and bound by a test:
 
@@ -3398,8 +3398,8 @@ hands them:
 
 | Shape | `opt`, 200 → 400 | `llc`, 200 → 400 |
 |---|---:|---:|
-| match of 400 arms | 1.48 → 4.07 G | 1.02 → 1.75 G |
-| template of 400 holes | 2.87 → 6.24 G | 4.01 → 9.79 G |
+| match of 400 arms | 1.48 → 4.07 B | 1.02 → 1.75 B |
+| template of 400 holes | 2.87 → 6.24 B | 4.01 → 9.79 B |
 
 **A long match was ours.** The decision tree falls back to a chain of tag tests
 for or-patterns, pairs and guards, and every block of the chain read the tag
@@ -3417,25 +3417,25 @@ b2:
 is a compare and a branch, so this chain reached InstCombine whole. InstCombine
 asks every branch on a value about every compare of it
 (`computeKnownBitsFromContext`, `foldICmpWithDominatingICmp`), which is `n²`:
-3.8 times per doubling, 2.7 G of `opt`'s 4.1 G at 400 arms.
+3.8 times per doubling, 2.7 B of `opt`'s 4.1 B at 400 arms.
 
 **The fix:** a tag or a field of a value in registers is read once per
 function, right after the value is defined (`emit.rs`, `Unit::read_once`). The
-chain is then foldable, and the or-pattern match costs `opt` 0.23 G at 400 arms
-where it cost 0.68 G.
+chain is then foldable, and the or-pattern match costs `opt` 0.23 B at 400 arms
+where it cost 0.68 B.
 
 `buri build --release` of `long_match`, emit phase:
 
 | Arms | Before | After |
 |---:|---:|---:|
-| 50 | 0.72 G | 0.68 G |
-| 100 | 1.10 G | 1.18 G |
-| 200 | 2.22 G | 2.04 G |
-| 400 | 5.46 G | 4.07 G |
-| 800 | 16.6 G | 9.19 G |
+| 50 | 0.72 B | 0.68 B |
+| 100 | 1.10 B | 1.18 B |
+| 200 | 2.22 B | 2.04 B |
+| 400 | 5.46 B | 4.07 B |
+| 800 | 16.6 B | 9.19 B |
 
 400 to 800 went from 3.0 to 2.26 times. At 100 arms the guarded match cost
-`SimplifyCFG` 0.14 G more: a failed guard jumped back into the chain, which is
+`SimplifyCFG` 0.14 B more: a failed guard jumped back into the chain, which is
 now a `switch`, and re-tested tags it already knew. The unit enum, payload
 enum, wide payload, nested generic, enum chain, long tuple and records shapes,
 and `cli/tests/example`'s two binaries, are within 1% of their old emit
@@ -3451,10 +3451,10 @@ alone:
 
 | Arms | `guard` alone, before | After | `long_match`, before | After |
 |---:|---:|---:|---:|---:|
-| 100 | 0.40 G | 0.23 G | 1.18 G | 1.01 G |
-| 200 | 0.72 G | 0.40 G | 2.04 G | 1.73 G |
-| 400 | 1.48 G | 0.76 G | 4.07 G | 3.35 G |
-| 800 | 3.32 G | 1.65 G | 9.18 G | 7.53 G |
+| 100 | 0.40 B | 0.23 B | 1.18 B | 1.01 B |
+| 200 | 0.72 B | 0.40 B | 2.04 B | 1.73 B |
+| 400 | 1.48 B | 0.76 B | 4.07 B | 3.35 B |
+| 800 | 3.32 B | 1.65 B | 9.18 B | 7.53 B |
 
 **What's left of a long match is LLVM's.** A pair's diagonal or a guard is `n`
 compares of one value in `n` blocks, and InstCombine is `n²` in those whatever
@@ -3463,21 +3463,21 @@ shape surrounds them. A hand-written module in the best shape there is, a
 
 | Cases | `opt -O2` | Per doubling |
 |---:|---:|---:|
-| 400 | 0.46 G | |
-| 800 | 1.22 G | 2.7× |
-| 1,600 | 4.12 G | 3.4× |
-| 3,200 | 15.3 G | 3.7× |
+| 400 | 0.46 B | |
+| 800 | 1.22 B | 2.7× |
+| 1,600 | 4.12 B | 3.4× |
+| 3,200 | 15.3 B | 3.7× |
 
-At 800 arms that is 1.3 G of the 9.2 G.
+At 800 arms that is 1.3 B of the 9.2 B.
 
 **A long template is LLVM's register allocator.** `llc -time-passes`, 200 to
 400 holes:
 
 ```text
-Greedy Register Allocator   1.28 → 3.61 G
-Live Interval Analysis      0.22 → 0.85 G
-Instruction Selection       0.78 → 1.59 G
-Machine Instruction Sched.  0.82 → 1.68 G
+Greedy Register Allocator   1.28 → 3.61 B
+Live Interval Analysis      0.22 → 0.85 B
+Instruction Selection       0.78 → 1.59 B
+Machine Instruction Sched.  0.82 → 1.68 B
 ```
 
 Every `Str` the program lets is three words, live until the template that
@@ -3489,7 +3489,7 @@ allocator grow with values times the blocks they span. Two measurements:
   holes 2.1 times.
 - With every count a runtime call, `llc` grows 2.19 times per doubling and
   costs half as much. That's a call per count at run time, and `opt` took
-  about 8 G more on the longer blocks, so it's not done.
+  about 8 B more on the longer blocks, so it's not done.
 
 `lower` made it worse: it showed every hole before joining the first piece, so
 all the converted strings were live at once too. Now each piece's holes are
@@ -3500,17 +3500,17 @@ holds it. On a template of 300 `Int` holes, `llc -O2 -time-passes`:
 ```text
 Greedy Register Allocator   229 → 85 M
 Live Interval Analysis       21 → 6 M
-Total                      1.52 → 1.29 G
+Total                      1.52 → 1.29 B
 ```
 
 `long_template`'s emit phase under `--release`:
 
 | Holes | Before | After |
 |---:|---:|---:|
-| 100 | 2.75 G | 2.70 G |
-| 200 | 6.40 G | 6.12 G |
-| 400 | 15.3 G | 14.4 G |
-| 800 | 36.9 G | 34.5 G |
+| 100 | 2.75 B | 2.70 B |
+| 200 | 6.40 B | 6.12 B |
+| 400 | 15.3 B | 14.4 B |
+| 800 | 36.9 B | 34.5 B |
 
 The growth doesn't change, since the program's own lets stay live.
 
@@ -3536,19 +3536,19 @@ One field at a time was worse. Each read tests both tags again, and `opt`'s
 
 | Fields | All at the arm | One at a time | Eight at a time |
 |---:|---:|---:|---:|
-| 100 | 2.99 G | 2.49 G | 1.46 G |
-| 200 | 7.91 G | 5.99 G | 2.76 G |
+| 100 | 2.99 B | 2.49 B | 1.46 B |
+| 200 | 7.91 B | 5.99 B | 2.76 B |
 
 `buri build --release`, emit phase, §6.32's shapes:
 
 | Shape | 50 | 100 | 200 |
 |---|---:|---:|---:|
-| variants carrying `n` fields, before | 7.32 G | 18.00 G | 46.37 G |
-| variants carrying `n` fields, after | 6.50 G | 14.87 G | 35.99 G |
-| tuple of `n`, before and after | 3.25 G | 6.72 G | 15.30 G |
+| variants carrying `n` fields, before | 7.32 B | 18.00 B | 46.37 B |
+| variants carrying `n` fields, after | 6.50 B | 14.87 B | 35.99 B |
+| tuple of `n`, before and after | 3.25 B | 6.72 B | 15.30 B |
 
-`middle` on the 200-field variants went from 0.14 G to 0.05 G, because `rc`
-has fewer names live across the comparison. Debug emit is 0.16 G either way.
+`middle` on the 200-field variants went from 0.14 B to 0.05 B, because `rc`
+has fewer names live across the comparison. Debug emit is 0.16 B either way.
 
 A struct or tuple was never affected: its derived functions read a field by
 projection, where it's compared. `native::llvm`'s
@@ -3560,12 +3560,12 @@ differ only in their last `Int`.
 **What's left on these two shapes isn't in the derives.** Each function's
 `opt -O2` plus `llc -O2`, from 100 fields to 200:
 
-- **`make`, which builds the variant**, goes from 1.3 G to 3.5 G.
+- **`make`, which builds the variant**, goes from 1.3 B to 3.5 B.
   `JumpThreading` on it grows 5.6 times.
-- **The derived `Show`** goes from 3.2 G to 7.2 G for the tuple. It's a
+- **The derived `Show`** goes from 3.2 B to 7.2 B for the tuple. It's a
   template of 401 parts, and the greedy allocator's global splitting grows 3.1
   times.
-- **`sum`, whose `let` binds all `n` fields**, goes from 0.74 G to 1.9 G.
+- **`sum`, whose `let` binds all `n` fields**, goes from 0.74 B to 1.9 B.
 
 ### 6.35 The dev shell's cargo slowed every process start, 2026-10-06
 
@@ -4019,11 +4019,11 @@ map. `buri format` of one file from `/tmp/buri-algo/gen.py big_file`:
 
 | Declarations | Lines | Before | After |
 |---:|---:|---:|---:|
-| 1,000 | 27k | 3.50 G | 0.43 G |
-| 2,000 | 54k | 12.92 G | 0.81 G |
+| 1,000 | 27k | 3.50 B | 0.43 B |
+| 2,000 | 54k | 12.92 B | 0.81 B |
 
 `build::profile`'s `formatting_is_linear_in_a_files_comments` formats 2,000
-and 4,000 commented functions. Before, it read 35.3 G and 277.2 G.
+and 4,000 commented functions. Before, it read 35.3 B and 277.2 B.
 
 **Then the formatter's constant**, each change measured on `mixed-100k`
 against the one before:
@@ -4148,9 +4148,9 @@ End to end, two alternating runs each:
 |---|---|---:|---:|
 | `buri build` of `saved:mixed-10k`, native | `monomorphize` | 33.2–33.8 M | 20.8–21.7 M |
 | | `middle` | 95.9–98.3 M | 88.2–90.8 M |
-| | process | 0.835–0.919 G | 0.805–0.886 G |
+| | process | 0.835–0.919 B | 0.805–0.886 B |
 | `buri test //...` in `cli/tests/example` | `monomorphize` | 42.4–43.4 M | 25.0–26.1 M |
-| | process | 1.090–1.092 G | 1.073–1.078 G |
+| | process | 1.090–1.092 B | 1.073–1.078 B |
 
 Output is identical. The JavaScript, the `rc::Plan`'s `Debug`, the IR's
 `Display` and every stencil object hash the same for 14 generated profiles at
@@ -4174,13 +4174,13 @@ reads, so dense sets need care. Dropping the program is 7% of the table.
 
 A warm `buri build //...` of a generated monorepo (200 libraries of four
 modules, 6 native and 6 node binaries, `/tmp/buri-perf-driver/gen.py`) took
-17.9 G instructions and a second to find that nothing had changed. Most of it
+17.9 B instructions and a second to find that nothing had changed. Most of it
 was work a cache already held the answer to.
 
 - **A module path finds its package by lookup.** `resolve_module` tried every
   package longest first and built `format!("{pkg}/")` for each, per import.
   Only the path, its prefixes before a `/` and the root can own it, so those
-  are looked up. Lex+parse 14.0 G → 2.2 G.
+  are looked up. Lex+parse 14.0 B → 2.2 B.
 - **A warm native build skips the front end.** A native artifact is keyed on
   its IR, so a no-op build still checked, lowered and hashed the whole
   program. A record keyed on the JavaScript artifact's key, the build graph
@@ -4230,21 +4230,21 @@ Instructions retired, `base` is `origin/main` at `1c674296f`, alternating:
 
 | Workload | Before | After | |
 |---|---:|---:|---:|
-| monorepo, warm `build //...` | 18.05–18.07 G | 0.68–0.72 G | -96% |
-| monorepo, warm `test //...` (400 cached) | 9.38–10.03 G | 1.02 G | -89% |
-| monorepo, cold `build //...` | 25.65–25.73 G | 13.31–13.34 G | -48% |
+| monorepo, warm `build //...` | 18.05–18.07 B | 0.68–0.72 B | -96% |
+| monorepo, warm `test //...` (400 cached) | 9.38–10.03 B | 1.02 B | -89% |
+| monorepo, cold `build //...` | 25.65–25.73 B | 13.31–13.34 B | -48% |
 | `cli/tests/example`, warm `build //...` | 230–233 M | 58–61 M | -74% |
 | `cli/tests/example`, warm `test //...` | 72–73 M | 55–57 M | -23% |
 | `cli/tests/example`, cold `build //...` | 668–670 M | 679.5–679.7 M | +1.5% |
-| `modules 800`, one edit, rebuild `//cmd/native` | 6.89 G | 3.11 G | -55% |
-| — its `link` phase | 4.17 G, 1.91 s CPU | 0.20 G, 0.04 s CPU | -95% |
+| `modules 800`, one edit, rebuild `//cmd/native` | 6.89 B | 3.11 B | -55% |
+| — its `link` phase | 4.17 B, 1.91 s CPU | 0.20 B, 0.04 s CPU | -95% |
 
 The warm monorepo build went from about a second to 0.05–0.1 s. The small cold
 build pays for writing the new records.
 
 **Bookkeeping that grew with the square of the packages.** On `gen.py`'s
-`pkgs_deep`, a chain of libraries, `buri lint //...` spent 1.5 G instructions
-outside the compiler at 200 packages and 10.8 G at 800. Each target walked its
+`pkgs_deep`, a chain of libraries, `buri lint //...` spent 1.5 B instructions
+outside the compiler at 200 packages and 10.8 B at 800. Each target walked its
 closure from scratch, and each lint record listed every file of its closure,
 so a chain of 800 wrote 22 MB of records and read them all back to verify.
 
@@ -4270,14 +4270,14 @@ Outside the compiler's phases, instructions, one run each:
 
 | `pkgs_deep` | 200 | 400 | 800 |
 |---|---:|---:|---:|
-| cold `lint //...`, before | 1.55 G | 3.88 G | 10.79 G |
-| cold `lint //...`, after | 1.64 G | 3.33 G | 7.33 G |
-| warm `lint //...`, before | 0.80 G | 1.83 G | 4.54 G |
-| warm `lint //...`, after | 0.73 G | 1.24 G | 2.61 G |
-| warm `build //...`, before | 0.48 G | 1.17 G | 3.43 G |
-| warm `build //...`, after | 0.34 G | 0.80 G | 1.66 G |
-| warm `test //...`, before | 0.16 G | 0.36 G | 0.86 G |
-| warm `test //...`, after | 0.08 G | 0.25 G | 0.46 G |
+| cold `lint //...`, before | 1.55 B | 3.88 B | 10.79 B |
+| cold `lint //...`, after | 1.64 B | 3.33 B | 7.33 B |
+| warm `lint //...`, before | 0.80 B | 1.83 B | 4.54 B |
+| warm `lint //...`, after | 0.73 B | 1.24 B | 2.61 B |
+| warm `build //...`, before | 0.48 B | 1.17 B | 3.43 B |
+| warm `build //...`, after | 0.34 B | 0.80 B | 1.66 B |
+| warm `test //...`, before | 0.16 B | 0.36 B | 0.86 B |
+| warm `test //...`, after | 0.08 B | 0.25 B | 0.46 B |
 
 Each doubling now costs 2.0–2.2×, where it cost 2.3–2.8×. Lint output is
 identical on all 414 fixture repositories, cold, warm and one target at a
@@ -4297,7 +4297,7 @@ twin hold 150 against 300 to 2.3× on that count: 55 runs passed, 30 of them
 beside 16 CPU burners at load 40. A closure walk keeps every target's closure
 on the way back up, so each target's edges are read once.
 
-A cold `build //...` still spends 18.6 G outside the phases at 800, and
+A cold `build //...` still spends 18.6 B outside the phases at 800, and
 nearly all of it is freeing analyses: each library is checked over its whole
 closure. Checking them in one compilation, as `buri lint` now does, is the fix,
 and it belongs to the front end.
@@ -4550,8 +4550,8 @@ and neither moves wall time much while wake-up latency dominates a round.
 
 ### 6.45 What `--release` hands to LLVM, 2026-10-06
 
-`buri build --release` of `mixed-10k` spent 20.2 G instructions in `emit`:
-0.6 G building IR, 8.4 G in `opt` and 11.1 G generating code. After `opt` the
+`buri build --release` of `mixed-10k` spent 20.2 B instructions in `emit`:
+0.6 B building IR, 8.4 B in `opt` and 11.1 B generating code. After `opt` the
 unit held 1,521 functions, and 880 of them had fewer than five instructions.
 `llc` spends about 1.1 M instructions on a function before it looks at the
 body, and `opt` about 0.8 M, so those 880 cost more than all the code in them.
@@ -4585,14 +4585,14 @@ Four changes, each its own commit:
 
 | Program | Before | After |
 |---|---:|---:|
-| `mixed-10k` | 20.25 G | 17.72 G (-12.5%) |
-| `mixed-1k` | 2.42 G | 2.10 G (-13.2%) |
-| `derive-heavy-1k` | 2.32 G | 2.01 G (-13.3%) |
+| `mixed-10k` | 20.25 B | 17.72 B (-12.5%) |
+| `mixed-1k` | 2.42 B | 2.10 B (-13.2%) |
+| `derive-heavy-1k` | 2.32 B | 2.01 B (-13.3%) |
 | `few-large-fns-1k` | 74.0 M | 67.5 M (-8.8%) |
 | `wide-match-1k` | 327 M | 120 M (-63%) |
 | `many-small-fns-1k` | 536 M | 92 M (-83%) |
-| 125 programs: every matches batch, every fourth growth case, §6.32's shapes at 50 and 100 | 234.1 G | 215.0 G (-8.2%) |
-| `mixed-10k` with a dev-profile toolchain | 68.6 G | 20.4 G (-70%) |
+| 125 programs: every matches batch, every fourth growth case, §6.32's shapes at 50 and 100 | 234.1 B | 215.0 B (-8.2%) |
+| `mixed-10k` with a dev-profile toolchain | 68.6 B | 20.4 B (-70%) |
 
 **Run time doesn't move.** All seven run-time programs link to the same bytes
 before and after: `fib(32)`, a tree of 2¹⁶ nodes built and walked 20 times,
@@ -4654,7 +4654,7 @@ Best of nine alternating runs:
 | `maps` | 1,716.5 M | 1,594.3 M (-7.1%) | 111.3 ms | 105.6 ms |
 
 The other fifteen programs are within noise. `emit` for the nineteen fell from
-5.25 G to 4.55 G instructions, `mixed-10k`'s is flat, and the nineteen
+5.25 B to 4.55 B instructions, `mixed-10k`'s is flat, and the nineteen
 executables shrank by 272 bytes.
 
 **Tried and dropped for run time:**
@@ -4735,17 +4735,17 @@ lookup; the audit's numbers, before that, are in brackets:
 
 | Repository | `main` | After | Δ |
 |---|---:|---:|---:|
-| `pkgs_deep` 200, a chain of libraries | 10.47 G (24.76 G) | 2.03 G | −81% |
-| `pkgs_deep` 50 | 1.05 G | 0.48 G | −55% |
-| `pkgs_layered` 40, 6 layers of 40 | 4.11 G (8.48 G) | 2.00 G | −51% |
-| `pkgs_layered` 10 | 1.05 G | 0.56 G | −46% |
-| `pkgs_wide` 100 | 1.00 G | 0.83 G | −17% |
-| `big_file` 1000, 32k lines | 1.84 G | 0.43 G | −76% |
-| `modules` 100 | 0.50 G | 0.33 G | −33% |
-| `mixed-10k` | 0.36 G | 0.24 G | −33% |
-| `mixed-10k` × 10 binaries | 3.01 G | 1.86 G | −38% |
+| `pkgs_deep` 200, a chain of libraries | 10.47 B (24.76 B) | 2.03 B | −81% |
+| `pkgs_deep` 50 | 1.05 B | 0.48 B | −55% |
+| `pkgs_layered` 40, 6 layers of 40 | 4.11 B (8.48 B) | 2.00 B | −51% |
+| `pkgs_layered` 10 | 1.05 B | 0.56 B | −46% |
+| `pkgs_wide` 100 | 1.00 B | 0.83 B | −17% |
+| `big_file` 1000, 32k lines | 1.84 B | 0.43 B | −76% |
+| `modules` 100 | 0.50 B | 0.33 B | −33% |
+| `mixed-10k` | 0.36 B | 0.24 B | −33% |
+| `mixed-10k` × 10 binaries | 3.01 B | 1.86 B | −38% |
 
-The audit measured a whole JavaScript build of the chain at 2.4 G, and of the layers at 1.6 G.
+The audit measured a whole JavaScript build of the chain at 2.4 B, and of the layers at 1.6 B.
 
 **Every target is checked in one compilation.** Lint analysed each target on
 its own, so a library was loaded and checked again for every target that
@@ -4771,9 +4771,9 @@ instructions:
 
 | Repository | Before | After | `check` before | after |
 |---|---:|---:|---:|---:|
-| 10 binaries sharing a library of 2,000 functions | 0.70 G | 0.26 G (−64%) | 410 M | 53 M |
-| `pkgs_layered` 40 | 2.03 G | 1.94 G (−5%) | 118 M | 64 M |
-| `pkgs_deep` 200 | 2.12 G | 2.06 G (−3%) | 99 M | 54 M |
+| 10 binaries sharing a library of 2,000 functions | 0.70 B | 0.26 B (−64%) | 410 M | 53 M |
+| `pkgs_layered` 40 | 2.03 B | 1.94 B (−5%) | 118 M | 64 M |
+| `pkgs_deep` 200 | 2.12 B | 2.06 B (−3%) | 99 M | 54 M |
 
 `gen.py`'s repositories have two binaries, so checking halves there, but most
 of their lint is outside the compiler (below). Output is identical on all 414
@@ -4840,9 +4840,9 @@ before. Cold `buri build //...`, process instructions:
 
 | Repository | Before | After | `lex+parse` | `check` | other |
 |---|---:|---:|---:|---:|---:|
-| `pkgs_deep` 800 | 138.1 G | 13.7 G (−90%) | 59.0 → 1.1 G | 54.8 → 0.5 G | 18.6 → 6.3 G |
-| `pkgs_deep` 200 | 10.8 G | 3.3 G (−69%) | 3.57 → 0.27 G | 3.59 → 0.15 G | 2.07 → 1.28 G |
-| `pkgs_layered` 40 | 5.21 G | 3.75 G (−28%) | 1.10 → 0.37 G | 0.82 → 0.18 G | 1.41 → 1.38 G |
+| `pkgs_deep` 800 | 138.1 B | 13.7 B (−90%) | 59.0 → 1.1 B | 54.8 → 0.5 B | 18.6 → 6.3 B |
+| `pkgs_deep` 200 | 10.8 B | 3.3 B (−69%) | 3.57 → 0.27 B | 3.59 → 0.15 B | 2.07 → 1.28 B |
+| `pkgs_layered` 40 | 5.21 B | 3.75 B (−28%) | 1.10 → 0.37 B | 0.82 → 0.18 B | 1.41 → 1.38 B |
 
 On the fixture repositories, every build prints the same thing, cold and warm,
 and writes the same objects, JavaScript outputs and cache records, with key
@@ -4863,7 +4863,7 @@ before this section. 30 runs at load 33–57 read 2.00× loading and
 **What's left.**
 
 - **Lint's own bookkeeping is `n²` in a chain of packages.** On `pkgs_deep`,
-  "other" is 1.76 G at 200 packages and 11.7 G at 800. A profile at 800 puts
+  "other" is 1.76 B at 200 packages and 11.7 B at 800. A profile at 800 puts
   it in `Workspace::closure` once per target, `Cache::put` writing each
   target's record with its whole closure, `check_cycles`, `check_visibility`
   and `Workspace::dep_edges`. All of it is in `cli/src/build`.
@@ -4873,7 +4873,7 @@ before this section. 30 runs at load 33–57 read 2.00× loading and
 
 ### 6.48 `core/map` updates in place, 2026-10-06
 
-A million inserts and a million gets into a `Map<Int, Int>` took 25 G
+A million inserts and a million gets into a `Map<Int, Int>` took 25 B
 instructions in `--release`, 25 thousand an insert. Half of a debug run was
 `glue$retain` and `glue$elems`. Two things made every insert copy its whole
 path:
@@ -4919,10 +4919,10 @@ So each level holds its child once, and the whole path updates in place.
 
 | Kernel, instructions retired | `main` | After |
 |---|---:|---:|
-| 1M inserts + 1M gets, debug | 37.4 G | 5.35 G |
-| 1M inserts + 1M gets, `--release` | 25.5 G | 3.13 G |
-| 300k inserts, 150k removes + 150k misses, debug | 15.2 G | 2.27 G |
-| the same, `--release` | 10.5 G | 1.37 G |
+| 1M inserts + 1M gets, debug | 37.4 B | 5.35 B |
+| 1M inserts + 1M gets, `--release` | 25.5 B | 3.13 B |
+| 300k inserts, 150k removes + 150k misses, debug | 15.2 B | 2.27 B |
+| the same, `--release` | 10.5 B | 1.37 B |
 
 Wall time for the first kernel, two warm runs at load 22–30: debug 7.1–9.0 s
 before, 1.9–2.1 s after; `--release` 5.3–8.0 s before, 0.54–0.55 s after. A
@@ -5066,9 +5066,9 @@ each, both identical:
 
 | Tests | Before | After |
 |---|---:|---:|
-| `matches::` | 110.3 G | 56.4 G (−49%) |
-| `conformance::the_native_set_passes` | 25.1 G | 20.1 G (−20%) |
-| `agreement::` | 36.2 G | 35.6 G (−1.7%) |
+| `matches::` | 110.3 B | 56.4 B (−49%) |
+| `conformance::the_native_set_passes` | 25.1 B | 20.1 B (−20%) |
+| `agreement::` | 36.2 B | 35.6 B (−1.7%) |
 
 Workspace suite, test phase, alternating, load 25–70:
 
@@ -5520,7 +5520,7 @@ Debug before is `ecc3749fc`:
 | 64 `Str` fields | 195 ns | 187 ns | 87 ns |
 
 A 64-field step retires 2,893 instructions before and 2,635 after (−9%),
-against 1,438 in release. The whole repro retires 4.03 G before and 3.71 G
+against 1,438 in release. The whole repro retires 4.03 B before and 3.71 B
 after.
 
 **The copy wasn't most of the cost.** A 1536-byte `memcpy` from L1 takes a few
@@ -5722,7 +5722,7 @@ copies the value into a home on entry. Per call, best of alternating runs:
 | Debug, on top of forwarding | By value | By address | |
 |---|---:|---:|---:|
 | `fan` over a 24-byte context, which only hands it on | 25.2 | 21.2 | −16% |
-| the `{ alloc(), fs() }` `fan` test, both tests' child instructions | 2.85 G | 2.71 G | −5% |
+| the `{ alloc(), fs() }` `fan` test, both tests' child instructions | 2.85 B | 2.71 B | −5% |
 | climb, a 24-byte `Random`: one effect call per call | 34.8 | 42.2 | +21% |
 
 A copy only moves. Where the callee reads the context, the caller's copy
@@ -5738,7 +5738,7 @@ it. The example and the generated repo stayed inside their noise either way.
 cost about 0.9 s per MB of source, on one core, every run. `gen` analysed
 each package over its whole closure, one package at a time, so a chain of 150
 libraries checked its first library 150 times. On #260's repository, `check`
-was 76.5 G of 97.6 G instructions.
+was 76.5 B of 97.6 B instructions.
 
 **One compilation.** The packages `gen` works out are checked together
 (`driver::shared`), as `buri lint` already does (§6.47). Each target reads its
@@ -5774,7 +5774,7 @@ cores:
 | no-op, 0.8 MB | 0.77–1.68 s | 0.05–0.06 s |
 | no-op, `//libs/l150` | 0.14–0.53 s | 0.02 s |
 
-Instructions: 97.6 G before, 3.1 G with nothing remembered, 0.5 G for a no-op.
+Instructions: 97.6 B before, 3.1 B with nothing remembered, 0.5 B for a no-op.
 
 Output is unchanged. On all 416 checked-in repositories, `gen --check` and
 `gen` print the same stdout and stderr, exit the same way and leave the same
@@ -5873,13 +5873,13 @@ core/bytes writes for it`), and `every_shape_and_state_is_painted` (71%).
 
 | | Before | After |
 |---|---:|---:|
-| `//lib/data`, native | 6.91 G, 381 ms | 0.90 G, 62 ms |
-| `//lib/data`, bun | 39.0 G | 6.3 G |
+| `//lib/data`, native | 6.91 B, 381 ms | 0.90 B, 62 ms |
+| `//lib/data`, bun | 39.0 B | 6.3 B |
 | normalization vectors, 0 to 60, native | 15.9 ms | 1.7 ms |
-| `//lib/collections`, native | 2.32 G | 1.72 G |
-| `//lib/collections`, bun | 16.3 G | 14.2 G |
+| `//lib/collections`, native | 2.32 B | 1.72 B |
+| `//lib/collections`, bun | 16.3 B | 14.2 B |
 | either side of every level boundary, native | 90 ms | 49 ms |
-| `//lib/crypto`, bun | 42.8 G | 37.7 G |
+| `//lib/crypto`, bun | 42.8 B | 37.7 B |
 | the million-character message, JS | 1.7 s | 1.5 s |
 | conformance, sum of suite times, native | 807 ms | 460 ms |
 
@@ -5891,7 +5891,7 @@ core/bytes writes for it`), and `every_shape_and_state_is_painted` (71%).
   - `core/crypto` builds its 80 round constants and copies them once per
     block, slices each block out of the message, and rotates with two shifts
     and an or. Built once per digest, with `bits.rotateRightU64`, SHA-512 of a
-    million bytes drops from 0.96 G to 0.68 G instructions, measured on a copy.
+    million bytes drops from 0.96 B to 0.68 B instructions, measured on a copy.
   - Stencil calls `number.U64.wrappingAdd`, `bits.rotateRightU64` and the
     shifts out of line. `emit.rs` open-codes them only as the callee's body. In
     the copy above they are 29% of the samples, before the call overhead
@@ -6601,13 +6601,13 @@ twice, node and native. Fewest of 22, cycles from `/usr/bin/time -l` for the
 
 | Workload | wall, base | DIT | cycles, base | DIT | |
 |---|---:|---:|---:|---:|---:|
-| large, `build //...` | 0.51 s | 0.52 s | 5.88 G | 5.98 G | +1.6% |
-| large, `build --release //...` | 2.52 s | 2.53 s | 74.8 G | 75.0 G | +0.3% |
-| large, `lint //...` | 0.24 s | 0.24 s | 0.904 G | 0.907 G | +0.3% |
-| example, `build //...` | 0.46 s | 0.46 s | 0.918 G | 0.934 G | +1.8% |
-| example, `test //...` | 0.21 s | 0.21 s | 0.471 G | 0.487 G | +3.5% |
-| conformance, `test //...`, 4,205 tests | 2.12 s | 2.12 s | 3.23 G | 3.24 G | +0.6% |
-| `buri lsp`, 40 edits with a diagnostic pull each | 3.89 s | 3.91 s | 15.30 G | 15.37 G | +0.4% |
+| large, `build //...` | 0.51 s | 0.52 s | 5.88 B | 5.98 B | +1.6% |
+| large, `build --release //...` | 2.52 s | 2.53 s | 74.8 B | 75.0 B | +0.3% |
+| large, `lint //...` | 0.24 s | 0.24 s | 0.904 B | 0.907 B | +0.3% |
+| example, `build //...` | 0.46 s | 0.46 s | 0.918 B | 0.934 B | +1.8% |
+| example, `test //...` | 0.21 s | 0.21 s | 0.471 B | 0.487 B | +3.5% |
+| conformance, `test //...`, 4,205 tests | 2.12 s | 2.12 s | 3.23 B | 3.24 B | +0.6% |
+| `buri lsp`, 40 edits with a diagnostic pull each | 3.89 s | 3.91 s | 15.30 B | 15.37 B | +0.4% |
 
 Instructions match within 0.2%. Medians agree in sign, except the
 conformance run at +0.1%. The example's test, at 0.2 s, is mostly process
@@ -6635,14 +6635,14 @@ At 4,000 a keystroke took 1.67 s and takes 0.074 s.
 **Where the compiler's time goes.** §6.69's workloads, profiled with
 `BURI_PROFILE` and `sample`, at load 1–4 on 12 cores:
 
-- `mixed-100k`, `build //...`: 0.52 s. Emission is 2.4 of 7.9 G
-  instructions and linking 1.7 G.
-- The same with `--release`: 174 of 180 G is LLVM's, under emission.
-- `lint //...`: 3.3 G. The rules cost 1.8 G, more than lexing and checking
+- `mixed-100k`, `build //...`: 0.52 s. Emission is 2.4 of 7.9 B
+  instructions and linking 1.7 B.
+- The same with `--release`: 174 of 180 B is LLVM's, under emission.
+- `lint //...`: 3.3 B. The rules cost 1.8 B, more than lexing and checking
   together.
 - Conformance, `buri test //...`: 2.2 s, of which the compiler is 1.0 s of
   CPU. The rest is the test processes.
-- `buri lsp`, a keystroke in `mixed-100k`: 1.3 G. Lint rules 44%, analysis
+- `buri lsp`, a keystroke in `mixed-100k`: 1.3 B. Lint rules 44%, analysis
   30%, `Sources` reading every file 12%, publishing the findings 8%.
 
 None of the cold phases grew faster than its input. Sweeping one file's count
@@ -6681,8 +6681,8 @@ arm, load 2.2–4.3, no sleep in `pmset -g log`, fewest of eight:
 | | before | after | Δ |
 |---|---:|---:|---:|
 | wall | 3.86 s | 3.74 s | −3.2% |
-| cycles | 15.26 G | 14.71 G | −3.6% |
-| instructions | 53.08 G | 50.76 G | −4.4% |
+| cycles | 15.26 B | 14.71 B | −3.6% |
+| instructions | 53.08 B | 50.76 B | −4.4% |
 
 **Output is identical.** Whole LSP sessions — opens, keystrokes, pulls, a parse
 error, a type error and a `workspace/diagnostic` — are byte-identical on
@@ -6700,8 +6700,8 @@ the second cost 3.14 times the first.
 - **`unused-context` is quadratic in the findings in a package** (§6.71 fixes it).
   `context_edits` rebuilds the package's published names, and walks every body
   for call sites, once per finding. One file of `n` functions whose `ctx` is
-  never read: `lint //...` is 1.05, 3.7 and 14.8 G at 1,000, 2,000 and 4,000,
-  and a keystroke still 1.0, 3.8 and 15.1 G after this change.
+  never read: `lint //...` is 1.05, 3.7 and 14.8 B at 1,000, 2,000 and 4,000,
+  and a keystroke still 1.0, 3.8 and 15.1 B after this change.
 - **`Names::of` looks every identifier up in a `BTreeSet<String>`** (§6.71 hashes it). That's
   14% of a `mixed-100k` keystroke in `memcmp`. A set of the module's distinct
   names first would make it a lookup per name rather than per token.
@@ -6733,15 +6733,15 @@ site. "Published" is a library that exports all `n`.
 
 | Shape | `n` = 1,000 | 2,000 | 4,000 |
 |---|---:|---:|---:|
-| calls, before | 0.81 G | 2.50 G | 6.49 G |
-| calls, after | 0.30 G | 0.43 G | 0.66 G |
-| published, before | 1.07 G | 3.75 G | 14.85 G |
-| published, after | 0.28 G | 0.41 G | 0.66 G |
+| calls, before | 0.81 B | 2.50 B | 6.49 B |
+| calls, after | 0.30 B | 0.43 B | 0.66 B |
+| published, before | 1.07 B | 3.75 B | 14.85 B |
+| published, after | 0.28 B | 0.41 B | 0.66 B |
 
 At 4,000 the published library lints in 0.04 s instead of 0.91 s. A keystroke
-in it, after §6.70, went from 1.0, 3.8 and 15.1 G to 0.23, 0.45 and 0.90 G.
+in it, after §6.70, went from 1.0, 3.8 and 15.1 B to 0.23, 0.45 and 0.90 B.
 `mixed-100k` and the conformance repository have no `unused-context` findings,
-and their lint is unchanged at 3.35 and 2.31 G.
+and their lint is unchanged at 3.35 and 2.31 B.
 
 **Output is identical.** `lint //...`, `--error-format=json`, `--fix`'s report
 and the tree it leaves hash the same before and after on 10 repositories:
@@ -6764,10 +6764,10 @@ Keystrokes are the fewest of eight alternating runs and lints the fewer of two, 
 | Workload | before | after | Δ |
 |---|---:|---:|---:|
 | `mixed-100k` keystroke ×40, wall | 3.66 s | 3.22 s | −12% |
-| the same, cycles | 14.78 G | 12.88 G | −13% |
-| the same, instructions | 50.76 G | 45.22 G | −11% |
-| `mixed-100k`, `lint //...` | 3.35 G | 3.08 G | −8% |
-| conformance, `lint //...` | 2.31 G | 2.27 G | −2% |
+| the same, cycles | 14.78 B | 12.88 B | −13% |
+| the same, instructions | 50.76 B | 45.22 B | −11% |
+| `mixed-100k`, `lint //...` | 3.35 B | 3.08 B | −8% |
+| conformance, `lint //...` | 2.31 B | 2.27 B | −2% |
 
 The same ten repositories and five LSP sessions hash identically.
 
@@ -6824,11 +6824,11 @@ fewest of eight, load 1.0–1.4, no sleep in `pmset -g log`:
 | | before | after | Δ |
 |---|---:|---:|---:|
 | wall | 3.21 s | 3.03 s | −5.6% |
-| cycles | 12.90 G | 12.19 G | −5.5% |
-| instructions | 45.22 G | 42.30 G | −6.5% |
+| cycles | 12.90 B | 12.19 B | −5.5% |
+| instructions | 45.22 B | 42.30 B | −6.5% |
 
 A cold `lint //...` builds the sets once per module instead of scanning, and
-costs 3.08 → 3.10 G (+0.5%) on `mixed-100k`. Conformance stays at 2.27 G.
+costs 3.08 → 3.10 B (+0.5%) on `mixed-100k`. Conformance stays at 2.27 B.
 
 **Output is identical** on §6.71's ten repositories: `lint //...`,
 `--error-format=json`, `--fix`'s report and the tree it leaves. The five LSP
@@ -7104,7 +7104,7 @@ change.
 | `a_tiny` | 593 M, 158 ms, 0.18 s | 601 M, 160 ms, 0.19 s | +1.5% |
 | `a_tasks` | 1,340 M, 115 ms, 0.42 s | 1,343 M, 115 ms, 0.42 s | 0% |
 
-`f_wide` retires 3.6 G instructions instead of 35.6 G, and its peak footprint
+`f_wide` retires 3.6 B instructions instead of 35.6 B, and its peak footprint
 went from 57.0 MB to 6.5 MB. `a_tiny` retires 2% more instructions: the
 latch's mark and the stack counters. A full pass of seven runs, at load 4–11,
 had the programs that don't fan out at the same instructions. The stripped
@@ -7263,7 +7263,7 @@ no count tells that apart from serial.
   (`run_member`), about 3% of a core each. That's CPU, not wall.
 - **The first edit to a suite after a full run** re-emits its standard library
   units, since a suite built alone is a different program from the batch.
-  Release spends 9.5 G instructions there instead of 2.8 G, on other threads,
+  Release spends 9.5 B instructions there instead of 2.8 B, on other threads,
   so the wall barely moves.
 
 ### 6.77 A runtime linked ahead of time, measured and left, 2026-10-09
@@ -7857,7 +7857,7 @@ A build's `lex+parse` phase uses less CPU than before on every shape but
 **The goal.** `parser::parse` holds it on every shape, from 1.02× on
 `comment-free` to 1.81× on `comment-heavy`, and 1.24× on `mixed`. Three times
 the goal is
-about 600 instructions a line at this core's 18 G a second, and the lexer
+about 600 instructions a line at this core's 18 B a second, and the lexer
 alone is 592. What's left is spread thin: a `(` still costs 42 instructions to
 lex, a one-letter word 68, and an operand goes through a call or two of large
 frames. Three times needs a lexer and parser that keep their state in
@@ -8057,7 +8057,7 @@ rewrite reaches two thirds of that at best. The bar was three times the goal
 with code that isn't significantly more complex.
 
 M3 Pro, release build, `c841da6e6`, fewest instructions of seven. Three times
-the goal is about 600 instructions a line at this core's 18.3 G a second.
+the goal is about 600 instructions a line at this core's 18.3 B a second.
 
 **The floor is over the budget.** Two passes that do less than any parser
 can, both in safe Rust with checked access as the workspace's lints
@@ -8195,9 +8195,9 @@ A copy of the profiled monorepo, cold release build, `BURI_PROFILE=1`:
 
 | Build | `emit` instructions | Objects compiled |
 |---|---:|---:|
-| Before | 8,855 G | 1,996 |
-| Glue `available_externally` in each unit | 7,869 G | 2,028 |
-| Glue declared in each unit | 6,851 G | 2,028 |
+| Before | 8,855 B | 1,996 |
+| Glue `available_externally` in each unit | 7,869 B | 2,028 |
+| Glue declared in each unit | 6,851 B | 2,028 |
 
 Declaring the glue saves 22.6% of `emit`'s instructions. Keeping an
 `available_externally` body in each unit so the inliner could still take it
@@ -8222,7 +8222,7 @@ each unit as `available_externally`. Release binaries, instructions retired:
 | a large multi-node test suite | 119,044 M | 119,093 M | 119,122 M |
 
 The other instruction-gate workloads moved less than 0.5%, all down. The
-large package's `emit` went from 492.6 G to 421.9 G declared and 427.2 G
+large package's `emit` went from 492.6 B to 421.9 B declared and 427.2 B
 with small glue kept, so the build keeps 93% of the win.
 
 `release.rs` guards it too: dropping lists of two `Str`s costs at most 1.2×
@@ -8254,13 +8254,13 @@ none match, and `Flights` already compiles a shared key once.
 A program's two targets lower to the same IR, about 20% of all IR bytes, but
 `default<O2>` and codegen both read the target, so they can't share either.
 
-Where `emit`'s 6,970 G instructions go:
+Where `emit`'s 6,970 B instructions go:
 
 | Part | Instructions |
 |---|---:|
-| Lowering every unit to collect glue (§6.88) | 80 G |
-| Lowering and `default<O2>` | 3,125 G |
-| Instruction selection to object bytes | 3,770 G |
+| Lowering every unit to collect glue (§6.88) | 80 B |
+| Lowering and `default<O2>` | 3,125 B |
+| Instruction selection to object bytes | 3,770 B |
 
 The 42% row is what sharing could reach, and only by compiling one body for
 instantiations that differ in a handler they don't touch. That changes symbols
@@ -8293,8 +8293,8 @@ profiled monorepo, cold `buri build --release //...`, `BURI_PROFILE=1`:
 | | Before | After |
 |---|---:|---:|
 | functions compiled | 104,661 | 97,318 |
-| `emit` instructions | 6,991 G | 6,557 G |
-| process instructions | 7,059 G | 6,624 G |
+| `emit` instructions | 6,991 B | 6,557 B |
+| process instructions | 7,059 B | 6,624 B |
 | process CPU, three runs each | 808–843 s | 763–781 s |
 
 That is 6.2% of the build's instructions, about 50 CPU seconds. Run time
@@ -8550,8 +8550,8 @@ depend on what else the build holds, which took three fixes:
   (`Walked::within`). Its outputs share the result (`Shared::restyle`).
 
 In a cold one-thread build of a large workspace, modules loaded fell from
-4,860 to 1,283, check from 12.8 G to 3.7 G instructions, and the process
-from 60.4 G to 52.7 G. Each artifact of a build of a few of its programs is
+4,860 to 1,283, check from 12.8 B to 3.7 B instructions, and the process
+from 60.4 B to 52.7 B. Each artifact of a build of a few of its programs is
 byte for byte the full build's. On the goals workspace, check went from
 43.6 k to 6.7 k instructions a line, and the whole build from 352 k to 312 k.
 
@@ -8803,9 +8803,9 @@ The JavaScript suites restyle side by side before any is queued. Restyling is
 billed to check, since a suite's own compilation does it there.
 
 On the `monorepo` goals workspace, cold and on one thread, modules loaded fell
-from 6,002 to 1,712 and the process from 60.2 G to 55.2 G instructions.
-Check went from 21.7 G to 16.6 G: type checking is 3.9 G, and drawing each
-UI suite's style graph is the other 12.7 G. Test-build check went from 187 k
+from 6,002 to 1,712 and the process from 60.2 B to 55.2 B instructions.
+Check went from 21.7 B to 16.6 B: type checking is 3.9 B, and drawing each
+UI suite's style graph is the other 12.7 B. Test-build check went from 187 k
 to 357 k lines a CPU second, and from 51.0 k to 39.2 k instructions a line.
 Under callgrind on `monorepo-ci`, it went from 14.9 k to 11.1 k, and parse
 from 2.55 k to 2.31 k.
@@ -8892,9 +8892,9 @@ build doesn't keep still cost its check 0.4% to 0.6% in the goals count.
 
 Cold `buri test //...` on `monorepo`, one thread, validate profile:
 
-- check went from 17.4 G to 6.8 G instructions, and from 1.25 s to 0.60 s;
+- check went from 17.4 B to 6.8 B instructions, and from 1.25 s to 0.60 s;
 - test-build check went from 339 k to 707 k lines a CPU second;
-- the process went from 56.7 G to 46.1 G instructions.
+- the process went from 56.7 B to 46.1 B instructions.
 
 The goals' `monorepo-ci test-build check` row fell 18%, from 11,073 to 9,068
 instructions a line, and its cost 12%, from 16,883 to 14,924.
@@ -9258,8 +9258,8 @@ Ten runs of each, 2026-10-05. Range is (max − min) / median.
 |---|---:|---:|
 | wall time | 71 s, range 77%, MAD 20% | 2.1 s, range 97%, MAD 7.7% |
 | CPU time | 19.2 s, range 5.3%, MAD 1.2% | 1.49 s, range 9.7%, MAD 2.2% |
-| cycles | 54 G, range 5.7%, MAD 1.0% | 4.3 G, range 10%, MAD 1.7% |
-| **instructions retired** | **135.5 G, range 0.79%, MAD 0.17%** | **10.0 G, range 0.85%, MAD 0.19%** |
+| cycles | 54 B, range 5.7%, MAD 1.0% | 4.3 B, range 10%, MAD 1.7% |
+| **instructions retired** | **135.5 B, range 0.79%, MAD 0.17%** | **10.0 B, range 0.85%, MAD 0.19%** |
 | allocations | | 8.03 M, range 0.13% |
 
 Per phase, from `BURI_PROFILE` over eight to ten more builds:
@@ -9348,7 +9348,7 @@ child processes: 174.066 s cpu
   for a core: the direct measure of how loaded the machine was.
 
 Off, a phase change costs one load of a flag. Ten builds with profiling off
-read 10.03 G instructions against `main`'s 10.02 G, inside the noise. On Linux
+read 10.03 B instructions against `main`'s 10.02 B, inside the noise. On Linux
 the instruction column reads `-` and the child columns don't appear: there's
 no per-thread counter without `perf_event_open`.
 
@@ -9374,7 +9374,7 @@ own process and stays out of the figures.
   (6% for `link`, which waits on the file system).
 - **Two alternating runs each** settle 1%: a delta is real when the two ranges
   don't overlap. Ten builds of `main` against a toolchain with only profiling
-  added gave ranges of 9.98–10.06 G and 9.96–10.05 G, which is what no change
+  added gave ranges of 9.98–10.06 B and 9.96–10.05 B, which is what no change
   looks like.
 - **Under 0.5% is noise** at any count of runs this protocol allows.
 - Below a second of work, compare minimums rather than medians.
