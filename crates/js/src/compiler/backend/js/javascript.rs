@@ -3892,28 +3892,34 @@ fn raw_ident_runs(src: &str) -> impl Iterator<Item = (usize, &str)> {
     // Bytes, not chars: every identifier byte is ASCII, and no byte of a
     // multi-byte char is, so each run starts and ends on a char boundary.
     let bytes = src.as_bytes();
-    let part = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
     let mut at = 0;
     std::iter::from_fn(move || {
-        while at < bytes.len() {
-            while at < bytes.len() && !part(bytes[at]) {
-                at += 1;
-            }
-            // An identifier doesn't start with a digit, so `1em` reads as `em`.
-            while at < bytes.len() && bytes[at].is_ascii_digit() {
-                at += 1;
-            }
-            let start = at;
-            while at < bytes.len() && part(bytes[at]) {
-                at += 1;
-            }
-            if at > start {
-                return Some((start, &src[start..at]));
-            }
-        }
-        None
+        let rest = bytes.get(at..)?;
+        // An identifier doesn't start with a digit, so `1em` reads as `em`:
+        // a run begins at the first byte that can begin one.
+        let start = at + rest.iter().position(|b| ident_byte(*b) == IDENT_START)?;
+        let run = bytes.get(start..).unwrap_or_default();
+        let len = run
+            .iter()
+            .position(|b| ident_byte(*b) == 0)
+            .unwrap_or(run.len());
+        at = start + len;
+        src.get(start..at).map(|ident| (start, ident))
     })
 }
+
+/// What `b` is to an identifier: [`IDENT_START`] for a byte that can begin
+/// one, `1` for a digit, which can only continue it, and `0` for anything else.
+#[inline]
+fn ident_byte(b: u8) -> u8 {
+    match b {
+        b'0'..=b'9' => 1,
+        b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'$' => IDENT_START,
+        _ => 0,
+    }
+}
+
+const IDENT_START: u8 = 2;
 
 /// The identifiers every piece of verbatim source in `stmts` mentions — the
 /// names out of reach of any pass that rewrites the tree.
@@ -4318,7 +4324,19 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
     // brace, where a `const` or `let` ends at its semicolon.
     let mut current: Option<(String, bool)> = None;
 
-    while let Some(&c) = b.get(i) {
+    loop {
+        // Inside a declaration, or between braces, no keyword starts one: only
+        // these bytes change what is being read, so the scan jumps to the next.
+        if depth != 0 || current.is_some() {
+            let rest = b.get(i..).unwrap_or_default();
+            i += rest
+                .iter()
+                .position(|c| matches!(c, b'/' | b'"' | b'\'' | b'`' | b'{' | b'}' | b';'))
+                .unwrap_or(rest.len());
+        }
+        let Some(&c) = b.get(i) else {
+            break;
+        };
         // Skip over anything whose contents must not be scanned for braces.
         match c {
             b'/' if b.get(i + 1) == Some(&b'/') => {
