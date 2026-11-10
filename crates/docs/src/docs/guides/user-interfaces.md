@@ -229,6 +229,48 @@ fn month<C>(name: Str, i: Int): Shape<C> {
 The words stay words: `<b>` in `content` is drawn as `<b>`, never read as
 markup.
 
+**A rect with a `label` is one a reader can Tab to.** It joins the focus
+order, and a screen reader reads it by its label. `onFocus` runs as the focus
+arrives and leaves:
+
+```buri
+from "core/str" import * as str;
+from "platform/effect" import { Ui };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Shape };
+from "ui/signal" import { Signal };
+
+fn bar<C: Ui>(name: Str, total: Float, picked: Signal<Str>): Shape<C> {
+    shape.rect({
+        at: .Const((1.0, 40.0 - total)),
+        size: .Const((8.0, total)),
+        fill: .Some(.Const(.Inherit)),
+        label: .Some(.Computed(fn(s) => str.format(s, "${name}: ${total}"))),
+        onFocus: .Some(fn(c, now) => picked.set(c, if (now) { name } else { "" })),
+    })
+}
+```
+
+**A drawing hears the pointer in its own units.** So `at.x` maps straight back
+to the data, however wide the drawing is laid out:
+
+```buri
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+fn readout<C: Ui>(pointerX: Signal<Float>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Visitors over the last 30 days"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Full), .Height(.Px(160))],
+        shapes: [],
+        onPointerMove: .Some(fn(c, at) => pointerX.set(c, at.x)),
+    })
+}
+```
+
 **A box can be decorative too, and it can be the current page.** A `stack`'s
 `isDecorative` hides it and everything in it from a screen reader: the slash
 between two breadcrumb steps, or a caption that repeats a field's name. It's

@@ -47,6 +47,7 @@ const labelled = (label) => document.querySelector(`[aria-label=${JSON.stringify
 const FIRED = {
   pointerdown: [PointerEvent, true, true],
   pointerup: [PointerEvent, true, true],
+  pointermove: [PointerEvent, true, true],
   pointerenter: [PointerEvent, false, false],
   pointerleave: [PointerEvent, false, false],
   mousedown: [MouseEvent, true, true],

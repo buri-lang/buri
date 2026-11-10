@@ -6420,7 +6420,11 @@ function $tree_tooltip(ctx, node, parent, anchor) {
 // worked out each shape's attributes and paint, so this only binds them.
 function $tree_drawing(ctx, node, parent, anchor) {
   const element = $tree_element(parent, "svg", anchor, true);
-  $tree_bind(node[2], (box) => $dom_attribute(element, "viewBox", box));
+  let units = [];
+  $tree_bind(node[2], (box) => {
+    $dom_attribute(element, "viewBox", box);
+    units = box.split(" ");
+  });
   $dom_attribute(element, "preserveAspectRatio", "none");
   // `Alt`: a decorative drawing is hidden from a reader, and a meaningful one
   // is a picture carrying the name a reader hears.
@@ -6433,7 +6437,16 @@ function $tree_drawing(ctx, node, parent, anchor) {
   }
   $tree_styles(element, node[4]);
   for (const shape of node[5]) $tree_shape(ctx, shape, element, null);
-  $tree_events(ctx, element, node[6]);
+  // The pointer in the drawing's own units: its box spans its `viewBox`.
+  const events = node[6].slice();
+  const move = events[6];
+  if (move !== undefined) {
+    events[6] = (c, at) => {
+      const box = element.getBoundingClientRect();
+      move(c, [(at[0] * units[2]) / box.width, (at[1] * units[3]) / box.height, at[2], at[3], at[4]]);
+    };
+  }
+  $tree_events(ctx, element, events);
 }
 
 // One shape: its element, its attributes, its paint and the shapes inside it.
@@ -6465,6 +6478,14 @@ function $tree_shape(ctx, shape, parent, anchor) {
       if (element.$shim) element.styles[name] = value;
       else element.style.setProperty(name, value);
     });
+  }
+  // A labelled shape is a stop in the focus order, read by its label.
+  const stop = shape[6];
+  if (stop !== undefined) {
+    $dom_attribute(element, "tabindex", "0");
+    $dom_attribute(element, "role", "img");
+    $tree_bind(stop[0], (label) => $dom_attribute(element, "aria-label", label));
+    $tree_events(ctx, element, [undefined, stop[1]]);
   }
   for (const child of shape[3]) $tree_shape(ctx, child, element, null);
   // A text's words, bound as a text node, so they are never read as markup.

@@ -207,7 +207,8 @@ export struct ScrollOffset {
 export type Key = Str;
 
 /// Where the pointer is, handed to `onPointerDown`, `onPointerMove` and
-/// `onPointerUp`. Positions are CSS pixels.
+/// `onPointerUp`. Positions are CSS pixels, except that a `drawing`'s `x` and
+/// `y` are in its own units.
 export struct PointerAt {
     /// From the left edge of the element whose handler runs.
     export x: Float,
@@ -356,10 +357,11 @@ enum NodeKind<C> {
     // `viewBox` the size becomes, the whole drawing as SVG markup, the styles,
     // the shapes, the events, and the keys of its `each`es. The markup is a
     // prop built once the `each`es' rows are, through the context and scope it
-    // is handed; the constructor writes it and the keys, so only a program that
-    // draws compiles the code that writes them. Appended last, the order being
-    // append-only.
-    Drawing(Alt, Prop<Str>, fn(C, Scope) => Prop<Str>, [Style], [Shape<C>], Events<C>, fn(Scope) => [Str]),
+    // is handed, beside what puts the drawing's name and its labelled shapes'
+    // stops into a document. The constructor writes all three, so only a
+    // program that draws compiles the code that writes them. Appended last,
+    // the order being append-only.
+    Drawing(Alt, Prop<Str>, fn(C, Scope) => (Prop<Str>, fn(Builder) => ()), [Style], [Shape<C>], Events<C>, fn(Scope) => [Str]),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -893,13 +895,20 @@ struct Drawing<C> {
     export styles: [Style],
     /// What it shows, in order, each one over the ones before it.
     export shapes: [Shape<C>],
+    /// The pointer moved over the drawing, or anywhere while it holds the
+    /// press. Its `x` and `y` are in the drawing's own units, so they map
+    /// straight back to the data. A document with no layout, like
+    /// `platform/effect/testing`'s `render`, takes the drawing's box to span
+    /// its units, so the point a test moves to is the point the handler hears.
+    export onPointerMove: Option<fn(C, PointerAt) => ()>,
 }
 
 /// A picture built from shapes, so its geometry can come from data.
 ///
 /// The shapes are `ui/shape`'s, in units of the drawing's own: `size` is how
 /// wide and tall those units span, and the drawing stretches them over the
-/// box its styles give it.
+/// box its styles give it. A labelled shape joins the focus order, read by its
+/// label.
 ///
 /// ```buri
 /// from "ui/node" import * as ui;
@@ -928,13 +937,43 @@ export fn drawing<C>(config: Drawing<C>): Node<C> {
     });
     let shapes = config.shapes;
     let all: Shape<C> = group({ offset: .None, shapes: shapes });
+    let alt = config.alt;
     let artwork = fn(c: C, scope: Scope) => {
         let rows = all.built(scope, c);
         let markup: Prop<Str> = .Computed(fn(s) => drawn(s, box, rows));
-        markup
+        let stops = fn(builder: Builder) => standIn(builder, alt, rows);
+        (markup, stops)
     };
     let keys = fn(scope: Scope) => all.keys(scope);
-    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, noEvents(), keys))
+    let events = Events { ..noEvents(), onPointerMove: config.onPointerMove };
+    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, events, keys))
+}
+
+/// Names the open drawing by its `alt`, and puts an element under it for each
+/// labelled shape in `shapes`: a stop in the focus order, named by the label.
+/// A browser focuses the shape itself, and a document with no browser has
+/// nothing else to focus.
+fn standIn<C>(builder: Builder, alt: Alt, shapes: [Shape<C>]): () {
+    let scope = rootScope();
+    let _ = match (alt) {
+        .AccessibilityText(name) => registerLabel(builder, name),
+        .Decorative => {},
+    };
+    stopsFrom(builder, shapes.flatMapCtx(scope, fn(s, shape) => shape.labels(s)), 0)
+}
+
+/// `standIn`'s stops, from `at` on.
+fn stopsFrom(builder: Builder, labels: [(Str, Prop<Str>)], at: Int): () {
+    match (labels.get(at)) {
+        .Some((name, label)) => {
+            let opened = openElement(builder, name, "");
+            let _ = reactive(fn(s) => relabel(builder, opened, label.read(s)));
+            let _ = attachFocus(builder, focusKey(builder), true);
+            let _ = exitElement(builder);
+            stopsFrom(builder, labels, at + 1)
+        },
+        .None => {},
+    }
 }
 
 /// The `<svg>` a drawing is, read through `ctx`: what the scene carries, the
@@ -2123,7 +2162,7 @@ fn emitDrawing<C>(
     builder: Builder,
     node: Node<C>,
     state: State,
-    artwork: fn(C, Scope) => Prop<Str>,
+    artwork: fn(C, Scope) => (Prop<Str>, fn(Builder) => ()),
     styles: [Style],
     events: Events<C>,
     keys: fn(Scope) => [Str],
@@ -2131,7 +2170,8 @@ fn emitDrawing<C>(
     let opened = openElement(builder, "svg", "");
     let region = enterDynamic(builder);
     let paint = fn(c: C, _builder: Builder, _node: Node<C>) => {
-        let markup = artwork(c, rootScope());
+        let (markup, stops) = artwork(c, rootScope());
+        let _ = stops(builder);
         reactive(fn(s) => {
             let declared = decl(s, "icon", escapeInline(s, markup.read(s)));
             patchBody(
@@ -3729,7 +3769,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             let artwork = decl(
                 ctx,
                 "icon",
-                escapeInline(ctx, markup(ctx, scope).read(scope)),
+                escapeInline(ctx, markup(ctx, scope).0.read(scope)),
             );
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },

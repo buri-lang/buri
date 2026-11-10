@@ -23,7 +23,7 @@ Each phase ends at a commit landed with `/tmp/buri-land.sh`.
 
 ## Status
 
-Phases 1 to 4 are done.
+Phases 1 to 5 are done.
 
 Phase 1 (393c5a197) added:
 
@@ -69,8 +69,22 @@ Phase 4 added:
 - Tests: conformance `tree.buri` "a text is centred on its point, …", `language::pages::a_drawing_s_text_is_centred_on_its_point_and_follows_its_words_in_place`, UI cases `a_drawing_paints_its_labels` and `a_token_bound_to_inherit_paints_as_inherit`.
 - Docs: the guide's text example, and the snapshot list says SVG text paints.
 
-Phase 5 starts here:
+Phase 5 added:
 
-1. A shape with a `label` joins the focus order with that name. Shapes are positional tuples read by `runtime.js` `$tree_shape` (`shape[0]` to `shape[5]`); a label is another field, and `svg` writes it as `aria-label` plus `tabindex`.
-2. `onFocus` on shapes, and `onPointerMove` on the drawing in drawing units, in the browser and in `render`.
-3. Then phase 6.
+- `shape.rect` takes `label` and `onFocus`. `Rect` is now `Rect<C>`. Path and circle stay label-free: their configs aren't generic, and making them generic breaks `let area = shape.path({…})` (`untyped-struct-literal`), as the tree tests showed.
+- `Shape`'s seventh field is `Option<Stop<C>>`: the label and the `onFocus`. `svg` never writes it, so a label is never in the painted artwork. `labels(ctx)` reads every labelled shape's element name and label.
+- `runtime.js` `$tree_shape`: a stop sets `tabindex='0'`, `role='img'`, binds `aria-label`, and wires `onFocus` through `$tree_events` (`focusin`/`focusout`).
+- `ui.drawing` takes `onPointerMove`. `$tree_drawing` scales `x`/`y` by the `viewBox` over `getBoundingClientRect()`; viewport coordinates and `overRow` pass through. `render` has no layout, so the box spans the units and `x` is the `x` a test moves to.
+- Native `render`: `.Drawing`'s artwork closure now answers `(markup, stops)`. `stops(builder)` (`ui_node` `standIn`, built in `drawing`, so only programs that draw compile it) labels the `svg` with its `alt` and opens an empty element per labelled shape inside the drawing's region, with `relabel` and `attachFocus`. So `tab`, `focus` and `focused` reach the bars, and `pointerMove("<alt>", …)` reaches the drawing. They show in `markup()` as `e 1 ` lines.
+- `onFocus` is the browser's alone, like every node's `onFocus` (`registerEvents` doc).
+- Tests: conformance `tree.buri` "a labelled shape is a stop in the focus order, named by its label" and "a drawing hears the pointer in its own units"; `language::pages::a_drawing_s_labelled_shapes_take_the_focus_and_are_read_by_their_label` and `a_drawing_hears_the_pointer_in_its_own_units`. `harness::browser`'s `fire` knows `pointermove`.
+- Docs: the guide's labelled-bar and pointer examples.
+
+More known gaps:
+
+- Native stops are rebuilt with the rows when the keys change, so the focus on a bar is lost when its list changes.
+
+Phase 6 starts here:
+
+1. The `each` gaps under phase 3's known gaps: keep native rows whose keys stay, a row's stale index after a reorder, nested `each` keys natively, duplicate keys aborting natively. Native stops ride on the same rebuild, so keeping rows should keep them too.
+2. Then close #332.

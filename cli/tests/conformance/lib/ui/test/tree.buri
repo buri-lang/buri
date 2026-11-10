@@ -3429,6 +3429,101 @@ test "a row of an each follows its own props" {
     assert.containsText(page.markup(), "<circle cx='0' cy='2' r='1' fill='none'/>");
 }
 
+/// Two labelled bars, a dot with no label, and a labelled band, each label
+/// ending in `suffix`.
+fn labelledBars<C>(suffix: Signal<Str>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Sales by month"),
+        size: .Const((20.0, 40.0)),
+        styles: [],
+        shapes: [
+            shape.each(
+                .Const([10.0, 20.0]),
+                fn(total) => "${total}",
+                fn(_c, total, i) => {
+                    shape.rect({
+                        at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                        size: .Const((8.0, total)),
+                        label: .Some(
+                            .Computed(fn(s) => {
+                                str.format(s, "${total}${suffix.get(s)}")
+                            }),
+                        ),
+                    })
+                },
+            ),
+            shape.circle({ center: .Const((5.0, 5.0)), radius: .Const(1.0) }),
+            shape.rect({
+                at: .Const((0.0, 0.0)),
+                size: .Const((20.0, 1.0)),
+                label: .Some(.Const("Target")),
+            }),
+        ],
+    })
+}
+
+test "a labelled shape is a stop in the focus order, named by its label" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let suffix = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({ label: .Const("Before"), styles: [], onPress: .None }),
+                labelledBars(suffix),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Before");
+    let _ = page.tab();
+    assert.equal(page.focused(), "10.0");
+    let _ = page.tab();
+    assert.equal(page.focused(), "20.0");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Target");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Before");
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "Target");
+    // The name follows the label.
+    suffix.set(ctx, " sold");
+    let _ = page.focus("20.0 sold");
+    assert.equal(page.focused(), "20.0 sold");
+    // A label is what a reader hears, never what is painted.
+    assert.containsText(
+        ui.describe(ctx, labelledBars(suffix), .Hover),
+        "<rect x='0' y='30' width='8' height='10' fill='none'/>",
+    );
+}
+
+test "a drawing hears the pointer in its own units" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, "nowhere");
+    let page = render(
+        ctx,
+        ui.drawing({
+            alt: .AccessibilityText("Visitors"),
+            size: .Const((100.0, 40.0)),
+            styles: [],
+            shapes: [],
+            onPointerMove: .Some(fn(c, p) => at.set(c, str.format(c, "${p.x} ${p.y}"))),
+        }),
+    );
+    // A headless document has no layout, so its box spans its units.
+    let _ = page.pointerMove("Visitors", 30.0, 5.0);
+    assert.equal(at.get(ctx), "30.0 5.0");
+}
+
 test "a field is labelled, and what is typed into it is in its signal" {
     let ctx = context {
         Ui: headless(),

@@ -32,10 +32,14 @@ export enum Segment {
 /// Opaque: the constructors below are the whole vocabulary. It holds the
 /// element a shape lowers to, its attributes, its paint, which the browser
 /// sets as CSS so a design token's `var()` resolves, the shapes inside it,
-/// for `each` the rows it stands for, and for `text` what it says. The order is
-/// load-bearing: the JavaScript runtime reads a shape by position
-/// (`$tree_shape`).
-export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], Option<Rows<C>>, Option<Prop<Str>>);
+/// for `each` the rows it stands for, for `text` what it says, and for a
+/// labelled shape its stop in the focus order. The order is load-bearing: the
+/// JavaScript runtime reads a shape by position (`$tree_shape`).
+export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], Option<Rows<C>>, Option<Prop<Str>>, Option<Stop<C>>);
+
+/// A labelled shape's stop in the focus order: the name a reader hears, and
+/// what runs as the focus arrives and leaves.
+struct Stop<C>(Prop<Str>, Option<fn(C, Bool) => ()>);
 
 /// What `each` stands for: the key at an index, and the row built there. Both
 /// answer `.None` past the end of the list.
@@ -87,7 +91,7 @@ impl<C> Shape<C> {
                 if (self.1.isEmpty()) {
                     inner
                 } else {
-                    [Shape(self.0, self.1, self.2, inner, .None, self.5)]
+                    [Shape(self.0, self.1, self.2, inner, .None, self.5, self.6)]
                 }
             },
         }
@@ -101,6 +105,19 @@ impl<C> Shape<C> {
         match (self.4) {
             .Some(rows) => keysFrom(ctx, rows.0, 0, []),
             .None => self.3.flatMapCtx(ctx, fn(s, child) => child.keys(s)),
+        }
+    }
+
+    /// The element and the label of every labelled shape in a shape `built`
+    /// answered, in order.
+    ///
+    /// `ui/node` reads these so a document with no browser has a stop in its
+    /// focus order for each one.
+    export fn labels(self, ctx: Scope): [(Str, Prop<Str>)] {
+        let inner = self.3.flatMapCtx(ctx, fn(s, child) => child.labels(s));
+        match (self.6) {
+            .Some(stop) => [(self.0, stop.0)].concat(ctx, inner),
+            .None => inner,
         }
     }
 }
@@ -179,36 +196,50 @@ export fn path<C>(config: Path): Shape<C> {
         [],
         .None,
         .None,
+        .None,
     )
 }
 
 /// What `rect` takes.
-struct Rect {
+struct Rect<C> {
     /// Its top-left corner, `(x, y)`.
     export at: Prop<(Float, Float)>,
     /// Its width and height.
     export size: Prop<(Float, Float)>,
     /// What fills it. Left out, nothing does.
     export fill: Option<Prop<Color>>,
+    /// What a reader hears for it. Labelled, it joins the focus order, so a
+    /// reader can Tab to it. Left out, it is part of the picture and nothing
+    /// more.
+    export label: Option<Prop<Str>>,
+    /// Runs as the focus moves to it (`true`) and away (`false`). Only a
+    /// labelled shape takes the focus.
+    export onFocus: Option<fn(C, Bool) => ()>,
 }
 
-/// A rectangle: a bar in a chart, or a band behind one.
+/// A rectangle: a bar in a chart, or a band behind one. With a `label`, a
+/// reader can Tab to it and hear it.
 ///
 /// ```buri
 /// from "ui/shape" import * as shape;
 /// from "ui/shape" import { Shape };
 ///
-/// export fn bar<C>(total: Float): Shape<C> {
+/// export fn bar<C>(month: Str, total: Float): Shape<C> {
 ///     shape.rect({
 ///         at: .Const((1.0, 40.0 - total)),
 ///         size: .Const((8.0, total)),
 ///         fill: .Some(.Const(.Inherit)),
+///         label: .Some(.Const(month)),
 ///     })
 /// }
 /// ```
-export fn rect<C>(config: Rect): Shape<C> {
+export fn rect<C>(config: Rect<C>): Shape<C> {
     let (x, y) = coordinates(config.at);
     let (width, height) = coordinates(config.size);
+    let stop: Option<Stop<C>> = match (config.label) {
+        .Some(name) => .Some(Stop(name, config.onFocus)),
+        .None => .None,
+    };
     Shape(
         "rect",
         [("x", x), ("y", y), ("width", width), ("height", height)],
@@ -216,6 +247,7 @@ export fn rect<C>(config: Rect): Shape<C> {
         [],
         .None,
         .None,
+        stop,
     )
 }
 
@@ -251,6 +283,7 @@ export fn circle<C>(config: Circle): Shape<C> {
         [("cx", x), ("cy", y), ("r", .Computed(fn(s) => number(s, radius.read(s))))],
         [("fill", paintOf(config.fill))],
         [],
+        .None,
         .None,
         .None,
     )
@@ -292,6 +325,7 @@ export fn text<C>(config: Text): Shape<C> {
         [],
         .None,
         .Some(config.content),
+        .None,
     )
 }
 
@@ -330,7 +364,7 @@ export fn group<C>(config: Group<C>): Shape<C> {
         },
         .None => [],
     };
-    Shape("g", moved, [], config.shapes, .None, .None)
+    Shape("g", moved, [], config.shapes, .None, .None, .None)
 }
 
 /// One shape per item, kept by key, the way `ui/node`'s `each` keeps a row.
@@ -377,6 +411,7 @@ export fn each<C, T: Equal>(
                 },
             ),
         ),
+        .None,
         .None,
     )
 }

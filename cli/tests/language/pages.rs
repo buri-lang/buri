@@ -1379,3 +1379,143 @@ console.log(`same ${svg.querySelector("text") === before} texts ${svg.querySelec
          same true texts 1\n"
     );
 }
+
+/// One labelled bar per month, a dot with no label, a line saying which bar has
+/// the focus, and a button that adds a word to every label.
+const FOCUS_BARS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let months = signal(ctx, [("Jan", 10.0), ("Feb", 20.0)]);
+    let suffix = signal(ctx, "");
+    let picked = signal(ctx, "nothing");
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((20.0, 40.0)),
+                    styles: [],
+                    shapes: [
+                        shape.each(.Cell(months), fn(m) => m.0, fn(_c, m, i) => {
+                            let (name, total) = m;
+                            shape.rect({
+                                at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                                size: .Const((8.0, total)),
+                                label: .Some(.Computed(fn(s) => str.format(s, "${name}: ${total}${suffix.get(s)}"))),
+                                onFocus: .Some(fn(c, now) => picked.set(c, if (now) { name } else { "nothing" })),
+                            })
+                        }),
+                        shape.circle({ center: .Const((5.0, 5.0)), radius: .Const(1.0) }),
+                    ],
+                }),
+                ui.text({ content: .Computed(fn(s) => str.format(s, "picked ${picked.get(s)}")) }),
+                ui.button({
+                    label: .Const("Units"),
+                    styles: [],
+                    onPress: .Some(fn(c) => suffix.set(c, " sold")),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_s_labelled_shapes_take_the_focus_and_are_read_by_their_label() {
+    let printed = drive(
+        "focus-bars-page",
+        FOCUS_BARS_PAGE,
+        r#"
+const svg = labelled("Sales by month");
+const show = () => {
+  for (const shape of svg.querySelectorAll("rect, circle")) {
+    console.log(`${shape.tagName} tabindex=${shape.getAttribute("tabindex")} role=${shape.getAttribute("role")} label=${shape.getAttribute("aria-label")}`);
+  }
+};
+const picked = () => console.log(body.textContent.match(/picked (Jan|Feb|nothing)/)[0]);
+show();
+const [jan, feb] = svg.querySelectorAll("rect");
+jan.focus();
+picked();
+feb.focus();
+picked();
+feb.blur();
+picked();
+labelled("Units").click();
+show();
+"#,
+    );
+    assert_eq!(
+        printed,
+        "rect tabindex=0 role=img label=Jan: 10.0\n\
+         rect tabindex=0 role=img label=Feb: 20.0\n\
+         circle tabindex=null role=null label=null\n\
+         picked Jan\n\
+         picked Feb\n\
+         picked nothing\n\
+         rect tabindex=0 role=img label=Jan: 10.0 sold\n\
+         rect tabindex=0 role=img label=Feb: 20.0 sold\n\
+         circle tabindex=null role=null label=null\n"
+    );
+}
+
+/// A drawing 100 by 40 units that writes where the pointer is, in its units.
+const POINTER_DRAWING_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let at = signal(ctx, "nowhere");
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Visitors"),
+                    size: .Const((100.0, 40.0)),
+                    styles: [],
+                    shapes: [],
+                    onPointerMove: .Some(fn(c, p) => at.set(c, str.format(c, "at ${p.x} ${p.y} viewport ${p.viewportX} ${p.viewportY}"))),
+                }),
+                ui.text({ content: .Cell(at) }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_hears_the_pointer_in_its_own_units() {
+    let printed = drive(
+        "pointer-drawing-page",
+        POINTER_DRAWING_PAGE,
+        r#"
+const svg = labelled("Visitors");
+// Laid out 200 by 80 pixels, 10 from the left and 20 from the top.
+svg.getBoundingClientRect = () => ({ left: 10, top: 20, right: 210, bottom: 100, width: 200, height: 80, x: 10, y: 20 });
+fire(svg, "pointermove", { clientX: 110, clientY: 40 });
+console.log(body.textContent);
+"#,
+    );
+    assert_eq!(printed, "at 50.0 10.0 viewport 110.0 40.0\n");
+}
