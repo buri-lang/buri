@@ -4464,7 +4464,7 @@ pub fn strip(src: &str) -> String {
                     j += 1;
                 }
                 let next = b.get(j).copied().unwrap_or(0);
-                if word_char(prev) && word_char(next) {
+                if ident_byte(prev) != 0 && ident_byte(next) != 0 {
                     out.push(' ');
                 }
                 i = j;
@@ -4509,10 +4509,6 @@ fn copy_char(src: &str, i: usize, out: &mut String) -> usize {
         // has already stepped over.
         None => 1,
     }
-}
-
-fn word_char(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_' || c == b'$'
 }
 
 #[cfg(test)]
