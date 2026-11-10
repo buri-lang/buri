@@ -586,7 +586,7 @@ export fn main(host: WebHost): Result<(), Str> {
             styles: [],
             children: [
                 ui.each(.Const(["a", "b", "c"]), fn(s) => s, fn(c, s, i) => {
-                    ui.text({ content: .Const(str.format(c, "${s}:${i % 2}")) })
+                    ui.text({ content: .Computed(fn(t) => str.format(t, "${s}:${i.read(t) % 2}")) })
                 }),
             ],
         }),
@@ -706,6 +706,7 @@ const FORMS_PAGE: &str = r#"from "platform/effect" import { Allocator, Clock, Lo
 from "core/time" import * as time;
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/prop" import { Prop };
 from "ui/web" import * as web;
 from "web" import { WebHost };
 
@@ -722,7 +723,7 @@ struct Kit<C> {
     make: fn(Str) => Node<C>,
 }
 
-fn named<C: Clock + Location + Ui>(ctx: C, s: Str, _i: Int): Node<C> {
+fn named<C: Clock + Location + Ui>(ctx: C, s: Str, _i: Prop<Int>): Node<C> {
     button(s)
 }
 
@@ -754,7 +755,7 @@ fn viaTrait<T: Shows, C: Clock + Location + Ui>(x: T): Node<C> {
     x.node()
 }
 
-fn maker<C: Clock + Location + Ui>(): fn(C, Str, Int) => Node<C> {
+fn maker<C: Clock + Location + Ui>(): fn(C, Str, Prop<Int>) => Node<C> {
     let wrap = fn(s: Str) => button(s);
     fn(_c, s, _i) => wrap(s)
 }
@@ -926,6 +927,7 @@ const WAITING_ROWS_PAGE: &str = r#"from "core/time" import * as time;
 from "platform/effect" import { Allocator, Clock, Ui };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/prop" import { Prop };
 from "web" import { WebHost };
 
 fn row<C: Clock + Ui>(ctx: C, s: Str): Node<C> {
@@ -933,11 +935,11 @@ fn row<C: Clock + Ui>(ctx: C, s: Str): Node<C> {
     ui.text({ content: .Const(s) })
 }
 
-fn list<C: Clock + Ui>(rows: fn(C, Str, Int) => Node<C>): Node<C> {
+fn list<C: Clock + Ui>(rows: fn(C, Str, Prop<Int>) => Node<C>): Node<C> {
     ui.each(.Const(["b"]), fn(s) => s, fn(c, s, i) => rows(c, s, i))
 }
 
-fn deep<C: Clock + Ui>(n: Int, rows: fn(C, Str, Int) => Node<C>): Node<C> {
+fn deep<C: Clock + Ui>(n: Int, rows: fn(C, Str, Prop<Int>) => Node<C>): Node<C> {
     if (n <= 0) {
         ui.each(.Const(["c"]), fn(s) => s, rows)
     } else {
@@ -977,9 +979,9 @@ fn rows_that_wait_while_they_are_built_are_refused_where_they_are_written() {
         3,
         "{printed}"
     );
-    assert!(printed.contains("main.buri:35:"), "{printed}");
     assert!(printed.contains("main.buri:36:"), "{printed}");
     assert!(printed.contains("main.buri:37:"), "{printed}");
+    assert!(printed.contains("main.buri:38:"), "{printed}");
 }
 
 /// A page whose key handlers wait before they answer whether they claimed
@@ -1317,6 +1319,82 @@ console.log(`kept ${first === mar} ${second === jan} count ${svg.children.length
     );
 }
 
+/// One bar per month placed by its index, the months listed beside it with
+/// their indices, and a button that reorders the months.
+const PLACED_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let months = signal(ctx, ["Jan", "Feb", "Mar"]);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((30.0, 40.0)),
+                    styles: [],
+                    shapes: [
+                        shape.each(.Cell(months), fn(m) => m, fn(_c, _m, i) => {
+                            shape.group({
+                                offset: .Some(.Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0))),
+                                shapes: [shape.rect({ at: .Const((1.0, 0.0)), size: .Const((8.0, 10.0)) })],
+                            })
+                        }),
+                    ],
+                }),
+                ui.each(.Cell(months), fn(m) => m, fn(_c, m, i) => {
+                    ui.text({ content: .Computed(fn(s) => str.format(s, "${m}:${i.read(s)}")) })
+                }),
+                ui.button({
+                    label: .Const("Shuffle"),
+                    styles: [],
+                    onPress: .Some(fn(c) => months.set(c, ["Mar", "Jan", "Apr"])),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_row_s_index_follows_its_place_after_a_reorder() {
+    let printed = drive(
+        "placed-page",
+        PLACED_PAGE,
+        r#"
+const svg = labelled("Sales by month");
+const show = () => {
+  console.log([...svg.children].map((g) => g.getAttribute("transform")).join(" | "));
+  console.log(body.textContent.replace("Shuffle", ""));
+};
+show();
+const [jan, , mar] = svg.children;
+labelled("Shuffle").click();
+show();
+console.log(`kept ${svg.children[0] === mar} ${svg.children[1] === jan}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "translate(0 0) | translate(10 0) | translate(20 0)\n\
+         Jan:0Feb:1Mar:2\n\
+         translate(0 0) | translate(10 0) | translate(20 0)\n\
+         Mar:0Jan:1Apr:2\n\
+         kept true true\n"
+    );
+}
+
 /// A label in a drawing, whose words are a signal, and a button that changes
 /// them to words that look like markup.
 const LABEL_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
@@ -1410,7 +1488,7 @@ export fn main(host: WebHost): Result<(), Str> {
                         shape.each(.Cell(months), fn(m) => m.0, fn(_c, m, i) => {
                             let (name, total) = m;
                             shape.rect({
-                                at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                                at: .Computed(fn(s) => (i.read(s).toF64() * 10.0, 40.0 - total)),
                                 size: .Const((8.0, total)),
                                 label: .Some(.Computed(fn(s) => str.format(s, "${name}: ${total}${suffix.get(s)}"))),
                                 onFocus: .Some(fn(c, now) => picked.set(c, if (now) { name } else { "nothing" })),
@@ -1518,4 +1596,223 @@ console.log(body.textContent);
 "#,
     );
     assert_eq!(printed, "at 50.0 10.0 viewport 110.0 40.0\n");
+}
+
+/// The four drawings #332's approved interface was shown through, as the
+/// proposal wrote them: a sparkline, a themed area chart, one bar per month and
+/// a marker that follows the pointer. A bar reads its index through a
+/// `.Computed`, because a row's index is a `Prop<Int>`. Below them, which bar
+/// has the focus, and buttons that change the values and reorder the months.
+/// `conformance/lib/ui/test/drawings.buri` renders the same four with no
+/// browser.
+const PROPOSAL_PAGE: &str = r#"from "core/math" import * as math;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Scope, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Segment };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import * as style;
+from "web" import { WebHost };
+
+struct Month {
+    name: Str,
+    total: Float,
+}
+
+derive Equal for Month;
+
+/// A line through `values`, across a drawing 100 units wide and 40 tall.
+fn trace(ctx: Scope, values: [Float]): [Segment] {
+    let step = 100.0 / (values.length() - 1).toF64();
+    values.mapIndexed(ctx, fn(i, v) => {
+        if (i == 0) {
+            .MoveTo(0.0, 40.0 - v)
+        } else {
+            .LineTo(i.toF64() * step, 40.0 - v)
+        }
+    })
+}
+
+fn sparkline<C>(values: Signal<[Float]>): Node<C> {
+    ui.drawing({
+        alt: .Decorative,
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Px(80)), .Height(.Px(24))],
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(.Inherit)),
+            }),
+        ],
+    })
+}
+
+fn visitors<C>(values: Signal<[Float]>): Node<C> {
+    let accent = style.token("app", "accent");
+    ui.drawing({
+        alt: .AccessibilityText("Visitors over the last 30 days"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Full), .Height(.Px(160))],
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => {
+                    trace(s, values.get(s)).concat(s, [
+                        .LineTo(100.0, 40.0),
+                        .LineTo(0.0, 40.0),
+                        .Close,
+                    ])
+                }),
+                fill: .Some(.Const(accent.alpha(0.2))),
+            }),
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(accent)),
+                strokeWidth: .Some(.Const(1.5)),
+            }),
+        ],
+    })
+}
+
+fn monthly<C: Ui>(months: Prop<[Month]>, picked: Signal<Str>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Sales by month"),
+        size: .Const((120.0, 50.0)),
+        styles: [.Width(.Full), .Height(.Px(200))],
+        shapes: [
+            shape.each(months, fn(m) => m.name, fn(c, m, i) => {
+                shape.group({
+                    offset: .Some(.Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0))),
+                    shapes: [
+                        shape.rect({
+                            at: .Const((1.0, 40.0 - m.total)),
+                            size: .Const((8.0, m.total)),
+                            fill: .Some(.Const(style.token("app", "accent"))),
+                            label: .Some(
+                                .Computed(fn(s) => str.format(s, "${m.name}: ${m.total}")),
+                            ),
+                            onFocus: .Some(fn(c, now) => {
+                                picked.set(c, if (now) { m.name } else { "" })
+                            }),
+                        }),
+                        shape.text({ at: .Const((5.0, 48.0)), content: .Const(m.name) }),
+                    ],
+                })
+            }),
+        ],
+    })
+}
+
+fn readout<C: Ui>(values: Signal<[Float]>, pointerX: Signal<Float>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Visitors over the last 30 days"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Full), .Height(.Px(160))],
+        onPointerMove: .Some(fn(c, at) => pointerX.set(c, at.x)),
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(.Inherit)),
+            }),
+            shape.circle({
+                center: .Computed(fn(s) => {
+                    let all = values.get(s);
+                    let step = 100.0 / (all.length() - 1).toF64();
+                    let i = math.round(pointerX.get(s) / step).toI64().withDefault(0);
+                    (i.toF64() * step, 40.0 - all.getOr(i, 0.0))
+                }),
+                radius: .Const(1.5),
+                fill: .Some(.Const(.Inherit)),
+            }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let values = signal(ctx, [10.0, 30.0, 20.0]);
+    let jan = Month { name: "Jan", total: 10.0 };
+    let feb = Month { name: "Feb", total: 30.0 };
+    let months = signal(ctx, [jan, feb]);
+    let picked = signal(ctx, "");
+    let pointerX = signal(ctx, 0.0);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                sparkline(values),
+                visitors(values),
+                monthly(.Cell(months), picked),
+                readout(values, pointerX),
+                ui.text({ content: .Computed(fn(s) => str.format(s, "picked ${picked.get(s)};")) }),
+                ui.button({
+                    label: .Const("Redraw"),
+                    styles: [],
+                    onPress: .Some(fn(c) => values.set(c, [0.0, 40.0])),
+                }),
+                ui.button({
+                    label: .Const("Swap"),
+                    styles: [],
+                    onPress: .Some(fn(c) => months.set(c, [feb, jan])),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn the_proposal_s_drawings_work_in_a_browser() {
+    let printed = drive(
+        "proposal-page",
+        PROPOSAL_PAGE,
+        r#"
+const [spark, area, bars, marker] = document.querySelectorAll("svg");
+const paths = (svg) => [...svg.querySelectorAll("path")]
+  .map((p) => `${p.getAttribute("d")} fill=${p.style.getPropertyValue("fill")} stroke=${p.style.getPropertyValue("stroke")} width=${p.getAttribute("stroke-width")}`)
+  .join(" | ");
+const groups = () => [...bars.children]
+  .map((g) => `${g.getAttribute("transform")} ${g.querySelector("rect").getAttribute("aria-label")} ${g.querySelector("text").textContent}`)
+  .join(" | ");
+const dot = () => { const c = marker.querySelector("circle"); return `${c.getAttribute("cx")} ${c.getAttribute("cy")}`; };
+const picked = () => body.textContent.match(/picked [A-Za-z]*;/)[0];
+console.log(`spark hidden=${spark.getAttribute("aria-hidden")} ${paths(spark)}`);
+console.log(`area ${area.getAttribute("role")} ${paths(area)}`);
+console.log(`bars ${groups()}`);
+const [janBar, febBar] = bars.querySelectorAll("rect");
+febBar.focus();
+console.log(picked());
+labelled("Swap").click();
+console.log(`bars ${groups()} kept ${bars.children[0].querySelector("rect") === febBar} focus ${document.activeElement === febBar}`);
+febBar.blur();
+console.log(picked());
+console.log(`dot ${dot()}`);
+marker.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 80, width: 200, height: 80, x: 0, y: 0 });
+fire(marker, "pointermove", { clientX: 120, clientY: 10 });
+console.log(`dot ${dot()}`);
+labelled("Redraw").click();
+console.log(`spark ${paths(spark)}`);
+console.log(`dot ${dot()}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "spark hidden=true M0 30 L50 10 L100 20 fill=none stroke=currentColor width=1\n\
+         area img M0 30 L50 10 L100 20 L100 40 L0 40 Z fill=color-mix(in srgb,var(--app-accent,currentColor) 20%,transparent) stroke=none width=1 | M0 30 L50 10 L100 20 fill=none stroke=var(--app-accent, currentColor) width=1.5\n\
+         bars translate(0 0) Jan: 10.0 Jan | translate(10 0) Feb: 30.0 Feb\n\
+         picked Feb;\n\
+         bars translate(0 0) Feb: 30.0 Feb | translate(10 0) Jan: 10.0 Jan kept true focus true\n\
+         picked ;\n\
+         dot 0 30\n\
+         dot 50 10\n\
+         spark M0 40 L100 0 fill=none stroke=currentColor width=1\n\
+         dot 100 0\n"
+    );
 }

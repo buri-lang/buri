@@ -3,6 +3,7 @@ library {
 
     test {
         sources: [
+            "test/drawings.buri",
             "test/reactive.buri",
             "test/reactivity.buri",
             "test/render.buri",

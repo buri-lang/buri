@@ -12,6 +12,7 @@
 //! the outline a path's segments trace, and the paint a colour becomes. Every
 //! renderer draws from that one answer, so a browser and a snapshot agree.
 
+from "core/list" import * as list;
 from "core/str" import * as str;
 from "platform/effect" import { Scope };
 from "ui/prop" import { Prop };
@@ -41,9 +42,9 @@ export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], 
 /// what runs as the focus arrives and leaves.
 struct Stop<C>(Prop<Str>, Option<fn(C, Bool) => ()>);
 
-/// What `each` stands for: the key at an index, and the row built there. Both
-/// answer `.None` past the end of the list.
-struct Rows<C>(fn(Scope, Int) => Option<Str>, fn(C, Scope, Int) => Option<Shape<C>>);
+/// What `each` stands for: the list's keys, in order, and the row built at an
+/// index among them.
+struct Rows<C>(fn(Scope) => [Str], fn(C, Scope, Int) => Shape<C>);
 
 impl<C> Shape<C> {
     /// The shape written out as SVG, its props read through `ctx`. Write what
@@ -52,12 +53,6 @@ impl<C> Shape<C> {
     /// Reading one is not making one. `ui/node` writes a drawing into a
     /// snapshot's scene with this.
     export fn svg(self, ctx: Scope): Str {
-        let attributes = self.1
-            .concat(ctx, self.2)
-            .mapCtx(ctx, fn(s, pair) => {
-                str.format(s, " ${pair.0}='${pair.1.read(s)}'")
-            })
-            .join(ctx, "");
         // A text's words are text, never markup.
         let inner = match (self.5) {
             .Some(words) => {
@@ -70,10 +65,21 @@ impl<C> Shape<C> {
             .None => self.3.mapCtx(ctx, fn(s, child) => child.svg(s)).join(ctx, ""),
         };
         if (inner.isEmpty()) {
-            str.format(ctx, "<${self.0}${attributes}/>")
+            str.format(ctx, "${self.opening(ctx)}/>")
         } else {
-            str.format(ctx, "<${self.0}${attributes}>${inner}</${self.0}>")
+            str.format(ctx, "${self.opening(ctx)}>${inner}</${self.0}>")
         }
+    }
+
+    /// The start of the shape's SVG: its element and attributes, unclosed.
+    fn opening(self, ctx: Scope): Str {
+        let attributes = self.1
+            .concat(ctx, self.2)
+            .mapCtx(ctx, fn(s, pair) => {
+                str.format(s, " ${pair.0}='${pair.1.read(s)}'")
+            })
+            .join(ctx, "");
+        str.format(ctx, "<${self.0}${attributes}")
     }
 
     /// The shape with every `each` in it replaced by its rows, each row built
@@ -84,10 +90,17 @@ impl<C> Shape<C> {
     /// because a row is built with a context and written with a scope.
     export fn built(self, ctx: Scope, c: C): [Shape<C>] {
         match (self.4) {
-            .Some(rows) => rowsFrom(ctx, c, rows.1, 0, []),
+            .Some(rows) => rowsFrom(ctx, c, rows.1, rows.0(ctx).length(), 0, []),
             .None => {
                 let children = self.3;
-                let inner = rowsFrom(ctx, c, fn(_c, _s, at) => children.get(at), 0, []);
+                let inner = rowsFrom(
+                    ctx,
+                    c,
+                    fn(_c, s, at) => only(s, children, at, nothing()),
+                    children.length(),
+                    0,
+                    [],
+                );
                 if (self.1.isEmpty()) {
                     inner
                 } else {
@@ -97,58 +110,82 @@ impl<C> Shape<C> {
         }
     }
 
-    /// The keys of every `each` in the shape, read through `ctx`, its rows
-    /// left out.
+    /// Lays the shape out the way a document with no browser holds it: one
+    /// element per shape, as a browser has.
     ///
-    /// `ui/node` reads these to know when a drawing's rows must be built again.
-    export fn keys(self, ctx: Scope): [Str] {
+    /// `element` is handed an element's name, its SVG, its label, and the
+    /// shapes inside it. The SVG is the whole shape when it ends in `>`, and a
+    /// start tag that the shapes inside it and its end follow otherwise.
+    /// `rows` is handed an `each`'s keys and its row at an index. A group with no
+    /// offset has no element, so its shapes are laid in its place.
+    ///
+    /// `ui/node` lays a drawing out with this, so a row whose key stays keeps
+    /// its elements.
+    export fn lay(
+        self,
+        element: fn(Str, Prop<Str>, Option<Prop<Str>>, [Shape<C>]) => (),
+        rows: fn(fn(Scope) => [Str], fn(C, Scope, Int) => Shape<C>) => (),
+    ): () {
+        let shape = self;
+        let label = self.6.map(fn(stop) => stop.0);
         match (self.4) {
-            .Some(rows) => keysFrom(ctx, rows.0, 0, []),
-            .None => self.3.flatMapCtx(ctx, fn(s, child) => child.keys(s)),
-        }
-    }
-
-    /// The element and the label of every labelled shape in a shape `built`
-    /// answered, in order.
-    ///
-    /// `ui/node` reads these so a document with no browser has a stop in its
-    /// focus order for each one.
-    export fn labels(self, ctx: Scope): [(Str, Prop<Str>)] {
-        let inner = self.3.flatMapCtx(ctx, fn(s, child) => child.labels(s));
-        match (self.6) {
-            .Some(stop) => [(self.0, stop.0)].concat(ctx, inner),
-            .None => inner,
+            .Some(each) => rows(each.0, each.1),
+            .None => {
+                if (self.0 != "g") {
+                    element(self.0, .Computed(fn(s) => shape.svg(s)), label, [])
+                } else if (self.1.isEmpty()) {
+                    layFrom(self.3, 0, element, rows)
+                } else {
+                    element("g", .Computed(fn(s) => shape.opening(s)), label, self.3)
+                }
+            },
         }
     }
 }
 
-/// The shapes `rowAt` answers from `at` on, each one `built`, after `acc`.
+/// `lay` for each of `shapes` from `at` on.
+fn layFrom<C>(
+    shapes: [Shape<C>],
+    at: Int,
+    element: fn(Str, Prop<Str>, Option<Prop<Str>>, [Shape<C>]) => (),
+    rows: fn(fn(Scope) => [Str], fn(C, Scope, Int) => Shape<C>) => (),
+): () {
+    match (shapes.get(at)) {
+        .Some(shape) => {
+            let _ = shape.lay(element, rows);
+            layFrom(shapes, at + 1, element, rows)
+        },
+        .None => {},
+    }
+}
+
+/// The shapes `rowAt` answers from `at` up to `count`, each one `built`, after
+/// `acc`.
 fn rowsFrom<C>(
     ctx: Scope,
     c: C,
-    rowAt: fn(C, Scope, Int) => Option<Shape<C>>,
+    rowAt: fn(C, Scope, Int) => Shape<C>,
+    count: Int,
     at: Int,
     acc: [Shape<C>],
 ): [Shape<C>] {
-    match (rowAt(c, ctx, at)) {
-        .Some(row) => {
-            rowsFrom(ctx, c, rowAt, at + 1, acc.concat(ctx, row.built(ctx, c)))
-        },
-        .None => acc,
+    if (at < count) {
+        let row = rowAt(c, ctx, at);
+        rowsFrom(ctx, c, rowAt, count, at + 1, acc.concat(ctx, row.built(ctx, c)))
+    } else {
+        acc
     }
 }
 
-/// The keys `keyAt` answers from `at` on, after `acc`.
-fn keysFrom(
-    ctx: Scope,
-    keyAt: fn(Scope, Int) => Option<Str>,
-    at: Int,
-    acc: [Str],
-): [Str] {
-    match (keyAt(ctx, at)) {
-        .Some(key) => keysFrom(ctx, keyAt, at + 1, acc.push(ctx, key)),
-        .None => acc,
-    }
+/// The item at `at` in `items`, which holds one there; `otherwise` stands in
+/// only as the starting value of a fold over that one item.
+fn only<T>(ctx: Scope, items: [T], at: Int, otherwise: T): T {
+    items.slice(ctx, at, at + 1).fold(fn(_was, item) => item, otherwise)
+}
+
+/// A shape that draws nothing.
+fn nothing<C>(): Shape<C> {
+    Shape("g", [], [], [], .None, .None, .None)
 }
 
 /// What `path` takes.
@@ -373,7 +410,8 @@ export fn group<C>(config: Group<C>): Shape<C> {
 /// same key is a mistake the runtime refuses where you make it. A row whose key
 /// is still in the list moves rather than being built again, so a row is built
 /// from its item once: if what a row shows can change while its key stays the
-/// same, make the changing part a `Prop`.
+/// same, make the changing part a `Prop`. A row's index is one: it follows the
+/// row's place in the list as the list is reordered.
 ///
 /// ```buri
 /// from "ui/prop" import { Prop };
@@ -383,7 +421,7 @@ export fn group<C>(config: Group<C>): Shape<C> {
 /// export fn bars<C>(totals: Prop<[Float]>): Shape<C> {
 ///     shape.each(totals, fn(total) => "${total}", fn(_c, total, i) => {
 ///         shape.rect({
-///             at: .Const((i.toF64() * 10.0, 40.0 - total)),
+///             at: .Computed(fn(s) => (i.read(s).toF64() * 10.0, 40.0 - total)),
 ///             size: .Const((8.0, total)),
 ///             fill: .Some(.Const(.Inherit)),
 ///         })
@@ -393,7 +431,7 @@ export fn group<C>(config: Group<C>): Shape<C> {
 export fn each<C, T: Equal>(
     items: Prop<[T]>,
     key: fn(T) => Str,
-    row: fn(C, T, Int) => Shape<C>,
+    row: fn(C, T, Prop<Int>) => Shape<C>,
 ): Shape<C> {
     Shape(
         "g",
@@ -402,18 +440,36 @@ export fn each<C, T: Equal>(
         [],
         .Some(
             Rows(
-                fn(scope, index) => items.read(scope).get(index).map(key),
+                fn(scope) => items.read(scope).map(scope, key),
                 fn(c, scope, index) => {
-                    match (items.read(scope).get(index)) {
-                        .Some(item) => .Some(row(c, item, index)),
-                        .None => .None,
-                    }
+                    let keys = fn(s: Scope) => items.read(s).map(s, key);
+                    items
+                        .read(scope)
+                        .slice(scope, index, index + 1)
+                        .foldCtx(
+                            c,
+                            fn(at, _was, item) => {
+                                row(at, item, placeOf(keys, key(item)))
+                            },
+                            nothing(),
+                        )
                 },
             ),
         ),
         .None,
         .None,
     )
+}
+
+/// Where `k` is among `keys`, as they change: a row's index.
+fn placeOf(keys: fn(Scope) => [Str], k: Str): Prop<Int> {
+    .Computed(fn(s) => {
+        let all = keys(s);
+        all
+            .zip(s, list.range(s, 0, all.length()))
+            .filter(s, fn(pair) => pair.0 == k)
+            .fold(fn(_was, pair) => pair.1, 0)
+    })
 }
 
 /// A stroke's width as SVG writes it: `1` when it was left out.

@@ -191,7 +191,7 @@ export fn bars<C>(totals: Prop<[Float]>): Node<C> {
         shapes: [
             shape.each(totals, fn(t) => "${t}", fn(_c, t, i) => {
                 shape.group({
-                    offset: .Some(.Const((i.toF64() * 10.0, 0.0))),
+                    offset: .Some(.Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0))),
                     shapes: [
                         shape.rect({
                             at: .Const((1.0, 40.0 - t)),
@@ -211,18 +211,24 @@ export fn bars<C>(totals: Prop<[Float]>): Node<C> {
 }
 ```
 
-When the list changes, the browser keeps the elements of rows whose keys stay
-and moves them into the new order.
+When the list changes, the rows whose keys stay keep their elements and move
+into the new order, in a browser and in `render` alike. A row's index is a
+`Prop<Int>` that follows its place in the list, so a row placed by its index
+moves with it. Two rows with one key stop the program, naming the key.
 
 **A label is a `shape.text`.** It's centred on its point's `x`, with its
 baseline on `y`, 5 units tall, in the colour of the text around the drawing:
 
 ```buri
+from "ui/prop" import { Prop };
 from "ui/shape" import * as shape;
 from "ui/shape" import { Shape };
 
-fn month<C>(name: Str, i: Int): Shape<C> {
-    shape.text({ at: .Const((i.toF64() * 10.0 + 5.0, 47.0)), content: .Const(name) })
+fn month<C>(name: Str, i: Prop<Int>): Shape<C> {
+    shape.text({
+        at: .Computed(fn(s) => (i.read(s).toF64() * 10.0 + 5.0, 47.0)),
+        content: .Const(name),
+    })
 }
 ```
 

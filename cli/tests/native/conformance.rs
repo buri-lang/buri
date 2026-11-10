@@ -828,6 +828,9 @@ const PACKAGES: &[Case] = &[
     // Its two neighbours below stay out, and for a reason no wave retires:
     // they are the *document*.
     included("ui/reactivity.buri"),
+    // #332's four proposal drawings, rendered with no browser. `BUILD.buri`
+    // lists it too, so `buri test` runs it on JavaScript.
+    included("ui/drawings.buri"),
     // The native renderer's static half (#53): `render`/`markup`/`text`/`count`
     // over trees with no reactivity, pinned byte-for-byte to the headerless
     // `describe`. `BUILD.buri` lists it too, so `buri test` runs it on

@@ -19,6 +19,7 @@ from "platform/effect" import { Ui, Watch };
 from "platform/effect/testing" import { headless, observer, recorder, render };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/prop" import { Prop };
 from "ui/signal" import { signal };
 
 /// A heading whose text does not depend on `value`, so that what changes when
@@ -164,7 +165,7 @@ fn keyOf(item: Str): Str {
 }
 
 /// A row whose text is the item, keyed by the item.
-fn eachRow<C>(ctx: C, item: Str, index: Int): Node<C> {
+fn eachRow<C>(ctx: C, item: Str, index: Prop<Int>): Node<C> {
     ui.stack({
         styles: [],
         children: [ui.text({ content: .Const(item) })],

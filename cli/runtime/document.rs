@@ -1015,6 +1015,14 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
     };
     // SAFETY: the caller promises `keys_len` `BuriStr` elements at `keys_ptr`.
     let keys = unsafe { keys_of(keys_ptr, keys_len) };
+    // Two rows with one key cannot both be kept, so the list is refused and
+    // the key named — the JavaScript `$tree_each`'s rule.
+    let mut seen = std::collections::HashSet::with_capacity(keys.len());
+    for key in &keys {
+        if !seen.insert(key.as_str()) {
+            crate::abort::die(&[b"two rows share the key \"", key.as_bytes(), b"\""]);
+        }
+    }
 
     // The list's markers, its parent and owner, and the rows as they stand.
     let Some((end, parent, list_owner, prev)) = with_doc(handle, |doc| {
@@ -2901,15 +2909,68 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_markup(handle: i64, out: 
 
 fn markup_of(doc: &Document) -> String {
     let mut lines: Vec<String> = Vec::new();
-    for (index, depth) in doc.ordered() {
-        let record = &doc.records[index];
+    markup_under(doc, 0, 0, &mut lines);
+    lines.join("\n")
+}
+
+/// `markup_of`'s lines for everything under `node`. A drawing's shapes are in
+/// its artwork already, so an `svg`'s own elements write no line.
+fn markup_under(doc: &Document, node: usize, depth: i64, lines: &mut Vec<String>) {
+    for &child in &doc.records[node].children {
+        let record = &doc.records[child];
         match record.kind {
             Kind::Element => lines.push(format!("e {} {}", depth, record.body)),
             Kind::Text => lines.push(format!("t {} {}", depth, escape_run(&record.text))),
             Kind::Marker => {}
         }
+        if record.name != "svg" {
+            markup_under(doc, child, depth + 1, lines);
+        }
     }
-    lines.join("\n")
+}
+
+/// `drawnUnder(builder, at)` — the SVG of every shape under the element `at`,
+/// in order. Each shape's element holds its own SVG as its text: a whole
+/// element when that ends in `>`, else a start tag the shapes under it close.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_drawn_under(handle: i64, at: i64, out: *mut BuriStr) {
+    let svg = with_doc(handle, |doc| {
+        usize::try_from(at)
+            .ok()
+            .filter(|i| *i < doc.records.len())
+            .map(|i| drawn_under(doc, i))
+            .unwrap_or_default()
+    })
+    .unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&svg)) };
+}
+
+fn drawn_under(doc: &Document, node: usize) -> String {
+    let mut svg = String::new();
+    for &child in &doc.records[node].children {
+        let record = &doc.records[child];
+        if record.kind != Kind::Element {
+            continue;
+        }
+        svg.push_str(&record.text);
+        if !record.text.ends_with('>') {
+            let inner = drawn_under(doc, child);
+            if inner.is_empty() {
+                svg.push_str("/>");
+            } else {
+                svg.push('>');
+                svg.push_str(&inner);
+                svg.push_str("</");
+                svg.push_str(&record.name);
+                svg.push('>');
+            }
+        }
+    }
+    svg
 }
 
 /// `Rendered.text()` — every run of text, in order, joined by a space.

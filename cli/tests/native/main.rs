@@ -301,6 +301,10 @@ mod test_processes;
 // backend built in and on JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod headless_timers;
+// Two rows with one key in `render`'s document, refused naming the key, on
+// every backend built in and on JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod duplicate_keys;
 // A scope in a test that binds its own `Tasks` runs as its program does, on
 // every native backend built in, under the heap check.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

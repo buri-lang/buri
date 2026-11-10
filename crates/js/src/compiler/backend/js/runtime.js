@@ -6452,16 +6452,13 @@ function $tree_drawing(ctx, node, parent, anchor) {
 // One shape: its element, its attributes, its paint and the shapes inside it.
 // Paint is CSS rather than an attribute, because a design token's `var()`
 // resolves only in CSS. An `each` is a keyed list of shapes, reconciled as
-// `ui.each`'s rows are; its key and its row answer `undefined` past the end.
+// `ui.each`'s rows are, from the list's keys and the row at an index.
 function $tree_shape(ctx, shape, parent, anchor) {
   const rows = shape[4];
   if (rows !== undefined) {
-    const count = (scope) => {
-      let n = 0;
-      while (rows[0](scope, BigInt(n)) !== undefined) n++;
-      return n;
-    };
-    $tree_each(ctx, parent, anchor, count, rows[0], rows[1], $tree_shape);
+    const count = (scope) => BigInt(rows[0](scope).length);
+    const keyAt = (scope, at) => rows[0](scope)[Number(at)];
+    $tree_each(ctx, parent, anchor, count, keyAt, rows[1], $tree_shape);
     return;
   }
   // A group with no offset moves nothing, so its shapes take its place.
@@ -7916,6 +7913,12 @@ function $ui_node_reconcile(builder, region, keys, build) {
   const end = reg.end;
   const parent = reg.parent;
   const listOwner = reg.listOwner;
+  // Two rows with one key cannot both be kept — `$tree_each`'s rule.
+  const seen = new Set();
+  for (const key of keys) {
+    if (seen.has(key)) $abort('two rows share the key "' + key + '"');
+    seen.add(key);
+  }
   const byKey = new Map();
   for (const row of reg.rows) byKey.set(row.key, row);
   const next = new Array(keys.length);
@@ -8104,6 +8107,27 @@ function $ui_node_pointerOverRow(builder) {
 function $ui_node_pointerRow(builder) {
   const row = $scene_of(builder).pointer.row;
   return row === undefined ? "" : row;
+}
+
+// The SVG of every shape under the element `at`, in order — the native
+// `drawn_under`. Each shape's element holds its own SVG as its text: a whole
+// element when that ends in `>`, else a start tag the shapes under it close.
+function $ui_node_drawnUnder(builder, at) {
+  const doc = $scene_of(builder);
+  const under = (node) => {
+    let svg = "";
+    for (const child of doc.records[node].children) {
+      const r = doc.records[child];
+      if (r.kind !== 0) continue;
+      svg += r.text;
+      if (!r.text.endsWith(">")) {
+        const inner = under(child);
+        svg += inner === "" ? "/>" : ">" + inner + "</" + r.name + ">";
+      }
+    }
+    return svg;
+  };
+  return doc.records[Number(at)] === undefined ? "" : under(Number(at));
 }
 
 // The file `pickFile` offered, read back by the picker's handler.
@@ -8315,11 +8339,17 @@ function $scene_escapeRun(content) {
 function $host_testing_Rendered_markup(self) {
   const doc = $scene_of(self);
   const lines = [];
-  for (const pair of $scene_ordered(doc)) {
-    const record = doc.records[pair[0]];
-    if (record.kind === 0) lines.push("e " + pair[1] + " " + record.body);
-    else if (record.kind === 1) lines.push("t " + pair[1] + " " + $scene_escapeRun(record.text));
-  }
+  // A drawing's shapes are in its artwork already, so an `svg`'s own elements
+  // write no line.
+  const visit = (node, depth) => {
+    for (const child of doc.records[node].children) {
+      const record = doc.records[child];
+      if (record.kind === 0) lines.push("e " + depth + " " + record.body);
+      else if (record.kind === 1) lines.push("t " + depth + " " + $scene_escapeRun(record.text));
+      if (record.name !== "svg") visit(child, depth + 1);
+    }
+  };
+  visit(0, 0);
   return lines.join("\n");
 }
 

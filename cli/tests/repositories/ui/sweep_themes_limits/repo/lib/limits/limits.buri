@@ -119,12 +119,12 @@ export fn siblings<C: Allocator>(ctx: C, n: Int): Node<C> {
             ui.each(
                 .Const(labels(ctx, n, 0, [])),
                 fn(label) => label,
-                fn(_c, _label, at) => {
+                fn(_c, label, _at) => {
                     ui.stack({
                         styles: [
                             .Width(.Px(20)),
                             .Height(.Px(10)),
-                            .Background(tint(at)),
+                            .Background(tint(label.toInt().withDefault(0))),
                         ],
                         children: [],
                     })

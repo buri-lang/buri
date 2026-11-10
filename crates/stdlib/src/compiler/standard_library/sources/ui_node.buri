@@ -33,6 +33,7 @@
 
 from "core/alloc" import * as alloc;
 from "core/bytes" import * as bytes;
+from "core/list" import * as list;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
@@ -355,13 +356,14 @@ enum NodeKind<C> {
     Tooltip(Prop<Str>, [Style], [Node<C>], Events<C>),
     // Shapes in a drawing of their own units: what a reader is told, the
     // `viewBox` the size becomes, the whole drawing as SVG markup, the styles,
-    // the shapes, the events, and the keys of its `each`es. The markup is a
-    // prop built once the `each`es' rows are, through the context and scope it
-    // is handed, beside what puts the drawing's name and its labelled shapes'
-    // stops into a document. The constructor writes all three, so only a
-    // program that draws compiles the code that writes them. Appended last,
-    // the order being append-only.
-    Drawing(Alt, Prop<Str>, fn(C, Scope) => (Prop<Str>, fn(Builder) => ()), [Style], [Shape<C>], Events<C>, fn(Scope) => [Str]),
+    // the shapes, the events, and what lays the shapes out in a document. The
+    // markup is a prop built once the `each`es' rows are, through the context
+    // and scope it is handed. The layout puts one element per shape under the
+    // open drawing, and calls what it is handed whenever the drawing's markup
+    // may have changed. The constructor writes both, so only a program that
+    // draws compiles the code that writes them. Appended last, the order being
+    // append-only.
+    Drawing(Alt, Prop<Str>, fn(C, Scope) => Prop<Str>, [Style], [Shape<C>], Events<C>, fn(Builder, fn(Scope) => ()) => ()),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -937,49 +939,60 @@ export fn drawing<C>(config: Drawing<C>): Node<C> {
     });
     let shapes = config.shapes;
     let all: Shape<C> = group({ offset: .None, shapes: shapes });
-    let alt = config.alt;
     let artwork = fn(c: C, scope: Scope) => {
         let rows = all.built(scope, c);
-        let markup: Prop<Str> = .Computed(fn(s) => drawn(s, box, rows));
-        let stops = fn(builder: Builder) => standIn(builder, alt, rows);
-        (markup, stops)
+        let markup: Prop<Str> = .Computed(fn(s) => {
+            framed(s, box, rows.mapCtx(s, fn(t, shape) => shape.svg(t)).join(s, ""))
+        });
+        markup
     };
-    let keys = fn(scope: Scope) => all.keys(scope);
+    let lay = fn(builder: Builder, repaint: fn(Scope) => ()) => {
+        layShape(builder, repaint, all)
+    };
     let events = Events { ..noEvents(), onPointerMove: config.onPointerMove };
-    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, events, keys))
+    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, events, lay))
 }
 
-/// Names the open drawing by its `alt`, and puts an element under it for each
-/// labelled shape in `shapes`: a stop in the focus order, named by the label.
-/// A browser focuses the shape itself, and a document with no browser has
-/// nothing else to focus.
-fn standIn<C>(builder: Builder, alt: Alt, shapes: [Shape<C>]): () {
-    let scope = rootScope();
-    let _ = match (alt) {
-        .AccessibilityText(name) => registerLabel(builder, name),
-        .Decorative => {},
-    };
-    stopsFrom(builder, shapes.flatMapCtx(scope, fn(s, shape) => shape.labels(s)), 0)
-}
-
-/// `standIn`'s stops, from `at` on.
-fn stopsFrom(builder: Builder, labels: [(Str, Prop<Str>)], at: Int): () {
-    match (labels.get(at)) {
-        .Some((name, label)) => {
-            let opened = openElement(builder, name, "");
-            let _ = reactive(fn(s) => relabel(builder, opened, label.read(s)));
-            let _ = attachFocus(builder, focusKey(builder), true);
-            let _ = exitElement(builder);
-            stopsFrom(builder, labels, at + 1)
+/// Puts `shape` under the open element the way a browser holds it: an element
+/// per shape, and an `each`'s rows reconciled by key, so a row whose key stays
+/// keeps its elements and the focus on them. Each element holds its SVG as its
+/// text, and `repaint` runs whenever that changes. A labelled shape is a stop
+/// in the focus order, named by its label.
+fn layShape<C>(builder: Builder, repaint: fn(Scope) => (), shape: Shape<C>): () {
+    shape.lay(
+        fn(name, svg, label, inner) => {
+            let at = openElement(builder, name, "");
+            let _ = reactive(fn(s) => {
+                let _ = patchText(builder, at, svg.read(s));
+                repaint(rootScope())
+            });
+            let _ = match (label) {
+                .Some(heard) => {
+                    let _ = reactive(fn(s) => relabel(builder, at, heard.read(s)));
+                    attachFocus(builder, focusKey(builder), true)
+                },
+                .None => {},
+            };
+            let inside: Shape<C> = group({ offset: .None, shapes: inner });
+            let _ = layShape(builder, repaint, inside);
+            exitElement(builder)
         },
-        .None => {},
-    }
+        fn(keys, rowAt) => {
+            let region = enterEach(builder);
+            let build = fn(c: C, _owner: Int, index: Int) => {
+                layShape(builder, repaint, rowAt(c, rootScope(), index))
+            };
+            reactive(fn(scope) => {
+                let _ = reconcile(builder, region, keys(scope), build);
+                repaint(rootScope())
+            })
+        },
+    )
 }
 
-/// The `<svg>` a drawing is, read through `ctx`: what the scene carries, the
-/// way it carries an icon's artwork.
-fn drawn<C>(ctx: Scope, box: Prop<Str>, shapes: [Shape<C>]): Str {
-    let inner = shapes.mapCtx(ctx, fn(s, shape) => shape.svg(s)).join(ctx, "");
+/// The `<svg>` a drawing of `inner` is, read through `ctx`: what the scene
+/// carries, the way it carries an icon's artwork.
+fn framed(ctx: Scope, box: Prop<Str>, inner: Str): Str {
     str.format(
         ctx,
         "<svg viewBox='${box.read(ctx)}' preserveAspectRatio='none'>${inner}</svg>",
@@ -1895,6 +1908,8 @@ export fn computed<C>(build: fn(Scope) => Node<C>): Node<C> {
 /// focus, the scroll position and the computations inside a row alive across a
 /// reorder. It also means a row is built from its item once. If what a row shows
 /// can change while its key stays the same, make the changing part a `Prop`.
+/// A row's index is one: it follows the row's place in the list as the list is
+/// reordered.
 ///
 /// `T` carries an ordinary bound because the closures below capture a
 /// `Prop<[T]>`, and an unbounded type parameter could be a context
@@ -1902,25 +1917,41 @@ export fn computed<C>(build: fn(Scope) => Node<C>): Node<C> {
 export fn each<C, T: Equal>(
     items: Prop<[T]>,
     key: fn(T) => Str,
-    row: fn(C, T, Int) => Node<C>,
+    row: fn(C, T, Prop<Int>) => Node<C>,
 ): Node<C> {
     Node(
         .Each(
             fn(scope) => items.read(scope).length(),
             fn(scope, index) => {
-                match (items.read(scope).get(index)) {
-                    .Some(item) => key(item),
-                    .None => "",
-                }
+                items
+                    .read(scope)
+                    .slice(scope, index, index + 1)
+                    .fold(fn(_was, item) => key(item), "")
             },
             fn(c, scope, index) => {
-                match (items.read(scope).get(index)) {
-                    .Some(item) => row(c, item, index),
-                    .None => Node(.Empty),
-                }
+                let keys = fn(s: Scope) => items.read(s).map(s, key);
+                items
+                    .read(scope)
+                    .slice(scope, index, index + 1)
+                    .foldCtx(
+                        c,
+                        fn(at, _was, item) => row(at, item, placeOf(keys, key(item))),
+                        Node(.Empty),
+                    )
             },
         ),
     )
+}
+
+/// Where `k` is among `keys`, as they change: a row's index.
+fn placeOf(keys: fn(Scope) => [Str], k: Str): Prop<Int> {
+    .Computed(fn(s) => {
+        let all = keys(s);
+        all
+            .zip(s, list.range(s, 0, all.length()))
+            .filter(s, fn(pair) => pair.0 == k)
+            .fold(fn(_was, pair) => pair.1, 0)
+    })
 }
 
 /// Rebuilds a subtree from the mount context whenever `on` changes.
@@ -2152,39 +2183,31 @@ fn bindDynamic<C>(builder: Builder, build: fn(Scope) => Node<C>): () {
     reactive(fn(scope) => rebuildRegion(builder, region, build(scope), renderInto))
 }
 
-/// A drawing is emitted once and kept. Its `each`es' rows are built with a
-/// context, which a watcher cannot capture, so one watcher over the keys
-/// rebuilds an empty region inside the element, the runtime handing that
-/// rebuild a context to build the rows with. The rebuild then registers a
-/// watcher over the artwork and the styles, which patches the body in place
-/// whenever any of them changes.
+/// A drawing is emitted once and kept, its shapes laid under it the way a
+/// browser holds them (`layShape`), so an `each`'s row whose key stays keeps
+/// its elements. The body carries the artwork those elements write out, and is
+/// painted again whenever one of them or a style changes.
 fn emitDrawing<C>(
     builder: Builder,
-    node: Node<C>,
     state: State,
-    artwork: fn(C, Scope) => (Prop<Str>, fn(Builder) => ()),
+    alt: Alt,
+    box: Prop<Str>,
+    lay: fn(Builder, fn(Scope) => ()) => (),
     styles: [Style],
     events: Events<C>,
-    keys: fn(Scope) => [Str],
 ): () {
     let opened = openElement(builder, "svg", "");
-    let region = enterDynamic(builder);
-    let paint = fn(c: C, _builder: Builder, _node: Node<C>) => {
-        let (markup, stops) = artwork(c, rootScope());
-        let _ = stops(builder);
-        reactive(fn(s) => {
-            let declared = decl(s, "icon", escapeInline(s, markup.read(s)));
-            patchBody(
-                builder,
-                opened,
-                widgetBodyUnder(s, plain(state), [declared], styles),
-            )
-        })
+    let _ = match (alt) {
+        .AccessibilityText(name) => registerLabel(builder, name),
+        .Decorative => {},
     };
-    let _ = reactive(fn(s) => {
-        let _ = keys(s);
-        rebuildRegion(builder, region, node, paint)
-    });
+    let repaint = fn(s: Scope) => {
+        let artwork = framed(s, box, drawnUnder(builder, opened));
+        let declared = decl(s, "icon", escapeInline(s, artwork));
+        patchBody(builder, opened, widgetBodyUnder(s, plain(state), [declared], styles))
+    };
+    let _ = lay(builder, repaint);
+    let _ = reactive(repaint);
     let _ = registerEvents(builder, events);
     exitElement(builder)
 }
@@ -2300,8 +2323,8 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
-        .Drawing(_alt, _box, artwork, styles, _shapes, events, keys) => {
-            emitDrawing(builder, node, state, artwork, styles, events, keys)
+        .Drawing(alt, box, _artwork, styles, _shapes, events, lay) => {
+            emitDrawing(builder, state, alt, box, lay, styles, events)
         },
         // A field's value, hint and `disabled` all change its scene, so a write
         // to any of them rebuilds it in place: a region holds its spot and the
@@ -3598,6 +3621,11 @@ fn pointerOverRow(builder: Builder): Bool;
 /// That row's key, or `""` when `pointerOverRow` says there is none.
 fn pointerRow(builder: Builder): Str;
 
+/// The SVG of every shape under the element `openElement` answered `at`, in
+/// order. `layShape` keeps each shape's own SVG as its element's text: a whole
+/// element, or a start tag the shapes under it close.
+fn drawnUnder(builder: Builder, at: I64): Str;
+
 /// Stores the signal a field's or a toggle's value is bound to on the open
 /// element, so `fill` writes it a string and `flip` its negation.
 fn registerValue(builder: Builder, signal: Int): ();
@@ -3765,11 +3793,11 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // A drawing is artwork the shapes write out, so the painter draws it
         // the way it draws an icon's. Its `alt` is what a reader is told.
-        .Drawing(_alt, _box, markup, styles, _shapes, _events, _keys) => {
+        .Drawing(_alt, _box, markup, styles, _shapes, _events, _lay) => {
             let artwork = decl(
                 ctx,
                 "icon",
-                escapeInline(ctx, markup(ctx, scope).0.read(scope)),
+                escapeInline(ctx, markup(ctx, scope).read(scope)),
             );
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },

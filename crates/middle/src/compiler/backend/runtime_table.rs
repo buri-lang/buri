@@ -2050,6 +2050,7 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.pointerY", &[Scalar], Ret::Scalar(F64)),
     e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar(U8)),
     e("ui_node.pointerRow", &[Scalar], Ret::Out),
+    e("ui_node.drawnUnder", &[Scalar, Scalar], Ret::Out),
     e(
         "host_testing.Rendered.pointerDown",
         &[Scalar, Str, Float, Float],

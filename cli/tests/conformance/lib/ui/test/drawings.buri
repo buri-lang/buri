@@ -1,0 +1,265 @@
+// The four drawings #332's approved interface was shown through — a
+// sparkline, a themed area chart, one bar per month and a marker that follows
+// the pointer — written as the proposal wrote them and rendered with no
+// browser. `language::pages::the_proposal_s_drawings_work_in_a_browser` drives
+// the same four in one.
+//
+// Two changes from the proposal. A row's index is a `Prop<Int>` that follows
+// the row's place in the list, so a bar placed by it reads it through a
+// `.Computed`. The readout matches on the pointer's index where the proposal
+// wrote `withDefault(0)` and `getOr(i, 0.0)`: the same answers, spelled out.
+
+from "core/math" import * as math;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Segment };
+from "ui/signal" import { Signal, signal };
+from "ui/style" import * as style;
+
+derive Equal for Month;
+struct Month {
+    name: Str,
+    total: Float,
+}
+
+/// A line through `values`, across a drawing 100 units wide and 40 tall.
+fn trace(ctx: Scope, values: [Float]): [Segment] {
+    let step = 100.0 / (values.length() - 1).toF64();
+    values.mapIndexed(ctx, fn(i, v) => {
+        if (i == 0) {
+            .MoveTo(0.0, 40.0 - v)
+        } else {
+            .LineTo(i.toF64() * step, 40.0 - v)
+        }
+    })
+}
+
+fn sparkline<C>(values: Signal<[Float]>): Node<C> {
+    ui.drawing({
+        alt: .Decorative,
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Px(80)), .Height(.Px(24))],
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(.Inherit)),
+            }),
+        ],
+    })
+}
+
+fn visitors<C>(values: Signal<[Float]>): Node<C> {
+    let accent = style.token("app", "accent");
+    ui.drawing({
+        alt: .AccessibilityText("Visitors over the last 30 days"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Full), .Height(.Px(160))],
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => {
+                    trace(s, values.get(s)).concat(s, [
+                        .LineTo(100.0, 40.0),
+                        .LineTo(0.0, 40.0),
+                        .Close,
+                    ])
+                }),
+                fill: .Some(.Const(accent.alpha(0.2))),
+            }),
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(accent)),
+                strokeWidth: .Some(.Const(1.5)),
+            }),
+        ],
+    })
+}
+
+fn monthly<C: Ui>(months: Prop<[Month]>, picked: Signal<Str>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Sales by month"),
+        size: .Const((120.0, 50.0)),
+        styles: [.Width(.Full), .Height(.Px(200))],
+        shapes: [
+            shape.each(months, fn(m) => m.name, fn(c, m, i) => {
+                shape.group({
+                    offset: .Some(.Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0))),
+                    shapes: [
+                        shape.rect({
+                            at: .Const((1.0, 40.0 - m.total)),
+                            size: .Const((8.0, m.total)),
+                            fill: .Some(.Const(style.token("app", "accent"))),
+                            label: .Some(
+                                .Computed(fn(s) => {
+                                    str.format(s, "${m.name}: ${m.total}")
+                                }),
+                            ),
+                            onFocus: .Some(fn(c, now) => {
+                                picked.set(c, if (now) { m.name } else { "" })
+                            }),
+                        }),
+                        shape.text({
+                            at: .Const((5.0, 48.0)),
+                            content: .Const(m.name),
+                        }),
+                    ],
+                })
+            }),
+        ],
+    })
+}
+
+fn readout<C: Ui>(values: Signal<[Float]>, pointerX: Signal<Float>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Visitors over the last 30 days"),
+        size: .Const((100.0, 40.0)),
+        styles: [.Width(.Full), .Height(.Px(160))],
+        onPointerMove: .Some(fn(c, at) => pointerX.set(c, at.x)),
+        shapes: [
+            shape.path({
+                segments: .Computed(fn(s) => trace(s, values.get(s))),
+                stroke: .Some(.Const(.Inherit)),
+            }),
+            shape.circle({
+                center: .Computed(fn(s) => {
+                    let all = values.get(s);
+                    let step = 100.0 / (all.length() - 1).toF64();
+                    let i = match (math.round(pointerX.get(s) / step).toI64()) {
+                        .Ok(at) => at,
+                        .Err(_) => 0,
+                    };
+                    match (all.get(i)) {
+                        .Some(v) => (i.toF64() * step, 40.0 - v),
+                        .None => (i.toF64() * step, 40.0),
+                    }
+                }),
+                radius: .Const(1.5),
+                fill: .Some(.Const(.Inherit)),
+            }),
+        ],
+    })
+}
+
+test "a sparkline traces its values, and follows them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let values = signal(ctx, [10.0, 30.0, 20.0]);
+    let page = render(ctx, sparkline(values));
+    assert.equal(page.markup(), sparklineLine(ctx, "M0 30 L50 10 L100 20"));
+    values.set(ctx, [0.0, 40.0]);
+    assert.equal(page.markup(), sparklineLine(ctx, "M0 40 L100 0"));
+}
+
+/// The scene line the sparkline writes, tracing `d`.
+fn sparklineLine<C: Allocator>(ctx: C, d: Str): Str {
+    str.format(
+        ctx,
+        "e 0 class:w-80 h-24;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='${d}' stroke-width='1' fill='none' stroke='currentColor'/></svg>",
+    )
+}
+
+test "an area chart fills and strokes in its token" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let values = signal(ctx, [10.0, 30.0, 20.0]);
+    let page = render(ctx, visitors(values));
+    assert.equal(
+        page.markup(),
+        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20 L100 40 L0 40 Z' stroke-width='1' fill='color-mix(in srgb,var(--app-accent,currentColor) 20%,transparent)' stroke='none'/><path d='M0 30 L50 10 L100 20' stroke-width='1.5' fill='none' stroke='var(--app-accent,currentColor)'/></svg>",
+    );
+}
+
+test "the monthly bars are stops a reader tabs through, kept through a reorder" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let jan = Month { name: "Jan", total: 10.0 };
+    let feb = Month { name: "Feb", total: 30.0 };
+    let months = signal(ctx, [jan, feb]);
+    let picked = signal(ctx, "");
+    let page = render(ctx, monthly(.Cell(months), picked));
+    let janBar =
+        "<rect x='1' y='30' width='8' height='10' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
+    let febBar =
+        "<rect x='1' y='10' width='8' height='30' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
+    assert.equal(page.markup(), barsLine(ctx, janBar, febBar));
+    page.tab();
+    assert.equal(page.focused(), "Jan: 10.0");
+    page.tab();
+    assert.equal(page.focused(), "Feb: 30.0");
+    months.set(ctx, [feb, jan]);
+    assert.equal(page.focused(), "Feb: 30.0");
+    assert.equal(page.markup(), barsLine(ctx, febBar, janBar));
+}
+
+test "the monthly bars draw a fixed list and a worked-out one alike" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let jan = Month { name: "Jan", total: 10.0 };
+    let feb = Month { name: "Feb", total: 30.0 };
+    let janBar =
+        "<rect x='1' y='30' width='8' height='10' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
+    let febBar =
+        "<rect x='1' y='10' width='8' height='30' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
+    let picked = signal(ctx, "");
+    let fixed = render(ctx, monthly(.Const([jan, feb]), picked));
+    assert.equal(fixed.markup(), barsLine(ctx, janBar, febBar));
+    let flipped = signal(ctx, false);
+    let worked = render(
+        ctx,
+        monthly(
+            .Computed(fn(s) => if (flipped.get(s)) { [feb, jan] } else { [jan, feb] }),
+            picked,
+        ),
+    );
+    assert.equal(worked.markup(), barsLine(ctx, janBar, febBar));
+    flipped.set(ctx, true);
+    assert.equal(worked.markup(), barsLine(ctx, febBar, janBar));
+}
+
+/// The scene line the monthly bars write, `first` and `second` in that order.
+fn barsLine<C: Allocator>(ctx: C, first: Str, second: Str): Str {
+    str.format(
+        ctx,
+        "e 0 class:w-full h-200;icon:<svg viewBox='0 0 120 50' preserveAspectRatio='none'><g transform='translate(0 0)'>${first}</g><g transform='translate(10 0)'>${second}</g></svg>",
+    )
+}
+
+test "the readout's marker follows the pointer to the nearest value" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let values = signal(ctx, [10.0, 30.0, 20.0]);
+    let pointerX = signal(ctx, 0.0);
+    let page = render(ctx, readout(values, pointerX));
+    assert.equal(page.markup(), readoutLine(ctx, "cx='0' cy='30'"));
+    page.pointerMove("Visitors over the last 30 days", 60.0, 5.0);
+    assert.equal(pointerX.get(ctx), 60.0);
+    assert.equal(page.markup(), readoutLine(ctx, "cx='50' cy='10'"));
+}
+
+/// The scene line the readout writes, its marker at `center`.
+fn readoutLine<C: Allocator>(ctx: C, center: Str): Str {
+    str.format(
+        ctx,
+        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20' stroke-width='1' fill='none' stroke='currentColor'/><circle ${center} r='1.5' fill='currentColor'/></svg>",
+    )
+}

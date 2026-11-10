@@ -46,7 +46,7 @@ fn ignore(value: Int): () {
 
 /// A row of a keyed list: the item is the key and the text, so that what the
 /// document shows says which row it is.
-fn labelRow<C>(ctx: C, item: Str, index: Int): Node<C> {
+fn labelRow<C>(ctx: C, item: Str, index: Prop<Int>): Node<C> {
     ui.stack({
         styles: [],
         children: [ui.text({ content: .Const(item) })],
@@ -3336,7 +3336,9 @@ fn barsOf<C>(totals: Prop<[Float]>): Node<C> {
             shapes: [
                 shape.each(totals, fn(total) => "${total}", fn(_c, total, i) => {
                     shape.rect({
-                        at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                        at: .Computed(fn(s) => {
+                            (i.read(s).toF64() * 10.0, 40.0 - total)
+                        }),
                         size: .Const((8.0, total)),
                     })
                 }),
@@ -3442,7 +3444,9 @@ fn labelledBars<C>(suffix: Signal<Str>): Node<C> {
                 fn(total) => "${total}",
                 fn(_c, total, i) => {
                     shape.rect({
-                        at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                        at: .Computed(fn(s) => {
+                            (i.read(s).toF64() * 10.0, 40.0 - total)
+                        }),
                         size: .Const((8.0, total)),
                         label: .Some(
                             .Computed(fn(s) => {
@@ -3522,6 +3526,102 @@ test "a drawing hears the pointer in its own units" {
     // A headless document has no layout, so its box spans its units.
     let _ = page.pointerMove("Visitors", 30.0, 5.0);
     assert.equal(at.get(ctx), "30.0 5.0");
+}
+
+/// One labelled bar per month, placed `10` units along for each month before
+/// it in the list.
+fn placedBars<C>(months: Prop<[Str]>): Node<C> {
+    drawingOf(
+        shape.each(months, itself, fn(_c, month, i) => {
+            shape.rect({
+                at: .Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0)),
+                size: .Const((8.0, 10.0)),
+                label: .Some(.Const(month)),
+            })
+        }),
+    )
+}
+
+test "each keeps the shapes whose keys stay, and the focus on one of them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let months = signal(ctx, ["Jan", "Feb", "Mar"]);
+    let page = render(ctx, placedBars(.Cell(months)));
+    let jan = page.identity("rect", 0);
+    let mar = page.identity("rect", 2);
+    let _ = page.focus("Mar");
+    months.set(ctx, ["Mar", "Jan", "Apr"]);
+    assert.equal(page.identity("rect", 0), mar);
+    assert.equal(page.identity("rect", 1), jan);
+    assert.equal(page.count("rect"), 3);
+    assert.equal(page.focused(), "Mar");
+    // Each bar moves to its new place. The drawing is one line, its artwork:
+    // a shape inside it has no line of its own.
+    assert.equal(
+        page.markup(),
+        drawingLine(
+            ctx,
+            "<rect x='0' y='0' width='8' height='10' fill='none'/><rect x='10' y='0' width='8' height='10' fill='none'/><rect x='20' y='0' width='8' height='10' fill='none'/>",
+        ),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Jan");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Apr");
+    // A bar that leaves takes the focus with it.
+    months.set(ctx, ["Jan"]);
+    assert.equal(page.focused(), "");
+}
+
+test "an each inside another each's row follows its own list" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let inner = signal(ctx, ["x"]);
+    let outer = signal(ctx, ["a", "b"]);
+    let page = render(
+        ctx,
+        drawingOf(
+            shape.each(.Cell(outer), itself, fn(_c, o, _i) => {
+                shape.group({
+                    offset: .None,
+                    shapes: [
+                        shape.each(.Cell(inner), itself, fn(_c, x, _j) => {
+                            shape.text({
+                                at: .Const((0.0, 0.0)),
+                                content: .Computed(fn(s) => str.format(s, "${o}${x}")),
+                            })
+                        }),
+                    ],
+                })
+            }),
+        ),
+    );
+    assert.equal(page.markup(), drawingLine(ctx, wordsOf(ctx, ["ax", "bx"])));
+    inner.set(ctx, ["x", "y"]);
+    assert.equal(
+        page.markup(),
+        drawingLine(ctx, wordsOf(ctx, ["ax", "ay", "bx", "by"])),
+    );
+    outer.set(ctx, ["b"]);
+    assert.equal(page.markup(), drawingLine(ctx, wordsOf(ctx, ["bx", "by"])));
+}
+
+/// The SVG of a text shape saying each of `said`, in order.
+fn wordsOf<C: Allocator>(ctx: C, said: [Str]): Str {
+    said
+        .mapCtx(ctx, fn(s, word) => {
+            str.format(
+                s,
+                "<text x='0' y='0' text-anchor='middle' font-size='5' fill='currentColor'>${word}</text>",
+            )
+        })
+        .join(ctx, "")
 }
 
 test "a field is labelled, and what is typed into it is in its signal" {
@@ -7762,6 +7862,29 @@ test "a row keeps its own reactive leaf across a reorder" {
     assert.equal(page.markup(), "e 0 \ne 1 \nt 2 b?\ne 1 \nt 2 a?");
 }
 
+test "a row's index follows its place in the list" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let items = signal(ctx, ["a", "b", "c"]);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Cell(items), itself, fn(_c, item, index) => {
+                    ui.text({ content: .Computed(fn(s) => "${item}${index.read(s)}") })
+                }),
+            ],
+        }),
+    );
+    assert.equal(page.text(), "a0 b1 c2");
+    let _ = items.set(ctx, ["c", "a", "d"]);
+    assert.equal(page.text(), "c0 a1 d2");
+    let _ = items.set(ctx, ["a"]);
+    assert.equal(page.text(), "a0");
+}
+
 test "a list nested in a list reconciles on its own" {
     let ctx = context {
         Ui: headless(),
@@ -7810,7 +7933,7 @@ fn isEven(value: Int): Bool {
 /// A row of the derived list. The item's own text is formatted inside the leaf,
 /// which is the second half of the issue: a number reaches a `ui.text` only if
 /// the closure rendering it can allocate.
-fn numberRow<C>(ctx: C, item: Int, index: Int): Node<C> {
+fn numberRow<C>(ctx: C, item: Int, index: Prop<Int>): Node<C> {
     ui.stack({
         styles: [],
         children: [ui.text({ content: .Computed(fn(s) => str.format(s, "${item}")) })],

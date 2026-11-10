@@ -35,7 +35,9 @@ export fn card<C>(names: (Str, Str, Str)): Node<C> {
                 shapes: [
                     shape.each(.Const(months), fn(m) => m.name, fn(_c, m, i) => {
                         shape.group({
-                            offset: .Some(.Const((i.toF64() * 10.0, 0.0))),
+                            offset: .Some(
+                                .Computed(fn(s) => (i.read(s).toF64() * 10.0, 0.0)),
+                            ),
                             shapes: [
                                 shape.rect({
                                     at: .Const((1.0, 40.0 - m.total)),
