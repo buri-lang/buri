@@ -118,6 +118,40 @@ impl Catalog {
     }
 }
 
+/// One catalog's pages, each read the first time a diagnostic asks for it.
+///
+/// A diagnostic built and never printed, like the timeout every test suite
+/// carries, then reads one page rather than the whole catalog. [`Catalog`]
+/// reads them all, for what walks every page.
+pub struct Lazy {
+    entries: Vec<(
+        &'static str,
+        &'static str,
+        std::sync::OnceLock<Option<Page>>,
+    )>,
+}
+
+impl Lazy {
+    pub fn new(entries: Vec<(&'static str, &'static str)>) -> Lazy {
+        let entries = entries
+            .into_iter()
+            .map(|(code, text)| (code, text, std::sync::OnceLock::new()))
+            .collect();
+        Lazy { entries }
+    }
+
+    /// The page for `code`, as [`Catalog::page`] answers it.
+    pub fn page(&self, code: &str) -> Option<&Page> {
+        let (code, text, page) = self.entries.iter().find(|(c, _, _)| *c == code)?;
+        let (code, text) = (*code, *text);
+        page.get_or_init(|| match parse(text) {
+            Ok(Some((front, body))) => Some(Page { code, front, body }),
+            _ => None,
+        })
+        .as_ref()
+    }
+}
+
 /// Splits a page into its frontmatter block and its body.
 ///
 /// `Ok(None)` for a page that has none, which is how a page not yet migrated

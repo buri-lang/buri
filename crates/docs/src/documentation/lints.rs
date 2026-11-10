@@ -10,7 +10,7 @@
 //! explanation. What differs is the severity — a lint finding is usually a
 //! warning, and says so in its page rather than at its emission site.
 
-use crate::documentation::frontmatter::{Catalog, Page};
+use crate::documentation::frontmatter::{Catalog, Lazy, Page};
 
 pub struct LintDoc {
     pub code: &'static str,
@@ -210,8 +210,13 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
+/// The parsed page for a code. Only that page is read. See
+/// [`super::errors::page`].
 pub fn page(code: &str) -> Option<&'static Page> {
-    catalog().page(code)
+    static PAGES: std::sync::OnceLock<Lazy> = std::sync::OnceLock::new();
+    PAGES
+        .get_or_init(|| Lazy::new(LINTS.iter().map(|l| (l.code, l.text)).collect()))
+        .page(code)
 }
 
 #[cfg(test)]

@@ -20,7 +20,7 @@
 //! yet migrated, and keeps working the old way — its title comes from the list
 //! below and its emission site builds the sentence itself.
 
-use crate::documentation::frontmatter::{Catalog, Page};
+use crate::documentation::frontmatter::{Catalog, Lazy, Page};
 
 pub struct ErrorDoc {
     pub code: &'static str,
@@ -1210,9 +1210,12 @@ pub fn catalog() -> &'static Catalog {
 }
 
 /// The parsed page for a code, or `None` for a code with no page and for a page
-/// that has not been given frontmatter yet.
+/// that has not been given frontmatter yet. Only that page is read.
 pub fn page(code: &str) -> Option<&'static Page> {
-    catalog().page(code)
+    static PAGES: std::sync::OnceLock<Lazy> = std::sync::OnceLock::new();
+    PAGES
+        .get_or_init(|| Lazy::new(ERRORS.iter().map(|e| (e.code, e.text)).collect()))
+        .page(code)
 }
 
 #[cfg(test)]
@@ -1250,6 +1253,19 @@ mod tests {
             "these pages do not parse:\n  {}",
             failures.join("\n  ")
         );
+    }
+
+    /// `page` reads one page where `catalog` reads them all; both read it the
+    /// same, in both catalogs.
+    #[test]
+    fn a_page_read_alone_is_the_page_the_catalog_reads() {
+        let lints = crate::documentation::lints::catalog().pages();
+        for p in catalog().pages().iter().chain(lints) {
+            let alone = page(p.code).or_else(|| crate::documentation::lints::page(p.code));
+            let alone = alone.unwrap_or_else(|| panic!("`{}` reads as no page alone", p.code));
+            assert_eq!(format!("{:?}", alone.front), format!("{:?}", p.front));
+            assert_eq!(alone.body, p.body, "`{}`", p.code);
+        }
     }
 
     #[test]
