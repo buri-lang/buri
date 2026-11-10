@@ -55,34 +55,34 @@ export fn busyLinks<C: Allocator>(ctx: C, net: Network): [Str] {
     net.links.keys(ctx)
 }
 
-/// The oldest message on `link`, and the network without it.
+/// The oldest message on `link`, if there is one, and the network without it.
 export fn receive<C: Allocator>(
     ctx: C,
     net: Network,
     link: Str,
-): Option<(Envelope, Network)> {
-    match (net.links.get(link)) {
-        .Some(waiting) => {
-            match (waiting.pop(ctx)) {
-                .Some((envelope, rest)) => {
-                    .Some(
-                        (
-                            envelope,
-                            Network {
-                                ..net,
-                                links: if (rest.isEmpty()) {
-                                    net.links.remove(ctx, link)
-                                } else {
-                                    net.links.insert(ctx, link, rest)
-                                },
-                            },
-                        ),
-                    )
-                },
-                .None => .None,
-            }
-        },
+): (Option<Envelope>, Network) {
+    let Network { links, cut, sent, dropped } = net;
+    let (waiting, rest) = links.take(ctx, link);
+    let next = match (waiting) {
+        .Some(q) => q.pop(ctx),
         .None => .None,
+    };
+    match (next) {
+        .Some((envelope, left)) => {
+            let kept = if (left.isEmpty()) {
+                rest
+            } else {
+                rest.insert(ctx, link, left)
+            };
+            (
+                .Some(envelope),
+                Network { links: kept, cut: cut, sent: sent, dropped: dropped },
+            )
+        },
+        // An empty queue is never kept, so there is nothing to put back.
+        .None => {
+            (.None, Network { links: rest, cut: cut, sent: sent, dropped: dropped })
+        },
     }
 }
 

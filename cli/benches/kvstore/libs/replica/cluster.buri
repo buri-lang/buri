@@ -235,9 +235,11 @@ fn deliver<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
     let (link, picked) = pick(cluster, busyLinks(ctx, cluster.network));
     match (link) {
         .Some(name) => {
-            match (receive(ctx, picked.network, name)) {
-                .Some((envelope, rest)) => {
-                    let (loss, c) = draw(Cluster { ..picked, network: rest }, 0, 100);
+            let (got, rest) = receive(ctx, picked.network, name);
+            let after = Cluster { ..picked, network: rest };
+            match (got) {
+                .Some(envelope) => {
+                    let (loss, c) = draw(after, 0, 100);
                     if (loss < c.config.dropPercent) {
                         note(
                             ctx,
@@ -255,7 +257,7 @@ fn deliver<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
                         arrive(ctx, c, envelope)
                     }
                 },
-                .None => picked,
+                .None => after,
             }
         },
         .None => picked,
@@ -547,14 +549,11 @@ fn replicate<C: Allocator>(ctx: C, cluster: Cluster, rounds: Int): Cluster {
 fn drain<C: Allocator>(ctx: C, cluster: Cluster): Cluster {
     match (busyLinks(ctx, cluster.network).first()) {
         .Some(link) => {
-            match (receive(ctx, cluster.network, link)) {
-                .Some((envelope, rest)) => {
-                    drain(
-                        ctx,
-                        arrive(ctx, Cluster { ..cluster, network: rest }, envelope),
-                    )
-                },
-                .None => cluster,
+            let (got, rest) = receive(ctx, cluster.network, link);
+            let after = Cluster { ..cluster, network: rest };
+            match (got) {
+                .Some(envelope) => drain(ctx, arrive(ctx, after, envelope)),
+                .None => after,
             }
         },
         .None => cluster,

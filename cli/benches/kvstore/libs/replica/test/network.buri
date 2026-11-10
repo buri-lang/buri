@@ -41,10 +41,10 @@ test "a link delivers in the order it was sent" {
         note("a", "b", 2),
         note("a", "b", 3),
     ]);
-    let (first, rest) = assert.some(receive(ctx, net, "a->b"));
-    let (second, _) = assert.some(receive(ctx, rest, "a->b"));
-    assert.equal(first.sentAt, 1);
-    assert.equal(second.sentAt, 2);
+    let (first, rest) = receive(ctx, net, "a->b");
+    let (second, _) = receive(ctx, rest, "a->b");
+    assert.equal(assert.some(first).sentAt, 1);
+    assert.equal(assert.some(second).sentAt, 2);
     assert.equal(inFlight(rest), 2);
 }
 
@@ -61,10 +61,13 @@ test "an empty link has nothing to receive" {
         Allocator: alloc(),
     };
     let net = send(ctx, emptyNetwork(), note("a", "b", 1));
-    let (_, rest) = assert.some(receive(ctx, net, "a->b"));
-    assert.isTrue(receive(ctx, rest, "a->b").isNone());
-    assert.isTrue(receive(ctx, rest, "c->d").isNone());
-    assert.equal(busyLinks(ctx, rest), []);
+    let (sent, rest) = receive(ctx, net, "a->b");
+    assert.isTrue(sent.isSome());
+    let (again, same) = receive(ctx, rest, "a->b");
+    assert.isTrue(again.isNone());
+    let (elsewhere, still) = receive(ctx, same, "c->d");
+    assert.isTrue(elsewhere.isNone());
+    assert.equal(busyLinks(ctx, still), []);
 }
 
 test "a cut link loses what is sent on it" {
