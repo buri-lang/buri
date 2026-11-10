@@ -1834,10 +1834,11 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// `fetch` handed a real `Request`, and the page's `main` imported on top of a
 /// document that already holds what the worker sent.
 ///
-/// The document double parses that markup the way a browser does — one run of
-/// text per run, however many the tree that wrote it had — and counts every
-/// node it is asked to make. So "the page resumed on the markup" is a number
-/// and a comparison rather than an impression.
+/// The document is happy-dom's, which parses that markup the way a browser
+/// does — one run of text per run, however many the tree that wrote it had —
+/// and [`RESUMING`] counts every node the page asks it to make. So "the page
+/// resumed on the markup" is a number and a comparison rather than an
+/// impression.
 ///
 /// Four claims, and the driver prints a line for each so a wrong answer names
 /// which:
@@ -1876,7 +1877,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let scratch = Scratch::copy_of("website", &site);
     scratch.run(&["build", "//cmd/site"]).ok();
 
-    let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{WEBSITE_DRIVER}"));
+    let driver = scratch.write("drive.mjs", &page_driver(WEBSITE_WORKER, WEBSITE_PAGE));
     let drive = |at: &str, asked: &str| {
         let out = Command::new(js_runtime())
             .arg(&driver)
@@ -1998,298 +1999,69 @@ export fn fetch(host: CloudflareHost, request: Request): Response;
     );
 }
 
-/// A document a page can resume into: the markup a browser would have parsed,
-/// and the handful of operations the runtime asks of one.
+/// A driver for a page and the worker beside it: `worker` runs first, against
+/// the JavaScript runtime's own `Request` and `Response`, as a worker has them,
+/// then happy-dom's window is registered through
+/// [`browser`](crate::harness::browser::browser) and `page` runs in
+/// it with [`RESUMING`] defined.
 ///
-/// Shared by the two rows that drive a page —
-/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`] and
-/// [`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`] — so there
-/// is one document here rather than two that can drift apart.
+/// Shared by the rows that drive a page, so there is one browser here rather
+/// than one per test that can drift apart.
+fn page_driver(worker: &str, page: &str) -> String {
+    format!(
+        "{worker}\n{}\n{RESUMING}\n{page}",
+        crate::harness::browser::browser()
+    )
+}
+
+/// What a test of a resume needs beside happy-dom's document.
 ///
-/// It parses the way a browser parses: one run of text per run however many the
-/// tree that wrote it had, entities read back, an attribute that stands on its
-/// own kept as one, and an element left **open** unless HTML says it holds
-/// nothing — so `<div />` is not a closed `divide` here either, which is the whole
-/// reason the renderer writes a closing tag.
+/// `arrive(sent, at, tab, holds)` lays out what a browser holds before the
+/// page's script runs: the address bar at `at`, the tab named `tab`, and the
+/// markup the worker sent parsed as the body. `holds: false` is a platform
+/// whose document has no body.
 ///
-/// `browser(sent, at, holds)` installs it; `holds: false` is a platform whose
-/// document has no body yet. `navigate(to)` is the reader pressing Back. `made`
-/// counts every node the page asked the document for, so "the page built
-/// nothing" is a number and a comparison rather than an impression.
-const DOCUMENT_DOUBLE: &str = r##"
-// Everything this document is asked to build, counted.
+/// `made` counts every element and run of text the page's own code asks the
+/// document for from then on, so "the page built nothing" is a number and a
+/// comparison rather than an impression. What happy-dom makes for itself is
+/// not the page building: a run of text a split cuts off, or the text inside
+/// the `<title>` when the page renames the tab.
+const RESUMING: &str = r##"
 const made = { elements: 0, text: 0 };
 
-function node(nodeType, nodeName) {
-  const self = {
-    nodeType,
-    nodeName,
-    childNodes: [],
-    parentNode: null,
-    listeners: {},
-    attributes: {},
-    data: "",
-    // `className` and `style` are attributes in a browser, so they are
-    // attributes here: writing "" to either *adds* `class=""` to markup the
-    // server wrote, and a resume that did that would not be leaving the
-    // document alone.
-    get className() {
-      const held = this.attributes.class;
-      return held === undefined || held === null ? "" : held;
-    },
-    set className(value) {
-      this.attributes.class = value;
-    },
-    get firstChild() {
-      return this.childNodes.length > 0 ? this.childNodes[0] : null;
-    },
-    get nextSibling() {
-      const parent = this.parentNode;
-      if (parent === null) return null;
-      const where = parent.childNodes.indexOf(this);
-      return where + 1 < parent.childNodes.length ? parent.childNodes[where + 1] : null;
-    },
-    get textContent() {
-      if (this.nodeType === 3) return this.data;
-      return this.childNodes.map((c) => c.textContent).join("");
-    },
-    insertBefore(child, before) {
-      if (child.parentNode !== null) child.parentNode.removeChild(child);
-      child.parentNode = this;
-      const where = before === null ? this.childNodes.length : this.childNodes.indexOf(before);
-      this.childNodes.splice(where, 0, child);
-      return child;
-    },
-    appendChild(child) {
-      return this.insertBefore(child, null);
-    },
-    removeChild(child) {
-      const where = this.childNodes.indexOf(child);
-      if (where >= 0) this.childNodes.splice(where, 1);
-      child.parentNode = null;
-      return child;
-    },
-    setAttribute(name, value) {
-      this.attributes[name] = value;
-    },
-    getAttribute(name) {
-      const held = this.attributes[name];
-      return held === undefined ? null : held;
-    },
-    removeAttribute(name) {
-      delete this.attributes[name];
-    },
-    addEventListener(type, handler) {
-      this.listeners[type] = handler;
-    },
-    splitText(where) {
-      const tail = node(3, "#text");
-      tail.data = this.data.slice(where);
-      this.data = this.data.slice(0, where);
-      this.parentNode.insertBefore(tail, this.nextSibling);
-      return tail;
-    },
-  };
-  self.style = {
-    get cssText() {
-      const held = self.attributes.style;
-      return held === undefined || held === null ? "" : held;
-    },
-    set cssText(text) {
-      self.attributes.style = text;
-    },
-    setProperty(name, value) {
-      const held = self.style.cssText;
-      self.attributes.style = held === "" ? `${name}: ${value}` : `${held}; ${name}: ${value}`;
-    },
-  };
-  return self;
-}
-
-// HTML's own empty elements. A trailing slash closes one of these and nothing
-// else: a parser reads `<div />` as an opening tag and puts what follows inside.
-const VOID = new Set([
-  "area", "base", "br", "col", "embed", "hr", "img",
-  "input", "link", "meta", "param", "source", "track", "wbr",
-]);
-
-const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
-
-function unescaped(text) {
-  return text.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body) => {
-    if (body[0] !== "#") return NAMED[body] === undefined ? whole : NAMED[body];
-    const digits = body[1] === "x" || body[1] === "X" ? body.slice(2) : body.slice(1);
-    const code = parseInt(digits, body[1] === "x" || body[1] === "X" ? 16 : 10);
-    return Number.isNaN(code) ? whole : String.fromCodePoint(code);
-  });
-}
-
-const escaped = (t) => t.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
-const quoted = (t) => escaped(t).split('"').join("&quot;");
-
-// The markup, parsed the way a browser parses it.
-function parse(html, into) {
-  const stack = [into];
-  const text = (data) => {
-    if (data === "") return;
-    const run = node(3, "#text");
-    run.data = unescaped(data);
-    stack[stack.length - 1].appendChild(run);
-  };
-  let read = 0;
-  while (read < html.length) {
-    const lt = html.indexOf("<", read);
-    if (lt < 0) {
-      text(html.slice(read));
-      break;
-    }
-    text(html.slice(read, lt));
-    const gt = html.indexOf(">", lt);
-    const tag = html.slice(lt + 1, gt);
-    read = gt + 1;
-    if (tag.startsWith("/")) {
-      stack.pop();
-      continue;
-    }
-    const written = tag.split(/[ /]/)[0];
-    const name = written.toLowerCase();
-    const element = node(1, name.toUpperCase());
-    // An attribute may carry a value or stand on its own: `checked` and
-    // `checked=""` are one attribute to a browser, and only the first is markup
-    // anybody writes.
-    for (const found of tag.slice(written.length).matchAll(/([a-zA-Z-]+)(?:="([^"]*)")?/g)) {
-      element.attributes[found[1]] = found[2] === undefined ? null : unescaped(found[2]);
-    }
-    stack[stack.length - 1].appendChild(element);
-    if (name === "script") {
-      const close = html.indexOf("</script>", read);
-      const held = node(3, "#text");
-      held.data = html.slice(read, close);
-      element.appendChild(held);
-      read = close + "</script>".length;
-      continue;
-    }
-    if (!VOID.has(name)) stack.push(element);
+function arrive(sent, at, tab, holds) {
+  history.replaceState(null, "", at);
+  document.title = tab;
+  body.innerHTML = sent;
+  if (!holds) body.remove();
+  moves.length = 0;
+  // `createElement` is `createElementNS` underneath, so a call made inside
+  // another of these is that one's and not counted again.
+  let inside = 0;
+  for (const [method, kind] of [
+    ["createElement", "elements"],
+    ["createElementNS", "elements"],
+    ["createTextNode", "text"],
+  ]) {
+    const make = document[method].bind(document);
+    document[method] = (...args) => {
+      // The frame that called this one: happy-dom's own bundle, or the page.
+      const caller = new Error().stack.split("\n")[2] || "";
+      if (inside === 0 && !caller.includes("happy-dom.mjs")) made[kind]++;
+      inside++;
+      try {
+        return make(...args);
+      } finally {
+        inside--;
+      }
+    };
   }
 }
-
-// What a reader is looking at. Markers are the runtime's own bookkeeping and a
-// browser shows none of them, so neither does this.
-function markup(n) {
-  if (n.nodeType === 8) return "";
-  if (n.nodeType === 3) return escaped(n.data);
-  const name = n.nodeName.toLowerCase();
-  let out = "<" + name;
-  for (const key of Object.keys(n.attributes)) {
-    const value = n.attributes[key];
-    out += value === null ? ` ${key}` : ` ${key}="${quoted(value)}"`;
-  }
-  if (VOID.has(name)) return out + " />";
-  // What is inside a `script` or a `style` is raw text: a browser neither reads
-  // entities in it nor writes them back out.
-  if (name === "script" || name === "style") {
-    return `${out}>${n.childNodes.map((c) => c.data).join("")}</${name}>`;
-  }
-  let inner = "";
-  for (const child of n.childNodes) inner += markup(child);
-  return `${out}>${inner}</${name}>`;
-}
-
-const body = node(1, "BODY");
-const showing = () => body.childNodes.map(markup).join("");
-
-const findFirst = (n, name) => {
-  if (n.nodeType === 1 && n.nodeName === name) return n;
-  for (const child of n.childNodes) {
-    const found = findFirst(child, name);
-    if (found !== null) return found;
-  }
-  return null;
-};
-
-// Every element of a kind, in document order — which is how a driver reaches
-// the second button on a page rather than only the first.
-const findAll = (n, name, out) => {
-  const all = out === undefined ? [] : out;
-  if (n.nodeType === 1 && n.nodeName === name) all.push(n);
-  for (const child of n.childNodes) findAll(child, name, all);
-  return all;
-};
-
-// The window's own listeners. `popstate` is the one a page registers.
-const heard = {};
-globalThis.addEventListener = (type, handler) => {
-  if (heard[type] === undefined) heard[type] = [];
-  heard[type].push(handler);
-};
-
-function browser(sent, at, holds) {
-  parse(sent, body);
-  globalThis.document = {
-    // A name the page renames as soon as it knows the route.
-    title: "main",
-    get body() {
-      return holds === false ? null : body;
-    },
-    getElementById(id) {
-      const walk = (n) => {
-        if (n.nodeType === 1 && n.attributes.id === id) return n;
-        for (const child of n.childNodes) {
-          const found = walk(child);
-          if (found !== null) return found;
-        }
-        return null;
-      };
-      return walk(body);
-    },
-    createElement(name) {
-      made.elements++;
-      return node(1, name.toUpperCase());
-    },
-    createTextNode(data) {
-      made.text++;
-      const run = node(3, "#text");
-      run.data = data;
-      return run;
-    },
-    createComment() {
-      return node(8, "#comment");
-    },
-  };
-  globalThis.location = { pathname: at };
-  // The history stack a router pushes onto. `pushState` adds an entry and
-  // `replaceState` swaps the one in front, and both move the address bar —
-  // which is what makes `length` the one thing that tells them apart.
-  globalThis.history = {
-    entries: [at],
-    get length() {
-      return this.entries.length;
-    },
-    pushState(_state, _title, url) {
-      this.entries.push(url);
-      globalThis.location.pathname = url;
-    },
-    replaceState(_state, _title, url) {
-      this.entries[this.entries.length - 1] = url;
-      globalThis.location.pathname = url;
-    },
-  };
-}
-
-// The reader going back or forward: the address changes, and the browser says
-// so. Nothing else here touches the document.
-function navigate(to) {
-  globalThis.location.pathname = to;
-  for (const handler of heard.popstate || []) handler({});
-}
-
-const press = (button) => button.listeners.click({ preventDefault() {}, target: button });
 "##;
 
-/// The site half of [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]:
-/// the worker called the way a worker runtime calls one, and the page imported
-/// on top of the document it sent.
-const WEBSITE_DRIVER: &str = r##"
+/// The worker half of [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]:
+/// the worker called the way a worker runtime calls one.
+const WEBSITE_WORKER: &str = r##"
 import worker from "./.buri/out/platform/cloudflare_worker/cmd/site/fetch.mjs";
 
 const at = process.argv[2];
@@ -2298,13 +2070,18 @@ const asked = process.argv[3] === undefined ? "/" : process.argv[3];
 const answer = await worker.fetch(new Request(`https://example.com${asked}`));
 const document_ = await answer.text();
 const sent = document_.split("<body>")[1].split("</body>")[0];
-console.log(`${answer.status} ${answer.headers.get("content-type")}`);
 // The worker's half of the tab: a `<title>` in the document it sends, so the
 // name is right before a byte of the page's script has run.
-console.log(`sent tab ${document_.split("<title>")[1].split("</title>")[0]}`);
+const tab = document_.split("<title>")[1].split("</title>")[0];
+console.log(`${answer.status} ${answer.headers.get("content-type")}`);
+console.log(`sent tab ${tab}`);
 console.log(sent);
+"##;
 
-browser(sent, at, true);
+/// The page half of [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]:
+/// the page imported on top of the document the worker sent.
+const WEBSITE_PAGE: &str = r##"
+arrive(sent, at, tab, true);
 
 await import("./.buri/out/web/cmd/site/main.mjs");
 
@@ -2314,14 +2091,14 @@ console.log(`tab ${document.title}`);
 console.log(showing());
 
 // The press the server could not have handled.
-press(findFirst(body, "BUTTON"));
+body.querySelector("button").click();
 console.log(showing());
 
 // And the press that changes the page. Nothing is fetched, nothing above the
 // routed region is rebuilt, and the button keeps the signal it is bound to.
 made.elements = 0;
 made.text = 0;
-press(findAll(body, "BUTTON")[1]);
+body.querySelectorAll("button")[1].click();
 // `navigate` waits on `HostLocation.push`, which `main.mjs` implements, so
 // the route moves once the handler's promise settles, a task later at most.
 await new Promise((settle) => setTimeout(settle, 0));
@@ -2332,7 +2109,7 @@ console.log(showing());
 
 // Back. The browser moves the address bar and fires `popstate`, and the
 // routed region follows the address `HostLocation` reads.
-navigate("/");
+history.back();
 console.log(`back at ${location.pathname}`);
 console.log(showing());
 "##;
@@ -2380,7 +2157,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
 
     let driver = scratch.write(
         "drive.mjs",
-        &format!("{DOCUMENT_DOUBLE}\n{RESUME_EDGES_DRIVER}"),
+        &page_driver(RESUME_EDGES_WORKER, RESUME_EDGES_PAGE_DRIVER),
     );
     let drive = |how: &str, at: &str| {
         let out = Command::new(js_runtime())
@@ -2409,10 +2186,12 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
                  \"twice\":false,\"rows\":[{\"key\":\"a\",\"label\":\"alpha\"},\
                  {\"key\":\"b\",\"label\":\"beta\"}]}";
     // The whole body: the tree, and the state script `shell` put beside it —
-    // carrying the address it rendered for.
+    // carrying the address it rendered for. It is read back as a browser writes
+    // markup out, which closes an empty element without a slash.
     let showing = format!(
-        "{sent}<script id=\"buri-state\" type=\"application/json\" \
-         data-path=\"/\">{state}</script>"
+        "{}<script id=\"buri-state\" type=\"application/json\" \
+         data-path=\"/\">{state}</script>",
+        sent.replace(" />", ">")
     );
 
     // --- The whole of a page's life, in one run -------------------------------
@@ -2796,15 +2575,14 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
 }
 "#;
 
-/// The browser's half of
+/// The worker's half of
 /// [`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`]: the
-/// worker's document, said a different way per scenario, and the page imported
-/// on top of it.
+/// worker's document, said a different way per scenario.
 ///
 /// Every perturbation is a `change`, which fails loudly when the text it is
 /// looking for is not there — so a scenario cannot quietly stop perturbing
 /// anything when the page it is written against moves.
-const RESUME_EDGES_DRIVER: &str = r##"
+const RESUME_EDGES_WORKER: &str = r##"
 import worker from "./.buri/out/platform/cloudflare_worker/cmd/edges/fetch.mjs";
 
 const how = process.argv[2];
@@ -2815,10 +2593,11 @@ const at = process.argv[3];
 // render; `right-address` is the same route reached with a query string and a
 // fragment on it, neither of which is part of a path.
 const elsewhere = how === "wrong-address" || how === "no-path";
-const address = elsewhere ? "/about" : at;
 const asked = how === "right-address" ? at + "?ref=x#top" : at;
+const address = elsewhere ? "/about" : asked;
 const answer = await worker.fetch(new Request("https://example.com" + asked));
 const document_ = await answer.text();
+const tab = document_.split("<title>")[1].split("</title>")[0];
 let sent = document_.split("<body>")[1].split("</body>")[0];
 console.log(`sent ${sent.split("<script")[0]}`);
 
@@ -2850,35 +2629,39 @@ if (how === "no-path") change(' data-path="/"', "");
 // Nowhere to resume, the two ways there are: a document with no body, and a
 // body the server wrote nothing into.
 if (how === "blank") sent = "";
+"##;
 
-browser(sent, address, how !== "no-body");
-if (how === "right-address") {
-  globalThis.location.search = "?ref=x";
-  globalThis.location.hash = "#top";
-}
+/// The browser's half of
+/// [`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`]: the page
+/// imported on top of the document [`RESUME_EDGES_WORKER`] sent.
+const RESUME_EDGES_PAGE_DRIVER: &str = r##"
+arrive(sent, address, tab, how !== "no-body");
+// The reader came here back from `/about`, so Forward is theirs to press.
+history.pushState(null, "", "/about");
+history.back();
 
-const title = findFirst(body, "H1");
+const title = body.querySelector("h1");
 await import("./.buri/out/web/cmd/edges/main.mjs");
 
 console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(`showing ${showing()}`);
 
 // A handler the server could not have attached, on an element two regions in.
-press(findFirst(body, "BUTTON"));
+body.querySelector("button").click();
 console.log(`pressed ${showing()}`);
 
-// The reader navigates. Only what read the address bar may be rebuilt, which is
-// one element and one run of text — and the title is still the very node the
-// server wrote.
+// The reader goes Forward. Only what read the address bar may be rebuilt,
+// which is one element and one run of text — and the title is still the very
+// node the server wrote.
 made.elements = 0;
 made.text = 0;
-navigate("/about");
+history.forward();
 console.log(`navigated ${made.elements} elements and ${made.text} runs of text`);
 console.log(`showing ${showing()}`);
-console.log(`the title is the node the server wrote: ${findFirst(body, "H1") === title}`);
+console.log(`the title is the node the server wrote: ${body.querySelector("h1") === title}`);
 
 // And the button still works, because navigating rebuilt no part of it.
-press(findFirst(body, "BUTTON"));
+body.querySelector("button").click();
 console.log(`pressed ${showing()}`);
 "##;
 
@@ -2891,9 +2674,10 @@ console.log(`pressed ${showing()}`);
 /// from `buri test`. Neither can ask the question a page asks, because a page's
 /// interesting spawn happens *after* `main` has returned — from a handler the
 /// mounted tree is holding — and no `buri` command runs a page. So this is the
-/// platform's own side of it, driven from one JavaScript module: a document
-/// double the tree mounts into, a click fired at the button it registered, and
-/// the worker's `fetch` called the way a worker runtime calls one.
+/// platform's own side of it, driven from one JavaScript module: happy-dom's
+/// document for the tree to mount into, a click fired at the button it
+/// registered, and the worker's `fetch` called the way a worker runtime calls
+/// one.
 ///
 /// Five claims, one printed line each:
 ///
@@ -3000,104 +2784,37 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
     );
     scratch.run(&["build", "//cmd/page"]).ok();
 
-    // The document is the browser's half, and the smallest one the renderer
-    // works against: three constructors, the four moves a tree makes, and a
-    // place to hang a listener. `$shim` is deliberately absent — this is the
-    // real-document path, the one a browser runs.
+    // The document is happy-dom's, the browser's half. `$shim` is deliberately
+    // absent — this is the real-document path, the one a browser runs.
     let driver = scratch.write(
         "drive.mjs",
-        r##"
-class Element_ {
-  constructor(name) {
-    this.nodeName = name;
-    this.childNodes = [];
-    this.parentNode = null;
-    this.listeners = {};
-    this.attributes = {};
-    this.className = "";
-    this.data = "";
-    this.textContent = "";
-    this.style = { cssText: "", setProperty() {} };
-  }
-  get nextSibling() {
-    const parent = this.parentNode;
-    if (parent === null) return null;
-    const at = parent.childNodes.indexOf(this);
-    return at < 0 || at + 1 >= parent.childNodes.length ? null : parent.childNodes[at + 1];
-  }
-  setAttribute(name, value) {
-    this.attributes[name] = value;
-  }
-  removeAttribute(name) {
-    delete this.attributes[name];
-  }
-  addEventListener(type, handler) {
-    this.listeners[type] = handler;
-  }
-  appendChild(node) {
-    return this.insertBefore(node, null);
-  }
-  insertBefore(node, before) {
-    if (node.parentNode !== null) node.parentNode.removeChild(node);
-    node.parentNode = this;
-    const at =
-      before === null || before === undefined
-        ? this.childNodes.length
-        : this.childNodes.indexOf(before);
-    this.childNodes.splice(at, 0, node);
-    return node;
-  }
-  removeChild(node) {
-    const at = this.childNodes.indexOf(node);
-    if (at >= 0) this.childNodes.splice(at, 1);
-    node.parentNode = null;
-    return node;
-  }
-}
-
-const text_ = (node) =>
-  node.childNodes.length === 0 ? node.data : node.childNodes.map(text_).join("");
-const find_ = (node, wanted) => {
-  if (node.listeners[wanted] !== undefined) return node;
-  for (const child of node.childNodes) {
-    const hit = find_(child, wanted);
-    if (hit !== null) return hit;
-  }
-  return null;
-};
-
-globalThis.document = {
-  body: new Element_("body"),
-  head: new Element_("head"),
-  createElement: (name) => new Element_(name),
-  createTextNode: (data) => Object.assign(new Element_("#text"), { data }),
-  createComment: () => new Element_("#comment"),
-  getElementById: () => null,
-};
-
+        &page_driver(
+            r##"
 // The worker first, called the way its platform calls it.
 const worker = await import("./.buri/out/platform/cloudflare_worker/cmd/page/fetch.mjs");
 const answer = await worker.default.fetch(new Request("https://example.com/"));
 console.log(`${answer.status} ${await answer.text()}`);
-
-// Then the page, on top of the document above. `main` mounts and returns.
+"##,
+            r##"
+// Then the page, in the browser. `main` mounts and returns.
 await import("./.buri/out/web/cmd/page/main.mjs");
-console.log(`before the click: ${text_(document.body)}`);
+console.log(`before the click: ${body.textContent}`);
 
 // The click. Nothing waits for the handler — a listener answers at once and
 // the task it spawned is the event loop's, which is the whole claim.
 const started = Date.now();
-find_(document.body, "click").listeners.click({});
+body.querySelector("button").click();
 
 // Polled rather than slept for: the wait ends when the page says so, and the
 // deadline is there to fail rather than to hang.
 const deadline = started + 30000;
-while (text_(document.body).indexOf("the socket opened") < 0 && Date.now() < deadline) {
+while (body.textContent.indexOf("the socket opened") < 0 && Date.now() < deadline) {
   await new Promise((wake) => setTimeout(wake, 5));
 }
-console.log(`after the click: ${text_(document.body)}`);
+console.log(`after the click: ${body.textContent}`);
 console.log(`the timer waited: ${Date.now() - started >= 20}`);
 "##,
+        ),
     );
 
     let out = Command::new(js_runtime())
@@ -3210,95 +2927,30 @@ export fn main(host: WebHost): Result<(), Str> {
     );
     scratch.run(&["build", "//cmd/page"]).ok();
 
-    // The smallest document the renderer works against, as in
+    // The page in happy-dom's document, as in
     // `a_page_spawns_from_a_handler_after_main_returned`.
     let driver = scratch.write(
         "drive.mjs",
-        r##"
-class Element_ {
-  constructor(name) {
-    this.nodeName = name;
-    this.childNodes = [];
-    this.parentNode = null;
-    this.listeners = {};
-    this.attributes = {};
-    this.className = "";
-    this.data = "";
-    this.textContent = "";
-    this.style = { cssText: "", setProperty() {} };
-  }
-  get nextSibling() {
-    const parent = this.parentNode;
-    if (parent === null) return null;
-    const at = parent.childNodes.indexOf(this);
-    return at < 0 || at + 1 >= parent.childNodes.length ? null : parent.childNodes[at + 1];
-  }
-  setAttribute(name, value) {
-    this.attributes[name] = value;
-  }
-  removeAttribute(name) {
-    delete this.attributes[name];
-  }
-  addEventListener(type, handler) {
-    this.listeners[type] = handler;
-  }
-  appendChild(node) {
-    return this.insertBefore(node, null);
-  }
-  insertBefore(node, before) {
-    if (node.parentNode !== null) node.parentNode.removeChild(node);
-    node.parentNode = this;
-    const at =
-      before === null || before === undefined
-        ? this.childNodes.length
-        : this.childNodes.indexOf(before);
-    this.childNodes.splice(at, 0, node);
-    return node;
-  }
-  removeChild(node) {
-    const at = this.childNodes.indexOf(node);
-    if (at >= 0) this.childNodes.splice(at, 1);
-    node.parentNode = null;
-    return node;
-  }
-}
-
-const text_ = (node) =>
-  node.childNodes.length === 0 ? node.data : node.childNodes.map(text_).join("");
-const find_ = (node, wanted) => {
-  if (node.listeners[wanted] !== undefined) return node;
-  for (const child of node.childNodes) {
-    const hit = find_(child, wanted);
-    if (hit !== null) return hit;
-  }
-  return null;
-};
-
-globalThis.document = {
-  body: new Element_("body"),
-  head: new Element_("head"),
-  createElement: (name) => new Element_(name),
-  createTextNode: (data) => Object.assign(new Element_("#text"), { data }),
-  createComment: () => new Element_("#comment"),
-  getElementById: () => null,
-};
-
+        &page_driver(
+            "",
+            r##"
 await import("./.buri/out/web/cmd/page/main.mjs");
 
 // Two presses, one straight after the other: the second arrives while the
 // first press's step is asleep holding the state.
-const button = find_(document.body, "click");
-button.listeners.click({});
-button.listeners.click({});
+const button = body.querySelector("button");
+button.click();
+button.click();
 
 // Polled rather than slept for, until both presses have written their line.
 const deadline = Date.now() + 30000;
-const lines = () => text_(document.body).split(" ").length - 1;
+const lines = () => body.textContent.split(" ").length - 1;
 while (lines() < 2 && Date.now() < deadline) {
   await new Promise((wake) => setTimeout(wake, 5));
 }
-console.log(text_(document.body));
+console.log(body.textContent);
 "##,
+        ),
     );
 
     let out = Command::new(js_runtime())
