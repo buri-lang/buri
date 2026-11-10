@@ -1,0 +1,31 @@
+# A colour's own alpha, in an SVG icon's fill and stroke.
+#
+# The painter used to read `rgba()`, `rgb(... / a)`, `#rgba` and `#rrggbbaa`
+# as opaque colours, so a translucent icon painted solid. Here each form fills
+# one square and strokes another, and a second test paints the same squares
+# with an opaque colour and an opacity attribute. Both tests compare against
+# one golden, so the written alpha has to paint what the opacity does.
+#
+# The last step makes one square opaque, and that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "each form of a colour's own alpha fades an icon's fill and stroke the way an opacity attribute does"
+
+run {
+  args: ["test", "//lib/faded", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/faded/faded.buri"
+  replace: "fill='%23e7000088'"
+  with: "fill='%23e70000'"
+}
+
+run {
+  args: ["test", "//lib/faded", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

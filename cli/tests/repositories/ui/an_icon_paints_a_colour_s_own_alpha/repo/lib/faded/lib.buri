@@ -1,0 +1,1 @@
+from "//lib/faded/faded.buri" export { opacities, written };

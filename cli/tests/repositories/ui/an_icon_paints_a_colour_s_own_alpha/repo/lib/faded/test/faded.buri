@@ -1,0 +1,22 @@
+// A colour's own alpha against the opacity attribute a browser paints the same:
+// both tests compare against one golden, so neither can pass alone.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/faded" import { opacities, written };
+
+test "a colour's own alpha fades a fill and a stroke, in each form it is written in" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded", written(), .Checked, []);
+}
+
+test "the same squares, faded by an opacity attribute" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded", opacities(), .Checked, []);
+}

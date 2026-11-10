@@ -1,0 +1,107 @@
+//! Translucent red squares in SVG icons: once with the alpha written into the
+//! colour, once with an opaque colour and an opacity attribute.
+//!
+//! A browser paints each pair the same, so the two pages share one golden. A
+//! painter that dropped a colour's own alpha paints the first page solid red.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A 24 by 24 icon, percent-encoded the way a page writes one.
+fn icon<C>(source: Str): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(24)), .Height(.Px(24))],
+        children: [
+            ui.image({
+                source: .Const(source),
+                alt: .AccessibilityText(""),
+                styles: [],
+            }),
+        ],
+    })
+}
+
+fn row<C>(children: [Node<C>]): Node<C> {
+    ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: children })
+}
+
+fn page<C>(rows: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [
+            .Group([.Gap(.Px(8)), .Padding(.Px(16))]),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: rows,
+    })
+}
+
+/// Each form a colour carries its own alpha in, `rgba()`, `rgb(... / a)`,
+/// `#rgba` and `#rrggbbaa`: a row of squares filled in them, and a row each
+/// covered by one stroke.
+export fn written<C>(): Node<C> {
+    page([
+        row([
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgba(231,0,0,0.5)'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgb(231 0 0 / 50%25)'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='%23e008'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='%23e7000088'/%3E%3C/svg%3E",
+            ),
+        ]),
+        row([
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgba(231,0,0,0.5)'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgb(231 0 0 / 50%25)'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='%23e008'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='%23e7000088'/%3E%3C/svg%3E",
+            ),
+        ]),
+    ])
+}
+
+/// The same squares, each an opaque colour and the opacity its twin's alpha
+/// is. `#e008` is `rgb(238,0,0)`, and an alpha of `88` is `136 / 255`.
+export fn opacities<C>(): Node<C> {
+    page([
+        row([
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgb(231,0,0)' fill-opacity='0.5'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgb(231,0,0)' fill-opacity='0.5'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgb(238,0,0)' fill-opacity='0.53333336'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='rgb(231,0,0)' fill-opacity='0.53333336'/%3E%3C/svg%3E",
+            ),
+        ]),
+        row([
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgb(231,0,0)' stroke-opacity='0.5'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgb(231,0,0)' stroke-opacity='0.5'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgb(238,0,0)' stroke-opacity='0.53333336'/%3E%3C/svg%3E",
+            ),
+            icon(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cline x1='0' y1='12' x2='24' y2='12' stroke-width='24' stroke='rgb(231,0,0)' stroke-opacity='0.53333336'/%3E%3C/svg%3E",
+            ),
+        ]),
+    ])
+}

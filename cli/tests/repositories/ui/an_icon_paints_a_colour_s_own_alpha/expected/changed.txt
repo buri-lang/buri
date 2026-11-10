@@ -1,0 +1,5 @@
+FAIL //lib/faded  test/faded.buri  "a colour's own alpha fades a fill and a stroke, in each form it is written in"
+  the snapshot "faded" changed: see test/__snapshots__/faded.diff.png
+  --> lib/faded/test/faded.buri:8:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

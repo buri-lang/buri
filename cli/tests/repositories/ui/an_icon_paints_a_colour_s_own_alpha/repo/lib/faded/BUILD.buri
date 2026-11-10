@@ -1,0 +1,8 @@
+# One library and one test source: the same faded squares, written two ways.
+library {
+    sources: ["faded.buri"]
+
+    test {
+        sources: ["test/faded.buri"]
+    }
+}
