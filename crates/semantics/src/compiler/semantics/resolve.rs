@@ -1049,25 +1049,37 @@ impl<'a> Checker<'a> {
         walked: &Walked,
         waiting: &HashSet<FnId>,
     ) -> HashSet<FnId> {
+        // Every `Image` and `Stack` as written, in one walk: a decorative
+        // image's artwork is read, and a decorative stack may not take a role.
         // Before extraction, so the folder reads bodies nothing has rewritten.
-        crate::compiler::semantics::icons::run(
-            self.loaded,
-            &self.tables,
-            &self.scopes,
-            &self.bodies,
-            &self.const_values,
-            self.diags,
-            walked,
-        );
-        crate::compiler::semantics::decorative::run(
-            self.loaded,
-            &self.tables,
-            &self.scopes,
-            &self.bodies,
-            &self.const_values,
-            self.diags,
-            walked,
-        );
+        // A compilation that did not load `ui/node` has neither, which is
+        // every program that is not a user interface.
+        let image = own_type(self.loaded, &self.scopes, "ui/node", "Image");
+        let stack = own_type(self.loaded, &self.scopes, "ui/node", "Stack");
+        if image.is_some() || stack.is_some() {
+            let (tables, bodies, consts) = (&self.tables, &self.bodies, &self.const_values);
+            let diags = &mut *self.diags;
+            let mut each = |e: &typed::Expr| {
+                typed::walk(e, &mut |e| {
+                    if let Some(image) = image {
+                        crate::compiler::semantics::icons::check(
+                            e, image, tables, bodies, consts, diags,
+                        );
+                    }
+                    if let Some(stack) = stack {
+                        crate::compiler::semantics::decorative::check(
+                            e, stack, tables, bodies, consts, diags,
+                        );
+                    }
+                });
+            };
+            for (_, init) in walked.constants(tables, consts) {
+                each(init);
+            }
+            for (_, body) in walked.functions(tables, bodies) {
+                each(&body.expr);
+            }
+        }
         // A `load` reached synchronously from a reactive builder answers a
         // promise the renderer cannot render (#152), so it is refused here where
         // the builder's body is still a lambda in the typed tree.

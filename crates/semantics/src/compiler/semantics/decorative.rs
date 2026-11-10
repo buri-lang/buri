@@ -10,9 +10,8 @@
 //! only one written in the call. A pair the compiler can't read is refused
 //! too, because it can't be shown to be one or the other.
 
-use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, Scopes, Walked};
+use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics};
@@ -25,36 +24,10 @@ const STACK_DECORATIVE: FieldId = FieldId::declared(4);
 /// `Option::None`'s variant.
 const OPTION_NONE: usize = 1;
 
-/// Refuses every `Stack` literal or update that is decorative and has a role.
-///
-/// A compilation that did not load `ui/node` returns immediately.
-pub fn run(
-    loaded: &Loaded,
-    tables: &Tables,
-    scopes: &Scopes,
-    bodies: &BodyMap,
-    consts: &ConstMap,
-    diags: &mut Diagnostics,
-    walked: &Walked,
-) {
-    let Some(stack) = own_type(loaded, scopes, "ui/node", "Stack") else {
-        return;
-    };
-    let mut each = |e: &typed::Expr| {
-        typed::walk(e, &mut |e| check(e, stack, tables, bodies, consts, diags));
-    };
-    for (_, init) in walked.constants(tables, consts) {
-        each(init);
-    }
-    for (_, body) in walked.functions(tables, bodies) {
-        each(&body.expr);
-    }
-}
-
 /// One `Stack` value as written: refused unless its role is provably left out
 /// or its `isDecorative` provably isn't `true`. An update that sets neither
 /// field keeps its base's pair, which was read where the base was written.
-fn check(
+pub(crate) fn check(
     e: &typed::Expr,
     stack: TyConId,
     tables: &Tables,

@@ -3889,19 +3889,30 @@ fn collect_idents_raw<'a>(src: &'a str, out: &mut HashSet<&'a str>) {
 
 /// Every identifier-shaped run in `src`, with the byte offset it starts at.
 fn raw_ident_runs(src: &str) -> impl Iterator<Item = (usize, &str)> {
-    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
-    // Each piece is a run of identifier characters and the one that ends it.
+    // Bytes, not chars: every identifier byte is ASCII, and no byte of a
+    // multi-byte char is, so each run starts and ends on a char boundary.
+    let bytes = src.as_bytes();
+    let part = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
     let mut at = 0;
-    src.split_inclusive(move |c: char| !part(c))
-        .map(move |piece| {
-            let start = at;
-            at += piece.len();
-            let word = piece.trim_end_matches(|c: char| !part(c));
+    std::iter::from_fn(move || {
+        while at < bytes.len() {
+            while at < bytes.len() && !part(bytes[at]) {
+                at += 1;
+            }
             // An identifier doesn't start with a digit, so `1em` reads as `em`.
-            let ident = word.trim_start_matches(|c: char| c.is_ascii_digit());
-            (start + word.len() - ident.len(), ident)
-        })
-        .filter(|(_, ident)| !ident.is_empty())
+            while at < bytes.len() && bytes[at].is_ascii_digit() {
+                at += 1;
+            }
+            let start = at;
+            while at < bytes.len() && part(bytes[at]) {
+                at += 1;
+            }
+            if at > start {
+                return Some((start, &src[start..at]));
+            }
+        }
+        None
+    })
 }
 
 /// The identifiers every piece of verbatim source in `stmts` mentions — the

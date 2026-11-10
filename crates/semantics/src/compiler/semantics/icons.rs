@@ -23,9 +23,8 @@
 use core::iter::Peekable;
 use core::str::Chars;
 
-use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, Scopes, Walked};
+use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -85,41 +84,11 @@ const ALT_DECORATIVE: usize = 0;
 /// written out at the call site.
 const PROP_CONST: usize = 0;
 
-/// Reads every decorative `Image` in the compilation, and refuses one it
-/// cannot.
-///
-/// A compilation that did not load `ui/node` returns immediately, which is
-/// every program that is not a user interface.
-pub fn run(
-    loaded: &Loaded,
-    tables: &Tables,
-    scopes: &Scopes,
-    bodies: &BodyMap,
-    consts: &ConstMap,
-    diags: &mut Diagnostics,
-    walked: &Walked,
-) {
-    // `ui/node`'s `Image`, wherever one is written: a decorative one is what
-    // lowers to an inline `<svg>`, whether or not it's written in the call.
-    let Some(image) = own_type(loaded, scopes, "ui/node", "Image") else {
-        return;
-    };
-    let mut each = |e: &typed::Expr| {
-        typed::walk(e, &mut |e| check(e, image, tables, bodies, consts, diags));
-    };
-    for (_, init) in walked.constants(tables, consts) {
-        each(init);
-    }
-    for (_, body) in walked.functions(tables, bodies) {
-        each(&body.expr);
-    }
-}
-
 /// One `Image` as written: read a decorative one's artwork, or say why it
 /// could not be — and leave an `AccessibilityText` one, whose source is a
 /// fetched address, alone. An update that sets neither field keeps its base's
 /// pair, which was read where the base was written.
-fn check(
+pub(crate) fn check(
     e: &typed::Expr,
     image: TyConId,
     tables: &Tables,

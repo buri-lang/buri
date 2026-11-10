@@ -69,7 +69,7 @@ use crate::compiler::semantics::types::{
 };
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 // ---------------------------------------------------------------------------
 // The vocabulary's tag numbers.
@@ -821,7 +821,7 @@ impl<'a> Extractor<'a> {
     }
 
     /// Whether `e`, `owner`'s value, mentions a style, once
-    /// [`Extractor::alphas`] has reported in it.
+    /// [`Extractor::alphas`] has reported in it — in the same walk.
     fn scan(&mut self, owner: Owner, e: &typed::Expr) -> bool {
         let kept = match self.scanned {
             Side::Replay(kept) => kept.get(&owner),
@@ -832,8 +832,7 @@ impl<'a> Extractor<'a> {
             return kept.mentions;
         }
         let from = self.diags.items.len();
-        self.alphas(e);
-        let mentions = self.mentions_style(e);
+        let mentions = self.alphas(e);
         if let Side::Record(kept) = &mut self.scanned {
             let diags = (self.diags.items.get(from..))
                 .map(<[Diagnostic]>::to_vec)
@@ -843,7 +842,9 @@ impl<'a> Extractor<'a> {
         mentions
     }
 
-    /// Refuses every colour whose alpha is outside `0.0..=1.0`.
+    /// Refuses every colour whose alpha is outside `0.0..=1.0`, and answers
+    /// whether anything under `e` is a style or a list of them, as
+    /// [`Extractor::mentions_style`] does.
     ///
     /// Its own walk, before the extraction one, for two reasons. A colour has
     /// to be refused wherever it was written — inside a `Computed`'s closure
@@ -853,7 +854,8 @@ impl<'a> Extractor<'a> {
     /// into, and a bare `Const` reference is left to the declaration that wrote
     /// it, so a module-level colour is reported where it is written rather than
     /// once more at every use.
-    fn alphas(&mut self, e: &typed::Expr) {
+    fn alphas(&mut self, e: &typed::Expr) -> bool {
+        let mut mentions = self.is_style(&e.ty) || self.is_style_list(&e.ty);
         if self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
             if let Some(value) = self.folder().eval(e, &Env::default()) {
                 if let Some(a) = alpha_of(&value) {
@@ -864,10 +866,11 @@ impl<'a> Extractor<'a> {
                         );
                     }
                 }
-                return;
+                return mentions || self.mentions_style(e);
             }
         }
-        typed::children(e, &mut |child| self.alphas(child));
+        typed::children(e, &mut |child| mentions |= self.alphas(child));
+        mentions
     }
 
     fn is_color(&self, ty: &Ty) -> bool {
@@ -2000,6 +2003,9 @@ struct Flow<'a> {
     /// The questions [`Remembered`] keeps, as they are asked, while it is
     /// keeping them.
     asked: RefCell<Option<Asked>>,
+    /// Whether `asked` is keeping them: read on every question, so it costs
+    /// one load where nothing is kept, which is every run but the first.
+    keeping: Cell<bool>,
 }
 
 impl<'a> Flow<'a> {
@@ -2030,6 +2036,7 @@ impl<'a> Flow<'a> {
             seen: HashSet::default(),
             passing: HashSet::default(),
             asked: RefCell::default(),
+            keeping: Cell::new(false),
         };
         for (id, body) in walked.unsettled(tables, bodies) {
             let info = tables.fn_info(id);
@@ -2170,14 +2177,17 @@ impl<'a> Flow<'a> {
     /// Starts keeping the questions asked.
     fn asking(&self) {
         *self.asked.borrow_mut() = Some(Vec::new());
+        self.keeping.set(true);
     }
 
     /// The questions asked since [`Flow::asking`], each once.
     fn asked(&self) -> Asked {
+        self.keeping.set(false);
         once(self.asked.borrow_mut().take().unwrap_or_default())
     }
 
     /// The answer to `q`, kept where questions are.
+    #[inline]
     fn ask(&self, q: Query) -> bool {
         let answer = self.answer(q);
         self.note(q, answer);
@@ -2185,12 +2195,16 @@ impl<'a> Flow<'a> {
     }
 
     /// Keeps `q`'s answer where questions are.
+    #[inline]
     fn note(&self, q: Query, answer: bool) {
-        if let Some(asked) = self.asked.borrow_mut().as_mut() {
-            asked.push((q, answer));
+        if self.keeping.get() {
+            if let Some(asked) = self.asked.borrow_mut().as_mut() {
+                asked.push((q, answer));
+            }
         }
     }
 
+    #[inline]
     fn answer(&self, q: Query) -> bool {
         match q {
             Query::Read(f) => self.params.contains_key(&f),
@@ -2207,6 +2221,7 @@ impl<'a> Flow<'a> {
     }
 
     /// The parameters of `f`, where this run reads its body.
+    #[inline]
     fn read(&self, f: FnId) -> Option<&Vec<(LocalId, Param)>> {
         let params = self.params.get(&f);
         self.note(Query::Read(f), params.is_some());
@@ -2215,6 +2230,7 @@ impl<'a> Flow<'a> {
 
     /// Whether `d` is in what a node reads, through a style extracted where
     /// it's given too when `all`.
+    #[inline]
     fn holds(&self, all: bool, d: Demand) -> bool {
         self.ask(if all {
             Query::Reached(d)
