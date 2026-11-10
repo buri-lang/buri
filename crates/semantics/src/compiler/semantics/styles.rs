@@ -2398,11 +2398,10 @@ impl<'a> Flow<'a> {
                 out.add(d, read, stopped);
             }
         }
-        let positions = self.positions(e);
-        let mut children = Vec::new();
-        typed::children(e, &mut |child| children.push(child));
-        for (child, pos) in children.into_iter().zip(positions) {
-            let child_ctx = match pos {
+        // `positions` has one for each child.
+        let mut positions = self.positions(e).into_iter();
+        typed::children(e, &mut |child| {
+            let child_ctx = match positions.next().unwrap_or(Pos::At(None)) {
                 Pos::Same => ctx,
                 Pos::At(d) => d,
                 // Any one of them demanded demands the first, which stands for
@@ -2417,7 +2416,7 @@ impl<'a> Flow<'a> {
                 }),
             };
             self.edges(owner, child, child_ctx, stopped, out);
-        }
+        });
     }
 
     /// Whether a child at `pos` reaches a node, given whether its parent's

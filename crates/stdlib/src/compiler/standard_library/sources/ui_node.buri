@@ -36,7 +36,7 @@ from "core/bytes" import * as bytes;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
-from "ui/shape" import { Shape };
+from "ui/shape" import { group, Shape };
 from "ui/signal" import { Signal };
 from "ui/style" import {
     Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout,
@@ -354,10 +354,12 @@ enum NodeKind<C> {
     Tooltip(Prop<Str>, [Style], [Node<C>], Events<C>),
     // Shapes in a drawing of their own units: what a reader is told, the
     // `viewBox` the size becomes, the whole drawing as SVG markup, the styles,
-    // the shapes, and the events. The markup is a prop the constructor builds,
-    // so only a program that draws compiles the code that writes it. Appended
-    // last, the order being append-only.
-    Drawing(Alt, Prop<Str>, Prop<Str>, [Style], [Shape<C>], Events<C>),
+    // the shapes, the events, and the keys of its `each`es. The markup is a
+    // prop built once the `each`es' rows are, through the context and scope it
+    // is handed; the constructor writes it and the keys, so only a program that
+    // draws compiles the code that writes them. Appended last, the order being
+    // append-only.
+    Drawing(Alt, Prop<Str>, fn(C, Scope) => Prop<Str>, [Style], [Shape<C>], Events<C>, fn(Scope) => [Str]),
 }
 
 // --- Building the tree -------------------------------------------------------
@@ -925,8 +927,14 @@ export fn drawing<C>(config: Drawing<C>): Node<C> {
         str.format(s, "0 0 ${cssNumber(s, width)} ${cssNumber(s, height)}")
     });
     let shapes = config.shapes;
-    let artwork: Prop<Str> = .Computed(fn(s) => drawn(s, box, shapes));
-    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, noEvents()))
+    let all: Shape<C> = group({ offset: .None, shapes: shapes });
+    let artwork = fn(c: C, scope: Scope) => {
+        let rows = all.built(scope, c);
+        let markup: Prop<Str> = .Computed(fn(s) => drawn(s, box, rows));
+        markup
+    };
+    let keys = fn(scope: Scope) => all.keys(scope);
+    Node(.Drawing(config.alt, box, artwork, config.styles, shapes, noEvents(), keys))
 }
 
 /// The `<svg>` a drawing is, read through `ctx`: what the scene carries, the
@@ -2105,6 +2113,42 @@ fn bindDynamic<C>(builder: Builder, build: fn(Scope) => Node<C>): () {
     reactive(fn(scope) => rebuildRegion(builder, region, build(scope), renderInto))
 }
 
+/// A drawing is emitted once and kept. Its `each`es' rows are built with a
+/// context, which a watcher cannot capture, so one watcher over the keys
+/// rebuilds an empty region inside the element, the runtime handing that
+/// rebuild a context to build the rows with. The rebuild then registers a
+/// watcher over the artwork and the styles, which patches the body in place
+/// whenever any of them changes.
+fn emitDrawing<C>(
+    builder: Builder,
+    node: Node<C>,
+    state: State,
+    artwork: fn(C, Scope) => Prop<Str>,
+    styles: [Style],
+    events: Events<C>,
+    keys: fn(Scope) => [Str],
+): () {
+    let opened = openElement(builder, "svg", "");
+    let region = enterDynamic(builder);
+    let paint = fn(c: C, _builder: Builder, _node: Node<C>) => {
+        let markup = artwork(c, rootScope());
+        reactive(fn(s) => {
+            let declared = decl(s, "icon", escapeInline(s, markup.read(s)));
+            patchBody(
+                builder,
+                opened,
+                widgetBodyUnder(s, plain(state), [declared], styles),
+            )
+        })
+    };
+    let _ = reactive(fn(s) => {
+        let _ = keys(s);
+        rebuildRegion(builder, region, node, paint)
+    });
+    let _ = registerEvents(builder, events);
+    exitElement(builder)
+}
+
 /// One node's records, and everything under it — `nodeLines`, emitting to the
 /// document instead of building `[Str]`.
 fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
@@ -2216,21 +2260,8 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
-        // A drawing is emitted once and kept. Its artwork reads every prop of
-        // its shapes, so one watcher over the artwork and the styles patches
-        // the body in place whenever any of them changes.
-        .Drawing(_alt, _box, markup, styles, _shapes, events) => {
-            let opened = openElement(builder, "svg", "");
-            let _ = reactive(fn(s) => {
-                let artwork = decl(s, "icon", escapeInline(s, markup.read(s)));
-                patchBody(
-                    builder,
-                    opened,
-                    widgetBodyUnder(s, plain(state), [artwork], styles),
-                )
-            });
-            let _ = registerEvents(builder, events);
-            exitElement(builder)
+        .Drawing(_alt, _box, artwork, styles, _shapes, events, keys) => {
+            emitDrawing(builder, node, state, artwork, styles, events, keys)
         },
         // A field's value, hint and `disabled` all change its scene, so a write
         // to any of them rebuilds it in place: a region holds its spot and the
@@ -3694,8 +3725,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // A drawing is artwork the shapes write out, so the painter draws it
         // the way it draws an icon's. Its `alt` is what a reader is told.
-        .Drawing(_alt, _box, markup, styles, _shapes, _events) => {
-            let artwork = decl(ctx, "icon", escapeInline(ctx, markup.read(scope)));
+        .Drawing(_alt, _box, markup, styles, _shapes, _events, _keys) => {
+            let artwork = decl(
+                ctx,
+                "icon",
+                escapeInline(ctx, markup(ctx, scope).read(scope)),
+            );
             [widgetLine(ctx, plain(state), [artwork], styles, depth)]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the

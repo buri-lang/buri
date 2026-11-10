@@ -1,0 +1,55 @@
+//! A card with a quarter's sales drawn as one bar per month.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+
+derive Equal for Month;
+/// A month's name and its total, out of `40`.
+struct Month {
+    name: Str,
+    total: Float,
+}
+
+/// One bar per month, `10` units apart in a drawing `30` wide and `40` tall,
+/// with a dot in the card's text colour on top of each.
+export fn card<C>(): Node<C> {
+    let months = [
+        Month { name: "Jan", total: 12.0 },
+        Month { name: "Feb", total: 30.0 },
+        Month { name: "Mar", total: 22.0 },
+    ];
+    ui.stack({
+        styles: [
+            .Padding(.Px(16)),
+            .Background(.Rgb(255, 255, 255)),
+            .Foreground(.Rgb(30, 90, 200)),
+        ],
+        children: [
+            ui.drawing({
+                alt: .AccessibilityText("Sales by month"),
+                size: .Const((30.0, 40.0)),
+                styles: [.Width(.Px(150)), .Height(.Px(200))],
+                shapes: [
+                    shape.each(.Const(months), fn(m) => m.name, fn(_c, m, i) => {
+                        shape.group({
+                            offset: .Some(.Const((i.toF64() * 10.0, 0.0))),
+                            shapes: [
+                                shape.rect({
+                                    at: .Const((1.0, 40.0 - m.total)),
+                                    size: .Const((8.0, m.total)),
+                                    fill: .Some(.Const(.Rgb(120, 190, 120))),
+                                }),
+                                shape.circle({
+                                    center: .Const((5.0, 40.0 - m.total)),
+                                    radius: .Const(2.0),
+                                    fill: .Some(.Const(.Inherit)),
+                                }),
+                            ],
+                        })
+                    }),
+                ],
+            }),
+        ],
+    })
+}

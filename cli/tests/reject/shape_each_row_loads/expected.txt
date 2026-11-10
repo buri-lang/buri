@@ -1,0 +1,19 @@
+error: a reactive builder may not `load` — `shape.each`'s body must be synchronous [load-in-reactive-builder]
+  --> cmd/shape_each_row_loads/main.buri:28:29
+   |
+28 |                 let build = lazy.load(bar);
+   |                             ^^^^^^^^^^^^^^
+   |
+   = fix: move the `load` onto the press or the route that reaches this subtree, and hand the builder what it loaded
+
+     ui.computed, ui.each and ui.rebuild call their closure to build a subtree,
+     and shape.each calls its closure to build a drawing's rows. load waits for
+     a chunk, which makes the closure async: it returns a promise, not a node or
+     a shape. The page comes up blank, and the first failed render leaves the
+     rest of it inert.
+
+     A handler, fn(C, Event) => (), may wait: it runs to completion and writes
+     signals when the wait is over. So load goes on the press or route that
+     decides the subtree is wanted, and the builder reads what it loaded from a
+     signal. On a website, that's the route match.
+

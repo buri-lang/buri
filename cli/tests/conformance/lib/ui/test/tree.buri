@@ -3233,6 +3233,176 @@ test "a drawing's paths are drawn in order, each over the ones before it" {
     assert.equal(scene.lines(ctx).length(), 3);
 }
 
+test "a rectangle and a circle are drawn where their props put them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let bar = render(
+        ctx,
+        drawingOf(
+            shape.rect({
+                at: .Const((1.0, 30.5)),
+                size: .Const((8.0, 9.5)),
+                fill: .Some(.Const(.Rgb(1, 2, 3))),
+            }),
+        ),
+    );
+    assert.equal(
+        bar.markup(),
+        drawingLine(
+            ctx,
+            "<rect x='1' y='30.5' width='8' height='9.5' fill='rgb(1,2,3)'/>",
+        ),
+    );
+    // With no fill, nothing fills it.
+    let dot = render(
+        ctx,
+        drawingOf(shape.circle({ center: .Const((50.0, 20.0)), radius: .Const(1.5) })),
+    );
+    assert.equal(
+        dot.markup(),
+        drawingLine(ctx, "<circle cx='50' cy='20' r='1.5' fill='none'/>"),
+    );
+}
+
+test "a group moves the shapes inside it by its offset" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let dot = shape.circle({
+        center: .Const((1.0, 2.0)),
+        radius: .Const(1.0),
+        fill: .Some(.Const(.Inherit)),
+    });
+    let page = render(
+        ctx,
+        drawingOf(
+            shape.group({
+                offset: .None,
+                shapes: [
+                    shape.group({ offset: .Some(.Const((10.0, 0.5))), shapes: [dot] }),
+                    dot,
+                ],
+            }),
+        ),
+    );
+    // Left out, the offset moves nothing, so the group adds nothing; a group
+    // may hold groups.
+    assert.equal(
+        page.markup(),
+        drawingLine(
+            ctx,
+            "<g transform='translate(10 0.5)'><circle cx='1' cy='2' r='1' fill='currentColor'/></g><circle cx='1' cy='2' r='1' fill='currentColor'/>",
+        ),
+    );
+    let empty = render(ctx, drawingOf(shape.group({ offset: .None, shapes: [] })));
+    assert.equal(empty.markup(), drawingLine(ctx, ""));
+}
+
+/// A drawing of one bar per total, `10` units apart, inside a group lifted by
+/// a unit.
+fn barsOf<C>(totals: Prop<[Float]>): Node<C> {
+    drawingOf(
+        shape.group({
+            offset: .Some(.Const((0.0, -1.0))),
+            shapes: [
+                shape.each(totals, fn(total) => "${total}", fn(_c, total, i) => {
+                    shape.rect({
+                        at: .Const((i.toF64() * 10.0, 40.0 - total)),
+                        size: .Const((8.0, total)),
+                    })
+                }),
+            ],
+        }),
+    )
+}
+
+test "each draws one shape per item, in order, and follows its list" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let totals = signal(ctx, [10.0, 25.5]);
+    let page = render(ctx, barsOf(.Cell(totals)));
+    assert.equal(
+        page.markup(),
+        drawingLine(
+            ctx,
+            "<g transform='translate(0 -1)'><rect x='0' y='30' width='8' height='10' fill='none'/><rect x='10' y='14.5' width='8' height='25.5' fill='none'/></g>",
+        ),
+    );
+    let drawn = page.identity("svg", 0);
+    totals.set(ctx, [25.5, 40.0, 10.0]);
+    // The rows follow the list, and the drawing is still the same element.
+    assert.equal(
+        page.markup(),
+        drawingLine(
+            ctx,
+            "<g transform='translate(0 -1)'><rect x='0' y='14.5' width='8' height='25.5' fill='none'/><rect x='10' y='0' width='8' height='40' fill='none'/><rect x='20' y='30' width='8' height='10' fill='none'/></g>",
+        ),
+    );
+    assert.equal(page.identity("svg", 0), drawn);
+    totals.set(ctx, []);
+    assert.equal(page.markup(), drawingLine(ctx, "<g transform='translate(0 -1)'/>"));
+    // A scene draws the rows the list holds when it is read.
+    totals.set(ctx, [5.0]);
+    assert.containsText(
+        ui.describe(ctx, barsOf(.Cell(totals)), .Hover),
+        "<g transform='translate(0 -1)'><rect x='0' y='35' width='8' height='5' fill='none'/></g>",
+    );
+}
+
+test "each draws a fixed list, and a derived list follows what it reads" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let fixed = render(ctx, barsOf(.Const([5.0])));
+    assert.containsText(
+        fixed.markup(),
+        "<rect x='0' y='35' width='8' height='5' fill='none'/>",
+    );
+    let scale = signal(ctx, 1.0);
+    let derived = render(ctx, barsOf(.Computed(fn(s) => [10.0 * scale.get(s)])));
+    assert.containsText(
+        derived.markup(),
+        "<rect x='0' y='30' width='8' height='10' fill='none'/>",
+    );
+    scale.set(ctx, 2.0);
+    assert.containsText(
+        derived.markup(),
+        "<rect x='0' y='20' width='8' height='20' fill='none'/>",
+    );
+}
+
+test "a row of an each follows its own props" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let names = signal(ctx, ["a"]);
+    let lift = signal(ctx, 1.0);
+    let page = render(
+        ctx,
+        drawingOf(
+            shape.each(.Cell(names), fn(name) => name, fn(_c, _name, _i) => {
+                shape.circle({
+                    center: .Computed(fn(s) => (0.0, lift.get(s))),
+                    radius: .Const(1.0),
+                })
+            }),
+        ),
+    );
+    assert.containsText(page.markup(), "<circle cx='0' cy='1' r='1' fill='none'/>");
+    lift.set(ctx, 2.0);
+    assert.containsText(page.markup(), "<circle cx='0' cy='2' r='1' fill='none'/>");
+}
+
 test "a field is labelled, and what is typed into it is in its signal" {
     let ctx = context {
         Ui: headless(),

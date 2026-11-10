@@ -1,0 +1,5 @@
+FAIL //lib/bars  test/pictures.buri  "each month is a bar with a dot on top, moved along by its group"
+  the snapshot "bars" changed: see test/__snapshots__/bars.diff.png
+  --> lib/bars/test/pictures.buri:7:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

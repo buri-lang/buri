@@ -1,0 +1,32 @@
+# A bar chart in a card: one group per month, each moved along by its offset
+# and holding a bar and a dot in the colour of the card's text.
+#
+# The last step makes the dots bigger. A painter that drew a group's shapes
+# where they were written, or drew no circles, would pass it; this one fails
+# and leaves the diff.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a drawing's keyed groups paint their bars and dots, and bigger dots fail the golden"
+
+run {
+  args: ["test", "//lib/bars", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/bars.diff.png"  exists: false }
+
+edit {
+  file: "lib/bars/bars.buri"
+  replace: "radius: .Const(2.0)"
+  with: "radius: .Const(4.0)"
+}
+
+run {
+  args: ["test", "//lib/bars", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/bars/test/__snapshots__/bars.diff.png"  exists: true }

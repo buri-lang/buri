@@ -1224,3 +1224,95 @@ console.log(`same ${labelled("Growth") === svg} paths ${svg.querySelectorAll("pa
          same true paths 1\n"
     );
 }
+
+/// One bar per month, keyed by name: each bar a group moved along by its
+/// total, holding a rectangle and a dot, all in a group with no offset. A
+/// button reorders the months and drops one.
+const BARS_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let months = signal(ctx, [("Jan", 10.0), ("Feb", 20.0), ("Mar", 30.0)]);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((30.0, 40.0)),
+                    styles: [],
+                    shapes: [
+                        // Left out, the offset adds no element: the rows are the
+                        // drawing's own children.
+                        shape.group({
+                            offset: .None,
+                            shapes: [
+                                shape.each(.Cell(months), fn(m) => m.0, fn(_c, m, _i) => {
+                                    shape.group({
+                                        offset: .Some(.Const((m.1 - 10.0, 0.0))),
+                                        shapes: [
+                                            shape.rect({
+                                                at: .Const((1.0, 40.0 - m.1)),
+                                                size: .Const((8.0, m.1)),
+                                                fill: .Some(.Const(.Rgb(30, 120, 60))),
+                                            }),
+                                            shape.circle({ center: .Const((5.0, 40.0 - m.1)), radius: .Const(1.5) }),
+                                        ],
+                                    })
+                                }),
+                            ],
+                        }),
+                    ],
+                }),
+                ui.button({
+                    label: .Const("Shuffle"),
+                    styles: [],
+                    onPress: .Some(fn(c) => months.set(c, [("Mar", 30.0), ("Jan", 10.0)])),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_drawing_s_keyed_shapes_move_with_their_items_and_keep_their_elements() {
+    let printed = drive(
+        "bars-page",
+        BARS_PAGE,
+        r#"
+const svg = labelled("Sales by month");
+const show = () => {
+  for (const group of svg.children) {
+    const rect = group.querySelector("rect");
+    const dot = group.querySelector("circle");
+    console.log(`${group.namespaceURI} ${group.tagName} ${group.getAttribute("transform")} rect ${rect.getAttribute("x")} ${rect.getAttribute("y")} ${rect.getAttribute("width")} ${rect.getAttribute("height")} ${rect.style.getPropertyValue("fill")} dot ${dot.getAttribute("cx")} ${dot.getAttribute("cy")} ${dot.getAttribute("r")} ${dot.style.getPropertyValue("fill")}`);
+  }
+};
+show();
+const [jan, , mar] = svg.children;
+labelled("Shuffle").click();
+show();
+const [first, second] = svg.children;
+console.log(`kept ${first === mar} ${second === jan} count ${svg.children.length}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "http://www.w3.org/2000/svg g translate(0 0) rect 1 30 8 10 rgb(30,120,60) dot 5 30 1.5 none\n\
+         http://www.w3.org/2000/svg g translate(10 0) rect 1 20 8 20 rgb(30,120,60) dot 5 20 1.5 none\n\
+         http://www.w3.org/2000/svg g translate(20 0) rect 1 10 8 30 rgb(30,120,60) dot 5 10 1.5 none\n\
+         http://www.w3.org/2000/svg g translate(20 0) rect 1 10 8 30 rgb(30,120,60) dot 5 10 1.5 none\n\
+         http://www.w3.org/2000/svg g translate(0 0) rect 1 30 8 10 rgb(30,120,60) dot 5 30 1.5 none\n\
+         kept true true count 2\n"
+    );
+}

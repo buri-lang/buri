@@ -5963,14 +5963,16 @@ function $tree_dynamic(ctx, parent, anchor, build) {
 // what it created. The row is built under that owner and untracked — the list
 // is already subscribed to the list, and what a row read while it was being
 // built is not a reason to rebuild the list.
-function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
+// `render` draws what `rowAt` built: `$tree_render` for a node, `$tree_shape`
+// for a shape.
+function $tree_row(ctx, parent, anchor, owner, key, index, rowAt, render) {
   const start = $tree_mark(parent, anchor);
   const adopting = $adopt.ops !== null;
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   const rowOwner = $ui_under(owner, () => $ui_cell(3, undefined, null));
   $ui_under(rowOwner, () => {
     // A row's index is an `Int`, as every `Int` is here: a `BigInt`.
-    $tree_render(ctx, rowAt(ctx, [rowOwner], BigInt(index)), parent, end);
+    render(ctx, rowAt(ctx, [rowOwner], BigInt(index)), parent, end);
     return 0;
   });
   if (adopting) $dom_insert(parent, end, $adopt.ops.at(parent));
@@ -6002,13 +6004,13 @@ function $tree_move(parent, row, anchor) {
 // everything. A row whose key is still in the list is moved and never rebuilt:
 // that is what keyed means, and it is what keeps the focus, the scroll
 // position and the computations inside a row alive across a reorder.
-function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
+function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt, render) {
   // A resume walks forwards, so the rows the server wrote are taken in order.
   // Nothing moves on that pass: every row is already where it belongs.
   if ($adopt.ops !== null) {
     const adopted = [];
     for (let i = 0; i < keys.length; i++) {
-      adopted.push($tree_row(ctx, parent, end, owner, keys[i], i, rowAt));
+      adopted.push($tree_row(ctx, parent, end, owner, keys[i], i, rowAt, render));
     }
     return adopted;
   }
@@ -6020,7 +6022,7 @@ function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
     const key = keys[i];
     let row = byKey.get(key);
     if (row === undefined) {
-      row = $tree_row(ctx, parent, anchor, owner, key, i, rowAt);
+      row = $tree_row(ctx, parent, anchor, owner, key, i, rowAt, render);
     } else {
       byKey.delete(key);
       $tree_move(parent, row, anchor);
@@ -6036,7 +6038,7 @@ function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
   return next;
 }
 
-function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
+function $tree_each(ctx, parent, anchor, count, keyAt, rowAt, render) {
   const start = $tree_mark(parent, anchor);
   let adopting = $adopt.ops !== null;
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
@@ -6059,7 +6061,7 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
         seen.add(key);
         keys.push(key);
       }
-      rows = $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt);
+      rows = $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt, render);
       if (adopting) {
         adopting = false;
         $dom_insert(parent, end, $adopt.ops.at(parent));
@@ -6430,14 +6432,31 @@ function $tree_drawing(ctx, node, parent, anchor) {
     $dom_attribute(element, "aria-label", alt[1]);
   }
   $tree_styles(element, node[4]);
-  for (const shape of node[5]) $tree_shape(element, shape);
+  for (const shape of node[5]) $tree_shape(ctx, shape, element, null);
   $tree_events(ctx, element, node[6]);
 }
 
-// One shape: its element, its attributes, and its paint. Paint is CSS rather
-// than an attribute, because a design token's `var()` resolves only in CSS.
-function $tree_shape(parent, shape) {
-  const element = $tree_element(parent, shape[0], null, true);
+// One shape: its element, its attributes, its paint and the shapes inside it.
+// Paint is CSS rather than an attribute, because a design token's `var()`
+// resolves only in CSS. An `each` is a keyed list of shapes, reconciled as
+// `ui.each`'s rows are; its key and its row answer `undefined` past the end.
+function $tree_shape(ctx, shape, parent, anchor) {
+  const rows = shape[4];
+  if (rows !== undefined) {
+    const count = (scope) => {
+      let n = 0;
+      while (rows[0](scope, BigInt(n)) !== undefined) n++;
+      return n;
+    };
+    $tree_each(ctx, parent, anchor, count, rows[0], rows[1], $tree_shape);
+    return;
+  }
+  // A group with no offset moves nothing, so its shapes take its place.
+  if (shape[1].length === 0) {
+    for (const child of shape[3]) $tree_shape(ctx, child, parent, anchor);
+    return;
+  }
+  const element = $tree_element(parent, shape[0], anchor, true);
   for (const [name, prop] of shape[1]) {
     $tree_bind(prop, (value) => $dom_attribute(element, name, value));
   }
@@ -6447,6 +6466,7 @@ function $tree_shape(parent, shape) {
       else element.style.setProperty(name, value);
     });
   }
+  for (const child of shape[3]) $tree_shape(ctx, child, element, null);
 }
 
 // Shows the bubble while the pointer is over the tooltip or the focus is inside
@@ -7042,7 +7062,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 20) {
-    $tree_each(ctx, parent, anchor, node[1], node[2], node[3]);
+    $tree_each(ctx, parent, anchor, node[1], node[2], node[3], $tree_render);
     return;
   }
   if (tag === 21) {

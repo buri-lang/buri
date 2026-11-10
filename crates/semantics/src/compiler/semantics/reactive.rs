@@ -1,9 +1,10 @@
 //! What a reactive builder may not do: `load`.
 //!
-//! `ui/node`'s `computed`, `each` and `rebuild` hand the renderer a closure it
-//! calls to make a subtree. `core/lazy`'s `load` waits for a chunk to arrive,
-//! so a builder that reaches it compiles to an `async` function — it answers a
-//! promise rather than a node, and the renderer renders the promise: a blank
+//! `ui/node`'s `computed`, `each` and `rebuild`, and `ui/shape`'s `each`, hand
+//! the renderer a closure it calls to make a subtree or a drawing's rows.
+//! `core/lazy`'s `load` waits for a chunk to arrive, so a builder that reaches
+//! it compiles to an `async` function — it answers a promise rather than a
+//! node, and the renderer renders the promise: a blank
 //! page, and every listener after the first failed render left unregistered
 //! (buri-lang/buri#152).
 //!
@@ -28,10 +29,10 @@ use crate::hash::Set as HashSet;
 
 /// Refuses a `load` reached synchronously from a reactive builder.
 ///
-/// A compilation that loaded neither `core/lazy` nor `ui/node` returns at once:
-/// with no `load` there is nothing to reach, and with no reactive constructor
-/// there is nowhere it would be refused. That is every program without a lazily
-/// split user interface.
+/// A compilation that loaded neither `core/lazy` nor a reactive constructor's
+/// module returns at once: with no `load` there is nothing to reach, and with
+/// no reactive constructor there is nowhere it would be refused. That is every
+/// program without a lazily split user interface.
 ///
 /// Answers which functions wait, which is what a later run over more bodies
 /// starts from when the bodies `walked` leaves out were these.
@@ -48,12 +49,13 @@ pub fn run(
         return HashSet::default();
     };
     let builders: Vec<(FnId, &'static str)> = [
-        ("computed", "computed"),
-        ("each", "each"),
-        ("rebuild", "rebuild"),
+        ("ui/node", "computed", "ui.computed"),
+        ("ui/node", "each", "ui.each"),
+        ("ui/node", "rebuild", "ui.rebuild"),
+        ("ui/shape", "each", "shape.each"),
     ]
     .iter()
-    .filter_map(|(name, label)| own_fn(loaded, scopes, "ui/node", name).map(|id| (id, *label)))
+    .filter_map(|(module, name, label)| own_fn(loaded, scopes, module, name).map(|id| (id, *label)))
     .collect();
     if builders.is_empty() {
         return HashSet::default();

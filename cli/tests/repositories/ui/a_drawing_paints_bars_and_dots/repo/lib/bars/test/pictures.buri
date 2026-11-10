@@ -1,0 +1,13 @@
+// The card as a picture: three bars, each with a dot on top.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/bars" import { card };
+
+test "each month is a bar with a dot on top, moved along by its group" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bars", card(), .Checked, []);
+}

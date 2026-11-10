@@ -172,6 +172,47 @@ stroke left out paints nothing. `alt` works as it does for an `image`.
 Every prop can be a `.Cell` or a `.Computed`: when the size, the segments or a
 colour changes, the drawing updates in place.
 
+**A chart is one shape per item.** `shape.each` draws a row for every item,
+keyed the way `ui.each` is, and a `group` moves the shapes inside it by its
+`offset`:
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/shape" import * as shape;
+
+export fn bars<C>(totals: Prop<[Float]>): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("Sales by month"),
+        size: .Const((30.0, 40.0)),
+        styles: [.Width(.Px(150)), .Height(.Px(200))],
+        shapes: [
+            shape.each(totals, fn(t) => "${t}", fn(_c, t, i) => {
+                shape.group({
+                    offset: .Some(.Const((i.toF64() * 10.0, 0.0))),
+                    shapes: [
+                        shape.rect({
+                            at: .Const((1.0, 40.0 - t)),
+                            size: .Const((8.0, t)),
+                            fill: .Some(.Const(.Inherit)),
+                        }),
+                        shape.circle({
+                            center: .Const((5.0, 40.0 - t)),
+                            radius: .Const(2.0),
+                            fill: .Some(.Const(.Inherit)),
+                        }),
+                    ],
+                })
+            }),
+        ],
+    })
+}
+```
+
+When the list changes, the browser keeps the elements of rows whose keys stay
+and moves them into the new order.
+
 **A box can be decorative too, and it can be the current page.** A `stack`'s
 `isDecorative` hides it and everything in it from a screen reader: the slash
 between two breadcrumb steps, or a caption that repeats a field's name. It's

@@ -17,11 +17,11 @@ Each phase ends at a commit landed with `/tmp/buri-land.sh`.
 1. **Drawing and static path.** `ui.drawing({ alt, size, styles, shapes })`, `shape.path({ segments, fill, stroke, strokeWidth })`, and `Segment` `MoveTo`/`LineTo`/`Close`. Colours: `Rgb`, `Rgba`, `Inherit` (`currentColor`), `Transparent`. Renders in the browser, in `render` (both back ends) and in snapshots. A UI snapshot case, happy-dom page tests, conformance tests, docs. About 250 turns.
 2. **Reactivity and tokens.** `.Cell` and `.Computed` segments, size and colours update in place: the browser already binds each prop, and the native `render` document needs a watcher that patches the drawing's body. `style.token` and `alpha` (`Token`, `Faded`) as fill and stroke, following the theme in the browser and in the painter, light and dark. About 250 turns.
 3. **More shapes.** `shape.rect`, `shape.circle`, `shape.text` (a run of text in the drawing), `shape.group` with `offset`, and keyed `shape.each` (reconciled like `ui.each` in the browser and in `render`; add it to `semantics::reactive`'s builders). About 300 turns.
-4. **Interaction.** A shape with a `label` joins the focus order with that name; `onFocus` on shapes; `onPointerMove` on the drawing, in drawing units. Both in the browser and in `platform/effect/testing`'s `render`. Close #332. About 250 turns.
+4. **Text and interaction.** `shape.text`, then: A shape with a `label` joins the focus order with that name; `onFocus` on shapes; `onPointerMove` on the drawing, in drawing units. Both in the browser and in `platform/effect/testing`'s `render`. Close #332. About 250 turns.
 
 ## Status
 
-Phases 1 and 2 are done.
+Phases 1, 2 and 3 are done, except `shape.text`, which moved to phase 4.
 
 Phase 1 (393c5a197) added:
 
@@ -39,11 +39,26 @@ Phase 2 added:
   - `language::pages::a_drawing_follows_its_size_outline_and_paint_in_place`
   - UI case `a_drawing_paints_tokens_light_and_dark`: each token picture shares a golden with the same card in its theme's colours
   - `image::tests::a_colour_mixed_with_transparent_is_that_colour_faded`
-- Docs: the guide's drawing paragraph says props update in place and tokens follow the theme.
+- Docs: the guide's drawing paragraph says propPhase 3 added:
 
-Phase 3 starts here:
+- `ui_shape.buri`: `rect`, `circle`, `group` (with `offset`, as `translate(x y)`) and keyed `each`. `Shape` gained its children and an `each`'s rows (`Rows`: a key and a row per index). `built(ctx, c)` puts an `each`'s rows where it was, and `keys(ctx)` reads every key so a watcher can follow the lists.
+- `ui_node.buri`: `.Drawing` holds the artwork as a builder over `C` plus its keys. A watcher can't capture a `C`, so `emitNode` rebuilds the drawing's region whenever the keys change (the runtime hands the region its `C`), and a nested watcher patches the markup.
+- `runtime.js`: `$tree_row`, `$tree_reconcile` and `$tree_each` take the `render` function, so `$tree_shape` reconciles an `each` with the same code as `ui.each`.
+- `semantics::reactive`: `shape.each` is a builder; `load-in-reactive-builder` names it.
+- A group with no offset adds no element, in the browser and in the scene. `drawing` builds its rows and keys through one such group, which keeps `ui_node` free of list walks of its own.
+- The check-cost goals rows are tight: every line in `ui_node`/`ui_shape` is checked for every UI program. To pay for this phase, `styles::Flow::edges` walks an expression's children without collecting them first (about 2% of check in a small UI program). Measure stdlib growth with `BURI_PROFILE=1 buri build` on a mounted page before running the goals check.
+- Tests: four conformance tests in `tree.buri` (rect/circle, group, each, a row's own props), `language::pages::a_drawing_s_keyed_shapes_move_with_their_items_and_keep_their_elements`, UI case `a_drawing_paints_bars_and_dots`, reject case `shape_each_row_loads`.
+- Docs: the guide's chart example.
 
-1. `shape.rect`, `shape.circle` and `shape.text` lower in `ui_shape.buri` the way `path` does. `image.rs` paints `rect` and `circle` but not `text`, so a text run needs the painter to draw SVG `text`, or `drawn` to lower it to something it can draw.
-2. `shape.group` with `offset` lowers to `<g transform='translate(…)'>`, which `image.rs` reads. `Shape` has no children yet (its fields are the element, its attributes and its paint), so a group needs a children field, `svg(ctx)` must write them, and `$tree_shape` must build them.
-3. Keyed `shape.each` reconciles like `ui.each` in the browser. The native watcher re-serialises the whole artwork on any change, which is enough for `render` and snapshots. Add `each` to `semantics::reactive`'s builders.
-4. A token bound to `.Inherit` puts `inherit` in the artwork, which `image.rs` paints as nothing. Nothing does that yet.
+Known gaps:
+
+- Native `render` rebuilds every row when the keys change; the browser keeps rows whose keys stay.
+- A row's index is the one it was built with, so it goes stale after a reorder in the browser (as with `ui.each`).
+- An `each` inside another `each`'s row isn't followed natively: `keys` reads only the rows built at the top level.
+- Duplicate keys abort in the browser but not natively (as with `ui.each`).
+
+Phase 4 starts here:
+
+1. `shape.text({ at, content })`, centred at `x`. `image.rs` skips SVG `text`. The simplest faithful approach: in `paint.rs`, shape the run with `cosmic_text`, turn each glyph's outline commands (`SwashCache`) into a `tiny_skia` path, and fill it where `text-anchor='middle'` puts it.
+2. A token bound to `.Inherit` puts `inherit` in the artwork, which `image.rs` paints as nothing. Nothing does that yet.
+3. Then the interaction work in the phase list.

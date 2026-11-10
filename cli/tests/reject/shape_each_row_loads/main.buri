@@ -1,0 +1,33 @@
+// EXPECT: a reactive builder may not `load`
+//
+// `shape.each` hands the renderer a closure it calls to build a drawing's
+// rows, so the closure must answer a shape. `core/lazy`'s `load` waits for a
+// chunk, so a row that reaches it answers a promise instead. The `load` belongs
+// on the press or the route that reaches the drawing, not in the row.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "core/lazy" import * as lazy;
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/shape" import { Shape };
+
+fn bar<C>(): Shape<C> {
+    shape.rect({ at: .Const((0.0, 0.0)), size: .Const((8.0, 8.0)) })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+    ui.mount(ctx, ui.drawing({
+        alt: .Decorative,
+        size: .Const((8.0, 8.0)),
+        styles: [],
+        shapes: [
+            shape.each(.Const(["a"]), fn(name) => name, fn(_c, _name, _i) => {
+                let build = lazy.load(bar);
+                build()
+            }),
+        ],
+    }), [])
+}

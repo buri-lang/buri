@@ -1,6 +1,6 @@
 ---
 title: A reactive builder is synchronous, so it may not `load`
-message: a reactive builder may not `load` — `ui.{builder}`'s body must be synchronous
+message: a reactive builder may not `load` — `{builder}`'s body must be synchronous
 fix: move the `load` onto the press or the route that reaches this subtree, and hand the builder what it loaded
 ---
 # A reactive builder is synchronous, so it may not `load`
@@ -29,8 +29,9 @@ fn body<C>(): Node<C> {
 ```
 
 `ui.computed`, `ui.each` and `ui.rebuild` call their closure to build a
-subtree. `load` waits for a chunk, which makes the closure `async`: it returns a
-promise, not a node. The page comes up blank, and the first failed render leaves
+subtree, and `shape.each` calls its closure to build a drawing's rows. `load`
+waits for a chunk, which makes the closure `async`: it returns a promise, not a
+node or a shape. The page comes up blank, and the first failed render leaves
 the rest of it inert.
 
 A handler, `fn(C, Event) => ()`, may wait: it runs to completion and writes

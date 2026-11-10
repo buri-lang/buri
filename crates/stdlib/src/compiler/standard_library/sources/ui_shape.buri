@@ -30,13 +30,19 @@ export enum Segment {
 /// One thing a drawing shows.
 ///
 /// Opaque: the constructors below are the whole vocabulary. It holds the
-/// element a shape lowers to, its attributes, and its paint, which the browser
-/// sets as CSS so a design token's `var()` resolves. The order is load-bearing:
-/// the JavaScript runtime reads a shape by position (`$tree_shape`).
-export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)]);
+/// element a shape lowers to, its attributes, its paint, which the browser
+/// sets as CSS so a design token's `var()` resolves, the shapes inside it, and,
+/// for `each`, the rows it stands for. The order is load-bearing: the
+/// JavaScript runtime reads a shape by position (`$tree_shape`).
+export struct Shape<C>(Str, [(Str, Prop<Str>)], [(Str, Prop<Str>)], [Shape<C>], Option<Rows<C>>);
+
+/// What `each` stands for: the key at an index, and the row built there. Both
+/// answer `.None` past the end of the list.
+struct Rows<C>(fn(Scope, Int) => Option<Str>, fn(C, Scope, Int) => Option<Shape<C>>);
 
 impl<C> Shape<C> {
-    /// The shape written out as SVG, its props read through `ctx`.
+    /// The shape written out as SVG, its props read through `ctx`. Write what
+    /// `built` answers: it puts an `each`'s rows where the `each` was.
     ///
     /// Reading one is not making one. `ui/node` writes a drawing into a
     /// snapshot's scene with this.
@@ -45,8 +51,75 @@ impl<C> Shape<C> {
             .concat(ctx, self.2)
             .mapCtx(ctx, fn(s, pair) => {
                 str.format(s, " ${pair.0}='${pair.1.read(s)}'")
-            });
-        str.format(ctx, "<${self.0}${attributes.join(ctx, "")}/>")
+            })
+            .join(ctx, "");
+        if (self.3.isEmpty()) {
+            str.format(ctx, "<${self.0}${attributes}/>")
+        } else {
+            let inner = self.3.mapCtx(ctx, fn(s, child) => child.svg(s)).join(ctx, "");
+            str.format(ctx, "<${self.0}${attributes}>${inner}</${self.0}>")
+        }
+    }
+
+    /// The shape with every `each` in it replaced by its rows, each row built
+    /// through `c` and the list read through `ctx`. A group with no offset
+    /// moves nothing, so its shapes take its place.
+    ///
+    /// `ui/node` builds a drawing's rows with this before it writes them out,
+    /// because a row is built with a context and written with a scope.
+    export fn built(self, ctx: Scope, c: C): [Shape<C>] {
+        match (self.4) {
+            .Some(rows) => rowsFrom(ctx, c, rows.1, 0, []),
+            .None => {
+                let children = self.3;
+                let inner = rowsFrom(ctx, c, fn(_c, _s, at) => children.get(at), 0, []);
+                if (self.1.isEmpty()) {
+                    inner
+                } else {
+                    [Shape(self.0, self.1, self.2, inner, .None)]
+                }
+            },
+        }
+    }
+
+    /// The keys of every `each` in the shape, read through `ctx`, its rows
+    /// left out.
+    ///
+    /// `ui/node` reads these to know when a drawing's rows must be built again.
+    export fn keys(self, ctx: Scope): [Str] {
+        match (self.4) {
+            .Some(rows) => keysFrom(ctx, rows.0, 0, []),
+            .None => self.3.flatMapCtx(ctx, fn(s, child) => child.keys(s)),
+        }
+    }
+}
+
+/// The shapes `rowAt` answers from `at` on, each one `built`, after `acc`.
+fn rowsFrom<C>(
+    ctx: Scope,
+    c: C,
+    rowAt: fn(C, Scope, Int) => Option<Shape<C>>,
+    at: Int,
+    acc: [Shape<C>],
+): [Shape<C>] {
+    match (rowAt(c, ctx, at)) {
+        .Some(row) => {
+            rowsFrom(ctx, c, rowAt, at + 1, acc.concat(ctx, row.built(ctx, c)))
+        },
+        .None => acc,
+    }
+}
+
+/// The keys `keyAt` answers from `at` on, after `acc`.
+fn keysFrom(
+    ctx: Scope,
+    keyAt: fn(Scope, Int) => Option<Str>,
+    at: Int,
+    acc: [Str],
+): [Str] {
+    match (keyAt(ctx, at)) {
+        .Some(key) => keysFrom(ctx, keyAt, at + 1, acc.push(ctx, key)),
+        .None => acc,
     }
 }
 
@@ -91,6 +164,165 @@ export fn path<C>(config: Path): Shape<C> {
             ("stroke-width", widthOf(config.strokeWidth)),
         ],
         [("fill", paintOf(config.fill)), ("stroke", paintOf(config.stroke))],
+        [],
+        .None,
+    )
+}
+
+/// What `rect` takes.
+struct Rect {
+    /// Its top-left corner, `(x, y)`.
+    export at: Prop<(Float, Float)>,
+    /// Its width and height.
+    export size: Prop<(Float, Float)>,
+    /// What fills it. Left out, nothing does.
+    export fill: Option<Prop<Color>>,
+}
+
+/// A rectangle: a bar in a chart, or a band behind one.
+///
+/// ```buri
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn bar<C>(total: Float): Shape<C> {
+///     shape.rect({
+///         at: .Const((1.0, 40.0 - total)),
+///         size: .Const((8.0, total)),
+///         fill: .Some(.Const(.Inherit)),
+///     })
+/// }
+/// ```
+export fn rect<C>(config: Rect): Shape<C> {
+    let (x, y) = coordinates(config.at);
+    let (width, height) = coordinates(config.size);
+    Shape(
+        "rect",
+        [("x", x), ("y", y), ("width", width), ("height", height)],
+        [("fill", paintOf(config.fill))],
+        [],
+        .None,
+    )
+}
+
+/// What `circle` takes.
+struct Circle {
+    /// Its centre, `(x, y)`.
+    export center: Prop<(Float, Float)>,
+    /// How far its edge is from the centre.
+    export radius: Prop<Float>,
+    /// What fills it. Left out, nothing does.
+    export fill: Option<Prop<Color>>,
+}
+
+/// A circle: a point on a line, or a marker.
+///
+/// ```buri
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn dot<C>(): Shape<C> {
+///     shape.circle({
+///         center: .Const((50.0, 20.0)),
+///         radius: .Const(1.5),
+///         fill: .Some(.Const(.Inherit)),
+///     })
+/// }
+/// ```
+export fn circle<C>(config: Circle): Shape<C> {
+    let (x, y) = coordinates(config.center);
+    let radius = config.radius;
+    Shape(
+        "circle",
+        [("cx", x), ("cy", y), ("r", .Computed(fn(s) => number(s, radius.read(s))))],
+        [("fill", paintOf(config.fill))],
+        [],
+        .None,
+    )
+}
+
+/// What `group` takes.
+struct Group<C> {
+    /// How far the shapes inside are moved, `(x, y)`. Left out, they stay
+    /// where they are, and the group adds no element of its own.
+    export offset: Option<Prop<(Float, Float)>>,
+    /// What it holds, in order, each one over the ones before it.
+    export shapes: [Shape<C>],
+}
+
+/// Shapes moved together: one row of a chart, laid out from `(0, 0)` and put
+/// in its place by `offset`.
+///
+/// ```buri
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn second<C>(bar: Shape<C>): Shape<C> {
+///     shape.group({ offset: .Some(.Const((10.0, 0.0))), shapes: [bar] })
+/// }
+/// ```
+export fn group<C>(config: Group<C>): Shape<C> {
+    let moved: [(Str, Prop<Str>)] = match (config.offset) {
+        .Some(offset) => {
+            [
+                (
+                    "transform",
+                    .Computed(fn(s) => {
+                        let (x, y) = offset.read(s);
+                        str.format(s, "translate(${number(s, x)} ${number(s, y)})")
+                    }),
+                ),
+            ]
+        },
+        .None => [],
+    };
+    Shape("g", moved, [], config.shapes, .None)
+}
+
+/// One shape per item, kept by key, the way `ui/node`'s `each` keeps a row.
+///
+/// The key is a parameter rather than a convention, and two items with the
+/// same key is a mistake the runtime refuses where you make it. A row whose key
+/// is still in the list moves rather than being built again, so a row is built
+/// from its item once: if what a row shows can change while its key stays the
+/// same, make the changing part a `Prop`.
+///
+/// ```buri
+/// from "ui/prop" import { Prop };
+/// from "ui/shape" import * as shape;
+/// from "ui/shape" import { Shape };
+///
+/// export fn bars<C>(totals: Prop<[Float]>): Shape<C> {
+///     shape.each(totals, fn(total) => "${total}", fn(_c, total, i) => {
+///         shape.rect({
+///             at: .Const((i.toF64() * 10.0, 40.0 - total)),
+///             size: .Const((8.0, total)),
+///             fill: .Some(.Const(.Inherit)),
+///         })
+///     })
+/// }
+/// ```
+export fn each<C, T: Equal>(
+    items: Prop<[T]>,
+    key: fn(T) => Str,
+    row: fn(C, T, Int) => Shape<C>,
+): Shape<C> {
+    Shape(
+        "g",
+        [],
+        [],
+        [],
+        .Some(
+            Rows(
+                fn(scope, index) => items.read(scope).get(index).map(key),
+                fn(c, scope, index) => {
+                    match (items.read(scope).get(index)) {
+                        .Some(item) => .Some(row(c, item, index)),
+                        .None => .None,
+                    }
+                },
+            ),
+        ),
     )
 }
 
@@ -113,6 +345,14 @@ fn step(ctx: Scope, segment: Segment): Str {
         .LineTo(x, y) => str.format(ctx, "L${number(ctx, x)} ${number(ctx, y)}"),
         .Close => "Z",
     }
+}
+
+/// A point or a size as SVG writes its two numbers.
+fn coordinates(pair: Prop<(Float, Float)>): (Prop<Str>, Prop<Str>) {
+    (
+        .Computed(fn(s) => number(s, pair.read(s).0)),
+        .Computed(fn(s) => number(s, pair.read(s).1)),
+    )
 }
 
 /// A number as SVG writes one: `40`, not the `40.0` a `Float` shows as.

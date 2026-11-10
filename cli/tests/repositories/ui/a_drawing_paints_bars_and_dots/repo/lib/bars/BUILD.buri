@@ -1,0 +1,8 @@
+# One library and one test source: a card holding a bar chart.
+library {
+    sources: ["bars.buri"]
+
+    test {
+        sources: ["test/pictures.buri"]
+    }
+}
