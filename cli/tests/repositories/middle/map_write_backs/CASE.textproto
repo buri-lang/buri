@@ -3,8 +3,12 @@
 # alone: a key read off another record, a block that also reads the map, the
 # base or the record read after the write, a renamed base, context or record,
 # a record that came from no map, a match with guards, a write inside a
-# match's scrutinee, and a hash map. Every reader keeps its own view, on both
-# backends.
+# match's scrutinee, a hash map, and a map held by a name of its own: read out
+# by a `let`, by an arm that is no block, read again before the write, under a
+# renamed key, or written inside a function made in the arm; a record matched
+# out of something else, out of a pair, put back under another key, or written
+# with a context made in the arm. Every reader keeps its own view, on both
+# backends, and under --coverage, which keeps each context whole.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
@@ -15,4 +19,10 @@ run {
   args: ["test", "//lib/maps", "--force"]
   exit: 0
   golden: "test.txt"
+}
+
+run {
+  args: ["test", "//lib/maps", "--force", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
 }

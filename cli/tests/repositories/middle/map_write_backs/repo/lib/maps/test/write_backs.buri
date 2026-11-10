@@ -306,3 +306,185 @@ test "a record written back inside a match, or into a hash map" {
     assert.equal(h2.nodes.get("a").map(fn(t) => t.n).withDefault(0), 1);
     assert.equal(h.nodes.get("a").map(fn(t) => t.n).withDefault(0), 0);
 }
+
+// The map is a name of its own, and the record comes out of a `let`.
+fn local<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    let t = m.get(to).withDefault(inner(ctx, to));
+    m.insert(ctx, to, handle(ctx, t, k))
+}
+
+// The arm the write is in is no block.
+fn bare<C: Allocator>(ctx: C, m: Map<Str, Inner>, to: Str, k: Int): Map<Str, Inner> {
+    match (m.get(to)) {
+        .Some(t) => m.insert(ctx, to, handle(ctx, t, k)),
+        .None => m,
+    }
+}
+
+// The map is read again before the write.
+fn peeked<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (m.get(to)) {
+        .Some(t) => {
+            let after = handle(ctx, t, k);
+            let was = m.get(to).map(fn(x) => x.m.length()).withDefault(0);
+            m.insert(ctx, to, Inner { ..after, n: after.n + was * 10 })
+        },
+        .None => m,
+    }
+}
+
+// The key is a new name by the time of the write.
+fn rekeyed<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (m.get(to)) {
+        .Some(t) => {
+            let to = to.concat(ctx, "2");
+            m.insert(ctx, to, handle(ctx, t, k))
+        },
+        .None => m,
+    }
+}
+
+// The write is inside a function made in the arm.
+fn later_on<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (m.get(to)) {
+        .Some(t) => {
+            let write = fn(c: C, x: Int) => m.insert(c, to, handle(c, t, x));
+            let first = write(ctx, k);
+            let second = write(ctx, k + 1);
+            first.insert(ctx, "c", second.get(to).withDefault(t))
+        },
+        .None => m,
+    }
+}
+
+fn sized(m: OrderedMap<Str, Inner>, id: Str): Int {
+    seen(Outer { name: "", nodes: m, now: 0 }, id)
+}
+
+test "a record written back into a map held by a name of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let o = outer(ctx);
+    let m = o.nodes;
+    assert.equal(sized(local(ctx, m, "a", 5), "a"), 102);
+    assert.equal(sized(local(ctx, m, "z", 5), "z"), 102);
+    assert.equal(sized(m, "a"), 1);
+    let h = map.empty<Str, Inner>().insert(ctx, "a", inner(ctx, "a"));
+    assert.equal(bare(ctx, h, "a", 5).get("a").map(fn(t) => t.n).withDefault(0), 1);
+    assert.equal(bare(ctx, h, "z", 5).get("z").map(fn(t) => t.n).withDefault(0), 0);
+    assert.equal(h.get("a").map(fn(t) => t.n).withDefault(0), 0);
+    assert.equal(sized(peeked(ctx, m, "a", 5), "a"), 1102);
+    let r = rekeyed(ctx, m, "a", 5);
+    assert.equal(sized(r, "a"), 1);
+    assert.equal(sized(r, "a2"), 102);
+    let l = later_on(ctx, m, "a", 5);
+    assert.equal(sized(l, "a"), 102);
+    assert.equal(sized(l, "c"), 102);
+    assert.equal(sized(m, "a"), 1);
+}
+
+// The record comes out of a match on something other than the map.
+fn given<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    found: Option<Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (found) {
+        .Some(t) => m.insert(ctx, to, handle(ctx, t, k)),
+        .None => m,
+    }
+}
+
+// The match binds nothing of the map's value type.
+fn counted<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, (Inner, Int)>,
+    to: Str,
+): OrderedMap<Str, (Inner, Int)> {
+    match (m.get(to)) {
+        .Some((t, n)) => m.insert(ctx, to, (handle(ctx, t, n), n + 1)),
+        .None => m,
+    }
+}
+
+// The record goes back under another key.
+fn moved<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    source: Str,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (m.get(source)) {
+        .Some(t) => m.insert(ctx, to, handle(ctx, t, k)),
+        .None => m,
+    }
+}
+
+// The context is made in the arm, and holds nothing.
+fn fresh<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Inner>,
+    to: Str,
+    k: Int,
+): OrderedMap<Str, Inner> {
+    match (m.get(to)) {
+        .Some(t) => {
+            let c2 = context {
+                Allocator: alloc(),
+            };
+            let after = handle(c2, t, k);
+            m.insert(c2, to, after)
+        },
+        .None => m.insert(ctx, to, inner(ctx, to)),
+    }
+}
+
+test "a record written back from somewhere else, or with a context of its own" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = outer(ctx).nodes;
+    assert.equal(sized(given(ctx, m, .Some(inner(ctx, "q")), "q", 5), "q"), 102);
+    assert.equal(sized(given(ctx, m, .None, "q", 5), "q"), -1);
+    let pairs = orderedmap
+        .empty<Str, (Inner, Int)>()
+        .insert(ctx, "a", (inner(ctx, "a"), 7));
+    let read = fn(p: OrderedMap<Str, (Inner, Int)>) => {
+        p
+            .get("a")
+            .map(fn(x) => x.0.n * 100 + x.0.m.length() + x.1 * 1000)
+            .withDefault(-1)
+    };
+    assert.equal(read(counted(ctx, pairs, "a")), 8102);
+    assert.equal(read(pairs), 7001);
+    let v = moved(ctx, m, "a", "q", 5);
+    assert.equal(sized(v, "q"), 102);
+    assert.equal(sized(v, "a"), 1);
+    assert.equal(sized(fresh(ctx, m, "a", 5), "a"), 102);
+    assert.equal(sized(fresh(ctx, m, "z", 5), "z"), 1);
+    assert.equal(sized(m, "a"), 1);
+}

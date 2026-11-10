@@ -9193,6 +9193,55 @@ These ideas measured worse or no better:
 times the pre-sized room, followed by literals of every kind and nested
 lists.
 
+### 6.114 Any value matched out of a map goes back without a second holder, 2026-11-10
+
+§6.110 covered one shape: a record in an ordered map, in another record's
+field, written back under one of its own fields. `middle/vacate.rs` now takes
+both stdlib maps, a map in a local, and any key that is a name or a field of
+one:
+
+```buri
+match (m.get(k)) {
+    .Some(xs) => m.insert(ctx, k, xs.push(ctx, xs.length())),
+    .None => m,
+}
+```
+
+becomes, with the arm made a block:
+
+```buri
+let key = k;
+let m2 = m.insert((), key, []);
+m2.insert(ctx, key, xs.push(ctx, xs.length()))
+```
+
+The match must read the key the insert writes, or the value must hold it.
+The early insert passes a unit: monomorphization erases the insert's context.
+`--coverage` keeps contexts whole, so there the rewrite stays off.
+
+The same rewrite after a `let`, as in kvstore's `network.send`, measured
+worse:
+
+```buri
+let waiting = net.links.get(link).withDefault(queue.empty());
+Network { ..net, links: net.links.insert(ctx, link, waiting.push(ctx, envelope)) }
+```
+
+The early insert costs a descent of its own. Most sends find the queue empty,
+so the push allocates either way, and `run-dev/kvstore` rose 3.5% while
+allocations fell only 0.6%. So only a match-found value gets the rewrite.
+
+`run-dev/kvstore` holds at 1,334.8 M instructions and 702,632 allocations:
+its write-backs are the `let` kind or §6.110's.
+
+`cli/tests/native/ownership.rs` guards it: ten thousand changes to a 200-key
+map of lists, matched out of a local or a record's field, allocated 5,000
+blocks beyond the build on each map and now stay under 100. A map held
+elsewhere keeps its lists. `cli/tests/repositories/middle/map_write_backs`
+adds the shapes left alone, such as a map read again before the write, a
+renamed key, a write inside a function made in the arm, and a value put back
+under another key. It runs once more under `--coverage`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

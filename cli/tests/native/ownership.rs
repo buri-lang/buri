@@ -2348,6 +2348,54 @@ fn take<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
   }}
 }}
 
+// The plain forms: no `update` or `take`, only `get`, `pop`, `remove` and
+// `insert`.
+fn got<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  match (m.get(k)) {{
+    .Some(xs) => m.insert(ctx, k, xs.push(ctx, xs.length())),
+    .None => m,
+  }}
+}}
+
+struct Holder {{
+  m: {ty}<Int, [Int]>,
+  n: Int,
+}}
+
+fn inField<C: Allocator>(ctx: C, h: Holder, k: Int): Holder {{
+  match (h.m.get(k)) {{
+    .Some(xs) => Holder {{ ..h, m: h.m.insert(ctx, k, xs.push(ctx, xs.length())), n: h.n + 1 }},
+    .None => h,
+  }}
+}}
+
+fn field<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  inField(ctx, Holder {{ m: m, n: 0 }}, k).m
+}}
+
+fn defaulted<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  if (m.has(k)) {{
+    let xs = m.get(k).withDefault([]);
+    m.insert(ctx, k, xs.push(ctx, xs.length()))
+  }} else {{
+    m
+  }}
+}}
+
+fn removed<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  match (m.get(k)) {{
+    .Some(xs) => m.remove(ctx, k).insert(ctx, k, xs.push(ctx, xs.length())),
+    .None => m,
+  }}
+}}
+
+fn popped<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, k: Int): {ty}<Int, [Int]> {{
+  match (m.pop(ctx, k)) {{
+    .Some((xs, rest)) => rest.insert(ctx, k, xs.push(ctx, xs.length())),
+    .None => m,
+  }}
+}}
+
 fn change<C: Allocator>(ctx: C, m: {ty}<Int, [Int]>, i: Int): {ty}<Int, [Int]> {{
   if (i == {n}) {{
     m
@@ -2402,8 +2450,21 @@ fn changed_output(n: u64, kept: bool) -> String {
 /// per push, and a missing key allocates nothing.
 #[test]
 fn changing_a_value_in_an_unshared_map_writes_it_in_place() {
+    changes_in_place(&["update", "take"]);
+}
+
+/// The same changes written with `get` and `insert` alone: matched out and
+/// inserted back into a map in a local or in a record's field. The compiler,
+/// not the stdlib's `update`, keeps each list unshared.
+#[test]
+fn changing_a_value_read_out_of_an_unshared_map_writes_it_in_place() {
+    changes_in_place(&["got", "field"]);
+}
+
+fn changes_in_place(hows: &[&str]) {
+    let mut copied = Vec::new();
     for kind in ["map", "orderedmap"] {
-        for how in ["update", "take"] {
+        for &how in hows {
             let name = format!("change-{kind}-{how}");
             let idle = run_each(
                 &format!("{name}-idle"),
@@ -2425,12 +2486,12 @@ fn changing_a_value_in_an_unshared_map_writes_it_in_place() {
                 );
                 let (built, idle_live) = probed(&idle.stderr);
                 let (blocks, live) = probed(&busy.stderr);
-                assert!(
-                    blocks < built + 100,
-                    "{backend} {kind} {how}: ten thousand changes allocated {} blocks beyond \
-                     the {built} building took: a change copied a value or the path to it",
-                    blocks.saturating_sub(built)
-                );
+                if blocks >= built + 100 {
+                    copied.push(format!(
+                        "{backend} {kind} {how}: {}",
+                        blocks.saturating_sub(built)
+                    ));
+                }
                 assert_eq!(
                     (idle_live, live),
                     (0, 0),
@@ -2439,14 +2500,30 @@ fn changing_a_value_in_an_unshared_map_writes_it_in_place() {
             }
         }
     }
+    assert!(
+        copied.is_empty(),
+        "ten thousand changes allocated this many blocks beyond what building took, where \
+         under 100 means nothing copied a value or the path to it: {copied:?}"
+    );
 }
 
 /// The same changes to a map another value still holds: that value keeps
 /// every list as it was.
 #[test]
 fn changing_a_value_in_a_held_map_keeps_the_other_holders_view() {
+    changes_keep_views(&["update", "take"]);
+}
+
+/// The plain forms' changes to a held map leave the other holder's view too,
+/// and so do a value read with `withDefault`, or popped, and inserted back.
+#[test]
+fn changing_a_value_read_out_of_a_held_map_keeps_the_other_holders_view() {
+    changes_keep_views(&["got", "field", "defaulted", "removed", "popped"]);
+}
+
+fn changes_keep_views(hows: &[&str]) {
     for kind in ["map", "orderedmap"] {
-        for how in ["update", "take"] {
+        for &how in hows {
             let name = format!("change-{kind}-{how}-held");
             for (backend, r) in run_each(&name, &changed_in_place(kind, how, 3000, true)) {
                 assert_eq!(

@@ -1,5 +1,5 @@
-//! A record read out of a map and written back under the same key, with the
-//! map's slot emptied first so the record is the only holder of its parts.
+//! A value read out of a map and written back under the same key, with the
+//! map's slot emptied first so the value is the only holder of its parts.
 //!
 //! ```text
 //! match (c.nodes.get(to)) {
@@ -20,7 +20,7 @@
 //!
 //! ```text
 //! let k = t.id;
-//! let c2 = C { ..c, nodes: c.nodes.insert(ctx, k, placeholder) };
+//! let c2 = C { ..c, nodes: c.nodes.insert((), k, placeholder) };
 //! let after = handle(ctx, t);
 //! C { ..c2, nodes: c2.nodes.insert(ctx, k, after) }
 //! ```
@@ -29,16 +29,29 @@
 //! is the same map whatever the placeholder is. The first insert releases the
 //! map's hold on the record, and `t` reaches `handle` unshared.
 //!
-//! **Why it is correct.** The block reads `c.nodes` nowhere but as the final
-//! insert's receiver, so no reader can see the placeholder; every other field
-//! of `c2` is `c`'s own. The key is read off `t` before anything else runs,
-//! and a value never changes. The placeholder is `t` with every counted part
-//! replaced by an empty one, a value of the right type holding nothing of
-//! `t`'s.
+//! The same goes for a map held in a local rather than a field, and a key
+//! held in a name of its own, the one the match read. An arm that is no block,
+//! such as `.Some(xs) => m.insert(ctx, k, xs.push(ctx, 1))`, becomes one.
 //!
-//! **When it runs.** Only where it pays: `t` comes out of a match on a read of
-//! `c.nodes`, the final insert runs whenever the block does, and neither `c`
-//! nor `t` is read after the block, so both die in it.
+//! The early write costs a descent of its own, which pays only when the value
+//! is all but sure to be copied otherwise. A value a match found is, but one a
+//! `let` reads with `withDefault` is often the default, or an empty list that
+//! a change allocates anyway: on `network.send` in the kvstore bench, the
+//! extra descent cost 3.5% more instructions than the copies it saved.
+//!
+//! **Why it is correct.** After the early write, the map is read nowhere but
+//! as the final insert's receiver, so no reader can see the placeholder, and
+//! the record holding it is read only through its other fields, each `c`'s
+//! own. The key is read before anything else runs, and a value never changes.
+//! The placeholder is the value with every counted part replaced by an empty
+//! one, a value of the right type holding nothing of the original's.
+//!
+//! **When it runs.** Only where it pays: the value comes out of a match on a
+//! read of the map, under the key the insert writes or, for a record, one of
+//! its own fields. The final insert runs whenever the early write does, and
+//! neither the map's holder nor a matched value is read after the block, so
+//! both die in it. The insert's context is erased to a unit, so the early
+//! write passes one; `--coverage` keeps contexts, and turns the rewrite off.
 //!
 //! **The native branch only**, after `forward`, which would otherwise put
 //! `t.id` back in place of `k`, and before `rc`, which is what the rewrite is
@@ -48,17 +61,17 @@ use crate::compiler::middle::monomorphize::{ConShape, Func, Program, Shapes};
 use crate::compiler::middle::rc::{self, Answer, Counted};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
-use crate::compiler::semantics::types::{self, FieldId, FuncIdx, LocalId, Prim, TyKind};
+use crate::compiler::semantics::types::{self, FieldId, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::hash::Set;
 
-/// The one function this rewrites around.
-const INSERT: &str = "core/orderedmap:OrderedMap.insert";
+/// The functions this rewrites around: each stdlib map's `insert`.
+const INSERTS: [&str; 2] = ["core/orderedmap:OrderedMap.insert", "core/map:Map.insert"];
 
 pub fn run(program: &mut Program) {
     let inserts: Set<FuncIdx> = program
         .funcs
         .entries()
-        .filter(|(_, f)| f.debug_name == INSERT)
+        .filter(|(_, f)| INSERTS.contains(&f.debug_name.as_str()))
         .map(|(i, _)| i)
         .collect();
     if inserts.is_empty() {
@@ -68,66 +81,122 @@ pub fn run(program: &mut Program) {
         inserts: &inserts,
         shapes: &program.shapes.clone(),
         counted: rc::Syntactic::new(program),
+        keys: Set::default(),
     };
     for f in program.funcs.iter_mut() {
-        // Each rewrite leaves nothing the next search accepts again: the
-        // final insert's base is the new name, which no match read, and the
-        // early insert's key is the new name, which is no field of `t`.
-        while let Some(plan) = f.body().and_then(|body| cx.find(body, &mut Vec::new())) {
+        // Both inserts a rewrite leaves take the key it names, which no
+        // search accepts again.
+        cx.keys.clear();
+        while let Some(plan) = f.body().and_then(|body| cx.find(body, f, &mut Vec::new())) {
             // `None` only if the plan's path is gone, which `find` rules out.
-            let _ = apply(f, plan);
+            let _ = apply(f, plan, &mut cx.keys);
         }
     }
 }
 
-/// An update `C { ..c, f: c.f.insert(ctx, t.g, value) }`, taken apart.
+/// Where the map lives: `c.f`, or a local of its own.
+#[derive(Clone, Copy, PartialEq)]
+enum Holder {
+    Field(LocalId, FieldId),
+    Local(LocalId),
+}
+
+impl Holder {
+    /// The local whose value holds the map.
+    fn base(self) -> LocalId {
+        match self {
+            Holder::Field(c, _) | Holder::Local(c) => c,
+        }
+    }
+
+    /// Whether `e` reads the map: `c.f`, or the local.
+    fn is(self, e: &Expr) -> bool {
+        match self {
+            Holder::Field(c, f) => path(e) == Some((c, f)),
+            Holder::Local(m) => local(e) == Some(m),
+        }
+    }
+
+    /// Whether anything under `e` reads the map.
+    fn read_in(self, e: &Expr) -> bool {
+        let mut hit = false;
+        typed::walk(e, &mut |x| hit |= self.is(x));
+        hit
+    }
+}
+
+/// A record update's constructor, its base and every update.
+type Update<'a> = (types::TyConId, &'a Expr, &'a [(FieldId, Expr)]);
+
+/// A write back, `C { ..c, f: c.f.insert(ctx, key, value) }` or
+/// `m.insert(ctx, key, value)`, taken apart.
 struct Anchor<'a> {
-    con: types::TyConId,
-    /// `c` itself, and every update.
-    base: &'a Expr,
-    updates: &'a [(FieldId, Expr)],
-    c: LocalId,
-    f: FieldId,
+    holder: Holder,
+    /// The record update, for a field.
+    update: Option<Update<'a>>,
     insert: FuncIdx,
     receiver: &'a Expr,
     ctx: &'a Expr,
-    /// `t.g`.
     key: &'a Expr,
-    t: LocalId,
-    g: FieldId,
     value: &'a Expr,
 }
 
-fn anchor<'a>(e: &'a Expr, inserts: &Set<FuncIdx>) -> Option<Anchor<'a>> {
-    let ExprKind::StructUpdate { con, base, updates } = &e.kind else {
+/// The insert's arguments, when `e` calls one of `inserts` on a key a
+/// rewrite didn't name.
+fn inserting<'a>(
+    e: &'a Expr,
+    inserts: &Set<FuncIdx>,
+    keys: &Set<LocalId>,
+) -> Option<(FuncIdx, &'a [Expr])> {
+    let ExprKind::CallFunc { func, args } = &e.kind else {
         return None;
     };
-    let c = local(base)?;
-    updates.iter().find_map(|(f, update)| {
-        let ExprKind::CallFunc { func, args } = &update.kind else {
-            return None;
-        };
-        let [receiver, ctx, key, value] = args.as_slice() else {
-            return None;
-        };
-        let (t, g) = path(key)?;
-        // The placeholder is built from `t`, so `t` has the value's type.
-        let whole = matches!(&key.kind, ExprKind::Field { base, .. } if base.ty == value.ty);
-        (whole && inserts.contains(func) && path(receiver) == Some((c, *f))).then_some(Anchor {
-            con: *con,
-            base,
-            updates,
-            c,
-            f: *f,
-            insert: *func,
+    let [_, _, key, _] = args.as_slice() else {
+        return None;
+    };
+    // A key read once early must not change, so it is a name or a field of
+    // one.
+    let stable = match local(key) {
+        Some(k) => !keys.contains(&k),
+        None => path(key).is_some(),
+    };
+    (stable && inserts.contains(func)).then_some((*func, args.as_slice()))
+}
+
+fn anchor<'a>(e: &'a Expr, inserts: &Set<FuncIdx>, keys: &Set<LocalId>) -> Option<Anchor<'a>> {
+    let parts = |holder, update, (insert, args): (FuncIdx, &'a [Expr])| match args {
+        [receiver, ctx, key, value] => Some(Anchor {
+            holder,
+            update,
+            insert,
             receiver,
             ctx,
             key,
-            t,
-            g,
             value,
-        })
-    })
+        }),
+        _ => None,
+    };
+    match &e.kind {
+        ExprKind::StructUpdate { con, base, updates } => {
+            let c = local(base)?;
+            updates.iter().find_map(|(f, update)| {
+                let (insert, args) = inserting(update, inserts, keys)?;
+                let holder = Holder::Field(c, *f);
+                holder.is(args.first()?).then_some(())?;
+                parts(
+                    holder,
+                    Some((*con, &**base, updates.as_slice())),
+                    (insert, args),
+                )
+            })
+        }
+        ExprKind::CallFunc { .. } => {
+            let (insert, args) = inserting(e, inserts, keys)?;
+            let holder = Holder::Local(local(args.first()?)?);
+            parts(holder, None, (insert, args))
+        }
+        _ => None,
+    }
 }
 
 /// `x.f`, as `(x, f)`.
@@ -145,6 +214,20 @@ fn local(e: &Expr) -> Option<LocalId> {
     }
 }
 
+/// The local a key is read off: the key itself, or the base of its field.
+fn key_base(key: &Expr) -> Option<LocalId> {
+    local(key).or_else(|| path(key).map(|(x, _)| x))
+}
+
+/// Whether `a` and `b` read the same name or the same field of one.
+fn same_read(a: &Expr, b: &Expr) -> bool {
+    match (local(a), local(b)) {
+        (Some(x), Some(y)) => x == y,
+        (None, None) => path(a).is_some() && path(a) == path(b),
+        _ => false,
+    }
+}
+
 /// An expression's children, in the order [`typed::children`] visits them.
 fn kids(e: &Expr) -> Vec<&Expr> {
     let mut out = Vec::new();
@@ -156,116 +239,197 @@ struct Find<'b> {
     inserts: &'b Set<FuncIdx>,
     shapes: &'b Shapes,
     counted: rc::Syntactic,
+    /// The keys this function's rewrites named.
+    keys: Set<LocalId>,
 }
 
 /// One accepted rewrite.
 struct Plan {
-    /// Child indices from the body down to the block.
+    /// Child indices from the body down to the expression the early write
+    /// goes before.
     to_block: Vec<usize>,
-    /// `c` itself, `c.f`, `ctx` and `t.g`, as the update read them.
-    c: Expr,
+    holder: Holder,
+    /// The holder's own constructor and type, for a field.
+    con: Option<types::TyConId>,
+    /// The holder's base as the update read it, `c.f` or `m`, and the key.
+    base: Expr,
     receiver: Expr,
-    ctx: Expr,
     key: Expr,
-    /// The update's own constructor and type, which `c2`'s are too.
-    con: types::TyConId,
-    f: FieldId,
     insert: FuncIdx,
-    c_id: LocalId,
-    t: LocalId,
-    g: FieldId,
     placeholder: Expr,
 }
 
+/// Whether a plan's region reads the holder only at the anchor, or through
+/// the record's other fields.
+struct Uses<'a, 'b> {
+    u: &'a Expr,
+    a: &'a Anchor<'b>,
+    ok: bool,
+}
+
+impl Uses<'_, '_> {
+    fn walk(&mut self, e: &Expr) {
+        if std::ptr::eq(e, self.u) {
+            // The base and the receiver are the reads of the holder the
+            // rewrite is for.
+            if let Some((_, _, updates)) = self.a.update {
+                for (f, value) in updates {
+                    if Holder::Field(self.a.holder.base(), *f) != self.a.holder {
+                        self.walk(value);
+                    }
+                }
+            }
+            self.walk(self.a.ctx);
+            self.walk(self.a.key);
+            self.walk(self.a.value);
+            return;
+        }
+        let base = self.a.holder.base();
+        if self.a.holder.is(e) {
+            self.ok = false;
+        } else if path(e).is_some_and(|(x, _)| x == base) {
+            // Another field of the record holding the map.
+        } else if local(e) == Some(base) {
+            self.ok = false;
+        } else {
+            typed::children(e, &mut |child| self.walk(child));
+        }
+    }
+}
+
 impl Find<'_> {
-    /// The first update under `e` this rewrites. `stack` holds every
+    /// The first write back under `e` this rewrites. `stack` holds every
     /// enclosing expression, outermost first, with the index of the child the
     /// walk went down.
-    fn find<'a>(&mut self, e: &'a Expr, stack: &mut Vec<(&'a Expr, usize)>) -> Option<Plan> {
-        if let Some(plan) = anchor(e, self.inserts).and_then(|a| self.accept(e, &a, stack)) {
+    fn find<'a>(
+        &mut self,
+        e: &'a Expr,
+        f: &Func,
+        stack: &mut Vec<(&'a Expr, usize)>,
+    ) -> Option<Plan> {
+        if let Some(plan) =
+            anchor(e, self.inserts, &self.keys).and_then(|a| self.accept(e, &a, f, stack))
+        {
             return Some(plan);
         }
         kids(e).into_iter().enumerate().find_map(|(i, child)| {
             stack.push((e, i));
-            let plan = self.find(child, stack);
+            let plan = self.find(child, f, stack);
             stack.pop();
             plan
         })
     }
 
-    fn accept(&mut self, u: &Expr, a: &Anchor<'_>, stack: &[(&Expr, usize)]) -> Option<Plan> {
-        // The block: the innermost one around the update that reads `t`
-        // whole, with nothing between the two that may skip the update.
-        let mut level = stack.len();
-        let block = loop {
-            level = level.checked_sub(1)?;
-            let &(node, i) = stack.get(level)?;
-            if skips(node, i) {
-                return None;
-            }
-            if matches!(node.kind, ExprKind::Block { .. }) {
-                let mut uses = Uses {
-                    u,
-                    a,
-                    whole: false,
-                    ok: true,
-                };
-                uses.walk(node);
-                if !uses.ok {
-                    return None;
-                }
-                if uses.whole {
-                    break node;
-                }
-            }
-        };
-        let outside = stack.get(..level)?;
-        // `c`, `t` and the context are in scope where the block starts. A
-        // context is a name or, holding nothing, a unit, so reading it early
-        // runs nothing.
-        matches!(a.ctx.kind, ExprKind::Local(_) | ExprKind::Unit).then_some(())?;
-        let names: Set<LocalId> = [Some(a.c), Some(a.t), local(a.ctx)]
-            .into_iter()
-            .flatten()
-            .collect();
-        if binds(block, &mut |l| names.contains(&l)) {
+    fn accept(
+        &mut self,
+        u: &Expr,
+        a: &Anchor<'_>,
+        f: &Func,
+        stack: &[(&Expr, usize)],
+    ) -> Option<Plan> {
+        // An erased context is a unit wherever the early write goes, so the
+        // write reads no name of it.
+        (a.ctx.ty == Ty::UNIT).then_some(())?;
+        // A value holding nothing counted is never copied.
+        if self.counted.counted(&a.value.ty) == Answer::No {
             return None;
         }
-        // Only where it pays. `t` is what a match on a read of `c.f` bound,
-        let from_map = outside.iter().any(|&(node, _)| match &node.kind {
-            ExprKind::Match { scrutinee, arms } => {
-                let mut reads = false;
-                typed::walk(scrutinee, &mut |e| reads |= path(e) == Some((a.c, a.f)));
-                reads
-                    && arms
-                        .iter()
-                        .any(|arm| bound(&arm.pattern, &mut |l| l == a.t))
-            }
-            _ => false,
-        });
-        // and both die in the block.
-        if !from_map
-            || outside
-                .iter()
-                .any(|&(node, i)| later(node, i).any(|e| mentions(e, a.c) || mentions(e, a.t)))
+        // The levels the insert runs whenever they do: up to the first branch,
+        // arm, lambda or loop on the way out.
+        let reach = stack
+            .iter()
+            .rposition(|&(node, i)| skips(node, i))
+            .map_or(0, |at| at.saturating_add(1));
+        let (level, wrap, value) = self.after_match(a, &f.locals, stack, reach)?;
+        let (node, i) = *stack.get(level)?;
+        // The expression the early write goes before.
+        let region = if wrap {
+            kids(node).into_iter().nth(i)?
+        } else {
+            node
+        };
+        let mut uses = Uses { u, a, ok: true };
+        uses.walk(region);
+        if !uses.ok {
+            return None;
+        }
+        // Every name the early write reads is bound before the region: the
+        // holder and the key where the match read them and the value by its
+        // arm. A name is bound in one place only.
+        // Neither the holder nor the value is read after the block, so both
+        // die in it.
+        let outside = stack.get(..level)?;
+        let base = a.holder.base();
+        if outside
+            .iter()
+            .any(|&(node, i)| later(node, i).any(|e| mentions(e, base) || mentions(e, value)))
         {
             return None;
         }
-        let t = Expr::new(ExprKind::Local(a.t), a.value.ty, a.key.span);
+        let v = Expr::new(ExprKind::Local(value), a.value.ty, a.key.span);
+        let mut to_block: Vec<usize> = outside.iter().map(|&(_, i)| i).collect();
+        if wrap {
+            to_block.push(i);
+        }
         Some(Plan {
-            to_block: outside.iter().map(|&(_, i)| i).collect(),
-            c: a.base.clone(),
+            to_block,
+            holder: a.holder,
+            con: a.update.map(|(con, _, _)| con),
+            base: a
+                .update
+                .map_or_else(|| a.receiver.clone(), |(_, base, _)| base.clone()),
             receiver: a.receiver.clone(),
-            ctx: a.ctx.clone(),
             key: a.key.clone(),
-            con: a.con,
-            f: a.f,
             insert: a.insert,
-            c_id: a.c,
-            t: a.t,
-            g: a.g,
-            placeholder: self.empty(&t)?,
+            placeholder: self.empty(&v)?,
         })
+    }
+
+    /// A match on a read of the map that binds a value of the insert's type,
+    /// around the insert: the level of the block the early write starts, or of
+    /// the expression holding what becomes one, whether it does, and the
+    /// value's name. The key is the match's own, or a field of the value.
+    fn after_match(
+        &mut self,
+        a: &Anchor<'_>,
+        locals: &typed::Locals,
+        stack: &[(&Expr, usize)],
+        reach: usize,
+    ) -> Option<(usize, bool, LocalId)> {
+        let value = stack.iter().take(reach).rev().find_map(|&(node, i)| {
+            let ExprKind::Match { scrutinee, arms } = &node.kind else {
+                return None;
+            };
+            if !a.holder.read_in(scrutinee) {
+                return None;
+            }
+            let arm = arm_at(arms, i)?;
+            let mut found = None;
+            arm.pattern.each_bind(&mut |l| {
+                let own = key_base(a.key) == Some(l) && path(a.key).is_some();
+                if locals.get(l).ty == a.value.ty && (own || reads_key(scrutinee, a.key)) {
+                    found = found.or(Some(l));
+                }
+            });
+            found
+        })?;
+        // The innermost block the insert always runs in that reads the value
+        // whole, so the value is still to be handed on where the write goes.
+        let block = (reach..stack.len()).rev().find(|&level| {
+            stack.get(level).is_some_and(|&(node, _)| {
+                matches!(node.kind, ExprKind::Block { .. }) && whole(node, value, a.key)
+            })
+        });
+        match block {
+            Some(level) => Some((level, false, value)),
+            // No block: the expression the insert always runs in becomes one.
+            None => {
+                let up = reach.checked_sub(1)?;
+                let &(node, i) = stack.get(up)?;
+                let target = kids(node).into_iter().nth(i)?;
+                whole(target, value, a.key).then_some((up, true, value))
+            }
+        }
     }
 
     /// A value of `e`'s type holding none of `e`'s counted parts: each one
@@ -310,12 +474,47 @@ impl Find<'_> {
     }
 }
 
-/// Whether the child at `i` of `node` may not run when `node` does.
+/// The arm whose guard or body is child `i` of its match.
+fn arm_at(arms: &[typed::Arm], i: usize) -> Option<&typed::Arm> {
+    // A guard runs before the arm is chosen, so it answers `None`.
+    arms.iter()
+        .flat_map(|arm| {
+            arm.guard
+                .as_ref()
+                .map(|_| None)
+                .into_iter()
+                .chain([Some(arm)])
+        })
+        .nth(i.checked_sub(1)?)?
+}
+
+/// Whether anything under `e` reads `key`.
+fn reads_key(e: &Expr, key: &Expr) -> bool {
+    let mut hit = false;
+    typed::walk(e, &mut |x| hit |= same_read(x, key));
+    hit
+}
+
+/// Whether `e` reads `value` whole somewhere, not only as the key's field.
+fn whole(e: &Expr, value: LocalId, key: &Expr) -> bool {
+    match local(e) {
+        Some(l) => l == value,
+        None if same_read(e, key) => false,
+        None => kids(e).into_iter().any(|c| whole(c, value, key)),
+    }
+}
+
+/// Whether the child at `i` of `node` may not run when `node` does, or may
+/// run more than once.
 fn skips(node: &Expr, i: usize) -> bool {
-    matches!(
-        node.kind,
-        ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::And { .. } | ExprKind::Or { .. }
-    ) && i > 0
+    match node.kind {
+        ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::And { .. }
+        | ExprKind::Or { .. } => i > 0,
+        ExprKind::Lambda { .. } | ExprKind::Loop { .. } => true,
+        _ => false,
+    }
 }
 
 /// What may run after the child at `i` of `node`, within `node`.
@@ -339,80 +538,16 @@ fn mentions(e: &Expr, l: LocalId) -> bool {
     hit
 }
 
-/// Whether a pattern binds a local `hit` holds for.
-fn bound(p: &Pattern, hit: &mut impl FnMut(LocalId) -> bool) -> bool {
-    let mut any = false;
-    p.each_bind(&mut |l| any |= hit(l));
-    any
-}
-
-/// Whether anything under `e` binds a local `hit` holds for.
-fn binds(e: &Expr, hit: &mut impl FnMut(LocalId) -> bool) -> bool {
-    let mut any = false;
-    typed::walk(e, &mut |x| match &x.kind {
-        ExprKind::Block { stmts, .. } => {
-            for s in stmts {
-                match s {
-                    Stmt::Let { pattern, .. } => any |= bound(pattern, hit),
-                    // Legal only in a test source, and binds nothing.
-                    Stmt::Expr(_) => {}
-                }
-            }
-        }
-        ExprKind::Match { arms, .. } => {
-            for arm in arms {
-                any |= bound(&arm.pattern, hit);
-            }
-        }
-        _ => {}
-    });
-    any
-}
-
-/// How a block reads `c` and `t`: `c` only as the update's base and
-/// receiver or through another field, `t` whole or through the key's field.
-struct Uses<'a, 'b> {
-    u: &'a Expr,
-    a: &'a Anchor<'b>,
-    whole: bool,
-    ok: bool,
-}
-
-impl Uses<'_, '_> {
-    fn walk(&mut self, e: &Expr) {
-        if std::ptr::eq(e, self.u) {
-            // The base and the receiver are the two reads of `c` the rewrite
-            // is for, and the key is the read of `t` it names.
-            for (f, value) in self.a.updates {
-                if *f != self.a.f {
-                    self.walk(value);
-                }
-            }
-            self.walk(self.a.ctx);
-            self.walk(self.a.value);
-            return;
-        }
-        match path(e) {
-            Some((x, f)) if x == self.a.c => self.ok &= f != self.a.f,
-            Some((x, g)) if x == self.a.t => self.ok &= g == self.a.g,
-            _ => match local(e) {
-                Some(x) if x == self.a.c => self.ok = false,
-                Some(x) if x == self.a.t => self.whole = true,
-                _ => typed::children(e, &mut |child| self.walk(child)),
-            },
-        }
-    }
-}
-
-fn apply(f: &mut Func, plan: Plan) -> Option<()> {
+fn apply(f: &mut Func, plan: Plan, keys: &mut Set<LocalId>) -> Option<()> {
     let k = f.locals.push(typed::Local {
         name: Name::new("vacated.key"),
         ty: plan.key.ty,
         span: f.span,
     });
-    let c2 = f.locals.push(typed::Local {
+    keys.insert(k);
+    let h2 = f.locals.push(typed::Local {
         name: Name::new("vacated"),
-        ty: plan.c.ty,
+        ty: plan.base.ty,
         span: f.span,
     });
     let mut block = f.body_mut()?;
@@ -422,41 +557,39 @@ fn apply(f: &mut Func, plan: Plan) -> Option<()> {
         block = kids.into_iter().nth(i)?;
     }
     let span = block.span;
-    let early = Expr::new(
-        ExprKind::StructUpdate {
-            con: plan.con,
-            base: Box::new(plan.c.clone()),
-            updates: vec![(
-                plan.f,
-                Expr::new(
-                    ExprKind::CallFunc {
-                        func: plan.insert,
-                        args: vec![
-                            plan.receiver.clone(),
-                            plan.ctx,
-                            Expr::new(ExprKind::Local(k), plan.key.ty, span),
-                            plan.placeholder,
-                        ],
-                    },
-                    plan.receiver.ty,
-                    span,
-                ),
-            )],
+    let insert = Expr::new(
+        ExprKind::CallFunc {
+            func: plan.insert,
+            args: vec![
+                plan.receiver.clone(),
+                Expr::new(ExprKind::Unit, Ty::UNIT, span),
+                Expr::new(ExprKind::Local(k), plan.key.ty, span),
+                plan.placeholder,
+            ],
         },
-        plan.c.ty,
+        plan.receiver.ty,
         span,
     );
+    let early = match (plan.holder, plan.con) {
+        (Holder::Field(_, field), Some(con)) => Expr::new(
+            ExprKind::StructUpdate {
+                con,
+                base: Box::new(plan.base.clone()),
+                updates: vec![(field, insert)],
+            },
+            plan.base.ty,
+            span,
+        ),
+        _ => insert,
+    };
+    let base = plan.holder.base();
     rename(block, &mut |e| {
-        if local(e) == Some(plan.c_id) {
-            Some(ExprKind::Local(c2))
+        if local(e) == Some(base) {
+            Some(ExprKind::Local(h2))
         } else {
-            (path(e) == Some((plan.t, plan.g))).then_some(ExprKind::Local(k))
+            same_read(e, &plan.key).then_some(ExprKind::Local(k))
         }
     });
-    let stmts = match &mut block.kind {
-        ExprKind::Block { stmts, .. } => stmts,
-        _ => return None,
-    };
     let bind = |local: LocalId, value: Expr| Stmt::Let {
         pattern: Pattern {
             kind: PatKind::Bind { local, sub: None },
@@ -466,7 +599,16 @@ fn apply(f: &mut Func, plan: Plan) -> Option<()> {
         value,
         span,
     };
-    stmts.splice(0..0, [bind(k, plan.key), bind(c2, early)]);
+    let ty = block.ty;
+    let inner = std::mem::replace(block, Expr::new(ExprKind::Unit, ty, span));
+    *block = Expr::new(
+        ExprKind::Block {
+            stmts: vec![bind(k, plan.key), bind(h2, early)],
+            tail: Some(Box::new(inner)),
+        },
+        ty,
+        span,
+    );
     Some(())
 }
 
