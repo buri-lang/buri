@@ -1950,3 +1950,65 @@ for (const width of [390, 700, 800, 1100]) {
          1100 menu:gone links:flex link:flex heading:gone\n"
     );
 }
+
+/// Tabular figures on a column of totals, proportional again from `.Medium` up,
+/// read off a total rather than the stack that names them.
+const FIGURES_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [.TextAlign(.End), .Figures(.Tabular), .At(.Medium, [.Figures(.Proportional)])],
+            children: [
+                ui.text({ content: .Const("1,111.11"), headingLevel: .Some(2), styles: .None }),
+                ui.text({ content: .Const("10,000.00") }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn figures_on_a_column_reach_the_numbers_in_it_at_each_width() {
+    let printed = drive(
+        "figures-page",
+        FIGURES_PAGE,
+        r#"
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+// happy-dom drops `font-variant-numeric` from every style it parses, so the
+// value is found the way a browser finds it: the last rule whose media query
+// and selector match, on the element or else on the nearest ancestor, since
+// the property inherits.
+const rules = [];
+const media = [];
+for (const [, query, close, selector, body] of css.matchAll(/\s*(?:@media([^{]+)\{|(\})|([^{}@]+)\{([^}]*)\})/g)) {
+  if (query !== undefined) media.push(query.trim());
+  else if (close !== undefined) media.pop();
+  const value = body?.match(/font-variant-numeric:([a-z-]+)/)?.[1];
+  if (value) rules.push({ media: [...media], selector: selector.trim(), value });
+}
+const figures = (el) => {
+  for (let at = el; at !== null; at = at.parentElement) {
+    const found = rules.filter((r) => r.media.every((q) => window.matchMedia(q).matches) && at.matches(r.selector));
+    if (found.length > 0) return found[found.length - 1].value;
+  }
+  return "normal";
+};
+const total = document.querySelector("h2");
+for (const width of [390, 800]) {
+  window.happyDOM.setViewport({ width, height: 600 });
+  console.log(`${width} ${figures(total)}`);
+}
+"#,
+    );
+    assert_eq!(printed, "390 tabular-nums\n800 proportional-nums\n");
+}

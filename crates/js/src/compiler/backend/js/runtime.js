@@ -5715,6 +5715,8 @@ function $tree_declare(style, out) {
   } else if (tag === 63) {
     // `false` writes nothing, so the display `Layout` or the element gives stands.
     if (value) out.set("display", "none");
+  } else if (tag === 64) {
+    out.set("font-variant-numeric", value ? "tabular-nums" : "proportional-nums");
   } else {
     // Out of sight, in the tree: the "sr-only" clip. The element paints nothing
     // and takes no space while its text stays for the accessible name. The

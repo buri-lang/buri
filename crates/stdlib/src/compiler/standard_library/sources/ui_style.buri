@@ -430,6 +430,25 @@ export enum Style {
     /// element for a screen reader. A `Removed` the compiler can't evaluate is
     /// written inline, so an `At` can't put back what it removes.
     Removed(Bool),
+    /// Whether every digit takes the same width. `.Tabular` lines numbers up
+    /// in a column and keeps a changing number still; `.Proportional` fits
+    /// each digit to its shape. Inherited, like the other text styles.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// export fn totals<C>(): Node<C> {
+    ///     ui.stack({
+    ///         styles: [.TextAlign(.End), .Figures(.Tabular)],
+    ///         children: [
+    ///             ui.text({ content: .Const("1,111.11") }),
+    ///             ui.text({ content: .Const("10,000.00") }),
+    ///         ],
+    ///     })
+    /// }
+    /// ```
+    Figures(Figures),
 }
 
 /// How an element moves. Each one runs forever.
@@ -765,6 +784,14 @@ export enum TextCase {
     Lower,
     /// The First Letter Of Each Word.
     Capitalize,
+}
+
+/// How wide each digit is.
+export enum Figures {
+    /// Each digit as wide as its shape: a `1` is narrower than an `8`.
+    Proportional,
+    /// Every digit as wide as every other, so numbers line up.
+    Tabular,
 }
 
 /// A line drawn through or under text.

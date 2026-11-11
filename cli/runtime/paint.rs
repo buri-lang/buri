@@ -252,8 +252,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use cosmic_text::{
-    Attrs, Buffer, CacheKey, CacheKeyFlags, Command, Family, FontSystem, Hinting, Metrics, Shaping,
-    SwashCache, Weight, Wrap, fontdb,
+    Attrs, Buffer, CacheKey, CacheKeyFlags, Command, Family, Feature, FeatureTag, FontFeatures,
+    FontSystem, Hinting, Metrics, Shaping, SwashCache, Weight, Wrap, fontdb,
 };
 use taffy::prelude::*;
 use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
@@ -1531,6 +1531,9 @@ struct Computed {
     /// `font-family: monospace`: set the run in the bundled fixed-pitch face
     /// rather than the proportional one. Inherited, the way `font-family` is.
     mono: bool,
+    /// `font-variant-numeric`: the OpenType feature that picks the digits'
+    /// widths, `tnum` or `pnum`, or `None` for the face's own. Inherited.
+    figures: Option<FeatureTag>,
     line_height: f32,
     letter_spacing: f32,
     align_text: cosmic_text::Align,
@@ -1607,6 +1610,7 @@ impl Computed {
             weight: 400,
             italic: false,
             mono: false,
+            figures: None,
             line_height: NORMAL_LINE_HEIGHT,
             letter_spacing: 0.0,
             align_text: cosmic_text::Align::Left,
@@ -1662,6 +1666,7 @@ impl Computed {
         child.weight = self.weight;
         child.italic = self.italic;
         child.mono = self.mono;
+        child.figures = self.figures;
         child.line_height = self.line_height;
         child.letter_spacing = self.letter_spacing;
         child.align_text = self.align_text;
@@ -2002,6 +2007,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         }
         "font-weight" => style.weight = value.parse().unwrap_or(style.weight),
         "font-style" => style.italic = value == "italic",
+        "font-variant-numeric" => {
+            style.figures = match value {
+                "tabular-nums" => Some(FeatureTag::new(b"tnum")),
+                "proportional-nums" => Some(FeatureTag::new(b"pnum")),
+                _ => None,
+            };
+        }
         "line-height" => style.line_height = value.parse().unwrap_or(style.line_height),
         "letter-spacing" => {
             if let Some(Len::Px(n)) = len(value) {
@@ -2836,6 +2848,11 @@ fn shape(
         .cache_key_flags(CacheKeyFlags::DISABLE_HINTING);
     if style.italic {
         attrs = attrs.style(cosmic_text::Style::Italic);
+    }
+    if let Some(tag) = style.figures {
+        attrs = attrs.font_features(FontFeatures {
+            features: vec![Feature { tag, value: 1 }],
+        });
     }
     if style.letter_spacing != 0.0 {
         attrs = attrs.letter_spacing(style.letter_spacing / size);

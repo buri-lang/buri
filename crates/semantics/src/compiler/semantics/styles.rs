@@ -3680,6 +3680,16 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                 Some(("rm", "off".into(), Vec::new()))
             }
         }
+        64 => {
+            let (which, _) = first?.as_variant()?;
+            let (css, key) = [
+                ("proportional-nums", "proportional"),
+                ("tabular-nums", "tabular"),
+            ]
+            .get(which)
+            .copied()?;
+            Some(("fig", key.into(), one("font-variant-numeric", css)))
+        }
         _ => None,
     }
 }

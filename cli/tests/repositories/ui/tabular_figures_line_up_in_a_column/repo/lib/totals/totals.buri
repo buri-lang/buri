@@ -1,0 +1,23 @@
+//! A column of right-aligned totals, set with the figures it is handed.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Figures };
+
+/// The issue's three totals, large enough that a digit's width shows.
+export fn totals<C>(figures: Figures): Node<C> {
+    ui.stack({
+        styles: [
+            .TextAlign(.End),
+            .Figures(figures),
+            .FontSize(.Px(32)),
+            .Padding(.Px(16)),
+            .Width(.Px(240)),
+        ],
+        children: [
+            ui.text({ content: .Const("1,111.11") }),
+            ui.text({ content: .Const("8,888.88") }),
+            ui.text({ content: .Const("10,000.00") }),
+        ],
+    })
+}

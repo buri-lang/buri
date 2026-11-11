@@ -40,9 +40,9 @@ from "ui/prop" import { Prop };
 from "ui/shape" import { group, Shape };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, FontFamily, Layout,
-    Length, ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap, Track,
-    Weight,
+    Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, Figures, FontFamily,
+    Layout, Length, ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap,
+    Track, Weight,
 };
 from "ui/theme" import { Theme };
 
@@ -4915,6 +4915,7 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         // `false` writes nothing, so the display `Layout` or the element's kind
         // gives stands.
         .Removed(on) => { if (on) { [decl(ctx, "display", "none")] } else { [] } },
+        .Figures(figures) => [decl(ctx, "font-variant-numeric", figuresCss(figures))],
         // An extracted style is classes, which declare nothing inline. So is
         // `VisuallyHidden` by now: it holds no value, so the compiler always
         // knows it and a node only ever holds its class.
@@ -5149,6 +5150,13 @@ fn textCaseName(casing: TextCase): Str {
         .Upper => "uppercase",
         .Lower => "lowercase",
         .Capitalize => "capitalize",
+    }
+}
+
+fn figuresCss(figures: Figures): Str {
+    match (figures) {
+        .Proportional => "proportional-nums",
+        .Tabular => "tabular-nums",
     }
 }
 

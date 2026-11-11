@@ -1,0 +1,23 @@
+// One column of totals painted with each figure width: the digits stand one
+// under another with tabular figures, and the ones narrow up with
+// proportional figures.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "//lib/totals" import { totals };
+
+test "tabular figures line the digits up" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "totals-tabular", totals(.Tabular), .Hover, [], 390);
+}
+
+test "proportional figures fit each digit to its shape" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "totals-proportional", totals(.Proportional), .Hover, [], 390);
+}

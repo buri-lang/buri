@@ -80,6 +80,7 @@ fn kind(s: Style): Str {
         .VisuallyHidden => "VisuallyHidden",
         .Animation(_) => "Animation",
         .Removed(_) => "Removed",
+        .Figures(_) => "Figures",
     }
 }
 
@@ -230,6 +231,7 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.VisuallyHidden), "VisuallyHidden");
     assert.equal(kind(.Animation(.Spin)), "Animation");
     assert.equal(kind(.Removed(true)), "Removed");
+    assert.equal(kind(.Figures(.Tabular)), "Figures");
 }
 
 test "a matched static style binds its payload" {
@@ -1487,4 +1489,48 @@ test "a removal under a state applies in that state" {
         "e 0 class:hover_rm-on",
     );
     assert.isTrue(stylesheet().contains(".hover_rm-on:hover{display:none!important}"));
+}
+
+test "a figures style is a class in the stylesheet, under a breakpoint and a state too" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            boxed(
+                .Group([
+                    .Figures(.Tabular),
+                    .At(.Medium, [.Figures(.Proportional)]),
+                    .On(.Hover, [.Figures(.Tabular)]),
+                ]),
+            ),
+        ).markup(),
+        "e 0 class:fig-tabular md_fig-proportional hover_fig-tabular",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".fig-tabular{font-variant-numeric:tabular-nums}"));
+    assert.isTrue(
+        sheet.contains(".md_fig-proportional{font-variant-numeric:proportional-nums}"),
+    );
+    assert.isTrue(
+        sheet.contains(".hover_fig-tabular:hover{font-variant-numeric:tabular-nums}"),
+    );
+}
+
+test "a figures style known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Figures(late(ctx, .Tabular))]),
+        "e 0 font-variant-numeric:tabular-nums",
+    );
+    assert.equal(
+        painted(ctx, [.Figures(late(ctx, .Proportional))]),
+        "e 0 font-variant-numeric:proportional-nums",
+    );
 }
