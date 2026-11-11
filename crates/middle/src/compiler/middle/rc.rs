@@ -4192,10 +4192,9 @@ impl Scan<'_> {
                 }
             }
         } else if let Some(t) = token {
+            // `used` is read from `live`, which holds only counted names.
             for b in used {
-                if self.is_counted(b) {
-                    self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
-                }
+                self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
             }
             // The entry drop is for an arm that is *done* with the
             // scrutinee. An arm that still reads it — `assert.some`'s
@@ -4208,7 +4207,6 @@ impl Scan<'_> {
         } else if let Some(sid) = built {
             self.push(bid, Position::Before, RcOp::DecRef, Target::Node(sid));
         } else if retains {
-            // `live` holds only counted names, so each one here is counted.
             for b in used {
                 self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
             }
