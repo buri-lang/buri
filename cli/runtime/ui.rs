@@ -925,6 +925,19 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_handler(
 /// exactly as [`run`] does. The handler is handed the context of `doc`, the
 /// document it was registered in.
 pub(crate) fn fire(id: i64, doc: i64) {
+    let event: i64 = 0;
+    // SAFETY: `event` is one live word, the element a `fn(C, Event)` reads.
+    unsafe { fire_with(id, doc, std::ptr::addr_of!(event).cast()) };
+}
+
+/// [`fire`], handing the handler the value at `arg` as its second parameter
+/// rather than an event: a route link's `fn(C, Str)` is handed its destination.
+/// The value is lent, so the caller still owns it once this returns.
+///
+/// # Safety
+/// `arg` points at a live value of the type the handler's second parameter
+/// has.
+pub(crate) unsafe fn fire_with(id: i64, doc: i64, arg: *const u8) {
     let compute = {
         let g = lock();
         match g.get(id) {
@@ -933,7 +946,6 @@ pub(crate) fn fire(id: i64, doc: i64) {
         }
     };
     let Some(compute) = compute else { return };
-    let event: i64 = 0;
     let frame = if compute.frame_at >= 0 {
         buri_rt_stack_acquire()
     } else {
@@ -953,16 +965,9 @@ pub(crate) fn fire(id: i64, doc: i64) {
     // JavaScript `$ui_flush` around an event listener, here around the fire.
     buri_rt_ui_flush_begin();
     // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
-    // `event` is one live word crossing as the element, and `sink` a live
+    // `arg` is the live element the caller promised, and `sink` a live
     // destination a `()`-answering thunk writes nothing to.
-    unsafe {
-        (compute.entry)(
-            compute.state,
-            0,
-            std::ptr::addr_of!(event).cast(),
-            sink.as_mut_ptr(),
-        );
-    }
+    unsafe { (compute.entry)(compute.state, 0, arg, sink.as_mut_ptr()) };
     if !frame.is_null() {
         // SAFETY: this thread acquired it above and the thunk has returned.
         unsafe { buri_rt_stack_release(frame) };

@@ -104,6 +104,8 @@ struct Record {
     /// it and `openInNewTab` leaves it alone — the scene twin of the anchor's
     /// click listener.
     follow: i64,
+    /// Where that link goes, which `follow` hands its handler.
+    follow_dest: String,
     /// A file picker's handler graph node, or `-1`. `pickFile` fires it and
     /// `press` never does.
     pick: i64,
@@ -171,6 +173,7 @@ fn plain_record(
         submit: false,
         label: String::new(),
         follow: -1,
+        follow_dest: String::new(),
         pick: -1,
         pointer: [-1; 3],
         current: false,
@@ -1257,18 +1260,18 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_label(
 pub unsafe extern "C" fn buri_rt_ui_node_register_follow(
     handle: i64,
     _dest_base: *mut u8,
-    _dest_ptr: *const u8,
-    _dest_len: u64,
+    dest_ptr: *const u8,
+    dest_len: u64,
     entry: ComputeEntry,
     state: *const u8,
     bytes: usize,
     frame_at: i64,
     body: Release,
 ) {
-    // The handler is kept on a graph node so the subtree's disposal takes it;
-    // the destination it would be fired with is the JavaScript reader's to
-    // carry — this backend never follows a link (`web/document.buri` is
-    // JS-only), so it keeps the handler and nothing fires it.
+    // The handler is kept on a graph node so the subtree's disposal takes it,
+    // and the destination as text, so `follow` hands it a string of its own.
+    // SAFETY: forwarded to the caller's promise.
+    let dest = unsafe { text_of(dest_ptr, dest_len) };
     // SAFETY: forwarded to the caller's promise.
     let node =
         unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
@@ -1276,6 +1279,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_follow(
         let open = open_element(doc);
         if let Some(r) = doc.records.get_mut(open) {
             r.follow = node;
+            r.follow_dest = dest;
         }
     });
 }
@@ -1915,6 +1919,66 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
             }
         }
     }
+}
+
+/// The anchor `label` names, or an abort saying there is none — what
+/// `follow` and `openInNewTab` both address.
+fn anchor(handle: i64, label: &str) -> usize {
+    match with_doc(handle, |doc| doc.labelled("a", label)).flatten() {
+        Some(a) => a,
+        None => crate::abort::die(&[b"this tree has no a labelled \"", label.as_bytes(), b"\""]),
+    }
+}
+
+/// `Rendered.follow(label)` — a plain left-click on the anchor `label` names.
+/// A route link's kept handler runs with its destination; an ordinary link
+/// carries none, so nothing happens. An anchor out of reach is not followed.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_follow(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    let a = anchor(handle, &label);
+    let kept = with_doc(handle, |doc| {
+        let r = &doc.records[a];
+        (doc.reachable(a) && !doc.inert(a) && r.follow >= 0)
+            .then(|| (r.follow, r.follow_dest.clone()))
+    })
+    .flatten();
+    let Some((node, dest)) = kept else { return };
+    // The handler is lent the destination, as a list lends a step its element,
+    // and takes a count of its own; this one is given back once it returns.
+    let dest = str_of(&dest);
+    // SAFETY: `dest` is a live `Str`, the handler's second parameter.
+    unsafe { crate::ui::fire_with(node, handle, std::ptr::addr_of!(dest).cast()) };
+    // SAFETY: `str_of` handed this frame the block's only reference, or a
+    // null base for the empty string, which `decref` ignores.
+    unsafe { crate::memory::buri_rt_decref(dest.base, None) };
+}
+
+/// `Rendered.openInNewTab(label)` — a modified click on the anchor `label`
+/// names. That is the browser's to follow as an ordinary anchor, so a route
+/// link's handler never runs and the address stays where it is.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_open_in_new_tab(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    let _ = anchor(handle, &label);
 }
 
 /// `Rendered.fill(label, value)` — write `value` to the bound signal of the

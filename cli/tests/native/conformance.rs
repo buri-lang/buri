@@ -892,6 +892,9 @@ const PACKAGES: &[Case] = &[
     // address bar implements in Buri too. Nothing here is a document, so the
     // one thing that could hold it out is absent.
     included("web/routing.buri"),
+    // A route link followed, and opened in a new tab, in the headless scene
+    // `render` builds on both backends: no worker and no HTML document.
+    included("web/follow.buri"),
     excluded(
         "web_unstyled/document.buri",
         "`ui/web`'s `shell` around a body written by hand, for `web/document.buri`'s \

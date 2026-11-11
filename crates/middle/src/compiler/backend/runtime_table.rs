@@ -2042,6 +2042,14 @@ pub const ENTRIES: &[Entry] = &[
     // `fill` and `flip` write the bound signal, `submit` fires the form's handler
     // under the implicit-submission rule. All answer `()`.
     e("host_testing.Rendered.press", &[Scalar, Str], Ret::Void),
+    // `follow` fires a route link's kept handler with its destination, and
+    // `openInNewTab` resolves the anchor and fires nothing.
+    e("host_testing.Rendered.follow", &[Scalar, Str], Ret::Void),
+    e(
+        "host_testing.Rendered.openInNewTab",
+        &[Scalar, Str],
+        Ret::Void,
+    ),
     e("host_testing.Rendered.fill", &[Scalar, Str, Str], Ret::Void),
     // `select` moves the caret and selection: it writes the field's `(Int, Int)`
     // selection signal the way `fill` writes its value.
