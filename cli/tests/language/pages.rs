@@ -1873,3 +1873,80 @@ console.log(named());
          nav null Primary | nav null Breadcrumb | div group Value over the past year, from 12 to 50 | ul null null | button null Raise\n"
     );
 }
+
+/// A phone-only menu button, links shown only from `.Medium` up, and a heading
+/// shown only between `.Small` and `.Large`, which has no `Layout` to restore.
+const REMOVED_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.Row)],
+            children: [
+                ui.button({
+                    label: .Const("Menu"),
+                    styles: [.At(.Medium, [.Removed(true)])],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.stack({
+                    styles: [.Layout(.Row), .Removed(true), .At(.Medium, [.Removed(false)])],
+                    children: [
+                        ui.link({ dest: .Const("/a"), children: [ui.text({ content: .Const("A") })], styles: [] }),
+                    ],
+                }),
+                ui.text({
+                    content: .Const("Title"),
+                    headingLevel: .Some(2),
+                    styles: .Some([.Removed(true), .At(.Small, [.Removed(false)]), .At(.Large, [.Removed(true)])]),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn an_element_removed_at_a_breakpoint_is_gone_there_and_back_elsewhere() {
+    let printed = drive(
+        "removed-page",
+        REMOVED_PAGE,
+        r#"
+import { readFileSync } from "node:fs";
+const sheet = document.createElement("style");
+sheet.textContent = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+document.head.appendChild(sheet);
+// What a reader reaches: an element whose every box up to the body is displayed.
+const shown = (el) => {
+  for (let at = el; at !== null && at !== body; at = at.parentElement) {
+    if (getComputedStyle(at).display === "none") return "gone";
+  }
+  return getComputedStyle(el).display;
+};
+const menu = labelled("Menu");
+const link = document.querySelector("a");
+const heading = document.querySelector("h2");
+for (const width of [390, 700, 800, 1100]) {
+  window.happyDOM.setViewport({ width, height: 600 });
+  // happy-dom keeps a computed style until the document changes, and a resize
+  // isn't a change to it, so the sheet is put in again.
+  sheet.textContent += " ";
+  console.log(`${width} menu:${shown(menu)} links:${shown(link.parentElement)} link:${shown(link)} heading:${shown(heading)}`);
+}
+"#,
+    );
+    assert_eq!(
+        printed,
+        "390 menu:flex links:gone link:gone heading:gone\n\
+         700 menu:flex links:gone link:gone heading:block\n\
+         800 menu:gone links:flex link:flex heading:block\n\
+         1100 menu:gone links:flex link:flex heading:gone\n"
+    );
+}

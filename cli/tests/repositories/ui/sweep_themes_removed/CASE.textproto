@@ -1,0 +1,24 @@
+# `Removed`, painted either side of the breakpoint it is written against.
+#
+# Two pictures of one header, at 390 and at 800:
+#
+#   * **Narrow.** The red menu and the blue block, side by side. The green
+#     links are removed below `.Medium`, so they take no space and leave no
+#     gap.
+#   * **Wide.** The green links and the blue block. The menu is removed from
+#     `.Medium` up, and the links are put back with the row their `Layout`
+#     gives them.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an element removed below a breakpoint and another removed from it up, painted either side of it"
+
+run {
+  args: ["test", "//lib/removed", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/removed/test/__snapshots__/removed-narrow.diff.png"  exists: false }
+path { path: "lib/removed/test/__snapshots__/removed-wide.diff.png"  exists: false }

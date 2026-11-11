@@ -4912,6 +4912,9 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         // `--buri-visually-hidden` marker tells the painter to paint nothing
         // rather than a clipped pixel.
         .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
+        // `false` writes nothing, so the display `Layout` or the element's kind
+        // gives stands.
+        .Removed(on) => { if (on) { [decl(ctx, "display", "none")] } else { [] } },
         // An extracted style is classes, which declare nothing inline. So is
         // `VisuallyHidden` by now: it holds no value, so the compiler always
         // knows it and a node only ever holds its class.

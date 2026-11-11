@@ -414,6 +414,7 @@ pub fn render(request: &Request) -> Result<Vec<u8>, String> {
 /// cannot read.
 pub fn raster(request: &Request) -> Result<Pixmap, String> {
     let mut scene = Scene::parse(request.scene)?;
+    scene.drop_removed();
     let state = State::parse(request.state)?;
     let sheet = parse_stylesheet(request.stylesheet);
     let variables = parse_variables(request.variables);
@@ -940,6 +941,55 @@ impl Scene {
     fn node(&self, index: usize) -> Option<&Node> {
         self.nodes.get(index)
     }
+
+    /// Takes every element `Removed` at this width out of the tree, so it
+    /// takes no space and paints nothing, and nor does anything inside it.
+    fn drop_removed(&mut self) {
+        let width = self.width as f32;
+        let gone: Vec<bool> = self.nodes.iter().map(|n| removed(n, width)).collect();
+        let kept = |i: &usize| !gone.get(*i).copied().unwrap_or(false);
+        self.roots.retain(kept);
+        for node in &mut self.nodes {
+            node.children.retain(kept);
+        }
+    }
+}
+
+/// The breakpoints `ui/style`'s `Screen` names, as the class prefix and the
+/// width in rem the sheet's `@media` floors use.
+const SCREENS: [(&str, f32); 4] = [("sm", 40.0), ("md", 48.0), ("lg", 64.0), ("xl", 80.0)];
+
+/// Whether `Removed` takes `node` out of a page `width` pixels across: an
+/// inline `display:none`, or the `rm-on`/`rm-off` class of the widest
+/// breakpoint that applies. The sheet writes these as width ranges, which
+/// [`parse_stylesheet`] doesn't read.
+fn removed(node: &Node, width: f32) -> bool {
+    if node
+        .declarations
+        .iter()
+        .any(|(n, v)| n == "display" && v == "none")
+    {
+        return true;
+    }
+    let mut widest: Option<(f32, bool)> = None;
+    for class in &node.classes {
+        let (floor, rest) = match class.split_once('_') {
+            Some((prefix, rest)) => match SCREENS.iter().find(|s| s.0 == prefix) {
+                Some(&(_, rem)) => (rem * REM, rest),
+                None => continue,
+            },
+            None => (0.0, class.as_str()),
+        };
+        let on = match rest {
+            "rm-on" => true,
+            "rm-off" => false,
+            _ => continue,
+        };
+        if floor <= width && widest.is_none_or(|(w, _)| floor >= w) {
+            widest = Some((floor, on));
+        }
+    }
+    widest.is_some_and(|(_, on)| on)
 }
 
 /// `viewport <width> <height>`, where the height may be the word `fit`.

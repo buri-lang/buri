@@ -501,6 +501,7 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Spin => "spin",
             })
         },
+        .Removed(on) => .Atom(63, 0, "rm", choose(on, "on", "off")),
     }
 }
 

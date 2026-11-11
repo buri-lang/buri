@@ -1756,11 +1756,14 @@ impl Document {
         out
     }
 
-    /// Whether a dialog has taken `node` out of the page — the native
-    /// `$dom_inert`. A dialog is rendered only while open here, so a `dialog` in
-    /// the tree is an open one: what is inside one is reached, and what is
-    /// outside every one is inert while any is present.
+    /// Whether `Removed` or a dialog has taken `node` out of the page — the
+    /// native `$dom_inert`. A dialog is rendered only while open here, so a
+    /// `dialog` in the tree is an open one: what is inside one is reached, and
+    /// what is outside every one is inert while any is present.
     fn inert(&self, node: usize) -> bool {
+        if self.removed(node) {
+            return true;
+        }
         let mut at = Some(node);
         while let Some(i) = at {
             let r = &self.records[i];
@@ -1770,6 +1773,25 @@ impl Document {
             at = r.parent;
         }
         !self.elements("dialog").is_empty()
+    }
+}
+
+impl Document {
+    /// Whether `Removed` has taken `node` out of the page, here or above it.
+    /// The document knows no width, so only an unconditional `rm-on` class or
+    /// an inline `display:none` counts: the page at its narrowest.
+    fn removed(&self, node: usize) -> bool {
+        let mut at = Some(node);
+        while let Some(i) = at {
+            let body = &self.records[i].body;
+            if decl_value(body, "display").as_deref() == Some("none")
+                || classes_of(body).iter().any(|c| c == "rm-on")
+            {
+                return true;
+            }
+            at = self.records[i].parent;
+        }
+        false
     }
 }
 
@@ -2989,7 +3011,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_text(handle: i64, out: *m
         .map(|doc| {
             doc.ordered()
                 .into_iter()
-                .filter(|(i, _)| doc.records[*i].kind == Kind::Text)
+                .filter(|(i, _)| doc.records[*i].kind == Kind::Text && !doc.removed(*i))
                 .map(|(i, _)| doc.records[i].text.as_str())
                 .collect::<Vec<_>>()
                 .join(" ")
@@ -3030,7 +3052,7 @@ impl Document {
             let r = &self.records[child];
             match r.kind {
                 Kind::Text => out.push(r.text.as_str()),
-                Kind::Element if r.decorative => {}
+                Kind::Element if r.decorative || self.removed(child) => {}
                 _ => self.spoken_runs(child, out),
             }
         }

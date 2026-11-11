@@ -109,6 +109,9 @@ const STYLE_BLEED: usize = 55;
 /// `Animation`: the one property whose rules are guarded by the reader's motion
 /// preference, and the one that needs keyframes beside its rules.
 const STYLE_ANIMATION: usize = 62;
+/// `Removed(Bool)`, whose unconditional rules `stylesheet` writes as width
+/// ranges rather than one rule per class.
+const STYLE_REMOVED: usize = 63;
 
 /// `ui/style`'s `State::Focus`, which is `:focus-visible`. The one state the
 /// sheet says anything about beyond the class that names it.
@@ -2628,7 +2631,10 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     out.push_str(&marker_anchor(&unique));
     out.push_str(&keyframes(&unique));
     let mut open: Option<Option<u8>> = None;
-    for rule in unique {
+    for &rule in &unique {
+        if rule.property as usize == STYLE_REMOVED && rule.state.is_none() {
+            continue;
+        }
         if open != Some(rule.screen) {
             if open.is_some_and(|s| s.is_some()) {
                 out.push_str("}\n");
@@ -2657,6 +2663,56 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     }
     if open.is_some_and(|s| s.is_some()) {
         out.push_str("}\n");
+    }
+    out.push_str(&removals(&unique));
+    out
+}
+
+/// The rules that take an element out of the page, last so they beat every
+/// other `display`.
+///
+/// `Removed(false)` inside a wider `At` puts back whatever display the element
+/// had, which no single declaration can name. So a removal never applies past
+/// the next width that puts the element back: each `rm-on` class is one rule
+/// per width range, and the rule for a range skips an element carrying an
+/// `rm-off` that starts inside it. One line each, so the painter skips them and
+/// reads the classes itself.
+fn removals(rules: &[&StyleRule]) -> String {
+    let class = |screen: Option<usize>, key: &str| match screen.and_then(|s| SCREENS.get(s)) {
+        Some((prefix, _)) => format!(".{prefix}_rm-{key}"),
+        None => format!(".rm-{key}"),
+    };
+    let mut out = String::new();
+    for rule in rules {
+        if rule.property as usize != STYLE_REMOVED || rule.state.is_some() {
+            continue;
+        }
+        if !rule.class.ends_with("rm-on") {
+            continue;
+        }
+        let from = rule.screen.map(usize::from);
+        let first = from.map_or(0, |s| s.saturating_add(1));
+        let floor = from.and_then(|s| SCREENS.get(s)).map(|s| s.1);
+        let mut skipped = String::new();
+        for end in first..=SCREENS.len() {
+            let ceiling = SCREENS.get(end).map(|s| s.1);
+            let query = match (floor, ceiling) {
+                (None, Some(to)) => format!("(width<{to})"),
+                (Some(at), Some(to)) => format!("({at}<=width<{to})"),
+                (Some(at), None) => format!("(min-width:{at})"),
+                (None, None) => String::new(),
+            };
+            let restored = ceiling.map_or(String::new(), |_| class(Some(end), "off"));
+            let selector = format!("{}{restored}{skipped}", class(from, "on"));
+            let text = format!("{selector}{{display:none!important}}");
+            if query.is_empty() {
+                out.push_str(&text);
+            } else {
+                out.push_str(&format!("@media {query}{{{text}}}"));
+            }
+            out.push('\n');
+            skipped.push_str(&format!(":not({})", class(Some(end), "off")));
+        }
     }
     out
 }
@@ -3614,6 +3670,15 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let (which, _) = first?.as_variant()?;
             let (key, css, _) = *ANIMATIONS.get(which)?;
             Some(("anim", key.into(), one("animation", css)))
+        }
+        // `!important`, so a removal beats a `Layout` written inline. `false`
+        // writes nothing: it only stops a narrower removal (`removals`).
+        STYLE_REMOVED => {
+            if first?.as_bool()? {
+                Some(("rm", "on".into(), one("display", "none!important")))
+            } else {
+                Some(("rm", "off".into(), Vec::new()))
+            }
         }
         _ => None,
     }

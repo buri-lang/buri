@@ -5712,6 +5712,9 @@ function $tree_declare(style, out) {
     // The caret on its own, so a field with transparent text still has a
     // visible one. `Foreground` is otherwise the only thing that reaches it.
     out.set("caret-color", $tree_color(value));
+  } else if (tag === 63) {
+    // `false` writes nothing, so the display `Layout` or the element gives stands.
+    if (value) out.set("display", "none");
   } else {
     // Out of sight, in the tree: the "sr-only" clip. The element paints nothing
     // and takes no space while its text stays for the accessible name. The
@@ -8318,11 +8321,25 @@ function $scene_reachable(doc, node) {
   return true;
 }
 
-// Whether a dialog has taken `node` out of the page — the native `inert`. A
-// dialog is rendered only while open, so a `dialog` in the tree is an open one:
-// what is inside it is reached, and what is outside every one is inert while
-// any is present.
+// Whether `Removed` has taken `node` out of the page, here or above it — the
+// native `removed`. Only an unconditional `rm-on` class or an inline
+// `display:none` counts: the document knows no width.
+function $scene_removed(doc, node) {
+  let at = node;
+  while (at !== null && at !== undefined) {
+    const body = doc.records[at].body;
+    if ($scene_declValue(body, "display") === "none" || $scene_classes(body).includes("rm-on")) return true;
+    at = doc.records[at].parent;
+  }
+  return false;
+}
+
+// Whether `Removed` or a dialog has taken `node` out of the page — the native
+// `inert`. A dialog is rendered only while open, so a `dialog` in the tree is
+// an open one: what is inside it is reached, and what is outside every one is
+// inert while any is present.
 function $scene_inert(doc, node) {
+  if ($scene_removed(doc, node)) return true;
   let at = node;
   while (at !== null && at !== undefined) {
     const r = doc.records[at];
@@ -8360,7 +8377,7 @@ function $host_testing_Rendered_text(self) {
   const doc = $scene_of(self);
   const runs = [];
   for (const pair of $scene_ordered(doc)) {
-    if (doc.records[pair[0]].kind === 1) runs.push(doc.records[pair[0]].text);
+    if (doc.records[pair[0]].kind === 1 && !$scene_removed(doc, pair[0])) runs.push(doc.records[pair[0]].text);
   }
   return runs.join(" ");
 }
@@ -8374,7 +8391,7 @@ function $host_testing_Rendered_spoken(self) {
     for (const child of doc.records[node].children) {
       const r = doc.records[child];
       if (r.kind === 1) runs.push(r.text);
-      else if (!(r.kind === 0 && r.decorative)) visit(child);
+      else if (!(r.kind === 0 && (r.decorative || $scene_removed(doc, child)))) visit(child);
     }
   };
   visit(0);

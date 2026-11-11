@@ -396,6 +396,40 @@ export enum Style {
     ///
     /// The set is closed. A variant is added when a component needs one.
     Animation(Animation),
+
+    /// Whether the element is taken out of the page. A removed element takes
+    /// no space, paints nothing, and isn't reached by Tab or by a screen
+    /// reader, and nor is anything inside it. `false` puts it back with the
+    /// display its `Layout` or its kind gives it.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// export fn header<C>(): Node<C> {
+    ///     ui.stack({
+    ///         styles: [.Layout(.Row)],
+    ///         children: [
+    ///             // Only below `.Medium`.
+    ///             ui.button({
+    ///                 label: .Const("Menu"),
+    ///                 styles: [.At(.Medium, [.Removed(true)])],
+    ///                 onPress: .None,
+    ///             }),
+    ///             // Only from `.Medium` up.
+    ///             ui.stack({
+    ///                 styles: [.Removed(true), .At(.Medium, [.Removed(false)])],
+    ///                 children: [ui.text({ content: .Const("Links") })],
+    ///             }),
+    ///         ],
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// `VisuallyHidden` is the other way to hide something: it keeps the
+    /// element for a screen reader. A `Removed` the compiler can't evaluate is
+    /// written inline, so an `At` can't put back what it removes.
+    Removed(Bool),
 }
 
 /// How an element moves. Each one runs forever.

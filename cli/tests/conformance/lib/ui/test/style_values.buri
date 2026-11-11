@@ -5,11 +5,11 @@
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Scope, Ui, Watch };
 from "platform/effect/testing" import {
-    alloc as testAlloc, headless, observer, render, stylesheet,
+    alloc as testAlloc, headless, observer, render, Rendered, stylesheet,
 };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
-from "ui/signal" import { signal };
+from "ui/signal" import { Signal, signal };
 from "ui/style" import * as style;
 from "ui/style" import { Color, Shadow, State, Style };
 
@@ -79,6 +79,7 @@ fn kind(s: Style): Str {
         .CaretColor(_) => "CaretColor",
         .VisuallyHidden => "VisuallyHidden",
         .Animation(_) => "Animation",
+        .Removed(_) => "Removed",
     }
 }
 
@@ -228,6 +229,7 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.Passthrough(true)), "Passthrough");
     assert.equal(kind(.VisuallyHidden), "VisuallyHidden");
     assert.equal(kind(.Animation(.Spin)), "Animation");
+    assert.equal(kind(.Removed(true)), "Removed");
 }
 
 test "a matched static style binds its payload" {
@@ -1371,4 +1373,118 @@ test "a state or screen style known only at run time scopes what it holds" {
         painted(ctx, [late(ctx, Style.At(.Small, [.Width(.Px(5))]))]),
         "e 0 class:sm_w-5",
     );
+}
+
+/// A row of three buttons, the middle one held in a stack given `styles`, each
+/// press of which adds one to `presses`.
+fn removable<C: Ui + Watch>(presses: Signal<Int>, styles: [Style]): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({ label: .Const("Before"), styles: [], onPress: .None }),
+            ui.stack({
+                styles: styles,
+                children: [
+                    ui.button({
+                        label: .Const("Middle"),
+                        styles: [],
+                        onPress: .Some(fn(c) => { presses.set(c, presses.get(c) + 1) }),
+                    }),
+                ],
+            }),
+            ui.button({ label: .Const("After"), styles: [], onPress: .None }),
+        ],
+    })
+}
+
+/// Where Tab lands, three times from nothing focused.
+fn tabbed<C: Allocator>(ctx: C, page: Rendered): Str {
+    let _ = page.tab();
+    let first = page.focused();
+    let _ = page.tab();
+    let second = page.focused();
+    let _ = page.tab();
+    [first, second, page.focused()].join(ctx, " ")
+}
+
+test "a removed element and what it holds are not reached, read out or shown" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let presses = signal(ctx, 0);
+    let page = render(ctx, removable(presses, [.Removed(true)]));
+    assert.equal(tabbed(ctx, page), "Before After Before");
+    assert.equal(page.spoken(), "Before After");
+    assert.equal(page.text(), "Before After");
+    let _ = page.press("Middle");
+    assert.equal(presses.get(ctx), 0);
+}
+
+test "an element put back with Removed(false) is reached again" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let presses = signal(ctx, 0);
+    let page = render(ctx, removable(presses, [.Removed(true), .Removed(false)]));
+    assert.equal(tabbed(ctx, page), "Before Middle After");
+    assert.equal(page.spoken(), "Before Middle After");
+    let _ = page.press("Middle");
+    assert.equal(presses.get(ctx), 1);
+}
+
+test "a removal under a breakpoint leaves the narrowest page alone" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let presses = signal(ctx, 0);
+    // Removed from `.Medium` up: still there below it.
+    let wide = render(ctx, removable(presses, [.At(.Medium, [.Removed(true)])]));
+    assert.equal(tabbed(ctx, wide), "Before Middle After");
+    // Removed below `.Medium`, put back from it up: gone below it.
+    let narrow = render(
+        ctx,
+        removable(presses, [.Removed(true), .At(.Medium, [.Removed(false)])]),
+    );
+    assert.equal(tabbed(ctx, narrow), "Before After Before");
+    assert.equal(narrow.spoken(), "Before After");
+}
+
+test "a removal a condition or a run-time value decides follows it" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let presses = signal(ctx, 0);
+    let gone = signal(ctx, true);
+    let page = render(
+        ctx,
+        removable(presses, [.When(.Cell(gone), [.Removed(true)], [])]),
+    );
+    assert.equal(page.spoken(), "Before After");
+    gone.set(ctx, false);
+    assert.equal(page.spoken(), "Before Middle After");
+    assert.equal(painted(ctx, [.Removed(late(ctx, true))]), "e 0 display:none");
+    assert.equal(painted(ctx, [.Removed(late(ctx, false))]), "e 0 ");
+    let decided = render(ctx, removable(presses, [.Removed(late(ctx, true))]));
+    assert.equal(decided.spoken(), "Before After");
+    assert.equal(tabbed(ctx, decided), "Before After Before");
+}
+
+test "a removal under a state applies in that state" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.On(.Hover, [.Removed(true)]))).markup(),
+        "e 0 class:hover_rm-on",
+    );
+    assert.isTrue(stylesheet().contains(".hover_rm-on:hover{display:none!important}"));
 }
