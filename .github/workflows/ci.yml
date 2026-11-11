@@ -120,7 +120,8 @@ jobs:
           # Debian puts the UNVERSIONED llvm tool names under /usr/lib/llvm-<N>/bin.
           # `cli/tests/native/stencil.rs::cross_tools` probes those names.
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
-          rustup target add "$(uname -m)-unknown-linux-musl"
+          # x86_64 too, for the arm64 leg's cross tests.
+          rustup target add "$(uname -m)-unknown-linux-musl" x86_64-unknown-linux-musl
       # `cli/build.rs`'s own output, which `Swatinem/rust-cache` deliberately
       # drops: it cleans the workspace's artifacts before saving, and `OUT_DIR`
       # holds a fat-LTO release build of the runtime's dependency tree. A wrong
