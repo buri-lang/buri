@@ -1865,9 +1865,16 @@ impl<'t> Build<'t> {
             // module may assume, and then what this one is — but a blank line
             // between the two says it a second time, in whitespace.
             // An import prints no comment of its own, so what was written
-            // inside its clause comes with it, above it.
+            // inside its clause comes with it, above it. One that did not
+            // parse is printed as written, comments and all, so its inside is
+            // left to `verbatim`.
             let at = item.span();
-            let t = self.import_trivia(at.start, at.end.saturating_sub(1), first);
+            let inside = if self.broken.contains(&at) {
+                at.start
+            } else {
+                at.end.saturating_sub(1)
+            };
+            let t = self.import_trivia(at.start, inside, first);
             parts.push(t);
             let d = self.item(item);
             parts.push(d);
@@ -4225,6 +4232,16 @@ fn trim_lines(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An import that did not parse comes back as it was written, comments
+    /// inside it included, and the file is still formatted around it.
+    #[test]
+    fn a_broken_import_keeps_the_comment_inside_it() {
+        let src = "from ? \"core/list\" import {\n    fold,\n    // c\n    map,\n};\n";
+        let out = source_unchecked(src);
+        assert_eq!(out, src, "unchecked:\n{out}");
+        assert_eq!(source(src).as_deref(), Some(src));
+    }
 
     /// The comments of `text`, read the way [`formatted`] reads them.
     fn comment_shape(text: &str) -> Vec<Shape> {
