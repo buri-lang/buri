@@ -1603,7 +1603,24 @@ function $character_toDigit(c, radix) {
 
 const $math_squareRoot = Math.sqrt;
 const $math_cubeRoot = Math.cbrt;
-const $math_power = Math.pow;
+// JavaScriptCore's `Math.pow`, written out so node's V8 answers the same:
+// `±0.5` is a square root, and a whole exponent up to 1000 is repeated
+// squaring. V8 rounds `pow(10, 308)` to `1e308`; this answers
+// `1.0000000000000006e308`, as Bun and the native runtime (`math.rs`) do.
+function $math_power(x, y) {
+  const size = Math.abs(x);
+  if (y !== y || (size === 1 && (y === Infinity || y === -Infinity))) return NaN;
+  if (y === 0.5 || y === -0.5) {
+    const root = size === 0 || size === Infinity ? size : Math.sqrt(x);
+    return y > 0 ? root : 1 / root;
+  }
+  if (y >= 0 && y <= 1000 && Math.trunc(y) === y) {
+    let result = 1;
+    for (let n = y; n !== 0; n >>>= 1, x *= x) if (n & 1) result *= x;
+    return result;
+  }
+  return Math.pow(x, y);
+}
 const $math_exp = Math.exp;
 const $math_ln = Math.log;
 const $math_log10 = Math.log10;

@@ -16,7 +16,8 @@
 //!   `tan(1.0)`, `asin(0.5)`, `atan(2.0)`.
 //!
 //! `power` is the exception: it follows Bun's `Math.pow` step for step rather
-//! than C's `pow`. See [`buri_rt_math_power`].
+//! than C's `pow`, and so does `runtime.js`, so node agrees. See
+//! [`buri_rt_math_power`].
 //!
 //! # `round` is not `f64::round`
 //!
