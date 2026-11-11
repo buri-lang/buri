@@ -1970,8 +1970,7 @@ mod hang;
 /// returned early or as a link failure inside a suite three steps later, and
 /// both read as "green" or as "a compiler bug" rather than as "the runner
 /// changed". `cli/tests/native/stencil.rs::cross_tools` is the reason the llvm
-/// three are in the list: it probes them and its callers return quietly when
-/// they are absent, so the tools being present is what makes those tests run.
+/// three are in the list.
 #[test]
 fn every_tool_the_workflow_assumes_is_on_path() {
     let mut needed = vec!["cc", "clang", "node", "bun"];
@@ -1998,9 +1997,28 @@ fn every_tool_the_workflow_assumes_is_on_path() {
     assert!(
         missing.is_empty(),
         "these tools are not on PATH: {}\n\nEvery job that runs this suite installs them (the \
-         `test` matrix's apt step, and `oven-sh/setup-bun`). One that is missing does not fail \
-         anything by itself — it makes a suite return early and report a pass.",
+         `test` matrix's apt step, `oven-sh/setup-bun` and `actions/setup-node`).",
         missing.join(", ")
+    );
+}
+
+/// **The suite runs the node major CI installs.** node 22 and 24 round some
+/// floats differently, so a local run on another major can pass what CI fails.
+/// `.node-version` names the major; CI's `actions/setup-node` and the flake's
+/// dev shell both read it.
+#[test]
+fn node_is_the_major_the_repository_names() {
+    let named = std::fs::read_to_string(repo_root().join(".node-version")).unwrap();
+    let out = std::process::Command::new("node")
+        .arg("--version")
+        .capped_output()
+        .expect("node is on PATH");
+    let version = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        version.starts_with(&format!("v{}.", named.trim())),
+        "node is {}, but `.node-version` names {}",
+        version.trim(),
+        named.trim()
     );
 }
 

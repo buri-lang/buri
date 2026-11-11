@@ -526,7 +526,8 @@ docker run --rm -it -v "$PWD":/w -w /w rust:latest bash -c '
 
 `--platform linux/amd64` on the same line runs the x86-64 leg under emulation,
 slowly enough to be an overnight answer rather than an edit loop. The image
-also needs node and bun, or the tests that run programs under them fail.
+also needs bun (`.bun-version`) and node (the major in `.node-version`), or the
+tests that run programs under them fail.
 
 ### Skips: none, on any machine
 

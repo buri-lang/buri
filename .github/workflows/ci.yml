@@ -90,6 +90,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       # A macOS host cross-builds the Linux output in the output-selection and
       # cross tests (#194), which needs the Linux target's standard library.
       - if: runner.os == 'macOS'
@@ -486,6 +489,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       - run: |
           set -euo pipefail
           sudo apt-get update
@@ -564,6 +570,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       # One thread: two measured sessions on one runner would be timing each
       # other's contention. `--nocapture` because every test prints its timings
       # on a pass, and this log is where the next recalibration reads them.
@@ -1009,6 +1018,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       - run: cargo test -p buri --test vectors -- proto::the_conformance_runner_passes --nocapture
         env:
           CONFORMANCE_TEST_RUNNER: ${{ github.workspace }}/runner/bin/conformance_test_runner
@@ -1035,6 +1047,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
       - run: |
           set -euo pipefail
           sudo apt-get update

@@ -85,6 +85,9 @@
             };
           }
           .${system};
+        # The node major CI's `actions/setup-node` installs, read from the same
+        # `.node-version`: node 22 and 24 round some floats differently.
+        node = pkgs."nodejs-slim_${lib.trim (builtins.readFile ./.node-version)}";
         bun = pkgs.bun.overrideAttrs {
           version = bunVersion;
           src = pkgs.fetchurl {
@@ -709,9 +712,7 @@
               # The second JavaScript engine. The suite runs some programs
               # under node as well as bun, because V8 lacks the proper tail
               # calls JavaScriptCore has and the two disagree on some floats.
-              # CI's runners have node preinstalled; this shell pins one, so a
-              # local run and a landing run those tests too.
-              pkgs.nodejs-slim
+              node
               # `elan`, not `lean4`: elan honours `formal/lean-toolchain`, which
               # is how a Lean project pins its compiler. It fetches that
               # toolchain on first use, so the Lean shell is not hermetic the
@@ -795,7 +796,7 @@
               # rather than whatever older `bun` is on `PATH`.
               bun
               # And its node, which the suite also runs programs under.
-              pkgs.nodejs-slim
+              node
               llvm.dev
               llvm
               pkgs.libffi
