@@ -286,13 +286,17 @@ test "power at an infinite base or exponent" {
     assert.equal(math.power(0.5, -inf()), inf());
 }
 
+// A fractional exponent reaches the engine's or the platform's `pow`. Node 20's
+// is one unit off at `power(2.0, 1.5)`, so these points are ones node 20, node
+// 24, Bun and every libm the native targets link answer alike.
 test "power at finite points" {
     assert.equal(math.power(2.0, 10.0), 1024.0);
     assert.equal(math.power(2.0, -1.0), 0.5);
     assert.equal(math.power(-2.0, 3.0), -8.0);
     assert.equal(math.power(10.0, -2.0), 0.01);
-    assert.equal(math.power(2.0, 1.5), 2.8284271247461903);
-    assert.equal(math.power(0.5, -3.5), 11.313708498984761);
+    assert.equal(math.power(3.0, 2.5), 15.588457268119896);
+    assert.equal(math.power(2.0, 0.25), 1.189207115002721);
+    assert.equal(math.power(0.25, -1.5), 8.0);
     assert.equal(math.power(1.5, 2.5), 2.7556759606310752);
     assert.equal(math.power(2.0, 1024.0), inf());
     assert.equal(math.power(2.0, -1074.0), 5.0e-324);
