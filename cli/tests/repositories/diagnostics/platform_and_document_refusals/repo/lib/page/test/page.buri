@@ -5,7 +5,10 @@ from "ui/node" import * as ui;
 from "ui/web" import * as web;
 
 test "a page needs a document" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     let root = ui.text({ content: .Const("hi") });
     web.title(ctx, .Const("Home"));
     assert.equal(web.render(root), "hi");

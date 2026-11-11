@@ -1651,8 +1651,8 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
 /// named gap becomes a wrong answer: the suite passes, on a backend nobody
 /// chose, and the note goes into a stream a passing run's reader does not read
 /// (buri-lang/buri#4). `ui_node.mount` is the gap here because it mounts on a
-/// live page and no native backend has a body for it — if that ever changes,
-/// this test fails by passing the first run, which is the right way round.
+/// live page and a native build has no document — if that ever changes, this
+/// test fails by passing the first run, which is the right way round.
 #[test]
 fn a_suite_the_native_backend_cannot_compile_is_refused() {
     let scratch = Scratch::repo("native-gap");
@@ -1680,8 +1680,8 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
         return;
     }
     assert!(
-        run.stderr.contains("cannot run natively")
-            && run.stderr.contains("no implementation of ui_node.mount"),
+        run.stderr
+            .contains("a native build has no document for `ui_node.mount`"),
         "a native gap did not refuse the suite:\n{}",
         indent(&run.all())
     );

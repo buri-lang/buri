@@ -7,7 +7,11 @@ from "web/storage" import * as storage;
 from "web/storage" import { Storage };
 
 test "the address bar and the store are the browser's" {
-    let ctx = context { Allocator: alloc(), Location: HostLocation {}, Storage: HostStorage {} };
+    let ctx = context {
+        Allocator: alloc(),
+        Location: HostLocation {},
+        Storage: HostStorage {},
+    };
     let _ = web.route(ctx);
     assert.isTrue(storage.keys(ctx, "draft/").isOk());
 }

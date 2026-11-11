@@ -1,5 +1,5 @@
-from "web" import { WebHost };
 from "web" import * as plat;
+from "web" import { WebHost };
 
 export fn main(host: WebHost): Result<(), Str> {
     plat.main(host)

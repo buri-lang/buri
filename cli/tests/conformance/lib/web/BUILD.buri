@@ -2,7 +2,11 @@ library {
     sources: []
 
     test {
-        sources: ["test/document.buri", "test/follow.buri", "test/routing.buri"]
+        sources: [
+            "test/document.buri",
+            "test/follow.buri",
+            "test/routing.buri",
+        ]
 
         # JS only, for `lib/ui`'s reason and one more. The document a tree
         # renders into is a runtime intrinsic and no native backend has one; and

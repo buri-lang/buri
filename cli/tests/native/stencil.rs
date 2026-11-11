@@ -2282,6 +2282,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "variants/variants.buri",
     "vectors/convert.buri",
     "vectors/simd.buri",
+    "web/follow.buri",
     "web/routing.buri",
 ];
 

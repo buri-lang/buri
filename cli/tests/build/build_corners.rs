@@ -137,7 +137,7 @@ fn a_native_program_that_mounts_a_page_is_refused_by_name() {
     scratch
         .run(&["build", "//cmd/a"])
         .exits(1)
-        .says("error: the stencil backend has no implementation of ui_node.mount");
+        .says("error: a native build has no document for `ui_node.mount`");
 }
 
 /// `BURI_MUSL` only speaks to a Linux link. There, a value that isn't a libc

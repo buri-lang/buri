@@ -940,8 +940,8 @@ fn a_suite_that_asks_for_native_and_reaches_a_gap_is_refused() {
     if run.stderr.contains("test-run-unavailable") {
         return;
     }
-    run.says("backend has no implementation of ui_node.mount")
-        .says("= fix: declare `test { backends: [JS] }` for this suite")
+    run.says("a native build has no document for `ui_node.mount`")
+        .says("give the suite `backends: [JS]`")
         .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
 }
 
