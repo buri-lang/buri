@@ -295,9 +295,9 @@ enum NodeKind<C> {
     // Styles, children, `isCurrent`, `isDecorative` and the focus. Every node
     // the focus can reach carries a `Focus` just before its `Events`.
     Stack([Style], [Node<C>], Prop<Bool>, Bool, Focus, Events<C>),
-    // A role, styles, children and `isCurrent`. A region is never decorative:
-    // `decorative-with-role` refuses the pair.
-    Region(Role, [Style], [Node<C>], Prop<Bool>, Focus, Events<C>),
+    // A role, styles, children, `isCurrent` and the label. A region is never
+    // decorative: `decorative-with-role` refuses the pair.
+    Region(Role, [Style], [Node<C>], Prop<Bool>, Option<Prop<Str>>, Focus, Events<C>),
     Button(Prop<Str>, [Style], [Node<C>], fn(C, Event) => (), Prop<Bool>, Prop<Bool>, Prop<Bool>, Focus, Events<C>),
     // A `<a href>`. `onFollow` set makes a same-origin dest route client-side
     // (what used to be `routeLink`); left `.None` it is a plain anchor.
@@ -484,6 +484,11 @@ struct Stack<C> {
     /// What the container *means* — a landmark, a list, a table row, a labelled
     /// group. Left out, it is a plain box.
     export role: Option<Role>,
+    /// The name a reader hears for what the stack is: a group's summary, or
+    /// which of two navigation landmarks this one is. `aria-label` on the web.
+    /// Only a stack with a `role` takes one, because a plain or decorative box
+    /// is nothing a reader is told about (`label-without-role`).
+    export label: Option<Prop<Str>>,
     /// Written only when `true`: announced as the current page, the field
     /// `Button` and `Link` have. A breadcrumb's last step isn't a link.
     export isCurrent: Option<Prop<Bool>>,
@@ -535,7 +540,17 @@ export fn stack<C>(config: Stack<C>): Node<C> {
     let focus = Focus { signal: config.hasFocus, order: config.isInFocusOrder };
     match (config.role) {
         .Some(role) => {
-            Node(.Region(role, config.styles, config.children, current, focus, events))
+            Node(
+                .Region(
+                    role,
+                    config.styles,
+                    config.children,
+                    current,
+                    config.label,
+                    focus,
+                    events,
+                ),
+            )
         },
         .None => {
             let decorative = match (config.isDecorative) {
@@ -2242,10 +2257,11 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 events,
                 current,
                 decorative,
+                .None,
                 focus,
             )
         },
-        .Region(role, styles, children, current, focus, events) => {
+        .Region(role, styles, children, current, label, focus, events) => {
             emitAnnounced(
                 ctx,
                 builder,
@@ -2258,6 +2274,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 events,
                 current,
                 false,
+                label,
                 focus,
             )
         },
@@ -3144,15 +3161,16 @@ fn emitBoxWith<C>(
         events,
         .Const(false),
         false,
+        .None,
         noFocus(),
     )
 }
 
 /// `emitBoxWith`, with what a reader is told about the box beside what it
-/// paints — whether it is the current page, and whether it is hidden from
-/// assistive technology, neither of which is in the scene a painter reads —
-/// and the focus a box takes when `focus` asks for one. A box is never in the
-/// focus order unless it says so.
+/// paints — whether it is the current page, whether it is hidden from
+/// assistive technology, and the name a region's `label` gives it, none of
+/// which is in the scene a painter reads — and the focus a box takes when
+/// `focus` asks for one. A box is never in the focus order unless it says so.
 fn emitAnnounced<C>(
     ctx: C,
     builder: Builder,
@@ -3165,6 +3183,7 @@ fn emitAnnounced<C>(
     events: Events<C>,
     current: Prop<Bool>,
     decorative: Bool,
+    label: Option<Prop<Str>>,
     focus: Focus,
 ): () {
     let mem = alloc.generalPurpose();
@@ -3204,6 +3223,15 @@ fn emitAnnounced<C>(
         },
     };
     let _ = announce(builder, at, current, decorative);
+    let _ = match (label) {
+        .Some(name) => {
+            match (name) {
+                .Const(text) => registerLabel(builder, text),
+                _ => reactive(fn(scope) => relabel(builder, at, name.read(scope))),
+            }
+        },
+        .None => {},
+    };
     let _ = if (asksFocus(focus)) {
         bindFocus(builder, focusKey(builder), false, focus)
     } else {};
@@ -3745,7 +3773,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
-        .Region(role, styles, children, _current, focus, _events) => {
+        .Region(role, styles, children, _current, _label, focus, _events) => {
             let line = widgetLine(
                 ctx,
                 answered(plain(state), focus),

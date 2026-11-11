@@ -6664,9 +6664,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const element = $tree_element(parent, role[0], anchor);
     for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
     $tree_bind(node[4], (current) => $dom_flag(element, "aria-current", current));
+    // The name a reader hears for the region: a group's summary, or which of
+    // two landmarks this one is.
+    if (node[5] !== undefined) $tree_bind(node[5], (label) => $dom_attribute(element, "aria-label", label));
     $tree_children(ctx, element, node[2], node[3]);
-    $tree_focus(element, node[5], false);
-    $tree_events(ctx, element, node[6]);
+    $tree_focus(element, node[6], false);
+    $tree_events(ctx, element, node[7]);
     return;
   }
   if (tag === 5) {

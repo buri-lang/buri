@@ -570,6 +570,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         &["guides/json"]
     ),
     e!(
+        "label-without-role",
+        "A labelled stack has a role",
+        &["guides/user-interfaces"]
+    ),
+    e!(
         "lambda-captures-effect",
         "A lambda may not capture an effect"
     ),

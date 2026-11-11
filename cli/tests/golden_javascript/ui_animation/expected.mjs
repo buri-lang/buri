@@ -19,7 +19,7 @@ const $k17=[$k7,$k15,$k16];
 const $k18=[$k17];
 const $k19=[5,$k18];
 const $k20=[$k19];
-const $k21=[$k20,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k21=[$k20,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
 const $k22=[[],[],[],[],[],[],[],[],[],[],[],[],[],[]];
 const $k23=[0,false];
 $ui_sheet='*,*::before,*::after{box-sizing:border-box}\n*,*::before,*::after{border-width:0}\n*{overflow-wrap:break-word}\n:where(body){margin:0}\n:where(div,nav,main,header,footer,aside,article,search,ul,li,hr,form,a,button){display:flex;flex-direction:column}\n@keyframes buri-spin{to{rotate:360deg}}\n.lay-row{display:flex;flex-direction:row}\n.gap-8{gap:8px}\n.w-20{width:20px}\n.h-20{height:20px}\n@media (prefers-reduced-motion:no-preference){.anim-spin{animation:buri-spin 1s linear infinite}}\n@media (prefers-reduced-motion:no-preference){.hover_anim-spin:hover{animation:buri-spin 1s linear infinite}}\n@media (min-width:48rem){\n@media (prefers-reduced-motion:no-preference){.md_anim-spin{animation:buri-spin 1s linear infinite}}\n}\n';
@@ -45,15 +45,15 @@ function __cmd_x_main_buri$main$withHost(host_0){
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k5,[[[17,$k6,void 0,$t7,$t3,events_8]],ui_node$stack$f6at44($k21)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k5,[[[17,$k6,void 0,$t7,$t3,events_8]],ui_node$stack$f6at44($k21)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$main(){
   return __cmd_x_main_buri$main$withHost($k22);
 }
 function ui_node$stack$f6at44(config_0){
-  const events_1=ui_node$listen$f6at44(config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]);
+  const events_1=ui_node$listen$f6at44(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
   let $t1;
-  const $t2=config_0[3];
+  const $t2=config_0[4];
   if($t2!==void 0){
     $t1=$t2;
   }else if($t2===void 0){
@@ -62,13 +62,13 @@ function ui_node$stack$f6at44(config_0){
     $abort('no arm matched');
   }
   const current_2=$t1;
-  const focus_3=[config_0[5],config_0[6]];
+  const focus_3=[config_0[6],config_0[7]];
   const $t3=config_0[2];
   if($t3!==void 0){
-    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,config_0[3],focus_3,events_1]];
   }else if($t3===void 0){
     let $t4;
-    const $t5=config_0[4];
+    const $t5=config_0[5];
     if($t5!==void 0){
       $t4=$t5;
     }else if($t5===void 0){

@@ -22,17 +22,17 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const config_12=[[$k4,$k8,[62,$host_HostWatch_read(ctx_1[3],busy_2[0])?1:0]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
-  const events_13=ui_node$listen$f6at44(config_12[7],config_12[8],config_12[9],config_12[10],config_12[11],config_12[12],config_12[13],config_12[14]);
-  const current_14=ui_node$orFalse(config_12[3]);
-  const focus_15=[config_12[5],config_12[6]];
+  const config_12=[[$k4,$k8,[62,$host_HostWatch_read(ctx_1[3],busy_2[0])?1:0]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+  const events_13=ui_node$listen$f6at44(config_12[8],config_12[9],config_12[10],config_12[11],config_12[12],config_12[13],config_12[14],config_12[15]);
+  const current_14=ui_node$orFalse(config_12[4]);
+  const focus_15=[config_12[6],config_12[7]];
   let $t3;
   const $t4=config_12[2];
   if($t4!==void 0){
-    $t3=[[4,$t4,$share(config_12[0]),$share(config_12[1]),current_14,focus_15,events_13]];
+    $t3=[[4,$t4,$share(config_12[0]),$share(config_12[1]),current_14,config_12[3],focus_15,events_13]];
   }else if($t4===void 0){
     let $t5;
-    const $t6=config_12[4];
+    const $t6=config_12[5];
     if($t6!==void 0){
       $t5=$t6;
     }else if($t6===void 0){

@@ -1816,3 +1816,60 @@ console.log(`dot ${dot()}`);
          dot 100 0\n"
     );
 }
+
+/// Two navigation landmarks a reader tells apart by name, a group of drawn
+/// bars heard as one summary, and a button that changes that summary.
+const LABELLED_STACKS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let high = signal(ctx, 40);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({ styles: [], children: [], role: .Some(.Navigation), label: .Some(.Const("Primary")) }),
+                ui.stack({ styles: [], children: [], role: .Some(.Navigation), label: .Some(.Const("Breadcrumb")) }),
+                ui.stack({
+                    styles: [.Layout(.Layers)],
+                    children: [ui.stack({ styles: [], children: [], isDecorative: .Some(true) })],
+                    role: .Some(.Group),
+                    label: .Some(.Computed(fn(s) => str.format(s, "Value over the past year, from 12 to ${high.get(s)}"))),
+                }),
+                ui.stack({ styles: [], children: [], role: .Some(.List) }),
+                ui.button({ label: .Const("Raise"), styles: [], onPress: .Some(fn(c) => high.set(c, 50)) }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_stack_with_a_role_is_named_by_its_label() {
+    let printed = drive(
+        "labelled-stacks-page",
+        LABELLED_STACKS_PAGE,
+        r#"
+const named = () => [...body.firstChild.children]
+  .map((e) => `${e.tagName.toLowerCase()} ${e.getAttribute("role")} ${e.getAttribute("aria-label")}`)
+  .join(" | ");
+console.log(named());
+labelled("Raise").click();
+console.log(named());
+"#,
+    );
+    assert_eq!(
+        printed,
+        "nav null Primary | nav null Breadcrumb | div group Value over the past year, from 12 to 40 | ul null null | button null Raise\n\
+         nav null Primary | nav null Breadcrumb | div group Value over the past year, from 12 to 50 | ul null null | button null Raise\n"
+    );
+}

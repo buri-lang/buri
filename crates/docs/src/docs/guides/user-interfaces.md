@@ -356,6 +356,28 @@ test "the separator is drawn and never read out" {
 }
 ```
 
+**A stack with a role can take a name.** `label` is what a reader hears for a
+group, or for one of two landmarks of the same kind. A chart drawn from plain
+stacks is heard as one summary:
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn chart<C>(bars: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Layers)],
+        children: bars,
+        role: .Some(.Group),
+        label: .Some(.Const("Value over the past year, from 12 to 40")),
+    })
+}
+```
+
+On the web it's `aria-label`, and a test names the stack by it, the way it
+names a button. A plain or decorative stack takes no label, because nothing
+announces it ([`label-without-role`](../reference/errors/label-without-role.md)).
+
 A component is an ordinary function and it runs **once**. Three constructors
 put reactivity in the tree, and each re-runs the smallest thing it can:
 

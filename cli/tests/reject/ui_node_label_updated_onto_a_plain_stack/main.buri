@@ -1,0 +1,25 @@
+// EXPECT: label-without-role
+//
+// A label given to a stack by updating one whose role the compiler can't read
+// is refused, because the stack can't be shown to have a role to name.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let grouped = false;
+  ui.mount(
+    ctx,
+    ui.stack({
+      ..match (grouped) {
+        true => { styles: [], children: [], role: .Some(.Group) },
+        false => { styles: [], children: [] },
+      },
+      label: .Some(.Const("Filters")),
+    }),
+    [],
+  )
+}

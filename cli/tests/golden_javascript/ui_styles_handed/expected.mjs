@@ -25,16 +25,16 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([[],[__cmd_x_main_buri$badge$f6at44($k2),__cmd_x_main_buri$badge$f6at44($k4)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([[],[__cmd_x_main_buri$badge$f6at44($k2),__cmd_x_main_buri$badge$f6at44($k4)],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function __cmd_x_main_buri$badge$f6at44(look_0){
   [$alloc_newCounter(-1n)];
-  return ui_node$stack$f6at44([[ui_style_classify$classifyOne$htol58(0,look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return ui_node$stack$f6at44([[ui_style_classify$classifyOne$htol58(0,look_0,$k7,false,ui_style$extracted,-1n,-1n)],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
 }
 function ui_node$stack$f6at44(config_0){
-  const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
+  const events_1=[config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]];
   let $t1;
-  const $t2=config_0[3];
+  const $t2=config_0[4];
   if($t2!==void 0){
     $t1=$t2;
   }else if($t2===void 0){
@@ -43,13 +43,13 @@ function ui_node$stack$f6at44(config_0){
     $abort('no arm matched');
   }
   const current_2=$t1;
-  const focus_3=[config_0[5],config_0[6]];
+  const focus_3=[config_0[6],config_0[7]];
   const $t3=config_0[2];
   if($t3!==void 0){
-    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,config_0[3],focus_3,events_1]];
   }else if($t3===void 0){
     let $t4;
-    const $t5=config_0[4];
+    const $t5=config_0[5];
     if($t5!==void 0){
       $t4=$t5;
     }else if($t5===void 0){

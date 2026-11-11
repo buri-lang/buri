@@ -26,7 +26,7 @@ const $k24=[$k12,$k13,$k23];
 const $k25=[$k24];
 const $k26=[5,$k25];
 const $k27=[$k26];
-const $k28=[$k27,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
+const $k28=[$k27,[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0];
 const $k30=[2600n,'shrink-0'];
 const $k31=[$k30];
 const $k32=[$k31];
@@ -51,7 +51,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t5=ui_node$stack$f6at44([$k22,[ui_node$text$f6at44([[0,'one'],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t5=ui_node$stack$f6at44([$k22,[ui_node$text$f6at44([[0,'one'],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const $t6=ui_node$stack$f6at44($k28);
   let $t3;
   const $t4=void 0;
@@ -62,12 +62,12 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k11,[$t5,$t6,$t3],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
+  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k11,[$t5,$t6,$t3],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function ui_node$stack$f6at44(config_0){
-  const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
+  const events_1=[config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]];
   let $t1;
-  const $t2=config_0[3];
+  const $t2=config_0[4];
   if($t2!==void 0){
     $t1=$t2;
   }else if($t2===void 0){
@@ -76,13 +76,13 @@ function ui_node$stack$f6at44(config_0){
     $abort('no arm matched');
   }
   const current_2=$t1;
-  const focus_3=[config_0[5],config_0[6]];
+  const focus_3=[config_0[6],config_0[7]];
   const $t3=config_0[2];
   if($t3!==void 0){
-    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,config_0[3],focus_3,events_1]];
   }else if($t3===void 0){
     let $t4;
-    const $t5=config_0[4];
+    const $t5=config_0[5];
     if($t5!==void 0){
       $t4=$t5;
     }else if($t5===void 0){

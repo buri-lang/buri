@@ -26,14 +26,14 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$f6at44([$k6,[ui_node$stack$f6at44([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  const $t3=ui_node$stack$f6at44([$k6,[ui_node$stack$f6at44([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
   const bindings_14=[[__cmd_x_main_buri$Token_color(0),__cmd_x_main_buri$light(0)]];
   return $ui_node_mount(ctx_1,$t3,[[[0,bindings_14]]]);
 }
 function ui_node$stack$f6at44(config_0){
-  const events_1=[config_0[7],config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14]];
+  const events_1=[config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]];
   let $t1;
-  const $t2=config_0[3];
+  const $t2=config_0[4];
   if($t2!==void 0){
     $t1=$t2;
   }else if($t2===void 0){
@@ -42,13 +42,13 @@ function ui_node$stack$f6at44(config_0){
     $abort('no arm matched');
   }
   const current_2=$t1;
-  const focus_3=[config_0[5],config_0[6]];
+  const focus_3=[config_0[6],config_0[7]];
   const $t3=config_0[2];
   if($t3!==void 0){
-    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,focus_3,events_1]];
+    return [[4,$t3,$share(config_0[0]),$share(config_0[1]),current_2,config_0[3],focus_3,events_1]];
   }else if($t3===void 0){
     let $t4;
-    const $t5=config_0[4];
+    const $t5=config_0[5];
     if($t5!==void 0){
       $t4=$t5;
     }else if($t5===void 0){

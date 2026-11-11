@@ -6118,6 +6118,53 @@ test "a decorative stack is drawn and never read out" {
     assert.equal(page.spoken(), "Home Reports");
 }
 
+test "a stack with a role is named by its label, and the name follows its prop" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let high = signal(ctx, 40);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Home") })],
+                    role: .Some(.Navigation),
+                    label: .Some(.Const("Primary")),
+                    isCurrent: .Some(.Const(true)),
+                }),
+                ui.stack({
+                    styles: [.Layout(.Layers)],
+                    children: [
+                        ui.stack({
+                            styles: [],
+                            children: [],
+                            isDecorative: .Some(true),
+                        }),
+                    ],
+                    role: .Some(.Group),
+                    label: .Some(
+                        .Computed(fn(s) => {
+                            str.format(s, "Value from 12 to ${high.get(s)}")
+                        }),
+                    ),
+                    isInFocusOrder: .Some(.Const(true)),
+                }),
+            ],
+        }),
+    );
+    // A landmark is found by the name a reader hears, not by its text.
+    assert.isTrue(page.isCurrent("Primary"));
+    page.focus("Value from 12 to 40");
+    assert.equal(page.focused(), "Value from 12 to 40");
+    high.set(ctx, 50);
+    assert.equal(page.focused(), "Value from 12 to 50");
+    // A name is heard, not read as text.
+    assert.equal(page.spoken(), "Home");
+}
+
 /// A picture whose props a match picks, with one more style given by an update.
 fn glyph<C>(quiet: Bool): Node<C> {
     ui.image({
