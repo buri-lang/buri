@@ -329,9 +329,7 @@ fn every_case_documents_itself_and_runs_the_test_command() {
 /// to `shard_3`, so nextest can run them side by side (`harness/shard.rs`).
 fn default_backend_shard(at: usize, count: usize) {
     if let Some(why) = no_native_default() {
-        // One backend, so there is nothing to compare it against. The refusal
-        // itself is asserted where it belongs, in `build::incrementality`.
-        eprintln!("skipped: {why}");
+        ci::missing("failing", &why);
         return;
     }
     let cases = default_backend_corpus();
@@ -405,11 +403,8 @@ fn default_backend_cases() -> usize {
 /// (`native_ready`), and a C compiler to link with. At `Debug`, because that is
 /// the profile the corpus's steps run in.
 ///
-/// It is a *skip* rather than a second expectation because the machine that
-/// answers `Some` has one backend, and a test that compared one backend against
-/// itself would pass without asserting anything. What the default does there —
-/// refuse with `test-run-unavailable` rather than reroute — is pinned in
-/// `build::incrementality`, on every machine.
+/// A machine that answers `Some` has one backend, so it fails the test rather
+/// than comparing one backend against itself.
 fn no_native_default() -> Option<String> {
     let host = buri::compiler::driver::host_native_platform();
     let target = buri::compiler::backend::Target {

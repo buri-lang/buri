@@ -213,7 +213,7 @@ mod closed_pipe;
 mod started;
 // Cross-compilation to Linux, end to end through the `buri` binary: a
 // linux/x86_64 executable built from whatever host runs this, proven to be a
-// real ELF and — where `podman` is present — to run in a Linux container.
+// real ELF and, on an x86_64 Linux host, to run.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod cross;
 // Two cold builds of one program, through the `buri` binary, write the same

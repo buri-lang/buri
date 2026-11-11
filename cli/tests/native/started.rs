@@ -34,7 +34,7 @@ fn javascript() -> Option<&'static (String, PathBuf)> {
     static BUILT: OnceLock<Option<(String, PathBuf)>> = OnceLock::new();
     BUILT
         .get_or_init(|| {
-            let engine = crate::shared::js_engine()?;
+            let engine = crate::shared::js_engine();
             let (checked, paths) = crate::agreement::analyze("started", SOURCE);
             Some((
                 engine,

@@ -148,7 +148,7 @@ fn check(case: &Case) -> Vec<String> {
 
 fn generated_shard(at: usize, count: usize) {
     if let Some(why) = agreement::skip_reason() {
-        crate::ci::skipped("generated matches", &why);
+        crate::ci::missing("generated matches", &why);
         return;
     }
     let cases = cases();
@@ -239,7 +239,7 @@ fn the_checked_in_matches_are_what_the_generator_writes() {
 #[test]
 fn a_none_passed_to_a_match_that_reads_under_some() {
     if let Some(why) = agreement::skip_reason() {
-        crate::ci::skipped("generated matches", &why);
+        crate::ci::missing("generated matches", &why);
         return;
     }
     let source = r#"from "core/io" import * as io;
@@ -302,7 +302,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn a_match_on_a_literal_struct_of_one_tuple() {
     if let Some(why) = agreement::skip_reason() {
-        crate::ci::skipped("generated matches", &why);
+        crate::ci::missing("generated matches", &why);
         return;
     }
     let source = r#"from "core/io" import * as io;

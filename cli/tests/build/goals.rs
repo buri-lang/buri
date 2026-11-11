@@ -51,7 +51,7 @@ fn tiny() -> Scratch {
 #[test]
 fn the_report_names_each_phase_of_a_real_build() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::goals", &why);
+        ci::missing("build::goals", &why);
         return;
     }
     let scratch = tiny();
@@ -91,7 +91,7 @@ fn the_report_names_each_phase_of_a_real_build() {
 #[test]
 fn the_monorepo_builds_lint_clean_and_its_tests_pass() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::goals", &why);
+        ci::missing("build::goals", &why);
         return;
     }
     let scratch = Scratch::empty("goals-monorepo-tiny");

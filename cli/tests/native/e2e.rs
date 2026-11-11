@@ -64,16 +64,12 @@ use buri::compiler::backend::Profile;
 // Whichever native backend this toolchain has
 // ---------------------------------------------------------------------------
 
-/// Whether this host can build and run a native program at all.
-///
-/// The reason is printed rather than swallowed, and on a runner it panics —
-/// `harness/ci.rs` reads `BURI_CI`, every job sets it, and every one of them
-/// asserts the backend's own inputs are real bytes before the suite starts. A
-/// guard firing there is a broken runner, not a modest host.
+/// Whether this host can build and run a native program. Where it cannot, the
+/// test fails with the reason (`harness/ci.rs`).
 #[cfg(feature = "backend-llvm")]
 pub(crate) fn ready() -> bool {
     match crate::llvm::can_execute() {
-        Some(why) => !crate::ci::skipped("llvm", why),
+        Some(why) => !crate::ci::missing("llvm", why),
         None => true,
     }
 }

@@ -3133,15 +3133,12 @@ mod tests {
     /// constant.
     #[test]
     fn a_unit_name_that_is_a_path_stays_in_the_link_directory() {
-        let Ok(cc) = select(Target {
+        let cc = select(Target {
             platform: host_platform().unwrap_or(Platform::Linux),
             arch: None,
         })
-        .map(|cc| cc.in_dir(PathBuf::from("/tmp/buri-link-test"))) else {
-            // No C compiler on this machine: there is nothing to link with and
-            // nothing this test could be about.
-            return;
-        };
+        .map(|cc| cc.in_dir(PathBuf::from("/tmp/buri-link-test")))
+        .unwrap_or_else(|refusal| panic!("{}", refusal.text()));
         let dir = Path::new("/tmp/buri-link-test");
         assert_eq!(cc.object_path("main.o"), dir.join("main.o"));
         assert_eq!(cc.object_path("../escape.o"), dir.join(".._escape.o"));
@@ -3159,16 +3156,13 @@ mod tests {
     /// largest single item in a five-suite run.
     #[test]
     fn a_linker_is_asked_its_version_once_per_process() {
-        let Some(host) = host_platform() else { return };
+        let host = host_platform().expect("a linkable host platform");
         let target = Target {
             platform: host,
             arch: None,
         };
-        let (Ok(first), Ok(second)) = (select(target), select(target)) else {
-            // No C compiler on this machine: there is no linker to have an
-            // identity, and `select` says so rather than inventing one.
-            return;
-        };
+        let pick = || select(target).unwrap_or_else(|refusal| panic!("{}", refusal.text()));
+        let (first, second) = (pick(), pick());
         assert!(std::sync::Arc::ptr_eq(&first.version, &second.version));
         let term = first.version();
         assert_eq!(term, second.version());
@@ -3202,16 +3196,12 @@ mod tests {
     /// what makes the artifact run on a Linux that is not this one.
     #[test]
     fn the_libc_flags_are_the_libc_the_link_chose() {
-        let Some(host) = host_platform() else { return };
-        let Ok(cc) = select(Target {
+        let host = host_platform().expect("a linkable host platform");
+        let cc = select(Target {
             platform: host,
             arch: host_arch(),
-        }) else {
-            // No C compiler, or a Linux host that cannot link hermetically.
-            // Both are refusals rather than links, and both are asserted
-            // elsewhere; there is no command line here to be about.
-            return;
-        };
+        })
+        .unwrap_or_else(|refusal| panic!("{}", refusal.text()));
         let flags = cc.platform_flags();
         let has = |flag: &str| flags.iter().any(|f| f == flag);
         if host == Platform::Macos {
@@ -3320,13 +3310,12 @@ mod tests {
 
     /// The staged sysroot is the bytes this binary carries, under the names
     /// musl's own crt objects have — which is what `-B musl/lib` looks for.
-    ///
-    /// Skipped where there is nothing baked, because the empty case is the one
-    /// [`select`] refuses rather than the one this describes.
+    /// Only a Linux toolchain carries one.
+    #[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
     #[test]
     fn the_sysroot_is_staged_under_musls_own_names() {
         if !musl::BAKED {
-            return;
+            panic!("this toolchain carries no musl sysroot: `rustup target add` the musl target");
         }
         let dir = std::env::temp_dir().join(format!("buri-sysroot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

@@ -6,10 +6,10 @@
 #   * `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks
 #     the tree for `#[ignore`, and fails if the set it finds is not exactly the
 #     set below. That is the ratchet, and it runs on every machine.
-#   * `cli/tests/harness/ci.rs::skipped` PANICS under `BURI_CI=1`. That is the
-#     runner's half, and it catches the other kind of skip entirely — a runtime
-#     `if !supported() { return; }`, which libtest reports as a pass and no
-#     source scan can see.
+#   * `cli/tests/harness/ci.rs::missing` PANICS when a test's tool is missing,
+#     on every machine. That catches the other kind of skip entirely — a
+#     runtime `if !supported() { return; }`, which libtest reports as a pass
+#     and no source scan can see.
 #
 # The format is `<path>::<test> — <why>`. `#` starts a comment; blank lines are
 # ignored. An entry is a DEFECT WITH A NAME, not a permission: a row here is a
@@ -20,8 +20,9 @@
 # behaviour it is supposed to have, the fix is a change to the compiler rather
 # than to the test, and that change is a slice of its own. Everything else has
 # another disposition — a test that can be made to pass gets fixed, a test whose
-# host cannot answer it gets `#[cfg]`ed out for that host so it is absent rather
-# than skipped, and a test whose behaviour is no longer wanted gets deleted.
+# host cannot answer it is marked "not run here" for that host
+# (`cli/tests/ci.rs::not_run_here`), and a test whose behaviour is no longer
+# wanted gets deleted.
 #
 # THIS FILE IS EMPTY, AND THAT IS THE POINT OF IT. It shipped with two rows —
 # `row_10_derived_tojson` and `row_12_alloc_accounting`, the two agreement rows

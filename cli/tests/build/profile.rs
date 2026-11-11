@@ -243,7 +243,7 @@ fn work_count(report: &str, work: &str) -> Option<f64> {
 #[test]
 fn a_build_on_one_thread_writes_the_same_binary() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let (items, body) = many_lambdas(50);
@@ -314,7 +314,7 @@ fn phase_table(report: &str) -> Option<std::collections::HashMap<String, f64>> {
 #[test]
 fn lowering_and_unit_keys_are_billed_to_codegen_not_other() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let table = |n: usize| {
@@ -351,7 +351,7 @@ fn lowering_and_unit_keys_are_billed_to_codegen_not_other() {
 #[test]
 fn a_release_build_builds_each_llvm_module_once() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let (items, body) = many_instantiated_types(3);
@@ -487,7 +487,7 @@ fn long_matches(n: usize, pairs: bool) -> (String, String) {
 #[test]
 fn a_debug_builds_emission_is_linear_in_a_functions_length() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     each_grows_linearly(
@@ -586,7 +586,7 @@ fn long_branching(n: usize) -> (String, String) {
 #[test]
 fn reference_counting_is_linear_in_a_long_branching_expression() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     grows_linearly(
@@ -636,7 +636,7 @@ fn wide_hashed_struct(n: usize) -> (String, String) {
 #[test]
 fn deriving_hash_is_linear_in_a_structs_fields() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     grows_linearly(
@@ -687,7 +687,7 @@ fn wide_decoded_struct(n: usize) -> (String, String) {
 #[test]
 fn deriving_from_json_is_linear_in_a_structs_fields() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     grows_linearly(
@@ -751,7 +751,7 @@ fn wide_variant(n: usize) -> (String, String) {
 #[test]
 fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     each_grows_linearly(
@@ -844,7 +844,7 @@ fn field_lets(n: usize) -> (String, String) {
 #[test]
 fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     grows_linearly(
@@ -881,7 +881,7 @@ fn many_lambdas(n: usize) -> (String, String) {
 #[test]
 fn closure_conversion_is_linear_in_a_functions_lambdas() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     grows_linearly(
@@ -1748,7 +1748,7 @@ fn printing(scratch: &Scratch, dir: &str, word: &str) {
 #[test]
 fn the_line_count_leaves_out_blank_lines_and_comments() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let scratch = Scratch::repo("profile-lines");
@@ -1783,7 +1783,7 @@ fn the_line_count_leaves_out_blank_lines_and_comments() {
 #[test]
 fn the_line_count_counts_the_standard_library_once() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let scratch = Scratch::repo("profile-lines-once");
@@ -1805,7 +1805,7 @@ fn the_line_count_counts_the_standard_library_once() {
 #[test]
 fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let scratch = Scratch::repo("profile-collect");
@@ -1827,7 +1827,7 @@ fn a_build_counting_one_phase_for_callgrind_builds_as_usual() {
 #[test]
 fn a_build_callgrind_measures_counts_no_work_of_the_profile() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::profile", &why);
+        ci::missing("build::profile", &why);
         return;
     }
     let scratch = Scratch::repo("profile-collect-work");

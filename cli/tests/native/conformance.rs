@@ -915,16 +915,12 @@ pub(crate) fn skip_reason() -> Option<String> {
     stencil_unavailable_reason()
 }
 
-/// Whether this host can build and run a native artifact at all, printing the
-/// reason where it cannot.
-///
-/// The print is the point: the corpus is 26 files and 1187 test blocks, and a
-/// host that ran none of them reports the same four passing tests as a host
-/// that ran all of them. On a runner it is not a print but a panic —
-/// `harness/ci.rs` reads `BURI_CI` and the workflow sets it everywhere.
+/// Whether this host can build and run a native artifact. Where it cannot,
+/// the test fails with the reason (`harness/ci.rs`): a host that ran none of
+/// the corpus must not report the same passing tests as one that ran it all.
 fn supported() -> bool {
     match skip_reason() {
-        Some(why) => !crate::ci::skipped("native conformance", &why),
+        Some(why) => !crate::ci::missing("native conformance", &why),
         None => true,
     }
 }

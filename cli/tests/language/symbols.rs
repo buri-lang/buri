@@ -197,7 +197,7 @@ fn every_javascript_module_loads_under_node() {
         .arg("--version")
         .capped_output()
         .is_err()
-        && crate::harness::ci::skipped("language::symbols", "node is not on PATH")
+        && crate::harness::ci::missing("language::symbols", "node is not on PATH")
     {
         return;
     }

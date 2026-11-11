@@ -312,7 +312,7 @@ fn suites_linked_and_run_side_by_side_all_start() {
 #[test]
 fn a_suite_named_alone_runs_its_tests_side_by_side() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = Scratch::repo("alone-side-by-side");
@@ -643,7 +643,7 @@ fn a_runner_killed_with_no_test_in_hand_is_run_again() {
     }
     const SIGKILL: i32 = 9;
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = Scratch::repo("runner-killed-drained");
@@ -751,7 +751,7 @@ fn uneven(name: &str) -> Scratch {
 #[test]
 fn uneven_suites_report_in_label_and_declared_order() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = uneven("uneven-order");
@@ -833,7 +833,7 @@ shared build  <time>
 #[test]
 fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = uneven("uneven-handed");
@@ -859,7 +859,7 @@ fn the_largest_suite_and_its_longest_tests_are_handed_out_first() {
 #[test]
 fn the_profile_names_only_the_first_ten_tests_handed_out() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = Scratch::repo("twelve-handed");
@@ -953,7 +953,7 @@ fn handed_out(run: &Run) -> Vec<String> {
 #[test]
 fn the_test_slowest_last_time_is_handed_out_first() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = timed("timed-handed");
@@ -1003,7 +1003,7 @@ fn the_test_slowest_last_time_is_handed_out_first() {
 #[test]
 fn a_run_ordered_by_last_times_reports_as_before() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = timed("timed-report");
@@ -1281,7 +1281,7 @@ fn waiting(name: &str) -> Scratch {
 #[test]
 fn a_test_waiting_on_a_timer_lets_another_suite_run() {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::scheduling", &gap);
+        ci::missing("build::scheduling", &gap);
         return;
     }
     let scratch = waiting("idle-timer");

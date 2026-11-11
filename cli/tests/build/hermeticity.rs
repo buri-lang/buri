@@ -669,7 +669,7 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
 
     one_suite(&scratch, 1);
     if test_with_driver(&scratch, &env).is_none() {
-        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host");
         return;
     }
     let asked = count(&log, "--version");
@@ -735,7 +735,7 @@ fn the_c_drivers_version_is_asked_again_when_its_sdk_variables_change() {
 
     one_suite(&scratch, 1);
     if test_with_driver(&scratch, &env).is_none() {
-        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host");
         return;
     }
     assert_eq!(count(&log, "--version"), 1);
@@ -794,7 +794,7 @@ fn a_run_that_never_links_still_remembers_the_drivers_version() {
     // The same suite, natively: a link, keyed by the driver's version.
     one_suite(&scratch, 2);
     if test_with_driver(&scratch, &env).is_none() {
-        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host");
         return;
     }
     assert_eq!(
@@ -824,7 +824,7 @@ fn a_second_repository_links_without_starting_the_c_driver() {
         .arg("--version")
         .capped_output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
-        && crate::harness::ci::skipped("build", "the C driver is not a clang")
+        && crate::harness::ci::missing("build", "the C driver is not a clang")
     {
         return;
     }
@@ -835,7 +835,7 @@ fn a_second_repository_links_without_starting_the_c_driver() {
     env.push((LINKED.0.into(), LINKED.1.into()));
     one_suite(&first, 1);
     if test_with_driver(&first, &env).is_none() {
-        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host");
         return;
     }
 

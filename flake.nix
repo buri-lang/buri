@@ -706,6 +706,12 @@
               # limits, and cli/tests/README.md the command.
               cargoNextest
               bun
+              # The second JavaScript engine. The suite runs some programs
+              # under node as well as bun, because V8 lacks the proper tail
+              # calls JavaScriptCore has and the two disagree on some floats.
+              # CI's runners have node preinstalled; this shell pins one, so a
+              # local run and a landing run those tests too.
+              pkgs.nodejs-slim
               # `elan`, not `lean4`: elan honours `formal/lean-toolchain`, which
               # is how a Lean project pins its compiler. It fetches that
               # toolchain on first use, so the Lean shell is not hermetic the
@@ -788,6 +794,8 @@
               # The default shell's `bun`, so the suite's goldens match it
               # rather than whatever older `bun` is on `PATH`.
               bun
+              # And its node, which the suite also runs programs under.
+              pkgs.nodejs-slim
               llvm.dev
               llvm
               pkgs.libffi

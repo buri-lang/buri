@@ -176,7 +176,7 @@ fn counts(run: &Run) -> String {
 fn cold(scratch: &Scratch) -> Option<Run> {
     let run = scratch.run(&["test", "//...", "--explain"]);
     if run.stderr.contains("test-run-unavailable")
-        && crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host")
+        && crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host")
     {
         return None;
     }
@@ -427,7 +427,7 @@ fn links_after_the_first_do_not_start_the_c_driver() {
         .arg("--version")
         .capped_output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
-        && crate::harness::ci::skipped("build", "the C driver is not a clang")
+        && crate::harness::ci::missing("build", "the C driver is not a clang")
     {
         return;
     }
@@ -475,7 +475,7 @@ fn links_after_the_first_do_not_start_the_c_driver() {
         Some(run)
     };
     if run().is_none() {
-        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        crate::harness::ci::missing("build", "this toolchain cannot run a suite on its own host");
         return;
     }
     // A body edit every suite reads, so every binary is linked again.

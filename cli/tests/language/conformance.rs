@@ -412,14 +412,6 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
 /// tail calls, which is the whole reason the compiler eliminates them itself.
 #[test]
 fn tail_calls_run_in_constant_stack_on_v8() {
-    if Command::new("node")
-        .arg("--version")
-        .capped_output()
-        .is_err()
-    {
-        eprintln!("node is not installed; skipping the V8 tail-call check");
-        return;
-    }
     let scratch = Scratch::repo("tco-check");
     // Ten million bounces: far past any engine's stack, through a self call,
     // a mutually recursive pair, and an accumulator.
@@ -470,7 +462,11 @@ export fn main(host: NodeHost): Result<(), Str> {
     let artifact = scratch.artifact("cmd/deep");
     for engine in ["node", "bun"] {
         let Ok(out) = Command::new(engine).arg(&artifact).capped_output() else {
-            continue;
+            crate::harness::ci::missing(
+                "language::conformance",
+                &format!("{engine} is not on PATH"),
+            );
+            return;
         };
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -501,7 +497,7 @@ fn float_suites_pass_under_node() {
         .arg("--version")
         .capped_output()
         .is_err()
-        && crate::harness::ci::skipped("language::conformance", "node is not on PATH")
+        && crate::harness::ci::missing("language::conformance", "node is not on PATH")
     {
         return;
     }
@@ -524,6 +520,34 @@ fn float_suites_pass_under_node() {
             indent(&run.all())
         );
     }
+}
+
+/// **A machine without node fails the float suites rather than passing them.**
+/// Runs that test again in this binary with an empty `PATH`.
+#[test]
+fn the_float_suites_fail_when_node_is_missing() {
+    let empty = std::env::temp_dir().join(format!("buri-no-tools-{}", std::process::id()));
+    std::fs::create_dir_all(&empty).unwrap();
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "conformance::float_suites_pass_under_node",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("PATH", &empty)
+        .capped_output()
+        .unwrap();
+    let _ = std::fs::remove_dir(&empty);
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !out.status.success() && said.contains("node is not on PATH") && said.contains("1 failed"),
+        "with no node on PATH the float suites did not fail:\n{}",
+        indent(&said)
+    );
 }
 
 // ---------------------------------------------------------------------------

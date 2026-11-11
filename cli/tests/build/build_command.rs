@@ -130,7 +130,7 @@ exit 0
 ///
 /// macOS only: a Linux link of a musl runtime goes through a musl driver, not
 /// the `CC` given.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn an_executable_that_differs_between_two_links_is_not_reproducible() {
     let scratch = repository("build-command-counting-linker", "native", NATIVE_MAIN);
@@ -172,7 +172,7 @@ fn an_executable_that_differs_between_two_links_is_not_reproducible() {
 
 /// A `cc` found on `PATH` is the machine's, not this toolchain's, so a link
 /// that differs is put down to it by path.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn an_executable_the_machine_s_linker_made_differ_names_that_linker() {
     let scratch = repository("build-command-path-linker", "native", NATIVE_MAIN);

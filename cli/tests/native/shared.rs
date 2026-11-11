@@ -127,20 +127,28 @@ fn ran_as(cmd: &mut Command, build: &str) -> Ran {
 /// `tests/harness/mod.rs` does and a machine that has configured one engine
 /// does not silently get another. One copy, because `agreement.rs` and
 /// `differential.rs` compare a native answer against *the* reference answer,
-/// and two ideas of which engine that is would be two references.
-pub fn js_engine() -> Option<String> {
+/// and two ideas of which engine that is would be two references. Fails the
+/// test when there is none.
+pub fn js_engine() -> String {
     let configured = std::env::var("BURI_JS").ok();
     let candidates: Vec<String> = match configured {
         Some(js) => vec![js],
         None => vec![String::from("bun"), String::from("node")],
     };
-    candidates.into_iter().find(|candidate| {
+    let found = candidates.into_iter().find(|candidate| {
         Command::new(candidate)
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .capped_status()
             .is_ok_and(|s| s.success())
+    });
+    found.unwrap_or_else(|| {
+        crate::ci::missing(
+            "javascript",
+            "no JavaScript engine (`bun` or `node`) on PATH",
+        );
+        String::new()
     })
 }
 

@@ -19,7 +19,7 @@ use crate::agreement::{agree, analyze, emit_js, emitted, natives, prepared_nativ
 macro_rules! rows_or_skip {
     () => {
         if let Some(why) = skip_reason() {
-            crate::ci::skipped("backend agreement", &why);
+            crate::ci::missing("backend agreement", &why);
             return;
         }
     };
@@ -48,7 +48,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// the command line that starts each, by backend name.
 fn built(row: &str, source: &str) -> Vec<(String, Vec<PathBuf>)> {
     let (checked, paths) = analyze(row, source);
-    let engine = crate::shared::js_engine().expect("a JavaScript engine");
+    let engine = crate::shared::js_engine();
     let js = emit_js(row, &checked, &paths);
     let dir = js.parent().unwrap().to_path_buf();
     let mut programs = vec![(String::from("javascript"), vec![PathBuf::from(engine), js])];

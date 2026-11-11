@@ -68,21 +68,11 @@ fn skip_reason() -> Option<String> {
     stencil_unavailable_reason()
 }
 
-/// Whether this host can build and run a stencil artifact at all, printing the
-/// reason where it cannot.
-///
-/// The print is the whole point of routing every guard through here: a suite
-/// that returned quietly would report every test as passed on a host with no
-/// backend, which is exactly what `cli/tests/ci.rs::the_stencil_libraries_are_real` exists
-/// to catch.
-///
-/// And on a runner it does not print, it **panics** — `harness/ci.rs` reads
-/// `BURI_CI`, every job in the workflow sets it, and every one of them asserts
-/// the stencil libraries are real bytes before the suite starts. A guard firing
-/// there is a broken runner rather than a modest host.
+/// Whether this host can build and run a stencil artifact. Where it cannot,
+/// the test fails with the reason (`harness/ci.rs`).
 pub fn supported() -> bool {
     match skip_reason() {
-        Some(why) => !crate::ci::skipped("stencil", &why),
+        Some(why) => !crate::ci::missing("stencil", &why),
         None => true,
     }
 }
@@ -3163,7 +3153,7 @@ fn the_products_own_link_produces_a_program_that_runs() {
         return;
     }
     let Some(platform) = link::host_platform() else {
-        eprintln!("no linkable host platform");
+        crate::ci::missing("stencil", "no linkable host platform");
         return;
     };
     let target = Target {
@@ -3190,16 +3180,12 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert!(!units.is_empty(), "no codegen units were emitted");
 
     let dir = workspace("product-link");
-    // The refusal is *printed*, not swallowed. `link::select` refuses for two
-    // very different reasons — no `cc` at all, which is a machine this test
-    // cannot be about, and a Linux toolchain that cannot link hermetically,
-    // which is a bug somebody has to see. A bare "no linker driver" reported
-    // the second as the first, and a skip nobody can read the reason for is the
-    // shape of green this repository refuses.
+    // A refusal fails the test with `link::select`'s own words, which tell no
+    // `cc` at all apart from a Linux toolchain that cannot link hermetically.
     let linker = match link::select(target) {
         Ok(linker) => linker,
         Err(refusal) => {
-            eprintln!("{}", refusal.text());
+            crate::ci::missing("stencil", &refusal.text());
             return;
         }
     };
@@ -3357,13 +3343,43 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// `Omitted` for a program that prints nothing, the `link` key will stop
 /// carrying the archive's digest for it, and this test should be rewritten to
 /// pin the new pair of numbers rather than deleted.
+/// **A machine without a C compiler fails the link tests rather than passing
+/// them.** Runs one again in this binary with an empty `PATH` and no `CC`.
+#[test]
+fn the_link_tests_fail_when_there_is_no_c_compiler() {
+    let empty = std::env::temp_dir().join(format!("buri-no-cc-{}", std::process::id()));
+    std::fs::create_dir_all(&empty).unwrap();
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "stencil::hello_world_still_links_the_runtime_archive",
+            "--exact",
+            "--nocapture",
+        ])
+        .env("PATH", &empty)
+        .env_remove("CC")
+        .capped_output()
+        .unwrap();
+    let _ = std::fs::remove_dir(&empty);
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !out.status.success()
+            && said.contains("no C compiler on PATH")
+            && said.contains("1 failed"),
+        "with no C compiler the link test did not fail:\n{said}"
+    );
+}
+
 #[test]
 fn hello_world_still_links_the_runtime_archive() {
     if !supported() {
         return;
     }
     let Some(platform) = link::host_platform() else {
-        eprintln!("no linkable host platform");
+        crate::ci::missing("stencil", "no linkable host platform");
         return;
     };
     let target = Target {
@@ -3371,7 +3387,7 @@ fn hello_world_still_links_the_runtime_archive() {
         arch: link::host_arch(),
     };
     if let Err(refusal) = link::select(target) {
-        eprintln!("{}", refusal.text());
+        crate::ci::missing("stencil", &refusal.text());
         return;
     }
 
@@ -3448,12 +3464,9 @@ export fn main(host: NativeHost): Result<(), Str> {
         let stripped = debug_stripped_size(&out, &dir.join("app-stripped"));
         let (linked_ceiling, stripped_ceiling) = size_ceilings(target);
         println!(
-            "{name}: {size} bytes linked ({:.1}% of the {archive}-byte archive), {} stripped",
+            "{name}: {size} bytes linked ({:.1}% of the {archive}-byte archive), {stripped} \
+             bytes stripped",
             (size as f64 / archive as f64) * 100.0,
-            match stripped {
-                Some(bytes) => format!("{bytes} bytes"),
-                None => "no `strip` on this host, nothing".to_string(),
-            }
         );
         assert!(
             size < linked_ceiling,
@@ -3461,19 +3474,19 @@ export fn main(host: NativeHost): Result<(), Str> {
              target: the runtime archive is being linked rather than trimmed — read this test's \
              doc comment for the sizes the ceiling is drawn from"
         );
-        if let Some(bytes) = stripped {
-            assert!(
-                bytes < stripped_ceiling,
-                "`{name}` is {bytes} bytes with its debug information removed, against a \
-                 {stripped_ceiling}-byte ceiling for this target: the artifact is no longer \
-                 being dead-stripped down to the part of the runtime it uses — a link that \
-                 stopped stripping measured about 300 KB more than one that did"
-            );
-        }
+        assert!(
+            stripped < stripped_ceiling,
+            "`{name}` is {stripped} bytes with its debug information removed, against a \
+             {stripped_ceiling}-byte ceiling for this target: the artifact is no longer being \
+             dead-stripped down to the part of the runtime it uses — a link that stopped \
+             stripping measured about 300 KB more than one that did"
+        );
         // A thread-local that starts all zeros costs the file nothing. One
         // non-zero word stores the whole initialiser in every program: the
         // block cache's was 16 552 bytes, 56 once it started zeroed.
-        if let Some(bytes) = thread_local_initialiser_size(&out) {
+        {
+            let bytes = thread_local_initialiser_size(&out)
+                .unwrap_or_else(|| panic!("`{name}`: no thread-local section size could be read"));
             assert!(
                 bytes < 1024,
                 "`{name}` carries {bytes} bytes of thread-local initialiser: a runtime \
@@ -3508,8 +3521,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
-/// The size of `artifact` with its debug information removed, written to `to`,
-/// or `None` where this host has no `strip`.
+/// The size of `artifact` with its debug information removed, written to `to`.
 ///
 /// The one measurement that means the same thing on both platforms. An ELF link
 /// copies its inputs' DWARF into the executable and `ld64` leaves it in the
@@ -3518,10 +3530,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// stripped size that moves when a link stops dead-stripping.
 ///
 /// `-S` is the one spelling both accept: `--strip-debug` to GNU `strip`, "remove
-/// debugging symbols" to the macOS one. A host with neither is not a failure —
-/// the linked-size ceiling above is what still runs there — so this answers
-/// `None` and says so on the line the test prints.
-fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
+/// debugging symbols" to the macOS one. A host with neither fails the test.
+fn debug_stripped_size(artifact: &Path, to: &Path) -> u64 {
     // `artifact` is the file the caller is about to *execute*, so this function
     // opens it for reading and never for writing: the measurement is taken on a
     // copy and `strip` is pointed at the copy. `execve` refuses a file that any
@@ -3535,29 +3545,26 @@ fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
     // it runs, so a write handle still open across a spawn outlives the scope
     // that opened it — which is why the lifetime is spelled out here rather than
     // left inside `fs::copy`.
-    let bytes = std::fs::read(artifact).ok()?;
+    let bytes = std::fs::read(artifact).unwrap();
     {
-        let mut file = std::fs::File::create(to).ok()?;
-        file.write_all(&bytes).ok()?;
-        file.sync_all().ok()?;
+        let mut file = std::fs::File::create(to).unwrap();
+        file.write_all(&bytes).unwrap();
+        file.sync_all().unwrap();
     }
     // `output` runs the child to completion and reaps it, so `strip` has exited
     // and let go of `to` before its size is read — let alone before the caller
     // executes anything.
-    let ran = Command::new("strip")
-        .arg("-S")
-        .arg(to)
-        .capped_output()
-        .ok()?;
-    if !ran.status.success() {
-        eprintln!(
-            "`strip -S` refused {}: {}",
-            to.display(),
-            String::from_utf8_lossy(&ran.stderr)
-        );
-        return None;
-    }
-    std::fs::metadata(to).ok().map(|m| m.len())
+    let Ok(ran) = Command::new("strip").arg("-S").arg(to).capped_output() else {
+        crate::ci::missing("stencil", "`strip` is not on PATH");
+        return 0;
+    };
+    assert!(
+        ran.status.success(),
+        "`strip -S` refused {}: {}",
+        to.display(),
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    std::fs::metadata(to).unwrap().len()
 }
 
 /// The bytes of initialised thread-local data `artifact` stores: Mach-O's
@@ -3570,7 +3577,7 @@ fn thread_local_initialiser_size(artifact: &Path) -> Option<u64> {
         ("readelf", &["-SW"], ".tdata")
     };
     let Ok(ran) = Command::new(tool).args(args).arg(artifact).capped_output() else {
-        eprintln!("no `{tool}` on this host, so the thread-local initialiser goes unmeasured");
+        crate::ci::missing("stencil", &format!("`{tool}` is not on PATH"));
         return None;
     };
     assert!(
@@ -3954,10 +3961,11 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
     // And what the link does with it, which is the half that is per-target.
     let binary = build_linked_by("thread-door-link", source, None, shared::driver_link);
     let nm = Command::new("nm").arg(&binary).capped_output().unwrap();
-    if !nm.status.success() {
-        eprintln!("no `nm` on this host: the linked half was not checked");
-        return;
-    }
+    assert!(
+        nm.status.success(),
+        "`nm` refused the linked program:\n{}",
+        String::from_utf8_lossy(&nm.stderr)
+    );
     let listed = String::from_utf8_lossy(&nm.stdout);
     if cfg!(target_os = "macos") {
         assert!(
@@ -4157,28 +4165,30 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
 ///
 /// The stencils have to exist — a toolchain built where `cc` could not
 /// cross-compile has empty ones — and the tools this file drives have to be on
-/// `PATH`. Missing tools skip rather than fail, which is the same bar the rest
-/// of the file applies to a missing C compiler.
-fn cross_tools() -> Option<()> {
+/// `PATH`. A missing tool fails the test.
+fn cross_tools() {
     for t in ["ld.lld", "llvm-nm", "llvm-objdump", "llvm-readelf"] {
-        Command::new(t)
+        let present = Command::new(t)
             .arg("--version")
             .capped_output()
-            .ok()
-            .filter(|o| o.status.success())?;
+            .is_ok_and(|o| o.status.success());
+        if !present {
+            crate::ci::missing("stencil", &format!("`{t}` is not on PATH"));
+        }
     }
-    Some(())
 }
 
 /// One cross target's unit objects for a snippet.
-fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::Emitted>> {
+fn cross_units(source: &str, arch: Arch) -> Vec<buri::compiler::backend::Emitted> {
     let stencil_target = match arch {
         Arch::Arm64 => stencil_abi::StencilTarget::LinuxArm64,
         Arch::X86_64 => stencil_abi::StencilTarget::LinuxX86_64,
     };
     if !buri::compiler::backend::stencil::available_for(stencil_target) {
-        eprintln!("this toolchain has no {} stencils", stencil_target.slug());
-        return None;
+        crate::ci::missing(
+            "stencil",
+            &format!("this toolchain has no {} stencils", stencil_target.slug()),
+        );
     }
     let (program, tables) = lowered(source);
     let target = Target {
@@ -4189,15 +4199,9 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
         profile: Profile::Debug,
         target,
     };
-    match Stencil::default().emit(&program, &tables, &opts) {
-        Ok(units) => Some(units),
-        Err(d) => {
-            // A refusal is an answer too — a toolchain whose clang could not
-            // cross-compile has no library for this target. The caller decides.
-            eprintln!("{} refused: {:?}", stencil_target.slug(), messages(&d));
-            None
-        }
-    }
+    Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("{} refused: {:?}", stencil_target.slug(), messages(&d)))
 }
 
 /// A program with enough shapes in it to reach every relocation kind
@@ -4274,13 +4278,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// and discards the rest, so the image defines each glue function once.
 #[test]
 fn shared_glue_is_kept_once_per_program_on_elf() {
-    if cross_tools().is_none() {
-        eprintln!("no cross tool-chain on PATH");
-        return;
-    }
-    let Some(units) = cross_units(SHARED_GLUE_PROGRAM, Arch::X86_64) else {
-        return;
-    };
+    cross_tools();
+    let units = cross_units(SHARED_GLUE_PROGRAM, Arch::X86_64);
     let dir = workspace("cross-shared-glue");
     let objects = write_objects(&dir, &units);
 
@@ -4329,13 +4328,8 @@ fn objects_link_and_every_relocation_resolves(
     triple: &str,
     emulation: &str,
 ) {
-    if cross_tools().is_none() {
-        eprintln!("no cross tool-chain on PATH");
-        return;
-    }
-    let Some(units) = cross_units(CROSS_PROGRAM, arch) else {
-        return;
-    };
+    cross_tools();
+    let units = cross_units(CROSS_PROGRAM, arch);
     assert!(!units.is_empty(), "no codegen units were emitted");
     let dir = workspace(&format!(
         "cross-{}",
@@ -4418,12 +4412,10 @@ fn objects_link_and_every_relocation_resolves(
 #[test]
 fn a_cross_emission_is_reproducible() {
     for arch in [Arch::Arm64, Arch::X86_64] {
-        let (Some(a), Some(b)) = (
+        let (a, b) = (
             cross_units(CROSS_PROGRAM, arch),
             cross_units(CROSS_PROGRAM, arch),
-        ) else {
-            continue;
-        };
+        );
         assert_eq!(a.len(), b.len());
         for (x, y) in a.iter().zip(&b) {
             assert_eq!(x.name, y.name);
@@ -4480,8 +4472,14 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
         ),
     ] {
         if !buri::compiler::backend::stencil::available_for(stencil_target) {
-            eprintln!("this toolchain has no {} stencils", stencil_target.slug());
-            continue;
+            // Only a macOS host builds the macOS library (`cli/build.rs`).
+            if target.platform == Platform::Macos && !cfg!(target_os = "macos") {
+                continue;
+            }
+            crate::ci::missing(
+                "stencil",
+                &format!("this toolchain has no {} stencils", stencil_target.slug()),
+            );
         }
         let opts = Options {
             profile: Profile::Debug,
@@ -4702,8 +4700,7 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
 #[test]
 fn cross_emission_throughput() {
     if !buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxArm64) {
-        eprintln!("no linux-arm64 stencils");
-        return;
+        crate::ci::missing("stencil", "this toolchain has no linux-arm64 stencils");
     }
     let small = straight_line_program(EMIT_LARGE_FUNCTIONS / EMIT_SIZE_RATIO);
     let large = straight_line_program(EMIT_LARGE_FUNCTIONS);
@@ -4742,9 +4739,14 @@ fn cross_emission_throughput() {
             Stencil::default().emit(&small.0, &small.1, &opts),
         ) {
             (Ok(units), Ok(_)) => units.len(),
-            (Err(d), _) | (_, Err(d)) => {
-                eprintln!("{name}: stencil refused: {:?}", messages(&d));
+            // Only a macOS host builds the macOS library (`cli/build.rs`).
+            (Err(_), _) | (_, Err(_))
+                if target.platform == Platform::Macos && !cfg!(target_os = "macos") =>
+            {
                 continue;
+            }
+            (Err(d), _) | (_, Err(d)) => {
+                panic!("{name}: stencil refused: {:?}", messages(&d));
             }
         };
         let cost = |(program, tables): &(monomorphize::Program, _), reps| {

@@ -59,7 +59,7 @@ fn caches(scratch: &Scratch, exe: &Path) {
 
 /// A universal (fat) Mach-O has no `LC_UUID` at its start, so `buri` knows
 /// itself by the hash of its bytes instead.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn a_universal_buri_still_caches() {
     let scratch = repository();
@@ -78,7 +78,7 @@ fn a_universal_buri_still_caches() {
 
 /// A `buri` whose note segments claim 8-byte alignment reads its notes at that
 /// alignment, and still caches.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_buri_with_widely_aligned_notes_still_caches() {
     let mut bytes = std::fs::read(buri()).unwrap();
@@ -108,7 +108,7 @@ fn a_buri_with_widely_aligned_notes_still_caches() {
 /// A `buri` whose note segments claim more bytes than any header holds doesn't
 /// believe them, knows itself by the hash of its bytes instead, and still
 /// caches.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_buri_whose_notes_claim_gigabytes_still_caches() {
     let mut bytes = std::fs::read(buri()).unwrap();

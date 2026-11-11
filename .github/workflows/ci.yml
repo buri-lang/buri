@@ -24,11 +24,6 @@ name: CI
 #   `musl-gcc` driver `build/link.rs` falls back to. The jobs without clang
 #   don't add it: given a musl std, `ring` needs a C compiler that targets musl.
 #
-# * **`BURI_CI: 1`**, workflow-level, which is the definition of "every job".
-#   `cli/tests/harness/ci.rs` turns every `if !supported() { return; }` into a
-#   PANIC when it is set, so a degraded toolchain fails loudly instead of
-#   reporting a vacuous green.
-#
 # There are no shell scripts here on purpose. The assertions that used to live in
 # `.github/scripts/` — the stencil libraries and the runtime archive are real
 # bytes, the tools are on `PATH`, a linked Linux artifact is a static PIE with a
@@ -62,9 +57,6 @@ env:
   # a test build, and CPU is what a four-core runner is short of.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
-  # NEVER SKIP A TEST ON CI. `cli/tests/harness/ci.rs::skipped` panics when this
-  # is set; `cli/tests/ci.rs` asserts this line is still here.
-  BURI_CI: 1
 
 jobs:
   # The whole suite, on every host this toolchain supports. Compiled programs are

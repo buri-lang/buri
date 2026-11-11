@@ -9,12 +9,6 @@
 //!
 //! ## The workflow's half
 //!
-//! * **`BURI_CI=1`.** `cli/tests/harness/ci.rs` turns every
-//!   `if !supported() { return; }` in the native suite into a panic when it is
-//!   set. Unset, they go back to returning quietly — which is right on a
-//!   laptop and is exactly the vacuous green a runner must not report. Delete
-//!   the `env:` line and every native test on a runner with a broken toolchain
-//!   passes again, and nothing anywhere says so.
 //! * **The deferrals.** Three tests in `build/repositories.rs` assert
 //!   time, are meaningless in a debug profile, and are run by the
 //!   `language-server-budget` job instead of by the `test` matrix.
@@ -38,8 +32,8 @@
 //! suite still runs, every guarded test returns early, and `cargo test` exits
 //! zero having proved nothing. Bytes on disk are the only thing that can tell
 //! that apart from a real run, and the tests at the bottom of this file are what
-//! read them — under `BURI_CI`, because on a laptop an empty library is a fair
-//! answer and on a runner it is a broken machine.
+//! read them, on every machine: the flake's dev shell has every tool these
+//! bytes need.
 
 #![allow(
     clippy::unwrap_used,
@@ -236,14 +230,25 @@ fn names_ignore(attribute: &str) -> bool {
     false
 }
 
-/// Every `ignore` attribute in the tree, as `<repo-relative path>::<test name>`.
+/// Whether an attribute marks a test this host cannot run:
+/// `#[cfg_attr(not(<target_os or target_arch>), ignore = "not run here: <why>")]`.
+///
+/// Such a test runs on the hosts that can answer it, and every other host's
+/// suite summary lists it as skipped, so it never counts as a pass.
+fn not_run_here(attribute: &str) -> bool {
+    // Read without whitespace, so one rustfmt splits over lines still counts.
+    let a: String = attribute.chars().filter(|c| !c.is_whitespace()).collect();
+    a.starts_with("#[cfg_attr(not(")
+        && (a.contains("target_os") || a.contains("target_arch"))
+        && a.contains("ignore=\"notrunhere:")
+}
+
+/// Every `ignore` attribute in the tree, as `<repo-relative path>::<test name>`,
+/// except the [`not_run_here`] ones.
 ///
 /// An attribute is read whole, across however many lines it spans, and matched
 /// as a word — so `#[cfg_attr(…, ignore = "…")]` counts and a `let gitignore =`
-/// does not. A conditional ignore is a skip on the hosts its condition selects,
-/// and this repository's answer to "this host cannot answer it" is `#[cfg]` —
-/// the test is absent rather than reported as not run — so both spellings
-/// belong in the list this is compared against.
+/// does not.
 fn ignored_in_tree() -> BTreeMap<String, PathBuf> {
     let root = repo_root();
     let mut out = BTreeMap::new();
@@ -290,7 +295,7 @@ fn ignored_in_tree() -> BTreeMap<String, PathBuf> {
                     break;
                 }
             }
-            if !names_ignore(&attribute) {
+            if !names_ignore(&attribute) || not_run_here(&attribute) {
                 continue;
             }
             let name = lines[i.saturating_sub(1)..]
@@ -333,8 +338,8 @@ fn the_only_ignored_tests_are_the_ones_named_here() {
         unsigned.is_empty(),
         "these tests are `#[ignore]`d and .github/known-skips.txt does not name them:\n  {}\n\n\
          A skipped test costs what an enabled one costs to compile and proves nothing. The \
-         dispositions are: fix it; `#[cfg]` it out on the host that genuinely cannot answer it, so \
-         it is absent rather than reported as not run; or delete it, if the behaviour it asserts \
+         dispositions are: fix it; mark it `not run here` on the hosts that genuinely cannot \
+         answer it (`not_run_here` has the spelling); or delete it, if the behaviour it asserts \
          is no longer wanted. If it is red because the compiler is missing a behaviour it is \
          supposed to have, and that is a slice of its own, add a row to that file naming the slice.",
         unsigned.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  ")
@@ -360,36 +365,6 @@ fn the_only_ignored_tests_are_the_ones_named_here() {
 // ---------------------------------------------------------------------------
 // The workflow
 // ---------------------------------------------------------------------------
-
-/// The workflow's own `env:` block — the one before `jobs:`, which GitHub hands
-/// to every job and every step in the file.
-fn workflow_env(text: &str) -> String {
-    let before = text.split("\njobs:").next().unwrap_or(text);
-    let Some(at) = before.rfind("\nenv:\n") else {
-        panic!("ci.yml has no workflow-level `env:` block");
-    };
-    before[at..].to_string()
-}
-
-/// `BURI_CI=1` reaches every job, because it is set once above all of them.
-///
-/// A workflow-level `env:` is not a shortcut here, it is the correctness
-/// argument: a per-job block is a line somebody adding the ninth job forgets,
-/// and the ninth job is then the one where a broken toolchain passes. A
-/// job-level `env:` overrides only the keys it names, so the jobs that set
-/// `CC` or `BURI_PERF` keep this one.
-#[test]
-fn the_workflow_sets_buri_ci_for_every_job() {
-    let text = workflow();
-    let env = workflow_env(&text);
-    assert!(
-        env.contains("BURI_CI: 1"),
-        "the workflow-level `env:` block does not set `BURI_CI: 1`. Without it every \
-         `if !supported() {{ return; }}` in the native suite goes back to returning quietly on a \
-         runner, and a job whose toolchain is broken reports every native test as passed. \
-         `cli/tests/harness/ci.rs` is the other half.\n--- the block ---\n{env}"
-    );
-}
 
 /// The jobs of `ci.yml`, as `name -> the whole of its text`.
 ///
@@ -1975,10 +1950,8 @@ fn every_deferral_names_a_job_that_still_asks_for_it() {
 // computed from — so the question "did this toolchain build for real" is asked
 // by the suite rather than beside it.
 //
-// Each opens with `ci::on()`. That is not a skip in the sense this repository
-// refuses: a contributor with no clang has an empty stencil library and that is
-// the correct state of their machine, while a runner with one is a machine whose
-// setup broke. The guard is which of the two hosts is being asked.
+// They hold on every machine. Every tool these bytes need is in the flake's
+// dev shell, so an empty library is a broken setup wherever it shows up.
 // ---------------------------------------------------------------------------
 
 #[path = "harness/ci.rs"]
@@ -1989,15 +1962,6 @@ mod ci;
 // `harness/mod.rs`'s, one level under `run_in`.
 #[path = "harness/hang.rs"]
 mod hang;
-
-/// This assertion is about a runner, and this host is not one.
-fn only_on_a_runner(what: &str) -> bool {
-    if ci::on() {
-        return false;
-    }
-    eprintln!("ci: `{what}` is asserted on a runner only (BURI_CI=1 is unset here)");
-    true
-}
 
 /// Every tool the workflow installs is on `PATH`.
 ///
@@ -2010,9 +1974,6 @@ fn only_on_a_runner(what: &str) -> bool {
 /// they are absent, so the tools being present is what makes those tests run.
 #[test]
 fn every_tool_the_workflow_assumes_is_on_path() {
-    if only_on_a_runner("every_tool_the_workflow_assumes_is_on_path") {
-        return;
-    }
     let mut needed = vec!["cc", "clang", "node", "bun"];
     if cfg!(target_os = "linux") {
         needed.extend([
@@ -2062,9 +2023,6 @@ fn every_tool_the_workflow_assumes_is_on_path() {
 fn the_stencil_libraries_are_real() {
     use buri::compiler::backend::stencil::{self, abi::StencilTarget};
 
-    if only_on_a_runner("the_stencil_libraries_are_real") {
-        return;
-    }
     // Both Linux libraries are cross-compilable from any clang, so both are
     // required on every host — that is what makes `linux-arm64` a container port
     // rather than a second backend.
@@ -2201,9 +2159,6 @@ fn the_runtime_archive_is_real() {
     use buri::build::musl::Libc;
     use buri::compiler::backend::runtime_native as rt;
 
-    if only_on_a_runner("the_runtime_archive_is_real") {
-        return;
-    }
     assert!(
         !rt::ARCHIVE.is_empty(),
         "libburi_rt.a is empty, so this toolchain has no native runtime: every native test \
@@ -2533,12 +2488,10 @@ fn the_published_crate_ships_the_runtime() {
 /// to be: the properties below are a fixed offset into a header each, the file
 /// is already bytes in hand, and a parse that is thirty lines of arithmetic
 /// cannot mis-split a column the way an `awk '{print $(NF-1)}'` can.
-#[cfg(target_os = "linux")]
 struct Image {
     bytes: Vec<u8>,
 }
 
-#[cfg(target_os = "linux")]
 impl Image {
     fn read(path: &Path) -> Self {
         let bytes = std::fs::read(path)
@@ -2668,19 +2621,16 @@ impl Image {
 /// dev build — `//cmd/server` needs `host.HostFileSystem.readFile` and `//tools/report`
 /// needs `host.HostEnvironment.arguments`. A small program that only prints is what this
 /// needs; a small artifact's bytes are no less reproducible.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     use std::process::Command;
 
     if !buri::compiler::backend::stencil::AVAILABLE {
-        assert!(
-            !ci::on(),
-            "BURI_CI=1 and this toolchain has no stencils — `the_stencil_libraries_are_real` says \
-             which blob is empty."
+        panic!(
+            "this toolchain has no stencils — `the_stencil_libraries_are_real` says which blob \
+             is empty."
         );
-        eprintln!("ci: skipped (this toolchain builds no runnable native program)");
-        return;
     }
 
     let arch = if cfg!(target_arch = "aarch64") {
@@ -2730,15 +2680,13 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     let mut linked = 0;
     for linker in ["mold", "lld"] {
         let driver = if linker == "lld" { "ld.lld" } else { linker };
-        if !Command::new(driver)
-            .arg("--version")
-            .capped_output()
-            .is_ok_and(|o| o.status.success())
-        {
-            assert!(!ci::on(), "BURI_CI=1 and `{driver}` is not on PATH");
-            eprintln!("ci: {linker} is not installed, so its image is not read");
-            continue;
-        }
+        assert!(
+            Command::new(driver)
+                .arg("--version")
+                .capped_output()
+                .is_ok_and(|o| o.status.success()),
+            "`{driver}` is not on PATH"
+        );
         linked += 1;
         let dir = repo(linker);
         let out = Command::new(buri)
@@ -2861,7 +2809,6 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
 ///
 /// Found by reading rather than by knowing the layout: object files are ELF too,
 /// and `e_type` is what separates a relocatable from an image.
-#[cfg(target_os = "linux")]
 fn executable_under(dir: &Path) -> Option<PathBuf> {
     let mut found = None;
     let mut stack = vec![dir.to_path_buf()];

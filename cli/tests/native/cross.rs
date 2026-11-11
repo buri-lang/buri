@@ -1,22 +1,17 @@
 //! Cross-compilation to Linux, end to end through the `buri` binary.
 //!
 //! Every other native tier here builds and runs a *host* binary. This one drives
-//! the real CLI to build a `linux/x86_64` executable from whatever host runs it,
-//! proves the result is a genuine static-PIE ELF, and — where `podman` is on
-//! `PATH` — proves it **runs** in a Linux container. The container is the only
-//! thing that can settle "runnable" from a mac, because a mac cannot execute a
-//! Linux binary itself (ARCHITECTURE.md §9).
+//! the real CLI to build a `linux/x86_64` executable from whatever host runs it
+//! and proves the result is a genuine static-PIE ELF. Each case's `_runs` twin
+//! also runs it, which only an x86_64 Linux host can do; elsewhere the twin
+//! shows as "not run here".
 //!
-//! Gated on the target's Rust standard library being installed
-//! (`rustup target add x86_64-unknown-linux-musl`): without it the cross runtime
-//! cannot be built and the run is skipped, the same shape every other tier here
-//! uses for a toolchain that cannot serve it. On a `linux/x86_64` host the same
-//! build takes the baked host path rather than the cross one, and the ELF is
-//! just as good a proof there — so the test is meaningful on a mac and harmless
-//! on Linux.
+//! The cross runtime needs the target's Rust standard library
+//! (`rustup target add x86_64-unknown-linux-musl`, which the dev shell has);
+//! without it the test fails.
 
 use crate::hang::Capped;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 /// A program that prints one line and exits — the smallest whole program whose
@@ -60,6 +55,19 @@ fn cross_ready() -> bool {
         .is_file()
 }
 
+/// Fails the test unless [`cross_ready`].
+fn require_cross() {
+    if !cross_ready() {
+        crate::ci::missing(
+            "cross",
+            "rustc has no x86_64-unknown-linux-musl standard library",
+        );
+    }
+}
+
+/// Whether this host can execute an x86_64 Linux binary.
+const RUNS_HERE: bool = cfg!(all(target_os = "linux", target_arch = "x86_64"));
+
 /// Lays out a one-binary repository under `dir` that declares a `linux/x86_64`
 /// output and prints `native`.
 fn write_repo(dir: &Path) {
@@ -96,13 +104,23 @@ fn is_linux_x86_64_pie(bytes: &[u8]) -> bool {
     magic && elf64 && et_dyn && x86_64
 }
 
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
-fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
-    if !cross_ready() {
-        // No `x86_64-unknown-linux-musl` standard library: the cross runtime
-        // cannot be built here. `rustup target add x86_64-unknown-linux-musl`.
-        return;
-    }
+fn a_linux_x86_64_artifact_is_a_real_elf() {
+    hello_case();
+}
+
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    ignore = "not run here: needs an x86_64 Linux host"
+)]
+#[test]
+fn a_linux_x86_64_artifact_runs() {
+    hello_case();
+}
+
+fn hello_case() {
+    require_cross();
 
     // This process's own, so two runs of the suite in one checkout don't
     // delete each other's repository mid-build. `sweep` takes old ones.
@@ -137,14 +155,9 @@ fn a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container() {
         "the artifact is not a 64-bit x86-64 static-PIE ELF"
     );
 
-    // The one thing a mac cannot check by running it: that it runs. Where
-    // `podman` is present, run it in a Linux container and read its line back.
-    // A container that cannot even start — no image, no network — is a skip
-    // rather than a failure, because the ELF above already settles the build;
-    // a container that *ran* and said the wrong thing is a failure.
-    if let Some(ran) = run_in_container(&artifact) {
+    if RUNS_HERE {
         assert_eq!(
-            ran.trim(),
+            run_here(&artifact).trim(),
             "native",
             "the cross-built binary printed the wrong thing"
         );
@@ -184,11 +197,23 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
 
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn a_cross_build_runs_its_generator_on_the_host() {
-    if !cross_ready() {
-        return;
-    }
+    generator_case();
+}
+
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    ignore = "not run here: needs an x86_64 Linux host"
+)]
+#[test]
+fn a_cross_build_runs_its_generator_on_the_host_runs() {
+    generator_case();
+}
+
+fn generator_case() {
+    require_cross();
     let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("cross-generator-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
@@ -233,9 +258,9 @@ fn a_cross_build_runs_its_generator_on_the_host() {
         is_linux_x86_64_pie(&bytes),
         "the artifact is not a 64-bit x86-64 static-PIE ELF"
     );
-    if let Some(ran) = run_in_container(&artifact) {
+    if RUNS_HERE {
         assert_eq!(
-            ran.trim(),
+            run_here(&artifact).trim(),
             "generated",
             "the generated module did not reach the binary"
         );
@@ -270,11 +295,23 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// Lambdas over a value, handed on as values in two packages, cross-build to an
 /// x86-64 Linux executable that prints what they compute.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 #[test]
 fn closures_in_two_packages_cross_build_for_linux_x86_64() {
-    if !cross_ready() {
-        return;
-    }
+    closures_case();
+}
+
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    ignore = "not run here: needs an x86_64 Linux host"
+)]
+#[test]
+fn closures_in_two_packages_cross_build_for_linux_x86_64_runs() {
+    closures_case();
+}
+
+fn closures_case() {
+    require_cross();
     let scratch = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("cross-closures-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
@@ -316,50 +353,25 @@ fn closures_in_two_packages_cross_build_for_linux_x86_64() {
         is_linux_x86_64_pie(&bytes),
         "the artifact is not a 64-bit x86-64 static-PIE ELF"
     );
-    if let Some(ran) = run_in_container(&artifact) {
-        assert_eq!(ran.trim(), "33", "the closures computed the wrong thing");
+    if RUNS_HERE {
+        assert_eq!(
+            run_here(&artifact).trim(),
+            "33",
+            "the closures computed the wrong thing"
+        );
     }
     let _ = std::fs::remove_dir_all(&scratch);
 }
 
-/// Runs `artifact` in a `docker.io/library/rust` container and answers its
-/// standard output, or `None` when no container could be started.
-fn run_in_container(artifact: &Path) -> Option<String> {
-    resolve("podman")?;
-    let dir = artifact.parent()?;
-    let name = artifact.file_name()?.to_string_lossy().into_owned();
-    let mount = format!("{}:/work", dir.display());
-    let out = Command::new("podman")
-        .args([
-            "run",
-            "--rm",
-            "-v",
-            &mount,
-            "-w",
-            "/work",
-            "docker.io/library/rust:1.89",
-        ])
-        .arg(format!("./{name}"))
+/// Runs `artifact` on this host and answers its standard output.
+fn run_here(artifact: &Path) -> String {
+    let out = Command::new(artifact)
         .capped_output()
-        .ok()?;
-    // A pull or runtime-setup failure is an environment gap, not a product bug:
-    // its message is on stderr and the program never ran, so there is no output
-    // to check and this is a skip.
-    if !out.status.success() && out.stdout.is_empty() {
-        return None;
-    }
+        .expect("run the cross-built binary");
     assert!(
         out.status.success(),
-        "the container ran the binary and it failed:\n{}",
+        "the cross-built binary failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    String::from_utf8(out.stdout).ok()
-}
-
-/// Whether a program is on `PATH`.
-fn resolve(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
+    String::from_utf8(out.stdout).expect("UTF-8 output")
 }

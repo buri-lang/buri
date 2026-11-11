@@ -469,7 +469,7 @@ fn a_damaged_record_of_unlisted_reads_links_again() {
 #[test]
 fn a_runner_restored_under_a_fresh_home_is_no_new_executable() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::rare_paths", &why);
+        ci::missing("build::rare_paths", &why);
         return;
     }
     let scratch = Scratch::repo("rare-fresh-home");

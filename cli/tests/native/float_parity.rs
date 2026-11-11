@@ -171,7 +171,7 @@ fn engine() -> Option<&'static str> {
 
 fn supported() -> bool {
     if !AVAILABLE {
-        return !crate::ci::skipped(
+        return !crate::ci::missing(
             "float parity",
             "no runtime archive was built for this host, so there is nothing to render a float \
              with",
@@ -290,7 +290,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
         return;
     }
     let Some(engine) = engine() else {
-        crate::ci::skipped(
+        crate::ci::missing(
             "float parity",
             "no JavaScript engine (`bun` or `node`) is on PATH",
         );

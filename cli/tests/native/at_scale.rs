@@ -27,7 +27,7 @@ fn digits(n: i64) -> i64 {
 macro_rules! rows_or_skip {
     () => {
         if let Some(why) = skip_reason() {
-            crate::ci::skipped("backend agreement", &why);
+            crate::ci::missing("backend agreement", &why);
             return;
         }
     };

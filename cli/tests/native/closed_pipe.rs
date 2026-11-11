@@ -63,35 +63,26 @@ fn build(root: &Path, args: &[&str]) {
 /// native backend and on JavaScript.
 fn built(name: &str, source: &str) -> Vec<Built> {
     let mut out = built_natively(name, source);
-    match crate::shared::js_engine() {
-        Some(engine) => {
-            let root = scratch(name);
-            write(
-                &root,
-                "cmd/js/BUILD.buri",
-                "binary {\n  outputs: [{ platform: \"node\" }]\n}\n",
-            );
-            write(
-                &root,
-                "cmd/js/main.buri",
-                &source
-                    .replace("HOST_MODULE", "node")
-                    .replace("HOST", "NodeHost"),
-            );
-            build(&root, &["//cmd/js"]);
-            let artifact = root.join(".buri/out/node/cmd/js/js.mjs");
-            out.push(Built {
-                backend: "javascript",
-                program: vec![engine, artifact.display().to_string()],
-            });
-        }
-        None => {
-            crate::ci::skipped(
-                "closed pipes on JavaScript",
-                "no JavaScript engine (`bun` or `node`) is on PATH",
-            );
-        }
-    }
+    let engine = crate::shared::js_engine();
+    let root = scratch(name);
+    write(
+        &root,
+        "cmd/js/BUILD.buri",
+        "binary {\n  outputs: [{ platform: \"node\" }]\n}\n",
+    );
+    write(
+        &root,
+        "cmd/js/main.buri",
+        &source
+            .replace("HOST_MODULE", "node")
+            .replace("HOST", "NodeHost"),
+    );
+    build(&root, &["//cmd/js"]);
+    let artifact = root.join(".buri/out/node/cmd/js/js.mjs");
+    out.push(Built {
+        backend: "javascript",
+        program: vec![engine, artifact.display().to_string()],
+    });
     out
 }
 

@@ -4945,9 +4945,8 @@ mod tests {
     /// happened — only that nothing structural forbids it.
     #[test]
     fn a_linux_output_is_ready_from_any_host() {
-        // Only where this toolchain has a native backend and a runtime archive,
-        // which is the same precondition the host's own output has; a
-        // `--no-default-features` build has neither and refuses both.
+        // The same precondition the host's own output has: a native backend
+        // and a runtime archive, which every default build carries.
         if !runtime_native::AVAILABLE
             || backend::select(
                 Target {
@@ -4958,7 +4957,7 @@ mod tests {
             )
             .is_err()
         {
-            return;
+            panic!("this toolchain has no native backend or no runtime archive");
         }
         for arch in [Arch::X86_64, Arch::Arm64] {
             let target = Target {

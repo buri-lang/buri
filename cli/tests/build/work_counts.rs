@@ -358,7 +358,10 @@ fn a_native_test_run_does_the_pinned_work() {
 /// The same, with every suite linking a runner, as each does where the test
 /// host can't be had. Elsewhere every debug suite links one, and the test above
 /// is this one.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    ignore = "not run here: needs an arm64 macOS host"
+)]
 #[test]
 fn a_native_linked_test_run_does_the_pinned_work() {
     scenarios(
@@ -659,7 +662,10 @@ fn a_native_failing_suites_runner_is_never_a_new_executable_again() {
 }
 
 /// The same, with every suite linking a runner, where suites load otherwise.
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[cfg_attr(
+    not(all(target_os = "macos", target_arch = "aarch64")),
+    ignore = "not run here: needs an arm64 macOS host"
+)]
 #[test]
 fn a_native_linked_failing_suites_runner_is_never_a_new_executable_again() {
     failing_groups(

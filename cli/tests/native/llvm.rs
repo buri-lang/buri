@@ -451,7 +451,7 @@ fn program(body: &str) -> String {
 macro_rules! skip_unless_executable {
     () => {
         if let Some(why) = can_execute() {
-            crate::ci::skipped("llvm", &why);
+            crate::ci::missing("llvm", &why);
             return;
         }
     };
@@ -685,7 +685,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn hello_world_references_the_runtime_archive() {
     if !buri::compiler::backend::runtime_native::AVAILABLE {
-        crate::ci::skipped(
+        crate::ci::missing(
             "llvm",
             "this toolchain carries no runtime archive, so there is nothing for the entry point \
              to reference",

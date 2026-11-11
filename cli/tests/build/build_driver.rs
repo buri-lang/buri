@@ -374,11 +374,9 @@ fn buri_linker_picks_the_linker() {
 ///
 /// A toolchain built for Valgrind keeps it, so a report's stacks reach past
 /// musl's threads and name each frame's file and line.
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_linux_artifact_carries_no_debug_information() {
-    if !cfg!(target_os = "linux") {
-        return;
-    }
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     let on_path = |program: &str| {
         std::process::Command::new("sh")
@@ -390,7 +388,10 @@ fn a_linux_artifact_carries_no_debug_information() {
     };
     for (linker, program) in [("cc", "cc"), ("lld", "ld.lld"), ("mold", "mold")] {
         if !on_path(program) {
-            continue;
+            ci::missing(
+                "build::build_driver",
+                &format!("`{program}` is not on PATH"),
+            );
         }
         scratch
             .run_with_env(
@@ -507,7 +508,7 @@ fn a_build_with_no_home_directory() {
 /// made again while one in use stays, a store that can't be listed still
 /// works, and a home that can't hold the store leaves the runner as the linker
 /// wrote it. The tests pass every time.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn a_test_runner_runs_from_the_program_store() {
     use std::os::unix::fs::PermissionsExt;
@@ -1249,7 +1250,7 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
 
 /// Under `BURI_MUSL=system`, a C driver that targets musl itself links the
 /// program through the machine's musl driver.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_c_driver_that_is_musl_s_own_links_the_program() {
     let musl = std::process::Command::new("sh")
@@ -1333,7 +1334,7 @@ fn a_c_driver_with_no_gcc_for_musl_links_the_program() {
 
 /// A C driver some process is still writing can't be started. The build tries
 /// for about half a second, then says why.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_c_driver_still_being_written_is_reported() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1352,7 +1353,7 @@ fn a_c_driver_still_being_written_is_reported() {
 /// A glibc C driver that can't be pointed at musl, with no musl driver on
 /// `PATH`, links nothing. Unforced, the build says no musl driver was found
 /// either; `BURI_MUSL=baked` says it didn't look for one.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_c_driver_that_cant_target_musl_links_nothing() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1380,7 +1381,7 @@ fn a_c_driver_that_cant_target_musl_links_nothing() {
 
 /// A C driver that fails even to say what it targets is not musl's own, so
 /// with no musl driver on `PATH` the build links nothing and says so.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_c_driver_that_cant_say_what_it_targets_links_nothing() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1401,7 +1402,7 @@ fn a_c_driver_that_cant_say_what_it_targets_links_nothing() {
 /// A `buri` whose linker wrote no build id knows itself by the hash of its
 /// bytes, remembered under `XDG_CACHE_HOME`. Its builds are cached like any
 /// other's, whether the remembered hash is damaged or can't be written.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_buri_without_a_build_id_still_caches() {
     let scratch = repository("        { platform: \"node\" },\n", NODE_MAIN);
@@ -1501,7 +1502,7 @@ mkdir -p "$dir/$target/release/deps" && cp "$STAND_IN_ARCHIVE" "$dir/$target/rel
 /// `CARGO` builds a cross runtime into `BURI_HOME` once and later builds reuse
 /// it, until its feature list or a sysroot member is damaged. A cargo that
 /// fails is reported with its own words, and leaves nothing in the home.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn a_cross_runtime_is_built_once_with_cargo() {
     crate::harness::sweep::kept::warm_cross_runtime();
@@ -1760,7 +1761,7 @@ fn a_link_that_writes_no_program_is_an_error() {
 
 /// A cache on another filesystem than the repository: the linked program is
 /// copied into it rather than moved, and the next build is served from it.
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 #[test]
 fn a_cache_on_another_filesystem_keeps_the_program() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
@@ -1781,7 +1782,7 @@ fn a_cache_on_another_filesystem_keeps_the_program() {
 
 /// With no lld on `PATH` the link goes through the system's own linker, and
 /// the program runs.
-#[cfg(target_os = "macos")]
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
 #[test]
 fn a_mac_without_lld_links_with_the_system_linker() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);

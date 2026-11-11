@@ -298,7 +298,7 @@ const ROOMY: (u16, u16) = (100, 30);
 /// Skips a test where this host can't build native tests.
 fn native() -> bool {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::progress", &gap);
+        ci::missing("build::progress", &gap);
         return false;
     }
     true

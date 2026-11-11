@@ -50,7 +50,7 @@ fn endless(name: &str) -> Scratch {
 /// runner that outlives `buri` fails the test rather than hanging it.
 fn killed_with(sig: i32, name: &str) {
     if let Some(gap) = ci::native_host_gap() {
-        ci::skipped("build::coverage_runs", &gap);
+        ci::missing("build::coverage_runs", &gap);
         return;
     }
     const KEPT: i32 = 100;

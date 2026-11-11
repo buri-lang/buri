@@ -50,7 +50,7 @@ fn passes(repo: &Path, targets: &[&str]) -> String {
 macro_rules! skip_unless_executable {
     () => {
         if let Some(why) = crate::llvm::can_execute() {
-            crate::ci::skipped("llvm", why);
+            crate::ci::missing("llvm", why);
             return;
         }
     };

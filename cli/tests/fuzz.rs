@@ -1212,9 +1212,7 @@ const JS_CPU_CEILING: Duration = Duration::from_secs(30);
 /// `actions::prepare_for_js`, the backend `select`
 /// answers — with [`JS_DEADLINE`] and [`JS_CPU_CEILING`] around the run.
 fn run_on_js(input: &str) -> Result<Option<String>, String> {
-    if !engine_present() {
-        return Ok(None);
-    }
+    require_engine();
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
     if analysis.diagnostics.has_errors() {
@@ -1334,18 +1332,21 @@ fn waited_out(
     })
 }
 
-fn engine_present() -> bool {
+fn require_engine() {
     use std::process::{Command, Stdio};
     use std::sync::OnceLock;
     static PRESENT: OnceLock<bool> = OnceLock::new();
-    *PRESENT.get_or_init(|| {
+    let present = *PRESENT.get_or_init(|| {
         Command::new(harness::js_runtime())
             .arg("--version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .capped_status()
             .is_ok_and(|s| s.success())
-    })
+    });
+    if !present {
+        harness::ci::missing("fuzz", "no JavaScript engine on PATH");
+    }
 }
 
 /// The native half of the `output` property.
@@ -1426,9 +1427,11 @@ mod native {
         None
     }
 
-    /// [`off_reason`] as a `bool`, for the `output` property's own guard.
-    pub fn ready() -> bool {
-        off_reason().is_none()
+    /// Fails the test when [`off_reason`] finds no native backend on this host.
+    pub fn require_ready() {
+        if let Some(why) = off_reason() {
+            crate::harness::ci::missing("fuzz", &why);
+        }
     }
 
     /// How many times a native backend has actually produced an answer.
@@ -1565,9 +1568,7 @@ mod native {
     /// ask of every draw.
     pub fn refusals(input: &str) -> Vec<(&'static str, String)> {
         let mut out = Vec::new();
-        if !ready() {
-            return out;
-        }
+        require_ready();
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
         if analysis.diagnostics.has_errors() {
@@ -1642,9 +1643,7 @@ mod native {
     /// the symptom is a wrong answer on the runs where the recycling happened
     /// to matter.
     pub fn run(input: &str) -> Option<Vec<(&'static str, String, Option<String>)>> {
-        if !ready() {
-            return None;
-        }
+        require_ready();
         let mut map = SourceMap::new();
         let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
         if analysis.diagnostics.has_errors() {
@@ -3057,10 +3056,7 @@ export fn main(host: NodeHost): Result<(), Str> {\n  \
 /// per program, and macOS charges about 200 ms for that however small it is.
 #[test]
 fn generated_programs_print_the_same_answer_on_every_backend() {
-    if !engine_present() {
-        eprintln!("fuzz differential: skipped (no JavaScript engine on PATH)");
-        return;
-    }
+    require_engine();
     let budget = Budget::new(6);
     let mut rng = Rng(base_seed() ^ 0xD1FF_0000_0000_0001);
     let mut seen = Seen::new();
@@ -3087,26 +3083,21 @@ fn generated_programs_print_the_same_answer_on_every_backend() {
 
 /// What the native half of the `output` property actually did.
 ///
-/// Printed rather than asserted, because a host with no backend, no runtime
-/// archive or no linker is a legitimate place to run this suite, and
-/// `native/agreement.rs` skips there for the same reason. What it must not do
-/// is skip *silently*: a native leg that refused every program looks exactly
-/// like one that agreed with every program from the outside.
+/// A host with no native backend fails here: a native leg that refused every
+/// program looks exactly like one that agreed with every program from the
+/// outside.
 fn report_native_participation(done: usize) {
     #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     {
-        if let Some(why) = native::off_reason() {
-            eprintln!("fuzz differential: the native leg is off ({why})");
-        } else {
-            // A count for the process rather than for this search: the EMI
-            // search runs the same property, and one counter says whether the
-            // native leg fired at all, which is the question.
-            eprintln!(
-                "fuzz differential: {done} program(s) here; the native leg has answered {} \
-                 time(s) in this process",
-                native::answered()
-            );
-        }
+        native::require_ready();
+        // A count for the process rather than for this search: the EMI search
+        // runs the same property, and one counter says whether the native leg
+        // fired at all, which is the question.
+        eprintln!(
+            "fuzz differential: {done} program(s) here; the native leg has answered {} \
+             time(s) in this process",
+            native::answered()
+        );
     }
     #[cfg(not(any(feature = "backend-stencil", feature = "backend-llvm")))]
     {
@@ -3534,10 +3525,7 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
 /// here shares is what stops a slow machine from paying for the count.
 #[test]
 fn ownership_shapes_agree_on_every_backend_and_leak_nothing() {
-    if !engine_present() {
-        eprintln!("fuzz ownership: skipped (no JavaScript engine on PATH)");
-        return;
-    }
+    require_engine();
     let budget = Budget::new(16);
     let mut rng = Rng(base_seed() ^ 0x5C0F_E000_0000_0001);
     let mut seen = Seen::new();
@@ -3619,10 +3607,7 @@ fn every_ownership_program_compiles() {
 /// something live.
 #[test]
 fn dead_code_does_not_change_what_a_program_prints() {
-    if !engine_present() {
-        eprintln!("fuzz emi: skipped (no JavaScript engine on PATH)");
-        return;
-    }
+    require_engine();
     let budget = Budget::new(6);
     let mut rng = Rng(base_seed() ^ 0xE31A_0000_0000_0001);
     let mut seen = Seen::new();
@@ -3751,8 +3736,7 @@ fn the_properties_can_fail() {
     );
     assert!(
         fires("output", "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  .Ok(())\n}\n", Some("nope"))
-            .is_some()
-            || !engine_present(),
+            .is_some(),
         "`output` accepted a program that prints nothing as printing `nope`"
     );
     assert!(

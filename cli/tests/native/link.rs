@@ -185,7 +185,7 @@ fn options(target: Target) -> LinkOptions {
 #[test]
 fn two_objects_link_into_a_program_that_runs() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("links");
@@ -232,7 +232,7 @@ fn two_objects_link_into_a_program_that_runs() {
 #[test]
 fn the_manifest_records_where_every_object_came_from() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("manifest");
@@ -266,7 +266,7 @@ fn the_manifest_records_where_every_object_came_from() {
 #[test]
 fn the_harness_links_and_compiles_for_the_products_target() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let cc = link::select(target).unwrap();
@@ -312,7 +312,7 @@ fn the_harness_links_and_compiles_for_the_products_target() {
 #[test]
 fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("reproducible");
@@ -365,7 +365,7 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     };
     let dumped = load_commands(&dir.join("a/app"));
     if dumped.is_empty() {
-        crate::ci::skipped(
+        crate::ci::missing(
             "link",
             "neither `otool` nor `readelf` answered, so the build-id assertion has nothing to \
              read",
@@ -399,7 +399,7 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
 #[test]
 fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("concurrent");
@@ -501,7 +501,7 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
 #[test]
 fn a_run_never_empties_the_cache_under_its_own_links() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("reopened");
@@ -588,7 +588,7 @@ fn a_run_never_empties_the_cache_under_its_own_links() {
 #[test]
 fn a_link_reads_the_caches_objects_where_they_are() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("in-place");
@@ -649,7 +649,7 @@ fn a_link_reads_the_caches_objects_where_they_are() {
 #[test]
 fn a_staged_object_holds_its_units_bytes() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("unchanged");
@@ -729,11 +729,11 @@ int main(int argc, char **argv) {
 #[test]
 fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     if !buri::compiler::backend::runtime_native::AVAILABLE {
-        crate::ci::skipped(
+        crate::ci::missing(
             "link",
             "this toolchain carries no runtime archive, so the decision is always `Omitted` and \
              only one of the two branches below is reachable",
@@ -805,7 +805,7 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
 #[test]
 fn a_toolchain_with_no_archive_never_names_one() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let dir = workspace("no-archive");
@@ -983,7 +983,7 @@ fn force_re_emits_every_unit() {
 #[test]
 fn the_link_key_is_the_ordered_units_and_the_linker() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let linker = link::select(target).unwrap();
@@ -1052,7 +1052,7 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
 #[test]
 fn the_link_key_moves_with_the_libc() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
 
@@ -1102,7 +1102,7 @@ fn the_link_key_moves_with_the_libc() {
 #[test]
 fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
     let Some(target) = linkable() else {
-        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        crate::ci::missing("link", "no C toolchain on this host: nothing to link with");
         return;
     };
     let linker = link::select(target).unwrap();

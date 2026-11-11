@@ -29,10 +29,7 @@ fn say(expr: &str) -> String {
 fn prints(name: &str, source: &str, expected: &[String]) {
     let (stdout, stderr) = heap_checked(name, source);
     assert_eq!(stdout, expected, "native, stderr:\n{stderr}");
-    if crate::shared::js_engine().is_none() {
-        crate::ci::skipped("e2e javascript", "no JavaScript engine on PATH");
-        return;
-    }
+    crate::shared::js_engine();
     let (checked, paths) = crate::agreement::analyze(name, source);
     let js = crate::agreement::run_js(name, &checked, &paths);
     assert_eq!(
@@ -700,10 +697,8 @@ fn runs(name: &str, source: &str, expected: &[String]) {
     let root = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("e2e-shape-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let mut targets = vec![("native", "NativeHost")];
-    if crate::shared::js_engine().is_some() {
-        targets.push(("node", "NodeHost"));
-    }
+    crate::shared::js_engine();
+    let targets = [("native", "NativeHost"), ("node", "NodeHost")];
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("REPO.buri"), "").unwrap();
     for (platform, host) in targets {

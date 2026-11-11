@@ -301,8 +301,10 @@ fn a_protobuf_schema_with_many_fields_builds() {
 fn a_protobuf_schema_builds_on_a_small_stack() {
     let s = wide_schema_repo("adversarial-proto-stack", 2_000);
     let Some(shim) = small_stack_runtime(SMALL_STACK) else {
-        eprintln!("the JavaScript runtime is neither bun nor node; running it uncapped");
-        s.run(&["build", "//lib/big"]).ok();
+        ci::missing(
+            "adversarial",
+            "the JavaScript runtime is neither bun nor node on PATH, so its stack cannot be capped",
+        );
         return;
     };
     let run = s.run_with_env(&["build", "//lib/big"], &[("BURI_JS", &shim)]);

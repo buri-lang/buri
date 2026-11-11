@@ -125,7 +125,7 @@ fn generated(scratch: &Scratch, package: &str, input: &str, more: &str) {
 #[test]
 fn a_native_program_that_mounts_a_page_is_refused_by_name() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::build_corners", &why);
+        ci::missing("build::build_corners", &why);
         return;
     }
     let scratch = Scratch::repo("corners-mount");
@@ -145,7 +145,7 @@ fn a_native_program_that_mounts_a_page_is_refused_by_name() {
 #[test]
 fn buri_test_under_a_libc_the_link_refuses_says_why() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::build_corners", &why);
+        ci::missing("build::build_corners", &why);
         return;
     }
     let scratch = suite("corners-musl");
@@ -164,7 +164,7 @@ fn buri_test_under_a_libc_the_link_refuses_says_why() {
 #[test]
 fn a_runner_recorded_outside_the_output_directory_is_restored() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::build_corners", &why);
+        ci::missing("build::build_corners", &why);
         return;
     }
     let scratch = suite("corners-runner");
@@ -216,7 +216,7 @@ fn a_runner_recorded_outside_the_output_directory_is_restored() {
 #[test]
 fn a_runner_overwritten_with_another_program_is_restored() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::build_corners", &why);
+        ci::missing("build::build_corners", &why);
         return;
     }
     let scratch = suite("corners-overwritten");

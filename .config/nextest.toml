@@ -9,6 +9,9 @@ nextest-version = { required = "0.9.145" }
 [profile.default]
 fail-fast = false
 retries = 0
+# The summary lists every skipped test: the "not run here" ones this host cannot
+# run (cli/tests/README.md, "Skips").
+final-status-level = "skip"
 # Three times a 12-core mac's cores. Most tests spend most of their time waiting
 # for macOS to check each new executable, one file at a time machine-wide, so
 # more of them waiting at once keeps the cores busy (design/PERFORMANCE.md §6.51).
@@ -24,7 +27,7 @@ test-threads = 36
 #   ids take 5–7 s. Started first, they take 3 s.
 [[profile.default.overrides]]
 filter = '''
-  test(=cross::a_linux_x86_64_artifact_is_a_real_elf_and_runs_in_a_container)
+  test(/^cross::a_linux_x86_64_artifact_/)
   | test(/^documents::every_manifest_id_is_fetchable::/)
   | test(/^conformance::rejected_programs_are_rejected::/)
   | test(/pool::pool_tests::/)

@@ -166,7 +166,7 @@ fn stderr(out: &Output) -> String {
 /// Every host we build a runtime for runs these; the rest have nothing to run.
 fn skip() -> bool {
     if !AVAILABLE {
-        return crate::ci::skipped(
+        return crate::ci::missing(
             "runtime_native",
             "no runtime archive was built for this host, so there is nothing to link a driver \
              against",
@@ -1190,17 +1190,15 @@ fn the_three_switch_blocks_assemble_for_their_targets() {
             .unwrap_or_else(|e| panic!("could not run {cc}: {e}"));
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            // A clang with no back end for this triple is a host limitation
-            // and not a broken block; anything else is the block.
+            // A clang with no back end for this triple is a missing tool;
+            // anything else is the block.
             let unsupported = stderr.contains("unknown target")
                 || stderr.contains("unsupported")
                 || stderr.contains("No available targets");
-            assert!(
-                unsupported,
-                "{slug} did not assemble for {triple}:\n{stderr}"
-            );
-            eprintln!("switch: this cc cannot target {triple}, skipping {slug}");
-            continue;
+            if unsupported {
+                crate::ci::missing("switch", &format!("this cc cannot target {triple}"));
+            }
+            panic!("{slug} did not assemble for {triple}:\n{stderr}");
         }
 
         let bytes = std::fs::read(&obj).unwrap();

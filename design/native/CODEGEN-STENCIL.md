@@ -1149,10 +1149,9 @@ an ELF image.
 Three tests, not steps, hold the parts a green exit would otherwise hide.
 `ci.rs::the_stencil_libraries_are_real` reads the same emptiness
 `available_for` reads, and asserts the reverse degrade: on a Linux host the
-`macos-arm64` library must be empty. `BURI_CI=1` makes
-`harness/ci.rs::skipped` panic, so `stencil.rs`'s
-`if !supported() { return; }` cannot report a pass on a runner with no
-stencils, and `the_corpus_census_is_a_ratchet` pins the compiling set by name
+`macos-arm64` library must be empty. `harness/ci.rs::missing` panics, so
+`stencil.rs`'s `if !supported() { return; }` cannot report a pass on a machine
+with no stencils, and `the_corpus_census_is_a_ratchet` pins the compiling set by name
 in both directions. And
 `ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs` builds a Linux
 artifact through the CLI under each linker in turn and checks the image for a

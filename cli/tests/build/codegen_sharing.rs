@@ -125,7 +125,7 @@ fn has_release(scratch: &Scratch) -> bool {
 #[test]
 fn a_second_program_restores_the_units_it_shares_with_the_first() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = repo("codegen-sharing");
@@ -160,7 +160,7 @@ fn a_second_program_restores_the_units_it_shares_with_the_first() {
 #[test]
 fn editing_a_closure_recompiles_only_its_unit() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = repo("codegen-sharing-edit");
@@ -199,7 +199,7 @@ fn editing_a_closure_recompiles_only_its_unit() {
 #[test]
 fn closures_with_the_same_body_in_different_parents_stay_apart() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = Scratch::repo("codegen-sharing-alike");
@@ -268,7 +268,7 @@ fn codegen_lines(out: &str) -> Vec<&str> {
 #[test]
 fn programs_built_together_report_a_shared_unit_alike() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = repo("codegen-sharing-together");
@@ -342,7 +342,7 @@ fn executable(scratch: &Scratch, package: &str) -> Vec<u8> {
 #[test]
 fn programs_built_together_skip_lowering_what_they_share() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = repo("codegen-sharing-unlowered");
@@ -400,7 +400,7 @@ fn fanning_program(imports: &str, body: &str, fan_out: bool) -> String {
 #[test]
 fn a_unit_only_a_different_program_stored_is_lowered_again() {
     if let Some(why) = ci::native_host_gap() {
-        ci::skipped("build::codegen_sharing", &why);
+        ci::missing("build::codegen_sharing", &why);
         return;
     }
     let scratch = Scratch::repo("codegen-sharing-mixed");

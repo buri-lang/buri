@@ -35,8 +35,6 @@ env:
   RUST_BACKTRACE: 1
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
-  # No silent skip: `cli/tests/harness/ci.rs` panics on one.
-  BURI_CI: 1
 
 jobs:
   races:

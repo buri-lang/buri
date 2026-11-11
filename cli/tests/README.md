@@ -521,15 +521,14 @@ docker run --rm -it -v "$PWD":/w -w /w rust:latest bash -c '
   apt-get install -y --no-install-recommends clang lld mold llvm binutils musl-dev musl-tools &&
   rustup toolchain install &&
   rustup target add "$(uname -m)-unknown-linux-musl" &&
-  CC=clang BURI_CI=1 cargo test -p buri'
+  CC=clang cargo test -p buri'
 ```
 
 `--platform linux/amd64` on the same line runs the x86-64 leg under emulation,
-slowly enough to be an overnight answer rather than an edit loop. `BURI_CI=1`
-turns a guard that fires into a failure rather than a quiet pass, which is the
-whole reason to run the leg.
+slowly enough to be an overnight answer rather than an edit loop. The image
+also needs node and bun, or the tests that run programs under them fail.
 
-### Skips: none on CI, and each one on a host has a name
+### Skips: none, on any machine
 
 A test can fail to run here in three ways, and each has an answer.
 
@@ -537,18 +536,22 @@ A test can fail to run here in three ways, and each has an answer.
 `.github/known-skips.txt` is the empty list that says so.
 `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks the tree
 and fails if the set it finds is not exactly that file's. In order of
-preference: fix it; `#[cfg]` it out on the host that genuinely cannot answer it,
-so it is absent rather than reported as not run; or delete it, if nobody wants
-the behaviour it asserts. A row in that file is a named defect rather than a
-permission.
+preference: fix it; mark it "not run here" on the hosts that genuinely cannot
+answer it (below); or delete it, if nobody wants the behaviour it asserts. A row
+in that file is a named defect rather than a permission.
 
-**`if !supported() { return; }`.** The native suites open with one, load-bearing
-on a host with no C compiler or no stencil library for its triple. On CI it is
-the one shape of green this repository refuses, because every runner installs
-the tools and asserts the stencil libraries and the runtime archive are real
-bytes before the suite starts. So `BURI_CI=1` — set in the workflow's `env:`
-block, and therefore in every job — makes `harness/ci.rs::skipped` PANIC instead
-of returning. Set it locally to see what a runner sees.
+**A host that cannot run it.** A Linux-only or x86_64-only test is marked
+
+```rust
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
+```
+
+so other hosts list it as skipped in the suite summary, never as a pass.
+
+**A missing tool.** Some tests need node, a C toolchain, or a stencil library
+for their triple. When one is missing, `harness/ci.rs::missing` fails the test
+and names it, on every machine. The flake's dev shell has every tool, so run
+the suite inside `nix develop`.
 
 **Deferrals.** `repositories::language_server_speed` and
 `repositories::monorepo_test_budget` assert time rather than work, so they

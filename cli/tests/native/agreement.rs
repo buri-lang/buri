@@ -238,15 +238,6 @@ fn host_target() -> Target {
     }
 }
 
-/// The JavaScript engine the rest of the suite runs, or `None`.
-///
-/// `BURI_JS` first, so this file answers the same question
-/// `tests/harness/mod.rs` does and a machine that has configured one engine
-/// does not silently get another.
-fn engine() -> Option<String> {
-    crate::shared::js_engine()
-}
-
 /// Why one backend cannot run a program on this host, or `None`.
 ///
 /// The backend's own availability query rather than a `cfg!` here: stencil has
@@ -298,9 +289,6 @@ pub(crate) fn skip_reason() -> Option<String> {
     if !actions::native_ready(host_target(), Profile::Debug) {
         return Some(String::from("`native_ready` is false on this host"));
     }
-    if engine().is_none() {
-        return Some(String::from("no JavaScript engine on PATH"));
-    }
     let unavailable: Vec<String> = NATIVES
         .iter()
         .filter_map(|n| backend_unavailable(*n).map(|why| format!("`{}`: {why}", n.name)))
@@ -315,7 +303,7 @@ pub(crate) fn skip_reason() -> Option<String> {
 macro_rules! rows_or_skip {
     () => {
         if let Some(why) = skip_reason() {
-            crate::ci::skipped("backend agreement", &why);
+            crate::ci::missing("backend agreement", &why);
             return;
         }
     };
@@ -439,7 +427,7 @@ fn messages(diagnostics: &Diagnostics) -> String {
 /// Compile through the JavaScript backend and run the artifact.
 pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
     let artifact = emit_js(row, checked, paths);
-    let engine = engine().expect("a JavaScript engine");
+    let engine = crate::shared::js_engine();
     let out = Command::new(&engine)
         .arg(&artifact)
         .capped_output()
@@ -623,7 +611,7 @@ fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
 /// reported where this host cannot run the rows.
 pub(crate) fn javascript(row: &str, source: &str) -> Option<(i32, String, String)> {
     if let Some(why) = skip_reason() {
-        crate::ci::skipped("backend agreement", &why);
+        crate::ci::missing("backend agreement", &why);
         return None;
     }
     let (checked, paths) = analyze(row, source);

@@ -622,7 +622,7 @@ rather than only compiling them (CODEGEN-STENCIL.md §10). They are gone and
 nothing they asked is: the `test` matrix's Linux legs already ran every one of
 those tests, and the four steps that were genuinely theirs — the census's
 liveness line, the two linkers, the ELF properties of the image each produced,
-and `--check-reproducible` — are `BURI_CI=1` and
+and `--check-reproducible` — are
 `cli/tests/ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs` now.
 
 `clippy` and `validate` — a matrix of the two Linux architectures each — are
@@ -662,10 +662,7 @@ is a container with the toolchain in it and then the same `cargo test -p buri`
 a contributor types. `cli/tests/README.md` under "Reproducing a Linux CI leg
 on a mac" carries the one `docker run` line, and the two things that container
 must have are `CC=clang` and `rustup target add <arch>-unknown-linux-musl`,
-because `cli/build.rs` degrades silently without either. `BURI_CI=1` is the
-third: it turns a guard that fires into a failure rather than a quiet pass,
-which is the whole reason to run the leg rather than trusting the mac's own
-suite.
+because `cli/build.rs` degrades silently without either.
 
 ### 3.4 Without nix
 

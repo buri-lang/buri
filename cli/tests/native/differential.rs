@@ -200,7 +200,7 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
     // `await` is available.
     text.push_str("\n$write(1,JSON.stringify(await $run(null)));\n");
     std::fs::write(&artifact, &text).unwrap();
-    let engine = crate::shared::js_engine().ok_or("no JavaScript engine")?;
+    let engine = crate::shared::js_engine();
     let out = Command::new(&engine)
         .arg(&artifact)
         .capped_output()
@@ -386,13 +386,10 @@ fn field_number(chunk: &str, name: &str) -> Option<i64> {
 /// to `shard_7`, so nextest can run them side by side (`harness/shard.rs`).
 fn agreement_shard(at: usize, count: usize) {
     if let Some(why) = crate::conformance::skip_reason() {
-        crate::ci::skipped("corpus differential", &why);
+        crate::ci::missing("corpus differential", &why);
         return;
     }
-    if crate::shared::js_engine().is_none() {
-        crate::ci::skipped("corpus differential", "no JavaScript engine on PATH");
-        return;
-    }
+    crate::shared::js_engine();
     let mut compared = 0usize;
     let mut blocks = 0usize;
     let mut excluded: Vec<String> = Vec::new();
