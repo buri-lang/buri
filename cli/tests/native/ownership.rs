@@ -2553,3 +2553,220 @@ fn changes_keep_views(hows: &[&str]) {
         }
     }
 }
+
+/// A program whose record keeps a map in a field and changes it once per
+/// operation, through a `match` whose arms change the map in different ways:
+/// a `Put` reads the key's count and inserts one more, and a `Delete` removes
+/// a key. `how` is `direct` for the match written in the record update,
+/// `helpers` for the same match behind `apply` and `write` functions, or one
+/// of [`ARM_SHAPES`]. Half of the `n` operations put one of four keys the map
+/// holds, the rest delete a key it doesn't hold. With `kept`, the record from
+/// before the operations stays alive and its map is printed too.
+fn changed_through_arms(kind: &str, how: &str, n: u32, kept: bool) -> String {
+    let ty = if kind == "map" { "Map" } else { "OrderedMap" };
+    let keep = if kept {
+        "n0"
+    } else {
+        "Node { applied: 0, store: maps.empty<Int, Int>() }"
+    };
+    let store = match how {
+        "direct" => {
+            "match (op) {
+      .Put(key) => node.store.insert(ctx, key, node.store.get(key).withDefault(0) + 1),
+      .Delete(key) => node.store.remove(ctx, key),
+    }"
+        }
+        "helpers" => "apply(ctx, node.store, op)",
+        "branched" => {
+            "match (op) {
+      .Put(key) => node.store.insert(ctx, key, node.store.get(key).withDefault(0) + if (key < 0) { 0 } else { 1 }),
+      .Delete(key) => if (key < 0) { node.store } else { node.store.remove(ctx, key) },
+    }"
+        }
+        "guarded" => {
+            "match (op) {
+      .Put(key) if node.store.has(key) => node.store.insert(ctx, key, node.store.get(key).withDefault(0) + 1),
+      .Put(key) => node.store.insert(ctx, key, 1),
+      .Delete(key) => node.store.remove(ctx, key),
+    }"
+        }
+        "sized" => {
+            "match (op) {
+      .Put(key) => node.store.insert(ctx, key, node.store.get(key).withDefault(0) + match (key) { 0 => 1, _ => key / key }),
+      .Delete(key) => if ([node.store.size].length() < 0) { node.store } else { node.store.remove(ctx, key) },
+    }"
+        }
+        _ => {
+            "match (op) {
+      .Put(key) => if (holds(node.store, key)) { node.store.insert(ctx, key, node.store.get(key).withDefault(0) + 1) } else { maps.empty<Int, Int>() },
+      .Delete(key) => node.store.remove(ctx, key),
+    }"
+        }
+    };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/{kind}" import * as maps;
+from "core/{kind}" import {{ {ty} }};
+
+enum Op {{ Put(Int), Delete(Int) }}
+
+struct Node {{
+  applied: Int,
+  store: {ty}<Int, Int>,
+}}
+
+fn build<C: Allocator>(ctx: C, m: {ty}<Int, Int>, i: Int): {ty}<Int, Int> {{
+  if (i == 200) {{ m }} else {{ build(ctx, m.insert(ctx, i, 1), i + 1) }}
+}}
+
+fn write<C: Allocator>(ctx: C, store: {ty}<Int, Int>, key: Int): {ty}<Int, Int> {{
+  let count = store.get(key).withDefault(0);
+  store.insert(ctx, key, count + 1)
+}}
+
+fn apply<C: Allocator>(ctx: C, store: {ty}<Int, Int>, op: Op): {ty}<Int, Int> {{
+  match (op) {{
+    .Put(key) => write(ctx, store, key),
+    .Delete(key) => store.remove(ctx, key),
+  }}
+}}
+
+// Called from two places, so it stays a call.
+fn holds(m: {ty}<Int, Int>, k: Int): Bool {{
+  match (m.get(k)) {{
+    .Some(v) => v > 0 || k < 0,
+    .None => false,
+  }}
+}}
+
+fn step<C: Allocator>(ctx: C, node: Node, op: Op): Node {{
+  Node {{
+    ..node,
+    applied: node.applied + 1,
+    store: {store},
+  }}
+}}
+
+fn run<C: Allocator>(ctx: C, node: Node, i: Int): Node {{
+  if (i == {n}) {{
+    node
+  }} else {{
+    let op = if (i % 2 == 0) {{ Op.Put(i / 2 % 4) }} else {{ Op.Delete(1000 + i) }};
+    run(ctx, step(ctx, node, op), i + 1)
+  }}
+}}
+
+fn total<C: Allocator>(ctx: C, m: {ty}<Int, Int>): Int {{
+  m.values(ctx).sum()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let n0 = Node {{ applied: 0, store: build(ctx, maps.empty<Int, Int>(), 0) }};
+  let before = {keep};
+  let after = run(ctx, n0, 0);
+  let _ = holds(after.store, 0);
+  let _ = io.println(host.stdout, "${{after.applied}} ${{after.store.length()}} ${{total(ctx, after.store)}} ${{before.store.length()}} ${{total(ctx, before.store)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// What [`changed_through_arms`] prints after `n` operations: how many ran,
+/// the map's size and the sum of its counts, then the same two for the map
+/// kept from before.
+fn changed_through_arms_output(n: u64, kept: bool) -> String {
+    let before = if kept { "200 200" } else { "0 0" };
+    format!("{n} 200 {} {before}\n", 200 + n / 2)
+}
+
+/// Ten thousand operations on a map in a record's field, each a `Put` or a
+/// `Delete` chosen by a `match`, written in the record update, behind helper
+/// functions, or with an `if` in an arm, on both stdlib maps. Nothing else holds the map, so a
+/// `Put` writes the count in place and a `Delete` of a missing key allocates
+/// nothing: the operations allocate almost nothing beyond building the map.
+#[test]
+fn changing_a_map_field_through_match_arms_writes_it_in_place() {
+    let mut copied = Vec::new();
+    for kind in ["map", "orderedmap"] {
+        for how in ["direct", "helpers", "branched"] {
+            let name = format!("arms-{kind}-{how}");
+            let idle = run_each(
+                &format!("{name}-idle"),
+                &changed_through_arms(kind, how, 0, false),
+            );
+            let busy = run_each(&name, &changed_through_arms(kind, how, 10_000, false));
+            for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+                assert_eq!(
+                    idle.stdout,
+                    changed_through_arms_output(0, false),
+                    "{backend} {kind} {how}: {}",
+                    idle.stderr
+                );
+                assert_eq!(
+                    busy.stdout,
+                    changed_through_arms_output(10_000, false),
+                    "{backend} {kind} {how}: {}",
+                    busy.stderr
+                );
+                let (built, idle_live) = probed(&idle.stderr);
+                let (blocks, live) = probed(&busy.stderr);
+                if blocks >= built + 100 {
+                    copied.push(format!(
+                        "{backend} {kind} {how}: {}",
+                        blocks.saturating_sub(built)
+                    ));
+                }
+                assert_eq!(
+                    (idle_live, live),
+                    (0, 0),
+                    "{backend} {kind} {how}: blocks still live at exit"
+                );
+            }
+        }
+    }
+    assert!(
+        copied.is_empty(),
+        "ten thousand operations allocated this many blocks beyond what building took, where \
+         under 100 means no operation copied the map: {copied:?}"
+    );
+}
+
+/// Shapes of [`changed_through_arms`] that read the map in a guard, in a list
+/// built in a condition, or both in a call and then in an `insert` on one
+/// path while only in the call on another.
+const ARM_SHAPES: [&str; 3] = ["guarded", "sized", "shared"];
+
+/// The same operations while the record from before them stays alive: its
+/// map keeps every count as it was. So do operations that read the map in a
+/// guard, in a list built in a condition, or both in a call and an `insert`
+/// on one path while only in the call on another; their final map is right
+/// too, and they free every block.
+#[test]
+fn changing_a_held_map_field_through_match_arms_keeps_the_old_view() {
+    for kind in ["map", "orderedmap"] {
+        for how in ["direct", "helpers", "branched"]
+            .into_iter()
+            .chain(ARM_SHAPES)
+        {
+            let name = format!("arms-{kind}-{how}-held");
+            for (backend, r) in run_each(&name, &changed_through_arms(kind, how, 3000, true)) {
+                assert_eq!(
+                    r.stdout,
+                    changed_through_arms_output(3000, true),
+                    "{backend} {kind} {how}: {}",
+                    r.stderr
+                );
+                let (blocks, live) = probed(&r.stderr);
+                assert_eq!(
+                    live, 0,
+                    "{backend} {kind} {how}: {blocks} blocks allocated and {live} still live at exit"
+                );
+            }
+        }
+    }
+}

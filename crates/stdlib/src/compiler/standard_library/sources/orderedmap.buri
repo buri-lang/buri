@@ -1228,11 +1228,14 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// Removes `key`, if it is there. Removing what is absent is not an
     /// error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): OrderedMap<K, V> {
-        let (next, gone) = removeFrom(ctx, self.root, key);
+        // `self` is read once, taken apart, as in `insert`. `removeFrom` hands
+        // back the tree it was given when the key is missing.
+        let OrderedMap { root, size } = self;
+        let (next, gone) = removeFrom(ctx, root, key);
         if (gone) {
-            OrderedMap { root: shrinkRoot(next), size: self.size - 1 }
+            OrderedMap { root: shrinkRoot(next), size: size - 1 }
         } else {
-            self
+            OrderedMap { root: next, size: size }
         }
     }
 

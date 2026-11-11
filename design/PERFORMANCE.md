@@ -9270,6 +9270,42 @@ allocations. A `pop` whose `.None` arm returns `m` still copies, because `m`
 is alive through the call. `run-dev/kvstore` holds at 1,334.8 M instructions
 and 702,632 allocations.
 
+### 6.116 A field changed in every arm of a match still moves, 2026-11-10
+
+kvstore's nodes apply each committed entry to an ordered map in a field, and
+the entry's kind picks how:
+
+```buri
+N { ..n, store: match (op) {
+    .Put { key } => n.store.insert(ctx, key, n.store.get(key).withDefault(0) + 1),
+    .Delete { key } => n.store.remove(ctx, key),
+} }
+```
+
+§6.109 let a read that only lends the field sit beside the one that takes it,
+but a read under a branch kept the old rule, so this field didn't move and
+every change copied its path. `rc::lent_reads` now follows each path through
+an `if` or a `match`, up to 16 of them. On every path one read must take the
+field, after the path's other reads, and a read that lends on one path must
+not take on another. A read in a guard, a short circuit's right side or a
+lambda still keeps the old rule.
+
+The inlined `remove` of both stdlib maps read `self` more than once, which
+counts as more than one taking read, so it now takes `self` apart once, as
+`insert` does.
+
+`run-dev/kvstore` went from 1,334.8 M to 1,276.9 M instructions on an arm64
+VM, and from 702,632 to 617,876 allocations.
+
+`cli/tests/native/ownership.rs` guards it. Ten thousand changes, half of them
+a put of a key the map holds and half a remove of one it doesn't, written in
+the update and behind helper functions, allocated 20,000 blocks beyond the
+build on `core/map` and 25,000 on `core/orderedmap`. They now stay under 100.
+A record still held keeps its map as it was, and so does one read in a guard,
+a condition, a scrutinee or a call before the arm, which keeps the old rule.
+`cli/tests/repositories/middle/record_updates` runs each shape through
+`buri test` on both backends.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

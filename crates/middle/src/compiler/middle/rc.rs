@@ -4918,10 +4918,14 @@ fn handed_on_fields(root: LocalId, updates: &[(FieldId, Expr)]) -> Option<Vec<Fi
 /// One step of [`lent_reads`]'s walk: a read of `root.f`, with the call it is
 /// handed to whole or through fields, if any, and whether it is `root.f`
 /// itself; or a call, once its arguments have all run.
+#[derive(Clone, Copy)]
 enum Step {
     Read(*const Expr, Option<usize>, bool),
     Ran(usize),
 }
+
+/// The most paths [`steps`] follows through one update's replacements.
+const PATHS: usize = 16;
 
 /// The read of `root.f` at the bottom of `e`, a chain of fields and tuple
 /// positions over it.
@@ -4947,50 +4951,85 @@ fn reads_of(root: LocalId, f: FieldId, e: &Expr) -> usize {
     }
 }
 
-/// Walks `e` in evaluation order. `false` where a read of `root.f` is under a
-/// branch or a lambda, or is projected anywhere but straight into a call.
-fn steps(root: LocalId, f: FieldId, e: &Expr, calls: &mut usize, out: &mut Vec<Step>) -> bool {
+/// Walks `e` in evaluation order, adding its steps to each of `paths`. An
+/// `if` or a `match` splits every path in two or more, one per branch.
+/// `false` where a read of `root.f` is under a guard, a short circuit's right
+/// side or a lambda, is projected anywhere but straight into a call, or where
+/// the branches make more than [`PATHS`] paths.
+fn steps(
+    root: LocalId,
+    f: FieldId,
+    e: &Expr,
+    calls: &mut usize,
+    paths: &mut Vec<Vec<Step>>,
+) -> bool {
+    let push = |paths: &mut Vec<Vec<Step>>, step: Step| {
+        for path in paths.iter_mut() {
+            path.push(step);
+        }
+    };
+    let branches = |branches: &[&Expr], calls: &mut usize, paths: &mut Vec<Vec<Step>>| {
+        let start = std::mem::take(paths);
+        for b in branches {
+            let mut each = start.clone();
+            if !steps(root, f, b, calls, &mut each) {
+                return false;
+            }
+            paths.extend(each);
+        }
+        paths.len() <= PATHS
+    };
     match &e.kind {
         ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
             if *index == f {
-                out.push(Step::Read(std::ptr::from_ref(e), None, true));
+                push(paths, Step::Read(std::ptr::from_ref(e), None, true));
             }
             true
         }
         _ if chain_over(root, f, e).is_some() => false,
-        ExprKind::If { .. }
-        | ExprKind::Match { .. }
-        | ExprKind::And { .. }
-        | ExprKind::Or { .. }
-        | ExprKind::Lambda { .. } => reads_of(root, f, e) == 0,
+        // A branch that never reads the field adds nothing to any path.
+        ExprKind::If { .. } | ExprKind::Match { .. } if reads_of(root, f, e) == 0 => true,
+        ExprKind::If { cond, then, else_ } => {
+            steps(root, f, cond, calls, paths) && branches(&[then, else_], calls, paths)
+        }
+        ExprKind::Match { scrutinee, arms } => {
+            let guarded = arms
+                .iter()
+                .any(|a| a.guard.as_ref().is_some_and(|g| reads_of(root, f, g) > 0));
+            let bodies: Vec<&Expr> = arms.iter().map(|a| &a.body).collect();
+            !guarded && steps(root, f, scrutinee, calls, paths) && branches(&bodies, calls, paths)
+        }
+        ExprKind::And { .. } | ExprKind::Or { .. } | ExprKind::Lambda { .. } => {
+            reads_of(root, f, e) == 0
+        }
         ExprKind::CallFunc { args, .. } => {
             let call = *calls;
             *calls += 1;
             for a in args {
                 match chain_over(root, f, a) {
-                    Some(r) => out.push(Step::Read(
-                        std::ptr::from_ref(r),
-                        Some(call),
-                        std::ptr::eq(r, a),
-                    )),
-                    None if !steps(root, f, a, calls, out) => return false,
+                    Some(r) => push(
+                        paths,
+                        Step::Read(std::ptr::from_ref(r), Some(call), std::ptr::eq(r, a)),
+                    ),
+                    None if !steps(root, f, a, calls, paths) => return false,
                     None => {}
                 }
             }
-            out.push(Step::Ran(call));
+            push(paths, Step::Ran(call));
             true
         }
-        _ => kids(e).into_iter().all(|k| steps(root, f, k, calls, out)),
+        _ => kids(e).into_iter().all(|k| steps(root, f, k, calls, paths)),
     }
 }
 
-/// The reads of `root.f` in `values` that only **lend** the field, when one
-/// other read takes it: each hands the field, or a field of it, to a call
-/// that has returned before whoever took the field can write to it. `None`
-/// where the reads are not that shape.
+/// The reads of `root.f` in `values` that only **lend** the field, when on
+/// every path one other read takes it: each hands the field, or a field of
+/// it, to a call that has returned before whoever took the field can write to
+/// it. `None` where the reads are not that shape.
 ///
 /// The read that takes it is `root.f` itself, and is the one that finishes
-/// last: at once for a `let`, once its call runs for an argument. Both of
+/// last on its path: at once for a `let`, once its call runs for an argument.
+/// Both of
 ///
 /// ```buri
 /// S { ..s, m: s.m.insert(ctx, k, s.m.get(k).withDefault(0) + 1) }
@@ -5000,41 +5039,61 @@ fn steps(root: LocalId, f: FieldId, e: &Expr, calls: &mut usize, out: &mut Vec<S
 /// are that, and so is what inlining `get` and `insert` makes of them. A
 /// call's arguments are lent to it, so the `get` is done with the map before
 /// the `insert` gets it, and the insert finds the map at `rc == 1`.
+///
+/// Each branch of an `if` or a `match` is a path of its own, so an arm may
+/// lend and then take the field while another only takes it:
+///
+/// ```buri
+/// N { ..n, store: match (op) {
+///     .Put { key } => n.store.insert(ctx, key, n.store.get(key).withDefault(0) + 1),
+///     .Delete { key } => n.store.remove(ctx, key),
+/// } }
+/// ```
 fn lent_reads(root: LocalId, f: FieldId, values: &[&Expr]) -> Option<Vec<*const Expr>> {
-    let mut out = Vec::new();
+    let mut paths = vec![Vec::new()];
     let mut calls = 0;
     for v in values {
-        if !steps(root, f, v, &mut calls, &mut out) {
+        if !steps(root, f, v, &mut calls, &mut paths) {
             return None;
         }
     }
-    // Where a read is done with: at once, or when its call runs.
-    let done = |at: usize, call: Option<usize>| match call {
-        Some(c) => out
-            .iter()
-            .position(|s| matches!(s, Step::Ran(r) if *r == c))
-            .unwrap_or(at),
-        None => at,
-    };
-    let mut reads = Vec::new();
-    for (at, s) in out.iter().enumerate() {
-        if let Step::Read(e, call, whole) = s {
-            reads.push((*e, *call, *whole, done(at, *call)));
+    let mut takers = Vec::new();
+    let mut lent = Vec::new();
+    for out in &paths {
+        // Where a read is done with: at once, or when its call runs.
+        let done = |at: usize, call: Option<usize>| match call {
+            Some(c) => out
+                .iter()
+                .position(|s| matches!(s, Step::Ran(r) if *r == c))
+                .unwrap_or(at),
+            None => at,
+        };
+        let mut reads = Vec::new();
+        for (at, s) in out.iter().enumerate() {
+            if let Step::Read(e, call, whole) = s {
+                reads.push((*e, *call, *whole, done(at, *call)));
+            }
+        }
+        let last = reads.iter().map(|r| r.3).max()?;
+        let mut last_done = reads.iter().filter(|r| r.3 == last);
+        let (Some(taker), None) = (last_done.next(), last_done.next()) else {
+            return None;
+        };
+        if !taker.2 {
+            return None;
+        }
+        takers.push(taker.0);
+        for r in reads.iter().filter(|r| !std::ptr::eq(r.0, taker.0)) {
+            lent.push(r.1.map(|_| r.0)?);
         }
     }
-    let last = reads.iter().map(|r| r.3).max()?;
-    let takers: Vec<_> = reads.iter().filter(|r| r.3 == last).collect();
-    let [taker] = takers[..] else {
-        return None;
-    };
-    if !taker.2 {
+    // A read the paths share either lends on every one of them or takes.
+    if lent.iter().any(|l| takers.contains(l)) {
         return None;
     }
-    reads
-        .iter()
-        .filter(|r| !std::ptr::eq(r.0, taker.0))
-        .map(|r| r.1.map(|_| r.0))
-        .collect()
+    lent.sort_unstable();
+    lent.dedup();
+    Some(lent)
 }
 
 /// The fields of a dying `root` a native functional update may **move** out of

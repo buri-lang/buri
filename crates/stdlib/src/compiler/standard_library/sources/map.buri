@@ -508,13 +508,15 @@ impl<K: Hash + Equal, V> Map<K, V> {
 
     /// Removes `key`, if it is there. Removing what is absent is not an error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): Map<K, V> {
-        // Asked first, so an absent key copies nothing of a shared map, and a
+        // `self` is read once, taken apart, as in `insert`. The key is asked
+        // for first, so an absent one copies nothing of a shared map, and a
         // present one is removed from a root this call alone holds.
-        if (!self.has(key)) {
-            self
+        let Map { root, size } = self;
+        let hash = key.hash();
+        if (find(root, hash, key).isNone()) {
+            Map { root: root, size: size }
         } else {
-            let size = self.size;
-            match (removeNode(ctx, self.root, key.hash(), key)) {
+            match (removeNode(ctx, root, hash, key)) {
                 .None => empty<K, V>(),
                 .Some(r) => Map { root: r, size: size - 1 },
             }

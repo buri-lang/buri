@@ -1,6 +1,8 @@
 # Functional updates of a record the update is the last use of: replacements
 # that match with guards, read the replaced field on some paths only, read
-# another record, or leave early with `?`. Both backends run every block.
+# another record, or leave early with `?`, and a map field changed in each
+# arm of a match, read in a guard, a condition, a scrutinee or a call before
+# the arm. Both backends run every block.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
