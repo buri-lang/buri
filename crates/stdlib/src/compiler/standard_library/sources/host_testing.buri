@@ -2195,7 +2195,13 @@ impl Rendered {
     /// link that is enabled, and a stack given a `hasFocus` or an
     /// `isInFocusOrder`. The `hasFocus` signals of the element that had the
     /// focus and the one that has it now are written, and a tooltip around the
-    /// focused element shows its bubble. Aborts when no element has that name,
+    /// focused element shows its bubble. Then `onFocus(false)` runs on the
+    /// element that had the focus and every element around it, and
+    /// `onFocus(true)` on the one that has it now and every element around it,
+    /// as a browser's `focusout` and `focusin` do. `tab`, `shiftTab`, `press`
+    /// and a write to a `hasFocus` signal move the focus the same way.
+    ///
+    /// Aborts when no element has that name,
     /// or when it is nothing a reader can focus: one that is disabled, or that
     /// an open `dialog` has taken out of reach.
     export fn focus(self, name: Str): ();
@@ -2337,8 +2343,11 @@ impl Rendered {
     /// `over` is what each handler's `overRow` is read from.
     ///
     /// `over` is what the pointer hovers now, so a tooltip around it shows and
-    /// one around what it left hides. `pointerDown`, `pointerUp` and `press`
-    /// hover what they name the same way.
+    /// one around what it left hides. `onHover(false)` runs on each element
+    /// the pointer left, the innermost first, and `onHover(true)` on each one
+    /// it entered, the outermost first, as a browser's `mouseleave` and
+    /// `mouseenter` do. `pointerDown`, `pointerUp` and `press` hover what they
+    /// name the same way.
     export fn pointerMove(self, over: Str, x: Float, y: Float): ();
 
     /// Releases the pointer over the element named `over`, at (`x`, `y`), and

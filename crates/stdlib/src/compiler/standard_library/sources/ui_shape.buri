@@ -113,9 +113,10 @@ impl<C> Shape<C> {
     /// Lays the shape out the way a document with no browser holds it: one
     /// element per shape, as a browser has.
     ///
-    /// `element` is handed an element's name, its SVG, its label, and the
-    /// shapes inside it. The SVG is the whole shape when it ends in `>`, and a
-    /// start tag that the shapes inside it and its end follow otherwise.
+    /// `element` is handed an element's name, its SVG, its label, what runs as
+    /// the focus arrives and leaves, and the shapes inside it. The SVG is the
+    /// whole shape when it ends in `>`, and a start tag that the shapes inside
+    /// it and its end follow otherwise.
     /// `rows` is handed an `each`'s keys and its row at an index. A group with no
     /// offset has no element, so its shapes are laid in its place.
     ///
@@ -123,20 +124,36 @@ impl<C> Shape<C> {
     /// its elements.
     export fn lay(
         self,
-        element: fn(Str, Prop<Str>, Option<Prop<Str>>, [Shape<C>]) => (),
+        element: fn(Str, Prop<Str>, Option<Prop<Str>>, Option<fn(C, Bool) => ()>, [Shape<C>]) => (),
         rows: fn(fn(Scope) => [Str], fn(C, Scope, Int) => Shape<C>) => (),
     ): () {
         let shape = self;
         let label = self.6.map(fn(stop) => stop.0);
+        let onFocus: Option<fn(C, Bool) => ()> = match (self.6) {
+            .Some(stop) => stop.1,
+            .None => .None,
+        };
         match (self.4) {
             .Some(each) => rows(each.0, each.1),
             .None => {
                 if (self.0 != "g") {
-                    element(self.0, .Computed(fn(s) => shape.svg(s)), label, [])
+                    element(
+                        self.0,
+                        .Computed(fn(s) => shape.svg(s)),
+                        label,
+                        onFocus,
+                        [],
+                    )
                 } else if (self.1.isEmpty()) {
                     layFrom(self.3, 0, element, rows)
                 } else {
-                    element("g", .Computed(fn(s) => shape.opening(s)), label, self.3)
+                    element(
+                        "g",
+                        .Computed(fn(s) => shape.opening(s)),
+                        label,
+                        onFocus,
+                        self.3,
+                    )
                 }
             },
         }
@@ -147,7 +164,7 @@ impl<C> Shape<C> {
 fn layFrom<C>(
     shapes: [Shape<C>],
     at: Int,
-    element: fn(Str, Prop<Str>, Option<Prop<Str>>, [Shape<C>]) => (),
+    element: fn(Str, Prop<Str>, Option<Prop<Str>>, Option<fn(C, Bool) => ()>, [Shape<C>]) => (),
     rows: fn(fn(Scope) => [Str], fn(C, Scope, Int) => Shape<C>) => (),
 ): () {
     match (shapes.get(at)) {

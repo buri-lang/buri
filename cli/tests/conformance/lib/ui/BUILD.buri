@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/drawings.buri",
+            "test/handlers.buri",
             "test/reactive.buri",
             "test/reactivity.buri",
             "test/render.buri",

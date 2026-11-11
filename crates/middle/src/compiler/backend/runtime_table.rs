@@ -543,6 +543,7 @@ const REGISTER_POINTER: Entry = e(
     &[Scalar, Scalar, Press],
     Ret::Void,
 );
+const REGISTER_EDGE: Entry = e("ui_node.registerEdge", &[Scalar, Scalar, Press], Ret::Void);
 
 /// The row an `ir::Handover` on `row` calls.
 pub fn handoff(row: Handoff) -> &'static Entry {
@@ -561,6 +562,7 @@ pub fn handoff(row: Handoff) -> &'static Entry {
         Handoff::Press(PressRow::Key) => &REGISTER_KEY,
         Handoff::Press(PressRow::Pick) => &REGISTER_PICK,
         Handoff::Press(PressRow::Pointer) => &REGISTER_POINTER,
+        Handoff::Press(PressRow::Edge) => &REGISTER_EDGE,
     }
 }
 
@@ -2065,6 +2067,10 @@ pub const ENTRIES: &[Entry] = &[
     // readers answer the `PointerAt` the dispatch in flight set, and
     // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
     REGISTER_POINTER,
+    // A hover's and a focus's edges: `registerEdge` keeps one of an element's
+    // four, an `ep` like `registerPointer`, for the pointer and the focus moving
+    // to fire.
+    REGISTER_EDGE,
     e("ui_node.pointerX", &[Scalar], Ret::Scalar(F64)),
     e("ui_node.pointerY", &[Scalar], Ret::Scalar(F64)),
     e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar(U8)),
@@ -2547,8 +2553,8 @@ mod tests {
             assert_eq!(kept, shape, "{}", e.key);
         }
         // Two steps, the graph's two deferred bodies and the renderer's
-        // `reactive`, three walks, six kept handlers and the two timers.
-        assert_eq!(checked, 16);
+        // `reactive`, three walks, seven kept handlers and the two timers.
+        assert_eq!(checked, 17);
     }
 
     /// The module a key's first segment names, for the keys whose operations

@@ -111,6 +111,11 @@ struct Record {
     pick: i64,
     /// The pointer handler graph nodes, down/move/up, each `-1` when unset.
     pointer: [i64; 3],
+    /// The hover's and the focus's edges: the graph nodes `onHover(true)`,
+    /// `onHover(false)`, `onFocus(true)` and `onFocus(false)` run on, each `-1`
+    /// when unset — the JavaScript `mouseenter`, `mouseleave`, `focusin` and
+    /// `focusout` listeners.
+    edges: [i64; 4],
     /// Whether this element is announced as the current page — the
     /// JavaScript `aria-current`. `isCurrent` reads it.
     current: bool,
@@ -176,6 +181,7 @@ fn plain_record(
         follow_dest: String::new(),
         pick: -1,
         pointer: [-1; 3],
+        edges: [-1; 4],
         current: false,
         decorative: false,
         tip: -1,
@@ -1494,6 +1500,35 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_pointer(
     });
 }
 
+/// `registerEdge(builder, edge, handler)` — keeps one of a hover's or a focus's
+/// edges on a graph node and stores it on the open element under `edge` (0 the
+/// pointer entering, 1 leaving, 2 the focus arriving, 3 leaving).
+///
+/// # Safety
+/// `entry`/`state`/`bytes`/`frame_at`/`body` are the kept handler's trampoline
+/// arguments.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_edge(
+    handle: i64,
+    edge: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let node =
+        unsafe { crate::ui::buri_rt_ui_node_register_handler(entry, state, bytes, frame_at, body) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        let slot = usize::try_from(edge).ok();
+        if let Some(handler) = slot.and_then(|s| doc.records.get_mut(open)?.edges.get_mut(s)) {
+            *handler = node;
+        }
+    });
+}
+
 /// `pointerX(builder)` — the x the pointer dispatch in flight carries.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_pointer_x(handle: i64) -> f64 {
@@ -2373,12 +2408,65 @@ fn sync_tips(handle: i64) {
 
 /// The pointer is over `node` now, so a tooltip around it shows — unless the
 /// pointer passes through `node` or a dialog has taken it out of reach, and
-/// then it is over nothing this document can name.
+/// then it is over nothing this document can name. Every element the pointer
+/// left hears `onHover(false)`, innermost first, and every one it entered
+/// hears `onHover(true)`, outermost first, the way a browser fires
+/// `mouseleave` and `mouseenter`.
 fn hover(handle: i64, node: usize) {
-    with_doc(handle, |doc| {
+    let fired = with_doc(handle, |doc| {
+        let old = doc.hovered;
         doc.hovered = (doc.reachable(node) && !doc.inert(node)).then_some(node);
-    });
+        doc.crossed(old, doc.hovered, 0)
+    })
+    .unwrap_or_default();
     sync_tips(handle);
+    for handler in fired {
+        crate::ui::fire(handler, handle);
+    }
+}
+
+impl Document {
+    /// `node` and every element around it, innermost first, while `node` is in
+    /// the tree — what an event that bubbles from `node` reaches.
+    fn path(&self, node: Option<usize>) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut at = node.filter(|&n| self.within(0, n));
+        while let Some(i) = at {
+            if i == 0 {
+                break;
+            }
+            out.push(i);
+            at = self.records[i].parent;
+        }
+        out
+    }
+
+    /// The edge handlers moving from `old` to `new` fires, from `first`'s pair:
+    /// the left edge (`first + 1`) on every element around `old` and not around
+    /// `new`, innermost first, then the entered edge (`first`) on every element
+    /// around `new` and not around `old`, outermost first — a hover's
+    /// `mouseleave` and `mouseenter`.
+    fn crossed(&self, old: Option<usize>, new: Option<usize>, first: usize) -> Vec<i64> {
+        let was = self.path(old);
+        let is = self.path(new);
+        let left = was.iter().filter(|i| !is.contains(i));
+        let entered = is.iter().rev().filter(|i| !was.contains(i));
+        left.map(|&i| self.records[i].edges[first + 1])
+            .chain(entered.map(|&i| self.records[i].edges[first]))
+            .filter(|&h| h >= 0)
+            .collect()
+    }
+
+    /// The focus edges moving it from record `old` to record `new` fires:
+    /// `onFocus(false)` on `old` and every element around it, innermost first,
+    /// then `onFocus(true)` on `new` and every element around it, innermost
+    /// first — a browser's `focusout` and `focusin`, which bubble, so an
+    /// element around both hears the one and then the other.
+    fn refocused(&self, old: Option<usize>, new: Option<usize>) -> Vec<i64> {
+        let out = self.path(old).into_iter().map(|i| self.records[i].edges[3]);
+        let into = self.path(new).into_iter().map(|i| self.records[i].edges[2]);
+        out.chain(into).filter(|&h| h >= 0).collect()
+    }
 }
 
 impl Document {
@@ -2487,19 +2575,27 @@ impl Document {
 
 /// Moves the focus to stop `new`, or takes it off the page for `None`, and
 /// writes what that changes: the two elements' signals and their groups', and
-/// every tooltip. One update transaction.
+/// every tooltip, in one update transaction. Then the `onFocus` handlers the
+/// move reaches run, the way a browser's `focusout` and `focusin` listeners do.
 fn set_focus(handle: i64, new: Option<usize>) {
-    let writes = with_doc(handle, |doc| {
+    let (writes, fired) = with_doc(handle, |doc| {
         let old = doc.focus_now();
         if old == new {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
+        let fired = doc.refocused(
+            old.and_then(|k| doc.stop_record(k)),
+            new.and_then(|k| doc.stop_record(k)),
+        );
         doc.focused = new;
-        doc.moved(old, new)
+        (doc.moved(old, new), fired)
     })
     .unwrap_or_default();
     write_focus(&writes);
     sync_tips(handle);
+    for handler in fired {
+        crate::ui::fire(handler, handle);
+    }
 }
 
 fn write_focus(writes: &[(i64, bool)]) {

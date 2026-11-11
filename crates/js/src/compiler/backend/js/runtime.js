@@ -7868,6 +7868,10 @@ function $scene_record(kind, name, body, text) {
     pick: null,
     // The pointer handler thunks, down/move/up, each null when unset.
     pointer: [null, null, null],
+    // The hover's and the focus's edges — `onHover(true)`, `onHover(false)`,
+    // `onFocus(true)`, `onFocus(false)` — each null when unset: the native
+    // `edges`, and the `mouseenter`/`mouseleave`/`focusin`/`focusout` listeners.
+    edges: [null, null, null, null],
     // `aria-current` and `aria-hidden`'s twins: announced as the current page,
     // and hidden from assistive technology with everything under it.
     current: false,
@@ -8281,6 +8285,17 @@ function $ui_node_registerPointer(builder, phase, handler) {
   }
 }
 
+// One of a hover's or a focus's edges, kept on the open element under `edge`
+// (0 the pointer entering, 1 leaving, 2 the focus arriving, 3 leaving) — the
+// native `registerEdge`.
+function $ui_node_registerEdge(builder, edge, handler) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.edges[Number(edge)] = () => $ui_flush(() => handler($taskApart(doc.ctx), [0n]));
+  }
+}
+
 // Where the pointer is for the handler being fired, read back by its `PointerAt`.
 function $ui_node_pointerX(builder) {
   return $scene_of(builder).pointer.x;
@@ -8611,9 +8626,45 @@ function $scene_syncTips(doc) {
 
 // The pointer is over `node` now — unless it passes through `node` or a dialog
 // has taken it out of reach, and then it is over nothing this document names.
+// Every element the pointer left hears `onHover(false)`, innermost first, and
+// every one it entered `onHover(true)`, outermost first — the native `hover`.
 function $scene_hover(doc, node) {
+  const old = doc.hovered;
   doc.hovered = $scene_reachable(doc, node) && !$scene_inert(doc, node) ? node : -1;
+  const fired = $scene_crossed(doc, old, doc.hovered);
   $scene_syncTips(doc);
+  for (const handler of fired) handler();
+}
+
+// `node` and every element around it, innermost first, while `node` is in the
+// tree — the native `Document::path`.
+function $scene_path(doc, node) {
+  const out = [];
+  if (node < 0 || !$scene_within(doc, 0, node)) return out;
+  for (let at = node; at !== null && at !== undefined && at !== 0; at = doc.records[at].parent) out.push(at);
+  return out;
+}
+
+// The hover edges moving from `old` to `fresh` fires — the native
+// `Document::crossed`.
+function $scene_crossed(doc, old, fresh) {
+  const was = $scene_path(doc, old);
+  const is = $scene_path(doc, fresh);
+  const left = was.filter((i) => !is.includes(i)).map((i) => doc.records[i].edges[1]);
+  const entered = is
+    .slice()
+    .reverse()
+    .filter((i) => !was.includes(i))
+    .map((i) => doc.records[i].edges[0]);
+  return left.concat(entered).filter((h) => h !== null);
+}
+
+// The focus edges moving it from record `old` to record `fresh` fires — the
+// native `Document::refocused`: `focusout` and `focusin`, which bubble.
+function $scene_refocused(doc, old, fresh) {
+  const out = $scene_path(doc, old).map((i) => doc.records[i].edges[3]);
+  const into = $scene_path(doc, fresh).map((i) => doc.records[i].edges[2]);
+  return out.concat(into).filter((h) => h !== null);
 }
 
 // --- The focus ----------------------------------------------------------------
@@ -8728,9 +8779,15 @@ function $scene_writeFocus(writes) {
 function $scene_setFocus(doc, fresh) {
   const old = $scene_focusNow(doc);
   if (old === fresh) return;
+  const fired = $scene_refocused(
+    doc,
+    old >= 0 ? $scene_stopRecord(doc, old) : -1,
+    fresh >= 0 ? $scene_stopRecord(doc, fresh) : -1,
+  );
   doc.focused = fresh;
   $scene_writeFocus($scene_moved(doc, old, fresh));
   $scene_syncTips(doc);
+  for (const handler of fired) handler();
 }
 
 // After a region or a row went — the native `check_focus`.

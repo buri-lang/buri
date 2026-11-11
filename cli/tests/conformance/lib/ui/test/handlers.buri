@@ -1,0 +1,296 @@
+// What a headless interaction runs: the handlers a browser would run for the
+// same interaction. Moving the focus runs `onFocus` the way `focusout` and
+// `focusin` do, on the element and every element around it, and moving the
+// pointer runs `onHover` the way `mouseleave` and `mouseenter` do.
+// `language::pages` drives the same trees in a browser.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import {
+    headless, observer, Recorder, recorder, render,
+};
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/shape" import { Shape };
+from "ui/signal" import { Signal, signal };
+
+/// Records `on` as the focus or the pointer arrives, and `off` as it leaves.
+fn heard<C>(log: Recorder, on: Str, off: Str): Option<fn(C, Bool) => ()> {
+    .Some(fn(_c, now) => log.record(if (now) { on } else { off }))
+}
+
+/// A stack named by its text, in the focus order.
+fn box<C>(log: Recorder, name: Str, on: Str, off: Str): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [ui.text({ content: .Const(name) })],
+        isInFocusOrder: .Some(.Const(true)),
+        onFocus: heard(log, on, off),
+    })
+}
+
+/// A button named `name`.
+fn press<C>(log: Recorder, name: Str, on: Str, off: Str): Node<C> {
+    ui.button({
+        label: .Const(name),
+        styles: [],
+        onPress: .Some(fn(_c) => ()),
+        onFocus: heard(log, on, off),
+    })
+}
+
+/// A bar named `name` that writes its name into `picked` while it has the focus.
+fn bar<C: Ui>(picked: Signal<Str>, name: Str, x: Float): Shape<C> {
+    shape.rect({
+        at: .Const((x, 0.0)),
+        size: .Const((8.0, 10.0)),
+        label: .Some(.Const(name)),
+        onFocus: .Some(fn(c, now) => picked.set(c, if (now) { name } else { "" })),
+    })
+}
+
+test "focusing a stack runs its onFocus" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [box(log, "A", "A in", "A out"), box(log, "B", "B in", "B out")],
+        }),
+    );
+    let _ = page.focus("A");
+    assert.equal(log.recorded(), ["A in"]);
+    let _ = page.focus("B");
+    assert.equal(log.recorded(), ["A in", "A out", "B in"]);
+}
+
+test "focusing a button runs its onFocus" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                press(log, "Save", "Save in", "Save out"),
+                press(log, "Cancel", "Cancel in", "Cancel out"),
+            ],
+        }),
+    );
+    let _ = page.focus("Save");
+    let _ = page.focus("Cancel");
+    assert.equal(log.recorded(), ["Save in", "Save out", "Cancel in"]);
+}
+
+test "tab and shift-tab run onFocus on the element left and the one reached" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                box(log, "A", "A in", "A out"),
+                press(log, "B", "B in", "B out"),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    let _ = page.tab();
+    let _ = page.shiftTab();
+    assert.equal(log.recorded(), ["A in", "A out", "B in", "B out", "A in"]);
+}
+
+test "pressing a button focuses it and runs its onFocus" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                press(log, "Save", "Save in", "Save out"),
+                press(log, "Cancel", "Cancel in", "Cancel out"),
+            ],
+        }),
+    );
+    let _ = page.press("Save");
+    let _ = page.press("Cancel");
+    assert.equal(log.recorded(), ["Save in", "Save out", "Cancel in"]);
+}
+
+test "writing hasFocus runs onFocus on the element it moves the focus to and from" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("A") })],
+                    hasFocus: .Some(a),
+                    onFocus: heard(log, "A in", "A out"),
+                }),
+                ui.button({
+                    label: .Const("B"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    hasFocus: .Some(b),
+                    onFocus: heard(log, "B in", "B out"),
+                }),
+            ],
+        }),
+    );
+    a.set(ctx, true);
+    assert.equal(log.recorded(), ["A in"]);
+    b.set(ctx, true);
+    assert.equal(log.recorded(), ["A in", "A out", "B in"]);
+    b.set(ctx, false);
+    assert.equal(log.recorded(), ["A in", "A out", "B in", "B out"]);
+    assert.equal(page.focused(), "");
+}
+
+test "the stack around the focus hears the focus leave and arrive as it moves inside" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        press(log, "Bold", "Bold in", "Bold out"),
+                        press(log, "Italic", "Italic in", "Italic out"),
+                    ],
+                    onFocus: heard(log, "toolbar in", "toolbar out"),
+                }),
+                press(log, "Send", "Send in", "Send out"),
+            ],
+        }),
+    );
+    let _ = page.focus("Bold");
+    assert.equal(log.recorded(), ["Bold in", "toolbar in"]);
+    let _ = page.focus("Italic");
+    assert.equal(log.recorded(), [
+        "Bold in",
+        "toolbar in",
+        "Bold out",
+        "toolbar out",
+        "Italic in",
+        "toolbar in",
+    ]);
+    let _ = page.focus("Send");
+    assert.equal(log.recorded(), [
+        "Bold in",
+        "toolbar in",
+        "Bold out",
+        "toolbar out",
+        "Italic in",
+        "toolbar in",
+        "Italic out",
+        "toolbar out",
+        "Send in",
+    ]);
+}
+
+test "tabbing to a labelled shape runs its onFocus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked: Signal<Str> = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.drawing({
+            alt: .AccessibilityText("Sales by month"),
+            size: .Const((20.0, 10.0)),
+            styles: [],
+            shapes: [bar(picked, "Jan", 0.0), bar(picked, "Feb", 10.0)],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(picked.get(ctx), "Jan");
+    let _ = page.tab();
+    assert.equal(picked.get(ctx), "Feb");
+}
+
+test "moving the pointer runs onHover on what it enters and leaves" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Apples") })],
+                    onHover: heard(log, "row in", "row out"),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Pears") })],
+                    onHover: heard(log, "other in", "other out"),
+                }),
+            ],
+            onHover: heard(log, "list in", "list out"),
+        }),
+    );
+    let _ = page.pointerMove("Apples", 0.0, 0.0);
+    assert.equal(log.recorded(), ["list in", "row in"]);
+    let _ = page.pointerMove("Pears", 0.0, 0.0);
+    assert.equal(log.recorded(), ["list in", "row in", "row out", "other in"]);
+}
+
+test "pressing a button hovers it and runs its onHover" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    onHover: heard(log, "Save in", "Save out"),
+                }),
+                ui.button({
+                    label: .Const("Cancel"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    onHover: heard(log, "Cancel in", "Cancel out"),
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("Save");
+    let _ = page.press("Cancel");
+    assert.equal(log.recorded(), ["Save in", "Save out", "Cancel in"]);
+}

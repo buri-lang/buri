@@ -829,6 +829,9 @@ const PACKAGES: &[Case] = &[
     // #332's four proposal drawings, rendered with no browser. `BUILD.buri`
     // lists it too, so `buri test` runs it on JavaScript.
     included("ui/drawings.buri"),
+    // The handlers a headless interaction runs: `onFocus` as the focus moves
+    // and `onHover` as the pointer does. `BUILD.buri` lists it too.
+    included("ui/handlers.buri"),
     // The native renderer's static half (#53): `render`/`markup`/`text`/`count`
     // over trees with no reactivity, pinned byte-for-byte to the headerless
     // `describe`. `BUILD.buri` lists it too, so `buri test` runs it on

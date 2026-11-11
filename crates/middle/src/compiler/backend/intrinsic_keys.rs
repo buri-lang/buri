@@ -567,11 +567,12 @@ pub enum PressRow {
     Key,
     Pick,
     Pointer,
+    Edge,
 }
 
 impl Handoff {
     /// Every row, for a reader that enumerates them.
-    pub const ALL: [Handoff; 14] = [
+    pub const ALL: [Handoff; 15] = [
         Handoff::Compute(ComputeRow::HeadlessMemo),
         Handoff::Compute(ComputeRow::HeadlessWatch),
         Handoff::Compute(ComputeRow::Reactive),
@@ -586,6 +587,7 @@ impl Handoff {
         Handoff::Press(PressRow::Key),
         Handoff::Press(PressRow::Pick),
         Handoff::Press(PressRow::Pointer),
+        Handoff::Press(PressRow::Edge),
     ];
 
     /// The row `key` names, where it is one.
@@ -610,6 +612,7 @@ impl Handoff {
             Handoff::Press(PressRow::Key) => "ui_node.registerKey",
             Handoff::Press(PressRow::Pick) => "ui_node.registerPick",
             Handoff::Press(PressRow::Pointer) => "ui_node.registerPointer",
+            Handoff::Press(PressRow::Edge) => "ui_node.registerEdge",
         }
     }
 }

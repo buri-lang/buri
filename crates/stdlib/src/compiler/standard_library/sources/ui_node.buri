@@ -235,9 +235,9 @@ export struct PointerAt {
 /// plain box is the "clickable div" anti-pattern), so it stays on those nodes.
 ///
 /// A snapshot has no pointer, keyboard or scroll, so every one of these is inert
-/// in `describe`. `platform/effect/testing`'s `render` registers `onPressOutside`,
-/// `onKey` and the three pointer handlers, which its `press`, `key` and
-/// `pointerDown` drive. In a browser all eight are wired.
+/// in `describe`. `platform/effect/testing`'s `render` registers all but
+/// `onScroll`, because it moves the pointer and the focus and presses keys but
+/// scrolls nothing. In a browser all eight are wired.
 struct Events<C> {
     /// True as the pointer enters this element, false as it leaves.
     onHover: Option<fn(C, Bool) => ()>,
@@ -975,7 +975,7 @@ export fn drawing<C>(config: Drawing<C>): Node<C> {
 /// in the focus order, named by its label.
 fn layShape<C>(builder: Builder, repaint: fn(Scope) => (), shape: Shape<C>): () {
     shape.lay(
-        fn(name, svg, label, inner) => {
+        fn(name, svg, label, onFocus, inner) => {
             let at = openElement(builder, name, "");
             let _ = reactive(fn(s) => {
                 let _ = patchText(builder, at, svg.read(s));
@@ -984,6 +984,7 @@ fn layShape<C>(builder: Builder, repaint: fn(Scope) => (), shape: Shape<C>): () 
             let _ = match (label) {
                 .Some(heard) => {
                     let _ = reactive(fn(s) => relabel(builder, at, heard.read(s)));
+                    let _ = registerEdges(builder, 2, onFocus);
                     attachFocus(builder, focusKey(builder), true)
                 },
                 .None => {},
@@ -3074,6 +3075,8 @@ fn emitSliderControl(
 /// off the document, and a key handler reads its key and writes back whether it
 /// claimed it.
 fn registerEvents<C>(builder: Builder, events: Events<C>): () {
+    let _ = registerEdges(builder, 0, events.onHover);
+    let _ = registerEdges(builder, 2, events.onFocus);
     let _ = match (events.onPressOutside) {
         .Some(handler) => registerOutside(builder, fn(c, _event) => handler(c)),
         .None => {},
@@ -3089,6 +3092,23 @@ fn registerEvents<C>(builder: Builder, events: Events<C>): () {
     let _ = registerPointerPhase(builder, 0, events.onPointerDown);
     let _ = registerPointerPhase(builder, 1, events.onPointerMove);
     registerPointerPhase(builder, 2, events.onPointerUp)
+}
+
+/// A hover's or a focus's handler, kept on the open element as its two edges:
+/// `first` is the edge that hears `true` — 0 for the pointer entering, 2 for
+/// the focus arriving — and the one after it hears `false`.
+fn registerEdges<C>(
+    builder: Builder,
+    first: Int,
+    handler: Option<fn(C, Bool) => ()>,
+): () {
+    match (handler) {
+        .Some(run) => {
+            let _ = registerEdge(builder, first, fn(c, _event) => run(c, true));
+            registerEdge(builder, first + 1, fn(c, _event) => run(c, false))
+        },
+        .None => {},
+    }
 }
 
 /// One pointer handler, kept on the open element under `phase` — 0 down, 1
@@ -3635,6 +3655,12 @@ fn registerOutside<C>(builder: Builder, handler: fn(C, Event) => ()): ();
 /// Keeps a pointer handler on the open element under `phase` — 0 down, 1 move,
 /// 2 up — for `platform/effect/testing`'s pointer dispatch to fire.
 fn registerPointer<C>(builder: Builder, phase: Int, handler: fn(C, Event) => ()): ();
+
+/// Keeps one edge of a hover or a focus on the open element — 0 the pointer
+/// entering, 1 leaving, 2 the focus arriving, 3 leaving — for
+/// `platform/effect/testing` to fire as the pointer and the focus move, the
+/// way a browser fires `mouseenter`, `mouseleave`, `focusin` and `focusout`.
+fn registerEdge<C>(builder: Builder, edge: Int, handler: fn(C, Event) => ()): ();
 
 /// The x of the pointer the dispatch in flight carries.
 fn pointerX(builder: Builder): Float;

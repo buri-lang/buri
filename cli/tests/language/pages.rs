@@ -225,6 +225,138 @@ console.log(`hovered again ${shown()}`);
     );
 }
 
+/// A toolbar of two buttons, a button beside it, a row the pointer can enter
+/// and a drawing with one labelled bar. Each counts the times `onFocus` or
+/// `onHover` told it the focus or the pointer arrived and left, and a line
+/// under them shows the counts. `conformance/lib/ui/test/handlers.buri`
+/// drives the same handlers headlessly.
+const HANDLERS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { Signal, signal };
+from "web" import { WebHost };
+
+fn counted<C: Ui>(arrived: Signal<Int>, left: Signal<Int>): Option<fn(C, Bool) => ()> {
+    .Some(fn(c, now) => {
+        if (now) {
+            arrived.update(c, fn(n) => n + 1)
+        } else {
+            left.update(c, fn(n) => n + 1)
+        }
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let boldIn = signal(ctx, 0);
+    let boldOut = signal(ctx, 0);
+    let italicIn = signal(ctx, 0);
+    let italicOut = signal(ctx, 0);
+    let barIn = signal(ctx, 0);
+    let barOut = signal(ctx, 0);
+    let sendIn = signal(ctx, 0);
+    let sendOut = signal(ctx, 0);
+    let rowIn = signal(ctx, 0);
+    let rowOut = signal(ctx, 0);
+    let janIn = signal(ctx, 0);
+    let janOut = signal(ctx, 0);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.stack({
+                    styles: [],
+                    children: [
+                        ui.button({
+                            label: .Const("Bold"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                            onFocus: counted(boldIn, boldOut),
+                        }),
+                        ui.button({
+                            label: .Const("Italic"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                            onFocus: counted(italicIn, italicOut),
+                        }),
+                    ],
+                    onFocus: counted(barIn, barOut),
+                }),
+                ui.button({
+                    label: .Const("Send"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    onFocus: counted(sendIn, sendOut),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Apples") })],
+                    onHover: counted(rowIn, rowOut),
+                }),
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((10.0, 10.0)),
+                    styles: [],
+                    shapes: [
+                        shape.rect({
+                            at: .Const((0.0, 0.0)),
+                            size: .Const((8.0, 10.0)),
+                            label: .Some(.Const("Jan")),
+                            onFocus: counted(janIn, janOut),
+                        }),
+                    ],
+                }),
+                ui.text({
+                    content: .Computed(fn(s) => {
+                        str.format(
+                            s,
+                            "bold ${boldIn.get(s)}/${boldOut.get(s)} italic ${italicIn.get(s)}/${italicOut.get(s)} toolbar ${barIn.get(s)}/${barOut.get(s)} send ${sendIn.get(s)}/${sendOut.get(s)} row ${rowIn.get(s)}/${rowOut.get(s)} jan ${janIn.get(s)}/${janOut.get(s)}",
+                        )
+                    }),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn moving_the_focus_and_the_pointer_runs_on_focus_and_on_hover() {
+    let printed = drive(
+        "handlers-page",
+        HANDLERS_PAGE,
+        r#"
+const counts = () => body.firstChild.lastChild.textContent;
+const row = [...document.querySelectorAll("div")].find((d) => d.textContent === "Apples");
+labelled("Bold").focus();
+console.log(counts());
+labelled("Italic").focus();
+console.log(counts());
+labelled("Send").focus();
+console.log(counts());
+fire(row, "mouseenter");
+fire(row, "mouseleave");
+console.log(counts());
+labelled("Jan").focus();
+console.log(counts());
+"#,
+    );
+    assert_eq!(
+        printed,
+        "bold 1/0 italic 0/0 toolbar 1/0 send 0/0 row 0/0 jan 0/0\n\
+         bold 1/1 italic 1/0 toolbar 2/1 send 0/0 row 0/0 jan 0/0\n\
+         bold 1/1 italic 1/1 toolbar 2/2 send 1/0 row 0/0 jan 0/0\n\
+         bold 1/1 italic 1/1 toolbar 2/2 send 1/0 row 1/1 jan 0/0\n\
+         bold 1/1 italic 1/1 toolbar 2/2 send 1/1 row 1/1 jan 1/0\n"
+    );
+}
+
 /// Two lists whose rows are built by functions that only *hold* a handler
 /// that navigates: one written inline, one bound to a `let` first. Building a
 /// row waits on nothing, so every row renders, and pressing one still

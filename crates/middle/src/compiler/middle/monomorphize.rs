@@ -3625,6 +3625,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // dropped exactly as `rebuildRegion`'s is: it occurs only inside the closure
     // the runtime drives to build a row, never in a value that crosses.
     "ui_node.reconcile",
+    // `registerEdge` keeps an `onHover`'s or an `onFocus`'s edge, a
+    // `fn(C, Event) => ()`, its `C` dropped the same way `registerPress`'s is.
+    "ui_node.registerEdge",
     // `registerFollow` keeps a route link's `fn(C, Str) => ()` on the anchor,
     // its `C` dropped the same way a walk's is — the runtime fires it, never a
     // value that crosses.
@@ -4060,7 +4063,8 @@ mod tests {
         tasks.scopeSpare tasks.scopeTaskAt tasks.timerStart tasks.timerStop \
         testing_assert.failExpected testing_assert.report \
         ui_node.mount ui_node.rebuildRegion \
-        ui_node.reconcile ui_node.registerFollow ui_node.registerKey ui_node.registerOutside \
+        ui_node.reconcile ui_node.registerEdge ui_node.registerFollow ui_node.registerKey \
+        ui_node.registerOutside \
         ui_node.registerPick ui_node.registerPointer ui_node.registerPress \
         ui_web.render ui_web.resume ui_web.state";
 
