@@ -9354,6 +9354,29 @@ With §6.117, `run-dev/kvstore` went from 1,276.9 M to 1,259.2 M instructions
 on an arm64 VM, and from 617,876 to 589,381 allocations. The blocks it copied
 to change a list somebody else held fell from 66,597 to 38,692.
 
+### 6.119 `push` and the splices take the item they store, 2026-11-10
+
+Natively, `push`, `insertAt` and `replaceAt` lent their item. The runtime
+retained each counted field as it stored the item, and the caller released
+the fields after the call, even when it never read the item again. Now the
+item's parameter is owned (`rc.rs`'s `TAKEN_NATIVELY`), and the runtime moves
+it in. A caller that reads the item again takes its own count first. An index
+outside the list stores nothing, so `replaceAt` releases the item.
+
+`cli/tests/native/glue_counts.rs` counts the cost a field of storing a record
+of eight `Str`s against a record of one. On the stencil backend:
+
+- replacing a value in a `core/map`: 364 to 344 instructions
+- replacing a value in a `core/orderedmap`: 66 to 46
+- `push`: 124 to 103
+- `replaceAt` on a list: 53 to 33
+
+`cli/tests/native/ownership.rs` reads every stored record back under the heap
+check, with and without the caller and the old list or map still holding it.
+
+`run-dev/kvstore` went from 1,259.2 M to 1,209.2 M instructions on an arm64
+VM. Allocations stayed at 589,381.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
