@@ -3226,8 +3226,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// **hello world still links the runtime archive, and the answer is honest.**
 ///
-/// The size golden for `link::runtime_archive_for`, and the measurement the
-/// slice that added it was asked to take rather than to hope for. There is no
+/// The size golden for linking the runtime archive into every artifact. There is no
 /// shrink and there was never going to be one: both native entry points call
 /// `buri_rt_argv_init` and `buri_rt_flush` on every path (`stencil/asm.rs`,
 /// `llvm/emit.rs::entry_point`), so the emptiest program the language can
@@ -3335,15 +3334,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// The 353 KB the empty program pays stripped is the runtime's floor rather
 /// than the language's. `link.rs` measures that floor directly, on a C program
-/// with *one* reference to `buri_rt_flush`: 33 520 bytes without the archive
-/// against 351 856 with it. That is what the decision is worth to anything that
-/// can take the `Omitted` branch, and no Buri program can.
+/// with *one* reference to `buri_rt_flush`: 33 520 bytes when the program names
+/// no runtime symbol against 351 856 with it.
 ///
-/// **When this test fails**, it may be because an entry point stopped needing
-/// the runtime, and that is good news: `runtime_archive_for` will then answer
-/// `Omitted` for a program that prints nothing, the `link` key will stop
-/// carrying the archive's digest for it, and this test should be rewritten to
-/// pin the new pair of numbers rather than deleted.
+/// **When the reference check fails**, an entry point has stopped needing the
+/// runtime. Links then name an archive nothing uses, so measure what that costs
+/// before deciding whether a link should skip it.
 /// **A machine without a C compiler fails the link tests rather than passing
 /// them.** Runs one again in this binary with an empty `PATH` and no `CC`.
 #[test]
@@ -3425,10 +3421,11 @@ export fn main(host: NativeHost): Result<(), Str> {
             .emit(&program, &tables, &opts)
             .unwrap_or_else(|d| panic!("the backend refused {name}: {:?}", messages(&d)));
 
-        assert_eq!(
-            link::runtime_archive_for(&units),
-            link::RuntimeArchive::Linked,
-            "`{name}` was judged not to reference the runtime, but every native entry point \
+        assert!(
+            units
+                .iter()
+                .any(|u| crate::shared::names_the_runtime(&u.bytes)),
+            "`{name}` does not reference the runtime, but every native entry point \
              calls buri_rt_argv_init and buri_rt_flush — read this test's doc comment"
         );
 

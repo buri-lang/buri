@@ -392,6 +392,12 @@ pub fn driver_link(objects: &[PathBuf], binary: &Path) -> std::process::Output {
     cc.capped_output().unwrap()
 }
 
+/// Whether `bytes` spell a runtime symbol (`buri_rt_*`).
+pub fn names_the_runtime(bytes: &[u8]) -> bool {
+    let prefix = buri::compiler::backend::runtime_native::SYMBOL_PREFIX.as_bytes();
+    bytes.windows(prefix.len()).any(|w| w == prefix)
+}
+
 /// The runtime archive, written once and shared by every run.
 ///
 /// One copy per process was one per *test* under nextest, about 3 GB left

@@ -674,9 +674,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// This backend's half of the archive decision: its objects reference the
-/// runtime too, so `build/link.rs` names `libburi_rt.a` on the command line for
-/// a release build exactly as it does for a debug one.
+/// This backend's objects reference the runtime too, which is why
+/// `build/link.rs` names `libburi_rt.a` on every link, release as well as debug.
 ///
 /// The stencil suite carries the measurement
 /// (`stencil.rs::hello_world_still_links_the_runtime_archive`); what this adds
@@ -704,10 +703,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     ));
     let units = lowered.emit(Profile::Release);
-    assert_eq!(
-        buri::build::link::runtime_archive_for(&units),
-        buri::build::link::RuntimeArchive::Linked,
-        "an LLVM artifact was judged not to reference the runtime"
+    assert!(
+        units
+            .iter()
+            .any(|u| crate::shared::names_the_runtime(&u.bytes)),
+        "an LLVM artifact does not reference the runtime"
     );
 }
 

@@ -156,11 +156,9 @@
 //! write into one directory, so `<link-key>/` is always some link's whole
 //! record.
 //!
-//! The archive's last line is a decision rather than a constant:
-//! [`runtime_archive_for`] asks the objects whether any of them names a
-//! `buri_rt_*` symbol, and the answer both gates the file and enters the `link`
-//! key. On this toolchain it is `Linked` for every Buri program — see that
-//! function for why, and for what would have to change.
+//! Every link stages and names the archive. Every Buri program names the
+//! runtime through its entry point, so no link asks its objects whether they
+//! need it (see [`CDriver::link`]).
 //!
 //! It exists because a linker takes paths and [`CDriver::link`] takes bytes, and
 //! because the manifest is what makes "which objects changed" answerable from
@@ -211,112 +209,6 @@ pub fn can_link(target: Target) -> bool {
 /// None` means the host's architecture, so it is a host target.
 pub fn is_host_target(target: Target) -> bool {
     host_platform() == Some(target.platform) && target.arch.is_none_or(|a| host_arch() == Some(a))
-}
-
-// ---------------------------------------------------------------------------
-// Whether the runtime archive is linked at all
-// ---------------------------------------------------------------------------
-
-/// Whether a link puts `libburi_rt.a` on the driver's command line.
-///
-/// It used to be one question — "does this toolchain *have* an archive" — and
-/// the answer to "does this program *need* one" was left to `-dead_strip` and
-/// `--gc-sections`. That still works, and it is still what decides the
-/// artifact's size — per target rather than by BUILD-AND-WATCH.md §2.2's single
-/// number: hello world is 356 KB with its debug information removed against a
-/// 6.05 MB archive on arm64 macOS, and 401 KB against 8.73 MB on x86-64 Linux.
-/// The *linked* file on Linux is 2.19 MB, and the difference is not the
-/// stripping: an ELF link copies the archive members' DWARF into the executable
-/// where `ld64` leaves it in the members. The numbers, and how each was taken,
-/// are in `tests/native/stencil.rs::hello_world_still_links_the_runtime_archive`.
-/// What it could not do is keep the archive out of the `link` **key**: an
-/// artifact that names no runtime symbol was still relinked whenever the
-/// runtime changed, because the key held the archive's digest unconditionally.
-///
-/// So the answer is a value rather than a `bool`, and it travels to both places
-/// that need it: [`CDriver::link`]'s command line, and
-/// `build::actions::link_key_of`'s `runtime` term. Those two must agree —
-/// disagreeing would key one artifact under another's inputs — and they agree
-/// because both ask [`runtime_archive_for`] about the same objects.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RuntimeArchive {
-    /// The archive is staged beside the objects and named on the command line.
-    Linked,
-    /// It is neither written nor named: nothing in these objects refers to it,
-    /// or this toolchain has none.
-    Omitted,
-}
-
-impl RuntimeArchive {
-    /// Whether the archive reaches the command line.
-    pub fn is_linked(self) -> bool {
-        self == RuntimeArchive::Linked
-    }
-}
-
-/// Whether these objects reference the runtime archive.
-///
-/// This is [`crate::compiler::backend::networking_gap`]'s question asked one
-/// level lower down, and it is asked of the **objects** rather than of
-/// `program.funcs` — which is a correction to the shape the design proposed,
-/// and the reason for it is measurable rather than stylistic. A program's
-/// intrinsic keys are not the whole of what it asks the archive for: both
-/// native entry points call `buri_rt_argv_init` and `buri_rt_flush`
-/// unconditionally (`stencil/asm.rs`, `llvm/emit.rs::entry_point`), reference
-/// counting reaches `buri_rt_alloc`/`buri_rt_free`, a division emits
-/// `buri_rt_abort_div_zero`, `==` on `Str` emits `buri_rt_str_equal`, and none of
-/// those is a `FuncKind::Intrinsic` anybody could have walked for. A query over
-/// the program would have had to restate every emitter's structural calls, in a
-/// third place, and would have been wrong the first time one of them moved —
-/// and being wrong here is an unresolved symbol at `cc` time.
-///
-/// So the question is asked of what the backend actually produced, and the
-/// prefix is the one rule `runtime_native::SYMBOL_PREFIX` already states: an
-/// object that refers to a runtime entry carries that entry's name in its
-/// symbol table, as ASCII, whatever the object format. Conservative in the one
-/// direction that is safe — a string constant that happens to spell
-/// `buri_rt_` links an archive nothing needs, which costs a staged file and a
-/// dead-stripped nothing, where the opposite mistake costs a failed link.
-///
-/// **On this toolchain the answer is [`RuntimeArchive::Linked`] for every Buri
-/// program**, because of the two entry-point calls above. That is not a
-/// disappointment hidden in a comment: it is the finding, it is pinned by
-/// `tests/native/stencil.rs::hello_world_still_links_the_runtime_archive`, and
-/// the `Omitted` branch is reachable today only for objects that were not made
-/// from Buri source and for a toolchain with no archive at all. It becomes
-/// interesting the day an entry point stops needing the runtime.
-///
-/// One pass over the objects, comparing only at the bytes that could begin the
-/// prefix — the link is about to read every one of them off disk anyway.
-pub fn runtime_archive_for(units: &[Emitted]) -> RuntimeArchive {
-    if !runtime_native::AVAILABLE {
-        return RuntimeArchive::Omitted;
-    }
-    if units.iter().any(|unit| mentions_runtime(&unit.bytes)) {
-        RuntimeArchive::Linked
-    } else {
-        RuntimeArchive::Omitted
-    }
-}
-
-/// Whether `haystack` contains the runtime's symbol prefix.
-///
-/// `windows(n).any(..)` would say the same thing and compare at every offset;
-/// this compares only where the first byte matches, which over a few megabytes
-/// of object is the difference between a scan and a memory-bandwidth-bound
-/// one. `get(i..)` rather than `[i..]` because this repository's lints deny
-/// indexing.
-fn mentions_runtime(haystack: &[u8]) -> bool {
-    const PREFIX: &[u8] = runtime_native::SYMBOL_PREFIX.as_bytes();
-    haystack
-        .iter()
-        .enumerate()
-        .filter(|(_, byte)| PREFIX.first() == Some(*byte))
-        .any(|(i, _)| {
-            haystack
-                .get(i..)
-                .is_some_and(|rest| rest.starts_with(PREFIX))
-        })
 }
 
 // ---------------------------------------------------------------------------
@@ -2094,46 +1986,42 @@ impl CDriver {
             return Err(diagnostics);
         }
 
-        // The decision, taken once and used twice below — the staged file and
-        // the command line. `build::actions` asks the same function about the
-        // same objects to build the `link` key, which is what makes the key a
-        // fact about the link that actually ran.
-        let runtime = runtime_archive_for(units);
-        if runtime.is_linked() {
-            // The bytes are the baked host archive, or — on a cross link — the
-            // one `runtime_cross` built and cached for the target. Staged under
-            // the one name the command line uses either way. The "write only if
-            // the size differs" guard is worth most here: the archive is the
-            // largest file the link touches and a `--watch` loop reuses the
-            // directory on every pass.
-            //
-            // The host archive is a constant of this binary, so with a cache it
-            // is written there once, as an entry keyed on its digest, and
-            // hard-linked into every link directory from there. Sixteen
-            // megabytes per link directory was most of what a cold `buri test`
-            // wrote to disk.
-            let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
-            let written = match (&self.cross, &self.store) {
-                (Some(cross), _) => stage_from(&cross.archive(), &archive),
-                (None, store) => stage_constant(
-                    store.as_ref(),
-                    &format!(
-                        "runtime archive {}",
-                        crate::build::actions::runtime_archive_hash()
-                    ),
-                    runtime_native::ARCHIVE,
-                    &archive,
-                    // Reading its 19 MB costs a link about 5 ms.
-                    false,
+        // Every link names the archive: every Buri entry point calls into it, and
+        // `actions::native_gap` refuses native outputs on a toolchain without one.
+        //
+        // The bytes are the baked host archive, or — on a cross link — the
+        // one `runtime_cross` built and cached for the target. Staged under
+        // the one name the command line uses either way. The "write only if
+        // the size differs" guard is worth most here: the archive is the
+        // largest file the link touches and a `--watch` loop reuses the
+        // directory on every pass.
+        //
+        // The host archive is a constant of this binary, so with a cache it
+        // is written there once, as an entry keyed on its digest, and
+        // hard-linked into every link directory from there. Sixteen
+        // megabytes per link directory was most of what a cold `buri test`
+        // wrote to disk.
+        let archive = self.dir.join(runtime_native::ARCHIVE_NAME);
+        let written = match (&self.cross, &self.store) {
+            (Some(cross), _) => stage_from(&cross.archive(), &archive),
+            (None, store) => stage_constant(
+                store.as_ref(),
+                &format!(
+                    "runtime archive {}",
+                    crate::build::actions::runtime_archive_hash()
                 ),
-            };
-            if let Err(e) = written {
-                diagnostics.push(Diagnostic::error(
-                    Span::NONE,
-                    format!("cannot write {}: {e}", archive.display()),
-                ));
-                return Err(diagnostics);
-            }
+                runtime_native::ARCHIVE,
+                &archive,
+                // Reading its 19 MB costs a link about 5 ms.
+                false,
+            ),
+        };
+        if let Err(e) = written {
+            diagnostics.push(Diagnostic::error(
+                Span::NONE,
+                format!("cannot write {}: {e}", archive.display()),
+            ));
+            return Err(diagnostics);
         }
 
         crate::build::create_parent(out);
@@ -2180,13 +2068,13 @@ impl CDriver {
                 }
             })
             .collect();
-        let args = self.driver_args(&names, runtime);
+        let args = self.driver_args(&names);
 
         // The linker itself, with the command the driver would have run (see
         // `Replay`). A failure falls through to the driver, which either links
         // or reports the error in its own words.
         let keep = self.store.is_some();
-        let replay = self.replay(&args, &names, runtime, keep);
+        let replay = self.replay(&args, &names, keep);
         if let Some(replay) = &replay {
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
@@ -2204,7 +2092,7 @@ impl CDriver {
             Ok(status) if status.status.success() => {
                 if replay.is_some() {
                     // The replay failed where the driver did not, so it is stale.
-                    self.forget_replay(runtime, keep);
+                    self.forget_replay(keep);
                 }
                 self.claim(out)
             }
@@ -2281,11 +2169,7 @@ impl CDriver {
     }
 
     /// The driver's arguments for a link of these objects, in order.
-    pub fn driver_args(
-        &self,
-        objects: &[String],
-        runtime: RuntimeArchive,
-    ) -> Vec<std::ffi::OsString> {
+    pub fn driver_args(&self, objects: &[String]) -> Vec<std::ffi::OsString> {
         let mut args: Vec<std::ffi::OsString> = Vec::new();
         args.extend(self.flavour.driver_flags().iter().map(Into::into));
         // On a cross link, `-B <gcc-ld dir>` makes `-fuse-ld=lld` find rustc's
@@ -2301,9 +2185,7 @@ impl CDriver {
         // resolves left to right (see `prelink_args`).
         args.extend(self.prelink_args().into_iter().map(Into::into));
         args.extend(objects.iter().map(Into::into));
-        if runtime.is_linked() {
-            args.push(runtime_native::ARCHIVE_NAME.into());
-        }
+        args.push(runtime_native::ARCHIVE_NAME.into());
         args.extend(self.platform_flags().into_iter().map(Into::into));
         args
     }
@@ -2538,14 +2420,13 @@ static REPLAYS: std::sync::Mutex<Vec<(String, Option<Replay>)>> = std::sync::Mut
 impl CDriver {
     /// The key a [`Replay`] is stored under: everything that can change what
     /// the driver prints.
-    fn replay_key(&self, runtime: RuntimeArchive) -> ActionKey {
+    fn replay_key(&self) -> ActionKey {
         let mut text = format!(
-            "link replay v2\0{}\0{}\0{}\0{}\0{}\0{}\0",
+            "link replay v3\0{}\0{}\0{}\0{}\0{}\0",
             crate::build::cache::running_exe_identity().unwrap_or_default(),
             self.driver.display(),
             self.version(),
             self.link_identity(),
-            runtime.is_linked(),
             self.lld_dir
                 .as_deref()
                 .map(Path::display)
@@ -2566,10 +2447,9 @@ impl CDriver {
         &self,
         args: &[std::ffi::OsString],
         objects: &[String],
-        runtime: RuntimeArchive,
         keep: bool,
     ) -> Option<Replay> {
-        let key = self.replay_key(runtime);
+        let key = self.replay_key();
         let mut table = REPLAYS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -2611,8 +2491,8 @@ impl CDriver {
 
     /// Stops replaying this link's command, in this process and, where `keep`
     /// says it was kept, between processes.
-    pub fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
-        let key = self.replay_key(runtime);
+    pub fn forget_replay(&self, keep: bool) {
+        let key = self.replay_key();
         let mut table = REPLAYS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -3063,71 +2943,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The substring search the archive decision rests on, at the offsets that
-    /// break a hand-rolled one.
-    ///
-    /// `mentions_runtime` compares only where the first byte matches, so the
-    /// cases that matter are a match at the very end, a run of first-byte
-    /// matches that go nowhere, and a prefix longer than what is left.
-    #[test]
-    fn a_runtime_symbol_is_found_wherever_it_sits() {
-        assert!(mentions_runtime(b"buri_rt_flush"), "a match at offset zero");
-        assert!(
-            mentions_runtime(b"\0\0_buri_rt_alloc\0"),
-            "a match in the middle"
-        );
-        assert!(
-            mentions_runtime(b"xxxburi_rt_"),
-            "a match that ends the haystack"
-        );
-        assert!(
-            !mentions_runtime(b"buri_rt"),
-            "a prefix of the prefix is not the prefix"
-        );
-        assert!(!mentions_runtime(b""), "an empty object mentions nothing");
-        assert!(
-            !mentions_runtime(b"bbbbbbbb"),
-            "first-byte matches that go nowhere"
-        );
-        assert!(!mentions_runtime(b"buri_rtX"), "one byte short");
-    }
-
-    /// The decision itself, over objects this test writes: the answer is the
-    /// symbol prefix and nothing else about the bytes.
-    ///
-    /// Gated on `AVAILABLE`, because a toolchain with no archive answers
-    /// `Omitted` to everything — which is the first clause of the function and
-    /// is asserted on its own below.
-    #[test]
-    fn the_decision_is_whether_an_object_names_a_runtime_symbol() {
-        let unit = |bytes: &[u8]| Emitted {
-            name: String::from("main.o"),
-            key: None,
-            bytes: bytes.to_vec(),
-        };
-        assert_eq!(runtime_archive_for(&[]), RuntimeArchive::Omitted);
-        if !runtime_native::AVAILABLE {
-            assert_eq!(
-                runtime_archive_for(&[unit(b"buri_rt_flush")]),
-                RuntimeArchive::Omitted
-            );
-            return;
-        }
-        assert_eq!(
-            runtime_archive_for(&[unit(b"printf\0main\0")]),
-            RuntimeArchive::Omitted
-        );
-        assert_eq!(
-            runtime_archive_for(&[unit(b"\0buri_rt_flush\0")]),
-            RuntimeArchive::Linked
-        );
-        // Any one unit is enough: the archive is one file on one command line.
-        assert_eq!(
-            runtime_archive_for(&[unit(b"printf"), unit(b"buri_rt_alloc")]),
-            RuntimeArchive::Linked
-        );
-    }
-
     /// A unit name is a filename. Anything else would write outside the link
     /// directory, and the name comes from a backend rather than from a
     /// constant.
@@ -3441,22 +3256,26 @@ mod tests {
             cc.link(std::slice::from_ref(&unit), &out, &opts).is_ok(),
             "the replayed link"
         );
-        let runtime = runtime_archive_for(std::slice::from_ref(&unit));
         let names = strings(&["main.o"]);
-        let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime, true);
+        let replayed = cc.replay(&cc.driver_args(&names), &names, true);
         if host == Platform::Macos && cc.flavour == Flavour::Lld {
             assert!(replayed.is_some(), "ld64.lld was not called directly");
         }
 
         let cc = cc.in_dir(driven.clone());
         std::fs::write(driven.join("main.o"), &unit.bytes).expect("staging main.o");
+        std::fs::hard_link(
+            direct.join(runtime_native::ARCHIVE_NAME),
+            driven.join(runtime_native::ARCHIVE_NAME),
+        )
+        .expect("staging the runtime archive");
         if cc.libc == LibcMode::MuslBaked {
             stage_sysroot(&driven, None).expect("staging the sysroot");
         }
         let mut command = Command::new(&cc.driver);
         cc.pin(&mut command);
         let linked = command
-            .args(cc.driver_args(&names, runtime))
+            .args(cc.driver_args(&names))
             .status()
             .is_ok_and(|s| s.success());
         assert!(linked, "the driver's link");

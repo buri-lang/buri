@@ -525,15 +525,12 @@ expensive half of a native build is the half the key is protecting.
 link_key = H(Link, toolchain, mode, platform, arch,
              linker.name(), linker.version(),
              [codegen_key(u) for u in units],   // ordered
-             runtime_archive_hash | "omitted")
+             runtime_archive_hash)
 ```
 
 Ordered, because link order determines symbol resolution order and therefore the
-bytes. The last term is the archive's **decision** rather than its digest: the
-link names `libburi_rt.a` only when the objects carry a `buri_rt_*` symbol
-(BUILD-AND-WATCH.md §2.2), and a link that does not name it does not depend on
-it. Two decisions are two command lines and therefore two keys; one term either
-way, because an omitted archive has no digest to state. Both keys are built with
+bytes. Every link names `libburi_rt.a` (BUILD-AND-WATCH.md §2.2), so its digest
+is always in the key. Both keys are built with
 the existing `KeyBuilder`, which length-prefixes every field (`cache.rs`,
 `Sha256::field`) so two different field decompositions cannot collide.
 

@@ -11,7 +11,7 @@
 //! that `buri` doesn't: linking objects already on disk, outside any cache.
 #![allow(dead_code, reason = "`fuzz` uses part of it, `native` all of it")]
 
-use buri::build::link::{self, CDriver, LibcMode, RuntimeArchive};
+use buri::build::link::{self, CDriver, LibcMode};
 use buri::build::spawn;
 use buri::compiler::backend::Target;
 use std::ffi::OsString;
@@ -100,13 +100,12 @@ pub fn run(dir: &Path, objects: &[PathBuf], out: &Path) -> std::io::Result<Outpu
     })
     .map_err(|refusal| std::io::Error::other(refusal.message))?
     .in_dir(dir.to_path_buf());
-    let runtime = RuntimeArchive::Linked;
     let names: Vec<String> = objects
         .iter()
         .map(|o| o.to_string_lossy().into_owned())
         .collect();
-    let args = cc.driver_args(&names, runtime);
-    let replay = cc.replay(&args, &names, runtime, true);
+    let args = cc.driver_args(&names);
+    let replay = cc.replay(&args, &names, true);
     if let Some(replay) = &replay {
         if let Some(argv) = writing_to(replay.argv(&names), out) {
             let mut direct = Command::new(replay.program());
@@ -125,7 +124,7 @@ pub fn run(dir: &Path, objects: &[PathBuf], out: &Path) -> std::io::Result<Outpu
     let done = spawn::output(command.args(argv))?;
     if done.status.success() && replay.is_some() {
         // The replay failed where the driver did not, so it is stale.
-        cc.forget_replay(runtime, true);
+        cc.forget_replay(true);
     }
     Ok(done)
 }

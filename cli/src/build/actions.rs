@@ -2086,22 +2086,13 @@ pub fn codegen_key(
 /// link_key = H(Link, toolchain_version, mode, platform, arch,
 ///              linker.name(), linker.version(), linker.link_identity(),
 ///              [codegen_key(u) for u in units],   // ordered
-///              runtime_archive_hash | "omitted")
+///              runtime_archive_hash)
 /// ```
 ///
 /// Ordered, because link order determines symbol resolution order and therefore
 /// determines the bytes. The runtime archive is in it because editing the
 /// runtime relinks every artifact and recompiles none (BUILD-AND-WATCH.md
 /// §2.2), and nothing else in this key would notice.
-///
-/// The last term is the archive's *decision* and not merely its digest
-/// ([`link::RuntimeArchive`]). A link that does not name the archive does not
-/// depend on it, so folding the digest in would relink an artifact whose bytes
-/// could not have moved; and the two decisions have to be two keys, because
-/// they are two command lines and therefore two artifacts. It stays **one**
-/// term either way rather than becoming a digest plus a flag: an omitted
-/// archive has no digest to state, and a term whose value is sometimes
-/// meaningless is a term a reader has to be told to ignore.
 ///
 /// This is a *different function* from `action_key(.., Action::Link)`, which
 /// stays exactly what it was and is what a JavaScript artifact is keyed on. The
@@ -2112,27 +2103,19 @@ pub fn link_key(
     flags: &Flags,
     linker: &link::CDriver,
     unit_keys: &[ActionKey],
-    runtime: link::RuntimeArchive,
 ) -> ActionKey {
-    link_key_of(
-        flags.mode,
-        target_of(output),
-        &linker.identity(),
-        unit_keys,
-        runtime,
-    )
+    link_key_of(flags.mode, target_of(output), &linker.identity(), unit_keys)
 }
 
 /// [`link_key`] without a repository, which is what makes the three claims it
 /// rests on testable as claims rather than as the shadow of a build: that the
 /// unit keys enter **in order**, that the linker's identity enters at all, and
-/// that the archive decision moves the key exactly when it moves.
+/// that the runtime archive's digest enters it.
 pub fn link_key_of(
     mode: crate::commands::arguments::BuildMode,
     target: Target,
     linker: &link::LinkerIdentity,
     unit_keys: &[ActionKey],
-    runtime: link::RuntimeArchive,
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Link, mode);
     k.platform(target.platform, target.arch);
@@ -2146,13 +2129,7 @@ pub fn link_key_of(
     for key in unit_keys {
         k.dependency(key);
     }
-    match runtime {
-        link::RuntimeArchive::Linked => k.input("runtime", runtime_archive_hash().as_bytes()),
-        // Not the empty string: "this link named no archive" and "this link
-        // named an archive whose digest is of no bytes" would otherwise be one
-        // key, and on a host with no runtime the second is what the digest is.
-        link::RuntimeArchive::Omitted => k.input("runtime", b"omitted"),
-    }
+    k.input("runtime", runtime_archive_hash().as_bytes());
     k.finish()
 }
 
@@ -3645,11 +3622,7 @@ fn link_cached(
     path: &std::path::Path,
     prefix: &str,
 ) -> Result<(ActionKey, Option<u64>), Diagnostics> {
-    // Asked here and again inside the linker, of the same objects, because it
-    // is a pure function of them: the key has to name the command line the link
-    // is about to run, and the linker has to build that command line.
-    let runtime = link::runtime_archive_for(&objects.units);
-    let key = link_key(output, flags, &linker, &objects.keys, runtime);
+    let key = link_key(output, flags, &linker, &objects.keys);
     let cache = Cache::open(root);
     // Named for what is linked, not for the key: the next link of this output
     // takes the directory over, and every object it still uses is already

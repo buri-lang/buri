@@ -457,27 +457,13 @@ no profile key for it:
   s, 184 CPU-s, and an archive 276 048 bytes larger — because fat LTO has
   merged everything before the unit count matters.
 
-  The link also *decides* whether to name the archive at all
-  (`build/link.rs::runtime_archive_for`): it asks the objects whether any of
-  them carries a `buri_rt_*` symbol, and the answer gates both the staged file
-  and the `runtime` term in the `link` key. **It does not make any artifact
-  smaller, and it was measured before it was believed.** Both native entry
-  points call `buri_rt_argv_init` and `buri_rt_flush` on every path, so the
-  emptiest program the language can express already names three runtime
-  symbols and the answer is "link it" for every Buri program there is:
-
-  ```text
-  libburi_rt.a                          6 035 480 bytes
-  from "native" import { NativeHost };
-
-  export fn main(host: NativeHost) { .Ok(()) }            370 288    6.1% of it
-  hello world                             374 640    6.2%
-  ```
-
-  What the decision buys is the cache: a link that names no archive no longer
-  folds the archive's digest into its key, so editing `cli/runtime` stops
-  relinking artifacts that never linked it — a set that is empty for Buri
-  programs and is not empty for the object-level link suite.
+  Every link names the archive. Both native entry points call
+  `buri_rt_argv_init` and `buri_rt_flush` on every path, so every Buri program
+  needs it. An object that names no runtime symbol pulls nothing out of an
+  archive, so naming it costs such an object nothing
+  (`tests/native/link.rs::an_object_that_names_no_runtime_symbol_pays_nothing_for_the_archive`).
+  Links used to scan every object for `buri_rt_` first, and no Buri program
+  ever skipped the archive.
 - **`-C metadata=buri_rt -C extra-filename=`.** Without these, the archive's
   bytes depend on the *output path*, because the member names inside it carry
   rustc's symbol hash: two `OUT_DIR`s produced archives differing by a few
