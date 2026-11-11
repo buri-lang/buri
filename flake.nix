@@ -819,11 +819,11 @@
               pkgs.mold
             ];
           }
-          # What the `perf` shell sets, for the runtime's musl C.
+          # What the `perf` shell sets, for the runtime's musl C, and for the
+          # same reason no `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`.
           // lib.optionalAttrs pkgs.stdenv.isLinux {
             "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
             "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
-            NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
             # The wrapper's `_FORTIFY_SOURCE` calls glibc's `__vfprintf_chk`,
             # which a C object the suite links against musl can't resolve.
             hardeningDisable = [ "all" ];
@@ -842,7 +842,10 @@
           # What `from-source` sets, for the same reason: the runtime's musl C.
           "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
           "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
-          NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
+          # No `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`, for the default
+          # shell's reason: on arm64 the build would write an empty x86-64
+          # stencil library, and Memcheck, which builds in this shell, would
+          # fail every cross-emission test.
           packages = [
             rustToolchain
             llvm.dev

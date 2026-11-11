@@ -1326,6 +1326,30 @@ fn the_flake_downloads_the_test_runner_at_an_accepted_version() {
     );
 }
 
+/// **No dev shell stops clang building the x86-64 stencils on arm64.**
+///
+/// `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING` makes the clang wrapper put the
+/// host's `-march` ahead of every `--target=`. On arm64, clang then refuses
+/// `armv8-a` for x86-64, and the build writes an empty x86-64 stencil library.
+/// The `perf` shell set it, and Memcheck builds in that shell, so every
+/// cross-emission test failed on arm64 there (#337 to #340) while CI's own
+/// shell passed them.
+#[test]
+fn no_dev_shell_suppresses_the_clang_wrappers_target_warning() {
+    let flake = std::fs::read_to_string(repo_root().join("flake.nix")).unwrap();
+    let setting: Vec<&str> = flake
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .filter(|line| line.contains("NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING"))
+        .collect();
+    assert!(
+        setting.is_empty(),
+        "flake.nix sets NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING, which leaves an arm64 build \
+         with no x86-64 stencils:\n{}",
+        setting.join("\n")
+    );
+}
+
 /// **The cap can tell a child that is working from one that is stuck.**
 ///
 /// The discriminator itself, asked of two real processes and nothing else. A
