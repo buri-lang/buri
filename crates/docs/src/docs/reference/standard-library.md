@@ -68,10 +68,9 @@ what a column of money wants — plus `isCloseAbsolute`, `isCloseRelative`, and
 the constants `EPSILON`, `MIN_POSITIVE` and `TAU`. Each of those is `+ - * /`,
 `squareRoot` and the comparisons, so each answers the same bits on every backend. The
 six hyperbolics, their inverses, `lnOnePlus`, `expMinusOne` and `logBase` are
-built on `exp` and `ln` and so inherit the *existing* gap those two carry: they
-run on the JavaScript backend, and a native build reports the missing intrinsic
-by name (`cli/runtime/math.rs` says why implementing them with the platform's
-libm would be a divergence rather than a gap).
+built on `exp` and `ln`, which call the platform's libm, so their last digit can
+differ between macOS and Linux (`cli/runtime/math.rs` says by how much).
+`power` answers the same bits everywhere.
 
 `core/bits` covers the unsigned widths as well as `Int`: `rotateLeftU8` and
 `rotateRightU8`, the same pair at 32 and 64 bits, `byteSwapU32` and

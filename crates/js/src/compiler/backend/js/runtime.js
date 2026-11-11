@@ -1603,23 +1603,188 @@ function $character_toDigit(c, radix) {
 
 const $math_squareRoot = Math.sqrt;
 const $math_cubeRoot = Math.cbrt;
-// JavaScriptCore's `Math.pow`, written out so node's V8 answers the same:
-// `±0.5` is a square root, and a whole exponent up to 1000 is repeated
-// squaring. V8 rounds `pow(10, 308)` to `1e308`; this answers
-// `1.0000000000000006e308`, as Bun and the native runtime (`math.rs`) do.
+// fdlibm's `e_pow.c`, not `Math.pow`: engines differ in `Math.pow`'s last
+// bit (node 20 and node 24 disagree at `pow(2, 1.5)`), and this is IEEE
+// arithmetic and bit operations only, so it answers the same on every engine
+// and the same as the native runtime's port (`math.rs`). The first line is
+// ECMA-262's two `NaN` cases where fdlibm answers one.
+function $powHi(x) {
+  $hashF64[0] = x;
+  return $hashWords[$hashHi] | 0;
+}
+function $powLo(x) {
+  $hashF64[0] = x;
+  return $hashWords[$hashLo];
+}
+function $powWords(hi, lo) {
+  $hashWords[$hashHi] = hi;
+  $hashWords[$hashLo] = lo;
+  return $hashF64[0];
+}
+const $powDropLo = (x) => $powWords($powHi(x), 0);
+
+// `x * 2^n`, as musl's `scalbn`.
+function $powScale(x, n) {
+  if (n > 1023) {
+    x *= 8.98846567431158e307;
+    n -= 1023;
+    if (n > 1023) {
+      x *= 8.98846567431158e307;
+      n = Math.min(n - 1023, 1023);
+    }
+  } else if (n < -1022) {
+    x *= 2.004168360008973e-292;
+    n += 969;
+    if (n < -1022) {
+      x *= 2.004168360008973e-292;
+      n = Math.max(n + 969, -1022);
+    }
+  }
+  return x * $powWords((0x3ff + n) << 20, 0);
+}
+
 function $math_power(x, y) {
-  const size = Math.abs(x);
-  if (y !== y || (size === 1 && (y === Infinity || y === -Infinity))) return NaN;
-  if (y === 0.5 || y === -0.5) {
-    const root = size === 0 || size === Infinity ? size : Math.sqrt(x);
-    return y > 0 ? root : 1 / root;
+  if (y !== y || (Math.abs(x) === 1 && Math.abs(y) === Infinity)) return NaN;
+  const hx = $powHi(x), lx = $powLo(x), hy = $powHi(y), ly = $powLo(y);
+  let ix = hx & 0x7fffffff;
+  const iy = hy & 0x7fffffff;
+  if ((iy | ly) === 0) return 1;
+  if (hx === 0x3ff00000 && lx === 0) return 1;
+  if (ix > 0x7ff00000 || (ix === 0x7ff00000 && lx !== 0)) return NaN;
+  // Whether y is an odd whole number (1), an even one (2) or neither (0).
+  let yisint = 0;
+  if (hx < 0) {
+    if (iy >= 0x43400000) yisint = 2;
+    else if (iy >= 0x3ff00000) {
+      const k = (iy >> 20) - 0x3ff;
+      if (k > 20) {
+        const j = ly >>> (52 - k);
+        if (j << (52 - k) >>> 0 === ly) yisint = 2 - (j & 1);
+      } else if (ly === 0) {
+        const j = iy >> (20 - k);
+        if (j << (20 - k) === iy) yisint = 2 - (j & 1);
+      }
+    }
   }
-  if (y >= 0 && y <= 1000 && Math.trunc(y) === y) {
-    let result = 1;
-    for (let n = y; n !== 0; n >>>= 1, x *= x) if (n & 1) result *= x;
-    return result;
+  if (ly === 0) {
+    if (iy === 0x7ff00000) {
+      if (ix >= 0x3ff00000) return hy >= 0 ? y : 0;
+      return hy < 0 ? -y : 0;
+    }
+    if (iy === 0x3ff00000) return hy < 0 ? 1 / x : x;
+    if (hy === 0x40000000) return x * x;
+    if (hy === 0x3fe00000 && hx >= 0) return Math.sqrt(x);
   }
-  return Math.pow(x, y);
+  let ax = Math.abs(x);
+  if (lx === 0 && (ix === 0x7ff00000 || ix === 0 || ix === 0x3ff00000)) {
+    let z = hy < 0 ? 1 / ax : ax;
+    if (hx < 0) {
+      if (((ix - 0x3ff00000) | yisint) === 0) z = NaN;
+      else if (yisint === 1) z = -z;
+    }
+    return z;
+  }
+  let n = (hx >>> 31) - 1;
+  if ((n | yisint) === 0) return NaN;
+  const s = (n | (yisint - 1)) === 0 ? -1 : 1;
+  // log2(x) as t1 + t2, t1 with its low word cleared.
+  let t1, t2;
+  if (iy > 0x41e00000) {
+    if (iy > 0x43f00000) {
+      if (ix <= 0x3fefffff) return hy < 0 ? Infinity : 0;
+      return hy > 0 ? Infinity : 0;
+    }
+    if (ix < 0x3fefffff) return hy < 0 ? s * Infinity : s * 0;
+    if (ix > 0x3ff00000) return hy > 0 ? s * Infinity : s * 0;
+    const t = ax - 1;
+    const w = t * t * (0.5 - t * (3.3333333333333331e-1 - t * 0.25));
+    const u = 1.44269502162933349609 * t;
+    const v = t * 1.92596299112661746887e-8 - w * 1.442695040888963387;
+    t1 = $powDropLo(u + v);
+    t2 = v - (t1 - u);
+  } else {
+    n = 0;
+    if (ix < 0x00100000) {
+      ax *= 9007199254740992;
+      n -= 53;
+      ix = $powHi(ax);
+    }
+    n += (ix >> 20) - 0x3ff;
+    const j = ix & 0x000fffff;
+    ix = j | 0x3ff00000;
+    let k = 0;
+    if (j > 0x3988e && j < 0xbb67a) k = 1;
+    else if (j >= 0xbb67a) {
+      n += 1;
+      ix -= 0x00100000;
+    }
+    ax = $powWords(ix, $powLo(ax));
+    const bp = k === 0 ? 1 : 1.5;
+    const dpH = k === 0 ? 0 : 5.84962487220764160156e-1;
+    const dpL = k === 0 ? 0 : 1.35003920212974897128e-8;
+    let u = ax - bp;
+    let v = 1 / (ax + bp);
+    const ss = u * v;
+    const sH = $powDropLo(ss);
+    let tH = $powWords(((ix >> 1) | 0x20000000) + 0x00080000 + (k << 18), 0);
+    let tL = ax - (tH - bp);
+    const sL = v * (u - sH * tH - sH * tL);
+    let s2 = ss * ss;
+    let r = s2 * s2 * (5.99999999999994648725e-1 + s2 * (4.28571428578550184252e-1 +
+      s2 * (3.33333329818377432918e-1 + s2 * (2.72728123808534006489e-1 +
+      s2 * (2.30660745775561754067e-1 + s2 * 2.06975017800338417784e-1)))));
+    r += sL * (sH + ss);
+    s2 = sH * sH;
+    tH = $powDropLo(3 + s2 + r);
+    tL = r - (tH - 3 - s2);
+    u = sH * tH;
+    v = sL * tH + tL * ss;
+    const pH = $powDropLo(u + v);
+    const pL = v - (pH - u);
+    const zH = 9.61796700954437255859e-1 * pH;
+    const zL = -7.02846165095275826516e-9 * pH + pL * 9.61796693925975554329e-1 + dpL;
+    t1 = $powDropLo(zH + zL + dpH + n);
+    t2 = zL - (t1 - n - dpH - zH);
+  }
+  // y * log2(x) as pH + pL, then 2 to that.
+  const y1 = $powDropLo(y);
+  const pL = (y - y1) * t1 + y * t2;
+  let pH = y1 * t1;
+  let z = pL + pH;
+  let j = $powHi(z);
+  let i = $powLo(z);
+  if (j >= 0x40900000) {
+    if (((j - 0x40900000) | i) !== 0) return s * Infinity;
+    if (pL + 8.0085662595372944372e-17 > z - pH) return s * Infinity;
+  } else if ((j & 0x7fffffff) >= 0x4090cc00) {
+    if (((j - 0xc090cc00) | i) !== 0) return s * 0;
+    if (pL <= z - pH) return s * 0;
+  }
+  i = j & 0x7fffffff;
+  let k = (i >> 20) - 0x3ff;
+  n = 0;
+  if (i > 0x3fe00000) {
+    n = j + (0x00100000 >> (k + 1));
+    k = ((n & 0x7fffffff) >> 20) - 0x3ff;
+    const t = $powWords(n & ~(0x000fffff >> k), 0);
+    n = ((n & 0x000fffff) | 0x00100000) >> (20 - k);
+    if (j < 0) n = -n;
+    pH -= t;
+  }
+  let t = $powDropLo(pL + pH);
+  const u = t * 6.93147182464599609375e-1;
+  const v = (pL - (t - pH)) * 6.93147180559945286227e-1 + t * -1.90465429995776804525e-9;
+  z = u + v;
+  const w = v - (z - u);
+  t = z * z;
+  t1 = z - t * (1.66666666666666019037e-1 + t * (-2.77777777770155933842e-3 +
+    t * (6.61375632143793436117e-5 + t * (-1.65339022054652515390e-6 +
+    t * 4.13813679705723846039e-8))));
+  const r = (z * t1) / (t1 - 2) - (w + z * w);
+  z = 1 - (r - z);
+  j = $powHi(z) + (n << 20);
+  z = j >> 20 <= 0 ? $powScale(z, n) : $powWords(j, $powLo(z));
+  return s * z;
 }
 const $math_exp = Math.exp;
 const $math_ln = Math.log;

@@ -36,8 +36,9 @@
 //!     file carries the category as data and says where the data came from;
 //!   * **`core/math`** ([`math`]) — `squareRoot`, the four rounding functions
 //!     and the three predicates, which IEEE 754 fixes exactly, and the
-//!     thirteen transcendentals, which call the platform's libm as Bun's
-//!     `Math.*` does. That file says where libms differ in the last bit;
+//!     transcendentals, which call the platform's libm as Bun's `Math.*`
+//!     does, except `power`, which is fdlibm's, written out. That file says
+//!     where libms differ in the last bit;
 //!   * **the stateful half of `platform/effect/testing`** ([`testing`]) — a captured
 //!     stdout, a seeded generator, a test clock, a fixture environment, and a
 //!     stdin that was handed its lines. Every one of them is mutable process state outliving the expression

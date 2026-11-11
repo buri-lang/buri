@@ -13,9 +13,8 @@
 // * finite values that macOS, musl and glibc all round the same way, each
 //   checked on all three before it was written here.
 //
-// `power` with a whole exponent from 0 to 1000, or with `0.5` or `-0.5`, is
-// plain arithmetic rather than a library call, so those answers are exact on
-// every platform. The two that show it differ from a correctly rounded power.
+// `power` is the exception: it is the same arithmetic on every backend, never
+// a library call, so any of its answers can be written here.
 
 from "core/math" import * as math;
 from "core/testing/assert" import * as assert;
@@ -286,9 +285,6 @@ test "power at an infinite base or exponent" {
     assert.equal(math.power(0.5, -inf()), inf());
 }
 
-// A fractional exponent reaches the engine's or the platform's `pow`. Node 20's
-// is one unit off at `power(2.0, 1.5)`, so these points are ones node 20, node
-// 24, Bun and every libm the native targets link answer alike.
 test "power at finite points" {
     assert.equal(math.power(2.0, 10.0), 1024.0);
     assert.equal(math.power(2.0, -1.0), 0.5);
@@ -298,24 +294,24 @@ test "power at finite points" {
     assert.equal(math.power(2.0, 0.25), 1.189207115002721);
     assert.equal(math.power(0.25, -1.5), 8.0);
     assert.equal(math.power(1.5, 2.5), 2.7556759606310752);
+    assert.equal(math.power(10.0, 308.0), 1.0e308);
+    assert.equal(math.power(10.0, 22.0), 1.0e22);
+    assert.equal(math.power(1.1, 3.0), 1.3310000000000004);
+    assert.equal(math.power(9.0, 0.5), 3.0);
+    assert.equal(math.power(2.0, 0.5), 1.4142135623730951);
+    assert.equal(math.power(2.0, -0.5), 0.7071067811865475);
+    assert.equal(math.power(4.0, -0.5), 0.5);
+    assert.isTrue(math.isNan(math.power(-4.0, 0.5)));
     assert.equal(math.power(2.0, 1024.0), inf());
     assert.equal(math.power(2.0, -1074.0), 5.0e-324);
     assert.isTrue(isPositiveZero(math.power(2.0, -1075.0)));
 }
 
-test "power with a whole exponent up to 1000 multiplies by repeated squaring" {
-    // A correctly rounded power answers `1.0e308` here.
-    assert.equal(math.power(10.0, 308.0), 1.0000000000000006e308);
-    assert.equal(math.power(10.0, 22.0), 1.0e22);
-    assert.equal(math.power(1.1, 3.0), 1.3310000000000004);
-}
-
-test "power with a half is a square root" {
-    assert.equal(math.power(9.0, 0.5), 3.0);
-    assert.equal(math.power(2.0, 0.5), 1.4142135623730951);
-    assert.isTrue(math.isNan(math.power(-4.0, 0.5)));
-    // One over the square root, where a correctly rounded power answers
-    // `0.7071067811865476`.
-    assert.equal(math.power(2.0, -0.5), 0.7071067811865475);
-    assert.equal(math.power(4.0, -0.5), 0.5);
+// Points where node 20's, node 24's or Bun's `Math.pow` answers differently,
+// one unit apart. `power` answers the same on all three and natively.
+test "power answers alike where engines' pow differ" {
+    assert.equal(math.power(2.0, 1.5), 2.82842712474619);
+    assert.equal(math.power(0.5, -3.5), 11.31370849898476);
+    assert.equal(math.power(1.0 / 3.0, -2.0), 9.0);
+    assert.equal(math.power(10.0, 0.9999999999999999), 9.999999999999998);
 }

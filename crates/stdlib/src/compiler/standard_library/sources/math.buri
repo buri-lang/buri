@@ -8,8 +8,11 @@
 //! the platform's libm, so their last digit can differ between macOS and Linux,
 //! by up to three units in the last place. Values IEEE 754 fixes are the same
 //! everywhere: `sin(-0.0)` is `-0.0`, `ln(0.0)` is negative infinity and
-//! `exp(-infinity)` is `0.0`. `power` follows JavaScript's `Math.pow`, so
-//! `power(1.0, nan)` is NaN.
+//! `exp(-infinity)` is `0.0`.
+//!
+//! `power` is the exception: it is the same arithmetic on every target, so it
+//! answers the same bits everywhere. It follows JavaScript's `Math.pow` in its
+//! special cases, so `power(1.0, nan)` is NaN.
 
 export fn squareRoot(x: Float): Float;
 
