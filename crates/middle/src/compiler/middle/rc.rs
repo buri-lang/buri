@@ -3886,10 +3886,17 @@ impl Scan<'_> {
             &mut |me, (a, bid, gid, edges), live| {
                 let edges_before = me.jumps.len();
                 let holds = per_arm.filter(|_| a.guard.is_some() || binds_something(&a.pattern));
+                // An arm that hands the root on, `.Some(l) => send(ctx, c, l)`,
+                // would find it held and every part of it shared. So its names
+                // take counts of their own at its entry instead, and the root
+                // is its own to hand on. Not under a guard, whose names are
+                // lent and whose arm may not run.
+                let retains = holds.is_some_and(|r| a.guard.is_none() && me.takes(&a.body, r));
+                let holds = holds.filter(|_| !retains);
                 if let Some(r) = holds {
                     me.enliven(live, r);
                 }
-                me.arm(a, *gid, *bid, live, mode, token, built);
+                me.arm(a, *gid, *bid, live, mode, token, built, retains);
                 if let Some(r) = holds {
                     me.push(*bid, Position::After, RcOp::DecRef, Target::Local(r));
                 }
@@ -4021,7 +4028,8 @@ impl Scan<'_> {
     }
 
     /// One arm of [`Scan::match_`], scanned from what is live after the match:
-    /// what its pattern binds, its body, then its guard.
+    /// what its pattern binds, its body, then its guard. With `retains`, each
+    /// name the body reads takes a count of its own at the entry.
     #[allow(clippy::too_many_arguments)]
     fn arm(
         &mut self,
@@ -4032,8 +4040,9 @@ impl Scan<'_> {
         mode: Mode,
         token: Option<LocalId>,
         built: Option<NodeId>,
+        retains: bool,
     ) {
-        let owns = token.is_some() || (built.is_some() && binds_something(&a.pattern));
+        let owns = token.is_some() || retains || (built.is_some() && binds_something(&a.pattern));
         let mut bound: Vec<LocalId> = Vec::new();
         a.pattern.binds(&mut bound);
         bound.sort_by_key(|l| l.index());
@@ -4074,13 +4083,14 @@ impl Scan<'_> {
         // What the *body* reads, asked before a guard is scanned into the same
         // set: the guard has run by the entry, and held what it read as
         // borrowed.
-        let used: Vec<LocalId> = match token {
-            Some(_) => bound
+        let used: Vec<LocalId> = if token.is_some() || retains {
+            bound
                 .iter()
                 .copied()
                 .filter(|b| live.contains(b) && !fresh_bound.contains(b))
-                .collect(),
-            None => Vec::new(),
+                .collect()
+        } else {
+            Vec::new()
         };
         if let (Some(g), Some(gid)) = (a.guard.as_ref(), gid) {
             // A guard is speculative: when it is false the *next* arm runs,
@@ -4200,10 +4210,52 @@ impl Scan<'_> {
             }
         } else if let Some(sid) = built {
             self.push(bid, Position::Before, RcOp::DecRef, Target::Node(sid));
+        } else if retains {
+            for b in used {
+                if self.is_counted(b) {
+                    self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
+                }
+            }
         }
         for b in &bound {
             live.remove(b);
         }
+    }
+
+    /// Whether `body` hands `r` on, or a counted piece of it: to a parameter
+    /// that owns it, as an update's base, to a `let`, or across a jump. Held,
+    /// `r` would reach whatever writes through it with a second count.
+    fn takes(&mut self, body: &Expr, r: LocalId) -> bool {
+        let mut hit = false;
+        let own = self.ownership;
+        let params = &self.self_params;
+        let counted = &mut *self.counted;
+        let mut piece = |e: &Expr| {
+            field_root(e) == Some(r)
+                && (matches!(e.kind, ExprKind::Local(_)) || counted.counted(&e.ty) == Answer::Yes)
+        };
+        typed::walk(body, &mut |e| {
+            let owned =
+                |row: &[ir::Ownership], args: &[Expr], piece: &mut dyn FnMut(&Expr) -> bool| {
+                    args.iter().enumerate().any(|(k, a)| {
+                        row.get(k).copied().unwrap_or(ir::Ownership::Own) == ir::Ownership::Own
+                            && piece(a)
+                    })
+                };
+            hit |= match &e.kind {
+                ExprKind::CallFunc { func, args } => owned(own.get(*func), args, &mut piece),
+                ExprKind::Continue { func, args, .. } => {
+                    let row = func.map_or(params.as_slice(), |g| own.get(g).as_slice());
+                    owned(row, args, &mut piece)
+                }
+                ExprKind::StructUpdate { base, .. } => piece(base),
+                ExprKind::Block { stmts, .. } => stmts
+                    .iter()
+                    .any(|st| matches!(st, Stmt::Let { value, .. } if piece(value))),
+                _ => false,
+            };
+        });
+        hit
     }
 
     /// Whether an arm with pattern `p` takes its scrutinee apart. Not past a

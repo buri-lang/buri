@@ -1,0 +1,163 @@
+// Tests only.
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Cluster {
+    now: Int,
+    leader: Option<Str>,
+    term: Option<Int>,
+    links: OrderedMap<Int, Int>,
+}
+
+fn cluster<C: Allocator>(ctx: C): Cluster {
+    Cluster {
+        now: 0,
+        leader: .Some("ab"),
+        term: .Some(1),
+        links: orderedmap.empty<Int, Int>().insert(ctx, 0, 1).insert(ctx, 1, 1),
+    }
+}
+
+fn bump<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, Int>,
+    k: Int,
+    by: Int,
+): OrderedMap<Int, Int> {
+    m.insert(ctx, k, m.get(k).withDefault(0) + by)
+}
+
+fn send<C: Allocator>(ctx: C, c: Cluster, by: Str): Cluster {
+    Cluster { ..c, now: c.now + 1, links: bump(ctx, c.links, c.now % 2, by.length()) }
+}
+
+fn named(c: Cluster): Int {
+    c.now
+}
+
+// Each arm that binds the leader hands the record on a different way: to a
+// function that owns it, as an update's base, to a `let`, or its map to a
+// function. One only lends it, and one hands on a number of it.
+fn owned<C: Allocator>(ctx: C, c: Cluster): Cluster {
+    match (c.leader) {
+        .Some(l) => send(ctx, c, l),
+        .None => c,
+    }
+}
+
+fn based(c: Cluster): Cluster {
+    match (c.leader) {
+        .Some(l) => Cluster { ..c, now: c.now + l.length() },
+        .None => c,
+    }
+}
+
+fn bound<C: Allocator>(ctx: C, c: Cluster): Cluster {
+    match (c.leader) {
+        .Some(l) => {
+            let d = c;
+            send(ctx, d, l)
+        },
+        .None => c,
+    }
+}
+
+fn mapped<C: Allocator>(ctx: C, c: Cluster): Cluster {
+    match (c.leader) {
+        .Some(l) => {
+            Cluster {
+                now: c.now + 1,
+                leader: .Some(l),
+                term: c.term,
+                links: bump(ctx, c.links, 0, l.length()),
+            }
+        },
+        .None => c,
+    }
+}
+
+fn lent(c: Cluster): Int {
+    match (c.leader) {
+        .Some(l) => named(c) + l.length(),
+        .None => 0,
+    }
+}
+
+fn numbered<C: Allocator>(ctx: C, c: Cluster): Int {
+    match (c.leader) {
+        .Some(l) => {
+            bump(ctx, orderedmap.empty<Int, Int>(), c.now, 0).length() + l.length()
+        },
+        .None => 0,
+    }
+}
+
+// A guard reads the leader, so its arm's names are lent.
+fn guarded<C: Allocator>(ctx: C, c: Cluster): Cluster {
+    match (c.leader) {
+        .Some(l) if l.length() > 5 => c,
+        .Some(l) => send(ctx, c, l),
+        .None => c,
+    }
+}
+
+// An arm that binds a number of the record and hands the record on.
+fn counted<C: Allocator>(ctx: C, c: Cluster): Cluster {
+    match (c.term) {
+        .Some(t) => send(ctx, c, if (t > 0) { "a" } else { "" }),
+        .None => c,
+    }
+}
+
+// An arm that hands the record on to the loop's next step.
+fn hop<C: Allocator>(ctx: C, c: Cluster, i: Int): Cluster {
+    if (i == 3) {
+        c
+    } else {
+        let d = send(ctx, c, "a");
+        match (d.leader) {
+            .Some(l) => hop(ctx, d, i + 1 + 0 * l.length()),
+            .None => d,
+        }
+    }
+}
+
+fn seen(c: Cluster): [Int] {
+    [c.now, c.links.get(0).withDefault(0), c.links.get(1).withDefault(0)]
+}
+
+test "a record handed on from an arm that binds its field keeps every view" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let start = cluster(ctx);
+    assert.equal(seen(owned(ctx, start)), [1, 3, 1]);
+    assert.equal(seen(owned(ctx, Cluster { ..start, leader: .None })), [0, 1, 1]);
+    assert.equal(seen(based(start)), [2, 1, 1]);
+    assert.equal(seen(based(Cluster { ..start, leader: .None })), [0, 1, 1]);
+    assert.equal(seen(bound(ctx, start)), [1, 3, 1]);
+    assert.equal(seen(bound(ctx, Cluster { ..start, leader: .None })), [0, 1, 1]);
+    assert.equal(seen(mapped(ctx, start)), [1, 3, 1]);
+    assert.equal(seen(mapped(ctx, Cluster { ..start, leader: .None })), [0, 1, 1]);
+    assert.equal([lent(start), lent(Cluster { ..start, leader: .None })], [2, 0]);
+    assert.equal(
+        [numbered(ctx, start), numbered(ctx, Cluster { ..start, leader: .None })],
+        [3, 0],
+    );
+    assert.equal(seen(guarded(ctx, start)), [1, 3, 1]);
+    assert.equal(seen(guarded(ctx, Cluster { ..start, leader: .Some("abcdef") })), [
+        0,
+        1,
+        1,
+    ]);
+    assert.equal(seen(guarded(ctx, Cluster { ..start, leader: .None })), [0, 1, 1]);
+    assert.equal(seen(counted(ctx, start)), [1, 2, 1]);
+    assert.equal(seen(counted(ctx, Cluster { ..start, term: .Some(0) })), [1, 1, 1]);
+    assert.equal(seen(counted(ctx, Cluster { ..start, term: .None })), [0, 1, 1]);
+    assert.equal(seen(hop(ctx, start, 0)), [3, 3, 2]);
+    assert.equal(seen(hop(ctx, Cluster { ..start, leader: .None }, 0)), [1, 2, 1]);
+    assert.equal(seen(start), [0, 1, 1]);
+}

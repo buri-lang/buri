@@ -2770,3 +2770,298 @@ fn changing_a_held_map_field_through_match_arms_keeps_the_old_view() {
         }
     }
 }
+
+/// A program whose record keeps a map in a field next to an optional leader,
+/// and whose every step matches on the leader and, in the arm that binds it,
+/// hands the whole record on to something that changes the map: one more
+/// count for a key. `how` picks the arm: `drawn` takes the record apart in a
+/// call bound by `let` first, `call` hands it to a function, `update` makes it
+/// an update's base, `bound` puts it in a `let`, `field` hands its map field
+/// to a function, and `jump` passes it on to the next step of a loop. With
+/// `kept`, the record from before the steps stays alive and its map is printed
+/// too.
+fn handed_on_from_an_arm(kind: &str, how: &str, n: u32, kept: bool) -> String {
+    let ty = if kind == "map" { "Map" } else { "OrderedMap" };
+    let keep = if kept {
+        "c0"
+    } else {
+        "Cluster { now: 0, leader: .None, links: maps.empty<Int, Int>() }"
+    };
+    let arm = match how {
+        "drawn" => "{ let (k, a) = draw(cluster); send(ctx, a, k, leader) }",
+        "call" => "send(ctx, cluster, cluster.now % 200, leader)",
+        "update" => {
+            "Cluster { ..cluster, now: cluster.now + 1, links: bump(ctx, cluster.links, cluster.now % 200, leader) }"
+        }
+        "bound" => "{ let c = cluster; send(ctx, c, c.now % 200, leader) }",
+        _ => {
+            "Cluster { now: cluster.now + 1, leader: .Some(leader), links: bump(ctx, cluster.links, cluster.now % 200, leader) }"
+        }
+    };
+    let run = if how == "jump" {
+        "fn run<C: Allocator>(ctx: C, cluster: Cluster, i: Int): Cluster {
+  if (i == STEPS) {
+    cluster
+  } else {
+    let c = send(ctx, cluster, i % 200, \"node-1\");
+    match (c.leader) {
+      .Some(leader) => run(ctx, c, i + 1 + 0 * leader.length()),
+      .None => c,
+    }
+  }
+}"
+        .to_string()
+    } else {
+        format!(
+            "fn request<C: Allocator>(ctx: C, cluster: Cluster): Cluster {{
+  match (cluster.leader) {{
+    .Some(leader) => {arm},
+    .None => cluster,
+  }}
+}}
+
+fn run<C: Allocator>(ctx: C, cluster: Cluster, i: Int): Cluster {{
+  if (i == STEPS) {{ cluster }} else {{ run(ctx, request(ctx, cluster), i + 1) }}
+}}"
+        )
+    }
+    .replace("STEPS", &n.to_string());
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/{kind}" import * as maps;
+from "core/{kind}" import {{ {ty} }};
+
+struct Cluster {{
+  now: Int,
+  leader: Option<Str>,
+  links: {ty}<Int, Int>,
+}}
+
+fn build<C: Allocator>(ctx: C, m: {ty}<Int, Int>, i: Int): {ty}<Int, Int> {{
+  if (i == 200) {{ m }} else {{ build(ctx, m.insert(ctx, i, 1), i + 1) }}
+}}
+
+fn bump<C: Allocator>(ctx: C, m: {ty}<Int, Int>, k: Int, to: Str): {ty}<Int, Int> {{
+  m.insert(ctx, k, m.get(k).withDefault(0) + to.length())
+}}
+
+fn send<C: Allocator>(ctx: C, c: Cluster, k: Int, to: Str): Cluster {{
+  Cluster {{ ..c, now: c.now + 1, links: bump(ctx, c.links, k, to) }}
+}}
+
+fn draw(cluster: Cluster): (Int, Cluster) {{
+  (cluster.now % 200, Cluster {{ ..cluster, now: cluster.now }})
+}}
+
+{run}
+
+fn total<C: Allocator>(ctx: C, m: {ty}<Int, Int>): Int {{
+  m.values(ctx).sum()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let c0 = Cluster {{ now: 0, leader: .Some(str.format(ctx, "node-${{1}}")), links: build(ctx, maps.empty<Int, Int>(), 0) }};
+  let before = {keep};
+  let after = run(ctx, c0, 0);
+  let _ = io.println(host.stdout, "${{after.now}} ${{after.links.length()}} ${{total(ctx, after.links)}} ${{before.links.length()}} ${{total(ctx, before.links)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// What [`handed_on_from_an_arm`] prints after `n` steps: how many ran, the
+/// map's size and the sum of its counts, then the same two for the map kept
+/// from before.
+fn handed_on_output(n: u64, kept: bool) -> String {
+    let before = if kept { "200 200" } else { "0 0" };
+    format!("{n} 200 {} {before}\n", 200 + 6 * n)
+}
+
+/// The arms [`handed_on_from_an_arm`] can take.
+const HANDED_ON: [&str; 6] = ["drawn", "call", "update", "bound", "field", "jump"];
+
+/// Ten thousand steps that each match on a record's leader and, in the arm
+/// that binds it, hand the record on to something that changes its map, on
+/// both stdlib maps. The name the arm binds is a word of the record, but
+/// nothing else holds the record, so each change writes the map in place: the
+/// steps allocate almost nothing beyond building the map.
+#[test]
+fn a_record_handed_on_from_the_arm_of_a_match_on_its_field_is_changed_in_place() {
+    let mut copied = Vec::new();
+    for kind in ["map", "orderedmap"] {
+        for how in HANDED_ON {
+            let name = format!("handed-{kind}-{how}");
+            let idle = run_each(
+                &format!("{name}-idle"),
+                &handed_on_from_an_arm(kind, how, 0, false),
+            );
+            let busy = run_each(&name, &handed_on_from_an_arm(kind, how, 10_000, false));
+            for ((backend, idle), (_, busy)) in idle.into_iter().zip(busy) {
+                assert_eq!(
+                    idle.stdout,
+                    handed_on_output(0, false),
+                    "{backend} {kind} {how}: {}",
+                    idle.stderr
+                );
+                assert_eq!(
+                    busy.stdout,
+                    handed_on_output(10_000, false),
+                    "{backend} {kind} {how}: {}",
+                    busy.stderr
+                );
+                let (built, idle_live) = probed(&idle.stderr);
+                let (blocks, live) = probed(&busy.stderr);
+                if blocks >= built + 100 {
+                    copied.push(format!(
+                        "{backend} {kind} {how}: {}",
+                        blocks.saturating_sub(built)
+                    ));
+                }
+                assert_eq!(
+                    (idle_live, live),
+                    (0, 0),
+                    "{backend} {kind} {how}: blocks still live at exit"
+                );
+            }
+        }
+    }
+    assert!(
+        copied.is_empty(),
+        "ten thousand steps allocated this many blocks beyond what building took, where \
+         under 100 means no step copied the map: {copied:?}"
+    );
+}
+
+/// The same steps while the record from before them stays alive: its map
+/// keeps every count as it was, the final map is right, and every block is
+/// freed.
+#[test]
+fn a_held_record_handed_on_from_the_arm_of_a_match_keeps_its_view() {
+    for kind in ["map", "orderedmap"] {
+        for how in HANDED_ON {
+            let name = format!("handed-{kind}-{how}-held");
+            for (backend, r) in run_each(&name, &handed_on_from_an_arm(kind, how, 3000, true)) {
+                assert_eq!(
+                    r.stdout,
+                    handed_on_output(3000, true),
+                    "{backend} {kind} {how}: {}",
+                    r.stderr
+                );
+                let (blocks, live) = probed(&r.stderr);
+                assert_eq!(
+                    live, 0,
+                    "{backend} {kind} {how}: {blocks} blocks allocated and {live} still live at exit"
+                );
+            }
+        }
+    }
+}
+
+/// A program that builds a map of 200 keys, `core/map`'s or
+/// `core/orderedmap`'s by `kind`, and then, `n` times, removes a key it holds
+/// and puts it back. With `kept`, the map from before stays alive and its
+/// size and sum are printed too.
+fn removed_and_restored(kind: &str, n: u32, kept: bool) -> String {
+    let ty = if kind == "map" { "Map" } else { "OrderedMap" };
+    let keep = if kept { "m0" } else { "maps.empty<Int, Int>()" };
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/{kind}" import * as maps;
+from "core/{kind}" import {{ {ty} }};
+
+fn build<C: Allocator>(ctx: C, m: {ty}<Int, Int>, i: Int): {ty}<Int, Int> {{
+  if (i == 200) {{ m }} else {{ build(ctx, m.insert(ctx, i, 1), i + 1) }}
+}}
+
+fn churn<C: Allocator>(ctx: C, m: {ty}<Int, Int>, i: Int): {ty}<Int, Int> {{
+  if (i == {n}) {{
+    m
+  }} else {{
+    let k = i * 7 % 200;
+    churn(ctx, m.remove(ctx, k).insert(ctx, k, 2), i + 1)
+  }}
+}}
+
+fn total<C: Allocator>(ctx: C, m: {ty}<Int, Int>): Int {{
+  m.values(ctx).sum()
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let m0 = build(ctx, maps.empty<Int, Int>(), 0);
+  let before = {keep};
+  let after = churn(ctx, m0, 0);
+  let _ = io.println(host.stdout, "${{after.length()}} ${{total(ctx, after)}} ${{before.length()}} ${{total(ctx, before)}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// Ten thousand removals of a key a map holds, each followed by putting the
+/// key back, on both stdlib maps. Nothing else holds the map, so each removal
+/// writes the path down to the key in place: the churn allocates almost
+/// nothing beyond building the map. Held, the old map keeps every key.
+#[test]
+fn removing_a_held_key_from_an_unshared_map_writes_it_in_place() {
+    let mut copied = Vec::new();
+    for kind in ["map", "orderedmap"] {
+        let idle = run_each(
+            &format!("removed-{kind}-idle"),
+            &removed_and_restored(kind, 0, false),
+        );
+        let busy = run_each(
+            &format!("removed-{kind}"),
+            &removed_and_restored(kind, 10_000, false),
+        );
+        let held = run_each(
+            &format!("removed-{kind}-held"),
+            &removed_and_restored(kind, 3000, true),
+        );
+        for (((backend, idle), (_, busy)), (_, held)) in idle.into_iter().zip(busy).zip(held) {
+            assert_eq!(
+                idle.stdout, "200 200 0 0\n",
+                "{backend} {kind}: {}",
+                idle.stderr
+            );
+            assert_eq!(
+                busy.stdout, "200 400 0 0\n",
+                "{backend} {kind}: {}",
+                busy.stderr
+            );
+            assert_eq!(
+                held.stdout, "200 400 200 200\n",
+                "{backend} {kind}: {}",
+                held.stderr
+            );
+            let (built, idle_live) = probed(&idle.stderr);
+            let (blocks, live) = probed(&busy.stderr);
+            let (_, held_live) = probed(&held.stderr);
+            assert_eq!(
+                (idle_live, live, held_live),
+                (0, 0, 0),
+                "{backend} {kind}: blocks still live at exit"
+            );
+            if blocks >= built + 100 {
+                copied.push(format!(
+                    "{backend} {kind}: {}",
+                    blocks.saturating_sub(built)
+                ));
+            }
+        }
+    }
+    assert!(
+        copied.is_empty(),
+        "ten thousand removals allocated this many blocks beyond what building took, where \
+         under 100 means none copied the map: {copied:?}"
+    );
+}

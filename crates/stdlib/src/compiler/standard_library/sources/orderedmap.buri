@@ -803,33 +803,12 @@ fn without<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int): Node<K, V> {
     leaf(removeAt(ctx, n.keys, at), removeAt(ctx, n.values, at))
 }
 
-/// Answers the subtree after the removal, and whether a key actually went.
-///
-/// Every entry sits in a leaf, so every removal is a removal from a leaf. A
-/// separator equal to the key it removed still routes as it did.
-fn removeFrom<K: Ordered, V, C: Allocator>(
-    ctx: C,
-    n: Node<K, V>,
-    key: K,
-): (Node<K, V>, Bool) {
-    let (seen, found) = seek(n.keys, key, 0);
-    let at = under(seen, found);
-    match (n.children[at]) {
-        .None => if (found) { (without(ctx, n, seen), true) } else { (n, false) },
-        .Some(child) => {
-            let (shrunk, gone) = removeFrom(ctx, child, key);
-            if (gone) { (fixChild(ctx, n, at, shrunk), true) } else { (n, false) }
-        },
-    }
-}
-
 /// The branch over `keys` and `children` with child `at` taken out, and an
 /// empty leaf, which allocates nothing, in its place.
 ///
 /// So a tree nothing else shares hands every node on the path down unshared,
-/// and a pop writes each one in place rather than copying it, as `descend`
-/// does for an insert. `removeFrom` doesn't: a key that isn't there would cost
-/// a shared tree a copy of its path, and asking first costs a second descent.
+/// and a removal writes each one in place rather than copying it, as `descend`
+/// does for an insert.
 fn taken<K, V, C: Allocator>(
     ctx: C,
     keys: [K],
@@ -1228,14 +1207,13 @@ impl<K: Ordered, V> OrderedMap<K, V> {
     /// Removes `key`, if it is there. Removing what is absent is not an
     /// error.
     export fn remove<C: Allocator>(self, ctx: C, key: K): OrderedMap<K, V> {
-        // `self` is read once, taken apart, as in `insert`. `removeFrom` hands
-        // back the tree it was given when the key is missing.
+        // `self` is read once, taken apart, as in `insert`, and the path down
+        // is `taken`, so a tree nothing else holds is written in place.
         let OrderedMap { root, size } = self;
-        let (next, gone) = removeFrom(ctx, root, key);
-        if (gone) {
-            OrderedMap { root: shrinkRoot(next), size: size - 1 }
-        } else {
-            OrderedMap { root: next, size: size }
+        let (value, rest) = takeIn(ctx, root, key);
+        match (value) {
+            .None => OrderedMap { root: rest, size: size },
+            .Some(_) => OrderedMap { root: shrinkRoot(rest), size: size - 1 },
         }
     }
 
