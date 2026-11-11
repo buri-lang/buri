@@ -112,6 +112,23 @@ fn counted<C: Allocator>(ctx: C, c: Cluster): Cluster {
     }
 }
 
+// An arm that binds a string and a number of the record and hands it on.
+struct Pinned {
+    at: Option<(Str, Int)>,
+    links: OrderedMap<Int, Int>,
+}
+
+fn moved<C: Allocator>(ctx: C, p: Pinned, name: Str, k: Int): Pinned {
+    Pinned { ..p, links: bump(ctx, p.links, k, name.length()) }
+}
+
+fn pinned<C: Allocator>(ctx: C, p: Pinned): Pinned {
+    match (p.at) {
+        .Some((name, k)) => moved(ctx, p, name, k),
+        .None => p,
+    }
+}
+
 // An arm that hands the record on to the loop's next step.
 fn hop<C: Allocator>(ctx: C, c: Cluster, i: Int): Cluster {
     if (i == 3) {
@@ -159,5 +176,9 @@ test "a record handed on from an arm that binds its field keeps every view" {
     assert.equal(seen(counted(ctx, Cluster { ..start, term: .None })), [0, 1, 1]);
     assert.equal(seen(hop(ctx, start, 0)), [3, 3, 2]);
     assert.equal(seen(hop(ctx, Cluster { ..start, leader: .None }, 0)), [1, 2, 1]);
+    let p = Pinned { at: .Some(("abc", 1)), links: start.links };
+    assert.equal(pinned(ctx, p).links.get(1), .Some(4));
+    assert.equal(pinned(ctx, Pinned { ..p, at: .None }).links.get(1), .Some(1));
+    assert.equal(p.links.get(1), .Some(1));
     assert.equal(seen(start), [0, 1, 1]);
 }
