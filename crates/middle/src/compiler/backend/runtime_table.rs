@@ -2820,7 +2820,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(params > 300, "only {params} parameters were read");
-        assert_eq!(floats, 18);
+        assert_eq!(floats, 33);
         assert!(answers > 70, "only {answers} answers were read");
         assert!(narrow > 15, "only {narrow} narrow answers were read");
         let order = module_source("core/order")
