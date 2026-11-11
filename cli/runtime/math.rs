@@ -190,6 +190,10 @@ fn drop_low(x: f64) -> f64 {
 }
 
 /// `x * 2^n`, as musl's `scalbn`.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the integers are a float's exponent and words, which fdlibm keeps well inside `i32`"
+)]
 fn scale(mut x: f64, mut n: i32) -> f64 {
     if n > 1023 {
         x *= 8.98846567431158e307;
@@ -218,7 +222,14 @@ fn scale(mut x: f64, mut n: i32) -> f64 {
 /// bits. The first line is ECMA-262's `power(1, NaN)` and `power(±1, ±∞)`,
 /// which are `NaN` where fdlibm answers `1`.
 #[unsafe(no_mangle)]
-#[allow(clippy::excessive_precision, clippy::many_single_char_names)]
+#[expect(
+    clippy::excessive_precision,
+    reason = "fdlibm's constants, as `e_pow.c` writes them"
+)]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the integers are a float's exponent and words, which fdlibm keeps well inside `i32`"
+)]
 pub extern "C" fn buri_rt_math_power(x: f64, y: f64) -> f64 {
     if y.is_nan() || (x.abs() == 1.0 && y.is_infinite()) {
         return f64::NAN;
@@ -307,7 +318,7 @@ pub extern "C" fn buri_rt_math_power(x: f64, y: f64) -> f64 {
         let t = ax - 1.0;
         let w = t * t * (0.5 - t * (3.3333333333333331e-1 - t * 0.25));
         let u = 1.44269502162933349609 * t;
-        let v = t * 1.92596299112661746887e-8 - w * 1.442695040888963387;
+        let v = t * 1.92596299112661746887e-8 - w * std::f64::consts::LOG2_E;
         t1 = drop_low(u + v);
         t2 = v - (t1 - u);
     } else {
@@ -393,7 +404,7 @@ pub extern "C" fn buri_rt_math_power(x: f64, y: f64) -> f64 {
     }
     let t = drop_low(p_l + p_h);
     let u = t * 6.93147182464599609375e-1;
-    let v = (p_l - (t - p_h)) * 6.93147180559945286227e-1 + t * -1.90465429995776804525e-9;
+    let v = (p_l - (t - p_h)) * std::f64::consts::LN_2 + t * -1.90465429995776804525e-9;
     z = u + v;
     let w = v - (z - u);
     let t = z * z;
