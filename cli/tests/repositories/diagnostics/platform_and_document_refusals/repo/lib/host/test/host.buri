@@ -13,5 +13,6 @@ test "the address bar and the store are the browser's" {
         Storage: HostStorage {},
     };
     let _ = web.route(ctx);
+    let _ = web.back(ctx);
     assert.isTrue(storage.keys(ctx, "draft/").isOk());
 }

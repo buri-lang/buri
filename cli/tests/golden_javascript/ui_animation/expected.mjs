@@ -121,7 +121,7 @@ function hasHistory() {
 
 // `ui/web`'s `navigate` and `replace` call `push` or `replace` and then write
 // the signal themselves, so the graph and the address bar move together
-// however the address was reached.
+// however the address was reached. `back` leaves the write to `popstate`.
 const HostLocation = {
   path: (self) => {
     if (address === undefined) {
@@ -137,6 +137,9 @@ const HostLocation = {
   },
   replace: (self, path) => {
     if (hasHistory()) history.replaceState({}, "", path);
+  },
+  back: (self) => {
+    if (hasHistory()) history.back();
   },
 };
 

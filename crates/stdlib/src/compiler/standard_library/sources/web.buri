@@ -315,6 +315,36 @@ export fn replace<C: Location + Ui>(ctx: C, path: Str): () {
     ctx.write(ctx.path(), path)
 }
 
+/// Goes back one history entry, the way the reader's Back button does.
+///
+/// What an in-page "Back" button wants. `navigate` to the page the reader came
+/// from would push it again, so the browser's own Back would then go forward;
+/// this adds no entry and leaves the one the reader left ahead of them, for
+/// Forward. The cell `route` wraps is written when the reader arrives, so what
+/// read the path re-runs as it does for any other navigation.
+///
+/// ```buri role=std
+/// # from "platform/effect" import { Location, Ui };
+/// # from "ui/node" import * as ui;
+/// # from "ui/node" import { Node };
+/// # from "ui/web" import * as web;
+///
+/// export fn backButton<C: Location + Ui>(): Node<C> {
+///     ui.button({
+///         label: .Const("Back"),
+///         styles: [],
+///         onPress: .Some(fn(c) => web.back(c)),
+///     })
+/// }
+/// ```
+///
+/// On the history's first entry it does nothing. On the page's first entry in
+/// a tab the reader opened from another site, it goes back to that site, as the
+/// browser's button would.
+export fn back<C: Location>(ctx: C): () {
+    ctx.back()
+}
+
 /// A link that navigates without loading a document.
 ///
 /// The other half of a router. `navigate` is what a page does *instead* of

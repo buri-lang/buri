@@ -139,6 +139,7 @@ from "core/fs" import { FileSystemRead, FileSystemWrite, Metadata };
 // that `core/net/server` declares.
 from "core/net/server" import { Message, Socket };
 from "core/path" import { Path };
+from "core/platforms/testing/state" import * as state;
 
 // And `Spawn`, which `core/proc` declares for the same reason: it answers that
 // module's own `Output`.
@@ -2027,7 +2028,8 @@ impl TaskCall {
 // document attached, and the address bar is one value of that graph.
 //
 // Every call to `recorder()` allocates a fresh handle, so what one test records
-// is invisible to the next, and every `address(ctx, at)` is a signal of its own.
+// is invisible to the next, and every `address(ctx, at)` is a signal and a
+// history of its own.
 // `headless()` and `observer()` are windows onto the one graph the runtime
 // holds, which needs no isolating: a signal is named by an index nothing else
 // can produce, so a test can only reach the ones it made.
@@ -2088,29 +2090,66 @@ impl Watch for Observer {
 /// A headless `Watch`.
 export fn observer(): Observer;
 
-/// An address bar with no browser behind it: one cell of the same graph.
+/// An address bar with no browser behind it: one cell of the same graph, and
+/// the history a browser would keep behind it.
 ///
 /// `web.navigate` and `web.replace` write that cell, so `web.path` and
-/// `web.route` answer where a test has been. What is *not* here is a history
-/// stack — a headless platform has none, and pressing Back is a browser's own
-/// answer — so the two differ only in what a browser does with the entry.
-/// `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
-/// drives a built page against one and asserts that half.
-export struct Address(Int);
+/// `web.route` answer where a test has been. The history is what tells the two
+/// apart: `navigate` adds an entry and drops any ahead of it, `replace`
+/// exchanges the entry it is on, and `web.back` moves to the entry before and
+/// writes the cell, as a browser's `popstate` does. So a test checks a Back
+/// button by where it lands: a second `back` goes further back, which it
+/// wouldn't if the first had pushed. On the first entry `back` does nothing.
+export struct Address {
+    cell: Int,
+    history: state.State<History>,
+}
+
+/// Every entry an `Address` has been at, and which of them it is on.
+struct History {
+    entries: [Str],
+    at: Int,
+}
 
 impl Location for Address {
     fn path(self): Int {
-        self.0
+        self.cell
     }
 
-    fn push(self, path: Str): () {}
+    fn push(self, path: Str): () {
+        state.update(self.history, fn(c, h) => {
+            let kept = h.entries.take(c, h.at + 1);
+            (History { entries: kept.push(c, path), at: h.at + 1 }, ())
+        })
+    }
 
-    fn replace(self, path: Str): () {}
+    fn replace(self, path: Str): () {
+        state.update(self.history, fn(c, h) => {
+            (History { entries: h.entries.replaceAt(c, h.at, path), at: h.at }, ())
+        })
+    }
+
+    fn back(self): () {
+        let to: Option<Str> = state.update(self.history, fn(_c, h) => {
+            if (h.at == 0) {
+                (h, .None)
+            } else {
+                (History { entries: h.entries, at: h.at - 1 }, h.entries.get(h.at - 1))
+            }
+        });
+        match (to) {
+            .Some(path) => headless().write(self.cell, path),
+            .None => (),
+        }
+    }
 }
 
 /// A headless `Location` starting at `at`, over `ctx`'s graph.
 export fn address<C: Ui>(ctx: C, at: Str): Address {
-    Address(ctx.signal(at))
+    Address {
+        cell: ctx.signal(at),
+        history: state.new(History { entries: [at], at: 0 }),
+    }
 }
 
 /// A tree the runtime rendered, ready to look at and act on.

@@ -2408,3 +2408,58 @@ for (const group of document.querySelectorAll("[role=group]")) {
          fixed: div 0.5 holding 2\n"
     );
 }
+
+/// A page that shows its path, with a button onward and a Back button
+/// (buri-lang/buri#341).
+const BACK_PAGE: &str = r#"from "platform/effect" import { Allocator, Location, Ui };
+from "ui/node" import * as ui;
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Location: host.location,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: web.route(ctx) }),
+                ui.button({
+                    label: .Const("Next"),
+                    styles: [],
+                    onPress: .Some(fn(c) => web.navigate(c, "/next")),
+                }),
+                ui.button({ label: .Const("Back"), styles: [], onPress: .Some(fn(c) => web.back(c)) }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_back_button_returns_to_the_page_the_reader_came_from_without_pushing() {
+    let printed = drive(
+        "back-page",
+        BACK_PAGE,
+        r#"
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((done) => setTimeout(done, 0));
+};
+const shown = () => `${location.pathname} ${showing().match(/>(\/[^<]*)</)[1]}`;
+labelled("Next").click();
+await settle();
+console.log(shown());
+labelled("Back").click();
+await settle();
+console.log(shown());
+console.log(history.length);
+console.log(moves.join("\n"));
+"#,
+    );
+    assert_eq!(printed, "/next /next\n/ /\n2\npushed /next\n");
+}

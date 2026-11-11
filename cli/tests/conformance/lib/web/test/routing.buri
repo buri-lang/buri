@@ -5,9 +5,8 @@
 //   - what read the route re-runs, which is what makes a navigation re-render
 //     the smallest thing that read the path;
 //   - `replace` writes the same address. What it does not do is add a history
-//     entry, and only a browser has one:
-//     `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
-//     is where that half is asserted;
+//     entry, which `back` shows: it skips the entry `replace` took the place of;
+//   - `back` returns to the entry before, adding none;
 //   - a signal made before a navigation still holds its value after one. An
 //     in-memory store surviving the address changing is the whole reason to
 //     navigate rather than link.
@@ -97,4 +96,73 @@ test "a signal keeps its value across a navigation" {
     assert.equal(store.get(ctx), "ada");
     web.replace(ctx, "/");
     assert.equal(store.get(ctx), "ada");
+}
+
+// buri-lang/buri#341. `back` is the reader's Back button, pressed by the page:
+// the address returns to the entry before this one, and nothing is pushed —
+// so a second `back` goes further back rather than forward again.
+test "back returns to the page the reader came from, adding no entry" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.navigate(ctx, "/reports");
+    web.navigate(ctx, "/reports/2026");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/reports");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/");
+}
+
+test "back from the first entry stays where it is" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/");
+}
+
+test "replace leaves the entry it replaced out of Back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.navigate(ctx, "/signin");
+    web.replace(ctx, "/dashboard");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/");
+}
+
+test "navigating after back drops the entries ahead of it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.navigate(ctx, "/a");
+    web.navigate(ctx, "/b");
+    web.back(ctx);
+    web.navigate(ctx, "/c");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/a");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/");
+}
+
+test "what read the route re-runs when the page goes back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let log = recorder();
+    let route = web.route(ctx);
+    let _ = watch(ctx, fn(s) => log.record(page(route.read(s))));
+    web.navigate(ctx, "/about");
+    web.back(ctx);
+    assert.equal(log.recorded(), ["home", "about", "home"]);
 }

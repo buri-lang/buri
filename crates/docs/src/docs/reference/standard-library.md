@@ -1298,6 +1298,10 @@ nothing is rebuilt but what read the path, so every signal in the program keeps
 its value, which a `ui.link` can't manage. `web.replace(ctx, path)` replaces the
 current entry instead, so Back doesn't return to it: that's a redirect. Both
 need `Location` and `Ui`, one for the address bar and one for the signal.
+`web.back(ctx)` goes back one entry, as the browser's Back button does, so an
+in-page Back button adds no entry. It needs only `Location`: the browser writes
+the signal when it gets there. `platform/effect/testing`'s `address` keeps a
+history too, so a test checks where `back` lands.
 
 `web.routeLink({ dest, styles, children, isCurrent, onFollow })` is that
 navigation as a link: it takes `ui.link`'s config and fills an `onFollow` left

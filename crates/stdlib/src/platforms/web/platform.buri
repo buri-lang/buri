@@ -56,8 +56,8 @@ export struct WebHost {
 /// reader navigates.
 ///
 /// `main.mjs` implements it: `path` is a signal holding `location.pathname`,
-/// written again on every `popstate`, and `push` and `replace` are
-/// `history.pushState` and `history.replaceState`.
+/// written again on every `popstate`, and `push`, `replace` and `back` are
+/// `history.pushState`, `history.replaceState` and `history.back`.
 export struct HostLocation {}
 
 impl Location for HostLocation {
@@ -66,6 +66,8 @@ impl Location for HostLocation {
     fn push(self, path: Str): ();
 
     fn replace(self, path: Str): ();
+
+    fn back(self): ();
 }
 
 /// The page's store, over the browser's IndexedDB: one object store in a

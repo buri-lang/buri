@@ -1250,6 +1250,10 @@ export struct Event(Int);
 /// left. `ui/web`'s `navigate` and `replace` are the doors, and each writes the
 /// signal itself — so the address the graph sees is the address the bar shows,
 /// whichever of the two moved it.
+///
+/// `back` is the third move, and the one the page doesn't make itself: the
+/// browser goes back an entry and fires `popstate`, which writes the signal.
+/// `ui/web`'s `back` is its door.
 export effect Location {
     /// The cell holding the path of the page's address, as `/guide/routing`.
     /// The runtime writes it when the reader navigates.
@@ -1259,4 +1263,11 @@ export effect Location {
     /// `path` in place of the entry the reader is on, which Back does not
     /// return to. What a redirect wants.
     fn replace(self, path: Str): ();
+    /// The entry before the one the reader is on, the way their Back button
+    /// goes there: no entry is added, and the one left stays ahead of them.
+    /// The signal `path` names is written once the reader arrives. On the
+    /// history's first entry it does nothing, and on the page's first entry in
+    /// a tab that came from another site it leaves for that site, as the
+    /// button would.
+    fn back(self): ();
 }

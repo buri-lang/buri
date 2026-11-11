@@ -329,6 +329,46 @@ only send the reader forward again.
 Both need `Location` **and** `Ui`: one to move the address bar, one to write the
 signal. Reach another site with a `ui.link`, so the reader sees where it goes.
 
+`web.back(ctx)` is the reader's Back button, pressed by the page:
+
+```buri
+# from "platform/effect" import { Location, Ui };
+# from "ui/node" import * as ui;
+# from "ui/node" import { Node };
+# from "ui/web" import * as web;
+
+fn backButton<C: Location + Ui>(): Node<C> {
+    ui.button({ label: .Const("Back"), styles: [], onPress: .Some(fn(c) => web.back(c)) })
+}
+```
+
+It adds no entry, so the browser's Forward still returns to the page the reader
+left. Navigating to the previous path instead would push it again, and the
+browser's Back would then go forward. The signal `route` wraps is written once
+the browser gets there.
+
+In a test, `platform/effect/testing`'s `address(ctx, "/")` keeps a history the
+same way, so a test presses Back and checks where it landed:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Location, Ui, Watch };
+from "platform/effect/testing" import { address, headless, observer };
+from "ui/web" import * as web;
+
+test "back returns to the page the reader came from" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.navigate(ctx, "/reports");
+    web.navigate(ctx, "/reports/2026");
+    web.back(ctx);
+    assert.equal(web.path(ctx), "/reports");
+}
+```
+
 ## A link that navigates
 
 A `ui.button` calling `navigate` navigates, but it is not a link: no `href`, so

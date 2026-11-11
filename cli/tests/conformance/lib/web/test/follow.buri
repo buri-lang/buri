@@ -205,3 +205,37 @@ test "following an ordinary link leaves the page where it is" {
     assert.equal(web.path(ctx), "/");
     assert.equal(page.markup(), "e 0 \nt 1 away");
 }
+
+// buri-lang/buri#341. An in-page Back button returns to the page the reader
+// came from rather than pushing it again.
+test "a Back button returns the reader to the page they came from" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                web.routeLink({
+                    dest: .Const("/next"),
+                    styles: [],
+                    children: [ui.text({ content: .Const("go") })],
+                }),
+                ui.button({
+                    label: .Const("Back"),
+                    styles: [],
+                    onPress: .Some(fn(c) => web.back(c)),
+                }),
+            ],
+        }),
+    );
+    let _ = page.follow("go");
+    assert.equal(web.path(ctx), "/next");
+    let _ = page.press("Back");
+    assert.equal(web.path(ctx), "/");
+    let _ = page.press("Back");
+    assert.equal(web.path(ctx), "/");
+}
