@@ -365,12 +365,16 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
 /// - stencil: map 344 and 364, ordered 46 and 66, push 38 and 58, list 33
 ///   and 53
 /// - llvm: map 321 and 365, ordered 60 and 76, push 28 and 44, list 23 and 40
+///
+/// `core/map` measured 209 (stencil) and 192 (llvm) once a descent held its
+/// child's place rather than shifting the children, and its limits are those
+/// plus 10.
 const STORED_LIMITS: [(&str, &str, u64); 8] = [
-    ("stencil", "map", 354),
+    ("stencil", "map", 219),
     ("stencil", "ordered", 56),
     ("stencil", "push", 48),
     ("stencil", "list", 43),
-    ("llvm", "map", 343),
+    ("llvm", "map", 202),
     ("llvm", "ordered", 68),
     ("llvm", "push", 36),
     ("llvm", "list", 31),

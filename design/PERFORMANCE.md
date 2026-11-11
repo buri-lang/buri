@@ -9377,6 +9377,32 @@ check, with and without the caller and the old list or map still holding it.
 `run-dev/kvstore` went from 1,259.2 M to 1,209.2 M instructions on an arm64
 VM. Allocations stayed at 589,381.
 
+### 6.120 `core/map`'s descent holds the child's place, 2026-11-11
+
+```buri
+let rest = replaceAt(ctx, children, idx, empty<K, V>().root);
+// ... the descent ...
+(.Branch(bitmap, replaceAt(ctx, rest, idx, grown)), added)
+```
+
+`insert` and `remove` took the child out of its list with `removeAt` and put
+the new one back with `insertAt`. Each call shifted every child after it, and
+under musl that memmove cost about 2,100 instructions on a full root. Now an
+empty branch holds the child's place, as `take` already did, and nothing
+moves. `remove` calls `removeAt` only when the child is gone.
+
+On an arm64 VM, an insert of a key a 64-key map holds went from 7,255 to 3,003
+instructions with a value of eight `Str`s, and from 2,447 to 1,442 with one.
+`glue_counts.rs`'s cost a field of storing a record went from 344 to 209
+(stencil) and from 321 to 192 (LLVM). kvstore uses no `core/map`, so it
+didn't change.
+
+Reading a held key's entry with a lent `children[idx]` and replacing it in
+its slot cut the field cost to 168, but it left `insertNode`'s own same-key
+arm, and the descent, unreachable for small maps of some key types. Per
+instance, the stdlib MC/DC gate fell from 95.6% to 92.2%, so that half
+waits.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

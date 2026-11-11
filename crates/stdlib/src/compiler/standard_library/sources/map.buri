@@ -242,8 +242,9 @@ fn insertNode<K: Equal, V, C: Allocator>(
                 .Some(child) => {
                     // Out of the list before the descent, so a list nothing
                     // else holds lets go of the child and the child is held
-                    // once: each level below then updates in place too.
-                    let rest = removeAt(ctx, children, idx);
+                    // once: each level below then updates in place too. An
+                    // empty branch holds its place, so no child after it moves.
+                    let rest = replaceAt(ctx, children, idx, empty<K, V>().root);
                     let (grown, added) = insertNode(
                         ctx,
                         child,
@@ -253,7 +254,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                         value,
                         depth + 1,
                     );
-                    (.Branch(bitmap, insertAt(ctx, rest, idx, grown)), added)
+                    (.Branch(bitmap, replaceAt(ctx, rest, idx, grown)), added)
                 },
             }
         },
@@ -338,10 +339,10 @@ fn removeNode<K: Equal, V, C: Allocator>(
             match (found) {
                 .None => .Some(n),
                 .Some(child) => {
-                    let rest = removeAt(ctx, children, idx);
+                    let rest = replaceAt(ctx, children, idx, empty<K, V>().root);
                     match (removeNode(ctx, child, below(shifted), key)) {
-                        .None => compact(bitmap & ~bit, rest),
-                        .Some(c) => compact(bitmap, insertAt(ctx, rest, idx, c)),
+                        .None => compact(bitmap & ~bit, removeAt(ctx, rest, idx)),
+                        .Some(c) => compact(bitmap, replaceAt(ctx, rest, idx, c)),
                     }
                 },
             }

@@ -1981,6 +1981,36 @@ test "overwriting every key changes values but not size" {
     assert.isTrue(list.range(ctx, 0, n).all(fn(i) => bumped.get(i) == .Some(i + 1000)));
 }
 
+test "replacing and removing keys of a shared large map leaves the other holder as it was" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = 300;
+    let before = map.of(ctx, list.range(ctx, 0, n).map(ctx, fn(i) => (i, i)));
+    let replaced = list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i, i + 1000),
+            before,
+        );
+    let removed = list
+        .range(ctx, 0, n / 2)
+        .foldCtx(ctx, fn(c, acc: Map<Int, Int>, i) => acc.remove(c, i * 2), before);
+    assert.isTrue(list.range(ctx, 0, n).all(fn(i) => before.get(i) == .Some(i)));
+    assert.isTrue(
+        list.range(ctx, 0, n).all(fn(i) => replaced.get(i) == .Some(i + 1000)),
+    );
+    assert.equal(removed.length(), n / 2);
+    assert.isTrue(
+        list
+            .range(ctx, 0, n)
+            .all(fn(i) => {
+                removed.get(i) == if (i % 2 == 0) { .None } else { .Some(i) }
+            }),
+    );
+}
+
 // --- a list kept in a map -----------------------------------------------------
 
 // The map holds the list it was handed, as a value or as a key, and so does the
