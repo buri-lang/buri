@@ -1061,8 +1061,6 @@ answer.
   of two `Str`s the backend would have to build. This subsumes float→integer
   entirely: no float-to-integer conversion is exact, so every one of them is
   this shape.
-* **`core/math`'s thirteen transcendentals**, which are refused rather than
-  unwritten; `cli/runtime/math.rs` argues it.
 
 **stencil's own, and each is a sentence rather than a wrong answer:**
 

@@ -34,12 +34,10 @@
 //!     `runtime.js` does; `isAlpha` is `\p{L}`, which is a General Category and
 //!     not the **Alphabetic** property `char::is_alphabetic` answers, so that
 //!     file carries the category as data and says where the data came from;
-//!   * **the exactly-specified half of `core/math`** ([`math`]) — `squareRoot`, the
-//!     four rounding functions and the three predicates. The thirteen
-//!     transcendentals are deliberately absent, and that file says why: IEEE
-//!     754 does not fix their answers, so V8's fdlibm port and the platform's
-//!     libm differ in the last bit, and a rendered `Float` shows seventeen
-//!     digits of it;
+//!   * **`core/math`** ([`math`]) — `squareRoot`, the four rounding functions
+//!     and the three predicates, which IEEE 754 fixes exactly, and the
+//!     thirteen transcendentals, which call the platform's libm as Bun's
+//!     `Math.*` does. That file says where libms differ in the last bit;
 //!   * **the stateful half of `platform/effect/testing`** ([`testing`]) — a captured
 //!     stdout, a seeded generator, a test clock, a fixture environment, and a
 //!     stdin that was handed its lines. Every one of them is mutable process state outliving the expression
@@ -63,34 +61,28 @@
 //!     a widening multiply, which neither has at `i128`, so a hand-rolled
 //!     128-bit one would be two code generators to get it wrong in.
 //!
-//! What deliberately stays *out* falls into two kinds, and the difference
-//! matters:
+//! What deliberately stays *out*:
 //!
 //!   * **It needs a type the runtime does not have.** Every `list.*` entry
 //!     taking a closure, `zip`, `flatten`, and the whole of `json.*`. A closure
 //!     is `{ code, env }` where `code`'s signature is the *flattened* one of its
 //!     own element type, so calling one from C would mean synthesizing a call
 //!     whose parameter list depends on `T` — a backend's job by construction.
-//!   * **It has no single right answer, and guessing would be worse than a
-//!     gap.** `core/math`'s thirteen transcendentals. Implementing `sin` with
-//!     the platform libm would put a divergence into the toolchain that shows
-//!     up on one input in a few thousand — which is the hardest kind of bug to
-//!     find and the easiest to ship.
 //!
-//!     `core/character`'s classifiers used to be the second entry in this
-//!     list, for the same reason spelled at `isAlpha`: Rust's `is_alphabetic`
+//!     `core/character`'s classifiers used to be a second kind, things with no
+//!     single right answer, spelled at `isAlpha`: Rust's `is_alphabetic`
 //!     is the **Alphabetic** derived property and JavaScript's `\p{L}` is a
 //!     General Category, and they differ on about fifteen hundred characters.
 //!     They are out of this list rather than answered differently —
 //!     [`character`] does not use `is_alphabetic`; it carries `\p{L}` as a
 //!     table, generated from the engine the JavaScript backend runs on, and
-//!     that file states the Unicode version. The transcendentals have no
-//!     equivalent move available, because what differs there is the last bit
-//!     of an arithmetic result and not a set that can be written down.
+//!     that file states the Unicode version. `core/math`'s transcendentals
+//!     were the other entry until #331: they call the same libm JavaScript
+//!     does, and `math.rs` records where that libm differs across platforms.
 //!
-//! Each is named where it would otherwise be looked for — `list.rs`'s and
-//! `math.rs`'s headers, and `backend/{stencil,llvm}`'s missing-intrinsic
-//! tables — rather than left to be discovered as a link error.
+//! Each is named where it would otherwise be looked for — `list.rs`'s header
+//! and `backend/{stencil,llvm}`'s missing-intrinsic tables — rather than left
+//! to be discovered as a link error.
 //!
 //! ## 1. The symbol rule
 //!

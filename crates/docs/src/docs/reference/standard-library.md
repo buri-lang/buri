@@ -680,8 +680,8 @@ than a copy — and every permutation is equally likely. `sample` is that shuffl
 and a `take`, so it costs the same in the length of the *list* rather than of
 the sample. `nextGaussian` is Marsaglia's polar method: a point in the square
 from `-1` to `1`, kept only if it landed inside the unit circle, so a draw costs
-a little over two uniforms on average. It reaches `math.ln`, so it carries
-`core/math`'s transcendental gap on a native build.
+a little over two uniforms on average. It reaches `math.ln`, so its draws can
+differ in the last digit between macOS and Linux.
 
 Neither door is a secret. Both are uniform and both are predictable. For octets
 nobody can guess, see [`core/crypto`](#cryptography) below.

@@ -2,6 +2,14 @@
 //!
 //! Free functions rather than methods, because `F64`'s methods live in
 //! `core/number` and a type's operations must be declared in its defining module.
+//!
+//! `squareRoot`, the rounding functions and the classifiers give the same answer
+//! on every target. The transcendentals (`sin`, `exp`, `ln` and the rest) call
+//! the platform's libm, so their last digit can differ between macOS and Linux,
+//! by up to three units in the last place. Values IEEE 754 fixes are the same
+//! everywhere: `sin(-0.0)` is `-0.0`, `ln(0.0)` is negative infinity and
+//! `exp(-infinity)` is `0.0`. `power` follows JavaScript's `Math.pow`, so
+//! `power(1.0, nan)` is NaN.
 
 export fn squareRoot(x: Float): Float;
 
@@ -315,13 +323,10 @@ export fn isCloseRelative(a: Float, b: Float, tolerance: Float): Bool {
 
 // --- Built on `exp` and `ln` -------------------------------------------------------
 //
-// Everything below reaches one of the thirteen transcendentals, whose answers
-// IEEE 754 does not fix. That is the *existing* gap this module's header and
-// `cli/runtime/math.rs` describe, and these inherit it exactly: they run on the
-// JavaScript backend, and a native build reports `math.exp` or `math.ln` through
-// `missing_intrinsics` the same way a direct call to either does. Nothing here
-// adds a second implementation for a backend to disagree with — the whole family
-// still has one body.
+// Everything below reaches one of the transcendentals, whose last digit IEEE 754
+// does not fix, and inherits the platform difference this module's header
+// describes. Nothing here adds a second implementation for a target to disagree
+// with.
 
 /// `exp(x) - 1`, without the digits that subtracting one from a number near
 /// `1.0` throws away.

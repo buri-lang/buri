@@ -153,9 +153,9 @@ fn a_program_fans_out_a_counted_context_on_the_host() {
 
 /// **The native set's files in a package that also holds a JavaScript-only
 /// one pass under `--release`.** `coverage_agrees` moves a corpus package to
-/// the native backends whole or not at all, so `numbers/integers.buri` stays
-/// on JavaScript there for `numbers/floats.buri`'s sake. Here each such
-/// package keeps only its native-set files and moves.
+/// the native backends whole or not at all, so `web/routing.buri` stays on
+/// JavaScript there for `web/document.buri`'s sake. Here each such package
+/// keeps only its native-set files and moves.
 #[cfg(feature = "backend-stencil")]
 #[test]
 fn the_native_files_of_a_mixed_package_pass_under_release() {
@@ -189,9 +189,11 @@ fn the_native_files_of_a_mixed_package_pass_under_release() {
         std::fs::write(at.join("BUILD.buri"), build).unwrap();
         targets.push(format!("//lib/{package}"));
     }
+    // `web` is the one left since `numbers` and `random` joined the native
+    // set whole (#331).
     assert!(
-        targets.len() >= 3,
-        "fewer mixed packages than expected: {targets:?}"
+        targets.contains(&"//lib/web".to_string()),
+        "no mixed package: {targets:?}"
     );
     let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
     passes(&repo, &targets);

@@ -2359,14 +2359,11 @@ export fn main(host: NativeHost): Result<(), Str> {
     // the three `//lib/proto` files are in the native conformance set because
     // of them.
     //
-    // `math.sin` is the example now, and it is a different *kind* of gap on
-    // purpose: it is refused rather than unwritten. `cli/runtime/math.rs`
-    // argues that IEEE 754 does not fix a transcendental's answer, so V8's
-    // fdlibm port and the platform libm differ in the last bit and a rendered
-    // `Float` shows seventeen digits of it. That makes it the one example that
-    // will not stop being true next wave, which is what this assertion wants:
-    // the *mechanism* is what is under test, and it has been re-pointed three
-    // times at things that were merely early.
+    // `math.sin` was next, until `core/math`'s transcendentals got archive
+    // bodies (#331). `ui_node.mount` is the example now: it mounts on a live
+    // page, so it is WEB-only by design and will not stop being a gap next
+    // wave. The *mechanism* is what is under test, and it has been re-pointed
+    // four times at things that were merely early.
     let with_closure = program(
         r#"
 from "native" import { NativeHost };
@@ -2375,9 +2372,24 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/str" import * as str;
+from "platform/effect" import { Scope, Ui };
+from "ui/node" import * as ui;
+
+struct Graph {}
+
+impl Ui for Graph {
+  fn signal<T>(self, initial: T): Int { 0 }
+  fn read<T>(self, id: Int): T { self.read(id) }
+  fn write<T>(self, id: Int, value: T): () {}
+  fn memo<T>(self, compute: fn(Scope) => T): Int { 0 }
+  fn watch(self, run: fn(Scope) => ()): () {}
+  fn schedule(self, millis: Int, run: fn(Self) => ()): Int { 0 }
+  fn unschedule(self, id: Int): () {}
+}
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let _ = ui.mount(context { Ui: Graph {} }, ui.text({ content: .Const("x") }), []).ignore();
   let sorted = list.range(ctx, 0, 3).sortBy(ctx, fn(a, b) => a.compare(b));
   let paired = sorted.zip(ctx, list.range(ctx, 0, 3));
   let nested = [paired.mapCtx(ctx, fn(c, p) => p.0)].flatten(ctx);
@@ -2412,8 +2424,13 @@ export fn main(host: NativeHost): Result<(), Str> {
     middle::run(&mut mono, &middle::Options::default());
     let missing = llvm::Llvm::default().missing_intrinsics(&mono, &analysis.checked.tables);
     assert!(
-        missing.iter().any(|m| m == "math.sin"),
-        "`math.sin` is refused on purpose and must be reported, got {missing:?}"
+        missing.iter().any(|m| m == "ui_node.mount"),
+        "`ui_node.mount` is WEB-only and must be reported, got {missing:?}"
+    );
+    assert!(
+        !missing.iter().any(|m| m == "math.sin"),
+        "`math.sin` is a row in the runtime table now and must not be reported, \
+         got {missing:?}"
     );
     assert!(
         !missing.iter().any(|m| m == "character.isDigit"),
@@ -4127,14 +4144,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `core/math`'s nine, and the thirteen that are a named gap.
-///
-/// The transcendentals are absent on purpose: IEEE 754 fixes `squareRoot` and the
-/// rounding functions and does **not** fix `sin`, `exp` or `power`, so V8's
-/// fdlibm port and a platform libm differ in the last bit — and a rendered
-/// `Float` shows seventeen digits of it. `missing_intrinsics` names them, which
-/// is a diagnostic; a libm call would be a conformance failure nobody could
-/// attribute to a backend.
+/// `core/math`'s nine functions IEEE 754 fixes exactly. The transcendentals
+/// run in `numbers/transcendentals.buri`, on every backend.
 #[test]
 fn the_exact_half_of_core_math_runs() {
     skip_unless_executable!();

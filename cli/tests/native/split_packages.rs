@@ -3,7 +3,7 @@
 //!
 //! `coverage_agrees` moves every package the native set can build to the debug
 //! backend, but a package with one excluded file stays on JavaScript whole. So
-//! `numbers/integers.buri` ran natively only in process (`conformance`), never
+//! `web/routing.buri` runs natively only in process (`conformance`), never
 //! through `buri`. This copies the corpus, keeps each such package's native-set
 //! files, and runs them on the debug backend under the heap check.
 
@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// A copy of the corpus whose JavaScript-only packages hold their native-set
-/// files alone, on the native backend. Answers the copy and the packages.
-fn split_corpus() -> (PathBuf, Vec<String>) {
+/// files alone, on the native backend. Answers the copy, the packages, and how
+/// many tests those files declare.
+fn split_corpus() -> (PathBuf, Vec<String>, usize) {
     crate::sweep::once();
     let repo = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-split-packages-{}", std::process::id()));
@@ -22,6 +23,7 @@ fn split_corpus() -> (PathBuf, Vec<String>) {
         &repo,
     );
     let mut packages = Vec::new();
+    let mut declared = 0;
     for package in crate::conformance::javascript_only_packages() {
         let dir = repo.join("lib").join(package);
         let mut native: Vec<String> = std::fs::read_dir(dir.join("test"))
@@ -35,6 +37,10 @@ fn split_corpus() -> (PathBuf, Vec<String>) {
             continue;
         }
         native.sort();
+        for file in &native {
+            let source = std::fs::read_to_string(dir.join(file.trim_matches('"'))).unwrap();
+            declared += source.lines().filter(|l| l.starts_with("test \"")).count();
+        }
         std::fs::write(
             dir.join("BUILD.buri"),
             format!(
@@ -45,7 +51,7 @@ fn split_corpus() -> (PathBuf, Vec<String>) {
         .unwrap();
         packages.push(format!("//lib/{package}"));
     }
-    (repo, packages)
+    (repo, packages, declared)
 }
 
 fn copy(from: &Path, to: &Path) {
@@ -69,9 +75,11 @@ fn the_native_files_of_javascript_only_packages_pass_on_the_debug_backend() {
     if !crate::stencil::supported() {
         return;
     }
-    let (repo, packages) = split_corpus();
+    let (repo, packages, declared) = split_corpus();
+    // `web` is the one left since `numbers` and `random` joined the native
+    // set whole (#331).
     assert!(
-        packages.len() >= 3,
+        packages.contains(&"//lib/web".to_string()),
         "only {packages:?} have native-set files"
     );
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
@@ -93,6 +101,6 @@ fn the_native_files_of_javascript_only_packages_pass_on_the_debug_backend() {
         .next()
         .and_then(|n| n.parse().ok())
         .unwrap_or(0);
-    assert!(passed >= 300, "only {passed} tests ran: {summary}");
+    assert_eq!(passed, declared, "not every declared test ran: {summary}");
     let _ = std::fs::remove_dir_all(&repo);
 }

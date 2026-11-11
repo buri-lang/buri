@@ -1,41 +1,28 @@
-//! `core/math` — the half of it that has one right answer.
+//! `core/math` — the twenty-two functions the runtime answers.
 //!
-//! # Why this file is nine functions and not twenty-two
+//! `squareRoot`, `absoluteFloat`, the four rounding functions and the three
+//! classifiers are exact: IEEE 754 fixes each answer, so `f64::sqrt` here and
+//! `Math.sqrt` in JavaScript give the same bits everywhere.
 //!
-//! `core/math` declares twenty-two entries and this implements nine. The split
-//! is not effort, it is **whether the answer is specified**:
+//! The thirteen transcendentals call the platform's libm, which is what
+//! JavaScript does too: Bun's `Math.sin` is the same `sin`. IEEE 754 doesn't fix
+//! their last bit, so libms differ in it. Measured on 500,000 inputs:
 //!
-//! * `squareRoot`, `abs`, `floor`, `ceiling`, `truncate`, `round`, `isNan`, `isInfinite`
-//!   and `isFinite` are exactly determined. IEEE 754 requires `squareRoot` to be
-//!   correctly rounded, the four rounding functions are integer selections, and
-//!   the three predicates are classifications. Every conforming implementation
-//!   agrees on every input, so `f64::sqrt` here and `Math.sqrt` there are the
-//!   same bits.
+//! * macOS: every one of these matches Bun bit for bit.
+//! * Linux: a native binary links musl and Bun links glibc, so up to 11% of
+//!   `atan2`'s answers, and fewer of the others', differ by one or two units in
+//!   the last place.
+//! * Apple's libm disagrees with both Linux libms at common points:
+//!   `tan(1.0)`, `asin(0.5)`, `atan(2.0)`.
 //!
-//! * `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`,
-//!   `log10`, `log2`, `power` and `cubeRoot` are **not**. IEEE 754 recommends
-//!   correctly-rounded transcendentals and requires nothing, so the answer is
-//!   the implementation's. V8 uses its own port of fdlibm
-//!   (`src/base/ieee754.cc`); `f64::sin` calls the platform's libm, which is
-//!   Apple's on macOS and glibc's on Linux — three implementations that agree
-//!   to within an ulp and not to the bit.
-//!
-//! VALUE-MODEL.md §12 asks for *identical* output, and `show(math.sin(x))`
-//! prints seventeen significant digits. So implementing the second group with
-//! libm would put a divergence into the toolchain that shows up on one input in
-//! a few thousand, which is the hardest possible bug to find and the easiest to
-//! ship. They are a named gap instead: both backends report them through
-//! `missing_intrinsics`, and closing it means porting fdlibm into this runtime
-//! — a real piece of work, and one whose correctness `cli/tests/` can check the
-//! same way it checks the float formatter.
+//! `power` is the exception: it follows Bun's `Math.pow` step for step rather
+//! than C's `pow`. See [`buri_rt_math_power`].
 //!
 //! # `round` is not `f64::round`
 //!
-//! The one function here whose obvious implementation is wrong. `Math.round`
-//! (ECMA-262 §21.3.2.28) rounds a tie **toward positive infinity**:
-//! `Math.round(-0.5)` is `-0` and `Math.round(0.5)` is `1`. Rust's
-//! `f64::round` rounds a tie *away from zero*, so it answers `-1`. Half the
-//! ties disagree, and `-0.5` is not an exotic input.
+//! `Math.round` (ECMA-262 §21.3.2.28) rounds a tie **toward positive
+//! infinity**: `Math.round(-0.5)` is `-0` and `Math.round(0.5)` is `1`. Rust's
+//! `f64::round` rounds a tie *away from zero*, so it answers `-1`.
 
 /// `math.squareRoot` — correctly rounded, by IEEE 754 §5.4.1.
 #[unsafe(no_mangle)]
@@ -110,6 +97,115 @@ pub extern "C" fn buri_rt_math_is_infinite(x: f64) -> u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_math_is_finite(x: f64) -> u8 {
     u8::from(x.is_finite())
+}
+
+/// `math.cubeRoot` — libm's `cbrt`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_cube_root(x: f64) -> f64 {
+    x.cbrt()
+}
+
+/// `math.exp` — libm's `exp`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_exp(x: f64) -> f64 {
+    x.exp()
+}
+
+/// `math.ln` — libm's `log`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_ln(x: f64) -> f64 {
+    x.ln()
+}
+
+/// `math.log10` — libm's `log10`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_log10(x: f64) -> f64 {
+    x.log10()
+}
+
+/// `math.log2` — libm's `log2`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_log2(x: f64) -> f64 {
+    x.log2()
+}
+
+/// `math.sin` — libm's `sin`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_sin(x: f64) -> f64 {
+    x.sin()
+}
+
+/// `math.cos` — libm's `cos`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_cos(x: f64) -> f64 {
+    x.cos()
+}
+
+/// `math.tan` — libm's `tan`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_tan(x: f64) -> f64 {
+    x.tan()
+}
+
+/// `math.asin` — libm's `asin`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_asin(x: f64) -> f64 {
+    x.asin()
+}
+
+/// `math.acos` — libm's `acos`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_acos(x: f64) -> f64 {
+    x.acos()
+}
+
+/// `math.atan` — libm's `atan`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_atan(x: f64) -> f64 {
+    x.atan()
+}
+
+/// `math.atan2` — libm's `atan2`, `y` first.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_atan2(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+}
+
+/// `math.power` — Bun's `Math.pow` (JavaScriptCore's `operationMathPow`).
+///
+/// Three things C's `pow` does differently:
+///
+/// * ECMA-262 makes `power(1, NaN)` and `power(±1, ±∞)` `NaN`; C answers `1`.
+/// * An exponent of `0.5` or `-0.5` is a square root or one over it.
+/// * A whole exponent from 0 to 1000 multiplies by repeated squaring, which is
+///   plain arithmetic and so the same everywhere. `power(10, 308)` is
+///   `1.0000000000000006e308` where `pow` rounds to `1e308`.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_math_power(x: f64, y: f64) -> f64 {
+    let size = x.abs();
+    if y.is_nan() || (size == 1.0 && y.is_infinite()) {
+        return f64::NAN;
+    }
+    if y == 0.5 || y == -0.5 {
+        let root = if size == 0.0 || size == f64::INFINITY {
+            size
+        } else {
+            x.sqrt()
+        };
+        return if y > 0.0 { root } else { 1.0 / root };
+    }
+    if (0.0..=1000.0).contains(&y) && y.trunc() == y {
+        let (mut n, mut base, mut result) = (y as u32, x, 1.0);
+        while n != 0 {
+            if n & 1 == 1 {
+                result *= base;
+            }
+            base *= base;
+            n >>= 1;
+        }
+        return result;
+    }
+    x.powf(y)
 }
 
 #[cfg(test)]

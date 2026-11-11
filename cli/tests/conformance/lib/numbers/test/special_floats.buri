@@ -8,13 +8,9 @@
 // and there is no negative-infinity numeral either that is not the same
 // overflow with a sign in front.
 //
-// This is a file of its own rather than a section of `floats.buri` because of
-// which backends run it. `floats.buri` is held out of the native set over
-// `core/math`'s thirteen transcendentals, whose last bit IEEE-754 does not fix
-// (`cli/tests/native/conformance.rs`, and `cli/runtime/math.rs` for why) —
-// and a constant being the same value on both backends is the entire point of
-// the spelling, so it has to be asserted somewhere both backends read. Nothing
-// below reaches a transcendental: division by zero, the sign, the three
+// This is a file of its own rather than a section of `floats.buri` because
+// `floats.buri` reaches `core/math`'s transcendentals, whose last bit IEEE-754
+// does not fix. Nothing below reaches one: division by zero, the sign, the three
 // classifiers, `squareRoot`, `floor`, `ceiling` and `absoluteFloat` are each exactly
 // specified, and every rendering here is a name rather than a digit.
 

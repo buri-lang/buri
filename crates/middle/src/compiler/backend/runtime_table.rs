@@ -798,12 +798,10 @@ pub const ENTRIES: &[Entry] = &[
         &[List, List, List, List],
         Ret::Bool,
     ),
-    // -- core/math, the exactly-specified half --------------------------------
+    // -- core/math -----------------------------------------------------------
     //
-    // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
-    // not here, and the short version is that IEEE 754 does not fix a
-    // transcendental's answer, so V8 and the platform libm differ in the last
-    // bit — which a rendered `Float` shows.
+    // All twenty-two. `cli/runtime/math.rs` says which answers IEEE 754 fixes
+    // and which come from the platform's libm.
     e("math.squareRoot", &[Float], Ret::Scalar(F64)),
     e("math.absoluteFloat", &[Float], Ret::Scalar(F64)),
     e("math.floor", &[Float], Ret::Scalar(F64)),
@@ -813,6 +811,19 @@ pub const ENTRIES: &[Entry] = &[
     e("math.isNan", &[Float], Ret::Bool),
     e("math.isInfinite", &[Float], Ret::Bool),
     e("math.isFinite", &[Float], Ret::Bool),
+    e("math.cubeRoot", &[Float], Ret::Scalar(F64)),
+    e("math.exp", &[Float], Ret::Scalar(F64)),
+    e("math.ln", &[Float], Ret::Scalar(F64)),
+    e("math.log10", &[Float], Ret::Scalar(F64)),
+    e("math.log2", &[Float], Ret::Scalar(F64)),
+    e("math.sin", &[Float], Ret::Scalar(F64)),
+    e("math.cos", &[Float], Ret::Scalar(F64)),
+    e("math.tan", &[Float], Ret::Scalar(F64)),
+    e("math.asin", &[Float], Ret::Scalar(F64)),
+    e("math.acos", &[Float], Ret::Scalar(F64)),
+    e("math.atan", &[Float], Ret::Scalar(F64)),
+    e("math.atan2", &[Float, Float], Ret::Scalar(F64)),
+    e("math.power", &[Float, Float], Ret::Scalar(F64)),
     // -- the text streams ---------------------------------------------------
     //
     // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the

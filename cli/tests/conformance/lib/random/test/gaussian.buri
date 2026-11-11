@@ -1,15 +1,13 @@
 // core/random — `nextGaussian`, the one draw that is not uniform.
 //
-// A file of its own because it reaches `math.ln`, one of `core/math`'s thirteen
-// transcendentals — so it is held out of the native set for
-// `numbers/floats.buri`'s reason exactly (`cli/tests/native/conformance.rs`).
-// `draws.buri` next door is the rest of `core/random`'s new surface and reaches
-// none of them.
+// A file of its own because it reaches `math.ln`, one of `core/math`'s
+// transcendentals, whose last bit differs between libms. `draws.buri` next door
+// is the rest of `core/random`'s new surface and reaches none of them.
 //
 // What is asserted is the *shape* of the distribution rather than a value: the
 // polar method is a rejection loop, so what it returns for a given seed is a
-// fact about splitmix64 and about `ln`, and the second of those is what this
-// file is here to keep away from the native suites.
+// fact about splitmix64 and about `ln`, and the second of those differs in the
+// last bit between platforms.
 
 from "core/list" import * as list;
 from "core/math" import * as math;

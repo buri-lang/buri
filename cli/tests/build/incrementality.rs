@@ -1650,8 +1650,8 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
 /// It used to be rerouted onto JavaScript with a note on stderr, which is how a
 /// named gap becomes a wrong answer: the suite passes, on a backend nobody
 /// chose, and the note goes into a stream a passing run's reader does not read
-/// (buri-lang/buri#4). `math.ln` is the gap here because no native backend
-/// has a body for it and the corpus already says so — if that ever changes,
+/// (buri-lang/buri#4). `ui_node.mount` is the gap here because it mounts on a
+/// live page and no native backend has a body for it — if that ever changes,
 /// this test fails by passing the first run, which is the right way round.
 #[test]
 fn a_suite_the_native_backend_cannot_compile_is_refused() {
@@ -1663,10 +1663,12 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     scratch.write("lib/g/lib.buri", "export fn nothing(): Int { 0 }\n");
     scratch.write(
         "lib/g/test/g.buri",
-        "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/math\" import * as math;\n\
-         \ntest \"logs\" {\n\
-         \x20 assert.equal(math.ln(1.0), 0.0);\n}\n",
+        "from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import { headless };\n\
+         from \"ui/node\" import * as ui;\n\
+         \ntest \"mounts\" {\n\
+         \x20 let ctx = context { Ui: headless() };\n\
+         \x20 let _ = ui.mount(ctx, ui.text({ content: .Const(\"x\") }), []).ignore();\n}\n",
     );
 
     let run = scratch.run(&["test", "//lib/g"]);
@@ -1679,7 +1681,7 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     }
     assert!(
         run.stderr.contains("cannot run natively")
-            && run.stderr.contains("no implementation of math.ln"),
+            && run.stderr.contains("no implementation of ui_node.mount"),
         "a native gap did not refuse the suite:\n{}",
         indent(&run.all())
     );

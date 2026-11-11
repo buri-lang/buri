@@ -928,16 +928,19 @@ fn a_suite_that_asks_for_native_and_reaches_a_gap_is_refused() {
         &scratch,
         "g",
         "        sources: [\"test/t.buri\"]\n        backends: [NATIVE]\n",
-        "from \"core/testing/assert\" import * as assert;\n\
-         from \"core/math\" import * as math;\n\n\
-         test \"logs\" {\n    assert.equal(math.ln(1.0), 0.0);\n}\n",
+        "from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import { headless };\n\
+         from \"ui/node\" import * as ui;\n\n\
+         test \"mounts\" {\n\
+         \x20   let ctx = context { Ui: headless() };\n\
+         \x20   let _ = ui.mount(ctx, ui.text({ content: .Const(\"x\") }), []).ignore();\n}\n",
     );
     let run = scratch.run(&["test", "//lib/g"]);
     run.exits(1);
     if run.stderr.contains("test-run-unavailable") {
         return;
     }
-    run.says("backend has no implementation of math.ln")
+    run.says("backend has no implementation of ui_node.mount")
         .says("= fix: declare `test { backends: [JS] }` for this suite")
         .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
 }

@@ -1,0 +1,317 @@
+// `core/math`'s thirteen transcendentals: `sin`, `cos`, `tan`, `asin`, `acos`,
+// `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `cubeRoot` and `power`.
+//
+// Every backend reads this file, so each answer here is one that JavaScript,
+// the stencil backend and the LLVM backend all give.
+//
+// IEEE 754 does not fix a transcendental's last bit, and the platform libraries
+// disagree in it: Apple's `tan(1.0)` is one unit below musl's and glibc's. So the
+// values are of two kinds:
+//
+// * the answers IEEE 754 and ECMA-262 do fix: zeros keep their sign, the
+//   infinities, `NaN` outside a function's domain, and `power`'s special cases;
+// * finite values that macOS, musl and glibc all round the same way, each
+//   checked on all three before it was written here.
+//
+// `power` with a whole exponent from 0 to 1000, or with `0.5` or `-0.5`, is
+// plain arithmetic rather than a library call, so those answers are exact on
+// every platform. The two that show it differ from a correctly rounded power.
+
+from "core/math" import * as math;
+from "core/testing/assert" import * as assert;
+
+fn nan(): F64 {
+    0.0 / 0.0
+}
+
+fn inf(): F64 {
+    1.0 / 0.0
+}
+
+/// Whether `x` is `-0.0`, which `==` cannot tell from `0.0`.
+fn isNegativeZero(x: F64): Bool {
+    x == 0.0 && 1.0 / x < 0.0
+}
+
+/// Whether `x` is `+0.0`.
+fn isPositiveZero(x: F64): Bool {
+    x == 0.0 && 1.0 / x > 0.0
+}
+
+// A module constant is computed the same way a local is.
+let SINE_OF_ONE: F64 = math.sin(1.0);
+
+// --- sin, cos, tan -----------------------------------------------------------------
+
+test "sin keeps the sign of zero and has no value at infinity" {
+    assert.isTrue(isPositiveZero(math.sin(0.0)));
+    assert.isTrue(isNegativeZero(math.sin(-0.0)));
+    assert.isTrue(math.isNan(math.sin(inf())));
+    assert.isTrue(math.isNan(math.sin(-inf())));
+    assert.isTrue(math.isNan(math.sin(nan())));
+}
+
+test "sin at finite points" {
+    assert.equal(math.sin(1.0), 0.8414709848078965);
+    assert.equal(math.sin(-1.0), -0.8414709848078965);
+    assert.equal(math.sin(0.5), 0.479425538604203);
+    assert.equal(math.sin(math.PI / 2.0), 1.0);
+    assert.equal(math.sin(math.PI), 1.2246467991473532e-16);
+    assert.equal(math.sin(10.0), -0.5440211108893698);
+    // The argument is reduced by an exact multiple of pi, not a rounded one.
+    assert.equal(math.sin(1.0e22), -0.8522008497671888);
+    assert.equal(SINE_OF_ONE, 0.8414709848078965);
+}
+
+test "cos is one at both zeros and has no value at infinity" {
+    assert.equal(math.cos(0.0), 1.0);
+    assert.equal(math.cos(-0.0), 1.0);
+    assert.isTrue(math.isNan(math.cos(inf())));
+    assert.isTrue(math.isNan(math.cos(-inf())));
+    assert.isTrue(math.isNan(math.cos(nan())));
+}
+
+test "cos at finite points" {
+    assert.equal(math.cos(1.0), 0.5403023058681398);
+    assert.equal(math.cos(0.5), 0.8775825618903728);
+    assert.equal(math.cos(math.PI), -1.0);
+    assert.equal(math.cos(math.PI / 2.0), 6.123233995736766e-17);
+    assert.equal(math.cos(math.PI / 3.0), 0.5000000000000001);
+    assert.equal(math.cos(10.0), -0.8390715290764524);
+}
+
+test "tan keeps the sign of zero and has no value at infinity" {
+    assert.isTrue(isPositiveZero(math.tan(0.0)));
+    assert.isTrue(isNegativeZero(math.tan(-0.0)));
+    assert.isTrue(math.isNan(math.tan(inf())));
+    assert.isTrue(math.isNan(math.tan(-inf())));
+    assert.isTrue(math.isNan(math.tan(nan())));
+}
+
+test "tan at finite points" {
+    assert.equal(math.tan(0.5), 0.5463024898437905);
+    assert.equal(math.tan(math.PI / 4.0), 0.9999999999999999);
+    // `PI / 2` is a little below a right angle, so this is large, not infinite.
+    assert.equal(math.tan(math.PI / 2.0), 16331239353195370.0);
+    assert.equal(math.tan(math.PI), -1.2246467991473532e-16);
+}
+
+// --- asin, acos, atan, atan2 -------------------------------------------------------
+
+test "asin is defined from -1 to 1" {
+    assert.isTrue(isPositiveZero(math.asin(0.0)));
+    assert.isTrue(isNegativeZero(math.asin(-0.0)));
+    assert.equal(math.asin(1.0), math.PI / 2.0);
+    assert.equal(math.asin(-1.0), -math.PI / 2.0);
+    assert.equal(math.asin(0.25), 0.25268025514207865);
+    assert.isTrue(math.isNan(math.asin(1.5)));
+    assert.isTrue(math.isNan(math.asin(-1.5)));
+    assert.isTrue(math.isNan(math.asin(inf())));
+    assert.isTrue(math.isNan(math.asin(nan())));
+}
+
+test "acos is defined from -1 to 1" {
+    assert.isTrue(isPositiveZero(math.acos(1.0)));
+    assert.equal(math.acos(-1.0), math.PI);
+    assert.equal(math.acos(0.0), math.PI / 2.0);
+    assert.equal(math.acos(-0.5), 2.0943951023931957);
+    assert.equal(math.acos(0.25), 1.318116071652818);
+    assert.isTrue(math.isNan(math.acos(1.5)));
+    assert.isTrue(math.isNan(math.acos(-1.5)));
+    assert.isTrue(math.isNan(math.acos(-inf())));
+    assert.isTrue(math.isNan(math.acos(nan())));
+}
+
+test "atan is defined everywhere and approaches a right angle" {
+    assert.isTrue(isPositiveZero(math.atan(0.0)));
+    assert.isTrue(isNegativeZero(math.atan(-0.0)));
+    assert.equal(math.atan(1.0), 0.7853981633974483);
+    assert.equal(math.atan(-1.0), -0.7853981633974483);
+    assert.equal(math.atan(1.0e300), math.PI / 2.0);
+    assert.equal(math.atan(inf()), math.PI / 2.0);
+    assert.equal(math.atan(-inf()), -math.PI / 2.0);
+    assert.isTrue(math.isNan(math.atan(nan())));
+}
+
+test "atan2 picks the quadrant from both signs" {
+    assert.equal(math.atan2(1.0, 1.0), 0.7853981633974483);
+    assert.equal(math.atan2(1.0, -1.0), 2.356194490192345);
+    assert.equal(math.atan2(-1.0, -1.0), -2.356194490192345);
+    assert.equal(math.atan2(1.0, 2.0), 0.4636476090008061);
+    assert.equal(math.atan2(1.0, 0.0), math.PI / 2.0);
+    assert.equal(math.atan2(-1.0, 0.0), -math.PI / 2.0);
+}
+
+test "atan2 on the axes reads the sign of each zero" {
+    assert.isTrue(isPositiveZero(math.atan2(0.0, 1.0)));
+    assert.isTrue(isNegativeZero(math.atan2(-0.0, 1.0)));
+    assert.isTrue(isPositiveZero(math.atan2(0.0, 0.0)));
+    assert.isTrue(isNegativeZero(math.atan2(-0.0, 0.0)));
+    assert.equal(math.atan2(0.0, -0.0), math.PI);
+    assert.equal(math.atan2(-0.0, -0.0), -math.PI);
+    assert.equal(math.atan2(0.0, -1.0), math.PI);
+    assert.equal(math.atan2(-0.0, -1.0), -math.PI);
+}
+
+test "atan2 at the infinities" {
+    assert.equal(math.atan2(inf(), inf()), 0.7853981633974483);
+    assert.equal(math.atan2(inf(), -inf()), 2.356194490192345);
+    assert.equal(math.atan2(-inf(), -inf()), -2.356194490192345);
+    assert.equal(math.atan2(inf(), 1.0), math.PI / 2.0);
+    assert.equal(math.atan2(1.0, -inf()), math.PI);
+    assert.isTrue(isNegativeZero(math.atan2(-1.0, inf())));
+    assert.isTrue(math.isNan(math.atan2(nan(), 1.0)));
+    assert.isTrue(math.isNan(math.atan2(1.0, nan())));
+}
+
+// --- exp, ln, log2, log10 ------------------------------------------------------------
+
+test "exp at its fixed points" {
+    assert.equal(math.exp(0.0), 1.0);
+    assert.equal(math.exp(-0.0), 1.0);
+    assert.equal(math.exp(inf()), inf());
+    assert.isTrue(isPositiveZero(math.exp(-inf())));
+    assert.isTrue(math.isNan(math.exp(nan())));
+}
+
+test "exp at finite points, overflow and underflow" {
+    assert.equal(math.exp(1.0), math.E);
+    assert.equal(math.exp(-1.0), 0.36787944117144233);
+    assert.equal(math.exp(0.5), 1.6487212707001282);
+    assert.equal(math.exp(10.0), 22026.465794806718);
+    assert.equal(math.exp(709.0), 8.218407461554972e307);
+    assert.equal(math.exp(710.0), inf());
+    assert.equal(math.exp(-745.0), 5.0e-324);
+    assert.isTrue(isPositiveZero(math.exp(-746.0)));
+}
+
+test "ln is defined above zero" {
+    assert.isTrue(isPositiveZero(math.ln(1.0)));
+    assert.equal(math.ln(0.0), -inf());
+    assert.equal(math.ln(-0.0), -inf());
+    assert.equal(math.ln(inf()), inf());
+    assert.isTrue(math.isNan(math.ln(-1.0)));
+    assert.isTrue(math.isNan(math.ln(-inf())));
+    assert.isTrue(math.isNan(math.ln(nan())));
+}
+
+test "ln at finite points" {
+    assert.equal(math.ln(2.0), 0.6931471805599453);
+    assert.equal(math.ln(0.5), -0.6931471805599453);
+    assert.equal(math.ln(10.0), 2.302585092994046);
+    assert.equal(math.ln(math.E), 1.0);
+    // The smallest subnormal.
+    assert.equal(math.ln(5.0e-324), -744.4400719213812);
+}
+
+test "log2 is exact at every power of two" {
+    assert.isTrue(isPositiveZero(math.log2(1.0)));
+    assert.equal(math.log2(8.0), 3.0);
+    assert.equal(math.log2(0.125), -3.0);
+    assert.equal(math.log2(5.0e-324), -1074.0);
+    assert.equal(math.log2(1.7976931348623157e308), 1024.0);
+    assert.equal(math.log2(3.0), 1.584962500721156);
+    assert.equal(math.log2(0.0), -inf());
+    assert.equal(math.log2(inf()), inf());
+    assert.isTrue(math.isNan(math.log2(-1.0)));
+    assert.isTrue(math.isNan(math.log2(nan())));
+}
+
+test "log10 is exact at the powers of ten a double holds exactly" {
+    assert.isTrue(isPositiveZero(math.log10(1.0)));
+    assert.equal(math.log10(1000.0), 3.0);
+    assert.equal(math.log10(1.0e22), 22.0);
+    assert.equal(math.log10(0.001), -3.0);
+    assert.equal(math.log10(1.0e-300), -300.0);
+    assert.equal(math.log10(2.0), 0.3010299956639812);
+    assert.equal(math.log10(0.0), -inf());
+    assert.equal(math.log10(inf()), inf());
+    assert.isTrue(math.isNan(math.log10(-1.0)));
+    assert.isTrue(math.isNan(math.log10(nan())));
+}
+
+// --- cubeRoot ------------------------------------------------------------------------
+
+test "cubeRoot is defined everywhere and odd" {
+    assert.isTrue(isPositiveZero(math.cubeRoot(0.0)));
+    assert.isTrue(isNegativeZero(math.cubeRoot(-0.0)));
+    assert.equal(math.cubeRoot(inf()), inf());
+    assert.equal(math.cubeRoot(-inf()), -inf());
+    assert.isTrue(math.isNan(math.cubeRoot(nan())));
+    assert.equal(math.cubeRoot(1000.0), 10.0);
+    assert.equal(math.cubeRoot(-27.0), -3.0);
+    assert.equal(math.cubeRoot(0.001), 0.1);
+    assert.equal(math.cubeRoot(1.0e300), 1.0e100);
+    assert.equal(math.cubeRoot(2.0), 1.2599210498948732);
+    assert.equal(math.cubeRoot(-2.0), -1.2599210498948732);
+}
+
+// --- power -----------------------------------------------------------------------------
+
+test "power with a zero exponent is one, even at NaN" {
+    assert.equal(math.power(nan(), 0.0), 1.0);
+    assert.equal(math.power(nan(), -0.0), 1.0);
+    assert.equal(math.power(inf(), 0.0), 1.0);
+    assert.equal(math.power(0.0, 0.0), 1.0);
+}
+
+test "power is NaN where ECMA-262 says, including the cases C answers one" {
+    assert.isTrue(math.isNan(math.power(1.0, nan())));
+    assert.isTrue(math.isNan(math.power(1.0, inf())));
+    assert.isTrue(math.isNan(math.power(-1.0, -inf())));
+    assert.isTrue(math.isNan(math.power(nan(), 1.0)));
+    assert.isTrue(math.isNan(math.power(-8.0, 1.0 / 3.0)));
+}
+
+test "power at a zero base keeps the sign an odd exponent gives it" {
+    assert.equal(math.power(0.0, -1.0), inf());
+    assert.equal(math.power(-0.0, -1.0), -inf());
+    assert.equal(math.power(-0.0, -2.0), inf());
+    assert.isTrue(isNegativeZero(math.power(-0.0, 3.0)));
+    assert.isTrue(isPositiveZero(math.power(-0.0, 2.0)));
+    assert.isTrue(isPositiveZero(math.power(-0.0, 0.5)));
+    assert.equal(math.power(-0.0, -0.5), inf());
+}
+
+test "power at an infinite base or exponent" {
+    assert.equal(math.power(-inf(), 3.0), -inf());
+    assert.isTrue(isNegativeZero(math.power(-inf(), -3.0)));
+    assert.equal(math.power(-inf(), 2.0), inf());
+    assert.equal(math.power(-inf(), 0.5), inf());
+    assert.isTrue(isPositiveZero(math.power(-inf(), -0.5)));
+    assert.equal(math.power(2.0, inf()), inf());
+    assert.equal(math.power(-2.0, inf()), inf());
+    assert.isTrue(isPositiveZero(math.power(0.5, inf())));
+    assert.isTrue(isPositiveZero(math.power(2.0, -inf())));
+    assert.equal(math.power(0.5, -inf()), inf());
+}
+
+test "power at finite points" {
+    assert.equal(math.power(2.0, 10.0), 1024.0);
+    assert.equal(math.power(2.0, -1.0), 0.5);
+    assert.equal(math.power(-2.0, 3.0), -8.0);
+    assert.equal(math.power(10.0, -2.0), 0.01);
+    assert.equal(math.power(2.0, 1.5), 2.8284271247461903);
+    assert.equal(math.power(0.5, -3.5), 11.313708498984761);
+    assert.equal(math.power(1.5, 2.5), 2.7556759606310752);
+    assert.equal(math.power(2.0, 1024.0), inf());
+    assert.equal(math.power(2.0, -1074.0), 5.0e-324);
+    assert.isTrue(isPositiveZero(math.power(2.0, -1075.0)));
+}
+
+test "power with a whole exponent up to 1000 multiplies by repeated squaring" {
+    // A correctly rounded power answers `1.0e308` here.
+    assert.equal(math.power(10.0, 308.0), 1.0000000000000006e308);
+    assert.equal(math.power(10.0, 22.0), 1.0e22);
+    assert.equal(math.power(1.1, 3.0), 1.3310000000000004);
+}
+
+test "power with a half is a square root" {
+    assert.equal(math.power(9.0, 0.5), 3.0);
+    assert.equal(math.power(2.0, 0.5), 1.4142135623730951);
+    assert.isTrue(math.isNan(math.power(-4.0, 0.5)));
+    // One over the square root, where a correctly rounded power answers
+    // `0.7071067811865476`.
+    assert.equal(math.power(2.0, -0.5), 0.7071067811865475);
+    assert.equal(math.power(4.0, -0.5), 0.5);
+}

@@ -58,21 +58,20 @@
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
 //! `Scan::short_circuit`, which is linear now. `bignum/hashing.buri` and
 //! `uuid/hashing.buri` came in when `middle::lower` built `deriveArrayHash`'s
-//! loop. What is actually *refused* is two things:
+//! loop. `numbers/floats.buri` and `random/gaussian.buri` came in with
+//! `core/math`'s transcendentals (#331).
 //!
-//!  1. **`core/math`'s thirteen transcendentals**, which are refused rather
-//!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
-//!  2. **The document, and its serialization — now in the set.** The *graph*
-//!     came in when `cli/runtime/ui.rs` ported it, the *reconciler* when the
-//!     renderer landed, the *CSS/theme artifacts* when #53 phase 5 surfaced
-//!     them, and phase 6 moved `markup()` to the headerless scene document both
-//!     backends write — so `ui/reactivity`, `ui/reactive`, `ui/render`,
-//!     `ui/styling`, `ui/tree` and `ui/theme` all run here, compared to the
-//!     JavaScript backend by `native::differential`. The one thing that could
-//!     not cross — `ui/node`'s real page `mount`, a live document a browser owns
-//!     — is the one block split into `ui_mount/mount.buri`, which stays out.
+//! The document and its serialization are in the set too. The *graph* came in
+//! when `cli/runtime/ui.rs` ported it, the *reconciler* when the renderer
+//! landed, the *CSS/theme artifacts* when #53 phase 5 surfaced them, and phase
+//! 6 moved `markup()` to the headerless scene document both backends write — so
+//! `ui/reactivity`, `ui/reactive`, `ui/render`, `ui/styling`, `ui/tree` and
+//! `ui/theme` all run here, compared to the JavaScript backend by
+//! `native::differential`. The one thing that could not cross — `ui/node`'s
+//! real page `mount`, a live document a browser owns — is the one block split
+//! into `ui_mount/mount.buri`, which stays out.
 //!
-//! `semantics/generics.buri` was a fourth until a type parameter a program
+//! `semantics/generics.buri` was refused until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
 //! makes it `()`, which every backend already lays out.
 //!
@@ -709,12 +708,9 @@ const PACKAGES: &[Case] = &[
     // sequence both backends have to agree about, with every property written
     // into the file.
     included("random/draws.buri"),
-    excluded(
-        "random/gaussian.buri",
-        "`nextGaussian` is the polar method, which reaches `math.ln` — one of \
-             `core/math`'s thirteen transcendentals, held out here for \
-             `numbers/floats.buri`'s reason exactly",
-    ),
+    // `nextGaussian` is the polar method, which reaches `math.ln`; it came in
+    // with `core/math`'s transcendentals (#331).
+    included("random/gaussian.buri"),
     // `core/bigint` and `core/decimal`: pure Buri over `Int` and `[Int]`, with
     // no host anywhere in either. Every answer in both files is a number
     // somebody else published — known factorials, powers, modular
@@ -794,12 +790,9 @@ const PACKAGES: &[Case] = &[
     included("environment/env.buri"),
     included("process/process.buri"),
     included("streams/io.buri"),
-    excluded(
-        "numbers/floats.buri",
-        "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \
-             not fix — `cli/runtime/math.rs` says why implementing them with the \
-             platform libm would be a divergence rather than a gap",
-    ),
+    // `core/math`'s transcendentals call the platform libm (#331); the points
+    // this file asserts are the same in every libm the targets link.
+    included("numbers/floats.buri"),
     // `core/math`'s `INFINITY`, `NEG_INFINITY` and `NAN`, split out of the file
     // above precisely so that both backends read them. A named constant being
     // the same value on JavaScript and here is the whole argument for defining
@@ -808,6 +801,11 @@ const PACKAGES: &[Case] = &[
     // transcendental: it is division by zero, `signum`, the three classifiers,
     // `squareRoot`, `floor`, `ceiling`, `absoluteFloat` and rendering, each of them exact.
     included("numbers/special_floats.buri"),
+    // `core/math`'s transcendentals, each one a call into the
+    // platform's libm through `cli/runtime/math.rs`. Every value the file
+    // asserts is one macOS, musl and glibc all round alike, or one IEEE 754
+    // and ECMA-262 fix.
+    included("numbers/transcendentals.buri"),
     // `compare`'s total order at a float (#272), which each backend spells on
     // its own: the method, a derived `Ordered` over a float field, and an
     // operator behind an `Ordered` bound. All of it is exact.
