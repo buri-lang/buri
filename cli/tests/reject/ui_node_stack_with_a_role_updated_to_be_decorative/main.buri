@@ -1,0 +1,26 @@
+// EXPECT: decorative-with-role
+//
+// Making a stack decorative by updating one whose role the compiler can't
+// read is refused, because the pair can't be shown to hold together. The
+// update gives no label, so nothing is said about one.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  let listed = true;
+  ui.mount(
+    ctx,
+    ui.stack({
+      ..match (listed) {
+        true => { styles: [], children: [], role: .Some(.List), label: .Some(.Const("Steps")) },
+        false => { styles: [], children: [] },
+      },
+      isDecorative: .Some(true),
+    }),
+    [],
+  )
+}
