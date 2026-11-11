@@ -248,7 +248,8 @@ const STORES: u64 = 100_000;
 
 /// A record of `Str`s, of one field or eight by the width, stored 100,000
 /// times by `mode`: `map` and `ordered` replace the value of a key that each
-/// stdlib map holds, `push` grows a list, and `list` replaces an element.
+/// stdlib map holds, `push` adds one to a list of 64 and removes it again, and
+/// `list` replaces an element.
 /// `main` takes the mode and the width, 1 or 8.
 fn stores() -> String {
     let make = |ty: &str| {
@@ -273,7 +274,7 @@ fn ordered{ty}<C: Allocator>(ctx: C, m: OrderedMap<Int, {ty}>, s: Str, i: Int): 
 }}
 
 fn pushed{ty}<C: Allocator>(ctx: C, xs: [{ty}], s: Str, i: Int): [{ty}] {{
-  if (i == 0) {{ xs }} else {{ pushed{ty}(ctx, xs.push(ctx, {ty} {{ {made} }}), s, i - 1) }}
+  if (i == 0) {{ xs }} else {{ pushed{ty}(ctx, xs.push(ctx, {ty} {{ {made} }}).removeAt(ctx, 64), s, i - 1) }}
 }}
 
 fn replaced{ty}<C: Allocator>(ctx: C, xs: [{ty}], s: Str, i: Int): [{ty}] {{
@@ -338,19 +339,9 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("glue-stores", &stores());
-        for (mode, limit) in STORED_LIMITS {
-            let want = if mode == "push" { STORES + 64 } else { 64 };
-            let cost = |width: &str| {
-                per_op(
-                    backend,
-                    &binary,
-                    mode,
-                    &[width],
-                    STORES,
-                    &format!("{want}\n"),
-                )
-                .0
-            };
+        let limits = STORED_LIMITS.iter().filter(|(b, _, _)| *b == backend);
+        for &(_, mode, limit) in limits {
+            let cost = |width: &str| per_op(backend, &binary, mode, &[width], STORES, "64\n").0;
             let (Some(one), Some(eight)) = (cost("1"), cost("8")) else {
                 continue;
             };
@@ -367,9 +358,20 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Each mode's cost a field, about ten instructions above what the stencil
-/// backend measured when the record moved in (map 344, ordered 46, push 103,
-/// list 33). Retained by the store and released by the caller, each cost
-/// about 20 more.
-const STORED_LIMITS: [(&str, u64); 4] =
-    [("map", 354), ("ordered", 56), ("push", 113), ("list", 43)];
+/// Each backend's and mode's cost a field, about halfway between what it
+/// measured with the record moved in and with it retained by the store and
+/// released by the caller:
+///
+/// - stencil: map 344 and 364, ordered 46 and 66, push 38 and 58, list 33
+///   and 53
+/// - llvm: map 321 and 365, ordered 60 and 76, push 28 and 44, list 23 and 40
+const STORED_LIMITS: [(&str, &str, u64); 8] = [
+    ("stencil", "map", 354),
+    ("stencil", "ordered", 56),
+    ("stencil", "push", 48),
+    ("stencil", "list", 43),
+    ("llvm", "map", 343),
+    ("llvm", "ordered", 68),
+    ("llvm", "push", 36),
+    ("llvm", "list", 31),
+];

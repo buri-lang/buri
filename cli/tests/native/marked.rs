@@ -446,9 +446,10 @@ struct Measured {
 }
 
 /// Runs `binary` with `args`, without the heap check: this measures the
-/// program the product ships. The instructions are the fewer of two runs,
+/// program the product ships. The instructions are the fewest of three runs,
 /// because a short process's count only ever gains noise
-/// (`design/PERFORMANCE.md` §8).
+/// (`design/PERFORMANCE.md` §8). On a loaded machine the fewer of two still
+/// read 3.1% over its twin.
 fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     let once = || {
         let child = std::process::Command::new(binary)
@@ -468,11 +469,16 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     };
     let (ran, first) = once();
     let (_, second) = once();
+    let (_, third) = once();
     let blocks = probed(&ran.stderr).0;
     // A kernel without hardware counters (a virtual machine, such as CI's macOS
     // runners) reports every process as having retired nothing; that is no
     // count, the same as Linux's absent one.
-    let counted = first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0);
+    let counted = first
+        .zip(second)
+        .zip(third)
+        .map(|((a, b), c)| a.min(b).min(c))
+        .filter(|&n| n > 0);
     Measured {
         ran,
         blocks,

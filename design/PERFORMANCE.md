@@ -9364,12 +9364,12 @@ it in. A caller that reads the item again takes its own count first. An index
 outside the list stores nothing, so `replaceAt` releases the item.
 
 `cli/tests/native/glue_counts.rs` counts the cost a field of storing a record
-of eight `Str`s against a record of one. On the stencil backend:
+of eight `Str`s against a record of one, in instructions, stencil then LLVM:
 
-- replacing a value in a `core/map`: 364 to 344 instructions
-- replacing a value in a `core/orderedmap`: 66 to 46
-- `push`: 124 to 103
-- `replaceAt` on a list: 53 to 33
+- replacing a value in a `core/map`: 364 to 344, and 365 to 321
+- replacing a value in a `core/orderedmap`: 66 to 46, and 76 to 60
+- `push` onto a list with room: 58 to 38, and 44 to 28
+- `replaceAt` on a list: 53 to 33, and 40 to 23
 
 `cli/tests/native/ownership.rs` reads every stored record back under the heap
 check, with and without the caller and the old list or map still holding it.
