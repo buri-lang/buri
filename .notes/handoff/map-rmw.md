@@ -1,6 +1,7 @@
 # Map read-change-write without `update`/`take`
 
-Phase 2, 2026-11-10: a field changed in every arm of a match still moves.
+Phase 2, 2026-11-10, `0de36f448`: a field changed in every arm of a match
+still moves.
 See PERFORMANCE.md §6.116. `rc::lent_reads` follows each path through an `if`
 or `match`, and both maps' `remove` take `self` apart once.
 
@@ -29,6 +30,10 @@ site.
 - Inlined stdlib methods that read `self` more than once count as more than
   one taking read of a field, so the field won't move. Take `self` apart once
   with `let`, as `insert` and `remove` do.
+- Compiler coverage counts only `buri` processes. `cli/tests/native/*` tests
+  compile in-process and add nothing, so reach each new branch from a
+  repository case such as `cli/tests/repositories/middle/record_updates`,
+  which runs `buri test` on both backends.
 - Vacate passes a unit context to the early insert, and is off under
   `--coverage`, which keeps insert's context.
 - Callgrind with `--separate-callers` over 20 runs out of memory on the soak.
