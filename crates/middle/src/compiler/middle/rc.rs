@@ -4211,10 +4211,9 @@ impl Scan<'_> {
         } else if let Some(sid) = built {
             self.push(bid, Position::Before, RcOp::DecRef, Target::Node(sid));
         } else if retains {
+            // `live` holds only counted names, so each one here is counted.
             for b in used {
-                if self.is_counted(b) {
-                    self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
-                }
+                self.push(bid, Position::Before, RcOp::IncRef, Target::Local(b));
             }
         }
         for b in &bound {
