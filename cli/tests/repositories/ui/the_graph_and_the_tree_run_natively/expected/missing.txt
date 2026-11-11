@@ -1,3 +1,9 @@
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
-error: //lib/graph cannot run natively: the stencil backend has no implementation of ui_node.mount
-  = fix: declare `test { backends: [JS] }` for this suite if it belongs on JavaScript, or report the gap: a program the front end accepted is one the backend should compile
+error: a native build has no document for `ui_node.mount` [document-unavailable]
+  = the document half of `ui` is JavaScript's, which is `ui/web` and `ui/node`'s `mount`
+  = fix: build this for the `web` platform or give the suite `backends: [JS]`, and render a tree in a native test with `platform/effect/testing`'s `render`
+
+    A native artifact has nothing to render into. A test that checks what a tree
+    shows can stay native: platform/effect/testing's render answers the tree
+    headless, and a test presses, follows and reads it from there.
+

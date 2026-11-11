@@ -73,9 +73,14 @@ impl Backend for Js {
     /// The distinction is what makes the answer useful: a program can be told
     /// what is missing *before* a backend spends time on it, rather than only
     /// after it has tried.
+    ///
+    /// A key a platform's `js` file implements counts when this build hands
+    /// its entry to no such file, which a call through `$buri$host` would
+    /// otherwise find undefined at run time.
     fn missing_intrinsics(&self, program: &Program, tables: &Tables) -> Vec<String> {
         let mut missing =
             generate::check_intrinsics(&generate::unimplemented_intrinsics(program, tables));
+        missing.extend(crate::compiler::backend::unsupplied(program));
         missing.sort();
         missing.dedup();
         missing
@@ -114,8 +119,18 @@ impl Js {
         minify: bool,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let missing = self.missing_intrinsics(program, tables);
-        if !missing.is_empty() {
+        let (unsupplied, missing) = crate::compiler::backend::split_unsupplied(&missing, program);
+        if !unsupplied.is_empty() || !missing.is_empty() {
             let mut diags = Diagnostics::new();
+            if !unsupplied.is_empty() {
+                diags.push(crate::compiler::backend::no_supplier(
+                    &unsupplied,
+                    Span::NONE,
+                ));
+            }
+            if missing.is_empty() {
+                return Err(diags);
+            }
             diags.push(
                 Diagnostic::error(
                     Span::NONE,

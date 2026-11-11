@@ -1,0 +1,8 @@
+error: nothing in this build supplies `native.main`, which a platform declares for its own build [unsupplied-platform-operation]
+  = what a platform's `platform.buri` declares without a body, its `js` file implements, and only an app built for that platform hands its entry to the file; a platform's `main` is what an app's `main` matches, so nothing answers a call to it
+  = fix: reach the effect through the host your app's `main` is handed, and give a test `platform/effect/testing`'s substitute instead
+
+    A test that builds HostLocation {} itself has no browser behind it, on any
+    backend. Bind the effect to a substitute instead, such as Location:
+    address(ctx, "/") from platform/effect/testing.
+

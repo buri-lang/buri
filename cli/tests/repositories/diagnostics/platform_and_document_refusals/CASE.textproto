@@ -1,0 +1,49 @@
+# **An operation no build of this program can answer is refused by what it
+# is.** Each one used to reach the user as a toolchain bug naming a key, or as
+# a crash at run time:
+#
+#   * a test that builds the web platform's own `HostLocation` and
+#     `HostStorage`, on a native build and on JavaScript, where it found
+#     `$buri$host` undefined;
+#   * a binary that calls its platform's `main`, on all three platforms;
+#   * a native suite that reaches the document half of `ui`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "operations a platform supplies, and operations that need a document, are refused with what the program should do instead"
+
+run {
+  args: ["test", "//lib/host"]
+  exit: 1
+  golden: "host_native.txt"
+}
+
+run {
+  args: ["test", "//lib/host_js"]
+  exit: 1
+  golden: "host_js.txt"
+}
+
+run {
+  args: ["build", "//cmd/native_main"]
+  exit: 1
+  golden: "native_main.txt"
+}
+
+run {
+  args: ["build", "//cmd/node_main"]
+  exit: 1
+  golden: "node_main.txt"
+}
+
+run {
+  args: ["build", "//cmd/web_main"]
+  exit: 1
+  golden: "web_main.txt"
+}
+
+run {
+  args: ["test", "//lib/page"]
+  exit: 1
+  golden: "page.txt"
+}

@@ -2554,6 +2554,11 @@ enum Gap {
     Networking(Vec<String>),
     /// Operations only a runtime built with cryptography answers.
     Cryptography(Vec<String>),
+    /// Operations a platform declares for its own build to supply, which no
+    /// test build supplies on any backend.
+    Unsupplied(Vec<String>),
+    /// Operations that need a document, which only JavaScript has.
+    Document(Vec<String>),
     /// The keys this backend has no body for, all of them: a truncated list is
     /// a run that cannot show what it is missing (buri-lang/buri#199).
     NoBody {
@@ -2600,6 +2605,14 @@ fn native_gap(
     let (cryptography, rest) = crate::compiler::backend::split_cryptography(&rest);
     if !cryptography.is_empty() {
         return Some(Gap::Cryptography(cryptography));
+    }
+    let (unsupplied, rest) = crate::compiler::backend::split_unsupplied(&rest, program);
+    if !unsupplied.is_empty() {
+        return Some(Gap::Unsupplied(unsupplied));
+    }
+    let (document, rest) = crate::compiler::backend::split_document(&rest);
+    if !document.is_empty() {
+        return Some(Gap::Document(document));
     }
     if rest.is_empty() {
         return None;
@@ -2651,6 +2664,22 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
         // [`GAP_FIX`]'s suggestions is what to do about that.
         Gap::Cryptography(operations) => {
             diagnostics.push(crate::compiler::backend::no_cryptography(
+                &operations,
+                Span::NONE,
+            ));
+        }
+        // The program is what has to change here, so neither of [`GAP_FIX`]'s
+        // suggestions applies: JavaScript has no supplier for these either.
+        Gap::Unsupplied(operations) => {
+            diagnostics.push(crate::compiler::backend::no_supplier(
+                &operations,
+                Span::NONE,
+            ));
+        }
+        // The page's own fix names `backends: [JS]` and the headless renderer,
+        // which is [`GAP_FIX`]'s first half and not its second.
+        Gap::Document(operations) => {
+            diagnostics.push(crate::compiler::backend::no_document(
                 &operations,
                 Span::NONE,
             ));

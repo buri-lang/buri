@@ -464,3 +464,72 @@ pub fn no_cryptography(operations: &[String], span: Span) -> Diagnostic {
     Diagnostic::templated("cryptography-unavailable", span)
         .with_bind("operations", crate::diagnostics::names(operations))
 }
+
+/// The keys `program` reaches that a platform's `platform.buri` declares
+/// without a body and that no file in this build answers.
+///
+/// Such a declaration is its platform's `js` file's to implement, and only a
+/// build that hands its entry to that file can call one: a native build never
+/// does, and neither does a JavaScript test. A platform's `main` is answered by
+/// no file at all, because it is the declaration an app's `main` matches, so a
+/// call to one is in this list on every build.
+///
+/// The JavaScript backend asks this of its own program. A native backend has
+/// no body for any of these keys already, and [`split_unsupplied`] names them.
+pub fn unsupplied(program: &Program) -> Vec<String> {
+    let handed = program.hosted.export.is_some();
+    program
+        .hosted
+        .js_implemented
+        .iter()
+        .filter(|key| !handed || !is_method_key(key))
+        .cloned()
+        .collect()
+}
+
+/// Whether a key is `<module>.<struct>.<method>`, the shape a `js` file's
+/// export answers, rather than a free function's `<module>.<name>`.
+fn is_method_key(key: &str) -> bool {
+    key.rsplit_once('.')
+        .is_some_and(|(owner, _)| owner.contains('.'))
+}
+
+/// `missing` split into the keys a platform declares for its own build to
+/// supply, which [`no_supplier`] names, and the rest.
+pub fn split_unsupplied(missing: &[String], program: &Program) -> (Vec<String>, Vec<String>) {
+    missing
+        .iter()
+        .cloned()
+        .partition(|key| program.hosted.js_implemented.contains(key))
+}
+
+/// The refusal for operations a platform declares and nothing in this build
+/// supplies.
+///
+/// Templated, for [`no_networking`]'s reason: "report it" would be the wrong
+/// instruction, because it is the program that has to change.
+pub fn no_supplier(operations: &[String], span: Span) -> Diagnostic {
+    Diagnostic::templated("unsupplied-platform-operation", span)
+        .with_bind("operations", crate::diagnostics::names(operations))
+}
+
+/// `missing` split into the operations that need a document, which
+/// [`no_document`] names, and the rest.
+///
+/// The document half of `ui` is JavaScript's: `ui/web`, and `ui/node`'s
+/// `mount`. A native artifact has nothing to render into, and a native test
+/// renders through `platform/effect/testing` instead. Matched on the family,
+/// and only among the keys a backend already has no body for, so a body added
+/// for one of them takes it out of this list with no edit here.
+pub fn split_document(missing: &[String]) -> (Vec<String>, Vec<String>) {
+    missing
+        .iter()
+        .cloned()
+        .partition(|key| key.starts_with("ui_web.") || key == "ui_node.mount")
+}
+
+/// The refusal for operations that need a document on a native build.
+pub fn no_document(operations: &[String], span: Span) -> Diagnostic {
+    Diagnostic::templated("document-unavailable", span)
+        .with_bind("operations", crate::diagnostics::names(operations))
+}

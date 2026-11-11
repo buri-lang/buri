@@ -1,0 +1,6 @@
+library {
+    test {
+        sources: ["test/host.buri"]
+        backends: [JS]
+    }
+}

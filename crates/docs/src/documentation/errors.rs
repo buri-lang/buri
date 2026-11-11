@@ -258,6 +258,10 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A derived operator needs a wrapped number"
     ),
     e!("derive-target-not-type", "A `derive` names a declared type"),
+    e!(
+        "document-unavailable",
+        "A document needs a JavaScript build"
+    ),
     e!("double-colon", "A module's members are reached with `.`"),
     e!(
         "duplicate-artifact-path",
@@ -1158,6 +1162,11 @@ pub const ERRORS: &[ErrorDoc] = &[
         "Every alternative of an or-pattern must be reachable"
     ),
     e!("unreachable-arm", "Every arm must be reachable"),
+    e!(
+        "unsupplied-platform-operation",
+        "A platform's own operations belong to its build",
+        &["build/platforms"]
+    ),
     e!(
         "unterminated-character",
         "A character literal closes its quote"

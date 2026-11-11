@@ -1,0 +1,6 @@
+from "native" import { NativeHost };
+from "native" import * as plat;
+
+export fn main(host: NativeHost): Result<(), Str> {
+    plat.main(host)
+}

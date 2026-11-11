@@ -1089,6 +1089,10 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // is what the golden is read for, and the case's other two goldens carry
     // four passing blocks and a failing one.
     "ui/the_graph_and_the_tree_run_natively",
+    // Each suite reaches an operation no build of it can answer, and "did not
+    // compile" is the claim: the refusal above the counts, naming what the
+    // program should do instead, is what the golden is read for.
+    "diagnostics/platform_and_document_refusals",
     // A JSON input its schema refuses stops the generator, so the suite that
     // imports what it generates does not compile. That is the claim: `buri
     // test` reports the check the way `buri build` does, and the schema

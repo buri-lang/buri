@@ -3240,12 +3240,24 @@ fn objects_named(
         Ok(ready) => ready,
         Err((name, mut keys)) => {
             keys.extend(gaps);
-            return Err(refuse_missing(name, keys, net, crypto, diagnostics));
+            return Err(refuse_missing(
+                name,
+                keys,
+                program,
+                (net, crypto),
+                diagnostics,
+            ));
         }
     };
     if !gaps.is_empty() {
         let name = backend.backend().name();
-        return Err(refuse_missing(name, gaps, net, crypto, diagnostics));
+        return Err(refuse_missing(
+            name,
+            gaps,
+            program,
+            (net, crypto),
+            diagnostics,
+        ));
     }
 
     // Rendering and hashing every unit is codegen's work whether or not a unit
@@ -3347,23 +3359,33 @@ fn objects_named(
 /// different sentence, and asks for a different thing, from an operation the
 /// backend has no body for. The split reads the target's own answer, not the
 /// baked one, so a cross `net` program is named here rather than at the system
-/// linker.
+/// linker. An operation a platform declares for its own build to supply, and
+/// one that needs a document, are two more: the program has to change, not the
+/// toolchain.
 fn refuse_missing(
     backend_name: &str,
     mut missing: Vec<String>,
-    net: bool,
-    crypto: bool,
+    program: &monomorphize::Program,
+    (net, crypto): (bool, bool),
     diagnostics: &mut Diagnostics,
 ) -> Diagnostics {
     missing.sort();
     missing.dedup();
     let (networking, rest) = backend::split_networking_when(&missing, net);
     let (cryptography, rest) = backend::split_cryptography_when(&rest, crypto);
+    let (unsupplied, rest) = backend::split_unsupplied(&rest, program);
+    let (document, rest) = backend::split_document(&rest);
     if !networking.is_empty() {
         diagnostics.push(backend::no_networking(&networking, Span::NONE));
     }
     if !cryptography.is_empty() {
         diagnostics.push(backend::no_cryptography(&cryptography, Span::NONE));
+    }
+    if !unsupplied.is_empty() {
+        diagnostics.push(backend::no_supplier(&unsupplied, Span::NONE));
+    }
+    if !document.is_empty() {
+        diagnostics.push(backend::no_document(&document, Span::NONE));
     }
     if !rest.is_empty() {
         diagnostics.push(backend::no_implementation(backend_name, &rest));
