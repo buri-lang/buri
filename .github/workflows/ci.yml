@@ -97,6 +97,20 @@ jobs:
       # cross tests (#194), which needs the Linux target's standard library.
       - if: runner.os == 'macOS'
         run: rustup target add x86_64-unknown-linux-musl
+      # The ELF tools `cli/tests/native/stencil.rs::cross_tools` probes, alone
+      # on `PATH`: the image's llvm@20 and brew's lld. Not the whole llvm `bin`,
+      # whose clang would shadow Apple's.
+      - if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew install lld
+          tools="$RUNNER_TEMP/elf-tools"
+          mkdir -p "$tools"
+          for t in llvm-nm llvm-objdump llvm-readelf; do
+            ln -s "$(brew --prefix llvm@20)/bin/$t" "$tools/$t"
+          done
+          ln -s "$(brew --prefix lld)/bin/ld.lld" "$tools/ld.lld"
+          echo "$tools" >> "$GITHUB_PATH"
       - if: runner.os == 'Linux'
         run: |
           set -euo pipefail

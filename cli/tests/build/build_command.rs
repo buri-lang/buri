@@ -1,7 +1,6 @@
 //! What `buri build` itself answers: `--check-reproducible` with nowhere to
 //! write its rounds, beside a broken build file, on a library alone and over a
 //! linker that writes something new each time, and two pages built in one run.
-#[cfg(target_os = "macos")]
 use crate::harness::hang::Capped;
 use crate::harness::*;
 
@@ -111,7 +110,6 @@ fn two_pages_build_in_one_run() {
 
 /// A C driver that links through the real one, answers no dry run, and then
 /// appends how many times it has run to what it wrote.
-#[cfg(target_os = "macos")]
 const COUNTING_DRIVER: &str = r#"#!/bin/sh
 for a in "$@"; do [ "$a" = "-###" ] && { echo 'clang: error: no dry run here' >&2; exit 0; }; done
 "$REAL_CC" "$@" || exit $?

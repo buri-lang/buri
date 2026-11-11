@@ -1973,16 +1973,18 @@ mod hang;
 /// three are in the list.
 #[test]
 fn every_tool_the_workflow_assumes_is_on_path() {
-    let mut needed = vec!["cc", "clang", "node", "bun"];
+    let mut needed = vec![
+        "cc",
+        "clang",
+        "node",
+        "bun",
+        "ld.lld",
+        "llvm-nm",
+        "llvm-objdump",
+        "llvm-readelf",
+    ];
     if cfg!(target_os = "linux") {
-        needed.extend([
-            "ld.lld",
-            "mold",
-            "llvm-nm",
-            "llvm-objdump",
-            "llvm-readelf",
-            "readelf",
-        ]);
+        needed.extend(["mold", "readelf"]);
     }
     let missing: Vec<&str> = needed
         .into_iter()
@@ -1997,17 +1999,17 @@ fn every_tool_the_workflow_assumes_is_on_path() {
     assert!(
         missing.is_empty(),
         "these tools are not on PATH: {}\n\nEvery job that runs this suite installs them (the \
-         `test` matrix's apt step, `oven-sh/setup-bun` and `actions/setup-node`).",
+         `test` matrix's apt and brew steps, `oven-sh/setup-bun` and `actions/setup-node`).",
         missing.join(", ")
     );
 }
 
-/// **The suite runs the node major CI installs.** node 22 and 24 round some
-/// floats differently, so a local run on another major can pass what CI fails.
-/// `.node-version` names the major; CI's `actions/setup-node` and the flake's
-/// dev shell both read it.
+/// **The suite runs the node CI installs.** node 22 and 24 round some floats
+/// differently, so a local run on another node can pass what CI fails.
+/// `.node-version` names it; CI's `actions/setup-node` and the flake's dev
+/// shell both read it.
 #[test]
-fn node_is_the_major_the_repository_names() {
+fn node_is_the_version_the_repository_names() {
     let named = std::fs::read_to_string(repo_root().join(".node-version")).unwrap();
     let out = std::process::Command::new("node")
         .arg("--version")
@@ -2015,7 +2017,7 @@ fn node_is_the_major_the_repository_names() {
         .expect("node is on PATH");
     let version = String::from_utf8_lossy(&out.stdout);
     assert!(
-        version.starts_with(&format!("v{}.", named.trim())),
+        version.trim() == format!("v{}", named.trim()),
         "node is {}, but `.node-version` names {}",
         version.trim(),
         named.trim()

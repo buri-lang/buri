@@ -85,9 +85,17 @@
             };
           }
           .${system};
-        # The node major CI's `actions/setup-node` installs, read from the same
-        # `.node-version`: node 22 and 24 round some floats differently.
-        node = pkgs."nodejs-slim_${lib.trim (builtins.readFile ./.node-version)}";
+        # The node CI's `actions/setup-node` installs, read from the same
+        # `.node-version`: node 22 and 24 round some floats differently. A
+        # nixpkgs update that moves node fails here until that file follows.
+        nodeVersion = lib.trim (builtins.readFile ./.node-version);
+        node =
+          let
+            pinned = pkgs."nodejs-slim_${lib.versions.major nodeVersion}";
+          in
+          assert lib.assertMsg (pinned.version == nodeVersion)
+            "nixpkgs has node ${pinned.version}, but .node-version names ${nodeVersion}";
+          pinned;
         bun = pkgs.bun.overrideAttrs {
           version = bunVersion;
           src = pkgs.fetchurl {

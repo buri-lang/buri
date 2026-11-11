@@ -1482,7 +1482,6 @@ fn a_buri_without_a_build_id_still_caches() {
 /// an archive it fails as cargo does offline. With `$STAND_IN_THEIRS`, a build
 /// first copies that cross runtime to `$STAND_IN_PUBLISH`, as another build
 /// finishing first would.
-#[cfg(target_os = "macos")]
 pub(crate) const STAND_IN_CARGO: &str = r#"#!/bin/sh
 echo "$1" >> "$STAND_IN_LOG"
 command=$1
