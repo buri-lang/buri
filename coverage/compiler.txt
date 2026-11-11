@@ -14,17 +14,17 @@ cli/serve+watch                      68/68  100.00%           379/398   95.23%
 cli/test                           476/488   97.54%         3656/3742   97.70%
 crates/backend                       44/44  100.00%           314/320   98.12%
 crates/diagnostics                 287/288   99.65%         2238/2326   96.22%
-crates/docs                        246/246  100.00%           819/893   91.71%
+crates/docs                        246/246  100.00%           813/913   89.05%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                        1089/1112   97.93%         5710/5956   95.87%
+crates/js                        1089/1112   97.93%         5711/5957   95.87%
 crates/llvm                        558/558  100.00%         7683/7885   97.44%
-crates/middle                    2323/2350   98.85%       17364/17909   96.96%
+crates/middle                    2337/2364   98.86%       17401/17946   96.96%
 crates/project                   1335/1338   99.78%         6358/6518   97.55%
-crates/semantics                 2210/2210  100.00%       14001/14293   97.96%
+crates/semantics                 2210/2210  100.00%       14005/14297   97.96%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
 crates/stencil                   1096/1104   99.28%         8209/8671   94.67%
-crates/syntax                    1272/1272  100.00%         6933/7087   97.83%
-total                          15779/15873   99.41%     103370/106490   97.07%
+crates/syntax                    1272/1272  100.00%         6935/7087   97.86%
+total                          15793/15887   99.41%     103408/106552   97.05%
 
 cli/src                           branches                      lines         
 build                            1705/1711   99.65%       11411/11734   97.25%
@@ -58,7 +58,7 @@ uncovered          branches           file
        19           523/542   96.49%  crates/js/src/compiler/backend/js/javascript.rs
        12           474/486   97.53%  cli/src/commands/test.rs
         8           166/174   95.40%  crates/middle/src/compiler/middle/monomorphize.rs
-        6           682/688   99.13%  crates/middle/src/compiler/middle/rc.rs
+        6           696/702   99.15%  crates/middle/src/compiler/middle/rc.rs
         5           163/168   97.02%  cli/src/build/link.rs
         5           203/208   97.60%  crates/middle/src/compiler/middle/derives.rs
         3           157/160   98.12%  cli/src/language_server/mod.rs
