@@ -2,7 +2,12 @@ library {
     sources: []
 
     test {
-        sources: ["test/arms.buri", "test/handed.buri", "test/updates.buri", "test/wide.buri"]
+        sources: [
+            "test/arms.buri",
+            "test/handed.buri",
+            "test/updates.buri",
+            "test/wide.buri",
+        ]
         backends: [NATIVE, JS]
     }
 }

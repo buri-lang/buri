@@ -9306,6 +9306,54 @@ a condition, a scrutinee or a call before the arm, which keeps the old rule.
 `cli/tests/repositories/middle/record_updates` runs each shape through
 `buri test` on both backends.
 
+### 6.117 A record handed on from an arm that binds its field isn't held, 2026-11-10
+
+kvstore's cluster sends a request to its leader like this:
+
+```buri
+match (cluster.leader) {
+    .Some(leader) => send(ctx, cluster, leader),
+    .None => cluster,
+}
+```
+
+`leader` is a word of `cluster`, so `rc` held `cluster` across the arm. `send`
+then got a second count of it, every map inside was shared, and each insert
+copied its path. Now an arm that hands the root on keeps its names alive with
+counts of their own, taken at its entry, and the root is the arm's to hand on.
+"Hands on" means:
+
+- to a parameter that owns it
+- as an update's base
+- to a `let`
+- across a jump
+
+An arm under a guard keeps the old rule, because its names are lent and the
+arm may not run.
+
+`cli/tests/native/ownership.rs` guards it. Ten thousand steps, through each of
+those shapes, allocated 40,000 blocks beyond building the map on `core/map`
+and 50,000 on `core/orderedmap`. They now stay under 100. A record still held
+keeps its map as it was. `cli/tests/repositories/middle/record_updates` runs
+each shape, plus one that only lends and one under a guard, through
+`buri test` on both backends.
+
+### 6.118 An ordered map's `remove` takes the path down in place, 2026-11-10
+
+`removeFrom` read each child with `n.children[at]`, which lends, so removing a
+key copied the whole path even when nothing else held the tree. `remove` now
+goes through `takeIn`, as `pop` does, without the `holds` question that cost
+§6.115 a second descent. The cost: removing a key a shared tree doesn't hold
+now copies the path too.
+
+Ten thousand removals of a key the map holds, each put back after, allocated
+70,000 blocks beyond the build. They now stay under 100, guarded in
+`cli/tests/native/ownership.rs`.
+
+With §6.117, `run-dev/kvstore` went from 1,276.9 M to 1,259.2 M instructions
+on an arm64 VM, and from 617,876 to 589,381 allocations. The blocks it copied
+to change a list somebody else held fell from 66,597 to 38,692.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
