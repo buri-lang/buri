@@ -2979,6 +2979,12 @@ fn a_toolchain_build_reuses_the_runtime_unless_its_inputs_changed() {
             .env("BURI_RUNTIME_CARGO", &stand_in)
             .env("BURI_RUNTIME_NET", "0")
             .env("BURI_RUNTIME_CRYPTO", "0")
+            // A compiler wrapper the caller runs under, such as `sccache`,
+            // is no part of what this asks. Its server is shared by every
+            // build on the machine, and a landing's release build waited on
+            // it for five minutes without a processor second.
+            .env_remove("RUSTC_WRAPPER")
+            .env_remove("CARGO_BUILD_RUSTC_WRAPPER")
             .envs(env.iter().copied())
             .capped_output()
             .expect("cargo could not be run");
