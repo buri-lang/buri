@@ -3065,3 +3065,111 @@ fn removing_a_held_key_from_an_unshared_map_writes_it_in_place() {
          under 100 means none copied the map: {copied:?}"
     );
 }
+
+/// A program that stores records of two `Str`s with `push`, `insertAt` and
+/// `replaceAt`, an index outside the list included, and through both stdlib
+/// maps' `insert` and `remove` over 40 keys. With `kept`, it reads each record
+/// it stored again afterwards, and it holds the list and maps from before
+/// and reads them too.
+fn moved_in(kept: bool) -> String {
+    format!(
+        r#"
+from "platform/effect" import {{ Allocator }};
+from "native" import {{ NativeHost }};
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/orderedmap" import * as orderedmap;
+
+struct Pair {{ a: Str, b: Str }}
+
+fn item<C: Allocator>(ctx: C, k: Int): Pair {{
+  Pair {{ a: "a".repeat(ctx, k), b: "b".repeat(ctx, k + 1) }}
+}}
+
+fn size(p: Pair): Int {{
+  p.a.length() + p.b.length()
+}}
+
+fn sizes(xs: [Pair]): Int {{
+  xs.sumOf(fn(p) => size(p))
+}}
+
+fn listed<C: Allocator>(ctx: C, keep: Bool): (Int, Int, Int) {{
+  let xs = [item(ctx, 1), item(ctx, 2)];
+  let p = item(ctx, 3);
+  let q = item(ctx, 4);
+  let r = item(ctx, 5);
+  let o = item(ctx, 6);
+  let held = if (keep) {{ xs }} else {{ [] }};
+  let ys = xs.push(ctx, p).insertAt(ctx, 0, q).replaceAt(ctx, 1, r).replaceAt(ctx, 99, o);
+  let again = if (keep) {{ size(p) + size(q) + size(r) + size(o) }} else {{ 0 }};
+  (sizes(ys), sizes(held), again)
+}}
+
+fn mapped<C: Allocator>(ctx: C, keep: Bool): (Int, Int, Int, Int) {{
+  let entries = list.range(ctx, 0, 40).mapCtx(ctx, fn(c, i) => (i, item(c, i % 5 + 1)));
+  let m = map.of(ctx, entries);
+  let p = item(ctx, 3);
+  let q = item(ctx, 4);
+  let held = if (keep) {{ m }} else {{ map.empty<Int, Pair>() }};
+  let n = m.insert(ctx, 40, p).insert(ctx, 7, q).remove(ctx, 11).remove(ctx, 23);
+  let again = if (keep) {{ size(p) + size(q) }} else {{ 0 }};
+  (n.length(), sizes(n.values(ctx)), sizes(held.values(ctx)), again)
+}}
+
+fn ordered<C: Allocator>(ctx: C, keep: Bool): (Int, Int, Int, Int) {{
+  let entries = list.range(ctx, 0, 40).mapCtx(ctx, fn(c, i) => (i, item(c, i % 5 + 1)));
+  let m = orderedmap.of(ctx, entries);
+  let p = item(ctx, 3);
+  let q = item(ctx, 4);
+  let held = if (keep) {{ m }} else {{ orderedmap.empty<Int, Pair>() }};
+  let n = m.insert(ctx, 40, p).insert(ctx, 7, q).remove(ctx, 11).remove(ctx, 23);
+  let again = if (keep) {{ size(p) + size(q) }} else {{ 0 }};
+  (n.length(), sizes(n.values(ctx)), sizes(held.values(ctx)), again)
+}}
+
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = host.alloc;
+  let (a, b, c) = listed(ctx, {kept});
+  let _ = io.println(host.stdout, "${{a}} ${{b}} ${{c}}").ignore();
+  let (d, e, f, g) = mapped(ctx, {kept});
+  let _ = io.println(host.stdout, "${{d}} ${{e}} ${{f}} ${{g}}").ignore();
+  let (h, i, j, k) = ordered(ctx, {kept});
+  let _ = io.println(host.stdout, "${{h}} ${{i}} ${{j}} ${{k}}").ignore();
+  .Ok(())
+}}
+"#
+    )
+}
+
+/// **A record stored in a list or a map reads back whole, whoever else holds
+/// it.** `push`, `insertAt` and `replaceAt` take the record they store, and a
+/// caller that reads it again keeps its own. An index outside the list
+/// stores nothing and lets the record go. Nothing is left live at exit, and
+/// the heap check finds nothing freed twice.
+#[test]
+fn a_record_stored_in_a_list_or_a_map_reads_back_whoever_holds_it() {
+    // `item(k)` has `2k + 1` bytes; the maps hold key `i` at `item(i % 5 + 1)`.
+    let built: u64 = (0..40u64).map(|i| 2 * (i % 5 + 1) + 1).sum();
+    let gone = |k: u64| 2 * (k % 5 + 1) + 1;
+    let after = built - gone(7) - gone(11) - gone(23) + 7 + 9;
+    for kept in [false, true] {
+        let (list_held, list_again, map_held, map_again) = if kept {
+            (8, 40, built, 16)
+        } else {
+            (0, 0, 0, 0)
+        };
+        let want = format!(
+            "32 {list_held} {list_again}\n39 {after} {map_held} {map_again}\n39 {after} {map_held} \
+             {map_again}\n"
+        );
+        let name = if kept { "moved-in-kept" } else { "moved-in" };
+        for (backend, ran) in run_each(name, &moved_in(kept)) {
+            assert_eq!(ran.stdout, want, "{backend} kept={kept}: {}", ran.stderr);
+            assert_eq!(ran.status, 0, "{backend} kept={kept}: {}", ran.stderr);
+            let (_, live) = probed(&ran.stderr);
+            assert_eq!(live, 0, "{backend} kept={kept}: blocks still live at exit");
+        }
+    }
+}

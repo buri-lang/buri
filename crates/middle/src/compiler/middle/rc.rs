@@ -1224,7 +1224,7 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 /// `append_dest` asks the count at run time, and a count is the thing
 /// JavaScript does not have. It does need the folds' seed, for the same reason
 /// with a count in place of a mark, and `str.show`'s receiver
-/// ([`taken_natively`]).
+/// ([`TAKEN_NATIVELY`]).
 ///
 /// Three families:
 ///
@@ -1257,19 +1257,36 @@ const TAKEN_BY: &[(&str, usize)] = &[
     ("str.show", 0),
 ];
 
-/// The intrinsic parameters handed over on the **native** branch only: the list
-/// `core/map` splices a node's children out of, and the receiver of
-/// `core/list`'s three splices, which run the same bodies. The runtime writes into it when
-/// it holds the only count (`cli/runtime/splice.rs`), and a write *inside* a
-/// list is only invisible when the caller gave that count up. JavaScript copies,
-/// so it has nothing to mark.
+/// The intrinsic parameters handed over on the **native** branch, the only
+/// rows it seeds:
+///
+///  * **The splices' receiver.** The list `core/map` splices a node's children
+///    out of, and the receiver of `core/list`'s three splices, which run the
+///    same bodies. The runtime writes into it when it holds the only count
+///    (`cli/runtime/splice.rs`), and a write *inside* a list is only invisible
+///    when the caller gave that count up. JavaScript copies, so it has nothing
+///    to mark.
+///  * **The item `push` and the two map and list splices store.** The runtime
+///    moves it in without a retain of its own, so a caller done with the item
+///    hands its count over rather than lending it and releasing it after.
+///  * **The folds' seed and `str.show`'s receiver**, as [`TAKEN_BY`] says.
 const TAKEN_NATIVELY: &[(&str, usize)] = &[
     ("map.insertAt", 1),
+    ("map.insertAt", 3),
     ("map.replaceAt", 1),
+    ("map.replaceAt", 3),
     ("map.removeAt", 1),
     ("list.insertAt", 0),
+    ("list.insertAt", 3),
     ("list.replaceAt", 0),
+    ("list.replaceAt", 3),
     ("list.removeAt", 0),
+    ("list.push", 2),
+    ("list.fold", 2),
+    ("list.foldCtx", 3),
+    ("list.foldResult", 2),
+    ("list.foldResultCtx", 3),
+    ("str.show", 0),
 ];
 
 /// The intrinsic parameters JavaScript **keeps**: the element `push`,
@@ -1280,7 +1297,7 @@ const TAKEN_NATIVELY: &[(&str, usize)] = &[
 /// Under [`Options::sharing`] only. A caller that keeps the value then holds
 /// a second reference to it, and the duplication is the mark that stops a
 /// later push through either name from writing into the other.
-/// Natively the runtime retains what it stores, and `copyOut` copies.
+/// Natively the runtime retains what `repeat` stores, and `copyOut` copies.
 const STORED_BY: &[(&str, usize)] = &[
     ("list.push", 2),
     ("list.insertAt", 3),
@@ -1291,9 +1308,6 @@ const STORED_BY: &[(&str, usize)] = &[
     ("alloc.copyOut", 0),
 ];
 
-/// Whether an intrinsic key is one of [`TAKEN_BY`]'s four folds, whose seed is
-/// handed over on the native branch too.
-///
 /// **A contract with `middle::lower`'s list loops** (`lower/lists.rs`): `fold`
 /// and `foldResult` take the seed's count from the caller and give it to the
 /// first step. Lent instead, they had to retain it, and the seed's
@@ -1309,19 +1323,6 @@ fn grows(key: &str) -> bool {
 /// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
 fn grower(growers: &Dense<FuncIdx, bool>, f: FuncIdx) -> bool {
     *growers.get(f)
-}
-
-fn is_fold(key: &str) -> bool {
-    matches!(
-        key,
-        "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx"
-    )
-}
-
-/// Whether a [`TAKEN_BY`] parameter is handed over on the native branch too:
-/// a fold's seed, and `str.show`'s receiver.
-fn taken_natively(key: &str) -> bool {
-    is_fold(key) || key == "str.show" || TAKEN_NATIVELY.iter().any(|(k, _)| *k == key)
 }
 
 /// Each function's ownership row: one entry per parameter.
@@ -1353,26 +1354,22 @@ fn infer_ownership(
             .collect()
     });
     // An intrinsic borrows what it is given (see the module docs), so its row
-    // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
-    // before the fixpoint so that callers are promoted against it. Under
-    // `sharing`, all eleven, and the seven values [`STORED_BY`] names.
-    // Natively, the four folds' seed and `str.show`'s receiver alone: both
-    // native backends hand the seed to the first step, and answer the shown
-    // `Str`, without a retain of their own.
+    // never moves — except for the parameters seeded owned before the
+    // fixpoint so that callers are promoted against them: under `sharing`,
+    // [`TAKEN_BY`]'s and [`STORED_BY`]'s, and natively [`TAKEN_NATIVELY`]'s.
     for (i, f) in program.funcs.entries() {
         let FuncKind::Intrinsic(key) = &f.kind else {
             continue;
         };
-        if !opts.sharing && !taken_natively(key) {
-            continue;
-        }
-        let native = TAKEN_NATIVELY.iter().filter(|_| !opts.sharing);
-        let stored = STORED_BY.iter().filter(|_| opts.sharing);
+        let rows: &[&[(&str, usize)]] = if opts.sharing {
+            &[TAKEN_BY, STORED_BY]
+        } else {
+            &[TAKEN_NATIVELY]
+        };
         let row = own.get_mut(i);
-        for (_, at) in TAKEN_BY
+        for (_, at) in rows
             .iter()
-            .chain(native)
-            .chain(stored)
+            .flat_map(|r| r.iter())
             .filter(|(k, _)| *k == key.as_str())
         {
             *row.get_mut(*at)

@@ -312,11 +312,13 @@ pub unsafe extern "C" fn buri_rt_list_concat(
 /// `lib.rs` §2 rule 1 flattens an aggregate parameter into leaves, and a
 /// generic `T` has no leaf list this signature could name. The caller spills it
 /// to a stack slot and passes the address, which is one store it would have
-/// made anyway.
+/// made anyway. The item's counts are the caller's to hand over
+/// (`rc.rs`'s `TAKEN_NATIVELY`), so it moves in without a retain.
 ///
 /// # Safety
-/// `ptr` covers `len * stride` bytes; `item` covers `stride` readable bytes;
-/// `out` is writable and aligned for a [`BuriList`].
+/// `ptr` covers `len * stride` bytes; `item` covers `stride` readable bytes
+/// and the call owns its counts; `out` is writable and aligned for a
+/// [`BuriList`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_list_push(
     ptr: *const u8,
@@ -335,7 +337,7 @@ pub unsafe extern "C" fn buri_rt_list_push(
     // one and is a stack slot the caller spilled, so it cannot be inside it.
     unsafe {
         if !result.ptr.is_null() {
-            copy_retaining(result.ptr.add(n.saturating_mul(s)), item, 1, s, retain);
+            std::ptr::copy_nonoverlapping(item, result.ptr.add(n.saturating_mul(s)), s);
         }
         out.write(result);
     }

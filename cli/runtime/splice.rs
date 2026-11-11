@@ -12,6 +12,10 @@
 //! The result takes the receiver's count when the block is reused. When it
 //! isn't, the splice copies and gives the count back ([`give_back`]).
 //!
+//! `insertAt` and `replaceAt` own their item too: it moves into the result
+//! with the count the caller handed over, so the item needs no retain here
+//! and no release after the call.
+//!
 //! The rows carry the element's **release** glue as well as its retain, for
 //! the element a splice writes over or removes, and the equality glue every
 //! row of that shape carries, which nothing here reads.
@@ -93,8 +97,8 @@ unsafe fn release_one(at: *mut u8, stride: usize, release: Release) {
 ///
 /// # Safety
 /// `ptr` covers `len * stride` bytes and the call owns a count of it; `item`
-/// covers `stride` readable bytes; `out` is writable and aligned for a
-/// [`BuriList`].
+/// covers `stride` readable bytes and the call owns its counts; `out` is
+/// writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
 #[allow(
     clippy::too_many_arguments,
@@ -138,7 +142,7 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
             // capacity covers, and the item is a stack slot outside the block.
             unsafe {
                 std::ptr::copy(p.add(at * s), p.add((at + 1) * s), (n - at) * s);
-                copy_retaining(p.add(at * s), item, 1, s, retain);
+                std::ptr::copy_nonoverlapping(item, p.add(at * s), s);
                 out.write(BuriList {
                     ptr: p,
                     len: total as u64,
@@ -179,7 +183,7 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
             copy_retaining(f, ptr, at, s, retain);
             copy_retaining(f.add((at + 1) * s), ptr.add(at * s), n - at, s, retain);
         }
-        copy_retaining(f.add(at * s), item, 1, s, retain);
+        std::ptr::copy_nonoverlapping(item, f.add(at * s), s);
         if unique.is_some() && retain.is_some() {
             let used = total * s;
             let headroom = (buri_rt_cap(f) as usize).saturating_sub(used);
@@ -213,8 +217,10 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
 ) {
     let (n, s) = (len as usize, stride as usize);
     if at < 0 || at as usize >= n || s == 0 {
-        // SAFETY: the caller promises `out`; the result takes the count.
+        // SAFETY: the caller promises `out` and hands over the item, which
+        // goes nowhere; the result takes the count.
         unsafe {
+            release_one(item.cast_mut(), s, release);
             out.write(BuriList {
                 ptr: ptr.cast_mut(),
                 len,
@@ -226,12 +232,9 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     // SAFETY: the caller promises a live block.
     if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
         let slot = unsafe { ptr.cast_mut().add(at * s) };
-        // SAFETY: the item takes its count before the element it replaces lets
-        // go of its own, in case one reaches the other; then the bytes move in.
+        // SAFETY: the item already holds the count the caller handed over, so
+        // the element it replaces can let go first; then the bytes move in.
         unsafe {
-            if let Some(retain) = retain {
-                retain(item.cast_mut());
-            }
             release_one(slot, s, release);
             std::ptr::copy_nonoverlapping(item, slot, s);
             out.write(BuriList {
@@ -246,7 +249,7 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     unsafe {
         let f = fresh.ptr;
         copy_retaining(f, ptr, at, s, retain);
-        copy_retaining(f.add(at * s), item, 1, s, retain);
+        std::ptr::copy_nonoverlapping(item, f.add(at * s), s);
         copy_retaining(
             f.add((at + 1) * s),
             ptr.add((at + 1) * s),

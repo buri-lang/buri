@@ -243,3 +243,133 @@ fn retaining_and_releasing_a_str_field_costs_a_handful_of_instructions() {
 }
 
 const LIMIT: u64 = 56;
+
+const STORES: u64 = 100_000;
+
+/// A record of `Str`s, of one field or eight by the width, stored 100,000
+/// times by `mode`: `map` and `ordered` replace the value of a key that each
+/// stdlib map holds, `push` grows a list, and `list` replaces an element.
+/// `main` takes the mode and the width, 1 or 8.
+fn stores() -> String {
+    let make = |ty: &str| {
+        let fields: &[&str] = if ty == "One" {
+            &["a"]
+        } else {
+            &["a", "b", "c", "d", "e", "f", "g", "h"]
+        };
+        let made = fields
+            .iter()
+            .map(|f| format!("{f}: s"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            r#"
+fn mapped{ty}<C: Allocator>(ctx: C, m: Map<Int, {ty}>, s: Str, i: Int): Map<Int, {ty}> {{
+  if (i == 0) {{ m }} else {{ mapped{ty}(ctx, m.insert(ctx, i % 64, {ty} {{ {made} }}), s, i - 1) }}
+}}
+
+fn ordered{ty}<C: Allocator>(ctx: C, m: OrderedMap<Int, {ty}>, s: Str, i: Int): OrderedMap<Int, {ty}> {{
+  if (i == 0) {{ m }} else {{ ordered{ty}(ctx, m.insert(ctx, i % 64, {ty} {{ {made} }}), s, i - 1) }}
+}}
+
+fn pushed{ty}<C: Allocator>(ctx: C, xs: [{ty}], s: Str, i: Int): [{ty}] {{
+  if (i == 0) {{ xs }} else {{ pushed{ty}(ctx, xs.push(ctx, {ty} {{ {made} }}), s, i - 1) }}
+}}
+
+fn replaced{ty}<C: Allocator>(ctx: C, xs: [{ty}], s: Str, i: Int): [{ty}] {{
+  if (i == 0) {{ xs }} else {{ replaced{ty}(ctx, xs.replaceAt(ctx, i % 64, {ty} {{ {made} }}), s, i - 1) }}
+}}
+
+fn stored{ty}<C: Allocator>(ctx: C, mode: Option<Str>, s: Str): Int {{
+  let xs = list.range(ctx, 0, 64).map(ctx, fn(_i) => {ty} {{ {made} }});
+  let m = map.of(ctx, list.range(ctx, 0, 64).map(ctx, fn(i) => (i, {ty} {{ {made} }})));
+  let o = orderedmap.of(ctx, list.range(ctx, 0, 64).map(ctx, fn(i) => (i, {ty} {{ {made} }})));
+  match (mode) {{
+    .Some("map") => mapped{ty}(ctx, m, s, {STORES}).length(),
+    .Some("ordered") => ordered{ty}(ctx, o, s, {STORES}).length(),
+    .Some("push") => pushed{ty}(ctx, xs, s, {STORES}).length(),
+    .Some("list") => replaced{ty}(ctx, xs, s, {STORES}).length(),
+    _ => 0,
+  }}
+}}
+"#
+        )
+    };
+    format!(
+        r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/map" import {{ Map }};
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import {{ OrderedMap }};
+from "native" import {{ NativeHost }};
+from "platform/effect" import {{ Allocator, Environment, Stdout }};
+
+struct One {{ a: Str }}
+struct Eight {{ a: Str, b: Str, c: Str, d: Str, e: Str, f: Str, g: Str, h: Str }}
+{one}{eight}
+export fn main(host: NativeHost): Result<(), Str> {{
+  let ctx = context {{ Allocator: host.alloc, Environment: host.env, Stdout: host.stdout }};
+  let args = env.arguments(ctx);
+  let s = "s".repeat(ctx, 3);
+  let answer = if (args.get(1) == .Some("8")) {{
+    storedEight(ctx, args.first(), s)
+  }} else {{
+    storedOne(ctx, args.first(), s)
+  }};
+  io.println(ctx, "${{answer}}").mapErr(fn(_e) => "stdout")
+}}
+"#,
+        one = make("One"),
+        eight = make("Eight"),
+    )
+}
+
+/// **Storing a record costs one retain and release a field.** `push`, and the
+/// replace a map's `insert` makes, move the record they are handed into the
+/// list they answer. A field is retained as the record is built and released
+/// as the record replaced, or the list, dies. The cost a field is the
+/// difference between a record of eight `Str`s and a record of one, over
+/// seven.
+#[test]
+fn storing_a_record_costs_one_retain_and_release_a_field() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("glue-stores", &stores());
+        for (mode, limit) in STORED_LIMITS {
+            let want = if mode == "push" { STORES + 64 } else { 64 };
+            let cost = |width: &str| {
+                per_op(
+                    backend,
+                    &binary,
+                    mode,
+                    &[width],
+                    STORES,
+                    &format!("{want}\n"),
+                )
+                .0
+            };
+            let (Some(one), Some(eight)) = (cost("1"), cost("8")) else {
+                continue;
+            };
+            let field = eight.saturating_sub(one) / 7;
+            eprintln!("{backend} {mode}: {field} instructions a field to store a record");
+            if field > limit {
+                failures.push(format!(
+                    "{backend} {mode}: {field} instructions a field to store a record, against \
+                     {limit}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Each mode's cost a field, about ten instructions above what the stencil
+/// backend measured when the record moved in (map 344, ordered 46, push 103,
+/// list 33). Retained by the store and released by the caller, each cost
+/// about 20 more.
+const STORED_LIMITS: [(&str, u64); 4] =
+    [("map", 354), ("ordered", 56), ("push", 113), ("list", 43)];
