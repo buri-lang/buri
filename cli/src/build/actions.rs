@@ -3352,44 +3352,22 @@ fn objects_named(
 }
 
 /// The refusal of a program naming keys the backend or the target's runtime
-/// archive has nothing for.
+/// archive has nothing for: [`backend::refusals`], after what the build has
+/// already said.
 ///
-/// One diagnostic per cause rather than one per program: an operation a
-/// toolchain built without the runtime's `net` feature cannot answer is a
-/// different sentence, and asks for a different thing, from an operation the
-/// backend has no body for. The split reads the target's own answer, not the
-/// baked one, so a cross `net` program is named here rather than at the system
-/// linker. An operation a platform declares for its own build to supply, and
-/// one that needs a document, are two more: the program has to change, not the
-/// toolchain.
+/// The features are the target's own, not the baked ones, so a cross `net`
+/// program is named here rather than at the system linker.
 fn refuse_missing(
     backend_name: &str,
-    mut missing: Vec<String>,
+    missing: Vec<String>,
     program: &monomorphize::Program,
-    (net, crypto): (bool, bool),
+    features: (bool, bool),
     diagnostics: &mut Diagnostics,
 ) -> Diagnostics {
-    missing.sort();
-    missing.dedup();
-    let (networking, rest) = backend::split_networking_when(&missing, net);
-    let (cryptography, rest) = backend::split_cryptography_when(&rest, crypto);
-    let (unsupplied, rest) = backend::split_unsupplied(&rest, program);
-    let (document, rest) = backend::split_document(&rest);
-    if !networking.is_empty() {
-        diagnostics.push(backend::no_networking(&networking, Span::NONE));
-    }
-    if !cryptography.is_empty() {
-        diagnostics.push(backend::no_cryptography(&cryptography, Span::NONE));
-    }
-    if !unsupplied.is_empty() {
-        diagnostics.push(backend::no_supplier(&unsupplied, Span::NONE));
-    }
-    if !document.is_empty() {
-        diagnostics.push(backend::no_document(&document, Span::NONE));
-    }
-    if !rest.is_empty() {
-        diagnostics.push(backend::no_implementation(backend_name, &rest));
-    }
+    let refused = backend::refusals(&missing, program, features, &|keys| {
+        backend::no_implementation(backend_name, keys)
+    });
+    diagnostics.extend(refused.items);
     std::mem::take(diagnostics)
 }
 

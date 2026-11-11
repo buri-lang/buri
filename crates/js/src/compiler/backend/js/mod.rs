@@ -19,7 +19,7 @@ pub mod park;
 use crate::compiler::backend::{Backend, Emitted, Options, Profile};
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::types::Tables;
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics};
 
 /// The hand-written half of the JavaScript backend. Every global in it is
 /// `$`-prefixed so the minifier can rename it and drop what a program does not
@@ -119,29 +119,15 @@ impl Js {
         minify: bool,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let missing = self.missing_intrinsics(program, tables);
-        let (unsupplied, missing) = crate::compiler::backend::split_unsupplied(&missing, program);
-        if !unsupplied.is_empty() || !missing.is_empty() {
-            let mut diags = Diagnostics::new();
-            if !unsupplied.is_empty() {
-                diags.push(crate::compiler::backend::no_supplier(
-                    &unsupplied,
-                    Span::NONE,
-                ));
-            }
-            if missing.is_empty() {
-                return Err(diags);
-            }
-            diags.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!(
-                        "the runtime has no implementation of {}",
-                        missing.join(", ")
-                    ),
-                )
-                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-            );
-            return Err(diags);
+        if !missing.is_empty() {
+            // JavaScript has every runtime feature, so the networking and
+            // cryptography causes never claim a key here.
+            return Err(crate::compiler::backend::refusals(
+                &missing,
+                program,
+                (true, true),
+                &|keys| crate::compiler::backend::no_implementation(self.name(), keys),
+            ));
         }
 
         let release = profile == Profile::Release;

@@ -179,31 +179,6 @@ pub fn cryptography_gap(program: &Program) -> Vec<String> {
     cryptography_gap_when(program, runtime_native::crypto())
 }
 
-/// What [`Backend::missing_intrinsics`] answered, split by what to say about it.
-///
-/// Two causes, and they ask the reader for different things. The first list is
-/// the operations *no* backend can answer because this toolchain's runtime
-/// archive was built without networking — [`no_networking`] is their sentence,
-/// and the way out of it is a different toolchain. The second is everything
-/// else: a key the backend has no body for, which is a toolchain bug, and which
-/// each emission site already has its own sentence for.
-///
-/// Splitting here rather than at each site is what keeps the two sites from
-/// disagreeing about which half a key is in.
-pub fn split_networking(missing: &[String]) -> (Vec<String>, Vec<String>) {
-    split_networking_when(missing, runtime_native::net())
-}
-
-/// [`split_networking`] for the cryptography half.
-///
-/// Applied to what the networking split left rather than replacing it, so a
-/// third cause is one more line at each site and not a wider tuple everywhere.
-/// The two families are disjoint — `net_intrinsic` and `crypto_intrinsic` match
-/// different effects — so the order the two splits run in cannot matter.
-pub fn split_cryptography(missing: &[String]) -> (Vec<String>, Vec<String>) {
-    split_cryptography_when(missing, runtime_native::crypto())
-}
-
 /// The backend for one target and one profile.
 ///
 /// ```text
@@ -706,10 +681,6 @@ mod tests {
         let (networking, rest) = split_networking_when(&missing, true);
         assert!(networking.is_empty());
         assert_eq!(rest, missing);
-        assert_eq!(
-            split_networking(&missing),
-            split_networking_when(&missing, runtime_native::net())
-        );
     }
 
     // -- the cryptography gap -----------------------------------------------

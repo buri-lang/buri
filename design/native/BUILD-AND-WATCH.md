@@ -170,9 +170,9 @@ be paired with another build's.
 `Backend::missing_intrinsics` reads it, on both native backends. The
 `host.HostListen.*`, `host.HostSockets.*` and `host.HostTasks.*` family is
 missing on a toolchain whose archive has no `net`, whatever the backend has a
-body for, and `backend::split_networking` sorts that half out from the
-ordinary "this backend has no implementation of" half at each of the two
-emission sites. The refusal is `networking-unavailable`, whose fix names the
+body for, and `backend::refusals` sorts that half out from the
+ordinary "this backend has no implementation of" half at every
+emission site. The refusal is `networking-unavailable`, whose fix names the
 feature rather than asking for a bug report: the program is fine and the
 toolchain is what has to change.
 

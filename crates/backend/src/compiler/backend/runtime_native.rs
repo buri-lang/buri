@@ -241,8 +241,8 @@ mod tests {
             );
         }
         // And the two families never claim each other's keys, which is what
-        // lets `backend::split_cryptography` run over what
-        // `backend::split_networking` left.
+        // lets `backend::split_cryptography_when` run over what
+        // `backend::split_networking_when` left.
         assert!(!net_intrinsic("host.HostEntropy.bytes"));
         assert!(!crypto_intrinsic("host.HostTasks.parallel"));
     }

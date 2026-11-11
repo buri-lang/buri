@@ -1764,7 +1764,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     // only for a platform nobody asked for.
     if platform.is_native() && chosen == Chosen::Default {
         if let Some(gap) = native_gap(platform, &shared.flags, &program, &tables) {
-            return answer(Err(gap_refusal(&label, gap)), None);
+            return answer(Err(gap_refusal(&label, &program, gap)), None);
         }
     }
     if !platform.is_native() {
@@ -1922,15 +1922,6 @@ fn run_solo(
     };
     let (binary, link) = match built {
         Ok(built) => built,
-        // The gaps `missing_intrinsics` cannot see are named by the backend
-        // while it emits, so the sentence saying what to do is added here.
-        Err(d) if is_backend_gap(&d) => {
-            let mut items = d.items.into_iter();
-            let mut out = Diagnostics::new();
-            out.extend(items.next().map(|d| d.with_fix(GAP_FIX)));
-            out.extend(items);
-            return answer(Err(out));
-        }
         Err(d) => return answer(Err(d)),
     };
     let written = write_stylesheet(binary.path(), &sheet);
@@ -2542,29 +2533,11 @@ fn not_ready(
     }
 }
 
-/// Why a program cannot run natively, in the shape the refusal needs.
-///
-/// Three variants, because the causes are not the same kind of news. A key the
-/// backend has no body for is a toolchain bug and a suite that could be
-/// declared `platforms: [JS]`; an operation this toolchain has no networking or
-/// no cryptography for is neither — the program is fine, and running it on
-/// JavaScript instead would prove something else.
-enum Gap {
-    /// Operations only a runtime built with networking answers.
-    Networking(Vec<String>),
-    /// Operations only a runtime built with cryptography answers.
-    Cryptography(Vec<String>),
-    /// Operations a platform declares for its own build to supply, which no
-    /// test build supplies on any backend.
-    Unsupplied(Vec<String>),
-    /// Operations that need a document, which only JavaScript has.
-    Document(Vec<String>),
-    /// The keys this backend has no body for, all of them: a truncated list is
-    /// a run that cannot show what it is missing (buri-lang/buri#199).
-    NoBody {
-        backend: &'static str,
-        keys: Vec<String>,
-    },
+/// What a program reaches that the native backend for its suite has nothing
+/// for: the backend's name and every key.
+struct Gap {
+    backend: &'static str,
+    keys: Vec<String>,
 }
 
 /// What this program reaches that a native run cannot answer, or `None` when it
@@ -2598,39 +2571,15 @@ fn native_gap(
         .into_iter()
         .filter(|k| k != crate::compiler::backend::intrinsic_keys::LAZY_LOAD)
         .collect();
-    let (networking, rest) = crate::compiler::backend::split_networking(&missing);
-    if !networking.is_empty() {
-        return Some(Gap::Networking(networking));
-    }
-    let (cryptography, rest) = crate::compiler::backend::split_cryptography(&rest);
-    if !cryptography.is_empty() {
-        return Some(Gap::Cryptography(cryptography));
-    }
-    let (unsupplied, rest) = crate::compiler::backend::split_unsupplied(&rest, program);
-    if !unsupplied.is_empty() {
-        return Some(Gap::Unsupplied(unsupplied));
-    }
-    let (document, rest) = crate::compiler::backend::split_document(&rest);
-    if !document.is_empty() {
-        return Some(Gap::Document(document));
-    }
-    if rest.is_empty() {
+    if missing.is_empty() {
         return None;
     }
-    Some(Gap::NoBody {
+    Some(Gap {
         backend: backend.name(),
-        keys: rest,
+        keys: missing,
     })
 }
 
-/// Whether a native compilation failed because this backend has no body for
-/// something, rather than because the program is wrong.
-///
-/// Matched on the sentence both spellings share — `actions::objects_of`'s, from
-/// `missing_intrinsics`, and a backend's own, from a runtime key with no
-/// entry. A failure with anything else among its errors is a failure, and is
-/// reported: falling back on one would turn a toolchain bug into a suite that
-/// quietly passes somewhere else.
 /// What to do about a native gap, in the one sentence a reader needs.
 ///
 /// Naming a platform is a statement in the build file rather than a decision
@@ -2647,67 +2596,33 @@ const GAP_FIX: &str = "declare `test { backends: [JS] }` for this suite if it be
 /// on a backend nobody chose, and what it proves is that the other backend
 /// agrees with itself. `buri build` has always refused this; `buri test` does
 /// now too (buri-lang/buri#4).
-fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
-    let mut diagnostics = Diagnostics::new();
-    match gap {
-        // The page's own words, and its own fix: what this suite needs is a
-        // toolchain, and [`GAP_FIX`]'s two suggestions — declare `platforms:
-        // [JS]`, or report a bug — are both the wrong instruction for it.
-        Gap::Networking(operations) => {
-            diagnostics.push(crate::compiler::backend::no_networking(
-                &operations,
-                Span::NONE,
-            ));
-        }
-        // The same argument, one page over: a suite that mints a token needs a
-        // toolchain whose runtime has a cryptographic generator, and neither of
-        // [`GAP_FIX`]'s suggestions is what to do about that.
-        Gap::Cryptography(operations) => {
-            diagnostics.push(crate::compiler::backend::no_cryptography(
-                &operations,
-                Span::NONE,
-            ));
-        }
-        // The program is what has to change here, so neither of [`GAP_FIX`]'s
-        // suggestions applies: JavaScript has no supplier for these either.
-        Gap::Unsupplied(operations) => {
-            diagnostics.push(crate::compiler::backend::no_supplier(
-                &operations,
-                Span::NONE,
-            ));
-        }
-        // The page's own fix names `backends: [JS]` and the headless renderer,
-        // which is [`GAP_FIX`]'s first half and not its second.
-        Gap::Document(operations) => {
-            diagnostics.push(crate::compiler::backend::no_document(
-                &operations,
-                Span::NONE,
-            ));
-        }
-        Gap::NoBody { backend, keys } => {
-            // Every key, not a count: a run that is refused for a gap should be
-            // able to show the whole gap, in the human sentence and — because
-            // the message is what the JSON carries — in the JSON too
-            // (buri-lang/buri#199). `build/actions.rs`'s sibling refusal lists
-            // them all the same way.
-            let reason = format!(
-                "the {backend} backend has no implementation of {}",
-                keys.join(", ")
-            );
-            diagnostics.push(
-                Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
-                    .with_fix(GAP_FIX),
-            );
-        }
-    }
-    diagnostics
+///
+/// One diagnostic per cause, [`crate::compiler::backend::refusals`]'s. Only
+/// a key the backend has no body for gets [`GAP_FIX`]: an operation the
+/// toolchain was built without, one a platform supplies to its own build, and
+/// one that needs a document each have their own page, and their own fix.
+fn gap_refusal(label: &str, program: &monomorphize::Program, gap: Gap) -> Diagnostics {
+    let features = (
+        crate::compiler::backend::runtime_native::net(),
+        crate::compiler::backend::runtime_native::crypto(),
+    );
+    crate::compiler::backend::refusals(&gap.keys, program, features, &|keys| {
+        no_body(label, gap.backend, keys)
+    })
 }
 
-fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
-    diagnostics
-        .items
-        .iter()
-        .all(|d| d.message.contains("has no implementation of"))
+/// The refusal of a suite whose backend has no body for `keys`.
+///
+/// Every key, not a count: a run that is refused for a gap should be able to
+/// show the whole gap, in the human sentence and, because the message is what
+/// the JSON carries, in the JSON too (buri-lang/buri#199).
+fn no_body(label: &str, backend: &str, keys: &[String]) -> Diagnostic {
+    let reason = format!(
+        "the {backend} backend has no implementation of {}",
+        keys.join(", ")
+    );
+    Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
+        .with_fix(GAP_FIX)
 }
 
 /// The analyses `check_during_build` reuses.
@@ -6516,45 +6431,6 @@ mod tests {
         assert_eq!(indented("a\n\nb"), "  a\n  \n  b");
     }
 
-    /// The gap net matches both spellings the toolchain has for "no body for
-    /// this", and nothing else.
-    ///
-    /// Written against the two literal sentences rather than against a
-    /// constructed compilation, because what the net is is a claim about those
-    /// two strings: `build/actions.rs`'s, from `missing_intrinsics`, and a
-    /// backend's own, from a runtime key with no entry. What it decides is
-    /// whether the refusal gains the sentence about naming a platform, so a
-    /// failure of another kind is reported as it stands.
-    #[test]
-    fn only_a_backend_gap_is_one() {
-        let of = |messages: &[&str]| {
-            let mut diagnostics = Diagnostics::new();
-            for m in messages {
-                diagnostics.push(Diagnostic::error(Span::NONE, (*m).to_string()));
-            }
-            is_backend_gap(&diagnostics)
-        };
-        assert!(of(&[
-            "the stencil backend has no implementation of character.isDigit"
-        ]));
-        assert!(of(&[
-            "the native runtime has no implementation of `json.decode`"
-        ]));
-        assert!(of(&[
-            "the llvm backend has no implementation of testing_assert.report",
-            "the native runtime has no implementation of `bytes.toUtf8`",
-        ]));
-        // Not a gap: a failure of another kind, and a mixture with one of
-        // each. A failure always says why ([`is_backend_gap`]'s invariant).
-        assert!(!of(&[
-            "cannot declare the entry point: duplicate definition"
-        ]));
-        assert!(!of(&[
-            "the stencil backend has no implementation of character.isDigit",
-            "cannot declare the entry point: duplicate definition",
-        ]));
-    }
-
     /// A native gap names **every** key it found, not a count
     /// (buri-lang/buri#199): a run refused for a gap should be able to show the
     /// whole gap, and the message is what the `--error-format=json` output
@@ -6566,12 +6442,7 @@ mod tests {
             "number.U32.toChar".to_string(),
             "z.z".to_string(),
         ];
-        let gap = Gap::NoBody {
-            backend: "llvm",
-            keys,
-        };
-        let diagnostics = gap_refusal("a suite", gap);
-        let message = &diagnostics.items.first().expect("a refusal").message;
+        let message = &no_body("a suite", "llvm", &keys).message;
         assert!(message.contains("number.I64.toI32"), "{message}");
         assert!(message.contains("number.U32.toChar"), "{message}");
         assert!(message.contains("z.z"), "{message}");

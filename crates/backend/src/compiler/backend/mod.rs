@@ -421,13 +421,11 @@ pub fn cryptography_gap_when(program: &Program, crypto: bool) -> Vec<String> {
     keys
 }
 
-/// [`split_networking`], with the toolchain's answer as a parameter, for the
-/// reason [`networking_gap_when`] takes one.
+/// `missing` split into the operations a runtime without networking cannot
+/// answer, which [`no_networking`] names, and the rest.
 ///
-/// `pub` because the answer is per **target** now, not per toolchain: a cross
-/// link is against an archive with fewer features than the host's, so
-/// `build::actions` hands the target's own `net` here rather than the baked
-/// constant `split_networking` reads.
+/// `net` is the **target's** answer, not the toolchain's: a cross link is
+/// against an archive with fewer features than the host's.
 pub fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<String>) {
     missing
         .iter()
@@ -445,10 +443,10 @@ pub fn no_networking(operations: &[String], span: Span) -> Diagnostic {
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
-/// [`split_cryptography`], with the toolchain's answer as a parameter.
+/// [`split_networking_when`] for the cryptography half.
 ///
-/// `pub` for [`split_networking_when`]'s reason: `build::actions` supplies the
-/// cross target's own `crypto`, which is off on the first cross target.
+/// The two families are disjoint, so the order the two splits run in cannot
+/// matter.
 pub fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>, Vec<String>) {
     missing
         .iter()
@@ -496,7 +494,7 @@ fn is_method_key(key: &str) -> bool {
 
 /// `missing` split into the keys a platform declares for its own build to
 /// supply, which [`no_supplier`] names, and the rest.
-pub fn split_unsupplied(missing: &[String], program: &Program) -> (Vec<String>, Vec<String>) {
+fn split_unsupplied(missing: &[String], program: &Program) -> (Vec<String>, Vec<String>) {
     missing
         .iter()
         .cloned()
@@ -508,7 +506,7 @@ pub fn split_unsupplied(missing: &[String], program: &Program) -> (Vec<String>, 
 ///
 /// Templated, for [`no_networking`]'s reason: "report it" would be the wrong
 /// instruction, because it is the program that has to change.
-pub fn no_supplier(operations: &[String], span: Span) -> Diagnostic {
+fn no_supplier(operations: &[String], span: Span) -> Diagnostic {
     Diagnostic::templated("unsupplied-platform-operation", span)
         .with_bind("operations", crate::diagnostics::names(operations))
 }
@@ -521,7 +519,7 @@ pub fn no_supplier(operations: &[String], span: Span) -> Diagnostic {
 /// renders through `platform/effect/testing` instead. Matched on the family,
 /// and only among the keys a backend already has no body for, so a body added
 /// for one of them takes it out of this list with no edit here.
-pub fn split_document(missing: &[String]) -> (Vec<String>, Vec<String>) {
+fn split_document(missing: &[String]) -> (Vec<String>, Vec<String>) {
     missing
         .iter()
         .cloned()
@@ -529,7 +527,45 @@ pub fn split_document(missing: &[String]) -> (Vec<String>, Vec<String>) {
 }
 
 /// The refusal for operations that need a document on a native build.
-pub fn no_document(operations: &[String], span: Span) -> Diagnostic {
+fn no_document(operations: &[String], span: Span) -> Diagnostic {
     Diagnostic::templated("document-unavailable", span)
         .with_bind("operations", crate::diagnostics::names(operations))
+}
+
+/// The refusal of a program that reaches `missing`, one diagnostic per cause.
+///
+/// An operation the runtime was built without, one a platform supplies to its
+/// own build, and one that needs a document each ask the reader for a
+/// different thing, and each has its own page. What none of them claims is a
+/// key `backend` has no body for, which is a toolchain bug, and `no_body` is
+/// the site's sentence for it. `net` and `crypto` are the target's runtime
+/// features. Every site that refuses a missing key asks here, so no two sites
+/// disagree about which cause a key is.
+pub fn refusals(
+    missing: &[String],
+    program: &Program,
+    (net, crypto): (bool, bool),
+    no_body: &dyn Fn(&[String]) -> Diagnostic,
+) -> Diagnostics {
+    let mut missing = missing.to_vec();
+    missing.sort();
+    missing.dedup();
+    let (networking, rest) = split_networking_when(&missing, net);
+    let (cryptography, rest) = split_cryptography_when(&rest, crypto);
+    let (unsupplied, rest) = split_unsupplied(&rest, program);
+    let (document, rest) = split_document(&rest);
+    let causes: [(Vec<String>, &dyn Fn(&[String]) -> Diagnostic); 5] = [
+        (networking, &|keys| no_networking(keys, Span::NONE)),
+        (cryptography, &|keys| no_cryptography(keys, Span::NONE)),
+        (unsupplied, &|keys| no_supplier(keys, Span::NONE)),
+        (document, &|keys| no_document(keys, Span::NONE)),
+        (rest, no_body),
+    ];
+    let mut diagnostics = Diagnostics::new();
+    for (keys, refusal) in causes {
+        if !keys.is_empty() {
+            diagnostics.push(refusal(&keys));
+        }
+    }
+    diagnostics
 }
