@@ -10,6 +10,12 @@ each call of `list.get` an `xs[i]`, so `rc` lends the element.
 - Lending exposed an `rc` bug: `xs[xs.length() - 1]` released `xs` before
   the load. Fixed in the same landing, with
   `cli/tests/repositories/middle/index_reads_its_base`.
+- It also exposed a `pairs` bug: an inlined `xs[i]` merged into a block
+  parameter lost its retain across the list's release, as in
+  `list.last().show(ctx)`. `pairs::Paths::within` fixes it;
+  `cli/tests/repositories/middle/elements_outlive_their_list` covers it.
+- `match_moves.rs`'s walks now match on what `element` builds, since a
+  match on `get` builds nothing any more.
 
 ## What's left
 

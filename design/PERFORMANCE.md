@@ -9430,6 +9430,10 @@ while the list holds them.
 
 Lending exposed a bug in `rc`: `xs[xs.length() - 1]` released `xs` after
 `length`, before the load read it. `cli/tests/repositories/middle/index_reads_its_base`
+covers it. It also exposed one in `pairs`: a short `xs[i]` the inliner pasted
+in merges its `Option` into a block parameter, and the pass cancelled that
+parameter's retain across the list's release, so `list.last().show(ctx)` read
+a freed element. `cli/tests/repositories/middle/elements_outlive_their_list`
 covers it.
 
 ## 7. Profiling, on this platform

@@ -278,14 +278,10 @@ impl Paths {
     /// Fills `scratch.inside` with the path of `x` and of every value `x`
     /// holds, or answers `false` past [`REACH`] values, which keeps the pair.
     ///
-    /// A value is more than its own path where it was **built**: a block
-    /// parameter holds every value its jumps pass it, and a struct or enum
-    /// its fields. Releasing the list an element came out of releases that
-    /// element, so it is a use of an `Option` the element was wrapped in and
-    /// merged into a block parameter, even though the parameter's own path
-    /// is only itself. Asked only of `x`'s path, `decref list` between
-    /// `incref opt` and `decref opt` looked unrelated, the pair went, and
-    /// the list freed the element `opt` still named.
+    /// A block parameter's path is only itself, but it holds what its jumps
+    /// pass it. Without this, `decref list` between `incref opt` and
+    /// `decref opt` looked unrelated to an `opt` wrapping one of the list's
+    /// elements, and the list freed the element `opt` still named.
     fn within(&self, x: ValueId, scratch: &mut Scratch) -> bool {
         let Scratch {
             seen, work, inside, ..
