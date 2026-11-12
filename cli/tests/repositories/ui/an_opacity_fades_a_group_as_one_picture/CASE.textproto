@@ -1,0 +1,32 @@
+# Opacity fades a group as one picture, the way a browser does (#343).
+#
+# The painter used to fade each child of a faded element on its own, so where
+# two children overlapped the grey was darker than either. Each faded group
+# here, in every layout a stack has, in a drawing, in SVG artwork and with a
+# pinned or fixed child, shares a golden with a twin that draws the same shape
+# with nothing overlapping. A scrim's own blur and an item's list mark are
+# part of the faded picture too, and each has a golden of its own.
+#
+# The last step moves one square of the layer stack, and that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a faded group paints as one picture, in every layout, drawing and SVG group, and a moved square fails the golden"
+
+run {
+  args: ["test", "//lib/groups", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/groups/groups.buri"
+  replace: "layers([square(0, 0), square(20, 0)])"
+  with: "layers([square(0, 0), square(24, 0)])"
+}
+
+run {
+  args: ["test", "//lib/groups", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

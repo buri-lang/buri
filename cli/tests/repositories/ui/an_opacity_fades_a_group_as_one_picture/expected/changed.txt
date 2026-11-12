@@ -1,0 +1,5 @@
+FAIL //lib/groups  test/groups.buri  "two overlapping squares in a faded layer stack read as one grey"
+  the snapshot "layers" changed: see test/__snapshots__/layers.diff.png
+  --> lib/groups/test/groups.buri:18:1
+
+27 passed, 1 failed, 0 skipped (0.0s)

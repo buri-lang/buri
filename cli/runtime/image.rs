@@ -51,9 +51,10 @@
 //! `preserveAspectRatio` — a picture fills the box the layout gave it, which is
 //! the rule the raster half has always followed.
 //!
-//! `opacity` multiplies into the colours below it rather than compositing a
-//! group, which is the simplification `paint.rs` already documents for the
-//! element tree.
+//! `opacity` fades an element as one picture, the way a browser does: a group,
+//! or a shape's fill and stroke, is drawn onto a layer of its own at full
+//! strength and the layer is laid down at the opacity. `fill-opacity` and
+//! `stroke-opacity` fade one paint, so they multiply into its colour.
 //!
 //! # The size a picture takes
 //!
@@ -72,7 +73,8 @@
 )]
 
 use tiny_skia::{
-    FillRule, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap, Rect, Stroke, Transform,
+    BlendMode, FillRule, FilterQuality, LineCap, LineJoin, Mask, Paint, Path, PathBuilder, Pixmap,
+    PixmapPaint, Rect, Stroke, Transform,
 };
 
 use super::{Box2, DISTANCES, Fonts, LENGTHS, Rgba, mul255, over, paeth};
@@ -97,17 +99,10 @@ impl Picture {
     }
 
     /// Draws it into the box the layout gave it.
-    pub(super) fn draw(
-        &self,
-        canvas: &mut Pixmap,
-        box_: Box2,
-        opacity: f32,
-        colour: Rgba,
-        clip: Option<&Mask>,
-    ) {
+    pub(super) fn draw(&self, canvas: &mut Pixmap, box_: Box2, colour: Rgba, clip: Option<&Mask>) {
         match self {
-            Self::Raster(image) => scaled(canvas, image, box_, opacity, clip),
-            Self::Vector(svg) => svg.draw(canvas, box_, opacity, colour, clip),
+            Self::Raster(image) => scaled(canvas, image, box_, clip),
+            Self::Vector(svg) => svg.draw(canvas, box_, colour, clip),
         }
     }
 }
@@ -248,13 +243,12 @@ pub(super) fn pixel_bytes(width: u32, height: u32) -> Result<usize, String> {
 /// The source pixel for a device pixel is picked in integers — `(x - left) *
 /// width / box width` — so a scaled picture is the same picture on every host,
 /// which is the rule the whole painter is written to.
-fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Option<&Mask>) {
+fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, clip: Option<&Mask>) {
     let (width, height) = (box_.r - box_.l, box_.b - box_.t);
     if width <= 0 || height <= 0 || image.width == 0 || image.height == 0 {
         return;
     }
     let (cw, ch) = (canvas.width(), canvas.height());
-    let alpha = (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     let pixels = canvas.pixels_mut();
     for y in box_.t.max(0)..box_.b.min(ch as i32) {
         let sy = (i64::from(y - box_.t) * i64::from(image.height)) / i64::from(height);
@@ -270,7 +264,7 @@ fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Op
                 .saturating_mul(cw as usize)
                 .saturating_add(x as usize);
             let coverage = clip.map_or(255, |mask| mask.data().get(i).copied().unwrap_or(0));
-            let a = mul255(mul255(source[3], coverage), alpha);
+            let a = mul255(source[3], coverage);
             if a == 0 {
                 continue;
             }
@@ -1127,7 +1121,17 @@ pub(super) struct Svg {
     view: [f32; 4],
     /// What a page gives it when nothing sizes it.
     size: (f32, f32),
-    shapes: Vec<Shape>,
+    steps: Vec<Step>,
+}
+
+/// One step of drawing an SVG, in document order.
+enum Step {
+    Draw(Shape),
+    /// An element with an `opacity` starts: what follows, up to its
+    /// [`Step::Fade`], is drawn onto a layer of its own.
+    Group,
+    /// That element ends, and its layer is laid down at this opacity.
+    Fade(f32),
 }
 
 /// One drawn element, in user space, with the transform its ancestors gave it.
@@ -1161,7 +1165,6 @@ struct Inherited {
     width: f32,
     cap: LineCap,
     join: LineJoin,
-    opacity: f32,
     fill_opacity: f32,
     stroke_opacity: f32,
     transform: Transform,
@@ -1180,7 +1183,6 @@ impl Default for Inherited {
             width: 1.0,
             cap: LineCap::Butt,
             join: LineJoin::Miter,
-            opacity: 1.0,
             fill_opacity: 1.0,
             stroke_opacity: 1.0,
             transform: Transform::identity(),
@@ -1213,7 +1215,10 @@ impl Svg {
     fn parse(text: &str, fonts: &mut Fonts) -> Option<Self> {
         let mut tags = Tags::new(text);
         let mut stack: Vec<Inherited> = vec![Inherited::default()];
-        let mut shapes: Vec<Shape> = Vec::new();
+        let mut steps: Vec<Step> = Vec::new();
+        // One slot per element still open beside `stack`: the opacity it is
+        // faded by, which its close lays its layer down at.
+        let mut fades: Vec<Option<f32>> = Vec::new();
         let mut root: Option<([f32; 4], (f32, f32))> = None;
         let mut depth = 0_usize;
         let mut skip_from: Option<usize> = None;
@@ -1225,10 +1230,18 @@ impl Svg {
                     attributes,
                     empty,
                 } => {
+                    let mut fade = None;
                     let inherited = match skip_from {
                         Some(_) => stack.last()?.clone(),
                         None => {
                             let inherited = stack.last()?.apply(&attributes);
+                            fade = attribute(&attributes, "opacity")
+                                .and_then(|v| length(&v))
+                                .map(|o| o.clamp(0.0, 1.0))
+                                .filter(|o| *o < 1.0);
+                            if fade.is_some() {
+                                steps.push(Step::Group);
+                            }
                             if name == "svg" && root.is_none() {
                                 root = frame(&attributes);
                             } else if name == "text" && !empty {
@@ -1237,10 +1250,10 @@ impl Svg {
                                     &tags.words(),
                                     &inherited,
                                     fonts,
-                                    &mut shapes,
+                                    &mut steps,
                                 );
                             } else {
-                                shape(&name, &attributes, &inherited, &mut shapes);
+                                shape(&name, &attributes, &inherited, &mut steps);
                             }
                             if NOT_DRAWN.contains(&name.as_str()) && !empty {
                                 skip_from = Some(depth);
@@ -1248,8 +1261,13 @@ impl Svg {
                             inherited
                         }
                     };
-                    if !empty {
+                    if empty {
+                        if let Some(o) = fade {
+                            fade_group(&mut steps, o);
+                        }
+                    } else {
                         stack.push(inherited);
+                        fades.push(fade);
                         depth = depth.saturating_add(1);
                     }
                 }
@@ -1258,14 +1276,23 @@ impl Svg {
                     if stack.len() > 1 {
                         stack.pop();
                     }
+                    if let Some(o) = fades.pop().flatten() {
+                        fade_group(&mut steps, o);
+                    }
                     if skip_from == Some(depth) {
                         skip_from = None;
                     }
                 }
             }
         }
+        // A document that ends with elements still open closes them.
+        while let Some(fade) = fades.pop() {
+            if let Some(o) = fade {
+                fade_group(&mut steps, o);
+            }
+        }
         let (view, size) = root?;
-        Some(Self { view, size, shapes })
+        Some(Self { view, size, steps })
     }
 
     /// Draws the shapes into the box, with the box's own pixels as the unit.
@@ -1273,14 +1300,7 @@ impl Svg {
     /// The rasterizer is the painter's, so an icon is anti-aliased the way a
     /// border is, and it is re-rasterized at whatever size the box is rather
     /// than scaled from a smaller one.
-    fn draw(
-        &self,
-        canvas: &mut Pixmap,
-        box_: Box2,
-        opacity: f32,
-        colour: Rgba,
-        clip: Option<&Mask>,
-    ) {
+    fn draw(&self, canvas: &mut Pixmap, box_: Box2, colour: Rgba, clip: Option<&Mask>) {
         let (width, height) = ((box_.r - box_.l) as f32, (box_.b - box_.t) as f32);
         if width <= 0.0 || height <= 0.0 || self.view[2] <= 0.0 || self.view[3] <= 0.0 {
             return;
@@ -1292,15 +1312,44 @@ impl Svg {
             ))
             .pre_concat(Transform::from_translate(-self.view[0], -self.view[1]));
 
-        for shape in &self.shapes {
+        // The layers of the faded elements open around the step being drawn.
+        let mut layers: Vec<Pixmap> = Vec::new();
+        for step in &self.steps {
+            let shape = match step {
+                Step::Draw(shape) => shape,
+                Step::Group => {
+                    let Some(layer) = Pixmap::new(canvas.width(), canvas.height()) else {
+                        return;
+                    };
+                    layers.push(layer);
+                    continue;
+                }
+                Step::Fade(opacity) => {
+                    let Some(layer) = layers.pop() else { continue };
+                    layers.last_mut().unwrap_or(&mut *canvas).draw_pixmap(
+                        0,
+                        0,
+                        layer.as_ref(),
+                        &PixmapPaint {
+                            opacity: *opacity,
+                            blend_mode: BlendMode::SourceOver,
+                            quality: FilterQuality::Nearest,
+                        },
+                        Transform::identity(),
+                        None,
+                    );
+                    continue;
+                }
+            };
+            let target = layers.last_mut().unwrap_or(&mut *canvas);
             let transform = outer.pre_concat(shape.transform);
             if let Some(ink) = shape.fill {
                 let paint = Paint {
                     anti_alias: true,
-                    shader: ink.shade(colour, opacity),
+                    shader: ink.shade(colour),
                     ..Paint::default()
                 };
-                canvas.fill_path(&shape.path, &paint, FillRule::Winding, transform, clip);
+                target.fill_path(&shape.path, &paint, FillRule::Winding, transform, clip);
             }
             if let Some((ink, pen)) = shape.stroke {
                 if pen.width <= 0.0 {
@@ -1308,7 +1357,7 @@ impl Svg {
                 }
                 let paint = Paint {
                     anti_alias: true,
-                    shader: ink.shade(colour, opacity),
+                    shader: ink.shade(colour),
                     ..Paint::default()
                 };
                 let stroke = Stroke {
@@ -1317,17 +1366,39 @@ impl Svg {
                     line_join: pen.join,
                     ..Stroke::default()
                 };
-                canvas.stroke_path(&shape.path, &paint, &stroke, transform, clip);
+                target.stroke_path(&shape.path, &paint, &stroke, transform, clip);
             }
         }
     }
 }
 
+/// Closes the faded element whose [`Step::Group`] is the last one open.
+///
+/// A group that drew one paint, a fill or a stroke, is that paint at the
+/// opacity: nothing in it overlaps anything else in it. So the opacity goes into
+/// the paint's colour and the group needs no layer.
+fn fade_group(steps: &mut Vec<Step>, opacity: f32) {
+    if let [.., Step::Group, Step::Draw(shape)] = steps.as_mut_slice()
+        && shape.fill.is_some() != shape.stroke.is_some()
+    {
+        if let Some(ink) = shape.fill.as_mut() {
+            ink.alpha *= opacity;
+        }
+        if let Some((ink, _)) = shape.stroke.as_mut() {
+            ink.alpha *= opacity;
+        }
+        let drawn = steps.pop();
+        steps.pop();
+        steps.extend(drawn);
+        return;
+    }
+    steps.push(Step::Fade(opacity));
+}
+
 impl Ink {
-    fn shade<'a>(self, current: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
+    fn shade<'a>(self, current: Rgba) -> tiny_skia::Shader<'a> {
         let [r, g, b] = self.colour.unwrap_or([current.r, current.g, current.b]);
         let a = (self.alpha
-            * opacity
             * if self.colour.is_none() {
                 current.a
             } else {
@@ -1392,9 +1463,6 @@ impl Inherited {
                 _ => LineJoin::Miter,
             };
         }
-        if let Some(value) = number("opacity") {
-            out.opacity *= value.clamp(0.0, 1.0);
-        }
         if let Some(value) = number("fill-opacity") {
             out.fill_opacity = value.clamp(0.0, 1.0);
         }
@@ -1409,7 +1477,7 @@ impl Inherited {
 
     fn fill_ink(&self) -> Option<Ink> {
         self.fill.map(|ink| Ink {
-            alpha: ink.alpha * self.opacity * self.fill_opacity,
+            alpha: ink.alpha * self.fill_opacity,
             ..ink
         })
     }
@@ -1418,7 +1486,7 @@ impl Inherited {
         let ink = self.stroke?;
         Some((
             Ink {
-                alpha: ink.alpha * self.opacity * self.stroke_opacity,
+                alpha: ink.alpha * self.stroke_opacity,
                 ..ink
             },
             Pen {
@@ -1431,7 +1499,7 @@ impl Inherited {
 }
 
 /// One shape element, appended if this is one.
-fn shape(name: &str, attributes: &[(String, String)], inherited: &Inherited, out: &mut Vec<Shape>) {
+fn shape(name: &str, attributes: &[(String, String)], inherited: &Inherited, out: &mut Vec<Step>) {
     let number = |key: &str| {
         attribute(attributes, key)
             .and_then(|v| length(&v))
@@ -1508,12 +1576,12 @@ fn shape(name: &str, attributes: &[(String, String)], inherited: &Inherited, out
     if fill.is_none() && stroke.is_none() {
         return;
     }
-    out.push(Shape {
+    out.push(Step::Draw(Shape {
         path,
         transform: inherited.transform,
         fill,
         stroke,
-    });
+    }));
 }
 
 /// A rounded rectangle, its corners as the four-cubic circle every rasterizer
@@ -1941,7 +2009,7 @@ fn lettering(
     words: &str,
     inherited: &Inherited,
     fonts: &mut Fonts,
-    out: &mut Vec<Shape>,
+    out: &mut Vec<Step>,
 ) {
     let number = |key: &str| attribute(attributes, key).and_then(|v| length(&v));
     let size = number("font-size").unwrap_or(super::ROOT_FONT_SIZE);
@@ -1961,12 +2029,12 @@ fn lettering(
     if fill.is_none() && stroke.is_none() {
         return;
     }
-    out.push(Shape {
+    out.push(Step::Draw(Shape {
         path,
         transform: inherited.transform,
         fill,
         stroke,
-    });
+    }));
 }
 
 /// The numbers and command letters of a `d` attribute, in order.
@@ -2458,7 +2526,6 @@ mod tests {
         svg.draw(
             &mut canvas,
             box_,
-            1.0,
             Rgba {
                 r: 0,
                 g: 0,
@@ -2758,7 +2825,6 @@ mod tests {
                 r: 20,
                 b: 20,
             },
-            1.0,
             Rgba::BLACK,
             None,
         );
@@ -2802,7 +2868,6 @@ mod tests {
                 r: 40,
                 b: 40,
             },
-            1.0,
             Rgba::BLACK,
             None,
         );

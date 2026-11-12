@@ -1,0 +1,240 @@
+// Each faded group beside its twin, the same picture with nothing in it
+// overlapping: both tests of a pair compare against one golden, so a group
+// whose overlap paints darker than the rest fails.
+//
+// The last two have no twin. A faded scrim's blur and a faded item's list mark
+// are each pinned by a golden of their own.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/groups" import {
+    blurFaded, borderFaded, borderTwin, columnFaded, columnReverseFaded,
+    columnReverseTwin, columnTwin, drawingFaded, drawingTwin, fixedFaded, fixedTwin,
+    gridFaded, gridTwin, iconFaded, iconTwin, imageFaded, imageTwin, layersFaded,
+    layersTwin, markedFaded, pinnedFaded, pinnedTwin, rowFaded, rowReverseFaded,
+    rowReverseTwin, rowTwin, strokeFaded, strokeTwin,
+};
+
+test "two overlapping squares in a faded layer stack read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersFaded(), .Checked, []);
+}
+
+test "the same grey as a faded layer stack with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded column read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "column", columnFaded(), .Checked, []);
+}
+
+test "the same grey as a faded column with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "column", columnTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded row read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "row", rowFaded(), .Checked, []);
+}
+
+test "the same grey as a faded row with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "row", rowTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded reversed column read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "column_reverse", columnReverseFaded(), .Checked, []);
+}
+
+test "the same grey as a faded reversed column with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "column_reverse", columnReverseTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded reversed row read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "row_reverse", rowReverseFaded(), .Checked, []);
+}
+
+test "the same grey as a faded reversed row with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "row_reverse", rowReverseTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded grid read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid", gridFaded(), .Checked, []);
+}
+
+test "the same grey as a faded grid with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid", gridTwin(), .Checked, []);
+}
+
+test "a faded box's border over its own background read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "border", borderFaded(), .Checked, []);
+}
+
+test "the same grey as a faded box with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "border", borderTwin(), .Checked, []);
+}
+
+test "two overlapping squares in a faded drawing read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "drawing", drawingFaded(), .Checked, []);
+}
+
+test "the same grey as a faded drawing with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "drawing", drawingTwin(), .Checked, []);
+}
+
+test "two overlapping squares in an icon's faded group read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon", iconFaded(), .Checked, []);
+}
+
+test "the same grey as an icon's faded group with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "icon", iconTwin(), .Checked, []);
+}
+
+test "two overlapping squares in an image's faded group read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "image", imageFaded(), .Checked, []);
+}
+
+test "the same grey as an image's faded group with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "image", imageTwin(), .Checked, []);
+}
+
+test "a faded SVG shape's stroke over its own fill read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "stroke", strokeFaded(), .Checked, []);
+}
+
+test "the same grey as a faded SVG shape with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "stroke", strokeTwin(), .Checked, []);
+}
+
+test "a pinned square over a square in the flow of a faded stack read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "pinned", pinnedFaded(), .Checked, []);
+}
+
+test "the same grey as a faded stack with a pinned square with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "pinned", pinnedTwin(), .Checked, []);
+}
+
+test "a fixed square over a square in the flow of a faded stack read as one grey" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "fixed", fixedFaded(), .Checked, []);
+}
+
+test "the same grey as a faded stack with a fixed square with nothing overlapping" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "fixed", fixedTwin(), .Checked, []);
+}
+
+test "a faded scrim lays its blur over the page at its own opacity" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blur", blurFaded(), .Checked, []);
+}
+
+test "a faded item's list mark fades with it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "marked", markedFaded(), .Checked, []);
+}

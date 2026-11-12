@@ -1,0 +1,397 @@
+//! Faded groups, each beside the same picture drawn so that nothing in it
+//! overlaps.
+//!
+//! A browser fades an element as one picture: it paints the element and
+//! everything in it, then lays that down at the opacity. So two overlapping
+//! black squares in a half-faded group read as one even grey, the same grey as
+//! one black box the size of both. Each `faded` scene here has a twin that is
+//! that box, and the two share a golden. A painter that fades each child on its
+//! own darkens where the squares overlap, and the faded scene fails.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/style" import { Layout, Style };
+
+/// The white frame every scene is painted in, so a scene and its twin are the
+/// same size whatever their group lays out.
+fn frame<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(100)),
+            .Height(.Px(100)),
+            .Padding(.Px(10)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [subject],
+    })
+}
+
+/// A black box, moved by `dx` and `dy` after the layout.
+fn box<C>(width: Int, height: Int, dx: Int, dy: Int, extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+            .Translate(.Px(dx), .Px(dy)),
+            .Background(.Rgb(0, 0, 0)),
+            .Group(extra),
+        ],
+        children: [],
+    })
+}
+
+/// A 40 by 40 black square.
+fn square<C>(dx: Int, dy: Int): Node<C> {
+    box(40, 40, dx, dy, [])
+}
+
+/// An 80 by 80 group laid out as `layout`, at half opacity.
+fn half<C>(layout: Layout, children: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [.Layout(layout), .Width(.Px(80)), .Height(.Px(80)), .Opacity(0.5)],
+        children: children,
+    })
+}
+
+/// `half(.Layers, children)`, with the layout written where it is used: the
+/// children's half of a layer stack, every child in one space, is a rule the
+/// sheet writes only for a layout it can see.
+fn layers<C>(children: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Layers), .Width(.Px(80)), .Height(.Px(80)), .Opacity(0.5)],
+        children: children,
+    })
+}
+
+fn tracks(): Layout {
+    .Grid([.Fixed(.Px(40)), .Fixed(.Px(40))])
+}
+
+/// Two squares sharing a layer stack's one space, the second 20 along.
+export fn layersFaded<C>(): Node<C> {
+    frame(layers([square(0, 0), square(20, 0)]))
+}
+
+export fn layersTwin<C>(): Node<C> {
+    frame(layers([box(60, 40, 0, 0, [])]))
+}
+
+/// Two squares down a column, the second moved up over the first.
+export fn columnFaded<C>(): Node<C> {
+    frame(half(.Column, [square(0, 0), square(0, -20)]))
+}
+
+export fn columnTwin<C>(): Node<C> {
+    frame(half(.Column, [box(40, 60, 0, 0, [])]))
+}
+
+/// Two squares along a row, the second moved back over the first.
+export fn rowFaded<C>(): Node<C> {
+    frame(half(.Row, [square(0, 0), square(-20, 0)]))
+}
+
+export fn rowTwin<C>(): Node<C> {
+    frame(half(.Row, [box(60, 40, 0, 0, [])]))
+}
+
+/// A reversed column puts the first square at the bottom, and the second,
+/// above it, is moved down over it.
+export fn columnReverseFaded<C>(): Node<C> {
+    frame(half(.ColumnReverse, [square(0, 0), square(0, 20)]))
+}
+
+export fn columnReverseTwin<C>(): Node<C> {
+    frame(half(.ColumnReverse, [box(40, 60, 0, 0, [])]))
+}
+
+/// A reversed row puts the first square at the end, and the second, before
+/// it, is moved along over it.
+export fn rowReverseFaded<C>(): Node<C> {
+    frame(half(.RowReverse, [square(0, 0), square(20, 0)]))
+}
+
+export fn rowReverseTwin<C>(): Node<C> {
+    frame(half(.RowReverse, [box(60, 40, 0, 0, [])]))
+}
+
+/// Two squares in two grid columns, the second moved back over the first.
+export fn gridFaded<C>(): Node<C> {
+    frame(half(tracks(), [square(0, 0), square(-20, 0)]))
+}
+
+export fn gridTwin<C>(): Node<C> {
+    frame(half(tracks(), [box(60, 40, 0, 0, [])]))
+}
+
+/// One box at half opacity, red with a blue border: the border is painted
+/// over the background, so where it lies the box is only blue.
+export fn borderFaded<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(40)),
+                .Height(.Px(40)),
+                .Background(.Rgb(220, 0, 0)),
+                .BorderWidth(.Px(4)),
+                .BorderColor(.Rgb(0, 0, 220)),
+                .Opacity(0.5),
+            ],
+            children: [],
+        }),
+    )
+}
+
+/// A blue box and a red one inside its border, overlapping nothing.
+export fn borderTwin<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Layers),
+                .Width(.Px(40)),
+                .Height(.Px(40)),
+                .Opacity(0.5),
+            ],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Width(.Px(40)),
+                        .Height(.Px(40)),
+                        .Background(.Rgb(0, 0, 220)),
+                    ],
+                    children: [],
+                }),
+                ui.stack({
+                    styles: [
+                        .Width(.Px(32)),
+                        .Height(.Px(32)),
+                        .Translate(.Px(4), .Px(4)),
+                        .Background(.Rgb(220, 0, 0)),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    )
+}
+
+/// A drawing at half opacity holding two overlapping squares.
+export fn drawingFaded<C>(): Node<C> {
+    frame(
+        ui.drawing({
+            alt: .AccessibilityText("Two squares"),
+            size: .Const((60.0, 40.0)),
+            styles: [.Width(.Px(60)), .Height(.Px(40)), .Opacity(0.5)],
+            shapes: [
+                shape.rect({
+                    at: .Const((0.0, 0.0)),
+                    size: .Const((40.0, 40.0)),
+                    fill: .Some(.Const(.Rgb(0, 0, 0))),
+                }),
+                shape.rect({
+                    at: .Const((20.0, 0.0)),
+                    size: .Const((40.0, 40.0)),
+                    fill: .Some(.Const(.Rgb(0, 0, 0))),
+                }),
+            ],
+        }),
+    )
+}
+
+export fn drawingTwin<C>(): Node<C> {
+    frame(
+        ui.drawing({
+            alt: .AccessibilityText("Two squares"),
+            size: .Const((60.0, 40.0)),
+            styles: [.Width(.Px(60)), .Height(.Px(40)), .Opacity(0.5)],
+            shapes: [
+                shape.rect({
+                    at: .Const((0.0, 0.0)),
+                    size: .Const((30.0, 40.0)),
+                    fill: .Some(.Const(.Rgb(0, 0, 0))),
+                }),
+                shape.rect({
+                    at: .Const((30.0, 0.0)),
+                    size: .Const((30.0, 40.0)),
+                    fill: .Some(.Const(.Rgb(0, 0, 0))),
+                }),
+            ],
+        }),
+    )
+}
+
+/// An icon whose artwork is a group at half opacity holding two overlapping
+/// squares.
+export fn iconFaded<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='60' height='40' viewBox='0 0 60 40'><g opacity='0.5'><rect width='40' height='40'/><rect x='20' width='40' height='40'/></g></svg>",
+            ),
+            alt: .Decorative,
+            styles: [.Width(.Px(60)), .Height(.Px(40))],
+        }),
+    )
+}
+
+export fn iconTwin<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='60' height='40' viewBox='0 0 60 40'><g opacity='0.5'><rect width='30' height='40'/><rect x='30' width='30' height='40'/></g></svg>",
+            ),
+            alt: .Decorative,
+            styles: [.Width(.Px(60)), .Height(.Px(40))],
+        }),
+    )
+}
+
+/// The same group in an image's `data:` source.
+export fn imageFaded<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='40' viewBox='0 0 60 40'%3E%3Cg opacity='0.5'%3E%3Crect width='40' height='40'/%3E%3Crect x='20' width='40' height='40'/%3E%3C/g%3E%3C/svg%3E",
+            ),
+            alt: .AccessibilityText(""),
+            styles: [.Width(.Px(60)), .Height(.Px(40))],
+        }),
+    )
+}
+
+export fn imageTwin<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='40' viewBox='0 0 60 40'%3E%3Cg opacity='0.5'%3E%3Crect width='30' height='40'/%3E%3Crect x='30' width='30' height='40'/%3E%3C/g%3E%3C/svg%3E",
+            ),
+            alt: .AccessibilityText(""),
+            styles: [.Width(.Px(60)), .Height(.Px(40))],
+        }),
+    )
+}
+
+/// One SVG shape at half opacity, filled red and stroked blue: the stroke is
+/// painted over the fill, so where it lies the shape is only blue.
+export fn strokeFaded<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><rect x='4' y='4' width='16' height='16' fill='red' stroke='blue' stroke-width='4' opacity='0.5'/></svg>",
+            ),
+            alt: .Decorative,
+            styles: [.Width(.Px(24)), .Height(.Px(24))],
+        }),
+    )
+}
+
+/// A blue square and a red one inside where the stroke runs.
+export fn strokeTwin<C>(): Node<C> {
+    frame(
+        ui.image({
+            source: .Const(
+                "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><g opacity='0.5'><rect x='2' y='2' width='20' height='20' fill='blue'/><rect x='6' y='6' width='12' height='12' fill='red'/></g></svg>",
+            ),
+            alt: .Decorative,
+            styles: [.Width(.Px(24)), .Height(.Px(24))],
+        }),
+    )
+}
+
+/// A square in the flow and one pinned 20 along over it. A pinned box is
+/// painted after the flow, and still inside the group it is written in.
+export fn pinnedFaded<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Position(.Flow),
+                .Width(.Px(80)),
+                .Height(.Px(80)),
+                .Opacity(0.5),
+            ],
+            children: [
+                square(0, 0),
+                box(40, 40, 0, 0, [.Pin(.Start, .Px(20)), .Pin(.Top, .Px(0))]),
+            ],
+        }),
+    )
+}
+
+export fn pinnedTwin<C>(): Node<C> {
+    frame(half(.Column, [box(60, 40, 0, 0, [])]))
+}
+
+/// A square in the flow and one fixed to the page over it, 20 along. A fixed
+/// box is laid out against the page, and still faded with the group it is
+/// written in.
+export fn fixedFaded<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Width(.Px(80)), .Height(.Px(80)), .Opacity(0.5)],
+            children: [
+                square(0, 0),
+                box(40, 40, 0, 0, [
+                    .Position(.PinViewport),
+                    .Pin(.Start, .Px(30)),
+                    .Pin(.Top, .Px(10)),
+                ]),
+            ],
+        }),
+    )
+}
+
+export fn fixedTwin<C>(): Node<C> {
+    frame(half(.Column, [box(60, 40, 0, 0, [])]))
+}
+
+fn side<C>(red: Int): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(40)),
+            .Height(.Full),
+            .Background(.Rgb(red, red, red + 20)),
+        ],
+        children: [],
+    })
+}
+
+/// A scrim at half opacity that blurs the page under it and paints nothing
+/// else: the blurred page, laid at half over the sharp one. The page is dark
+/// on the start and light on the end, so the blur has an edge to soften.
+export fn blurFaded<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Layout(.Layers), .Width(.Px(80)), .Height(.Px(80))],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Row), .Width(.Px(80)), .Height(.Px(80))],
+                    children: [side(30), side(220)],
+                }),
+                ui.stack({
+                    styles: [
+                        .Width(.Full),
+                        .Height(.Full),
+                        .BackdropBlur(.Px(4)),
+                        .Opacity(0.5),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    )
+}
+
+fn item<C>(words: Str, styles: [Style]): Node<C> {
+    ui.stack({ styles: styles, children: [ui.text({ content: .Const(words) })] })
+}
+
+/// A list with a disc beside each item, the second item at half opacity: its
+/// disc is the item's, so it fades with it.
+export fn markedFaded<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.ListMarker(.Disc), .PaddingEdge(.Start, .Px(16)), .Gap(.Px(4))],
+            children: [item("Kept", []), item("Faded", [.Opacity(0.5)])],
+        }),
+    )
+}

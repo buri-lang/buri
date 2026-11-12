@@ -2144,3 +2144,133 @@ for (const width of [390, 800]) {
     );
     assert_eq!(printed, "390 tabular-nums\n800 proportional-nums\n");
 }
+
+/// One faded group of each kind a snapshot fades as one picture (#343), each
+/// in a stack named for it: every stack layout, a box with a border, a
+/// drawing, an icon's SVG group, an SVG shape with a stroke, and a stack with
+/// a pinned child and a fixed one.
+const FADED_GROUPS_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/style" import { Layout, Style };
+from "web" import { WebHost };
+
+fn named<C>(name: Str, subject: Node<C>): Node<C> {
+    ui.stack({ styles: [], children: [subject], role: .Some(.Group), label: .Some(.Const(name)) })
+}
+
+fn square<C>(extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(40)), .Background(.Rgb(0, 0, 0)), .Group(extra)],
+        children: [],
+    })
+}
+
+fn half<C>(layout: Layout, extra: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: [.Layout(layout), .Opacity(0.5), .Group(extra)], children: children })
+}
+
+fn pair<C>(name: Str, layout: Layout): Node<C> {
+    named(name, half(layout, [], [square([]), square([.Translate(.Px(-20), .Px(0))])]))
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                pair("layers", .Layers),
+                pair("column", .Column),
+                pair("row", .Row),
+                pair("column reverse", .ColumnReverse),
+                pair("row reverse", .RowReverse),
+                pair("grid", .Grid([.Fixed(.Px(40)), .Fixed(.Px(40))])),
+                named("border", square([.BorderWidth(.Px(4)), .BorderColor(.Rgb(0, 0, 220)), .Opacity(0.5)])),
+                named(
+                    "drawing",
+                    ui.drawing({
+                        alt: .AccessibilityText("Two squares"),
+                        size: .Const((60.0, 40.0)),
+                        styles: [.Width(.Px(60)), .Height(.Px(40)), .Opacity(0.5)],
+                        shapes: [
+                            shape.rect({ at: .Const((0.0, 0.0)), size: .Const((40.0, 40.0)), fill: .Some(.Const(.Rgb(0, 0, 0))) }),
+                            shape.rect({ at: .Const((20.0, 0.0)), size: .Const((40.0, 40.0)), fill: .Some(.Const(.Rgb(0, 0, 0))) }),
+                        ],
+                    }),
+                ),
+                named(
+                    "icon",
+                    ui.image({
+                        source: .Const("<svg xmlns='http://www.w3.org/2000/svg' width='60' height='40' viewBox='0 0 60 40'><g opacity='0.5'><rect width='40' height='40'/><rect x='20' width='40' height='40'/></g></svg>"),
+                        alt: .Decorative,
+                        styles: [.Width(.Px(60)), .Height(.Px(40))],
+                    }),
+                ),
+                named(
+                    "stroke",
+                    ui.image({
+                        source: .Const("<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'><rect x='4' y='4' width='16' height='16' fill='red' stroke='blue' stroke-width='4' opacity='0.5'/></svg>"),
+                        alt: .Decorative,
+                        styles: [.Width(.Px(60)), .Height(.Px(40))],
+                    }),
+                ),
+                named(
+                    "pinned",
+                    half(.Column, [.Position(.Flow)], [square([]), square([.Pin(.Start, .Px(20)), .Pin(.Top, .Px(0))])]),
+                ),
+                named(
+                    "fixed",
+                    half(.Column, [], [square([]), square([.Position(.PinViewport), .Pin(.Start, .Px(30)), .Pin(.Top, .Px(10))])]),
+                ),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+/// The page fades each group the way a snapshot does: the opacity sits on the
+/// group's own element and on nothing inside it, so the browser composites the
+/// group as one picture. A pinned or fixed child is inside the faded element,
+/// so it is part of that picture too.
+#[test]
+fn a_faded_group_carries_its_opacity_on_its_own_element_and_nothing_inside_it() {
+    let printed = drive(
+        "faded-groups-page",
+        FADED_GROUPS_PAGE,
+        r#"
+import { readFileSync } from "node:fs";
+const sheet = document.createElement("style");
+sheet.textContent = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+document.head.appendChild(sheet);
+// An SVG element's opacity is its attribute; a box's is its computed style.
+const fade = (el) => el.getAttribute("opacity") ?? (getComputedStyle(el).opacity || "1");
+for (const group of document.querySelectorAll("[role=group]")) {
+  const faded = [...group.querySelectorAll("*")].filter((el) => fade(el) !== "1");
+  const read = faded.map((el) => `${el.tagName.toLowerCase()} ${fade(el)} holding ${el.querySelectorAll("*").length}`);
+  console.log(`${group.getAttribute("aria-label")}: ${read.join(", ")}`);
+}
+"#,
+    );
+    assert_eq!(
+        printed,
+        "layers: div 0.5 holding 2\n\
+         column: div 0.5 holding 2\n\
+         row: div 0.5 holding 2\n\
+         column reverse: div 0.5 holding 2\n\
+         row reverse: div 0.5 holding 2\n\
+         grid: div 0.5 holding 2\n\
+         border: div 0.5 holding 0\n\
+         drawing: svg 0.5 holding 2\n\
+         icon: g 0.5 holding 2\n\
+         stroke: rect 0.5 holding 0\n\
+         pinned: div 0.5 holding 2\n\
+         fixed: div 0.5 holding 2\n"
+    );
+}

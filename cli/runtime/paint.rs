@@ -212,9 +212,15 @@
 //!   its own boxes, rather than inherited down to whatever a browser calls a
 //!   list item. The sheet's `.lm-*>*::after` rules draw the same marks in a
 //!   browser; a list nested inside one carries its own.
-//! * `opacity` multiplies into every colour the subtree paints rather than
-//!   compositing the subtree as a group, so two overlapping half-transparent
-//!   children show through each other.
+//!
+//! `opacity` fades an element as one picture, the way a browser composites a
+//! group. The element and everything it holds are painted onto a layer at full
+//! strength, and the layer is laid on the page at the opacity, so two
+//! overlapping children of a half-faded stack read as one grey; fading each
+//! child on its own would darken where they overlap. The layer holds what the
+//! element's stacking context holds, its pinned and fixed descendants and its
+//! list marks included, and a backdrop blur on the element reads the page
+//! under the layer.
 //!
 //! `position: fixed` is honoured the way the page does it: the element leaves
 //! the flow, is laid out against the **page** rather than against whatever it
@@ -258,8 +264,8 @@ use cosmic_text::{
 use taffy::prelude::*;
 use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
 use tiny_skia::{
-    FillRule, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap, PremultipliedColorU8, Stroke,
-    StrokeDash, Transform,
+    BlendMode, FillRule, FilterQuality, LineCap, LineJoin, Mask, Paint, PathBuilder, Pixmap,
+    PixmapPaint, PremultipliedColorU8, Stroke, StrokeDash, Transform,
 };
 
 /// What an image source paints: the PNG reader, the SVG subset, and the rule
@@ -1508,6 +1514,9 @@ struct Computed {
     /// which is top-left, top-right, bottom-left, bottom-right on a
     /// left-to-right page.
     radii: [Len; 4],
+    /// This element's own `opacity`, not inherited: the box and everything
+    /// under it are painted as one picture first and that picture is laid
+    /// down at this opacity, which is what [`Painter::draw`] does with it.
     opacity: f32,
     /// Every `box-shadow` layer, in the order they were written — the first
     /// painted over the ones after it.
@@ -1681,9 +1690,6 @@ impl Computed {
         child.clamp = self.clamp;
         child.masked = self.masked;
         child.placeholder = self.placeholder.clone();
-        // Not inherited, but it multiplies down: a subtree under a half
-        // transparent box is half transparent.
-        child.opacity = self.opacity;
         child
     }
 
@@ -1971,7 +1977,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "border-end-end-radius" => set_sides(&mut style.radii, [3], len(value)),
         "opacity" => {
             if let Ok(o) = value.parse::<f32>() {
-                style.opacity = parent.opacity * o.clamp(0.0, 1.0);
+                style.opacity = o.clamp(0.0, 1.0);
             }
         }
         "box-shadow" => style.shadow = shadows(value, font_size),
@@ -3311,6 +3317,8 @@ fn paint_with(
         ids: &ids,
         fonts,
         deferred: Vec::new(),
+        layers: 0,
+        claimed: Vec::new(),
     };
     for &index in &scene.roots {
         if painter.is_fixed(index) {
@@ -3330,6 +3338,9 @@ fn paint_with(
     // Out of the flow and out of every ancestor's clip, at the origin the
     // viewport gave it.
     for &index in &fixed {
+        if painter.claimed.contains(&index) {
+            continue;
+        }
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
         // A fixed box is its own stacking context, so its positioned
         // descendants paint after its in-flow content, the same as the page's
@@ -3899,6 +3910,10 @@ struct Painter<'a> {
     /// origin and clip it would have been drawn at, so draining the queue
     /// paints it exactly where the in-flow walk would have — only later.
     deferred: Vec<(usize, f32, f32, Option<Mask>)>,
+    /// How many layers of an element with an opacity the walk is inside.
+    layers: u32,
+    /// Fixed boxes drawn into such a layer, which the page does not draw again.
+    claimed: Vec<usize>,
 }
 
 impl Painter<'_> {
@@ -3934,6 +3949,74 @@ impl Painter<'_> {
     /// Draws one node and its children, in document order, which is paint
     /// order: a later sibling covers an earlier one.
     fn draw(&mut self, canvas: &mut Pixmap, index: usize, x: f32, y: f32, clip: Option<&Mask>) {
+        self.draw_item(canvas, index, (x, y), clip, None);
+    }
+
+    /// [`Painter::draw`], with the list mark the node carries as an item.
+    ///
+    /// **An element with an opacity is one picture.** It is painted, children
+    /// and all, onto a layer of its own at full strength, and the layer is
+    /// laid on the canvas at the element's opacity, which is what a browser
+    /// does: two overlapping children of a half-faded stack read as one grey.
+    /// Everything the element owns is in that picture — its list mark, its
+    /// pinned and fixed descendants, whose stacking context the opacity is,
+    /// and the backdrop its own blur reads from the canvas under it.
+    fn draw_item(
+        &mut self,
+        canvas: &mut Pixmap,
+        index: usize,
+        (x, y): (f32, f32),
+        clip: Option<&Mask>,
+        marker: Option<(Marker, u32)>,
+    ) {
+        let Some(style) = self.styles.get(index) else {
+            return;
+        };
+        let opacity = style.opacity;
+        if opacity >= 1.0 || style.hidden {
+            if let Some((kind, item)) = marker {
+                self.marker(canvas, kind, item, index, (x, y), clip);
+            }
+            self.paint(canvas, None, index, x, y, clip);
+            return;
+        }
+        let Some(mut layer) = Pixmap::new(canvas.width(), canvas.height()) else {
+            return;
+        };
+        let outer = std::mem::take(&mut self.deferred);
+        self.layers = self.layers.saturating_add(1);
+        if let Some((kind, item)) = marker {
+            self.marker(&mut layer, kind, item, index, (x, y), clip);
+        }
+        self.paint(&mut layer, Some(canvas), index, x, y, clip);
+        self.drain_deferred(&mut layer);
+        self.layers = self.layers.saturating_sub(1);
+        self.deferred = outer;
+        canvas.draw_pixmap(
+            0,
+            0,
+            layer.as_ref(),
+            &PixmapPaint {
+                opacity,
+                blend_mode: BlendMode::SourceOver,
+                quality: FilterQuality::Nearest,
+            },
+            Transform::identity(),
+            None,
+        );
+    }
+
+    /// One node's own paint and its children's, onto `canvas`. `backdrop` is
+    /// what the node's own backdrop blur reads, when that is not `canvas`.
+    fn paint(
+        &mut self,
+        canvas: &mut Pixmap,
+        backdrop: Option<&Pixmap>,
+        index: usize,
+        x: f32,
+        y: f32,
+        clip: Option<&Mask>,
+    ) {
         let (Some(node), Some(style), Some(&Some(id))) = (
             self.scene.node(index),
             self.styles.get(index),
@@ -3991,16 +4074,9 @@ impl Painter<'_> {
                 let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
                 let corner = radii.map(|corner| corner.map(|r| r + shadow.spread));
                 if shadow.blur > 0.0 {
-                    cast_blurred(canvas, cast, corner, shadow, style.opacity, &outside);
+                    cast_blurred(canvas, cast, corner, shadow, &outside);
                 } else if let Some(under) = outside.within(canvas, cast.on_device()) {
-                    fill(
-                        canvas,
-                        cast,
-                        corner,
-                        shadow.colour,
-                        style.opacity,
-                        Some(&under),
-                    );
+                    fill(canvas, cast, corner, shadow.colour, Some(&under));
                 }
             }
         }
@@ -4009,10 +4085,10 @@ impl Painter<'_> {
         // and the background: the shadow is cast outside the box and the
         // background fills over the blur.
         if style.backdrop_blur > 0.0 {
-            backdrop_blur(canvas, box_, radii, style.backdrop_blur, clip);
+            backdrop_blur(canvas, backdrop, box_, radii, style.backdrop_blur, clip);
         }
         if style.background.visible() {
-            fill(canvas, box_, radii, style.background, style.opacity, clip);
+            fill(canvas, box_, radii, style.background, clip);
         }
         let widths = style.border_widths();
         if widths.iter().any(|w| *w > 0.0) && style.border_colour.unwrap_or(style.colour).visible()
@@ -4071,8 +4147,13 @@ impl Painter<'_> {
         for &child in &node.children {
             // A fixed child hangs off the viewport, so it is neither placed
             // here nor clipped by anything here. It is drawn last, from the
-            // top.
+            // top — or, under an element with an opacity, last in that
+            // element's picture, which is where a browser composites it.
             if self.is_fixed(child) {
+                if self.layers > 0 {
+                    self.claimed.push(child);
+                    self.deferred.push((child, 0.0, 0.0, None));
+                }
                 continue;
             }
             // A pinned child paints after the in-flow content of its stacking
@@ -4094,13 +4175,14 @@ impl Painter<'_> {
                 self.deferred.push((child, from.0, from.1, clip));
                 continue;
             }
+            let mut mark = None;
             if style.marker != Marker::None
                 && self.scene.node(child).is_some_and(|c| c.text.is_none())
             {
                 item = item.saturating_add(1);
-                self.marker(canvas, style.marker, item, child, from, inner);
+                mark = Some((style.marker, item));
             }
-            self.draw(canvas, child, from.0, from.1, inner);
+            self.draw_item(canvas, child, from, inner, mark);
         }
     }
 
@@ -4121,20 +4203,12 @@ impl Painter<'_> {
         art: &Art,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
-            fill(
-                canvas,
-                box_,
-                circular(0.0),
-                PLACEHOLDER_EDGE,
-                style.opacity,
-                clip,
-            );
+            fill(canvas, box_, circular(0.0), PLACEHOLDER_EDGE, clip);
             fill(
                 canvas,
                 box_.grow(-1.0),
                 circular(0.0),
                 PLACEHOLDER_FILL,
-                style.opacity,
                 clip,
             );
             return;
@@ -4147,13 +4221,7 @@ impl Painter<'_> {
             Art::Artwork(_) => style.colour,
             Art::Source(_) => Rgba::BLACK,
         };
-        picture.draw(
-            canvas,
-            box_.scale(DEVICE_SCALE),
-            style.opacity,
-            colour,
-            clip,
-        );
+        picture.draw(canvas, box_.scale(DEVICE_SCALE), colour, clip);
     }
 
     /// A slider: a bar across the middle of its box, and a round thumb on it
@@ -4211,7 +4279,6 @@ impl Painter<'_> {
             },
             circular(0.0),
             style.background,
-            style.opacity,
             clip,
         );
         // The filled part of the track, in the element's `Foreground`: the run
@@ -4227,7 +4294,6 @@ impl Painter<'_> {
             },
             circular(0.0),
             style.colour,
-            style.opacity,
             clip,
         );
         fill(
@@ -4240,7 +4306,6 @@ impl Painter<'_> {
             },
             circular(size / 2.0),
             style.colour,
-            style.opacity,
             clip,
         );
     }
@@ -4265,14 +4330,7 @@ impl Painter<'_> {
             // and differ only in the box the scene gives them: a thumb takes
             // the whole control, a dot half of it. The reset's `::before` draws
             // the same two discs from the same two sizes.
-            fill(
-                canvas,
-                box_,
-                circular(side / 2.0),
-                style.colour,
-                style.opacity,
-                clip,
-            );
+            fill(canvas, box_, circular(side / 2.0), style.colour, clip);
             return;
         }
         let unit = side / 16.0;
@@ -4285,7 +4343,7 @@ impl Painter<'_> {
         let Some(path) = pen.finish() else { return };
         let paint = Paint {
             anti_alias: true,
-            shader: shade(style.colour, style.opacity),
+            shader: shade(style.colour),
             ..Paint::default()
         };
         let stroke = Stroke {
@@ -4334,14 +4392,7 @@ impl Painter<'_> {
                     r: px(left - gap),
                     b: px(middle + size / 2.0),
                 };
-                fill(
-                    canvas,
-                    box_,
-                    circular(size / 2.0),
-                    style.colour,
-                    style.opacity,
-                    clip,
-                );
+                fill(canvas, box_, circular(size / 2.0), style.colour, clip);
             }
             Marker::Decimal => {
                 let text = format!("{item}.");
@@ -4405,7 +4456,7 @@ impl Painter<'_> {
         } else {
             1.0
         };
-        let colour = premultiply(style.colour, style.opacity * fade);
+        let colour = premultiply(style.colour, fade);
         if colour[3] == 0 {
             return;
         }
@@ -4499,14 +4550,7 @@ impl Painter<'_> {
                 r: box_.l.saturating_add(px(to)),
                 b: top.saturating_add(px(thickness).max(1)),
             };
-            fill(
-                canvas,
-                bar,
-                circular(0.0),
-                style.colour,
-                style.opacity,
-                clip,
-            );
+            fill(canvas, bar, circular(0.0), style.colour, clip);
         }
     }
 }
@@ -4752,18 +4796,11 @@ fn resolve_length(len: Len, basis: f32) -> f32 {
     }
 }
 
-fn fill(
-    canvas: &mut Pixmap,
-    box_: Box2,
-    radii: Radii,
-    colour: Rgba,
-    opacity: f32,
-    clip: Option<&Mask>,
-) {
+fn fill(canvas: &mut Pixmap, box_: Box2, radii: Radii, colour: Rgba, clip: Option<&Mask>) {
     let Some(path) = box_.path(radii) else { return };
     let paint = Paint {
         anti_alias: true,
-        shader: shade(colour, opacity),
+        shader: shade(colour),
         ..Paint::default()
     };
     canvas.fill_path(&path, &paint, FillRule::Winding, to_device(), clip);
@@ -4786,7 +4823,7 @@ fn stroke(
     };
     let paint = Paint {
         anti_alias: true,
-        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
+        shader: shade(style.border_colour.unwrap_or(style.colour)),
         ..Paint::default()
     };
     let mut pen = Stroke {
@@ -4856,7 +4893,7 @@ fn stroke_edges(
     }
     let paint = Paint {
         anti_alias: true,
-        shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
+        shader: shade(style.border_colour.unwrap_or(style.colour)),
         ..Paint::default()
     };
     let dashed = |edge: usize| style.border_style.get(edge) == Some(&Border::Dashed);
@@ -5039,8 +5076,8 @@ fn picture(art: &Art, fonts: &mut Fonts) -> Option<Picture> {
     }
 }
 
-fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
-    let a = (colour.a * opacity).clamp(0.0, 1.0);
+fn shade<'a>(colour: Rgba) -> tiny_skia::Shader<'a> {
+    let a = colour.a.clamp(0.0, 1.0);
     let solid = tiny_skia::Color::from_rgba(
         f32::from(colour.r) / 255.0,
         f32::from(colour.g) / 255.0,
@@ -5087,14 +5124,7 @@ fn clipped(
 /// with whatever clip the caller was already under, and then used as the clip
 /// of a fill over the whole canvas — so the colour lands at exactly the
 /// coverage the blur computed, and nowhere the caller had already excluded.
-fn cast_blurred(
-    canvas: &mut Pixmap,
-    cast: Box2,
-    radii: Radii,
-    shadow: Shadow,
-    opacity: f32,
-    outside: &Outside,
-) {
+fn cast_blurred(canvas: &mut Pixmap, cast: Box2, radii: Radii, shadow: Shadow, outside: &Outside) {
     let (width, height) = (canvas.width(), canvas.height());
     let Some(mut mask) = Spare::new(
         width,
@@ -5129,7 +5159,7 @@ fn cast_blurred(
     outside.apply(&mut mask, region, mul255);
     let paint = Paint {
         anti_alias: false,
-        shader: shade(shadow.colour, opacity),
+        shader: shade(shadow.colour),
         ..Paint::default()
     };
     // The box the shadow is cast from is knocked out of the mask, so most of
@@ -5422,7 +5452,14 @@ fn blur_passes(radius: f32) -> Option<[(usize, usize); 3]> {
 /// canvas edge fades there, where CSS clamps the edge sample. A scrim inset
 /// from the page's edge never meets it; a full-bleed one fades by a few pixels
 /// at the very rim.
-fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, clip: Option<&Mask>) {
+fn backdrop_blur(
+    canvas: &mut Pixmap,
+    backdrop: Option<&Pixmap>,
+    box_: Box2,
+    radii: Radii,
+    radius: f32,
+    clip: Option<&Mask>,
+) {
     // The canvas is at device resolution, so the blur radius is too.
     let device = radius * DEVICE_SCALE;
     let Some(passes) = blur_passes(device) else {
@@ -5469,7 +5506,9 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
 
     // Each of the four premultiplied channels, over the region, blurred.
     let mut planes: [Vec<u8>; 4] = [vec![0; rn], vec![0; rn], vec![0; rn], vec![0; rn]];
-    let src = canvas.data();
+    // The page behind the box is `backdrop` when the box is being painted onto
+    // a layer of its own: the layer starts empty, and the page is under it.
+    let src = backdrop.unwrap_or(&*canvas).data();
     for ry in 0..rh {
         let canvas_row = (y0 as usize + ry).saturating_mul(w) + x0 as usize;
         let region_row = ry.saturating_mul(rw);
@@ -5703,8 +5742,8 @@ fn mul255(x: u8, y: u8) -> u8 {
     u8::try_from((p + (p >> 8)) >> 8).unwrap_or(255)
 }
 
-fn premultiply(colour: Rgba, opacity: f32) -> [u8; 4] {
-    let a = ((colour.a * opacity).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+fn premultiply(colour: Rgba, fade: f32) -> [u8; 4] {
+    let a = ((colour.a * fade).clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     [colour.r, colour.g, colour.b, a]
 }
 

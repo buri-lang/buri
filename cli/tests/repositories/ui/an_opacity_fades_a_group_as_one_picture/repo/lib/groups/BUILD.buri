@@ -1,0 +1,8 @@
+# One library and one test source: each faded group beside its twin.
+library {
+    sources: ["groups.buri"]
+
+    test {
+        sources: ["test/groups.buri"]
+    }
+}
