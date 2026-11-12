@@ -22,8 +22,11 @@
 ///  * `press(key)`, a keydown at the focused element and, when no listener
 ///    cancelled it, the key's default action — Escape cancels a dialog, Enter
 ///    and Space click a button, Space a checkbox or a radio, the arrows move a
-///    radio group or a slider, and Enter in a form's field submits the form —
-///    which happy-dom doesn't take itself;
+///    radio group or a slider, the left and right arrows, Home and End move a
+///    text field's caret, and Enter in a form's field submits the form —
+///    which happy-dom doesn't take itself, then the keyup;
+///  * a modal dialog that gives the focus back when it shuts, which happy-dom
+///    leaves out too;
 ///  * `moves`, every move the address bar made, in order.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
@@ -59,6 +62,7 @@ const FIRED = {
   mouseenter: [MouseEvent, false, false],
   mouseleave: [MouseEvent, false, false],
   keydown: [KeyboardEvent, true, true],
+  keyup: [KeyboardEvent, true, true],
   input: [InputEvent, true, false],
 };
 
@@ -72,13 +76,18 @@ function fire(target, type, fields = {}) {
 }
 
 // A keydown where the focus is (the body when nothing has it), then, unless a
-// listener cancelled it, what a browser does with the key by itself.
+// listener cancelled it, what a browser does with the key by itself, then the
+// keyup where the focus is by then.
 function press(key) {
   const at = document.activeElement;
   const event = fire(at, "keydown", { key });
   if (!event.defaultPrevented) byItself(at, key);
+  fire(document.activeElement, "keyup", { key });
   return event;
 }
+
+// The fields whose caret a page can read through `selectionStart`.
+const CARET_FIELDS = ["text", "search", "url", "tel", "password"];
 
 // The fields a browser submits a form from when it has no submit button.
 const LINE_FIELDS = ["text", "search", "url", "tel", "email", "password", "number"];
@@ -108,6 +117,7 @@ function byItself(at, key) {
     next.focus();
     next.click();
   } else if (type === "range") slide(at, key);
+  else if (tag === "TEXTAREA" || (tag === "INPUT" && CARET_FIELDS.includes(type))) moveCaret(at, key);
   if (key === "Enter" && tag === "INPUT" && at.form !== null) submitImplicitly(at);
 }
 
@@ -137,6 +147,50 @@ function slide(at, key) {
   at.dispatchEvent(new InputEvent("input", { bubbles: true }));
   at.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+// A text field's caret keys: the left and right arrows move the caret one
+// grapheme, or collapse a selection to the edge they point at; Home and End
+// move it to the start and end of its line.
+function moveCaret(at, key) {
+  const text = at.value;
+  const low = at.selectionStart;
+  const high = at.selectionEnd;
+  const bounds = [...new Intl.Segmenter().segment(text)].map((s) => s.index).concat([text.length]);
+  const lineStart = (i) => text.lastIndexOf("\n", i - 1) + 1;
+  const lineEnd = (i) => (text.indexOf("\n", i) < 0 ? text.length : text.indexOf("\n", i));
+  const moves = {
+    ArrowLeft: () => (low < high ? low : (bounds.findLast((b) => b < low) ?? 0)),
+    ArrowRight: () => (low < high ? high : (bounds.find((b) => b > high) ?? high)),
+    Home: () => lineStart(at.selectionDirection === "backward" ? low : high),
+    End: () => lineEnd(at.selectionDirection === "backward" ? low : high),
+  };
+  const move = moves[key];
+  if (move === undefined) return;
+  const to = move();
+  at.setSelectionRange(to, to);
+}
+
+// The element that had the focus when each open modal dialog opened.
+const openers = new WeakMap();
+const showModal = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function () {
+  const had = document.activeElement;
+  showModal.call(this);
+  openers.set(this, had === body ? null : had);
+};
+// `close`, with the step happy-dom leaves out: before the `close` event, the
+// focus goes back to the element that had it when the dialog opened, while that
+// element can still take it, and otherwise leaves the shut dialog.
+HTMLDialogElement.prototype.close = function (returnValue) {
+  if (!this.open) return;
+  this.removeAttribute("open");
+  this.returnValue = returnValue === undefined ? "" : String(returnValue);
+  const back = openers.get(this) ?? null;
+  openers.delete(this);
+  if (back !== null && back.isConnected && !back.disabled) back.focus();
+  else if (this.contains(document.activeElement)) document.activeElement.blur();
+  this.dispatchEvent(new Event("close"));
+};
 
 // Implicit submission: the form's first submit button is clicked unless it is
 // disabled; a form with none is submitted from its one line field.

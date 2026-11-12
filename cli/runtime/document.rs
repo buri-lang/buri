@@ -241,6 +241,10 @@ struct Frame {
 struct Region {
     start: usize,
     end: usize,
+    /// For a dialog's region, the stop that had the focus when the dialog
+    /// opened: where the focus goes back to when it shuts, as a browser's
+    /// modal dialog returns it to the element focused before `showModal`.
+    opener: Option<usize>,
 }
 
 /// One row of a keyed list: its key, the two markers holding its place — so that
@@ -806,7 +810,11 @@ pub extern "C" fn buri_rt_ui_node_enter_dynamic(handle: i64) -> i64 {
     with_doc(handle, |doc| {
         let start = doc.add(Kind::Marker, String::new(), String::new(), String::new());
         let end = doc.add(Kind::Marker, String::new(), String::new(), String::new());
-        doc.regions.push(Region { start, end });
+        doc.regions.push(Region {
+            start,
+            end,
+            opener: None,
+        });
         (doc.regions.len() as i64) - 1
     })
     .unwrap_or(-1)
@@ -820,7 +828,7 @@ impl Document {
     /// where the last one did. The native `$tree_dynamic`'s
     /// `for (…of $dom_between) $dom_remove`.
     fn begin_region(&mut self, region: usize) {
-        let Some(&Region { start, end }) = self.regions.get(region) else {
+        let Some(&Region { start, end, .. }) = self.regions.get(region) else {
             return;
         };
         let parent = self.records.get(start).and_then(|r| r.parent).unwrap_or(0);
@@ -882,6 +890,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
     let Ok(region) = usize::try_from(region) else {
         return;
     };
+    let dialog = with_doc(handle, |doc| {
+        doc.dialog_open(region).map(|open| (open, doc.focus_now()))
+    })
+    .flatten();
     with_doc(handle, |doc| doc.begin_region(region));
     // SAFETY: `state` is the walk's record, built as the mount's was.
     unsafe { supply(handle, state) };
@@ -890,6 +902,47 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
     unsafe { crate::ui::buri_rt_ui_render_walk(entry, state, handle, node, frame_at) };
     with_doc(handle, |doc| doc.end_region());
     check_focus(handle);
+    if let Some((was, focus)) = dialog {
+        return_focus(handle, region, was, focus);
+    }
+}
+
+impl Document {
+    /// Whether `region` is a dialog's, and if so whether the dialog is open: a
+    /// shut one draws nothing between the region's markers.
+    fn dialog_open(&self, region: usize) -> Option<bool> {
+        let &Region { start, end, .. } = self.regions.get(region)?;
+        if self.records.get(start)?.value_signal < 0 {
+            return None;
+        }
+        let children = &self.records[self.records[start].parent?].children;
+        let at = children.iter().position(|&c| c == start)?;
+        Some(children.get(at + 1) != Some(&end))
+    }
+}
+
+/// After the dialog region `region` was rebuilt: a dialog that just opened
+/// keeps `focus`, the stop that had the focus before, and one that just shut
+/// gives the focus back to that stop while it can still take it — the
+/// browser's previously focused element, which closing a modal dialog
+/// focuses again.
+fn return_focus(handle: i64, region: usize, was: bool, focus: Option<usize>) {
+    let back = with_doc(handle, |doc| {
+        let now = doc.dialog_open(region)?;
+        let opener = &mut doc.regions[region].opener;
+        match (was, now) {
+            (false, true) => {
+                *opener = focus;
+                None
+            }
+            (true, false) => opener.take().filter(|&k| doc.focusable(k)),
+            _ => None,
+        }
+    })
+    .flatten();
+    if back.is_some() {
+        set_focus(handle, back);
+    }
 }
 
 /// `beginRegion(builder, region)` — clears `region` and points the builder at
@@ -3022,41 +3075,49 @@ pub extern "C" fn buri_rt_host_testing_rendered_shift_tab(handle: i64) {
     tab(handle, false);
 }
 
-/// `Rendered.key(key)` — every `onKey` from the focused element out to the
-/// root hears `key`, innermost first. When none of them claimed it, what a
-/// browser does with the key by itself follows: an Escape hides the tooltip
-/// that is showing and shuts the topmost dialog; Enter and Space press a
-/// button and open or shut a disclosure; Enter follows a link; Space flips a
-/// toggle and checks a radio; the arrows move a radio group's choice, and they,
-/// Page Up, Page Down, Home and End move a slider; and Enter in an input
-/// submits its form. A Tab is `tab`.
+/// `pressKey(page, key)`, `Rendered.key` up to the caret — every `onKey`
+/// from the focused element out to the root hears `key`, innermost first.
+/// When none of them claimed it, what a browser does with the key by itself
+/// follows: an Escape hides the tooltip that is showing and shuts the topmost
+/// dialog; Enter and Space press a button and open or shut a disclosure; Enter
+/// follows a link; Space flips a toggle and checks a radio; the arrows move a
+/// radio group's choice, and they, Page Up, Page Down, Home and End move a
+/// slider; and Enter in an input submits its form. A Tab is `tab`.
+///
+/// Answers whether what is left is the caret's: an arrow left or right, Home
+/// or End in the focused field that keeps a selection, which
+/// [`buri_rt_host_testing_move_caret`] moves.
 ///
 /// # Safety
 /// `key` is a readable UTF-8 range, or null with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
+pub unsafe extern "C" fn buri_rt_host_testing_press_key(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
     len: u64,
-) {
+) -> u8 {
     // SAFETY: forwarded to the caller's promise.
     let name = unsafe { text_of(ptr, len) };
     if name == "Tab" {
         tab(handle, true);
-        return;
+        return 0;
     }
     if dispatch_key(handle, &name) {
-        return;
+        return 0;
     }
     if name == "Escape" {
         dismiss_tips(handle);
         shut_dialog(handle);
-        return;
+        return 0;
     }
     let Some(at) = with_doc(handle, |doc| doc.focused_record()).flatten() else {
-        return;
+        return 0;
     };
+    let caret_key = matches!(name.as_str(), "ArrowLeft" | "ArrowRight" | "Home" | "End");
+    if caret_key && with_doc(handle, |doc| doc.caret_field().is_some()).unwrap_or(false) {
+        return 1;
+    }
     match key_target(handle, at) {
         Some(Target::Button) if name == "Enter" || name == " " => activate(handle, at),
         Some(Target::Link) if name == "Enter" => follow_anchor(handle, at),
@@ -3083,6 +3144,117 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
         .flatten()
     {
         submit_implicitly(handle, form, line);
+    }
+    0
+}
+
+impl Document {
+    /// The focused field whose caret a key moves: a text control, enabled and
+    /// in reach, that keeps a `selection` signal. An email or a number field
+    /// is left out: a browser reports no selection for either.
+    fn caret_field(&self) -> Option<usize> {
+        let at = self.focused_record()?;
+        let r = &self.records[at];
+        let kind = decl_value(&r.body, "field");
+        let text = matches!(r.name.as_str(), "input" | "textarea")
+            && matches!(
+                kind.as_deref(),
+                Some("text" | "multiline" | "password" | "search")
+            );
+        (text && r.selection_signal >= 0 && !is_disabled(&r.body) && !self.inert(at)).then_some(at)
+    }
+}
+
+/// `caretText(page)` — the text of the focused field, its run of text.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_caret_text(handle: i64, out: *mut BuriStr) {
+    let text = with_doc(handle, |doc| {
+        let at = doc.caret_field()?;
+        doc.records[at]
+            .children
+            .iter()
+            .find(|&&c| doc.records[c].kind == Kind::Text)
+            .map(|&c| doc.records[c].text.clone())
+    })
+    .flatten()
+    .unwrap_or_default();
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(str_of(&text)) };
+}
+
+/// `moveCaret(page, key, graphemes)` — moves the focused field's caret for
+/// the caret key `key`, over `graphemes`, its text split as a reader sees it,
+/// in one update transaction, as `select` writes it.
+///
+/// # Safety
+/// `key` is a readable UTF-8 range, or null with a zero length. `graphemes`
+/// points at `graphemes_len` [`BuriStr`] elements, or is null with a zero
+/// length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_move_caret(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    graphemes: *const u8,
+    graphemes_len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let key = unsafe { text_of(ptr, len) };
+    // SAFETY: forwarded to the caller's promise.
+    let pieces = unsafe { keys_of(graphemes, graphemes_len) };
+    let signal = with_doc(handle, |doc| {
+        doc.caret_field().map(|at| doc.records[at].selection_signal)
+    })
+    .flatten();
+    let Some((signal, (anchor, focus))) =
+        signal.and_then(|s| crate::ui::i64_pair_signal(s).map(|pair| (s, pair)))
+    else {
+        return;
+    };
+    let to = caret_move(&key, &pieces, anchor, focus);
+    crate::ui::buri_rt_ui_flush_begin();
+    crate::ui::set_i64_pair_signal(signal, to, to);
+    crate::ui::buri_rt_ui_flush_end();
+}
+
+/// Where the caret key `key` takes a selection from `anchor` to `focus` over
+/// `pieces`: the left and right arrows one grapheme, or to the selection's
+/// edge, and Home and End to the ends of the focus's line. Offsets count UTF-16
+/// code units and a line break as one, as a browser's field reports them.
+fn caret_move(key: &str, pieces: &[String], anchor: i64, focus: i64) -> i64 {
+    // Each grapheme's start and end, and whether it breaks the line.
+    let mut spans = Vec::with_capacity(pieces.len());
+    let mut end = 0i64;
+    for piece in pieces {
+        let line = matches!(piece.as_str(), "\n" | "\r\n" | "\r");
+        let start = end;
+        end += if line {
+            1
+        } else {
+            piece.encode_utf16().count() as i64
+        };
+        spans.push((start, end, line));
+    }
+    let (anchor, focus) = (anchor.clamp(0, end), focus.clamp(0, end));
+    let (low, high) = (anchor.min(focus), anchor.max(focus));
+    match key {
+        "ArrowLeft" if low < high => low,
+        "ArrowLeft" => spans.iter().rev().find(|s| s.0 < low).map_or(0, |s| s.0),
+        "ArrowRight" if low < high => high,
+        "ArrowRight" => spans.iter().find(|s| s.1 > high).map_or(high, |s| s.1),
+        "Home" => spans
+            .iter()
+            .rev()
+            .find(|s| s.2 && s.1 <= focus)
+            .map_or(0, |s| s.1),
+        _ => spans
+            .iter()
+            .find(|s| s.2 && s.0 >= focus)
+            .map_or(end, |s| s.0),
     }
 }
 

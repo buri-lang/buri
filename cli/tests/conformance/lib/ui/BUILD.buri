@@ -3,6 +3,9 @@ library {
 
     test {
         sources: [
+            "test/caret.buri",
+            "test/dialogs.buri",
+            "test/disabled.buri",
             "test/drawings.buri",
             "test/handlers.buri",
             "test/keys.buri",

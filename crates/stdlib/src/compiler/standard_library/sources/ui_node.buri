@@ -2437,7 +2437,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // selection in a reactive region of their own, so picking one re-checks
         // and re-dots without rebuilding the content beside it. `style` picks
         // the shape and does not change the scene the painter reads.
-        .Picker(label, options, styles, value, _style, _disabled, focus, events) => {
+        .Picker(label, options, styles, value, _style, disabled, focus, events) => {
             emitPicker(
                 ctx,
                 builder,
@@ -2445,6 +2445,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 options,
                 styles,
                 value,
+                disabled,
                 focus,
                 events,
                 state,
@@ -2946,7 +2947,8 @@ fn emitField<C>(
 /// A picker's emit. The group's box is emitted once with the caller's context,
 /// since an option's content is any node; each option's input and dot follow the
 /// selection in a reactive region of their own. A `hasFocus` is the group's:
-/// true while any option has the focus.
+/// true while any option has the focus. A disabled picker disables every
+/// option's input, as a browser's disabled radios are.
 fn emitPicker<C>(
     ctx: C,
     builder: Builder,
@@ -2954,6 +2956,7 @@ fn emitPicker<C>(
     options: [(Str, Node<C>)],
     styles: [Style],
     value: Signal<Str>,
+    disabled: Prop<Bool>,
     focus: Focus,
     events: Events<C>,
     state: State,
@@ -2967,7 +2970,16 @@ fn emitPicker<C>(
         watchFocus(builder, group, Focus { signal: focus.signal, order: .None }, true)
     } else {};
     let _ = registerEvents(builder, events);
-    let _ = emitPickerOptions(ctx, builder, options, value, focus.order, state, 0);
+    let _ = emitPickerOptions(
+        ctx,
+        builder,
+        options,
+        value,
+        disabled,
+        focus.order,
+        state,
+        0,
+    );
     exitElement(builder)
 }
 
@@ -2983,6 +2995,7 @@ fn emitPickerOptions<C>(
     builder: Builder,
     options: [(Str, Node<C>)],
     value: Signal<Str>,
+    disabled: Prop<Bool>,
     order: Option<Prop<Bool>>,
     state: State,
     at: Int,
@@ -3007,7 +3020,7 @@ fn emitPickerOptions<C>(
                 let painted = Painted {
                     state: state,
                     checked: .Some(on),
-                    disabled: false,
+                    disabled: disabled.read(scope),
                     focused: .None,
                 };
                 let reached = match (order) {
@@ -3030,7 +3043,16 @@ fn emitPickerOptions<C>(
             });
             let _ = emitNode(ctx, builder, content, state);
             let _ = exitElement(builder);
-            emitPickerOptions(ctx, builder, options, value, order, state, at + 1)
+            emitPickerOptions(
+                ctx,
+                builder,
+                options,
+                value,
+                disabled,
+                order,
+                state,
+                at + 1,
+            )
         },
     }
 }
@@ -4076,7 +4098,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // `:checked` off the signal — the option whose key equals it — and a
         // checked one draws the dot the reset paints, in the box's own
         // foreground. `style` picks the shape and changes no line here.
-        .Picker(label, options, styles, value, _style, _disabled, _focus, _events) => {
+        .Picker(label, options, styles, value, _style, disabled, _focus, _events) => {
             [
                 named(
                     ctx,
@@ -4091,6 +4113,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
                     state,
                     options,
                     value.get(scope),
+                    disabled.read(scope),
                     depth + 1,
                     0,
                     [],
@@ -4173,6 +4196,7 @@ fn pickerOptionLines<C: Allocator>(
     state: State,
     options: [(Str, Node<C>)],
     selected: Str,
+    disabled: Bool,
     depth: Int,
     at: Int,
     acc: [Str],
@@ -4186,7 +4210,7 @@ fn pickerOptionLines<C: Allocator>(
             let painted = Painted {
                 state: state,
                 checked: .Some(on),
-                disabled: false,
+                disabled: disabled,
                 focused: .None,
             };
             let lines = [
@@ -4201,6 +4225,7 @@ fn pickerOptionLines<C: Allocator>(
                 state,
                 options,
                 selected,
+                disabled,
                 depth,
                 at + 1,
                 acc.concat(ctx, lines),

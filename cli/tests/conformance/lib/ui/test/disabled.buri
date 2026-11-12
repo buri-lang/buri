@@ -1,0 +1,211 @@
+// What a disabled control refuses, control by control: a browser takes it out
+// of the focus order, focuses nothing when the program asks, and neither a
+// press nor a key nor a flip reaches it. `language::pages` checks a browser's
+// disabled picker the same way.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal };
+
+/// A picker of three sizes, bound to `size`, disabled while `off` holds `true`.
+fn sizes<C>(size: Signal<Str>, off: Signal<Bool>, focus: Signal<Bool>): Node<C> {
+    ui.picker({
+        label: .Const("Size"),
+        options: [
+            ("s", ui.text({ content: .Const("Small") })),
+            ("m", ui.text({ content: .Const("Medium") })),
+            ("l", ui.text({ content: .Const("Large") })),
+        ],
+        value: size,
+        styles: [],
+        isDisabled: .Some(.Cell(off)),
+        hasFocus: .Some(focus),
+    })
+}
+
+/// A button named `name` that does nothing when pressed.
+fn plain<C>(name: Str): Node<C> {
+    ui.button({ label: .Const(name), styles: [], onPress: .Some(fn(_c) => ()) })
+}
+
+test "a disabled picker refuses a flip" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "s");
+    let page = render(ctx, sizes(size, signal(ctx, true), signal(ctx, false)));
+    let _ = page.flip("Medium");
+    assert.equal(size.get(ctx), "s");
+}
+
+test "clearing a picker's isDisabled lets a flip through" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "s");
+    let off = signal(ctx, true);
+    let page = render(ctx, sizes(size, off, signal(ctx, false)));
+    let _ = off.set(ctx, false);
+    let _ = page.flip("Large");
+    assert.equal(size.get(ctx), "l");
+}
+
+test "Tab passes over a disabled picker" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "s");
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                plain("First"),
+                sizes(size, signal(ctx, true), signal(ctx, false)),
+                plain("Last"),
+            ],
+        }),
+    );
+    let _ = page.focus("First");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    let _ = page.key("ArrowDown");
+    assert.equal(size.get(ctx), "s");
+}
+
+test "writing hasFocus on a disabled picker focuses nothing and writes it back false" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let focus = signal(ctx, false);
+    let size = signal(ctx, "s");
+    let page = render(ctx, sizes(size, signal(ctx, true), focus));
+    let _ = focus.set(ctx, true);
+    assert.isFalse(focus.get(ctx));
+    assert.equal(page.focused(), "");
+    let _ = page.key(" ");
+    let _ = page.key("ArrowDown");
+    assert.equal(size.get(ctx), "s");
+}
+
+test "Tab passes over every kind of disabled control" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let off: Prop<Bool> = .Const(true);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                plain("First"),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    isDisabled: .Some(off),
+                }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                    isDisabled: .Some(off),
+                }),
+                ui.slider({
+                    label: .Const("Level"),
+                    value: signal(ctx, 1.0),
+                    min: 0.0,
+                    max: 10.0,
+                    styles: [],
+                    isDisabled: .Some(off),
+                }),
+                ui.toggle({
+                    label: .Const("Wifi"),
+                    kind: .Checkbox,
+                    isOn: signal(ctx, false),
+                    styles: [],
+                    isDisabled: .Some(off),
+                }),
+                ui.picker({
+                    label: .Const("Size"),
+                    options: [("s", ui.text({ content: .Const("Small") }))],
+                    value: signal(ctx, "s"),
+                    styles: [],
+                    isDisabled: .Some(off),
+                }),
+                ui.filePicker({
+                    label: .Const("Import"),
+                    maxBytes: 100,
+                    onPick: fn(_c, _file) => (),
+                    styles: [],
+                    isDisabled: .Some(off),
+                }),
+                ui.form({
+                    onSubmit: fn(_c) => (),
+                    children: [
+                        ui.button({
+                            label: .Const("Send"),
+                            styles: [],
+                            kind: .Some(.Submit),
+                            isDisabled: .Some(off),
+                        }),
+                    ],
+                    styles: [],
+                }),
+                plain("Last"),
+            ],
+        }),
+    );
+    let _ = page.focus("First");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    let _ = page.shiftTab();
+    assert.equal(page.focused(), "First");
+}
+
+test "a disabled slider takes no value and a disabled field moves no caret" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let level = signal(ctx, 1.0);
+    let caret = signal(ctx, (0, 0));
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.slider({
+                    label: .Const("Level"),
+                    value: level,
+                    min: 0.0,
+                    max: 10.0,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, "Ada"),
+                    selection: .Some(caret),
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+            ],
+        }),
+    );
+    let _ = page.fill("Level", "7");
+    let _ = page.select("Name", 1, 3);
+    assert.equal(level.get(ctx), 1.0);
+    assert.equal(caret.get(ctx), (0, 0));
+}

@@ -832,6 +832,15 @@ const PACKAGES: &[Case] = &[
     // The handlers a headless interaction runs: `onFocus` as the focus moves
     // and `onHover` as the pointer does. `BUILD.buri` lists it too.
     included("ui/handlers.buri"),
+    // What the caret keys do in a text field: the arrows, Home and End.
+    // `BUILD.buri` lists it too.
+    included("ui/caret.buri"),
+    // Where the focus goes when a dialog shuts: back to the element that had
+    // it before the dialog opened. `BUILD.buri` lists it too.
+    included("ui/dialogs.buri"),
+    // What a disabled control refuses, control by control: the focus order,
+    // a `hasFocus` write, a flip, a fill and a key. `BUILD.buri` lists it too.
+    included("ui/disabled.buri"),
     // The keys a browser handles by itself: Escape shuts a dialog, Enter and
     // Space press a button, arrows move a radio group or a slider, Enter
     // submits a form. `BUILD.buri` lists it too.

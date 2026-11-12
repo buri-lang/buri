@@ -1041,6 +1041,16 @@ pub(crate) fn set_i64_pair_signal(id: i64, a: i64, b: i64) {
     unsafe { write_changed(id, bytes.as_ptr(), bytes.len()) };
 }
 
+/// The `(Int, Int)` pair the tuple signal `id` holds, the sixteen bytes
+/// [`set_i64_pair_signal`] writes, or `None` for a signal that holds none.
+pub(crate) fn i64_pair_signal(id: i64) -> Option<(i64, i64)> {
+    let g = lock();
+    let value = &g.get(id)?.value;
+    let a = i64::from_ne_bytes(value.get(..8)?.try_into().ok()?);
+    let b = i64::from_ne_bytes(value.get(8..16)?.try_into().ok()?);
+    Some((a, b))
+}
+
 /// Flips the `Bool` signal `id` — the native twin of a toggle's `change`
 /// listener writing the negation of the bound signal. A `Bool` holds no counted
 /// block, so this is the byte turned over with no reference to give back.

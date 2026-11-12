@@ -2269,7 +2269,9 @@ impl Rendered {
     /// the key by itself follows:
     ///
     ///  * Escape hides a tooltip that is showing and shuts the open `dialog`,
-    ///    writing its `isOpen` `false`.
+    ///    writing its `isOpen` `false`. However a dialog shuts, the focus goes
+    ///    back to the element that had it when the dialog opened, while that
+    ///    element can still take it.
     ///  * Enter and Space press a focused button, as `press` does, and open or
     ///    shut a focused disclosure. Enter follows a focused link, as `follow`
     ///    does.
@@ -2281,7 +2283,20 @@ impl Rendered {
     ///    is more, and Home and End to either end.
     ///  * Enter in a form's field submits the form, as `submit` does. A
     ///    multiline field takes Enter as a new line, so it submits nothing.
-    export fn key(self, key: Str): ();
+    ///  * In a text, multiline, password or search field that keeps a
+    ///    `selection`, the left and right arrows move
+    ///    the caret one character, or to the start or the end of a selection,
+    ///    and Home and End move it to the start or the end of the line. A
+    ///    character is what a reader sees as one, an emoji with its skin tone
+    ///    too. The offsets count UTF-16 code units and a line break as one, as
+    ///    a browser's do. The
+    ///    up and down arrows leave the caret where it is: where they take it
+    ///    depends on the platform and on how the field wraps its lines.
+    export fn key(self, key: Str): () {
+        if (pressKey(self, key)) {
+            moveCaret(self, key, caretText(self).graphemes(alloc.generalPurpose()))
+        } else {}
+    }
 
     /// Presses the button whose label is `label`.
     ///
@@ -2444,6 +2459,17 @@ impl Rendered {
     /// it: the identity survives a reorder, and a rebuild changes it.
     export fn identity(self, name: Str, index: Int): Int;
 }
+
+/// `Rendered.key` up to the caret: every `onKey` hears `key`, and what a
+/// browser does with it by itself follows. Answers whether what is left is a
+/// caret key in the focused field that keeps a `selection`.
+fn pressKey(page: Rendered, key: Str): Bool;
+
+/// The text of the focused field.
+fn caretText(page: Rendered): Str;
+
+/// Moves the focused field's caret for `key`, over its text's `graphemes`.
+fn moveCaret(page: Rendered, key: Str, graphemes: [Str]): ();
 
 /// `pickFile`'s first half: keep the file on the document for the picker's
 /// handler to read. Two calls rather than one, because five arguments are more

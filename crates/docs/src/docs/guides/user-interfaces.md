@@ -759,7 +759,7 @@ nothing around it shifts. That is what a press is:
 the row it is in alone, where a padding would reflow the row.
 
 **A state a widget holds is the widget's answer, not the snapshot's.**
-`button`, `field` and `toggle` take an `isDisabled: Prop<Bool>`, and it is an
+Every control takes an `isDisabled: Prop<Bool>`, and it is an
 attribute rather than a style: it takes the control out of the tab order,
 refuses the press before the handler runs, and tells a reader the control is
 unavailable rather than absent. Dimming it is `On(.Disabled, ...)`, which the
@@ -1053,7 +1053,8 @@ reader presses Escape and the browser shuts the panel without asking, so a
 one-way value would leave the program holding a dialog nobody can see. Write
 `true` to open it and `false` to shut it. A headless test's
 `page.key("Escape")` shuts it the same way, as every key a browser handles by
-itself does what it does there.
+itself does what it does there. However the dialog shuts, the focus goes back to
+the element that had it before the dialog opened.
 
 The `styles` land on the panel, so a dialog is a card you drew. The scrim behind
 it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a
@@ -1242,7 +1243,8 @@ every picture, and one whose signal is `false` paints it in none.
 
 A test moves the focus the way a reader does. `focus(name)` clicks into an
 element, `tab()` and `shiftTab()` press Tab, `key(name)` presses any other key,
-and `focused()` says what has the focus. `press` focuses the button it presses,
+and `focused()` says what has the focus. In a field that keeps a `selection`,
+the arrows, Home and End move the caret. `press` focuses the button it presses,
 the way a browser's click does:
 
 ```buri role=test

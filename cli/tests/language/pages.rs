@@ -513,6 +513,170 @@ console.log(said());
     );
 }
 
+/// A button that opens a dialog, which its own button shuts and another
+/// button disables the opener from; a disabled picker; and a line field and a
+/// multiline field that keep their selection.
+/// `conformance/lib/ui/test/{dialogs,disabled,caret}.buri` do the same
+/// headlessly.
+const HEADLESS_GAPS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let open = signal(ctx, false);
+    let off = signal(ctx, false);
+    let size = signal(ctx, "s");
+    let caret = signal(ctx, (0, 0));
+    let lines = signal(ctx, (0, 0));
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Delete"),
+                    styles: [],
+                    onPress: .Some(fn(c) => open.set(c, true)),
+                    isDisabled: .Some(.Cell(off)),
+                }),
+                ui.button({ label: .Const("Other"), styles: [], onPress: .Some(fn(_c) => ()) }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Delete this?"),
+                    children: [
+                        ui.button({
+                            label: .Const("Done"),
+                            styles: [],
+                            onPress: .Some(fn(c) => open.set(c, false)),
+                        }),
+                        ui.button({
+                            label: .Const("Lock"),
+                            styles: [],
+                            onPress: .Some(fn(c) => off.set(c, true)),
+                        }),
+                    ],
+                    styles: [],
+                }),
+                ui.picker({
+                    label: .Const("Size"),
+                    options: [
+                        ("s", ui.text({ content: .Const("Small") })),
+                        ("m", ui.text({ content: .Const("Medium") })),
+                    ],
+                    value: size,
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.field({
+                    label: .Const("Note"),
+                    kind: .Text,
+                    value: signal(ctx, "a👍🏽b"),
+                    styles: [],
+                    selection: .Some(caret),
+                }),
+                ui.field({
+                    label: .Const("Lines"),
+                    kind: .Multiline,
+                    value: signal(ctx, "ab\ncd"),
+                    styles: [],
+                    selection: .Some(lines),
+                }),
+                ui.text({
+                    content: .Computed(fn(s) => {
+                        let (a, b) = caret.get(s);
+                        let (c, d) = lines.get(s);
+                        str.format(s, "open:${open.get(s)} size:${size.get(s)} caret:${a},${b} lines:${c},${d}")
+                    }),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn the_headless_gaps_close_the_way_a_browser_does() {
+    let printed = drive(
+        "headless-gaps-page",
+        HEADLESS_GAPS_PAGE,
+        r#"
+const said = () => body.firstChild.lastChild.textContent;
+// What the focused element is called: its label, or "nothing" for the body.
+const focused = () => {
+  const at = document.activeElement;
+  if (at === body) return "nothing";
+  return at.getAttribute("aria-label") ?? at.closest("label").firstChild.textContent;
+};
+const shown = () => console.log(`${said()} focus:${focused()}`);
+// Escape gives the focus back to the button that opened the dialog.
+labelled("Delete").focus();
+press("Enter");
+labelled("Done").focus();
+press("Escape");
+shown();
+// So does the dialog's own button shutting it.
+press("Enter");
+labelled("Done").focus();
+press("Enter");
+shown();
+// An opener that can no longer take the focus does not get it back.
+press("Enter");
+labelled("Lock").focus();
+press("Enter");
+press("Escape");
+shown();
+// A disabled picker refuses a click on its options.
+document.querySelectorAll("input[type=radio]")[1].click();
+shown();
+// The caret keys, over an emoji and in a field of two lines.
+const note = document.querySelector("input[type=text]");
+note.focus();
+note.setSelectionRange(1, 1);
+press("ArrowRight");
+shown();
+press("ArrowLeft");
+shown();
+note.setSelectionRange(1, 5);
+press("ArrowLeft");
+shown();
+press("End");
+shown();
+press("Home");
+shown();
+const lines = document.querySelector("textarea");
+lines.focus();
+lines.setSelectionRange(4, 4);
+press("Home");
+shown();
+press("End");
+press("ArrowUp");
+press("ArrowDown");
+shown();
+"#,
+    );
+    assert_eq!(
+        printed,
+        "open:false size:s caret:0,0 lines:0,0 focus:Delete\n\
+         open:false size:s caret:0,0 lines:0,0 focus:Delete\n\
+         open:false size:s caret:0,0 lines:0,0 focus:nothing\n\
+         open:false size:s caret:0,0 lines:0,0 focus:nothing\n\
+         open:false size:s caret:5,5 lines:0,0 focus:Note\n\
+         open:false size:s caret:1,1 lines:0,0 focus:Note\n\
+         open:false size:s caret:1,1 lines:0,0 focus:Note\n\
+         open:false size:s caret:6,6 lines:0,0 focus:Note\n\
+         open:false size:s caret:0,0 lines:0,0 focus:Note\n\
+         open:false size:s caret:0,0 lines:3,3 focus:Lines\n\
+         open:false size:s caret:0,0 lines:5,5 focus:Lines\n"
+    );
+}
+
 /// One of each element that has an accessible name, beside a decorative
 /// picture and a decorative drawing. `conformance/lib/ui/test/names.buri`
 /// reads the same names through `spoken()`.

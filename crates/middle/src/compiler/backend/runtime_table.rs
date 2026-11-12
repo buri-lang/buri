@@ -2035,7 +2035,11 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Out,
     ),
     e("host_testing.Rendered.focus", &[Scalar, Str], Ret::Void),
-    e("host_testing.Rendered.key", &[Scalar, Str], Ret::Void),
+    // `key` is `pressKey`, then, for a caret key in a field that keeps a
+    // selection, `moveCaret` over `caretText`'s graphemes, which Buri splits.
+    e("host_testing.pressKey", &[Scalar, Str], Ret::Bool),
+    e("host_testing.caretText", &[Scalar], Ret::Out),
+    e("host_testing.moveCaret", &[Scalar, Str, List], Ret::Void),
     e("host_testing.Rendered.focused", &[Scalar], Ret::Out),
     e("host_testing.Rendered.tab", &[Scalar], Ret::Void),
     e("host_testing.Rendered.shiftTab", &[Scalar], Ret::Void),

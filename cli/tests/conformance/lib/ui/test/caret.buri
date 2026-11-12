@@ -1,0 +1,250 @@
+// What the caret keys do in a text field: the left and right arrows move the
+// caret one character, or collapse a selection to its edge, and Home and End
+// take it to the start and end of its line, as a browser moves it. Offsets
+// count UTF-16 code units, the way a browser's do. `language::pages` presses
+// the same keys in a browser.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { Signal, signal };
+
+/// A field named `Note` of `kind` holding `text`, its selection kept in `caret`.
+fn note<C>(kind: FieldKind, text: Signal<Str>, caret: Signal<(Int, Int)>): Node<C> {
+    ui.field({
+        label: .Const("Note"),
+        kind: kind,
+        value: text,
+        styles: [],
+        selection: .Some(caret),
+    })
+}
+
+test "the left and right arrows move the caret one character" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Text, signal(ctx, "Ada"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 1, 1);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (2, 2));
+    let _ = page.key("ArrowLeft");
+    let _ = page.key("ArrowLeft");
+    assert.equal(caret.get(ctx), (0, 0));
+    // At either end the caret stays where it is.
+    let _ = page.key("ArrowLeft");
+    assert.equal(caret.get(ctx), (0, 0));
+    let _ = page.select("Note", 3, 3);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (3, 3));
+}
+
+test "an arrow collapses a selection to the edge it points at" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Text, signal(ctx, "Balance"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 2, 5);
+    let _ = page.key("ArrowLeft");
+    assert.equal(caret.get(ctx), (2, 2));
+    let _ = page.select("Note", 2, 5);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (5, 5));
+    // A selection made backwards collapses the same way.
+    let _ = page.select("Note", 5, 2);
+    let _ = page.key("ArrowLeft");
+    assert.equal(caret.get(ctx), (2, 2));
+}
+
+test "Home and End take the caret to the start and end of the field" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Text, signal(ctx, "Balance"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 3, 3);
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (7, 7));
+    let _ = page.key("Home");
+    assert.equal(caret.get(ctx), (0, 0));
+}
+
+test "Home and End in a multiline field stay on the caret's line" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Multiline, signal(ctx, "ab\ncd\r\nef"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 4, 4);
+    let _ = page.key("Home");
+    assert.equal(caret.get(ctx), (3, 3));
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (5, 5));
+    // A line break counts one offset however it is written, as a browser
+    // reports offsets into a value whose `\r\n` it made a `\n`.
+    let _ = page.select("Note", 7, 7);
+    let _ = page.key("Home");
+    assert.equal(caret.get(ctx), (6, 6));
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (8, 8));
+    let _ = page.select("Note", 5, 5);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (6, 6));
+}
+
+test "an arrow steps over a whole emoji, in UTF-16 offsets" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    // A thumbs up with a skin tone: two characters outside the BMP, four code
+    // units, one thing a reader sees.
+    let page = render(ctx, note(.Text, signal(ctx, "a👍🏽b"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 1, 1);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (5, 5));
+    let _ = page.key("ArrowLeft");
+    assert.equal(caret.get(ctx), (1, 1));
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (6, 6));
+}
+
+test "the up and down arrows leave a field's caret alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Multiline, signal(ctx, "ab\ncd"), caret));
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 4, 4);
+    let _ = page.key("ArrowUp");
+    let _ = page.key("ArrowDown");
+    assert.equal(caret.get(ctx), (4, 4));
+}
+
+test "an onKey that claims an arrow keeps the caret where it is" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [note(.Text, signal(ctx, "Ada"), caret)],
+            onKey: .Some(fn(_c, key) => key == "ArrowRight"),
+        }),
+    );
+    let _ = page.focus("Note");
+    let _ = page.select("Note", 1, 1);
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (1, 1));
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (3, 3));
+}
+
+test "a field built without a selection takes the caret keys and changes nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let text = signal(ctx, "Ada");
+    let page = render(
+        ctx,
+        ui.field({ label: .Const("Name"), kind: .Text, value: text, styles: [] }),
+    );
+    let _ = page.focus("Name");
+    let _ = page.key("ArrowLeft");
+    let _ = page.key("End");
+    assert.equal(text.get(ctx), "Ada");
+}
+
+test "a caret key on a slider still moves the slider, not a caret" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let level = signal(ctx, 1.0);
+    let page = render(
+        ctx,
+        ui.slider({
+            label: .Const("Level"),
+            value: level,
+            min: 0.0,
+            max: 10.0,
+            styles: [],
+        }),
+    );
+    let _ = page.focus("Level");
+    let _ = page.key("End");
+    assert.equal(level.get(ctx), 10.0);
+    let _ = page.key("ArrowLeft");
+    assert.equal(level.get(ctx), 9.0);
+}
+
+test "the caret keys move no selection in an email field" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // A browser reports no selection for either kind, so a program bound to
+    // one never hears the caret move.
+    let caret = signal(ctx, (1, 1));
+    let page = render(ctx, note(.Email, signal(ctx, "a@b"), caret));
+    let _ = page.focus("Note");
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (1, 1));
+}
+
+test "the caret keys move no selection in a number field" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (1, 1));
+    let page = render(ctx, note(.Number, signal(ctx, "123"), caret));
+    let _ = page.focus("Note");
+    let _ = page.key("ArrowRight");
+    assert.equal(caret.get(ctx), (1, 1));
+}
+
+test "a caret key in a password field moves its caret" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Password, signal(ctx, "hunter2"), caret));
+    let _ = page.focus("Note");
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (7, 7));
+}
+
+test "in an empty field the caret keys leave the caret at its start" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let caret = signal(ctx, (0, 0));
+    let page = render(ctx, note(.Text, signal(ctx, ""), caret));
+    let _ = page.focus("Note");
+    let _ = page.key("ArrowRight");
+    let _ = page.key("End");
+    assert.equal(caret.get(ctx), (0, 0));
+}

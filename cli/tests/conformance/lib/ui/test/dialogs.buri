@@ -1,0 +1,160 @@
+// Where the focus goes when a dialog shuts: back to the element that had it
+// before the dialog opened, the way a browser's modal dialog returns it,
+// however the dialog was shut. `language::pages` checks a browser does the same.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { Signal, signal };
+
+/// A button named `Delete` that opens a dialog holding a button named `Done`,
+/// which shuts it, and a button named `Other` beside them.
+fn confirm<C: Ui>(open: Signal<Bool>, off: Prop<Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Delete"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+                isDisabled: .Some(off),
+            }),
+            ui.button({
+                label: .Const("Other"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Delete this?"),
+                children: [
+                    ui.button({
+                        label: .Const("Done"),
+                        styles: [],
+                        onPress: .Some(fn(c) => open.set(c, false)),
+                    }),
+                ],
+                styles: [],
+            }),
+        ],
+    })
+}
+
+test "Escape gives the focus back to the button that opened the dialog" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(ctx, confirm(open, .Const(false)));
+    let _ = page.press("Delete");
+    let _ = page.focus("Done");
+    let _ = page.key("Escape");
+    assert.isFalse(open.get(ctx));
+    assert.equal(page.focused(), "Delete");
+}
+
+test "a dialog its own button shuts gives the focus back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(ctx, confirm(open, .Const(false)));
+    let _ = page.press("Delete");
+    let _ = page.press("Done");
+    assert.isFalse(open.get(ctx));
+    assert.equal(page.focused(), "Delete");
+}
+
+test "a dialog the program shuts gives the focus back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(ctx, confirm(open, .Const(false)));
+    let _ = page.focus("Delete");
+    let _ = open.set(ctx, true);
+    let _ = page.focus("Done");
+    let _ = open.set(ctx, false);
+    assert.equal(page.focused(), "Delete");
+    // The next Tab goes on from there.
+    let _ = page.tab();
+    assert.equal(page.focused(), "Other");
+}
+
+test "a dialog that opened with nothing focused leaves nothing focused when it shuts" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(ctx, confirm(open, .Const(false)));
+    let _ = page.focus("Done");
+    let _ = page.key("Escape");
+    assert.equal(page.focused(), "");
+}
+
+test "the focus goes back only to an element that can still take it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let off = signal(ctx, false);
+    let page = render(ctx, confirm(open, .Cell(off)));
+    let _ = page.press("Delete");
+    let _ = page.focus("Done");
+    let _ = off.set(ctx, true);
+    let _ = page.key("Escape");
+    assert.equal(page.focused(), "");
+}
+
+test "the opener's hasFocus and onFocus follow the focus back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let held = signal(ctx, false);
+    let heard = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Delete"),
+                    styles: [],
+                    onPress: .Some(fn(c) => open.set(c, true)),
+                    hasFocus: .Some(held),
+                    onFocus: .Some(fn(c, on) => {
+                        if (on) { heard.update(c, fn(n) => n + 1) } else {}
+                    }),
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Delete this?"),
+                    children: [
+                        ui.button({
+                            label: .Const("Done"),
+                            styles: [],
+                            onPress: .Some(fn(c) => open.set(c, false)),
+                        }),
+                    ],
+                    styles: [],
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("Delete");
+    let _ = page.focus("Done");
+    assert.isFalse(held.get(ctx));
+    let _ = page.key("Escape");
+    assert.isTrue(held.get(ctx));
+    assert.equal(heard.get(ctx), 2);
+}

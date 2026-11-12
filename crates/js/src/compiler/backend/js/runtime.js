@@ -7898,7 +7898,8 @@ function $ui_node_enterDynamic(builder) {
   const doc = $scene_of(builder);
   const start = $scene_add(doc, 2, "", "", "");
   const end = $scene_add(doc, 2, "", "", "");
-  doc.regions.push({ start, end });
+  // `opener`: for a dialog's region, the stop focused when the dialog opened.
+  doc.regions.push({ start, end, opener: -1 });
   return BigInt(doc.regions.length - 1);
 }
 
@@ -7941,10 +7942,40 @@ function $scene_beginRegion(doc, region) {
 
 function $ui_node_rebuildRegion(builder, region, node, walk) {
   const doc = $scene_of(builder);
-  $scene_beginRegion(doc, Number(region));
+  const at = Number(region);
+  const was = $scene_dialogOpen(doc, at);
+  const focus = $scene_focusNow(doc);
+  $scene_beginRegion(doc, at);
   walk(doc.ctx, builder, node);
   if (doc.cursor.length > 1) doc.cursor.pop();
   $scene_checkFocus(doc);
+  if (was !== null) $scene_returnFocus(doc, at, was, focus);
+}
+
+// Whether `region` is a dialog's, and then whether the dialog is open (a shut
+// one draws nothing between the markers), or null for any other region — the
+// native `Document::dialog_open`.
+function $scene_dialogOpen(doc, region) {
+  const reg = doc.regions[region];
+  if (reg === undefined || doc.records[reg.start].valueSignal < 0) return null;
+  const parent = doc.records[reg.start].parent;
+  if (parent === null || parent === undefined) return null;
+  const children = doc.records[parent].children;
+  return children[children.indexOf(reg.start) + 1] !== reg.end;
+}
+
+// A dialog that just opened keeps the stop that had the focus before, and one
+// that just shut focuses it again while it can take it — the browser's
+// previously focused element. The native `return_focus`.
+function $scene_returnFocus(doc, region, was, focus) {
+  const now = $scene_dialogOpen(doc, region);
+  const reg = doc.regions[region];
+  if (!was && now) reg.opener = focus;
+  else if (was && !now) {
+    const back = reg.opener;
+    reg.opener = -1;
+    if (back >= 0 && $scene_focusable(doc, back)) $scene_setFocus(doc, back);
+  }
 }
 
 // A marker under `parent`, inserted before the child `anchor` — the positional
@@ -8886,21 +8917,22 @@ function $host_testing_Rendered_shiftTab(self) {
 
 // A key: every `onKey` from the focused element out hears it, and when none
 // claimed it, what a browser does with it by itself follows — the native
-// `Rendered.key`.
-function $host_testing_Rendered_key(self, name) {
+// `pressKey`. Answers whether what is left is the caret's, for `moveCaret`.
+function $host_testing_pressKey(self, name) {
   const doc = $scene_of(self);
   if (name === "Tab") {
     $scene_tab(doc, true);
-    return 0;
+    return false;
   }
-  if ($scene_dispatchKey(doc, name)) return 0;
+  if ($scene_dispatchKey(doc, name)) return false;
   if (name === "Escape") {
     $scene_dismissTips(doc);
     $scene_shutDialog(doc);
-    return 0;
+    return false;
   }
   const at = $scene_focusedRecord(doc);
-  if (at < 0) return 0;
+  if (at < 0) return false;
+  if ($SCENE_CARET_KEYS.has(name) && $scene_caretField(doc) >= 0) return true;
   const record = doc.records[at];
   const target = $scene_keyTarget(record);
   const pressing = name === "Enter" || name === " ";
@@ -8917,6 +8949,63 @@ function $host_testing_Rendered_key(self, name) {
     const form = $scene_enclosing(doc, at, "form");
     if (form >= 0) $scene_submitImplicitly(doc, form, $scene_blocksSubmission(record.body));
   }
+  return false;
+}
+
+// The field kinds a browser reports a caret for.
+const $SCENE_CARET_FIELDS = new Set(["text", "multiline", "password", "search"]);
+
+// The keys that move a text field's caret.
+const $SCENE_CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+
+// The focused field whose caret a key moves: a text control, enabled and in
+// reach, that keeps a `selection` signal; or -1 — the native `caret_field`.
+// An email or a number field is left out: a browser reports no selection for
+// either.
+function $scene_caretField(doc) {
+  const at = $scene_focusedRecord(doc);
+  if (at < 0) return -1;
+  const r = doc.records[at];
+  const text = (r.name === "input" || r.name === "textarea") && $SCENE_CARET_FIELDS.has($scene_declValue(r.body, "field"));
+  const keeps = text && r.selectionSignal >= 0;
+  return keeps && !$scene_isDisabled(r.body) && !$scene_inert(doc, at) ? at : -1;
+}
+
+// The focused field's text, its run of text.
+function $host_testing_caretText(self) {
+  const doc = $scene_of(self);
+  const at = $scene_caretField(doc);
+  if (at < 0) return "";
+  const run = doc.records[at].children.find((c) => doc.records[c].kind === 1);
+  return run === undefined ? "" : doc.records[run].text;
+}
+
+// Moves the focused field's caret for the caret key `name`, over `graphemes`,
+// its text split as a reader sees it — the native `move_caret`. Offsets count
+// UTF-16 code units and a line break as one, as a browser's field reports them.
+function $host_testing_moveCaret(self, name, graphemes) {
+  const doc = $scene_of(self);
+  const field = $scene_caretField(doc);
+  if (field < 0) return 0;
+  const signal = doc.records[field].selectionSignal;
+  const spans = [];
+  let end = 0;
+  for (const piece of graphemes) {
+    const line = piece === "\n" || piece === "\r\n" || piece === "\r";
+    const start = end;
+    end += line ? 1 : piece.length;
+    spans.push([start, end, line]);
+  }
+  const clamp = (at) => Math.min(Math.max(Number(at), 0), end);
+  const [anchor, focus] = $ui_at(signal).value.map(clamp);
+  const low = Math.min(anchor, focus);
+  const high = Math.max(anchor, focus);
+  let to;
+  if (name === "ArrowLeft") to = low < high ? low : (spans.findLast((s) => s[0] < low)?.[0] ?? 0);
+  else if (name === "ArrowRight") to = low < high ? high : (spans.find((s) => s[1] > high)?.[1] ?? high);
+  else if (name === "Home") to = spans.findLast((s) => s[2] && s[1] <= focus)?.[1] ?? 0;
+  else to = spans.find((s) => s[2] && s[0] >= focus)?.[0] ?? end;
+  $ui_flush(() => $ui_write(signal, [BigInt(to), BigInt(to)]));
   return 0;
 }
 
