@@ -1,0 +1,6 @@
+from "//lib/money" import { Cents, fromCents };
+
+/// A price in cents.
+export fn price(cents: Int): Cents {
+    fromCents(cents)
+}

@@ -837,6 +837,37 @@ pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
     )
 }
 
+/// Loads the standard library's testing modules, with no repository, and
+/// checks their bodies and none of the rest.
+///
+/// A program analysis checks no library body, so this is where
+/// `test-missing-assertion` learns which testing functions fail a test.
+pub fn analyze_std_testing(map: &mut SourceMap) -> Analysis {
+    let testing = crate::build::workspace::is_test_only_path;
+    let mut cache = crate::parsing::parser::Cache::new();
+    let snapshot = snapshot::of(Opening::Builtin, false);
+    let loading = load_on(None, map, &mut cache, snapshot, |loader| {
+        loader.load_builtin_modules();
+        for m in crate::compiler::standard_library::MODULES {
+            if testing(m.path) {
+                loader.load_std_module(m.path);
+            }
+        }
+    });
+    let files = (loading.loaded.modules.iter())
+        .filter(|m| testing(&m.path) && crate::compiler::standard_library::find(&m.path).is_some())
+        .map(|m| m.file)
+        .collect();
+    check_on(
+        loading,
+        None,
+        map,
+        snapshot,
+        Bodies::In(files),
+        Restyling::No,
+    )
+}
+
 /// Loads and checks one module given as text, on top of the whole standard
 /// library and with no repository.
 ///

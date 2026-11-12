@@ -1,15 +1,26 @@
-// Three tests, and the rule must tell them apart.
+// Eight tests, and the rule must tell them apart.
 //
 // The second asserts through a helper, which is how most tests worth writing
 // assert. Read syntactically — "the body contains no `assert`" — the rule would
 // fire on it, so it is transitive instead: reachability from the test's body.
 //
-// The third's only check is a snapshot. That is an assertion too: a golden that
-// differs, or one that is not there yet, fails the test.
+// The rest check through `platform/effect/testing` alone. Each is an assertion
+// too: a golden that differs, or one that is not there yet, fails the test, and
+// so does a planned fault whose call never happens. A property fails the test
+// at the first case it does not hold for.
 
+from "core/fs" import * as fs;
+from "core/fs" import { FileSystemRead };
+from "core/net/http" import * as http;
+from "core/path" import * as path;
+from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, Ui };
-from "platform/effect/testing" import { alloc, headless, snapshot };
+from "core/testing/check" import * as check;
+from "platform/effect" import { Allocator, Network, Tasks, Ui };
+from "platform/effect/testing" import {
+    alloc, fetch, fs as disk, headless, net, readFile, snapshot, snapshotWide, task,
+    tasks as scheduler,
+};
 from "ui/node" import * as ui;
 from "//lib/money" import { Cents, fromCents };
 
@@ -32,4 +43,54 @@ test "the price paints" {
         Ui: headless(),
     };
     snapshot(ctx, "price", ui.text({ content: .Const("150c") }), .Hover, []);
+}
+
+test "the price paints at phone width" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "price-phone",
+        ui.text({ content: .Const("150c") }),
+        .Hover,
+        [],
+        390,
+    );
+}
+
+test "the price is read from disk" {
+    let ctx = context {
+        Allocator: alloc(),
+        FileSystemRead: disk().faults([readFile("price").fails(.NotFound)]),
+    };
+    let _ = fs.readText(ctx, path.of(ctx, "price")).isErr();
+}
+
+test "the price is fetched" {
+    let ctx = context {
+        Allocator: alloc(),
+        Network: net().faults([
+            fetch(http.request(.Get, "https://price.test")).fails(.Timeout),
+        ]),
+    };
+    let _ = http.get(ctx, "https://price.test").isErr();
+}
+
+test "the prices are summed in parallel" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: scheduler().faults([task(1).fails("upstream went away")]),
+    };
+    let _ = tasks.parallel(ctx, [1, 2], fn(_c, _i, item) => item);
+}
+
+test "every list of prices is short" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 5), fn(_c, all) => {
+        all.length() <= 5
+    });
 }

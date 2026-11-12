@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a test from which nothing reachable calls assert: test-missing-assertion, and the two that must not fire — one asserting through a helper, one whose whole check is a snapshot"
+doc: "a test from which nothing reachable calls assert: test-missing-assertion, and the ones that must not fire — one asserting through a helper, and one for each check `platform/effect/testing` and `core/testing/check` make on their own: `snapshot`, `snapshotWide`, each double's `faults`, `forAll` and `forAllCtx`"
 
 run {
   args: ["lint", "//lib/money"]
@@ -13,6 +13,13 @@ run {
   args: ["lint", "//lib/money", "--error-format=json"]
   exit: 1
   golden: "lint.json"
+}
+
+# `forAll` with nothing beside it that imports `platform/effect/testing`.
+run {
+  args: ["lint", "//lib/prices"]
+  exit: 0
+  golden: "clean.txt"
 }
 
 # The negative half of the rule, made to move: give the quiet test an
@@ -36,8 +43,8 @@ run {
 # about `platform/effect/testing`.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "import { alloc, headless, snapshot };"
-  with: "import { alloc, headless, render };"
+  replace: "readFile, snapshot, snapshotWide"
+  with: "readFile, render, snapshotWide"
 }
 
 edit {

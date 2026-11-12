@@ -1,0 +1,10 @@
+// A property is an assertion: `forAll` fails the test at the first case the
+// property does not hold for. It has a package of its own, so that nothing
+// beside it imports `platform/effect/testing`.
+
+from "core/testing/check" import * as check;
+from "//lib/prices" import { price };
+
+test "a price is the price of its cents" {
+    check.forAll(check.int(0, 100), fn(cents) => price(cents) == price(cents));
+}

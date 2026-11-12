@@ -294,6 +294,7 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 
 - `empty-test-suite`: a `test` block with no `sources`.
 - `test-missing-assertion`: nothing reachable from the test calls into
-  `core/testing/assert`. It's transitive, so asserting through a helper is fine.
+  `core/testing/assert`, takes a snapshot or plans a fault. It's transitive, so
+  asserting through a helper or `forAll` is fine.
 - `test-title-newline`.
 - At run time: `test-timeout` and `test-run-unavailable`.

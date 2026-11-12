@@ -4447,22 +4447,15 @@ fn check_tests_assert(
 ) {
     let mine = modules_of(analysis, own);
 
-    // What fails a test, named by the module that owns it and the name that
-    // module gives it rather than by the spelling at the call, so a local alias
-    // or a re-export is the same function. `core/testing/assert` counts whole:
-    // every function it exports is an assertion. `platform/effect/testing`'s `snapshot` is
-    // the one function outside it, because a golden that differs — or one that
-    // is not there yet — fails the test exactly as `assert.equal` does.
-    // `core/testing/check`'s `forAll` needs no entry: it reports through
-    // `assert.none`, so the walk below reaches the assert module on its own.
-    let asserts = |f: FnId| -> bool {
-        let info = analysis.checked.tables.fn_info(f);
-        let module = analysis.loaded.module(info.module);
-        match module.path.as_str() {
-            "core/testing/assert" => true,
-            "platform/effect/testing" => info.name == "snapshot",
-            _ => false,
-        }
+    // What fails a test, named by module, owner and name rather than by the
+    // spelling at the call, so a local alias or a re-export is the same
+    // function. Only a library testing module can hold one.
+    let asserts = |f: FnId| {
+        let key = function_key(&analysis.checked, &analysis.loaded, f);
+        let module = key.0.as_str();
+        crate::build::workspace::is_test_only_path(module)
+            && crate::compiler::standard_library::find(module).is_some()
+            && failing_testing_functions().contains(&key)
     };
 
     for case in &analysis.checked.tests {
@@ -4509,6 +4502,85 @@ fn check_tests_assert(
                 .with_bind("quoted_title", format!("{:?}", case.name)),
         );
     }
+}
+
+/// A function as the library's testing modules and a program both name it:
+/// its module, the type its methods hang off, and its own name.
+fn function_key(
+    checked: &crate::compiler::semantics::resolve::Checked,
+    loaded: &crate::compiler::modules::Loaded,
+    f: FnId,
+) -> (String, String, String) {
+    let info = checked.tables.fn_info(f);
+    let owner = info
+        .self_ty
+        .map(|con| checked.tables.tycon(con).name.clone());
+    (
+        loaded.module(info.module).path.clone(),
+        owner.unwrap_or_default(),
+        info.name.clone(),
+    )
+}
+
+/// Every function of the library's testing modules that can fail a test,
+/// worked out once per process from their bodies, which a program analysis
+/// does not check.
+///
+/// The runner's doors are where a test fails. `core/testing/assert` counts
+/// whole. In `platform/effect/testing`, `paint` compares a golden, and the
+/// three that add a fault to a plan make a promise the runner checks at the
+/// end of the block. Whatever reaches one counts too: `snapshotWide`, each
+/// double's `faults`, `forAll`.
+fn failing_testing_functions() -> &'static BTreeSet<(String, String, String)> {
+    static FAILING: std::sync::OnceLock<BTreeSet<(String, String, String)>> =
+        std::sync::OnceLock::new();
+    FAILING.get_or_init(|| {
+        let mut map = crate::diagnostics::SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_std_testing(&mut map);
+        let (checked, loaded) = (&analysis.checked, &analysis.loaded);
+        let door = |f: FnId| {
+            let (module, _, name) = function_key(checked, loaded, f);
+            match module.as_str() {
+                "core/testing/assert" => true,
+                "platform/effect/testing" => matches!(
+                    name.as_str(),
+                    "paint" | "addFsFault" | "addNetFault" | "addFault"
+                ),
+                _ => false,
+            }
+        };
+        let mut failing: BTreeSet<FnId> = checked.tables.fns.ids().filter(|&f| door(f)).collect();
+        let mut callers: Vec<(FnId, Vec<FnId>)> = (checked.bodies.iter())
+            .map(|(f, body)| {
+                let mut called = Vec::new();
+                crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
+                    if let typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) =
+                        &e.kind
+                    {
+                        called.push(func.id);
+                    }
+                });
+                (f, called)
+            })
+            .collect();
+        // Until a pass adds nothing.
+        loop {
+            let before = failing.len();
+            callers.retain(|(f, called)| {
+                let fails = called.iter().any(|g| failing.contains(g));
+                if fails {
+                    failing.insert(*f);
+                }
+                !fails
+            });
+            if failing.len() == before {
+                break;
+            }
+        }
+        (failing.into_iter())
+            .map(|f| function_key(checked, loaded, f))
+            .collect()
+    })
 }
 
 /// Every library a package's own code reaches through a resolved call, which
