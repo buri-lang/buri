@@ -8,15 +8,22 @@ from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
 
-struct Card { name: Str, note: Str }
+struct Card {
+    name: Str,
+    note: Str,
+}
 
-struct Hand { cards: [Card], at: Int }
+struct Hand {
+    cards: [Card],
+    at: Int,
+}
 
 fn cards<C: Allocator>(ctx: C, n: Int): [Card] {
-    list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => Card {
-        name: str.format(c, "card${i}"),
-        note: str.format(c, "n${i}"),
-    })
+    list
+        .range(ctx, 0, n)
+        .mapCtx(ctx, fn(c, i) => {
+            Card { name: str.format(c, "card${i}"), note: str.format(c, "n${i}") }
+        })
 }
 
 fn lastOf(xs: [Card]): Option<Card> {
@@ -36,7 +43,9 @@ fn beforeGrown<C: Allocator>(ctx: C, xs: [Card]): Option<Card> {
 }
 
 test "the last element of a list parameter" {
-    let ctx = context { Allocator: alloc() };
+    let ctx = context {
+        Allocator: alloc(),
+    };
     assert.equal(lastOf(cards(ctx, 4)).map(fn(c) => c.name), .Some("card3"));
     let xs = cards(ctx, 3);
     assert.equal(lastOf(xs).map(fn(c) => c.note), .Some("n2"));
@@ -44,19 +53,25 @@ test "the last element of a list parameter" {
 }
 
 test "the last element of a list in a record's field" {
-    let ctx = context { Allocator: alloc() };
+    let ctx = context {
+        Allocator: alloc(),
+    };
     let h = Hand { cards: cards(ctx, 4), at: 1 };
     assert.equal(lastOfHand(h).map(fn(c) => c.name), .Some("card3"));
     assert.equal(atOfHand(h).map(fn(c) => c.name), .Some("card1"))
 }
 
 test "an index that grows a copy of the list" {
-    let ctx = context { Allocator: alloc() };
+    let ctx = context {
+        Allocator: alloc(),
+    };
     assert.equal(beforeGrown(ctx, cards(ctx, 4)).map(fn(c) => c.name), .Some("card3"))
 }
 
 test "an index read inside a tuple" {
-    let ctx = context { Allocator: alloc() };
+    let ctx = context {
+        Allocator: alloc(),
+    };
     let xs = cards(ctx, 4);
     let both = (xs[xs.length() - 1], xs.length());
     assert.equal(both.0.map(fn(c) => c.name), .Some("card3"));

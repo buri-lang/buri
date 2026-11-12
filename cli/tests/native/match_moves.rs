@@ -507,21 +507,30 @@ test "each letter is read or held, once" {
 /// against the same walk carrying what it started with. Each mode walks the
 /// same 1,000-element list as many times as its argument says, so the setup
 /// both runs share is small next to the walks.
+///
+/// The `Option` each step matches on is one `element` builds and hands back.
+/// `xs.get(at)` itself lends the element, as `xs[at]` does, so a match on it
+/// builds nothing, and `element` is called from both walks so that it stays
+/// a call.
 const LASTS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "native" import { NativeHost };
 from "platform/effect" import { Allocator, Environment, Stdout };
 
+fn element(xs: [Str], at: Int): Option<Str> {
+    if (at < 0) { .None } else { xs.get(at) }
+}
+
 fn last(xs: [Str], at: Int, seen: Str): Str {
-    match (xs.get(at)) {
+    match (element(xs, at)) {
         .None => seen,
         .Some(x) => last(xs, at + 1, x),
     }
 }
 
 fn skipped(xs: [Str], at: Int, seen: Str): Str {
-    match (xs.get(at)) {
+    match (element(xs, at)) {
         .None => seen,
         .Some(_) => skipped(xs, at + 1, seen),
     }
@@ -561,7 +570,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// was released after the arm, a retain and a release a step more than
 /// `skipped`, which keeps nothing: 112 instructions against 75 on the
 /// copy-and-patch backend. Taken apart, `last` is 78. LLVM is 26 against 22
-/// either way.
+/// either way. Since `get` lends, the walks match on what `element` builds,
+/// and they are 90 against 87.
 #[test]
 fn keeping_part_of_a_value_the_match_built_costs_no_extra_count() {
     // Steps are the elements walked: 500 walks of 1,000.
