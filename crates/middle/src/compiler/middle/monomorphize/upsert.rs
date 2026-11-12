@@ -129,15 +129,13 @@ struct Read<'a> {
 impl Monomorphizer<'_> {
     /// Rewrites each `let` in the block that reads a map with `withDefault`
     /// and whose value only the block's write back to the same key reads.
+    /// Called only where `may_upsert` says it could.
     pub(super) fn upsert_block(
         &mut self,
         stmts: &mut Vec<Stmt>,
         tail: &mut Option<Box<Expr>>,
         targs: &[Ty],
     ) {
-        if !self.upsert_here {
-            return;
-        }
         let upserts = std::mem::take(&mut self.upserts);
         let mut dropped = Vec::new();
         for i in 0..stmts.len() {
