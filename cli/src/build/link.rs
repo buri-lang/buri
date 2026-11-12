@@ -1481,9 +1481,8 @@ fn thin_archive<'a>(members: impl Iterator<Item = (&'a str, usize)> + Clone) -> 
     let mut out = b"!<thin>\n".to_vec();
     ar_header(&mut out, "//", paths.len());
     out.extend_from_slice(paths.as_bytes());
-    if !paths.len().is_multiple_of(2) {
-        out.push(b'\n');
-    }
+    // Members start on an even offset, so an odd table is padded by a byte.
+    out.extend(std::iter::repeat_n(b'\n', paths.len() % 2));
     for ((_, len), at) in members.zip(at) {
         ar_header(&mut out, &format!("/{at}"), len);
     }
