@@ -965,8 +965,8 @@ impl<'a> Extractor<'a> {
         let positions = self.flow.positions(e);
         let mut children = Vec::new();
         typed::children_mut(e, &mut |child| children.push(child));
-        for (child, pos) in children.into_iter().zip(&positions) {
-            let to = self.flow.sink(self.owner, pos, sink, carries, all);
+        for (child, pos) in children.into_iter().zip(positions) {
+            let to = self.flow.sink(self.owner, &pos, sink, carries, all);
             self.visit(child, to, cond);
         }
     }
@@ -2056,6 +2056,30 @@ enum Pos {
     Bound(Vec<LocalId>),
 }
 
+/// Where each child of an expression sends its value, in
+/// [`typed::children`]'s order: [`Flow::positions`]' answer.
+///
+/// Most expressions send every child the same way, and that answer holds no
+/// list: the walk asks once per expression of every body, so a list each time
+/// was most of what it allocated.
+enum Positions {
+    /// Every child to the same place.
+    Each(Pos),
+    /// One for each child.
+    Listed(std::vec::IntoIter<Pos>),
+}
+
+impl Iterator for Positions {
+    type Item = Pos;
+
+    fn next(&mut self) -> Option<Pos> {
+        match self {
+            Positions::Each(pos) => Some(pos.clone()),
+            Positions::Listed(each) => each.next(),
+        }
+    }
+}
+
 /// What a parameter stands for at a call.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Param {
@@ -2521,7 +2545,7 @@ impl<'a> Flow<'a> {
             }
         }
         // `positions` has one for each child.
-        let mut positions = self.positions(e).into_iter();
+        let mut positions = self.positions(e);
         typed::children(e, &mut |child| {
             let child_ctx = match positions.next().unwrap_or(Pos::At(None)) {
                 Pos::Same => ctx,
@@ -2588,8 +2612,8 @@ impl<'a> Flow<'a> {
 
     /// Where each child of `e` sends its value, in [`typed::children`]'s
     /// order.
-    fn positions(&self, e: &typed::Expr) -> Vec<Pos> {
-        let all = |pos: Pos, n: usize| vec![pos; n];
+    fn positions(&self, e: &typed::Expr) -> Positions {
+        let listed = |each: Vec<Pos>| Positions::Listed(each.into_iter());
         let built = |con: TyConId| {
             if self.in_ui_node(self.tables.tycon(con).module) {
                 Pos::At(Some(Demand::Node))
@@ -2600,70 +2624,66 @@ impl<'a> Flow<'a> {
         match &e.kind {
             // A closure answers what its body does, which may be any of its
             // arguments.
-            ExprKind::CallValue { args, .. } => std::iter::once(Pos::Same)
-                .chain(args.iter().map(|_| Pos::Same))
-                .collect(),
+            ExprKind::CallValue { .. } => Positions::Each(Pos::Same),
             ExprKind::CallFn { func, args } => {
                 let f = func.id;
                 let info = self.tables.fn_info(f);
                 if self.in_ui_node(info.module) {
-                    return all(Pos::At(Some(Demand::Node)), args.len());
+                    return Positions::Each(Pos::At(Some(Demand::Node)));
                 }
                 match self.read(f) {
                     // A parameter whose type is generic carries every caller's
                     // values, so where only its result reads it, it can't say
                     // which of them reach a node. It passes this call's on,
                     // the way an unread function does.
-                    Some(params) => params
-                        .iter()
-                        .map(|&(l, kind)| {
-                            if self.follows(f, l, kind) {
-                                Pos::At(Some(Demand::Local(Owner::Fn(f), l)))
-                            } else {
-                                Pos::Same
-                            }
-                        })
-                        .chain(std::iter::repeat(Pos::At(None)))
-                        .take(args.len())
-                        .collect(),
+                    Some(params) => listed(
+                        params
+                            .iter()
+                            .map(|&(l, kind)| {
+                                if self.follows(f, l, kind) {
+                                    Pos::At(Some(Demand::Local(Owner::Fn(f), l)))
+                                } else {
+                                    Pos::Same
+                                }
+                            })
+                            .chain(std::iter::repeat(Pos::At(None)))
+                            .take(args.len())
+                            .collect(),
+                    ),
                     // A function this run doesn't read: what it answers may
                     // be any of its arguments.
-                    None => all(Pos::Same, args.len()),
+                    None => Positions::Each(Pos::Same),
                 }
             }
             // A method called through a bound answers what its `impl` does,
             // which may be any of its arguments.
-            ExprKind::CallTrait { args, .. }
-            | ExprKind::Intrinsic { args, .. }
-            | ExprKind::Tuple(args)
-            | ExprKind::Array { elems: args, .. } => all(Pos::Same, args.len()),
-            ExprKind::StructLit {
-                con, fields: args, ..
-            }
-            | ExprKind::EnumLit { con, args, .. } => all(built(*con), args.len()),
-            ExprKind::StructUpdate { con, updates, .. } => std::iter::once(built(*con))
-                .chain(updates.iter().map(|_| built(*con)))
-                .collect(),
-            ExprKind::Field { .. }
+            ExprKind::CallTrait { .. }
+            | ExprKind::Intrinsic { .. }
+            | ExprKind::Tuple(_)
+            | ExprKind::Array { .. }
+            | ExprKind::Field { .. }
             | ExprKind::TupleIndex { .. }
             | ExprKind::Try { .. }
-            | ExprKind::Lambda { .. } => {
-                vec![Pos::Same]
-            }
-            ExprKind::Index { .. } => vec![Pos::Same, Pos::At(None)],
-            ExprKind::Block { stmts, tail } => stmts
-                .iter()
-                .map(|s| match s {
-                    typed::Stmt::Let { pattern, .. } => {
-                        let mut locals = Vec::new();
-                        pattern.binds(&mut locals);
-                        Pos::Bound(locals)
-                    }
-                    typed::Stmt::Expr(_) => Pos::At(None),
-                })
-                .chain(tail.iter().map(|_| Pos::Same))
-                .collect(),
-            ExprKind::If { .. } => vec![Pos::At(None), Pos::Same, Pos::Same],
+            | ExprKind::Lambda { .. } => Positions::Each(Pos::Same),
+            ExprKind::StructLit { con, .. }
+            | ExprKind::EnumLit { con, .. }
+            | ExprKind::StructUpdate { con, .. } => Positions::Each(built(*con)),
+            ExprKind::Index { .. } => listed(vec![Pos::Same, Pos::At(None)]),
+            ExprKind::Block { stmts, tail } => listed(
+                stmts
+                    .iter()
+                    .map(|s| match s {
+                        typed::Stmt::Let { pattern, .. } => {
+                            let mut locals = Vec::new();
+                            pattern.binds(&mut locals);
+                            Pos::Bound(locals)
+                        }
+                        typed::Stmt::Expr(_) => Pos::At(None),
+                    })
+                    .chain(tail.iter().map(|_| Pos::Same))
+                    .collect(),
+            ),
+            ExprKind::If { .. } => listed(vec![Pos::At(None), Pos::Same, Pos::Same]),
             ExprKind::Match { arms, .. } => {
                 let mut locals = Vec::new();
                 for arm in arms {
@@ -2674,15 +2694,11 @@ impl<'a> Flow<'a> {
                     out.extend(arm.guard.iter().map(|_| Pos::At(None)));
                     out.push(Pos::Same);
                 }
-                out
+                listed(out)
             }
             // Nothing else hands a child's value on: a condition, an
             // operator, a template, a context.
-            _ => {
-                let mut out = Vec::new();
-                typed::children(e, &mut |_| out.push(Pos::At(None)));
-                out
-            }
+            _ => Positions::Each(Pos::At(None)),
         }
     }
 }

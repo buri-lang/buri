@@ -9462,6 +9462,18 @@ On the arm64 VM, `test/one-edit` went from 83.84M to 63.05M instructions
 (−24.8%). The guard is `loading.rs`'s
 `a_test_that_renders_nothing_lexes_none_of_the_renderer`.
 
+The split put the counted goals' `monorepo-ci test-build check cost` row
+1.03% over its baseline on CI (b9162abdd). Check instructions barely moved;
+instruction-cache misses rose 7% because the code moved. Two fixes followed:
+
+- An import that wakes nothing allocates nothing.
+- `Flow::positions` in `styles.rs` answers `Positions::Each` when every child
+  of an expression goes one way. Before, it built a list for each expression
+  of every body, each time the flow graph was drawn.
+
+On the arm64 VM, the row went from +0.93% to −0.43%, and check instructions
+from +0.82% to −0.63%.
+
 ### 6.123 A descent swaps the child out, 2026-11-12
 
 ```buri
