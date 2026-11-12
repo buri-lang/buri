@@ -2033,3 +2033,64 @@ test "a list put in a map is not grown through its own name or a lookup" {
     assert.equal(keyed.get([5, 6]), .Some(7));
     assert.isTrue(s.has([5, 6]));
 }
+
+// --- a value read with withDefault and inserted back -------------------------
+
+/// `key`'s count, or zero, plus one, inserted back.
+fn counted<C: Allocator>(ctx: C, m: Map<Collider, Int>, id: Int): Map<Collider, Int> {
+    let key = Collider { id: id };
+    let n = m.get(key).withDefault(0);
+    m.insert(ctx, key, n + 1)
+}
+
+test "a value read with withDefault and inserted back changes only the new map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Forty keys in eight hashes: entries, collisions, and branches below the
+    // root. Each key is changed again at once.
+    let grown = list
+        .range(ctx, 0, 40)
+        .foldCtx(
+            ctx,
+            fn(c, m, i) => counted(c, counted(c, m, i), i),
+            map.empty<Collider, Int>(),
+        );
+    let again = list
+        .range(ctx, 0, 40)
+        .foldCtx(ctx, fn(c, m, i) => counted(c, m, i), grown);
+    assert.equal(grown.length(), 40);
+    assert.equal(again.length(), 40);
+    assert.isTrue(
+        list.range(ctx, 0, 40).all(fn(i) => grown.get(Collider { id: i }) == .Some(2)),
+    );
+    assert.isTrue(
+        list.range(ctx, 0, 40).all(fn(i) => again.get(Collider { id: i }) == .Some(3)),
+    );
+}
+
+// --- a `?` in an insert's value ------------------------------------------------
+
+fn checkedInsert<C: Allocator>(
+    ctx: C,
+    m: Map<Int, Int>,
+    key: Int,
+    r: Result<Int, Str>,
+): Result<Map<Int, Int>, Str> {
+    .Ok(m.insert(ctx, key, r?))
+}
+
+test "a question mark in an insert's value answers either way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.empty<Int, Int>().insert(ctx, 1, 1);
+    assert.equal(checkedInsert(ctx, m, 2, .Ok(2)).map(fn(x) => x.length()), .Ok(2));
+    assert.equal(
+        checkedInsert(ctx, map.empty<Int, Int>().insert(ctx, 1, 1), 2, .Err("no")).map(
+            fn(x) => x.length(),
+        ),
+        .Err("no"),
+    );
+    assert.equal(m.length(), 1);
+}

@@ -9521,6 +9521,35 @@ counted goals' dev-codegen instructions fell 0.5–1%. `profile.rs`'s `a_one_tes
 checks the run reads a few hundred stencils; `BURI_PROFILE` prints the count
 as `stencils read`.
 
+### 6.125 A value read with a default and written back descends once, 2026-11-12
+
+```buri
+let waiting = net.links.get(link).withDefault(queue.empty());
+Network { ..net, links: net.links.insert(ctx, link, waiting.push(ctx, e)) }
+```
+
+`waiting` was a second holder of the queue the map still held, so the push
+copied it, and the insert descended again to store the copy. Now
+monomorphization rewrites the insert into a call to the map's private
+`upserted`, which takes the value out of its slot, runs the change on it and
+stores the result, in one descent. The rewrite is in
+`monomorphize/upsert.rs`, with the shapes it leaves alone.
+
+- `run-dev/kvstore` went from 1,186.3 M to 1,163.2 M instructions on an arm64
+  VM, 1.95% fewer. Allocations went from 589,381 to 583,491. The soak's output
+  is byte for byte the same.
+- Only a repository's code is rewritten. The stdlib MC/DC gate counts each
+  instance, and `groupBy`'s `Int`-keyed instance has a collision arm no input
+  reaches. `core/map` stays at 96.2%; `core/orderedmap` rose to 98.2%.
+
+Two fixes came with it. `runtime.js`'s `$map_exchangeAt` now shares the element
+it hands out of a list it copied, so the change can't alter an older map. `rc`
+releases a value an argument or field update already made when a `?` to its
+right fails, which leaked in `m.insert(ctx, k, r?)`.
+
+`cli/tests/repositories/middle/map_defaults` covers each shape that's
+rewritten and each that isn't, on both backends, with an older copy held.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

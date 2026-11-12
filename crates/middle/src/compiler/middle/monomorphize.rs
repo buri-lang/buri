@@ -35,6 +35,7 @@ use crate::hash::Map as HashMap;
 
 mod erase;
 mod hand_written;
+mod upsert;
 
 /// What a concrete function *is*.
 ///
@@ -698,6 +699,11 @@ pub struct Monomorphizer<'a> {
     erasable: HashMap<FnId, std::rc::Rc<[bool]>>,
     /// See [`Monomorphizer::canonical`].
     ctx_canon: std::cell::RefCell<HashMap<Vec<(TraitId, Ty)>, Ty>>,
+    /// What `upsert.rs` rewrites a map's read and write back into.
+    upserts: upsert::Upserts,
+    /// Whether the body being built is outside the standard library, the only
+    /// code whose reads and writes back `upsert.rs` rewrites.
+    upsert_here: bool,
 }
 
 pub fn run(
@@ -751,6 +757,7 @@ fn run_on(
     erase: bool,
 ) -> Program {
     let _phase = crate::profile::enter(crate::profile::Phase::Monomorphize);
+    let upserts = upsert::Upserts::find(checked, &module_paths);
     let mut m = Monomorphizer {
         checked,
         extracted,
@@ -774,6 +781,8 @@ fn run_on(
         erase,
         erasable: HashMap::default(),
         ctx_canon: Default::default(),
+        upserts,
+        upsert_here: false,
     };
 
     let mut export = None;
@@ -1460,6 +1469,16 @@ fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, has
 
 impl Monomorphizer<'_> {
     fn build(&mut self, key: Key, slot: FuncIdx, f: &mut Func) {
+        self.upsert_here = match &key {
+            Key::Fn(id, _) => {
+                let module = self.checked.tables.fn_info(*id).module;
+                self.module_paths
+                    .get(module.index())
+                    .is_none_or(|m| crate::compiler::standard_library::find(m).is_none())
+            }
+            Key::Test(..) => true,
+            _ => false,
+        };
         match key {
             Key::Fn(id, targs) => {
                 self.build_fn(id, targs, f);
@@ -2355,24 +2374,30 @@ impl Monomorphizer<'_> {
                 index: Box::new(self.rewrite(*index, targs)),
                 elem: self.sub(&elem, targs),
             },
-            ExprKind::Block { stmts, tail } => ExprKind::Block {
-                stmts: stmts
-                    .into_iter()
-                    .map(|s| match s {
-                        typed::Stmt::Let {
-                            pattern,
-                            value,
-                            span,
-                        } => typed::Stmt::Let {
-                            pattern: self.rewrite_pattern(pattern, targs),
-                            value: self.rewrite(value, targs),
-                            span,
-                        },
-                        typed::Stmt::Expr(x) => typed::Stmt::Expr(self.rewrite(x, targs)),
-                    })
-                    .collect(),
-                tail: tail.map(|t| Box::new(self.rewrite(*t, targs))),
-            },
+            ExprKind::Block {
+                mut stmts,
+                mut tail,
+            } => {
+                self.upsert_block(&mut stmts, &mut tail, targs);
+                ExprKind::Block {
+                    stmts: stmts
+                        .into_iter()
+                        .map(|s| match s {
+                            typed::Stmt::Let {
+                                pattern,
+                                value,
+                                span,
+                            } => typed::Stmt::Let {
+                                pattern: self.rewrite_pattern(pattern, targs),
+                                value: self.rewrite(value, targs),
+                                span,
+                            },
+                            typed::Stmt::Expr(x) => typed::Stmt::Expr(self.rewrite(x, targs)),
+                        })
+                        .collect(),
+                    tail: tail.map(|t| Box::new(self.rewrite(*t, targs))),
+                }
+            }
             ExprKind::If { cond, then, else_ } => ExprKind::If {
                 cond: Box::new(self.rewrite(*cond, targs)),
                 then: Box::new(self.rewrite(*then, targs)),

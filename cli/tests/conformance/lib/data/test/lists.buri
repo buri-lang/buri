@@ -2229,6 +2229,36 @@ test "a question mark inside an update over a dying record answers either way" {
     assert.equal(left, .Err("not positive"));
 }
 
+fn grownThenChecked<C: Allocator>(ctx: C, out: Out, x: Int): Result<Out, Str> {
+    .Ok(Out { ..out, pieces: out.pieces.push(ctx, x), at: positive(x)? })
+}
+
+fn swappedThenChecked(out: Out, pieces: [Int], x: Int): Result<Out, Str> {
+    .Ok(Out { ..out, pieces: pieces, at: positive(x)? })
+}
+
+test "a question mark after an update's new list answers either way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let kept = grownThenChecked(ctx, Out { pieces: [1].concat(ctx, [2]), at: 0 }, 3);
+    let left = grownThenChecked(ctx, Out { pieces: [1].concat(ctx, [2]), at: 0 }, 0);
+    assert.equal(kept, .Ok(Out { pieces: [1, 2, 3], at: 3 }));
+    assert.equal(left, .Err("not positive"));
+    let swapped = swappedThenChecked(
+        Out { pieces: [1].concat(ctx, [2]), at: 0 },
+        [5].concat(ctx, [6]),
+        4,
+    );
+    let refused = swappedThenChecked(
+        Out { pieces: [1].concat(ctx, [2]), at: 0 },
+        [5].concat(ctx, [6]),
+        0,
+    );
+    assert.equal(swapped, .Ok(Out { pieces: [5, 6], at: 4 }));
+    assert.equal(refused, .Err("not positive"));
+}
+
 // --- a fold's seed, in every fold that takes one ------------------------------
 //
 // The four seeds `middle::rc` hands over rather than lends. Handing one over is

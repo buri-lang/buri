@@ -1,0 +1,27 @@
+# A value read out of a map with `withDefault`, changed, and written back
+# under the same key, on both the ordered and the hash map: with a change that
+# reads nothing else, one other name, or names values of its own; a map held
+# in a field and written inside a call; a key equal to the stored one but not
+# the same; and a value never read. And the shapes left as written: a change
+# that reads two other names, can leave early or makes a function; the value
+# read again after the write; a write under another key, into another map, on
+# both sides of a branch, or inside a function; a worked-out key; a map made
+# by the read. Every older copy keeps its view, on both backends, and under
+# --coverage.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a value read with a default and written back leaves every other holder's view as it was"
+
+run {
+  args: ["test", "//lib/maps", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
+
+run {
+  args: ["test", "//lib/maps", "--force", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+}

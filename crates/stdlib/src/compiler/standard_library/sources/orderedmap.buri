@@ -710,16 +710,98 @@ fn descend<K: Ordered, V, C: Allocator>(
 ): (Grown<K, V>, Bool) {
     let (rest, child) = exchangeAt(ctx, children, at, leaf([], []));
     let (grown, added) = insertInto(ctx, child, key, value);
+    (regrown(ctx, keys, rest, at, grown), added)
+}
+
+/// The branch with `grown`, what became of its child `at`, back in `rest`, the
+/// children the child was taken out of.
+fn regrown<K, V, C: Allocator>(
+    ctx: C,
+    keys: [K],
+    rest: [Node<K, V>],
+    at: Int,
+    grown: Grown<K, V>,
+): Grown<K, V> {
     match (grown) {
-        .Fit(one) => (.Fit(branch(keys, replaceAt(ctx, rest, at, one))), added),
+        .Fit(one) => .Fit(branch(keys, replaceAt(ctx, rest, at, one))),
         .Split(left, up, right) => {
             let wider = branch(
                 insertAt(ctx, keys, at, up),
                 splitAt(ctx, rest, at, left, right),
             );
-            (overfull(ctx, wider), added)
+            overfull(ctx, wider)
         },
     }
+}
+
+/// `insertInto` with the value `change` makes of the one under `key`, or of
+/// `fallback` when `key` isn't there, in the same descent. The old value
+/// leaves its list before `change` gets it, so a tree nothing else shares
+/// hands `change` a value nothing else holds.
+fn upsertInto<K: Ordered, V, C: Allocator, A>(
+    ctx: C,
+    n: Node<K, V>,
+    key: K,
+    fallback: V,
+    arg: A,
+    change: fn(C, V, A) => V,
+): (Grown<K, V>, Bool) {
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    let Node { keys, values, children } = n;
+    match (children.get(at)) {
+        .None => {
+            if (found) {
+                let (rest, old) = exchangeAt(ctx, values, seen, fallback);
+                let changed = change(ctx, old, arg);
+                let replaced = leaf(
+                    replaceAt(ctx, keys, seen, key),
+                    replaceAt(ctx, rest, seen, changed),
+                );
+                (.Fit(replaced), false)
+            } else {
+                let changed = change(ctx, fallback, arg);
+                let added = leaf(
+                    insertAt(ctx, keys, seen, key),
+                    insertAt(ctx, values, seen, changed),
+                );
+                (overfull(ctx, added), true)
+            }
+        },
+        .Some(_) => {
+            let (rest, child) = exchangeAt(ctx, children, at, leaf([], []));
+            let (grown, added) = upsertInto(ctx, child, key, fallback, arg, change);
+            (regrown(ctx, keys, rest, at, grown), added)
+        },
+    }
+}
+
+/// `m.insert(ctx, key, change(ctx, m.get(key).withDefault(fallback), arg))`
+/// in one descent. The compiler writes a `get`, `withDefault` and `insert` of
+/// one key as a call to this, so the value isn't held by the map while it
+/// changes.
+fn upserted<K: Ordered, V, C: Allocator, A>(
+    ctx: C,
+    m: OrderedMap<K, V>,
+    key: K,
+    fallback: V,
+    arg: A,
+    change: fn(C, V, A) => V,
+): OrderedMap<K, V> {
+    let OrderedMap { root, size } = m;
+    let (grown, added) = upsertInto(ctx, root, key, fallback, arg, change);
+    rooted(grown, added, size)
+}
+
+/// The map whose root grew into `grown`, with `added` saying whether a key
+/// was new.
+fn rooted<K, V>(grown: Grown<K, V>, added: Bool, size: Int): OrderedMap<K, V> {
+    let top = match (grown) {
+        .Fit(one) => one,
+        // The tree gets taller only here, and by one level all at once.
+        .Split(left, up, right) => branch([up], [left, right]),
+    };
+    OrderedMap { root: top, size: if (added) { size + 1 } else { size } }
 }
 
 // -----------------------------------------------------------------------------
@@ -1201,12 +1283,7 @@ impl<K: Ordered, V> OrderedMap<K, V> {
         // record whole, so its path down is written in place.
         let OrderedMap { root, size } = self;
         let (grown, added) = insertInto(ctx, root, key, value);
-        let top = match (grown) {
-            .Fit(one) => one,
-            // The tree gets taller only here, and by one level all at once.
-            .Split(left, up, right) => branch([up], [left, right]),
-        };
-        OrderedMap { root: top, size: if (added) { size + 1 } else { size } }
+        rooted(grown, added, size)
     }
 
     /// Removes `key`, if it is there. Removing what is absent is not an

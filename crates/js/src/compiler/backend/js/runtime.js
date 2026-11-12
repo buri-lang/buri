@@ -1099,12 +1099,14 @@ function $map_replaceAt(c, xs, at, x) {
 }
 
 // The list with `x` at `at`, and what was there: `x` itself outside the list.
+// What was there is a second reference unless `xs` was the only one, because
+// `xs` is copied rather than changed and still holds it.
 function $map_exchangeAt(c, xs, at, x) {
   const k = Number(at);
   const out = xs.slice();
   if (!(k >= 0 && k < out.length)) return [$own(out), x];
   out[k] = x;
-  return [$own(out), xs[k]];
+  return [$own(out), xs.$u === true ? xs[k] : $share(xs[k])];
 }
 
 function $orderedmap_exchangeAt(c, xs, at, x) {

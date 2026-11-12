@@ -2948,6 +2948,7 @@ impl Scan<'_> {
         for (k, (_, value)) in updates.iter().enumerate().rev() {
             let kid = self.child(id, k + 1);
             self.expr(value, kid, live, Mode::Own);
+            self.held_until_taken(id, value, kid);
         }
         self.escape_except.pop();
         self.moving.pop();
@@ -3765,6 +3766,7 @@ impl Scan<'_> {
                 for (k, (_, value)) in updates.iter().enumerate().rev() {
                     let kid = self.child(id, k + 1);
                     self.expr(value, kid, live, Mode::Own);
+                    self.held_until_taken(id, value, kid);
                 }
                 if pushed {
                     self.handed_on.pop();
@@ -4614,30 +4616,39 @@ impl Scan<'_> {
             if m == Mode::Borrow {
                 self.drop_temporary(kid, kid_id, id);
             }
-            // A value this construct will take, held while the children to
-            // its right run: a `?` among them leaves before the construct
-            // takes it, so the value is released on that path. In
-            // `kept(ctx, make(ctx), positive(x)?)` the list `make` built
-            // leaked whenever `positive` failed.
-            let holds = m == Mode::Own
-                && k + 1 < kids.len()
-                && !matches!(kid.kind, ExprKind::Local(_))
-                && self.counted_ty(&kid.ty.clone());
-            if holds {
-                let start = self.child(id, k + 1).0;
-                let size = self.sizes.get(id.0 as usize).copied().unwrap_or(1);
-                let end = id.0.saturating_add(size);
-                for t in self.tries.clone() {
-                    if t.0 >= start && t.0 < end {
-                        self.push_escape(t, Target::Node(kid_id));
-                    }
-                }
+            if m == Mode::Own {
+                self.held_until_taken(id, kid, kid_id);
             }
         }
         for l in kept {
             self.pending.push(l);
         }
         self.flush(id);
+    }
+
+    /// A value the construct `id` will take, held while the children to the
+    /// right of `kid` run: a `?` among them leaves before the construct takes
+    /// it, so the value is released on that path. In `kept(ctx, make(ctx),
+    /// positive(x)?)` the list `make` built leaked whenever `positive` failed.
+    /// A name is no different: the count it hands over, or the one taken for
+    /// it, is the construct's, so `m.insert(ctx, k, r?)` leaked the map, and
+    /// `S { ..s, xs: s.xs.push(ctx, x), n: r? }` the pushed list.
+    fn held_until_taken(&mut self, id: NodeId, kid: &Expr, kid_id: NodeId) {
+        let counted = match kid.kind {
+            ExprKind::Local(l) => self.is_counted(l),
+            _ => self.counted_ty(&kid.ty.clone()),
+        };
+        // Pre-order: the siblings to the right fill the rest of `id`'s run.
+        let size = |n: NodeId| self.sizes.get(n.0 as usize).copied().unwrap_or(1);
+        let (start, end) = (
+            kid_id.0.saturating_add(size(kid_id)),
+            id.0.saturating_add(size(id)),
+        );
+        for t in self.tries.clone() {
+            if counted && t.0 >= start && t.0 < end {
+                self.push_escape(t, Target::Node(kid_id));
+            }
+        }
     }
 
     /// The `let y = x;` and `let (a, b) = x;` statements of a block that bind

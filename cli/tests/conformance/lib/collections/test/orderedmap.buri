@@ -2668,3 +2668,66 @@ test "removing each key of a large string-keyed map while walking its keys" {
     assert.equal(keys, names);
     assert.equal(m.length(), 2000);
 }
+
+// --- a value read with withDefault and inserted back -------------------------
+
+/// `key`'s list, or an empty one, with its length pushed, inserted back.
+fn pushedBack<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    key: Int,
+): OrderedMap<Int, [Int]> {
+    let xs = m.get(key).withDefault([]);
+    m.insert(ctx, key, xs.push(ctx, xs.length()))
+}
+
+test "a value read with withDefault and inserted back changes only the new map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A hundred new keys, out of order, split leaves, branches and the root.
+    let grown = list
+        .range(ctx, 0, 100)
+        .foldCtx(
+            ctx,
+            fn(c, m, i) => pushedBack(c, m, i * 37 % 100),
+            orderedmap.empty<Int, [Int]>(),
+        );
+    let again = list
+        .range(ctx, 0, 100)
+        .foldCtx(ctx, fn(c, m, i) => pushedBack(c, m, i), grown);
+    assert.equal(grown.length(), 100);
+    assert.equal(again.length(), 100);
+    assert.isTrue(list.range(ctx, 0, 100).all(fn(i) => grown.get(i) == .Some([0])));
+    assert.isTrue(list.range(ctx, 0, 100).all(fn(i) => again.get(i) == .Some([0, 1])));
+    assert.equal(again.keys(ctx), list.range(ctx, 0, 100));
+}
+
+// --- a `?` in an insert's value ------------------------------------------------
+
+fn checkedInsert<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, Int>,
+    key: Int,
+    r: Result<Int, Str>,
+): Result<OrderedMap<Int, Int>, Str> {
+    .Ok(m.insert(ctx, key, r?))
+}
+
+test "a question mark in an insert's value answers either way" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.empty<Int, Int>().insert(ctx, 1, 1);
+    assert.equal(checkedInsert(ctx, m, 2, .Ok(2)).map(fn(x) => x.length()), .Ok(2));
+    assert.equal(
+        checkedInsert(
+            ctx,
+            orderedmap.empty<Int, Int>().insert(ctx, 1, 1),
+            2,
+            .Err("no"),
+        ).map(fn(x) => x.length()),
+        .Err("no"),
+    );
+    assert.equal(m.length(), 1);
+}

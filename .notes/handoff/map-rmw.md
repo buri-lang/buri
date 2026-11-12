@@ -1,28 +1,32 @@
 # Map read-change-write without `update`/`take`
 
-Phase 6, 2026-11-12. See PERFORMANCE.md §6.123: `exchangeAt` swaps a
-placeholder into a child's slot and hands the old child back with the slot's
-count, so a descent no longer retains the child and releases the slot.
+Phase 7, 2026-11-12. See PERFORMANCE.md §6.125: monomorphization rewrites
+`let w = m.get(k).withDefault(d); ... m.insert(ctx, k, <uses w>)` into the
+map module's private `upserted`, one descent that changes the value in place
+(`crates/middle/src/compiler/middle/monomorphize/upsert.rs`).
 
-- `run-dev/kvstore` went from 1,199.8 M to 1,186.3 M instructions (arm64
-  VM), with 589,381 allocations before and after.
-- `glue_counts.rs`'s `core/map` cost a field went from 201 to 150 (stencil)
-  and from 184 to 140 (LLVM).
-- `cli/tests/repositories/middle/map_descents` covers the descents.
-- This replaces phase 5's deferred same-key insert (168 a field): 150 beats
-  it and adds no decision, so MC/DC holds.
+- `run-dev/kvstore` went from 1,186.3 M to 1,163.2 M instructions (arm64 VM)
+  and from 589,381 to 583,491 allocations. The soak output is unchanged.
+- `cli/tests/repositories/middle/map_defaults` covers rewritten and left-alone
+  shapes on both backends, with older copies held.
+- It fixed `runtime.js`'s `$map_exchangeAt`, which didn't share the element it
+  handed out of a copied list, and an `rc` leak when a `?` to the right of an
+  already-made argument or field update fails (`held_until_taken`).
+- Only repository code is rewritten. Rewriting the stdlib's `groupBy` gave
+  `upserted` instances whose collision arm no key type there can reach, and
+  `core/map`'s MC/DC fell to 94.6%.
+
+Phase 6: `exchangeAt` swaps a placeholder into a child's slot (§6.123).
 
 ## What's left
 
 About 38.7k list copies remain in kvstore's soak. `copies.sh` in the VM
 breaks them down by call site.
 
-- **`network.send` / `request`.** The copy is about 1% of instructions and
-  an extra descent costs about 3%, so a fix must not descend twice. Vacate's
-  let-sourced form and sending through `take` both failed. Don't redo them.
-  Phase 6 found no simple form: one descent means reading and writing in a
-  single pass, which is `update` with a closure, and a compiler rewrite of
-  get-then-insert into that is a large pass for about 1%.
+- **Wider upserts.** The rewrite skips a change that reads two or more other
+  locals, a `?` or lambda in the value, an insert under a lambda, and a map or
+  key that isn't a name or a field of one. Pack extra locals into a tuple
+  `arg` to widen it.
 - **`compactAll`**: an `insert` inside `foldLeafCtx` over the map it also
   accumulates into. That sharing is inherent.
 - **`popped` with `.None => m`** (`network.receive`). `m` stays alive through
@@ -69,3 +73,6 @@ breaks them down by call site.
 - Phase 6 deleted the `maprmw` VM; `setup.sh` makes a new one.
 - Phase 5 remade the `maprmw` VM. `~/.buri-agent/rmw5/run.sh <name>`
   benches `<name>.tar` and prints the kvstore row and the heap report.
+- Phase 7 deleted `maprmw` too. `~/.buri-agent/rmw7/run.sh <name>` benches
+  `<name>.tar` from `~/.buri-agent/rmw/`; `same.sh <a> <b>` compares two
+  saved soak outputs.
