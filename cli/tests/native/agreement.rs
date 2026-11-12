@@ -7692,6 +7692,55 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// Generic functions instantiated at several types, each instance built from
+/// the one checked body: a comparison that is IEEE's at a float and an
+/// integer's at an `Int`, a map read and written back under one key, a
+/// module-level constant read inside the body, and a `match` on an option.
+/// Every instance agrees, and the body each was built from is unchanged for
+/// the next.
+#[test]
+fn a_generic_function_instantiated_at_several_types_agrees() {
+    rows_or_skip!();
+    agree(
+        "generic instances",
+        r#"
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator };
+from "core/io" import * as io;
+from "core/map" import * as map;
+from "core/map" import { Map };
+
+let step: Int = 3;
+
+fn below<T: Ordered>(a: T, b: T): Bool { a < b }
+
+fn yes(b: Bool): Str { if (b) { "y" } else { "n" } }
+
+fn tally<K: Hash + Equal, C: Allocator>(ctx: C, m: Map<K, Int>, k: K): Map<K, Int> {
+  let n = m.get(k).withDefault(0);
+  m.insert(ctx, k, n + step)
+}
+
+fn pick<T>(xs: [T], at: Int, fallback: T): T {
+  match (xs.get(at)) {
+    .Some(x) => x,
+    .None => fallback,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let negativeZero = 0.0 * (0.0 - 1.0);
+  let ints = tally(ctx, tally(ctx, tally(ctx, map.empty(), 1), 2), 1);
+  let strs = tally(ctx, tally(ctx, map.empty(), "a"), "a");
+  let _ = io.println(host.stdout, "${yes(below(1, 2))}${yes(below(2.5, 1.5))}${yes(below(negativeZero, 0.0))}${yes(below(1.5, 2.5))} ${ints.get(1).withDefault(0)} ${ints.get(2).withDefault(0)} ${strs.get("a").withDefault(0)} ${pick([10, 20], 1, 0)} ${pick(["x"], 5, "none")} ${pick([1.5], 0, 0.0)}").ignore();
+  .Ok(())
+}
+"#,
+        "ynny 6 3 6 20 none 1.5\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
