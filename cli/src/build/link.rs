@@ -2376,6 +2376,36 @@ impl Replay {
         })
     }
 
+    /// This command less each absolute library directory that holds none of
+    /// the libraries it names, on an ELF link.
+    ///
+    /// The linker checks every argument against each of its options, so a
+    /// directory costs a link about 100 k instructions whether or not anything
+    /// is found there, and nix's wrappers name twenty. A directory with no
+    /// file a `-l` would take can't change what's found. A macOS link keeps
+    /// them all: `ld64` looks for them under its SDK root, not here.
+    fn searching_only_where_it_finds(mut self) -> Replay {
+        let files: Vec<String> = self
+            .before
+            .iter()
+            .chain(&self.after)
+            .filter_map(|arg| arg.strip_prefix("-l"))
+            .flat_map(|lib| match lib.strip_prefix(':') {
+                Some(name) => vec![name.to_string()],
+                None => vec![format!("lib{lib}.a"), format!("lib{lib}.so")],
+            })
+            .collect();
+        let finds = |arg: &String| match arg.strip_prefix("-L") {
+            Some(dir) if dir.starts_with('/') => {
+                files.iter().any(|f| Path::new(dir).join(f).exists())
+            }
+            _ => true,
+        };
+        self.before.retain(finds);
+        self.after.retain(finds);
+        self
+    }
+
     /// Whether this command can run without the driver around it.
     ///
     /// The linker has to be an absolute path to a binary. A script, like nix's
@@ -2482,7 +2512,7 @@ impl CDriver {
     /// the driver prints.
     fn replay_key(&self) -> ActionKey {
         let mut text = format!(
-            "link replay v3\0{}\0{}\0{}\0{}\0{}\0",
+            "link replay v4\0{}\0{}\0{}\0{}\0{}\0",
             crate::build::cache::running_exe_identity().unwrap_or_default(),
             self.driver.display(),
             self.version(),
@@ -2547,6 +2577,10 @@ impl CDriver {
         }
         Replay::from_dry_run(&String::from_utf8_lossy(&out.stderr), objects)
             .filter(|replay| replay.stands_alone(&self.dir))
+            .map(|replay| match self.target.platform {
+                Platform::Linux => replay.searching_only_where_it_finds(),
+                _ => replay,
+            })
     }
 
     /// Stops replaying this link's command, in this process and, where `keep`
