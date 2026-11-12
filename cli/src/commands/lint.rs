@@ -4451,11 +4451,14 @@ fn check_tests_assert(
     // spelling at the call, so a local alias or a re-export is the same
     // function. Only a library testing module can hold one.
     let asserts = |f: FnId| {
-        let key = function_key(&analysis.checked, &analysis.loaded, f);
-        let module = key.0.as_str();
-        crate::build::workspace::is_test_only_path(module)
-            && crate::compiler::standard_library::find(module).is_some()
-            && failing_testing_functions().contains(&key)
+        let info = analysis.checked.tables.fn_info(f);
+        let module = analysis.loaded.module(info.module).path.as_str();
+        if crate::compiler::standard_library::find(module).is_none() {
+            return false;
+        }
+        let owner = (info.self_ty).map_or("", |con| &analysis.checked.tables.tycon(con).name);
+        module == "core/testing/assert"
+            || FAILING_TESTING_FUNCTIONS.contains(&(module, owner, info.name.as_str()))
     };
 
     for case in &analysis.checked.tests {
@@ -4504,84 +4507,31 @@ fn check_tests_assert(
     }
 }
 
-/// A function as the library's testing modules and a program both name it:
-/// its module, the type its methods hang off, and its own name.
-fn function_key(
-    checked: &crate::compiler::semantics::resolve::Checked,
-    loaded: &crate::compiler::modules::Loaded,
-    f: FnId,
-) -> (String, String, String) {
-    let info = checked.tables.fn_info(f);
-    let owner = info
-        .self_ty
-        .map(|con| checked.tables.tycon(con).name.clone());
-    (
-        loaded.module(info.module).path.clone(),
-        owner.unwrap_or_default(),
-        info.name.clone(),
-    )
-}
-
-/// Every function of the library's testing modules that can fail a test,
-/// worked out once per process from their bodies, which a program analysis
-/// does not check.
+/// Every function outside `core/testing/assert` (which counts whole) that
+/// can fail a test, as module, owner and name.
 ///
-/// The runner's doors are where a test fails. `core/testing/assert` counts
-/// whole. In `platform/effect/testing`, `paint` compares a golden, and the
-/// three that add a fault to a plan make a promise the runner checks at the
-/// end of the block. Whatever reaches one counts too: `snapshotWide`, each
-/// double's `faults`, `forAll`.
-fn failing_testing_functions() -> &'static BTreeSet<(String, String, String)> {
-    static FAILING: std::sync::OnceLock<BTreeSet<(String, String, String)>> =
-        std::sync::OnceLock::new();
-    FAILING.get_or_init(|| {
-        let mut map = crate::diagnostics::SourceMap::new();
-        let analysis = crate::compiler::driver::analyze_std_testing(&mut map);
-        let (checked, loaded) = (&analysis.checked, &analysis.loaded);
-        let door = |f: FnId| {
-            let (module, _, name) = function_key(checked, loaded, f);
-            match module.as_str() {
-                "core/testing/assert" => true,
-                "platform/effect/testing" => matches!(
-                    name.as_str(),
-                    "paint" | "addFsFault" | "addNetFault" | "addFault"
-                ),
-                _ => false,
-            }
-        };
-        let mut failing: BTreeSet<FnId> = checked.tables.fns.ids().filter(|&f| door(f)).collect();
-        let mut callers: Vec<(FnId, Vec<FnId>)> = (checked.bodies.iter())
-            .map(|(f, body)| {
-                let mut called = Vec::new();
-                crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-                    if let typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) =
-                        &e.kind
-                    {
-                        called.push(func.id);
-                    }
-                });
-                (f, called)
-            })
-            .collect();
-        // Until a pass adds nothing.
-        loop {
-            let before = failing.len();
-            callers.retain(|(f, called)| {
-                let fails = called.iter().any(|g| failing.contains(g));
-                if fails {
-                    failing.insert(*f);
-                }
-                !fails
-            });
-            if failing.len() == before {
-                break;
-            }
-        }
-        (failing.into_iter())
-            .map(|f| function_key(checked, loaded, f))
-            .collect()
-    })
-}
+/// The runner's doors are where a test fails. In `platform/effect/testing`,
+/// `paint` compares a golden, and the three that add a fault to a plan make a
+/// promise the runner checks at the end of the block. Whatever in the
+/// library's testing modules reaches a door counts too. A program analysis
+/// checks no library body, so the list is written out here and a unit test
+/// derives it again from the library.
+const FAILING_TESTING_FUNCTIONS: &[(&str, &str, &str)] = &[
+    ("core/testing/check", "", "forAll"),
+    ("core/testing/check", "", "forAllCtx"),
+    ("platform/effect/testing", "", "addFsFault"),
+    ("platform/effect/testing", "", "addNetFault"),
+    ("platform/effect/testing", "", "describeFsPlan"),
+    ("platform/effect/testing", "", "describeNetPlan"),
+    ("platform/effect/testing", "", "describeTaskPlan"),
+    ("platform/effect/testing", "", "paint"),
+    ("platform/effect/testing", "", "snapshot"),
+    ("platform/effect/testing", "", "snapshotWide"),
+    ("platform/effect/testing", "TestFileSystem", "faults"),
+    ("platform/effect/testing", "TestNetwork", "faults"),
+    ("platform/effect/testing", "TestTasks", "addFault"),
+    ("platform/effect/testing", "TestTasks", "faults"),
+];
 
 /// Every library a package's own code reaches through a resolved call, which
 /// the tool can compute because resolution is a single lookup.
@@ -4677,5 +4627,95 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
                 .with_bind("other", b),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A function as the library's testing modules and a program both name it:
+    /// its module, the type its methods hang off, and its own name.
+    fn function_key(
+        checked: &crate::compiler::semantics::resolve::Checked,
+        loaded: &crate::compiler::modules::Loaded,
+        f: FnId,
+    ) -> (String, String, String) {
+        let info = checked.tables.fn_info(f);
+        let owner = info
+            .self_ty
+            .map(|con| checked.tables.tycon(con).name.clone());
+        (
+            loaded.module(info.module).path.clone(),
+            owner.unwrap_or_default(),
+            info.name.clone(),
+        )
+    }
+
+    /// What the library's testing modules say can fail a test: the doors and
+    /// whatever reaches one.
+    fn derived() -> BTreeSet<(String, String, String)> {
+        let mut map = crate::diagnostics::SourceMap::new();
+        let analysis = crate::compiler::driver::analyze_std_testing(&mut map);
+        let (checked, loaded) = (&analysis.checked, &analysis.loaded);
+        let door = |f: FnId| {
+            let (module, _, name) = function_key(checked, loaded, f);
+            match module.as_str() {
+                "core/testing/assert" => true,
+                "platform/effect/testing" => matches!(
+                    name.as_str(),
+                    "paint" | "addFsFault" | "addNetFault" | "addFault"
+                ),
+                _ => false,
+            }
+        };
+        let mut failing: BTreeSet<FnId> = checked.tables.fns.ids().filter(|&f| door(f)).collect();
+        let mut callers: Vec<(FnId, Vec<FnId>)> = (checked.bodies.iter())
+            .map(|(f, body)| {
+                let mut called = Vec::new();
+                crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
+                    if let typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) =
+                        &e.kind
+                    {
+                        called.push(func.id);
+                    }
+                });
+                (f, called)
+            })
+            .collect();
+        // Until a pass adds nothing.
+        loop {
+            let before = failing.len();
+            callers.retain(|(f, called)| {
+                let fails = called.iter().any(|g| failing.contains(g));
+                if fails {
+                    failing.insert(*f);
+                }
+                !fails
+            });
+            if failing.len() == before {
+                break;
+            }
+        }
+        (failing.into_iter())
+            .map(|f| function_key(checked, loaded, f))
+            .collect()
+    }
+
+    #[test]
+    fn the_failing_testing_functions_are_what_the_library_derives() {
+        let derived: Vec<_> = (derived().into_iter())
+            .filter(|(module, _, _)| module != "core/testing/assert")
+            .collect();
+        let listed: Vec<_> = (FAILING_TESTING_FUNCTIONS.iter())
+            .map(|(m, o, n)| (m.to_string(), o.to_string(), n.to_string()))
+            .collect();
+        let text: String = (derived.iter())
+            .map(|(m, o, n)| format!("    ({m:?}, {o:?}, {n:?}),\n"))
+            .collect();
+        assert_eq!(
+            listed, derived,
+            "FAILING_TESTING_FUNCTIONS should be:\n{text}"
+        );
     }
 }

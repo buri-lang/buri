@@ -841,7 +841,9 @@ pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
 /// checks their bodies and none of the rest.
 ///
 /// A program analysis checks no library body, so this is where
-/// `test-missing-assertion` learns which testing functions fail a test.
+/// `test-missing-assertion`'s unit test learns which testing functions fail a
+/// test.
+#[cfg(test)]
 pub fn analyze_std_testing(map: &mut SourceMap) -> Analysis {
     let testing = crate::build::workspace::is_test_only_path;
     let mut cache = crate::parsing::parser::Cache::new();
