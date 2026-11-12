@@ -9516,7 +9516,8 @@ into the library, so `Library::decode` reads three numbers and a lookup probes
 the table in the embedded bytes.
 
 On the arm64 VM, `test/one-edit` went from 55.39M to 47.35M instructions
-(−14.5%). `profile.rs`'s `a_one_test_run_reads_only_the_stencils_it_emits`
+(−14.5%). On CI, x86_64 went from 66.88M to 62.15M (−7.1%), and the
+counted goals' dev-codegen instructions fell 0.5–1%. `profile.rs`'s `a_one_test_run_reads_only_the_stencils_it_emits`
 checks the run reads a few hundred stencils; `BURI_PROFILE` prints the count
 as `stencils read`.
 
