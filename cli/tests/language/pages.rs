@@ -3246,3 +3246,120 @@ for (const group of document.querySelectorAll("[role=group]")) {
          grid-template-columns by parameter: 50px 20px\n"
     );
 }
+
+/// A page with a `Full` radius and border widths that aren't widths, each
+/// written in place or, when `late`, read back from a signal, which the
+/// compiler can't fold. The two forms are separate pages, so neither names a
+/// class the other could reuse. Each group's label opens with the CSS property
+/// the driver reads.
+fn edge_values_page(late: bool) -> String {
+    let groups = [
+        ("border-top-left-radius", ".Radius(", ".Full"),
+        (
+            "border-start-end-radius",
+            ".RadiusCorner(.TopEnd, ",
+            ".Full",
+        ),
+        (
+            "border-top-width of a percentage",
+            ".BorderWidth(",
+            ".Percent(50.0)",
+        ),
+        ("border-top-width of auto", ".BorderWidth(", ".Auto"),
+        ("border-top-width of full", ".BorderWidth(", ".Full"),
+        ("border-top-width of a negative", ".BorderWidth(", ".Px(-2)"),
+        (
+            "border-block-start-width of a percentage",
+            ".BorderEdge(.Top, ",
+            ".Percent(50.0)",
+        ),
+        (
+            "border-block-start-width of a negative",
+            ".BorderEdge(.Top, ",
+            ".Rem(-0.5)",
+        ),
+    ];
+    let children: String = groups
+        .iter()
+        .map(|(name, style, value)| {
+            let value = if late {
+                format!("late(ctx, {value})")
+            } else {
+                value.to_string()
+            };
+            format!(
+                "                named(\"{name}\", boxed([.Width(.Px(80)), .Height(.Px(40)), .BorderStyle(.Solid), {style}{value})])),\n"
+            )
+        })
+        .collect();
+    format!(
+        r#"from "platform/effect" import {{ Allocator, Ui, Watch }};
+from "ui/node" import * as ui;
+from "ui/node" import {{ Node }};
+from "ui/signal" import {{ signal }};
+from "ui/style" import {{ Style }};
+from "web" import {{ WebHost }};
+
+fn named<C>(name: Str, subject: Node<C>): Node<C> {{
+    ui.stack({{ styles: [], children: [subject], role: .Some(.Group), label: .Some(.Const(name)) }})
+}}
+
+fn late<T, C: Ui + Watch>(ctx: C, x: T): T {{
+    signal(ctx, x).get(ctx)
+}}
+
+fn boxed<C>(styles: [Style]): Node<C> {{
+    ui.stack({{ styles: styles, children: [] }})
+}}
+
+export fn main(host: WebHost): Result<(), Str> {{
+    let ctx = context {{
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    }};
+    ui.mount(
+        ctx,
+        ui.stack({{
+            styles: [],
+            children: [
+{children}            ],
+        }}),
+        [],
+    )
+}}
+"#
+    )
+}
+
+/// A `Full` radius rounds a box into a pill however it reaches its node, and a
+/// border width that isn't a width (a percentage, `Auto`, `Full` or a negative
+/// length) draws no border however it arrives.
+#[test]
+fn a_radius_and_a_border_width_do_the_same_however_they_arrive() {
+    let driver = r#"
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+const sheet = document.createElement("style");
+sheet.textContent = css;
+document.head.appendChild(sheet);
+for (const group of document.querySelectorAll("[role=group]")) {
+  const name = group.getAttribute("aria-label");
+  const property = name.split(" ")[0];
+  const value = getComputedStyle(group.firstElementChild).getPropertyValue(property);
+  console.log(`${name}: ${value}`);
+}
+"#;
+    let expected = "border-top-left-radius: 9999px\n\
+                    border-start-end-radius: 9999px\n\
+                    border-top-width of a percentage: 0px\n\
+                    border-top-width of auto: 0px\n\
+                    border-top-width of full: 0px\n\
+                    border-top-width of a negative: 0px\n\
+                    border-block-start-width of a percentage: 0px\n\
+                    border-block-start-width of a negative: 0px\n";
+    let written = drive("edge-values-written-page", &edge_values_page(false), driver);
+    let late = drive("edge-values-late-page", &edge_values_page(true), driver);
+    assert_eq!(written, expected, "written in place");
+    assert_eq!(late, expected, "read back from a signal");
+}

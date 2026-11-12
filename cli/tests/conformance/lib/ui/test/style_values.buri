@@ -889,11 +889,11 @@ test "a position known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.PaddingEdge(late(ctx, .Top), .Em(1.0))]),
-        "e 0 class:pe-block-start-var;--buri-pe-block-start:1.0em",
+        "e 0 class:pe-block-start-var;--buri-pe-block-start:1em",
     );
     assert.equal(
-        painted(ctx, [.BorderEdge(late(ctx, .Start), .Percent(5.0))]),
-        "e 0 class:be-inline-start-var;--buri-be-inline-start:5.0%",
+        painted(ctx, [.BorderEdge(late(ctx, .Start), .Rem(0.5))]),
+        "e 0 class:be-inline-start-var;--buri-be-inline-start:0.5rem",
     );
 }
 
@@ -909,15 +909,15 @@ test "a length known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.MaxWidth(late(ctx, .Rem(2.0)))]),
-        "e 0 class:maxw-var;--buri-maxw:2.0rem",
+        "e 0 class:maxw-var;--buri-maxw:2rem",
     );
     assert.equal(
         painted(ctx, [.MinHeight(late(ctx, .Em(3.0)))]),
-        "e 0 class:minh-var;--buri-minh:3.0em",
+        "e 0 class:minh-var;--buri-minh:3em",
     );
     assert.equal(
         painted(ctx, [.MaxHeight(late(ctx, .Percent(4.0)))]),
-        "e 0 class:maxh-var;--buri-maxh:4.0%",
+        "e 0 class:maxh-var;--buri-maxh:4%",
     );
     assert.equal(
         painted(ctx, [.Width(late(ctx, .Auto))]),
@@ -933,7 +933,67 @@ test "a length known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.Translate(late(ctx, .Px(1)), .Rem(2.0))]),
-        "e 0 class:tr-var;--buri-tr:translate(1px,2.0rem)",
+        "e 0 class:tr-var;--buri-tr:translate(1px,2rem)",
+    );
+}
+
+test "a border width known only at run time that isn't a width draws no border" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Px(0)))]),
+        "e 0 class:bw-var;--buri-bw:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Px(-2)))]),
+        "e 0 class:bw-var;--buri-bw:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Rem(0.25)))]),
+        "e 0 class:bw-var;--buri-bw:0.25rem",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Rem(-0.25)))]),
+        "e 0 class:bw-var;--buri-bw:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Em(0.5)))]),
+        "e 0 class:bw-var;--buri-bw:0.5em",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Em(-0.5)))]),
+        "e 0 class:bw-var;--buri-bw:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Percent(50.0)))]),
+        "e 0 class:bw-var;--buri-bw:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderEdge(late(ctx, .Top), .Auto)]),
+        "e 0 class:be-block-start-var;--buri-be-block-start:0px",
+    );
+    assert.equal(
+        painted(ctx, [.BorderEdge(late(ctx, .Bottom), .Full)]),
+        "e 0 class:be-block-end-var;--buri-be-block-end:0px",
+    );
+}
+
+test "a full radius known only at run time is a pill" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Radius(late(ctx, .Full))]),
+        "e 0 class:r-var;--buri-r:9999px",
+    );
+    assert.equal(
+        painted(ctx, [.RadiusCorner(late(ctx, .BottomEnd), .Full)]),
+        "e 0 class:rc-end-end-var;--buri-rc-end-end:9999px",
     );
 }
 
@@ -969,7 +1029,7 @@ test "a bleed known only at run time writes its margin out" {
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Percent(10.0)))]),
-        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:-10.0%",
+        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:-10%",
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Percent(0.0)))]),
@@ -1224,7 +1284,7 @@ test "a variable-backed style known only at run time sets its variable" {
     );
     assert.equal(
         painted(ctx, [.FontSize(late(ctx, .Rem(1.0)))]),
-        "e 0 class:fs-var;--buri-fs:1.0rem",
+        "e 0 class:fs-var;--buri-fs:1rem",
     );
     assert.equal(
         painted(ctx, [.Radius(late(ctx, .Px(4)))]),

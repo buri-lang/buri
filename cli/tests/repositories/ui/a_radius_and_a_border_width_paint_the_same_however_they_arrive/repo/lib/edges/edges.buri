@@ -1,0 +1,178 @@
+//! Each scene twice: once with its style values written where the node is
+//! given them, and once with the same values read back from a signal, which
+//! the compiler can't fold, so the node writes them out when it runs. A style
+//! value paints the same however it arrives, so each pair paints one picture.
+
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Edge, Length, Style };
+
+/// `x`, read back from a signal, so the compiler can't fold a style that
+/// holds it.
+fn late<T, C: Ui + Watch>(ctx: C, x: T): T {
+    signal(ctx, x).get(ctx)
+}
+
+/// The white frame every scene is painted in.
+fn frame<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(100)),
+            .Height(.Px(100)),
+            .Padding(.Px(10)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [subject],
+    })
+}
+
+/// A red box twice as wide as it is tall, so a pill and an ellipse differ.
+fn wide<C>(rounding: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(80)),
+                .Height(.Px(40)),
+                .Background(.Rgb(220, 0, 0)),
+                rounding,
+            ],
+            children: [],
+        }),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// A `Full` radius is a pill, and a `Full` corner is a quarter of one.
+// ---------------------------------------------------------------------------
+
+export fn pillWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(80)),
+                .Height(.Px(40)),
+                .Background(.Rgb(220, 0, 0)),
+                .Radius(.Full),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn pillLate<C: Ui + Watch>(ctx: C): Node<C> {
+    wide(.Radius(late(ctx, .Full)))
+}
+
+export fn cornerWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(80)),
+                .Height(.Px(40)),
+                .Background(.Rgb(220, 0, 0)),
+                .RadiusCorner(.TopEnd, .Full),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn cornerLate<C: Ui + Watch>(ctx: C): Node<C> {
+    wide(.RadiusCorner(.TopEnd, late(ctx, .Full)))
+}
+
+// ---------------------------------------------------------------------------
+// A border given a length that isn't a width draws no border.
+// ---------------------------------------------------------------------------
+
+/// A grey box with a solid black border style and no width: no border.
+export fn unbordered<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(40)),
+                .Background(.Rgb(200, 200, 200)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderStyle(.Solid),
+            ],
+            children: [],
+        }),
+    )
+}
+
+fn bordered<C>(width: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(40)),
+                .Background(.Rgb(200, 200, 200)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderStyle(.Solid),
+                width,
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn percentWritten<C>(): Node<C> {
+    bordered(.BorderWidth(.Percent(50.0)))
+}
+
+export fn autoWritten<C>(): Node<C> {
+    bordered(.BorderWidth(.Auto))
+}
+
+export fn fullWritten<C>(): Node<C> {
+    bordered(.BorderWidth(.Full))
+}
+
+export fn negativeWritten<C>(): Node<C> {
+    bordered(.BorderWidth(.Px(-2)))
+}
+
+export fn edgePercentWritten<C>(): Node<C> {
+    bordered(.BorderEdge(.Top, .Percent(50.0)))
+}
+
+export fn edgeNegativeWritten<C>(): Node<C> {
+    bordered(.BorderEdge(.Top, .Rem(-0.5)))
+}
+
+/// A border width read back from a signal.
+fn borderedLate<C: Ui + Watch>(ctx: C, width: Length): Node<C> {
+    bordered(.BorderWidth(late(ctx, width)))
+}
+
+/// One edge's width read back from a signal.
+fn edgeLate<C: Ui + Watch>(ctx: C, edge: Edge, width: Length): Node<C> {
+    bordered(.BorderEdge(edge, late(ctx, width)))
+}
+
+export fn percentLate<C: Ui + Watch>(ctx: C): Node<C> {
+    borderedLate(ctx, .Percent(50.0))
+}
+
+export fn autoLate<C: Ui + Watch>(ctx: C): Node<C> {
+    borderedLate(ctx, .Auto)
+}
+
+export fn fullLate<C: Ui + Watch>(ctx: C): Node<C> {
+    borderedLate(ctx, .Full)
+}
+
+export fn negativeLate<C: Ui + Watch>(ctx: C): Node<C> {
+    borderedLate(ctx, .Px(-2))
+}
+
+export fn edgePercentLate<C: Ui + Watch>(ctx: C): Node<C> {
+    edgeLate(ctx, .Top, .Percent(50.0))
+}
+
+export fn edgeNegativeLate<C: Ui + Watch>(ctx: C): Node<C> {
+    edgeLate(ctx, .Top, .Rem(-0.5))
+}

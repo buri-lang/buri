@@ -262,12 +262,12 @@ test "the meter's width follows what is settled" {
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.press("Load the ledger");
-    assert.isTrue(seen.markup().contains("--buri-w:0.0%"));
+    assert.isTrue(seen.markup().contains("--buri-w:0%"));
 
     let _ = seen.press("settle coffee");
     let _ = seen.press("settle books");
     let _ = seen.press("settle tram");
-    assert.isTrue(seen.markup().contains("--buri-w:100.0%"));
+    assert.isTrue(seen.markup().contains("--buri-w:100%"));
 }
 
 // --- the request ---------------------------------------------------------------------

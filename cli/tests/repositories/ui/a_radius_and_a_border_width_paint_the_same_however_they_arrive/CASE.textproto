@@ -1,0 +1,19 @@
+# A radius and a border width paint the same however they reach their node.
+#
+# A `Full` radius is a pill written in place, and read back from a signal it
+# used to lower to `100%`: an ellipse on a box wider than it is tall. A border
+# width that isn't a width (a percentage, `Auto`, `Full` or a negative length)
+# draws no border written in place, and read back from a signal it used to
+# leave a solid style with nothing a browser keeps, which draws CSS's 3px
+# `medium` line. Each scene here shares a golden with its twin that writes the
+# value in place.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a `Full` radius and a border width that isn't a width paint what the same value written in place paints, however they arrive"
+
+run {
+  args: ["test", "//lib/edges", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}

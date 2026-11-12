@@ -1,0 +1,156 @@
+// Each scene with its values written in place, then the same scene with them
+// read back from a signal. Both of a pair compare against one golden, so a
+// value that paints differently for how it arrived fails.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
+from "//lib/edges" import {
+    autoLate, autoWritten, cornerLate, cornerWritten, edgeNegativeLate,
+    edgeNegativeWritten, edgePercentLate, edgePercentWritten, fullLate, fullWritten,
+    negativeLate, negativeWritten, percentLate, percentWritten, pillLate, pillWritten,
+    unbordered,
+};
+
+test "a `Full` radius written in place is a pill" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "pill", pillWritten(), .Checked, []);
+}
+
+test "a `Full` corner written in place is a quarter of a pill" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "corner", cornerWritten(), .Checked, []);
+}
+
+test "a border style with no width draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", unbordered(), .Checked, []);
+}
+
+test "a percentage border width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", percentWritten(), .Checked, []);
+}
+
+test "an `Auto` border width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", autoWritten(), .Checked, []);
+}
+
+test "a `Full` border width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", fullWritten(), .Checked, []);
+}
+
+test "a negative border width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", negativeWritten(), .Checked, []);
+}
+
+test "a percentage edge width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", edgePercentWritten(), .Checked, []);
+}
+
+test "a negative edge width written in place draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "unbordered", edgeNegativeWritten(), .Checked, []);
+}
+
+test "a `Full` radius read back from a signal is a pill" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "pill", pillLate(ctx), .Checked, []);
+}
+
+test "a `Full` corner read back from a signal is a quarter of a pill" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "corner", cornerLate(ctx), .Checked, []);
+}
+
+test "a percentage border width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", percentLate(ctx), .Checked, []);
+}
+
+test "an `Auto` border width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", autoLate(ctx), .Checked, []);
+}
+
+test "a `Full` border width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", fullLate(ctx), .Checked, []);
+}
+
+test "a negative border width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", negativeLate(ctx), .Checked, []);
+}
+
+test "a percentage edge width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", edgePercentLate(ctx), .Checked, []);
+}
+
+test "a negative edge width read back from a signal draws no border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "unbordered", edgeNegativeLate(ctx), .Checked, []);
+}

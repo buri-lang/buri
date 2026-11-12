@@ -3956,19 +3956,19 @@ fn radius_length(value: &Value) -> Option<(String, String)> {
     length(value)
 }
 
-/// A border width accepts only an absolute length. A percentage, `.Auto` or
-/// `.Full` is not a width a browser keeps: it drops the declaration but leaves
-/// the `border-style: solid` beside it, so the box draws the CSS `medium`
-/// default — a 3px line nobody asked for — where the painter drew nothing. So a
-/// border given a length that is not a width is no border at all, on both
-/// renderers.
+/// A `Length` as the border width it names. A percentage, `.Auto`, `.Full` or a
+/// negative length isn't a width, so it writes `0px`: no border, as the painter
+/// draws. Written as is, a browser reading it from a variable would draw CSS's
+/// 3px `medium` default. The key stays the length's, the one `classify` names.
 fn border_width_length(value: &Value) -> Option<(String, String)> {
-    match value.as_variant()?.0 {
-        // Px, Rem, Em — the absolute lengths a border width is measured in.
-        0..=2 => length(value),
-        // Percent, Auto, Full — not a width; the whole border is dropped.
-        _ => None,
-    }
+    let (css, key) = length(value)?;
+    let (which, args) = value.as_variant()?;
+    let width = match which {
+        0 => args.first()?.as_int()? >= 0,
+        1 | 2 => args.first()?.as_float()? >= 0.0,
+        _ => false,
+    };
+    Some((if width { css } else { "0px".into() }, key))
 }
 
 fn length(value: &Value) -> Option<(String, String)> {

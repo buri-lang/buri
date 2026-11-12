@@ -18,10 +18,10 @@ test "every unit a translate takes" {
     assert.containsText(scene, "--buri-tr:translate(12px,0px)");
     assert.containsText(scene, "--buri-tr:translate(0px,12px)");
     assert.containsText(scene, "--buri-tr:translate(-12px,-12px)");
-    assert.containsText(scene, "--buri-tr:translate(1.0rem,0px)");
-    assert.containsText(scene, "--buri-tr:translate(1.0em,0px)");
-    assert.containsText(scene, "--buri-tr:translate(50.0%,0px)");
-    assert.containsText(scene, "--buri-tr:translate(0px,-25.0%)");
+    assert.containsText(scene, "--buri-tr:translate(1rem,0px)");
+    assert.containsText(scene, "--buri-tr:translate(1em,0px)");
+    assert.containsText(scene, "--buri-tr:translate(50%,0px)");
+    assert.containsText(scene, "--buri-tr:translate(0px,-25%)");
     assert.containsText(scene, "--buri-tr:translate(auto,auto)");
     assert.containsText(scene, "--buri-tr:translate(100%,0px)");
     snapshot(ctx, "translate-units", units(), .Hover, []);

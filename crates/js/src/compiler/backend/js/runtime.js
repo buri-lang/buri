@@ -5720,7 +5720,14 @@ function $tree_declare(style) {
     return String(value);
   }
   if (tag === 14) return "span " + value;
-  if (tag === 15 || tag === 23 || tag === 34 || tag === 38) return $tree_length(style[2]);
+  if (tag === 15 || tag === 23) return $tree_length(style[2]);
+  if (tag === 33 || tag === 34) return $tree_width(tag === 33 ? value : style[2]);
+  // A `Full` radius is a pill on every box; `100%` is an ellipse on one that
+  // isn't square.
+  if (tag === 37 || tag === 38) {
+    const length = tag === 37 ? value : style[2];
+    return length[0] === 5 ? "9999px" : $tree_length(length);
+  }
   if (tag === 31 || tag === 32 || tag === 35 || tag === 60) return $tree_color(value);
   if (tag === 40) return $tree_shadow(value);
   // The layers in the order they were written, which is the order a browser
@@ -5762,6 +5769,13 @@ function $tree_outwards(length) {
   if (tag === 0) return "-" + length[1] + "px";
   if (tag === 1) return "-" + length[1] + "rem";
   return "-" + length[1] + (tag === 2 ? "em" : "%");
+}
+
+// A border width: a percentage, `Auto`, `Full` or a negative length isn't a
+// width, so it is `0px`, no border. Read from a variable as written, a browser
+// would draw CSS's 3px `medium` default.
+function $tree_width(length) {
+  return length[0] > 2 || length[1] < 0 ? "0px" : $tree_length(length);
 }
 
 // A `Prop<T>` is `[tag, payload]`: 0 Const, 1 Cell, 2 Computed.

@@ -198,7 +198,8 @@ export enum Style {
     Foreground(Color),
     /// How thick the border is. A width on its own draws a solid border,
     /// because a border nobody can see is not what asking for one means.
-    /// `BorderStyle` is declared after it and overrides that.
+    /// `BorderStyle` is declared after it and overrides that. A percentage,
+    /// `Auto`, `Full` or a negative length isn't a width, so it draws no border.
     BorderWidth(Length),
     /// How thick the border is on one edge. A row's rule, a submenu's guide
     /// line, a divider under a header: one edge of a box rather than a box of
@@ -221,7 +222,7 @@ export enum Style {
     /// How rounded one corner is. Two `RadiusCorner`s naming different corners
     /// compose, which is how a caller that knows where a child sits — the
     /// middle button of a joined group — squares the side that meets its
-    /// neighbour.
+    /// neighbour. A `Full` corner rounds the way a `Full` radius does.
     RadiusCorner(Corner, Length),
     /// How opaque the whole element is, `0.0` to `1.0`, content included.
     Opacity(Float),

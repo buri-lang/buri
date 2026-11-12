@@ -89,10 +89,10 @@ test "a meter's width is a variable the sheet reads, and follows what is settled
     let seen = render(ctx, meter(.Cell(filled)));
     // The computed tier writes the value as a `--buri-w` custom property and
     // re-serialises that on change; the `width` itself is applied by a class.
-    assert.isTrue(seen.markup().contains("--buri-w:25.0%"));
+    assert.isTrue(seen.markup().contains("--buri-w:25%"));
 
     let _ = filled.set(ctx, 0.75);
-    assert.isTrue(seen.markup().contains("--buri-w:75.0%"));
+    assert.isTrue(seen.markup().contains("--buri-w:75%"));
 
     // The property lives in the stylesheet as a class reading the variable, so a
     // breakpoint rule can still override it; only the per-instance value is here.
@@ -104,7 +104,7 @@ test "a fraction outside the range is clamped rather than refused" {
         Ui: headless(),
     };
     let over = render(ctx, meter(.Const(1.5)));
-    assert.isTrue(over.markup().contains("--buri-w:100.0%"));
+    assert.isTrue(over.markup().contains("--buri-w:100%"));
     let under = render(ctx, meter(.Const(-0.5)));
-    assert.isTrue(under.markup().contains("--buri-w:0.0%"));
+    assert.isTrue(under.markup().contains("--buri-w:0%"));
 }

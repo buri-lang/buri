@@ -4979,15 +4979,15 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         .MaxWidth(length) => readBy(ctx, 5400, "maxw", lengthCss(ctx, length)),
         .MinHeight(length) => readBy(ctx, 5600, "minh", lengthCss(ctx, length)),
         .MaxHeight(length) => readBy(ctx, 5800, "maxh", lengthCss(ctx, length)),
-        .AspectRatio(ratio) => readBy(ctx, 6000, "ar", str.fromFloat(ctx, ratio)),
+        .AspectRatio(ratio) => readBy(ctx, 6000, "ar", cssNumber(ctx, ratio)),
         .Background(color) => readBy(ctx, 6200, "bg", colorCss(ctx, color)),
         .Foreground(color) => readBy(ctx, 6400, "fg", colorCss(ctx, color)),
-        .BorderWidth(length) => readBy(ctx, 6600, "bw", lengthCss(ctx, length)),
+        .BorderWidth(length) => readBy(ctx, 6600, "bw", widthCss(ctx, length)),
         .BorderEdge(edge, length) => {
-            edged(ctx, 6800, "be", edge, lengthCss(ctx, length))
+            edged(ctx, 6800, "be", edge, widthCss(ctx, length))
         },
         .BorderColor(color) => readBy(ctx, 7000, "bc", colorCss(ctx, color)),
-        .Radius(length) => readBy(ctx, 7400, "r", lengthCss(ctx, length)),
+        .Radius(length) => readBy(ctx, 7400, "r", radiusCss(ctx, length)),
         .RadiusCorner(corner, length) => {
             let (sub, name) = match (corner) {
                 .TopStart => (0, "start-start"),
@@ -4999,10 +4999,10 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
                 ctx,
                 7600 + sub * 40,
                 str.format(ctx, "rc-${name}"),
-                lengthCss(ctx, length),
+                radiusCss(ctx, length),
             )
         },
-        .Opacity(amount) => readBy(ctx, 7800, "op", str.fromFloat(ctx, amount)),
+        .Opacity(amount) => readBy(ctx, 7800, "op", cssNumber(ctx, amount)),
         .Shadow(shadow) => readBy(ctx, 8000, "sh", shadowCss(ctx, shadow)),
         // The layers in the order they were written, which is the order a
         // browser paints them, first over last.
@@ -5011,7 +5011,7 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         },
         .FontFamily(family) => readBy(ctx, 8400, "ff", fontStack(ctx, family)),
         .FontSize(length) => readBy(ctx, 8600, "fs", lengthCss(ctx, length)),
-        .LineHeight(amount) => readBy(ctx, 9200, "lh", str.fromFloat(ctx, amount)),
+        .LineHeight(amount) => readBy(ctx, 9200, "lh", cssNumber(ctx, amount)),
         .LetterSpacing(length) => readBy(ctx, 9400, "ls", lengthCss(ctx, length)),
         .Truncate(lines) => {
             if (lines > 0) {
@@ -5107,11 +5107,34 @@ fn trackCss<C: Allocator>(ctx: C, track: Track): Str {
 fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => str.format(ctx, "${n}px"),
-        .Rem(n) => str.format(ctx, "${n}rem"),
-        .Em(n) => str.format(ctx, "${n}em"),
-        .Percent(n) => str.format(ctx, "${n}%"),
+        .Rem(n) => str.format(ctx, "${cssNumber(ctx, n)}rem"),
+        .Em(n) => str.format(ctx, "${cssNumber(ctx, n)}em"),
+        .Percent(n) => str.format(ctx, "${cssNumber(ctx, n)}%"),
         .Auto => "auto",
         .Full => "100%",
+    }
+}
+
+/// A radius's length, as CSS. `.Full` is a pill on every box, `9999px`, as
+/// `semantics::styles` writes it: `100%` would be an ellipse on a box that
+/// isn't square.
+fn radiusCss<C: Allocator>(ctx: C, length: Length): Str {
+    match (length) {
+        .Full => "9999px",
+        _ => lengthCss(ctx, length),
+    }
+}
+
+/// A border width's length, as CSS. A percentage, `.Auto`, `.Full` or a
+/// negative length isn't a width, so it is `0px`, no border, as
+/// `semantics::styles` writes it. Read from a variable as written, a browser
+/// would draw CSS's 3px `medium` default.
+fn widthCss<C: Allocator>(ctx: C, length: Length): Str {
+    match (length) {
+        .Px(n) => if (n >= 0) { lengthCss(ctx, length) } else { "0px" },
+        .Rem(n) => if (n >= 0.0) { lengthCss(ctx, length) } else { "0px" },
+        .Em(n) => if (n >= 0.0) { lengthCss(ctx, length) } else { "0px" },
+        _ => "0px",
     }
 }
 
@@ -5123,9 +5146,15 @@ fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
 fn outwardsCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Px(n) => if (n > 0) { str.format(ctx, "-${n}px") } else { "0px" },
-        .Rem(n) => if (n > 0.0) { str.format(ctx, "-${n}rem") } else { "0px" },
-        .Em(n) => if (n > 0.0) { str.format(ctx, "-${n}em") } else { "0px" },
-        .Percent(n) => if (n > 0.0) { str.format(ctx, "-${n}%") } else { "0px" },
+        .Rem(n) => {
+            if (n > 0.0) { str.format(ctx, "-${cssNumber(ctx, n)}rem") } else { "0px" }
+        },
+        .Em(n) => {
+            if (n > 0.0) { str.format(ctx, "-${cssNumber(ctx, n)}em") } else { "0px" }
+        },
+        .Percent(n) => {
+            if (n > 0.0) { str.format(ctx, "-${cssNumber(ctx, n)}%") } else { "0px" }
+        },
         .Auto => "0px",
         .Full => "-100%",
     }
@@ -5138,7 +5167,9 @@ fn outwardsCss<C: Allocator>(ctx: C, length: Length): Str {
 fn colorCss<C: Allocator>(ctx: C, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
-        .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${a})"),
+        .Rgba(r, g, b, a) => {
+            str.format(ctx, "rgba(${r},${g},${b},${cssNumber(ctx, a)})")
+        },
         .Token(reference) => {
             let space = reference.namespace();
             let name = reference.name();
