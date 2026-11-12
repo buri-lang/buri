@@ -530,6 +530,11 @@ fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T] {
     xs.removeAt(ctx, at)
 }
 
+/// `xs` with `x` at `at`, and the element that was there, which moves out
+/// rather than being copied and released. An `at` outside the list changes
+/// nothing and hands `x` back. The runtime's, as `core/map`'s is.
+fn exchangeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): ([T], T);
+
 /// Replaces `xs[at]` with two, which is what a split hands its parent.
 fn splitAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, a: T, b: T): [T] {
     xs.replaceAt(ctx, at, a).insertAt(ctx, at + 1, b)
@@ -685,11 +690,11 @@ fn insertInto<K: Ordered, V, C: Allocator>(
                 (overfull(ctx, added), true)
             }
         },
-        .Some(child) => descend(ctx, n.keys, n.children, at, child, key, value),
+        .Some(_) => descend(ctx, n.keys, n.children, at, key, value),
     }
 }
 
-/// The insert into `child`, the branch's child `at`.
+/// The insert into the branch's child `at`.
 ///
 /// The child is taken out of `children` before the insert reaches it, and an
 /// empty leaf, which allocates nothing, holds its place. So a tree nothing
@@ -700,11 +705,10 @@ fn descend<K: Ordered, V, C: Allocator>(
     keys: [K],
     children: [Node<K, V>],
     at: Int,
-    child: Node<K, V>,
     key: K,
     value: V,
 ): (Grown<K, V>, Bool) {
-    let rest = replaceAt(ctx, children, at, leaf([], []));
+    let (rest, child) = exchangeAt(ctx, children, at, leaf([], []));
     let (grown, added) = insertInto(ctx, child, key, value);
     match (grown) {
         .Fit(one) => (.Fit(branch(keys, replaceAt(ctx, rest, at, one))), added),
@@ -804,7 +808,7 @@ fn without<K, V, C: Allocator>(ctx: C, n: Node<K, V>, at: Int): Node<K, V> {
 }
 
 /// The branch over `keys` and `children` with child `at` taken out, and an
-/// empty leaf, which allocates nothing, in its place.
+/// empty leaf, which allocates nothing, in its place; and the child.
 ///
 /// So a tree nothing else shares hands every node on the path down unshared,
 /// and a removal writes each one in place rather than copying it, as `descend`
@@ -814,8 +818,9 @@ fn taken<K, V, C: Allocator>(
     keys: [K],
     children: [Node<K, V>],
     at: Int,
-): Node<K, V> {
-    branch(keys, replaceAt(ctx, children, at, leaf([], [])))
+): (Node<K, V>, Node<K, V>) {
+    let (rest, child) = exchangeAt(ctx, children, at, leaf([], []));
+    (branch(keys, rest), child)
 }
 
 /// The subtree with `key`'s value put through `change`, or unchanged when
@@ -842,8 +847,8 @@ fn updateIn<K: Ordered, V, C: Allocator>(
                 },
             }
         },
-        .Some(child) => {
-            let rest = taken(ctx, n.keys, n.children, at);
+        .Some(_) => {
+            let (rest, child) = taken(ctx, n.keys, n.children, at);
             placed(ctx, rest, at, updateIn(ctx, child, key, change))
         },
     }
@@ -867,8 +872,8 @@ fn takeIn<K: Ordered, V, C: Allocator>(
                 .Some(v) => (.Some(v), without(ctx, n, seen)),
             }
         },
-        .Some(child) => {
-            let rest = taken(ctx, n.keys, n.children, at);
+        .Some(_) => {
+            let (rest, child) = taken(ctx, n.keys, n.children, at);
             let (value, left) = takeIn(ctx, child, key);
             match (value) {
                 .None => (.None, placed(ctx, rest, at, left)),
@@ -910,8 +915,8 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 fn dropFirst<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
     match (n.children.get(0)) {
         .None => without(ctx, n, 0),
-        .Some(child) => {
-            let rest = taken(ctx, n.keys, n.children, 0);
+        .Some(_) => {
+            let (rest, child) = taken(ctx, n.keys, n.children, 0);
             fixChild(ctx, rest, 0, dropFirst(ctx, child))
         },
     }
@@ -922,8 +927,8 @@ fn dropLast<K: Ordered, V, C: Allocator>(ctx: C, n: Node<K, V>): Node<K, V> {
     let at = n.children.length() - 1;
     match (n.children.get(at)) {
         .None => without(ctx, n, n.keys.length() - 1),
-        .Some(child) => {
-            let rest = taken(ctx, n.keys, n.children, at);
+        .Some(_) => {
+            let (rest, child) = taken(ctx, n.keys, n.children, at);
             fixChild(ctx, rest, at, dropLast(ctx, child))
         },
     }

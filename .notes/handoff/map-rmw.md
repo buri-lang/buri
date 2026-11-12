@@ -1,21 +1,16 @@
 # Map read-change-write without `update`/`take`
 
-Phase 5, 2026-11-12. See PERFORMANCE.md §6.121: `lower::lend_gets` makes
-each call of `list.get` an `xs[i]`, so `rc` lends the element.
+Phase 6, 2026-11-12. See PERFORMANCE.md §6.123: `exchangeAt` swaps a
+placeholder into a child's slot and hands the old child back with the slot's
+count, so a descent no longer retains the child and releases the slot.
 
-- `run-dev/kvstore` went from 1,209.2 M to 1,199.8 M instructions (arm64
+- `run-dev/kvstore` went from 1,199.8 M to 1,186.3 M instructions (arm64
   VM), with 589,381 allocations before and after.
-- `glue_counts.rs`'s `core/map` cost a field went from 209 to 201 (stencil)
-  and from 192 to 184 (LLVM).
-- Lending exposed an `rc` bug: `xs[xs.length() - 1]` released `xs` before
-  the load. Fixed in the same landing, with
-  `cli/tests/repositories/middle/index_reads_its_base`.
-- It also exposed a `pairs` bug: an inlined `xs[i]` merged into a block
-  parameter lost its retain across the list's release, as in
-  `list.last().show(ctx)`. `pairs::Paths::within` fixes it;
-  `cli/tests/repositories/middle/elements_outlive_their_list` covers it.
-- `match_moves.rs`'s walks now match on what `element` builds, since a
-  match on `get` builds nothing any more.
+- `glue_counts.rs`'s `core/map` cost a field went from 201 to 150 (stencil)
+  and from 184 to 140 (LLVM).
+- `cli/tests/repositories/middle/map_descents` covers the descents.
+- This replaces phase 5's deferred same-key insert (168 a field): 150 beats
+  it and adds no decision, so MC/DC holds.
 
 ## What's left
 
@@ -25,9 +20,9 @@ breaks them down by call site.
 - **`network.send` / `request`.** The copy is about 1% of instructions and
   an extra descent costs about 3%, so a fix must not descend twice. Vacate's
   let-sourced form and sending through `take` both failed. Don't redo them.
-- **`core/map`'s same-key insert, second half.** Reading the held entry with
-  a lent `children[idx]` and replacing it in place cut the field cost to 168.
-  It needs a form that keeps per-instance MC/DC (see Dead ends).
+  Phase 6 found no simple form: one descent means reading and writing in a
+  single pass, which is `update` with a closure, and a compiler rewrite of
+  get-then-insert into that is a large pass for about 1%.
 - **`compactAll`**: an `insert` inside `foldLeafCtx` over the map it also
   accumulates into. That sharing is inherent.
 - **`popped` with `.None => m`** (`network.receive`). `m` stays alive through
@@ -71,5 +66,6 @@ breaks them down by call site.
   `prof.sh <name>`, `copies.sh <name>`, `bless.sh <name>`, `two.sh <name>`
   and `flat.sh <name>` each work on `<name>.tar`, made with `git archive`.
   `bench2.sh <name> <warm-from>` runs the kvstore bench with a heap report.
+- Phase 6 deleted the `maprmw` VM; `setup.sh` makes a new one.
 - Phase 5 remade the `maprmw` VM. `~/.buri-agent/rmw5/run.sh <name>`
   benches `<name>.tar` and prints the kvstore row and the heap report.

@@ -9462,6 +9462,34 @@ On the arm64 VM, `test/one-edit` went from 83.84M to 63.05M instructions
 (−24.8%). The guard is `loading.rs`'s
 `a_test_that_renders_nothing_lexes_none_of_the_renderer`.
 
+### 6.123 A descent swaps the child out, 2026-11-12
+
+```buri
+let (rest, child) = exchangeAt(ctx, children, idx, empty<K, V>().root);
+// ... the descent ...
+(.Branch(bitmap, replaceAt(ctx, rest, idx, grown)), added)
+```
+
+A descent lent the child with `get`, retained it to pass it on, and then
+`replaceAt` released the old slot. That's a wasted incref and decref for every
+counted field. Now `exchangeAt` puts a placeholder in the slot and hands back
+the old child with the slot's count. In a list nothing else holds, it retains
+and releases nothing. In a shared list, it retains the child and copies the
+list, as `replaceAt` does. `core/map`'s `insert`, `update`, `take` and
+`remove` and `core/orderedmap`'s descents all use it, and `core/map` lost the
+`.None` arms that only a missing child could reach.
+
+- `run-dev/kvstore` went from 1,199.8 M to 1,186.3 M instructions on an arm64
+  VM, 1.12% fewer. Allocations stayed at 589,381.
+- `glue_counts.rs`'s cost a field of replacing a `core/map` value went from
+  201 to 150 (stencil) and from 184 to 140 (LLVM).
+- The stdlib MC/DC gate reads 96.2% for `core/map` and 98.2% for
+  `core/orderedmap`, since the swap adds no decision.
+
+`cli/tests/repositories/middle/map_descents` changes both maps below their
+root on both backends, with a copy held and without, and reads every change
+back.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -1,0 +1,15 @@
+# Changes deep inside a `core/map` and a `core/orderedmap` of records of
+# strings and lists: inserts, updates, takes, removes and pops that reach a
+# child below the root, on a map nothing else holds and on one a copy still
+# holds. Both backends run every block, with the heap checked natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a map changed below its root reads back each change and leaves a held copy as it was"
+
+run {
+  args: ["test", "//lib/descents", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

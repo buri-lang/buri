@@ -262,6 +262,91 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     }
 }
 
+/// Where an `exchangeAt` answer's element sits: after the list's two words,
+/// which is the `([T], T)` tuple's second field for any `T` aligned to 16
+/// bytes or less (`middle::layout`'s tuples are C records).
+const EXCHANGED_AT: usize = std::mem::size_of::<BuriList>();
+
+/// `core/map`'s and `core/orderedmap`'s `exchangeAt(ctx, xs, at, x) ->
+/// ([T], T)`: `xs` with `x` at `at`, and the element that was there. An index
+/// outside the list changes nothing, and `x` comes back.
+///
+/// The old element moves out with the count its slot held, so a descent that
+/// swaps a child out for a placeholder neither retains nor releases it. A
+/// shared list is copied as [`buri_rt_map_replace_at`] copies it, and the
+/// element answered takes a count of its own.
+///
+/// # Safety
+/// As [`buri_rt_map_insert_at`], with `out` covering the `([T], T)` answer.
+#[unsafe(no_mangle)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the flattened row: list, index, item, element glue, out"
+)]
+pub unsafe extern "C" fn buri_rt_map_exchange_at(
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    item: *const u8,
+    stride: u64,
+    retain: Retain,
+    release: Release,
+    equal: *const u8,
+    out: *mut u8,
+) {
+    let (n, s) = (len as usize, stride as usize);
+    // SAFETY: the caller promises `out` covers the answer.
+    let old = unsafe { out.add(EXCHANGED_AT) };
+    if at < 0 || at as usize >= n || s == 0 {
+        // SAFETY: the item goes back as it came, with its count; the list
+        // takes the receiver's.
+        unsafe {
+            std::ptr::copy_nonoverlapping(item, old, s);
+            out.cast::<BuriList>().write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            });
+        }
+        return;
+    }
+    // SAFETY: `at` is inside the caller's live block.
+    let slot = unsafe { ptr.cast_mut().add(at as usize * s) };
+    // SAFETY: as above; `old` is disjoint from the block.
+    unsafe { std::ptr::copy_nonoverlapping(slot, old, s) };
+    // SAFETY: the caller promises a live block.
+    if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
+        // SAFETY: the slot's count went out with its bytes, and the item's
+        // moves in with the count the caller handed over.
+        unsafe {
+            std::ptr::copy_nonoverlapping(item, slot, s);
+            out.cast::<BuriList>().write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            });
+        }
+        return;
+    }
+    // SAFETY: the shared list keeps its count of the element, so the answer
+    // takes one of its own; then the copy is `replaceAt`'s, which writes the
+    // list's words and leaves the element's alone.
+    unsafe {
+        if let Some(retain) = retain {
+            retain(old);
+        }
+        buri_rt_map_replace_at(
+            ptr,
+            len,
+            at,
+            item,
+            stride,
+            retain,
+            release,
+            equal,
+            out.cast(),
+        );
+    }
+}
+
 /// `core/map`'s `removeAt(ctx, xs, at) -> [T]`: everything but the element at
 /// `at`. An index outside the list removes nothing.
 ///
@@ -530,6 +615,125 @@ mod tests {
             buri_rt_free(out.ptr);
             buri_rt_free(xs.ptr);
         }
+    }
+
+    /// An `exchangeAt` answer: the list, then the element.
+    #[repr(C)]
+    struct Exchanged {
+        list: BuriList,
+        old: i64,
+    }
+
+    fn exchanged() -> Exchanged {
+        Exchanged {
+            list: empty(),
+            old: 0,
+        }
+    }
+
+    thread_local! {
+        /// The elements [`count_retain`] was handed, on this test's thread.
+        static RETAINED: Cell<Vec<i64>> = const { Cell::new(Vec::new()) };
+    }
+
+    extern "C" fn count_retain(p: *mut u8) {
+        // SAFETY: the splice hands its retain glue one live `i64` element.
+        let x = unsafe { p.cast::<i64>().read() };
+        let mut seen = RETAINED.take();
+        seen.push(x);
+        RETAINED.set(seen);
+    }
+
+    /// Takes `memory::latch`, as [`a_list_held_once_is_spliced_in_place`]
+    /// does.
+    #[test]
+    fn an_exchange_in_a_list_held_once_moves_the_element_out() {
+        let _latch = crate::memory::latch();
+        let xs = ints(&[1, 2, 3], 4);
+        let mut out = exchanged();
+        let nine: i64 = 9;
+        // SAFETY: the call owns the one count, and hands it to its result.
+        unsafe {
+            buri_rt_map_exchange_at(
+                xs.ptr,
+                xs.len,
+                1,
+                (&raw const nine).cast(),
+                8,
+                Some(count_retain),
+                Some(count_release),
+                std::ptr::null(),
+                (&raw mut out).cast(),
+            );
+            assert_eq!(out.list.ptr, xs.ptr);
+            assert_eq!(read(&out.list), [1, 9, 3]);
+            assert_eq!(out.old, 2);
+            assert_eq!(RETAINED.take(), Vec::<i64>::new());
+            assert_eq!(RELEASED.take(), Vec::<i64>::new());
+            buri_rt_free(out.list.ptr);
+        }
+    }
+
+    #[test]
+    fn an_exchange_in_a_list_held_twice_copies_and_retains_the_element() {
+        let xs = ints(&[1, 2, 3], 4);
+        let mut out = exchanged();
+        let nine: i64 = 9;
+        // SAFETY: a second count stands for a second holder; the splice owns
+        // one of the two and gives it back.
+        unsafe {
+            buri_rt_incref(xs.ptr);
+            buri_rt_map_exchange_at(
+                xs.ptr,
+                xs.len,
+                2,
+                (&raw const nine).cast(),
+                8,
+                Some(count_retain),
+                Some(count_release),
+                std::ptr::null(),
+                (&raw mut out).cast(),
+            );
+            assert_ne!(out.list.ptr, xs.ptr);
+            assert_eq!(read(&out.list), [1, 2, 9]);
+            assert_eq!(read(&xs), [1, 2, 3]);
+            assert_eq!(out.old, 3);
+            assert_eq!(RETAINED.take(), [3, 1, 2]);
+            assert_eq!(RELEASED.take(), Vec::<i64>::new());
+            assert_eq!(buri_rt_rc(xs.ptr), 1);
+            buri_rt_free(out.list.ptr);
+            buri_rt_free(xs.ptr);
+        }
+    }
+
+    #[test]
+    fn an_exchange_outside_the_list_hands_the_item_back() {
+        let xs = ints(&[1, 2], 2);
+        let nine: i64 = 9;
+        for at in [-1, 2] {
+            let mut out = exchanged();
+            // SAFETY: the call owns the one count, and hands it to its result.
+            unsafe {
+                buri_rt_map_exchange_at(
+                    xs.ptr,
+                    xs.len,
+                    at,
+                    (&raw const nine).cast(),
+                    8,
+                    Some(count_retain),
+                    Some(count_release),
+                    std::ptr::null(),
+                    (&raw mut out).cast(),
+                );
+                assert_eq!(out.list.ptr, xs.ptr);
+                assert_eq!(read(&out.list), [1, 2]);
+                assert_eq!(out.old, 9);
+            }
+        }
+        assert_eq!(RETAINED.take(), Vec::<i64>::new());
+        assert_eq!(RELEASED.take(), Vec::<i64>::new());
+        // SAFETY: the one count is the test's again.
+        unsafe { buri_rt_free(xs.ptr) };
     }
 
     #[test]

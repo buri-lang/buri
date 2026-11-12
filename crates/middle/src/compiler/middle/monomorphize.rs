@@ -3547,6 +3547,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "list.zip",
     // `core/map`'s splices of a node's children, generic in the child type and
     // given its stride and glue by `Extra::Owned` (`runtime_table`).
+    "map.exchangeAt",
     "map.insertAt",
     "map.removeAt",
     "map.replaceAt",
@@ -3556,6 +3557,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // so the erasure is repaired by there being no runtime call to erase into.
     "number.maxValue",
     "number.minValue",
+    // `core/orderedmap`'s child swap, which runs `map.exchangeAt`'s body.
+    "orderedmap.exchangeAt",
     // `core/platforms/testing/state`, carried the way `host_testing.Headless`'s
     // value is: a stride, a retain and a release, for the whole value
     // (`runtime_table`'s `Entry::whole_value`).
@@ -4051,8 +4054,9 @@ mod tests {
         list.insertAt list.join list.length list.map list.mapCtx list.push \
         list.range list.removeAt \
         list.repeat list.replaceAt list.reverse list.slice list.sortBy list.take list.zip \
-        map.insertAt map.removeAt map.replaceAt \
+        map.exchangeAt map.insertAt map.removeAt map.replaceAt \
         number.maxValue number.minValue \
+        orderedmap.exchangeAt \
         platforms_testing_state.stateNew platforms_testing_state.statePut \
         platforms_testing_state.stateRead platforms_testing_state.stateTake \
         str.chars str.concat str.format str.fromChars str.fromFloat \

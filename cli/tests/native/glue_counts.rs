@@ -367,14 +367,15 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
 /// - llvm: map 321 and 365, ordered 60 and 76, push 28 and 44, list 23 and 40
 ///
 /// `core/map` measured 209 (stencil) and 192 (llvm) once a descent held its
-/// child's place rather than shifting the children, and 201 and 184 once
-/// `get` lent the child it reads. Its limits are those plus 10.
+/// child's place rather than shifting the children, 201 and 184 once `get`
+/// lent the child it reads, and 150 and 140 once a descent swapped the child
+/// out with `exchangeAt`. Its limits are those plus 10.
 const STORED_LIMITS: [(&str, &str, u64); 8] = [
-    ("stencil", "map", 211),
+    ("stencil", "map", 160),
     ("stencil", "ordered", 56),
     ("stencil", "push", 48),
     ("stencil", "list", 43),
-    ("llvm", "map", 194),
+    ("llvm", "map", 150),
     ("llvm", "ordered", 68),
     ("llvm", "push", 36),
     ("llvm", "list", 31),

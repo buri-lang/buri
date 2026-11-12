@@ -1276,6 +1276,10 @@ const TAKEN_NATIVELY: &[(&str, usize)] = &[
     ("map.replaceAt", 1),
     ("map.replaceAt", 3),
     ("map.removeAt", 1),
+    ("map.exchangeAt", 1),
+    ("map.exchangeAt", 3),
+    ("orderedmap.exchangeAt", 1),
+    ("orderedmap.exchangeAt", 3),
     ("list.insertAt", 0),
     ("list.insertAt", 3),
     ("list.replaceAt", 0),
@@ -1305,6 +1309,8 @@ const STORED_BY: &[(&str, usize)] = &[
     ("list.repeat", 1),
     ("map.insertAt", 3),
     ("map.replaceAt", 3),
+    ("map.exchangeAt", 3),
+    ("orderedmap.exchangeAt", 3),
     ("alloc.copyOut", 0),
 ];
 

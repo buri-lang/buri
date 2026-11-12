@@ -1,0 +1,195 @@
+// Changes deep inside a `core/map` and a `core/orderedmap` of records of
+// strings and lists: an insert over a key the map holds, a new key, an
+// update, a take and a remove, each reaching a child below the root. A map
+// changed one step at a time reads back every value, and a copy held from
+// before the changes still reads as it did.
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+from "core/str" import * as str;
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Card {
+    name: Str,
+    tags: [Str],
+}
+
+fn card<C: Allocator>(ctx: C, i: Int, mark: Str): Card {
+    Card {
+        name: str.format(ctx, "${mark}${i}"),
+        tags: [str.format(ctx, "t${i}"), str.format(ctx, "u${i}")],
+    }
+}
+
+fn entries<C: Allocator>(ctx: C, n: Int): [(Int, Card)] {
+    list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => (i, card(c, i, "a")))
+}
+
+fn renamed<C: Allocator>(ctx: C, c: Card): Card {
+    Card { name: c.name.concat(ctx, "!"), tags: c.tags.push(ctx, "v") }
+}
+
+// Every key from `i` up to `n` given a new card, one insert at a time.
+fn refilled<C: Allocator>(ctx: C, m: Map<Int, Card>, i: Int, n: Int): Map<Int, Card> {
+    if (i >= n) {
+        m
+    } else {
+        refilled(ctx, m.insert(ctx, i, card(ctx, i, "b")), i + 1, n)
+    }
+}
+
+fn refilledOrdered<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, Card>,
+    i: Int,
+    n: Int,
+): OrderedMap<Int, Card> {
+    if (i >= n) {
+        m
+    } else {
+        refilledOrdered(ctx, m.insert(ctx, i, card(ctx, i, "b")), i + 1, n)
+    }
+}
+
+fn nameAt(m: Map<Int, Card>, k: Int): Str {
+    m.get(k).map(fn(c) => c.name).withDefault("none")
+}
+
+fn orderedNameAt(m: OrderedMap<Int, Card>, k: Int): Str {
+    m.get(k).map(fn(c) => c.name).withDefault("none")
+}
+
+fn tagsAt(m: Map<Int, Card>, k: Int): Int {
+    m.get(k).map(fn(c) => c.tags.length()).withDefault(0)
+}
+
+fn orderedTagsAt(m: OrderedMap<Int, Card>, k: Int): Int {
+    m.get(k).map(fn(c) => c.tags.length()).withDefault(0)
+}
+
+test "a map changed deep in its tree reads back each change" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, entries(ctx, 400));
+    let replaced = m.insert(ctx, 7, card(ctx, 7, "b"));
+    let added = replaced.insert(ctx, 999, card(ctx, 999, "c"));
+    let updated = added.updateCtx(ctx, 99, fn(c, x) => renamed(c, x));
+    let (taken, rest) = updated.take(ctx, 150);
+    let removed = rest.remove(ctx, 200);
+    assert.equal(nameAt(removed, 7), "b7");
+    assert.equal(nameAt(removed, 999), "c999");
+    assert.equal(nameAt(removed, 99), "a99!");
+    assert.equal(tagsAt(removed, 99), 3);
+    assert.equal(taken.map(fn(c) => c.name), .Some("a150"));
+    assert.equal(nameAt(removed, 150), "none");
+    assert.equal(nameAt(removed, 200), "none");
+    assert.equal(nameAt(removed, 399), "a399");
+    assert.equal(removed.length(), 399)
+}
+
+test "a copy of a map held from before its changes reads as it did" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, entries(ctx, 400));
+    let held = m;
+    let changed = refilled(ctx, m, 0, 400)
+        .updateCtx(ctx, 99, fn(c, x) => renamed(c, x))
+        .remove(ctx, 200);
+    let (taken, rest) = changed.take(ctx, 150);
+    assert.equal(nameAt(rest, 7), "b7");
+    assert.equal(nameAt(rest, 99), "b99!");
+    assert.equal(taken.map(fn(c) => c.name), .Some("b150"));
+    assert.equal(rest.length(), 398);
+    assert.equal(nameAt(held, 7), "a7");
+    assert.equal(nameAt(held, 99), "a99");
+    assert.equal(tagsAt(held, 99), 2);
+    assert.equal(nameAt(held, 150), "a150");
+    assert.equal(nameAt(held, 200), "a200");
+    assert.equal(held.length(), 400)
+}
+
+test "a map refilled one key at a time holds every new value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = refilled(ctx, map.of(ctx, entries(ctx, 400)), 0, 400);
+    let names = list.range(ctx, 0, 400).map(ctx, fn(k) => nameAt(m, k).length());
+    assert.equal(names.fold(fn(a, b) => a + b, 0), 1490);
+    assert.equal(m.length(), 400)
+}
+
+test "an ordered map changed deep in its tree reads back each change" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, entries(ctx, 400));
+    let replaced = m.insert(ctx, 7, card(ctx, 7, "b"));
+    let added = replaced.insert(ctx, 999, card(ctx, 999, "c"));
+    let updated = added.updateCtx(ctx, 99, fn(c, x) => renamed(c, x));
+    let (taken, rest) = updated.take(ctx, 150);
+    let removed = rest.remove(ctx, 200);
+    let (first, last) = match (removed.popFirst(ctx)) {
+        .Some((e, shorter)) => {
+            match (shorter.popLast(ctx)) {
+                .Some((f, shortest)) => (e.0, f.0 + shortest.length()),
+                .None => (-1, -1),
+            }
+        },
+        .None => (-1, -1),
+    };
+    assert.equal(orderedNameAt(removed, 7), "b7");
+    assert.equal(orderedNameAt(removed, 999), "c999");
+    assert.equal(orderedNameAt(removed, 99), "a99!");
+    assert.equal(orderedTagsAt(removed, 99), 3);
+    assert.equal(taken.map(fn(c) => c.name), .Some("a150"));
+    assert.equal(orderedNameAt(removed, 150), "none");
+    assert.equal(orderedNameAt(removed, 200), "none");
+    assert.equal(removed.length(), 399);
+    assert.equal((first, last), (0, 999 + 397))
+}
+
+test "a copy of an ordered map held from before its changes reads as it did" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.of(ctx, entries(ctx, 400));
+    let held = m;
+    let changed = refilledOrdered(ctx, m, 0, 400)
+        .updateCtx(ctx, 99, fn(c, x) => renamed(c, x))
+        .remove(ctx, 200);
+    let (taken, rest) = changed.take(ctx, 150);
+    let popped = match (rest.popFirst(ctx)) {
+        .Some((_e, shorter)) => shorter,
+        .None => rest,
+    };
+    assert.equal(orderedNameAt(popped, 7), "b7");
+    assert.equal(orderedNameAt(popped, 99), "b99!");
+    assert.equal(orderedNameAt(popped, 0), "none");
+    assert.equal(taken.map(fn(c) => c.name), .Some("b150"));
+    assert.equal(popped.length(), 397);
+    assert.equal(orderedNameAt(held, 0), "a0");
+    assert.equal(orderedNameAt(held, 7), "a7");
+    assert.equal(orderedNameAt(held, 99), "a99");
+    assert.equal(orderedTagsAt(held, 99), 2);
+    assert.equal(orderedNameAt(held, 150), "a150");
+    assert.equal(orderedNameAt(held, 200), "a200");
+    assert.equal(held.length(), 400)
+}
+
+test "an ordered map refilled one key at a time holds every new value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = refilledOrdered(ctx, orderedmap.of(ctx, entries(ctx, 400)), 0, 400);
+    let names = list.range(ctx, 0, 400).map(ctx, fn(k) => orderedNameAt(m, k).length());
+    assert.equal(names.fold(fn(a, b) => a + b, 0), 1490);
+    assert.equal(m.length(), 400)
+}

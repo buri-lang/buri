@@ -724,6 +724,25 @@ pub const ENTRIES: &[Entry] = &[
         &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal],
         Ret::Out,
     ),
+    // A child swapped out for a placeholder, answered with the list as a
+    // `([T], T)`, and `core/orderedmap`'s, which runs the same body.
+    e(
+        "map.exchangeAt",
+        &[
+            Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal,
+        ],
+        Ret::Out,
+    ),
+    via(
+        "map.exchangeAt",
+        e(
+            "orderedmap.exchangeAt",
+            &[
+                Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal,
+            ],
+            Ret::Out,
+        ),
+    ),
     // -- core/bytes ---------------------------------------------------------
     //
     // Seven of `bytes.buri`'s surface, and the rest of that module is Buri:

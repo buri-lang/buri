@@ -1098,6 +1098,19 @@ function $map_replaceAt(c, xs, at, x) {
   return $own(out);
 }
 
+// The list with `x` at `at`, and what was there: `x` itself outside the list.
+function $map_exchangeAt(c, xs, at, x) {
+  const k = Number(at);
+  const out = xs.slice();
+  if (!(k >= 0 && k < out.length)) return [$own(out), x];
+  out[k] = x;
+  return [$own(out), xs[k]];
+}
+
+function $orderedmap_exchangeAt(c, xs, at, x) {
+  return $map_exchangeAt(c, xs, at, x);
+}
+
 function $map_removeAt(c, xs, at) {
   const k = Number(at);
   const out = xs.slice();
