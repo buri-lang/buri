@@ -16,4 +16,4 @@ x86_64 run/match            825848868
 x86_64 run/sort             332077083
 x86_64 run/strings         2075933456
 x86_64 run/tree            1550543036
-x86_64 test/one-edit         88170417
+x86_64 test/one-edit         66876601

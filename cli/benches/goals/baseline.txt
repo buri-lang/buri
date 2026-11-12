@@ -4,21 +4,21 @@
 # lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
-aarch64 ci check cost                                        8030.7
-aarch64 ci check instructions                                4960.0
+aarch64 ci check cost                                        7973.2
+aarch64 ci check instructions                                4899.1
 aarch64 ci dev-codegen cost                                 97661.3
 aarch64 ci dev-codegen instructions                         60964.8
-aarch64 ci parse cost                                        2512.0
-aarch64 ci parse instructions                                1676.8
-aarch64 monorepo-ci check cost                              12844.4
-aarch64 monorepo-ci check instructions                       7703.5
-aarch64 monorepo-ci dev-codegen cost                        38205.5
-aarch64 monorepo-ci dev-codegen instructions                24710.2
+aarch64 ci parse cost                                        2501.0
+aarch64 ci parse instructions                                1669.1
+aarch64 monorepo-ci check cost                              12758.3
+aarch64 monorepo-ci check instructions                       7618.4
+aarch64 monorepo-ci dev-codegen cost                        37978.1
+aarch64 monorepo-ci dev-codegen instructions                24613.4
 aarch64 monorepo-ci parse cost                               3166.5
 aarch64 monorepo-ci parse instructions                       2130.4
-aarch64 monorepo-ci test-build check cost                   14462.6
-aarch64 monorepo-ci test-build check instructions            8720.9
-aarch64 monorepo-ci test-build dev-codegen cost             38522.9
-aarch64 monorepo-ci test-build dev-codegen instructions     25968.2
+aarch64 monorepo-ci test-build check cost                   14398.5
+aarch64 monorepo-ci test-build check instructions            8665.7
+aarch64 monorepo-ci test-build dev-codegen cost             37964.6
+aarch64 monorepo-ci test-build dev-codegen instructions     25611.9
 aarch64 monorepo-ci test-build parse cost                    3171.3
 aarch64 monorepo-ci test-build parse instructions            2130.8
