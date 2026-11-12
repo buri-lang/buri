@@ -265,6 +265,43 @@ fn mcdc_over_the_standard_library_counts_its_built_in_operations() {
     assert!(row, "no row for core/list:\n{}", indent(&run.stdout));
 }
 
+/// Branches whose blocks end in a `let` are counted line by line under both
+/// coverage modes, like any other.
+#[test]
+fn a_block_that_ends_in_a_let_is_counted() {
+    let scratch = Scratch::repo("corners-block-ends-in-let");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n    sources: [\"a.buri\"]\n\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n",
+    );
+    scratch.write(
+        "lib/a/lib.buri",
+        "from \"//lib/a/a.buri\" export { keep };\n",
+    );
+    scratch.write(
+        "lib/a/a.buri",
+        "export fn keep(x: Int): () {\n    let y = x + 1;\n    if (y > 1) {\n        let _ = y;\n    } else {\n        let _ = x;\n    }\n}\n",
+    );
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { keep };\n\ntest \"keeps\" {\n    keep(1);\n    keep(0);\n}\n",
+    );
+    for mode in ["--coverage", "--coverage=mcdc"] {
+        scratch
+            .run(&["test", "//lib/a", mode])
+            .ok()
+            .says("1 passed, 0 failed");
+        let lcov = std::fs::read_to_string(scratch.path(".buri/coverage/lcov.info")).unwrap();
+        for line in ["DA:2,2\n", "DA:4,1\n", "DA:6,1\n"] {
+            assert!(
+                lcov.contains(line),
+                "{mode}: no {line:?} in\n{}",
+                indent(&lcov)
+            );
+        }
+    }
+}
+
 /// `--force` runs a rule's generators again when the lint, which
 /// `check_during_build` runs inside `buri test`, prepares every rule a second
 /// time in the same command.
