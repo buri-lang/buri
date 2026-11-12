@@ -375,13 +375,14 @@ impl<'a> Folder<'a> {
         if self.open_consts.contains(&id) {
             return None;
         }
-        let init = self.consts.get(&id)?;
-        // Cloned so that the borrow of `self.consts` ends before the recursive
-        // call, which needs `&mut self`. Constant initializers are small and
-        // are folded once per use site at most.
-        let init = init.clone();
+        // Read through the map's own lifetime rather than `self`'s, so the
+        // recursive call can take `&mut self` with no copy of the
+        // initializer. Copying it cost a whole constant's tree at every read,
+        // and style extraction folds every colour it meets.
+        let consts: &'a ConstMap = self.consts;
+        let init = consts.get(&id)?;
         self.open_consts.push(id);
-        let value = self.eval(&init, &Env::default());
+        let value = self.eval(init, &Env::default());
         self.open_consts.pop();
         value
     }
@@ -391,7 +392,8 @@ impl<'a> Folder<'a> {
         if self.depth >= CALL_DEPTH {
             return None;
         }
-        let body = self.bodies.get(&id)?.clone();
+        let bodies: &'a BodyMap = self.bodies;
+        let body = bodies.get(&id)?;
         if body.params.len() != args.len() {
             return None;
         }
