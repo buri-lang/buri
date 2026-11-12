@@ -9621,6 +9621,34 @@ build by 1.0% and 1.1%. The rows were tightened to those figures.
 both as a value and through a wrapper whose own body moves, and checks native
 and JS print the same.
 
+### 6.129 Monomorphization reads the checked body, 2026-11-12
+
+Each instance was a deep copy of the checked body, rewritten in place. Now
+`rewrite` reads the shared body and builds the instance in the same walk, so
+nothing is copied first. A block that a map upsert may change is still copied,
+because `upsert_block` rewrites statements in place. The constant folder reads
+constants and bodies in place too, instead of copying each one it reads.
+
+`ExprKind::clone`'s own cost in buri's `ci` build fell from 41M to 9M. On the
+arm64 VM, the dev-codegen rows fell: `ci` by 1.0% (instructions) and 0.6%
+(cost), `monorepo-ci` by 0.7% and 0.6%, and its test build by 0.8% and 0.9%.
+The rows were tightened to those figures.
+
+`agreement.rs`'s `a_generic_function_instantiated_at_several_types_agrees`
+instantiates generic bodies at several types: a float comparison, a map upsert,
+a module constant and a `match`. It checks native and JS print the same.
+
+What is left of the copies and drops:
+
+- The styles pass copies only the declarations that mention a style: about
+  4,300 nodes per run in `ci`. The 21M once billed to it came from callgrind's
+  inclusive costs through recursion.
+- Dropping the instance bodies at the end of `finish_native` still costs about
+  30M, mostly cache misses on cold trees. Dropping each body right after it is
+  lowered would keep the trees hot. But `lower_unbuilt` may lower the program
+  a second time, and the LLVM backend's `classifier` walks every body after
+  lowering.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
