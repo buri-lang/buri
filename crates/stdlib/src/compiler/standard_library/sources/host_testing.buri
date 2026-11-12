@@ -2238,7 +2238,9 @@ impl Rendered {
     /// element that had the focus and every element around it, and
     /// `onFocus(true)` on the one that has it now and every element around it,
     /// as a browser's `focusout` and `focusin` do. `tab`, `shiftTab`, `press`
-    /// and a write to a `hasFocus` signal move the focus the same way.
+    /// and a write to a `hasFocus` signal move the focus the same way. So does
+    /// a `dialog` as it opens: the focus moves to the first element inside it
+    /// that can take it, Tab or no Tab, or off the page when none can.
     ///
     /// Aborts when no element has that name,
     /// or when it is nothing a reader can focus: one that is disabled, or that

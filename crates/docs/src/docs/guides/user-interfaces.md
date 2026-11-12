@@ -1053,8 +1053,9 @@ reader presses Escape and the browser shuts the panel without asking, so a
 one-way value would leave the program holding a dialog nobody can see. Write
 `true` to open it and `false` to shut it. A headless test's
 `page.key("Escape")` shuts it the same way, as every key a browser handles by
-itself does what it does there. However the dialog shuts, the focus goes back to
-the element that had it before the dialog opened.
+itself does what it does there. Opening the dialog moves the focus to the first
+thing inside it that takes the focus. However the dialog shuts, the focus goes
+back to the element that had it before the dialog opened.
 
 The `styles` land on the panel, so a dialog is a card you drew. The scrim behind
 it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a

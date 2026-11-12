@@ -1,6 +1,7 @@
-// Where the focus goes when a dialog shuts: back to the element that had it
-// before the dialog opened, the way a browser's modal dialog returns it,
-// however the dialog was shut. `language::pages` checks a browser does the same.
+// Where the focus goes as a dialog opens and shuts, the way a browser's modal
+// dialog moves it: in to the first thing inside that takes it, and back to the
+// element that had it before, however the dialog was shut. `language::pages`
+// checks a browser does the same.
 
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Ui, Watch };
@@ -157,4 +158,201 @@ test "the opener's hasFocus and onFocus follow the focus back" {
     let _ = page.key("Escape");
     assert.isTrue(held.get(ctx));
     assert.equal(heard.get(ctx), 2);
+}
+
+/// A button named `Open` that opens a dialog holding `children`.
+fn opens<C: Ui>(open: Signal<Bool>, children: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Details"),
+                children: children,
+                styles: [],
+            }),
+        ],
+    })
+}
+
+/// A button named `name` that does nothing.
+fn idle<C: Ui>(name: Str, off: Bool): Node<C> {
+    ui.button({
+        label: .Const(name),
+        styles: [],
+        onPress: .Some(fn(_c) => ()),
+        isDisabled: .Some(.Const(off)),
+    })
+}
+
+test "opening a dialog moves the focus to the first thing in it that takes it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(
+        ctx,
+        opens(open, [
+            ui.text({ content: .Const("Why?") }),
+            ui.field({
+                label: .Const("Reason"),
+                kind: .Text,
+                value: signal(ctx, ""),
+                styles: [],
+            }),
+            idle("Done", false),
+        ]),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Reason");
+}
+
+test "a dialog the program opens takes the focus too" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(ctx, opens(open, [idle("Done", false)]));
+    let _ = page.focus("Open");
+    let _ = open.set(ctx, true);
+    assert.equal(page.focused(), "Done");
+}
+
+test "a dialog open from the start has the focus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(ctx, opens(open, [idle("Done", false)]));
+    assert.equal(page.focused(), "Done");
+}
+
+test "opening a dialog passes over a disabled control" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(ctx, opens(open, [idle("Wait", true), idle("Done", false)]));
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Done");
+}
+
+test "opening a dialog focuses a box out of the tab order that takes the focus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        opens(open, [
+            ui.stack({
+                styles: [],
+                children: [ui.text({ content: .Const("Notes") })],
+                hasFocus: .Some(held),
+                isInFocusOrder: .Some(.Const(false)),
+            }),
+            idle("Done", false),
+        ]),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Notes");
+    assert.isTrue(held.get(ctx));
+}
+
+test "a dialog with nothing to focus takes the focus off the opener" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Open"),
+                    styles: [],
+                    onPress: .Some(fn(c) => open.set(c, true)),
+                    hasFocus: .Some(held),
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Saved"),
+                    children: [ui.text({ content: .Const("Saved.") })],
+                    styles: [],
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "");
+    assert.isFalse(held.get(ctx));
+    // Shutting it still gives the focus back.
+    let _ = page.key("Escape");
+    assert.equal(page.focused(), "Open");
+}
+
+test "a dialog opened from inside a dialog takes the focus, and gives it back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let first = signal(ctx, false);
+    let second = signal(ctx, false);
+    let page = render(
+        ctx,
+        opens(first, [
+            ui.button({
+                label: .Const("More"),
+                styles: [],
+                onPress: .Some(fn(c) => second.set(c, true)),
+            }),
+            ui.dialog({
+                isOpen: second,
+                label: .Const("More details"),
+                children: [idle("Close", false)],
+                styles: [],
+            }),
+        ]),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "More");
+    let _ = page.press("More");
+    assert.equal(page.focused(), "Close");
+    let _ = page.key("Escape");
+    assert.equal(page.focused(), "More");
+}
+
+test "opening a disclosure leaves the focus on its summary" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: open,
+            children: [idle("Inside", false)],
+            styles: [],
+        }),
+    );
+    let _ = page.focus("More");
+    let _ = page.key("Enter");
+    assert.isTrue(open.get(ctx));
+    assert.equal(page.focused(), "More");
 }

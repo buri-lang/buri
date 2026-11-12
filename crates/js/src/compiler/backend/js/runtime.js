@@ -7862,29 +7862,59 @@ function $ui_node_rebuildRegion(builder, region, node, walk) {
   walk(doc.ctx, builder, node);
   if (doc.cursor.length > 1) doc.cursor.pop();
   $scene_checkFocus(doc);
-  if (was !== null) $scene_returnFocus(doc, at, was, focus);
+  if (was !== null) $scene_dialogFocus(doc, at, was, focus);
 }
 
 // Whether `region` is a dialog's, and then whether the dialog is open (a shut
 // one draws nothing between the markers), or null for any other region — the
 // native `Document::dialog_open`.
 function $scene_dialogOpen(doc, region) {
+  const gap = $scene_regionGap(doc, region);
+  if (gap === null) return null;
+  return gap[0][gap[1] + 1] !== doc.regions[region].end;
+}
+
+// The children of a dialog region's parent and where its first marker sits
+// among them, or null for any other region — the native `region_gap`.
+function $scene_regionGap(doc, region) {
   const reg = doc.regions[region];
   if (reg === undefined || doc.records[reg.start].valueSignal < 0) return null;
   const parent = doc.records[reg.start].parent;
   if (parent === null || parent === undefined) return null;
   const children = doc.records[parent].children;
-  return children[children.indexOf(reg.start) + 1] !== reg.end;
+  return [children, children.indexOf(reg.start)];
 }
 
-// A dialog that just opened keeps the stop that had the focus before, and one
-// that just shut focuses it again while it can take it — the browser's
-// previously focused element. The native `return_focus`.
-function $scene_returnFocus(doc, region, was, focus) {
+// The first stop inside dialog region `region`, in document order, that can
+// take the focus, or -1: where a browser's `showModal` puts it — the native
+// `first_focusable`.
+function $scene_firstFocusable(doc, region) {
+  const [children, at] = $scene_regionGap(doc, region);
+  const end = doc.regions[region].end;
+  const inside = [];
+  for (let i = at + 1; i < children.length && children[i] !== end; i++) {
+    inside.push([children[i], 0]);
+    $scene_visit(doc, children[i], 1, inside);
+  }
+  for (const [i] of inside) {
+    const key = doc.records[i].focusKey;
+    if (key >= 0 && $scene_focusable(doc, key)) return key;
+  }
+  return -1;
+}
+
+// A dialog that just opened keeps the stop that had the focus before and takes
+// the focus to the first thing inside it that can take it, or off the page —
+// a browser's `showModal`. One that just shut focuses that stop again while it
+// can take it — the browser's previously focused element. The native
+// `dialog_focus`.
+function $scene_dialogFocus(doc, region, was, focus) {
   const now = $scene_dialogOpen(doc, region);
   const reg = doc.regions[region];
-  if (!was && now) reg.opener = focus;
-  else if (was && !now) {
+  if (!was && now) {
+    reg.opener = focus;
+    $scene_setFocus(doc, $scene_firstFocusable(doc, region));
+  } else if (was && !now) {
     const back = reg.opener;
     reg.opener = -1;
     if (back >= 0 && $scene_focusable(doc, back)) $scene_setFocus(doc, back);

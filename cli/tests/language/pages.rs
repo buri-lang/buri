@@ -677,6 +677,151 @@ shown();
     );
 }
 
+/// Dialogs a browser moves the focus into as they open: one holding a field
+/// after some text, one inside it, one with nothing to focus, one whose first
+/// control is disabled and whose next takes the focus out of the tab order, and
+/// one open from the start. Beside them, a disclosure, which leaves the focus
+/// where it was. `conformance/lib/ui/test/dialogs.buri` checks the same
+/// headlessly.
+const DIALOG_FOCUS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "web" import { WebHost };
+
+fn opener<C: Ui>(label: Str, open: Signal<Bool>): Node<C> {
+    ui.button({ label: .Const(label), styles: [], onPress: .Some(fn(c) => open.set(c, true)) })
+}
+
+fn idle<C: Ui>(label: Str, off: Bool): Node<C> {
+    ui.button({
+        label: .Const(label),
+        styles: [],
+        onPress: .Some(fn(_c) => ()),
+        isDisabled: .Some(.Const(off)),
+    })
+}
+
+fn panel<C: Ui>(label: Str, open: Signal<Bool>, children: [Node<C>]): Node<C> {
+    ui.dialog({ isOpen: open, label: .Const(label), children: children, styles: [] })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let start = signal(ctx, true);
+    let open = signal(ctx, false);
+    let deeper = signal(ctx, false);
+    let note = signal(ctx, false);
+    let ask = signal(ctx, false);
+    let held = signal(ctx, false);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                panel("Welcome", start, [idle("Hello", false)]),
+                opener("Open", open),
+                panel("Details", open, [
+                    ui.text({ content: .Const("Why?") }),
+                    ui.field({ label: .Const("Reason"), kind: .Text, value: signal(ctx, ""), styles: [] }),
+                    opener("Deeper", deeper),
+                    panel("More details", deeper, [idle("Back", false)]),
+                ]),
+                opener("Note", note),
+                panel("Saved", note, [ui.text({ content: .Const("Saved.") })]),
+                opener("Ask", ask),
+                panel("Question", ask, [
+                    idle("Wait", true),
+                    ui.stack({
+                        styles: [],
+                        children: [ui.text({ content: .Const("Notes") })],
+                        hasFocus: .Some(held),
+                        isInFocusOrder: .Some(.Const(false)),
+                    }),
+                    idle("Close", false),
+                ]),
+                ui.disclosure({
+                    summary: .Const("More"),
+                    isOpen: signal(ctx, false),
+                    children: [idle("Inside", false)],
+                    styles: [],
+                }),
+                ui.text({ content: .Computed(fn(s) => str.format(s, "held:${held.get(s)}")) }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_browser_moves_the_focus_into_a_dialog_that_opens() {
+    let printed = drive(
+        "dialog-focus-page",
+        DIALOG_FOCUS_PAGE,
+        r#"
+const said = () => body.firstChild.lastChild.textContent;
+// What the focused element is called: its name, or "nothing" for the body.
+const focused = () => {
+  const at = document.activeElement;
+  if (at === body) return "nothing";
+  return at.getAttribute("aria-label") ?? at.closest("label")?.firstChild.textContent ?? at.textContent;
+};
+const shown = () => console.log(`${said()} focus:${focused()}`);
+// A dialog open from the start has the focus.
+shown();
+press("Escape");
+shown();
+// Opening moves the focus past the text to the field.
+labelled("Open").focus();
+press("Enter");
+shown();
+// A dialog opened inside it takes the focus, and gives it back.
+labelled("Deeper").focus();
+press("Enter");
+shown();
+press("Escape");
+shown();
+press("Escape");
+shown();
+// Nothing to focus takes the focus off the opener; shutting gives it back.
+labelled("Note").focus();
+press("Enter");
+shown();
+press("Escape");
+shown();
+// A disabled control is passed over; a box out of the tab order is not.
+labelled("Ask").focus();
+press("Enter");
+shown();
+press("Escape");
+shown();
+// A disclosure leaves the focus on its summary.
+document.querySelector("summary").focus();
+press("Enter");
+console.log(`open:${document.querySelector("details").open} focus:${focused()}`);
+"#,
+    );
+    assert_eq!(
+        printed,
+        "held:false focus:Hello\n\
+         held:false focus:nothing\n\
+         held:false focus:Reason\n\
+         held:false focus:Back\n\
+         held:false focus:Deeper\n\
+         held:false focus:Open\n\
+         held:false focus:nothing\n\
+         held:false focus:Note\n\
+         held:true focus:Notes\n\
+         held:false focus:Ask\n\
+         open:true focus:More\n"
+    );
+}
+
 /// One of each element that has an accessible name, beside a decorative
 /// picture and a decorative drawing. `conformance/lib/ui/test/names.buri`
 /// reads the same names through `spoken()`.

@@ -25,8 +25,8 @@
 ///    radio group or a slider, the left and right arrows, Home and End move a
 ///    text field's caret, and Enter in a form's field submits the form —
 ///    which happy-dom doesn't take itself, then the keyup;
-///  * a modal dialog that gives the focus back when it shuts, which happy-dom
-///    leaves out too;
+///  * a modal dialog that takes the focus as it opens and gives it back when
+///    it shuts, which happy-dom leaves out too;
 ///  * `moves`, every move the address bar made, in order.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
@@ -173,10 +173,20 @@ function moveCaret(at, key) {
 // The element that had the focus when each open modal dialog opened.
 const openers = new WeakMap();
 const showModal = HTMLDialogElement.prototype.showModal;
+// The elements a browser lets take the focus, before the checks below.
+const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
+// `showModal`, with the step happy-dom leaves out: the focus moves to the first
+// element inside that can take it, in document order and whether or not Tab
+// reaches it, and otherwise off the element that had it.
 HTMLDialogElement.prototype.showModal = function () {
   const had = document.activeElement;
   showModal.call(this);
   openers.set(this, had === body ? null : had);
+  const takes = (e) =>
+    !e.disabled && e.closest("[hidden], dialog:not([open])") === null && (e.tagName === "SUMMARY" || e.closest("details:not([open])") === null);
+  const first = [...this.querySelectorAll(FOCUSABLE)].find(takes);
+  if (first !== undefined) first.focus();
+  else if (had !== body) had.blur();
 };
 // `close`, with the step happy-dom leaves out: before the `close` event, the
 // focus goes back to the element that had it when the dialog opened, while that

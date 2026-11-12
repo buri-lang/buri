@@ -903,7 +903,7 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
     with_doc(handle, |doc| doc.end_region());
     check_focus(handle);
     if let Some((was, focus)) = dialog {
-        return_focus(handle, region, was, focus);
+        dialog_focus(handle, region, was, focus);
     }
 }
 
@@ -911,37 +911,63 @@ impl Document {
     /// Whether `region` is a dialog's, and if so whether the dialog is open: a
     /// shut one draws nothing between the region's markers.
     fn dialog_open(&self, region: usize) -> Option<bool> {
-        let &Region { start, end, .. } = self.regions.get(region)?;
+        let (children, at) = self.region_gap(region)?;
+        Some(children.get(at + 1) != Some(&self.regions[region].end))
+    }
+
+    /// The children of a dialog region's parent and where its first marker
+    /// sits among them, for a region that is a dialog's.
+    fn region_gap(&self, region: usize) -> Option<(&[usize], usize)> {
+        let &Region { start, .. } = self.regions.get(region)?;
         if self.records.get(start)?.value_signal < 0 {
             return None;
         }
         let children = &self.records[self.records[start].parent?].children;
         let at = children.iter().position(|&c| c == start)?;
-        Some(children.get(at + 1) != Some(&end))
+        Some((children, at))
+    }
+
+    /// The first stop inside dialog region `region`, in document order, that
+    /// can take the focus: where a browser's `showModal` puts it.
+    fn first_focusable(&self, region: usize) -> Option<usize> {
+        let (children, at) = self.region_gap(region)?;
+        let end = self.regions[region].end;
+        let mut inside = Vec::new();
+        for &child in children[at + 1..].iter().take_while(|&&c| c != end) {
+            inside.push((child, 0));
+            self.visit(child, 1, &mut inside);
+        }
+        inside
+            .into_iter()
+            .find_map(|(i, _)| self.stop_of(i).filter(|&k| self.focusable(k)))
     }
 }
 
 /// After the dialog region `region` was rebuilt: a dialog that just opened
-/// keeps `focus`, the stop that had the focus before, and one that just shut
-/// gives the focus back to that stop while it can still take it — the
-/// browser's previously focused element, which closing a modal dialog
-/// focuses again.
-fn return_focus(handle: i64, region: usize, was: bool, focus: Option<usize>) {
-    let back = with_doc(handle, |doc| {
+/// keeps `focus`, the stop that had the focus before, and takes the focus to
+/// the first thing inside it that can take it, or off the page when nothing
+/// can — a browser's `showModal`. One that just shut gives the focus back to
+/// that stop while it can still take it — the browser's previously focused
+/// element, which closing a modal dialog focuses again.
+fn dialog_focus(handle: i64, region: usize, was: bool, focus: Option<usize>) {
+    let next = with_doc(handle, |doc| {
         let now = doc.dialog_open(region)?;
-        let opener = &mut doc.regions[region].opener;
         match (was, now) {
             (false, true) => {
-                *opener = focus;
-                None
+                doc.regions[region].opener = focus;
+                Some(doc.first_focusable(region))
             }
-            (true, false) => opener.take().filter(|&k| doc.focusable(k)),
+            (true, false) => doc.regions[region]
+                .opener
+                .take()
+                .filter(|&k| doc.focusable(k))
+                .map(Some),
             _ => None,
         }
     })
     .flatten();
-    if back.is_some() {
-        set_focus(handle, back);
+    if let Some(next) = next {
+        set_focus(handle, next);
     }
 }
 
