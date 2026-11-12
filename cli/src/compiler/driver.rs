@@ -710,7 +710,7 @@ pub(crate) fn reach(
             .then(|| loaded.find(crate::compiler::standard_library::CLASSIFY_MODULE))
             .flatten();
         queue.extend(classify);
-        let waits = crate::compiler::standard_library::find(&module.path).is_some();
+        let waits = module.file.is_standard();
         // Each edge is the module it reaches, and the tree and specifiers of
         // the line that reaches it.
         let mut edges: Vec<(ModuleId, &crate::parsing::flat::Tree, Specs)> = Vec::new();
@@ -728,18 +728,15 @@ pub(crate) fn reach(
             queue.push(to);
             let target = loaded.module(to);
             let at_hand = waiting.get_mut(to).get_or_insert_with(|| {
-                let std = crate::compiler::standard_library::find(&target.path).is_some();
+                let std = target.file.is_standard();
                 reexports_of(target).into_iter().filter(|_| std).collect()
             });
             if at_hand.is_empty() {
                 continue;
             }
             let names = wanted(t, specs);
-            let woken: Vec<_>;
-            (woken, *at_hand) = std::mem::take(at_hand)
-                .into_iter()
-                .partition(|r| wants(&target.ast.tree, r, names.as_deref()));
-            for r in woken {
+            let woken = at_hand.extract_if(.., |r| wants(&target.ast.tree, r, names.as_deref()));
+            for r in woken.collect::<Vec<_>>() {
                 let next = loaded.find(&r.path);
                 edges.extend(next.map(|next| (next, &target.ast.tree, Some(r.specs))));
             }

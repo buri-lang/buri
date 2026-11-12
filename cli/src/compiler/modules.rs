@@ -846,7 +846,7 @@ impl<'a> Loader<'a> {
     fn load_imports(&mut self, id: ModuleId) {
         let importer = self.modules.get(id);
         let waits = || {
-            standard_library::find(&importer.path).is_some()
+            importer.file.is_standard()
                 && !EVERY_REEXPORT.load(std::sync::atomic::Ordering::Relaxed)
         };
         let imports: Vec<(String, Span, Wanted)> = importer
@@ -917,21 +917,18 @@ impl<'a> Loader<'a> {
         let module = self.modules.get(id);
         let t = &module.ast.tree;
         let waiting = self.waiting.entry(id).or_insert_with(|| {
-            let std = standard_library::find(&module.path).is_some();
+            let std = module.file.is_standard();
             (reexports_of(module).into_iter())
                 .filter(|_| std)
                 .cloned()
                 .collect()
         });
-        let woken: Vec<tree::ReExport>;
-        (woken, *waiting) = std::mem::take(waiting)
-            .into_iter()
-            .partition(|r| wants(t, r, names));
-        let woken: Vec<_> = (woken.into_iter())
-            .map(|r| (wanted(t, Some(r.specs)), r))
-            .collect();
-        let (path, role, pkg) = (module.path.clone(), module.role, module.pkg);
-        for (names, r) in woken {
+        // Most imports wake nothing, and then nothing here allocates.
+        let woken: Vec<tree::ReExport> = waiting.extract_if(.., |r| wants(t, r, names)).collect();
+        for r in woken {
+            let module = self.modules.get(id);
+            let names = wanted(&module.ast.tree, Some(r.specs));
+            let (path, role, pkg) = (module.path.clone(), module.role, module.pkg);
             self.load_import(&path, pkg, role, &r.path, r.path_span, names);
         }
     }
