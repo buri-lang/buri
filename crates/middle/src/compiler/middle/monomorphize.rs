@@ -2297,7 +2297,7 @@ impl Monomorphizer<'_> {
                 trait_id,
                 field,
             } => {
-                let base = Box::new(self.rewrite(*base, targs));
+                let base = self.rewrite_boxed(base, targs);
                 ExprKind::CtxGet {
                     base,
                     trait_id,
@@ -2305,7 +2305,7 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::CallValue { callee, args } => ExprKind::CallValue {
-                callee: Box::new(self.rewrite(*callee, targs)),
+                callee: self.rewrite_boxed(callee, targs),
                 args: self.rewrite_all(args, targs),
             },
             ExprKind::StructLit {
@@ -2324,20 +2324,16 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::StructUpdate { con, base, updates } => {
-                let base = self.rewrite(*base, targs);
+                let base = self.rewrite_boxed(base, targs);
                 let updates: Vec<(FieldId, typed::Expr)> = updates
                     .into_iter()
                     .map(|(i, v)| (i, self.rewrite(v, targs)))
                     .collect();
                 if let Some(word) = self.flags_word(&e.ty, e.span) {
                     let bits = updates.into_iter().map(|(i, v)| (i.index(), v));
-                    return word.update(base, bits.collect());
+                    return word.update(*base, bits.collect());
                 }
-                ExprKind::StructUpdate {
-                    con,
-                    base: Box::new(base),
-                    updates,
-                }
+                ExprKind::StructUpdate { con, base, updates }
             }
             ExprKind::EnumLit {
                 con,
@@ -2356,22 +2352,19 @@ impl Monomorphizer<'_> {
                 elems: self.rewrite_all(elems, targs),
             },
             ExprKind::Field { base, index } => {
-                let base = self.rewrite(*base, targs);
+                let base = self.rewrite_boxed(base, targs);
                 if let Some(word) = self.flags_word(&base.ty, e.span) {
-                    return word.bit(base, index.index());
+                    return word.bit(*base, index.index());
                 }
-                ExprKind::Field {
-                    base: Box::new(base),
-                    index,
-                }
+                ExprKind::Field { base, index }
             }
             ExprKind::TupleIndex { base, index } => ExprKind::TupleIndex {
-                base: Box::new(self.rewrite(*base, targs)),
+                base: self.rewrite_boxed(base, targs),
                 index,
             },
             ExprKind::Index { base, index, elem } => ExprKind::Index {
-                base: Box::new(self.rewrite(*base, targs)),
-                index: Box::new(self.rewrite(*index, targs)),
+                base: self.rewrite_boxed(base, targs),
+                index: self.rewrite_boxed(index, targs),
                 elem: self.sub(&elem, targs),
             },
             ExprKind::Block {
@@ -2395,16 +2388,16 @@ impl Monomorphizer<'_> {
                             typed::Stmt::Expr(x) => typed::Stmt::Expr(self.rewrite(x, targs)),
                         })
                         .collect(),
-                    tail: tail.map(|t| Box::new(self.rewrite(*t, targs))),
+                    tail: tail.map(|t| self.rewrite_boxed(t, targs)),
                 }
             }
             ExprKind::If { cond, then, else_ } => ExprKind::If {
-                cond: Box::new(self.rewrite(*cond, targs)),
-                then: Box::new(self.rewrite(*then, targs)),
-                else_: Box::new(self.rewrite(*else_, targs)),
+                cond: self.rewrite_boxed(cond, targs),
+                then: self.rewrite_boxed(then, targs),
+                else_: self.rewrite_boxed(else_, targs),
             },
             ExprKind::Match { scrutinee, arms } => ExprKind::Match {
-                scrutinee: Box::new(self.rewrite(*scrutinee, targs)),
+                scrutinee: self.rewrite_boxed(scrutinee, targs),
                 arms: arms
                     .into_iter()
                     .map(|a| typed::Arm {
@@ -2421,30 +2414,31 @@ impl Monomorphizer<'_> {
                 captures,
             } => ExprKind::Lambda {
                 params,
-                body: Box::new(self.rewrite(*body, targs)),
+                body: self.rewrite_boxed(body, targs),
                 captures,
             },
             ExprKind::And { lhs, rhs } => ExprKind::And {
-                lhs: Box::new(self.rewrite(*lhs, targs)),
-                rhs: Box::new(self.rewrite(*rhs, targs)),
+                lhs: self.rewrite_boxed(lhs, targs),
+                rhs: self.rewrite_boxed(rhs, targs),
             },
             ExprKind::Or { lhs, rhs } => ExprKind::Or {
-                lhs: Box::new(self.rewrite(*lhs, targs)),
-                rhs: Box::new(self.rewrite(*rhs, targs)),
+                lhs: self.rewrite_boxed(lhs, targs),
+                rhs: self.rewrite_boxed(rhs, targs),
             },
             ExprKind::Try { base, kind } => ExprKind::Try {
-                base: Box::new(self.rewrite(*base, targs)),
+                base: self.rewrite_boxed(base, targs),
                 kind,
             },
-            ExprKind::Prim { op, prim, args } => ExprKind::Prim {
-                op,
-                prim,
-                args: Box::new(args.map(|a| self.rewrite(a, targs))),
-            },
+            ExprKind::Prim { op, prim, mut args } => {
+                for a in args.iter_mut() {
+                    self.rewrite_in_place(a, targs);
+                }
+                ExprKind::Prim { op, prim, args }
+            }
             ExprKind::Unary { op, prim, arg } => ExprKind::Unary {
                 op,
                 prim,
-                arg: Box::new(self.rewrite(*arg, targs)),
+                arg: self.rewrite_boxed(arg, targs),
             },
             ExprKind::Template { parts } => ExprKind::Template {
                 parts: parts
@@ -2471,6 +2465,21 @@ impl Monomorphizer<'_> {
             other => other,
         };
         e
+    }
+
+    /// [`Monomorphizer::rewrite`] of a boxed expression, into the box it came
+    /// in: a body is a fresh copy of the checked one, so its allocations are
+    /// this program's to reuse.
+    fn rewrite_boxed(&mut self, mut e: Box<typed::Expr>, targs: &[Ty]) -> Box<typed::Expr> {
+        self.rewrite_in_place(&mut e, targs);
+        e
+    }
+
+    /// [`Monomorphizer::rewrite`] of the expression at `e`, in place.
+    fn rewrite_in_place(&mut self, e: &mut typed::Expr, targs: &[Ty]) {
+        let placeholder = typed::Expr::new(ExprKind::Unit, Ty::UNIT, e.span);
+        let taken = std::mem::replace(e, placeholder);
+        *e = self.rewrite(taken, targs);
     }
 
     fn rewrite_all(&mut self, xs: Vec<typed::Expr>, targs: &[Ty]) -> Vec<typed::Expr> {
