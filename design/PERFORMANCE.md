@@ -9550,6 +9550,28 @@ right fails, which leaked in `m.insert(ctx, k, r?)`.
 `cli/tests/repositories/middle/map_defaults` covers each shape that's
 rewritten and each that isn't, on both backends, with an older copy held.
 
+### 6.126 A Linux link names its objects once, 2026-11-12
+
+mold parses its options twice, once per machine it supports, so each argument
+costs a link about 100k instructions. Each object named on the command line
+costs about 500k more than the same object read from an archive. A test binary
+names one object per codegen unit, and nix's compiler wrappers add twenty `-L`
+directories.
+
+- On Linux, the objects now go to mold as one thin archive, `objects.a`,
+  between `--whole-archive` and `--no-whole-archive`. The archive holds only
+  the members' paths, so writing it copies no object. The linked binary is
+  byte for byte the same.
+- A captured Linux link drops each absolute `-L` directory that holds no
+  library any of its `-l` arguments would take. That can't change what the
+  linker finds. macOS links keep every directory, because ld64 searches them
+  under its SDK root.
+
+One link of the `ci` workspace's tests went from 171.3M to 131.8M
+instructions on the arm64 VM. The counted goals' dev-codegen rows fell: `ci`
+by 5.8% (instructions) and 3.5% (cost), `monorepo-ci` by 4.6% and 3.1%, and
+its test build by 4.9% and 4.2%. The native suites link every test binary this way.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
