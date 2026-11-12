@@ -1040,6 +1040,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     // writes the cell after it — so a program never touches one without the
     // other.
     w("Location", "path", "ui/web", "web.route(ctx)"),
+    w("Location", "back", "ui/web", "web.back(ctx)"),
     w("Location", "push", "ui/web", "web.navigate(ctx, path)"),
     w("Location", "replace", "ui/web", "web.replace(ctx, path)"),
     // `web`'s own store.
