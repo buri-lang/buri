@@ -101,6 +101,7 @@ pub enum Event {
     reason = "a fatal read error has no id to answer and no Session to route through, and stdout carries protocol only. The same line goes out as a `window/logMessage`; stderr stays as the floor, because a report about a corrupt stream must not depend on that stream"
 )]
 pub fn command_language_server(_args: &arguments::Args) -> i32 {
+    crate::compiler::modules::load_every_reexport();
     let mut state = State::new();
     let stdout = std::io::stdout();
     let mut output = stdout.lock();

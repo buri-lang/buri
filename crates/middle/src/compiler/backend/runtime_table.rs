@@ -2572,7 +2572,7 @@ mod tests {
         assert_eq!(checked, 17);
     }
 
-    /// The module a key's first segment names, for the keys whose operations
+    /// The modules a key's first segment names, for the keys whose operations
     /// are *declared* in Buri.
     ///
     /// `test.leave` and `test.replay` are absent because they are not: both
@@ -2586,6 +2586,7 @@ mod tests {
         ("crypto", "core/crypto"),
         ("host", "platform/host"),
         ("host_testing", "platform/effect/testing"),
+        ("host_testing", "platform/effect/testing/ui"),
         ("list", "core/list"),
         ("math", "core/math"),
         ("str", "core/str"),
@@ -2623,17 +2624,22 @@ mod tests {
             .collect()
     }
 
-    /// The declarations of the operation `entry` names, from the module its
+    /// The declarations of the operation `entry` names, from the modules its
     /// key's first segment names — `None` where no module declares it.
     ///
     /// A key `module.Type.name` is read from the `impl` blocks for `Type`
     /// alone, so that `TestStdin.bytes` and `TestEntropy.bytes` each answer
     /// for their own row. A key `module.name` is read from the whole module.
     fn own_declarations(entry: &Entry) -> Option<Vec<Declared>> {
-        let (_, path) = DECLARED_IN
+        let sources: Vec<&str> = DECLARED_IN
             .iter()
-            .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))?;
-        let source = module_source(path);
+            .filter(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
+            .map(|(_, path)| module_source(path))
+            .collect();
+        if sources.is_empty() {
+            return None;
+        }
+        let source = &sources.concat();
         let segments: Vec<&str> = entry.key.split('.').collect();
         Some(match segments.as_slice() {
             [_, owner, name] => declarations(&impl_bodies(source, owner), name),

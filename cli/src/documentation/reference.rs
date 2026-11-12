@@ -279,6 +279,9 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
             let Some(from) = owned.iter().find(|(m, _)| m.path == r.path) else {
                 continue;
             };
+            // The standard library has no surface rule for methods: a type's
+            // methods go wherever the type does.
+            let std = crate::compiler::standard_library::find(&from.0.path).is_some();
             let from = items(from);
             for spec in m.ast.tree.list(r.specs) {
                 let wanted = m.ast.tree.name(spec.name);
@@ -297,11 +300,16 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                         ..found.clone()
                     });
                 }
-                // A method is *not* pulled in just because its type was. The
-                // re-export list is the surface, exactly: `toCents` is exported
-                // by `cents.buri` so its neighbours can use it and left off
-                // `lib.buri`, so `c.toCents()` does not resolve for an importer
-                // — and must not appear on the page either.
+                // In a library, a method is *not* pulled in just because its
+                // type was. The re-export list is the surface, exactly:
+                // `toCents` is exported by `cents.buri` so its neighbours can
+                // use it and left off `lib.buri`, so `c.toCents()` does not
+                // resolve for an importer — and must not appear on the page
+                // either.
+                if std {
+                    let methods = from.iter().filter(|i| i.api.owner() == Some(wanted));
+                    mine.extend(methods.cloned());
+                }
             }
         }
         mine.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));

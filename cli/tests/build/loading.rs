@@ -420,3 +420,147 @@ fn loading_every_target_of_a_long_chain_stays_within_its_instruction_bound() {
         "bookkeeping {a_module} instructions a module, over {BOOKKEEPING_BOUND}"
     );
 }
+
+/// `//lib/card`, whose tests are `tests`: each one a file under `test/`.
+///
+/// `platform/effect/testing` re-exports the headless renderer from a module
+/// that loads only when an import names part of it, so these tests name it
+/// every way a program can.
+pub(crate) fn card(tests: &[(&str, &str)]) -> Scratch {
+    let scratch = Scratch::repo("loading-renderer");
+    let sources: Vec<String> = (tests.iter())
+        .map(|(name, _)| format!("\"test/{name}.buri\""))
+        .collect();
+    scratch.write(
+        "lib/card/BUILD.buri",
+        &format!(
+            "library {{\n    test {{\n        sources: [{}]\n    }}\n}}\n",
+            sources.join(", ")
+        ),
+    );
+    scratch.write(
+        "lib/card/lib.buri",
+        "from \"ui/node\" import * as ui;\n\
+         from \"ui/node\" import { Node };\n\n\
+         export fn card<C>(children: [Node<C>]): Node<C> {\n    \
+         ui.stack({ styles: [.MinWidth(.Px(285))], children: children })\n}\n",
+    );
+    for (name, source) in tests {
+        scratch.write(&format!("lib/card/test/{name}.buri"), source);
+    }
+    scratch
+}
+
+/// A test that renders, importing `render` by name.
+pub(crate) const RENDERS: &str = "from \"core/testing/assert\" import * as assert;\n\
+     from \"platform/effect\" import { Ui };\n\
+     from \"platform/effect/testing\" import { headless, render };\n\
+     from \"//lib/card\" import { card };\n\n\
+     test \"a card renders\" {\n    \
+     let ctx = context {\n        Ui: headless(),\n    };\n    \
+     assert.equal(render(ctx, card([])).markup(), \"e 0 class:minw-285\");\n}\n";
+
+/// A test that takes an allocator from the same module and renders nothing.
+pub(crate) const ALLOCATES: &str = "from \"core/testing/assert\" import * as assert;\n\
+     from \"platform/effect\" import { Allocator };\n\
+     from \"platform/effect/testing\" import { alloc };\n\n\
+     test \"a number in a list\" {\n    \
+     let ctx = context {\n        Allocator: alloc(),\n    };\n    \
+     assert.equal([42].map(ctx, fn(n) => n + 1), [43]);\n}\n";
+
+#[test]
+fn a_test_renders_through_a_named_import_of_render() {
+    let run = card(&[("renders", RENDERS)]).run(&["test", "//..."]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+}
+
+#[test]
+fn a_test_renders_through_a_namespace_import_of_the_testing_module() {
+    let source = "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import * as testing;\n\
+         from \"//lib/card\" import { card };\n\n\
+         test \"a card renders\" {\n    \
+         let ctx = context {\n        Ui: testing.headless(),\n    };\n    \
+         let page: testing.Rendered = testing.render(ctx, card([]));\n    \
+         assert.equal(page.markup(), \"e 0 class:minw-285\");\n    \
+         assert.isTrue(testing.stylesheet().contains(\".minw-285{min-width:285px}\"));\n}\n";
+    let run = card(&[("renders", source)]).run(&["test", "//..."]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+}
+
+#[test]
+fn a_test_that_renders_and_one_that_does_not_pass_in_one_run() {
+    let run = card(&[("renders", RENDERS), ("allocates", ALLOCATES)]).run(&["test", "//..."]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 2, "{}", indent(&run.all()));
+}
+
+#[test]
+fn a_misspelt_renderer_name_is_reported_with_the_name_it_meant() {
+    let source = RENDERS
+        .replace("{ headless, render }", "{ headless, rendr }")
+        .replace("render(ctx", "rendr(ctx");
+    let run = card(&[("renders", &source)]).run(&["test", "//..."]);
+    run.exits(1)
+        .says("\"platform/effect/testing\" does not export `rendr`")
+        .says("`render`");
+}
+
+/// The page for `platform/effect/testing` lists the renderer and the methods
+/// of the tree it returns, though both are declared in a module of their own.
+#[test]
+fn the_testing_module_page_lists_the_renderer_and_its_methods() {
+    let run = Scratch::repo("loading-renderer-docs").run(&["docs", "platform/effect/testing"]);
+    run.ok()
+        .says("fn render<C: Ui>(ctx: C, root: Node<C>): Rendered")
+        .says("fn markup(self): Str")
+        .says("fn snapshot<");
+}
+
+/// `source: N lines of code lexed` from a `BURI_PROFILE=1` report.
+fn lines_lexed(all: &str) -> Option<u64> {
+    let line = all.lines().find(|l| l.starts_with("source: "))?;
+    line.trim_start_matches("source: ")
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
+/// **A test that renders nothing doesn't load the renderer.** Every test that
+/// takes an allocator imports `platform/effect/testing`, and its renderer
+/// brought `ui/node`, `ui/style` and `ui/theme` into every one: a quarter of
+/// `test/one-edit`'s instructions (design/PERFORMANCE.md §6.122). The
+/// renderer and `ui/` are well over 3,000 lines between them.
+#[test]
+fn a_test_that_renders_nothing_lexes_none_of_the_renderer() {
+    let lexed = |source: &str| {
+        let scratch = Scratch::repo("loading-renderer-lexed");
+        scratch.write(
+            "lib/a/BUILD.buri",
+            "library {\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n",
+        );
+        scratch.write("lib/a/lib.buri", "export fn answer(): Int {\n    42\n}\n");
+        scratch.write("lib/a/test/a.buri", source);
+        let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+        lines_lexed(&run.all()).unwrap_or_else(|| panic!("no source line:\n{}", indent(&run.all())))
+    };
+    let renders = "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import { headless, render };\n\
+         from \"ui/node\" import * as ui;\n\n\
+         test \"a stack renders\" {\n    \
+         let ctx = context {\n        Ui: headless(),\n    };\n    \
+         let page = render(ctx, ui.stack({ styles: [], children: [] }));\n    \
+         assert.equal(page.count(\"nothing\"), 0);\n}\n";
+    let (allocates, renders) = (lexed(ALLOCATES), lexed(renders));
+    assert!(
+        allocates + 3_000 < renders,
+        "a test that renders nothing lexed {allocates} lines, one that renders {renders}"
+    );
+}

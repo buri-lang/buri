@@ -1605,13 +1605,20 @@ impl<'a> Checker<'a> {
     }
 
     /// Follows re-export chains, guarding against a cycle.
+    ///
+    /// A method's entry gives way to a re-export of the same name, as it
+    /// gives way to a declaration: `platform/effect/testing` has a
+    /// `TestFileSystem.snapshot` and re-exports the free `snapshot`, and the
+    /// free one is what an import gets whichever was resolved first.
     pub(crate) fn lookup_export(&mut self, module: ModuleId, name: &str) -> Option<Sym> {
-        if let Some(sym) = self.scope(module).exports.get(name) {
-            return Some(sym.clone());
-        }
+        let method = match self.scope(module).exports.get(name) {
+            Some(sym @ Sym::Method(_)) => Some(sym.clone()),
+            Some(sym) => return Some(sym.clone()),
+            None => None,
+        };
         let key = (module, name.to_string());
         if self.resolving.contains(&key) {
-            return None;
+            return method;
         }
         self.resolving.push(key);
         // The re-export may not have been applied yet, if the modules were
@@ -1636,7 +1643,7 @@ impl<'a> Checker<'a> {
                 .exports
                 .insert(name.to_string(), sym.clone());
         }
-        found
+        found.or(method)
     }
 
     /// Where a reader finds a module's whole surface, for the second half of a
@@ -1669,12 +1676,20 @@ impl<'a> Checker<'a> {
         path.strip_suffix("/lib.buri").unwrap_or(path).to_string()
     }
 
+    /// The export nearest `name`, counting each re-export the module lists
+    /// whether or not it has been applied yet. A re-export of `name` itself
+    /// isn't one: it names what its module doesn't export.
     pub(crate) fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
-        let names: Vec<&str> = self
-            .scope(module)
-            .exports
-            .keys()
+        let t = self.tree(module);
+        let listed = (self.module(module).ast.items.iter())
+            .flat_map(|item| match item {
+                tree::Item::ReExport(re) => t.list(re.specs),
+                _ => &[],
+            })
+            .filter(|s| t.name(s.local()) != name);
+        let names: Vec<&str> = (self.scope(module).exports.keys())
             .map(|s| s.as_str())
+            .chain(listed.map(|s| t.name(s.local())))
             .collect();
         crate::build::buildfile::nearest(name, &names).map(|s| s.to_string())
     }

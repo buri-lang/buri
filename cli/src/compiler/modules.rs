@@ -49,6 +49,9 @@ pub struct Loader<'a> {
     /// Files read and parsed ahead of the walk, by their path from the
     /// repository root — see [`Loader::prefetch`].
     prefetched: HashMap<String, (String, crate::parsing::parser::Parsed)>,
+    /// The standard library re-exports loaded so far, as their module and
+    /// their index among its items. See [`Loader::load_imports`].
+    woken: crate::hash::Set<(ModuleId, usize)>,
 }
 
 /// The file id a file is parsed under before the walk reaches it and the
@@ -78,6 +81,7 @@ impl<'a> Loader<'a> {
             custom: None,
             resolved: HashMap::default(),
             prefetched: HashMap::default(),
+            woken: Default::default(),
         }
     }
 
@@ -336,9 +340,12 @@ impl<'a> Loader<'a> {
         }
     }
 
-    /// One standard library module by path, with its imports.
+    /// One standard library module by path, with its imports and everything
+    /// it re-exports.
     pub fn load_std_module(&mut self, path: &str) {
-        self.load_std(path, Span::NONE);
+        if let Some(id) = self.load_std(path, Span::NONE) {
+            self.wake(id, None);
+        }
     }
 
     /// Every standard library module, for the toolchain's own self-check.
@@ -828,35 +835,31 @@ impl<'a> Loader<'a> {
 
     /// Loads everything a module imports, checking each import line against
     /// the rules that govern where a path may be named from.
+    ///
+    /// A standard library module's re-exports wait: each loads when an import
+    /// of the module names something it re-exports ([`reexports_wanted`]).
+    /// `platform/effect/testing` re-exports the headless renderer, and every
+    /// test that takes an allocator imports it, so a test that renders
+    /// nothing loads none of `ui/`. Unless [`load_every_reexport`] was
+    /// called: then they load at once, as everything else does.
     fn load_imports(&mut self, id: ModuleId) {
-        // The names an import binds travel with it, because one of the
-        // restrictions below has to say what to re-export, and a fix that names
-        // the symbol is the difference between a rule and an instruction.
         let importer = self.modules.get(id);
-        let t = &importer.ast.tree;
-        let imports: Vec<(String, Span, Vec<String>)> = importer
+        let waits = standard_library::find(&importer.path).is_some()
+            && !EVERY_REEXPORT.load(std::sync::atomic::Ordering::Relaxed);
+        let imports: Vec<(String, Span, Wanted)> = importer
             .ast
             .items
             .iter()
             .filter_map(|item| match item {
-                tree::Item::Import(i) => {
-                    let names = match &i.clause {
-                        tree::ImportClause::Named(specs) => t
-                            .list(*specs)
-                            .iter()
-                            .map(|s| t.name(s.name).to_string())
-                            .collect(),
-                        tree::ImportClause::Namespace(_) => Vec::new(),
-                    };
-                    Some((i.path.clone(), i.path_span, names))
-                }
-                tree::Item::ReExport(r) => Some((
+                tree::Item::Import(i) => Some((
+                    i.path.clone(),
+                    i.path_span,
+                    wanted(&importer.ast.tree, &i.clause),
+                )),
+                tree::Item::ReExport(r) if !waits => Some((
                     r.path.clone(),
                     r.path_span,
-                    t.list(r.specs)
-                        .iter()
-                        .map(|s| t.name(s.name).to_string())
-                        .collect(),
+                    reexported(&importer.ast.tree, r),
                 )),
                 _ => None,
             })
@@ -867,20 +870,65 @@ impl<'a> Loader<'a> {
         let importer_pkg = importer.pkg;
         self.prefetch(imports.iter().map(|(path, _, _)| path.as_str()));
 
-        for (path, span, names) in imports {
-            if !self.check_import_legality(&importer_path, importer_pkg, role, &path, span, &names)
-            {
-                continue;
-            }
-            // What a module imports is loaded in the role its own path
-            // implies, not in the importer's role.
-            let target_role = self.role_for(&path);
-            self.load_path(&path, target_role, span);
-            // Only a module of the program's own that imports from `ui/` can
-            // hand a node a style that `classify` names at run time.
-            if !matches!(role, Role::Std | Role::Platform) && path.starts_with("ui/") {
-                self.load_std(standard_library::CLASSIFY_MODULE, Span::NONE);
-            }
+        for (path, span, wanted) in imports {
+            self.load_import(&importer_path, importer_pkg, role, &path, span, wanted);
+        }
+    }
+
+    /// Loads the module one import or re-export of `importer_path` names, and
+    /// the re-exports of it that `wanted` needs.
+    fn load_import(
+        &mut self,
+        importer_path: &str,
+        importer_pkg: Option<crate::build::workspace::PackageId>,
+        role: Role,
+        path: &str,
+        span: Span,
+        wanted: Wanted,
+    ) {
+        // The names an import binds travel with it, because one of the
+        // restrictions below has to say what to re-export, and a fix that names
+        // the symbol is the difference between a rule and an instruction.
+        let names = wanted.clone().unwrap_or_default();
+        if !self.check_import_legality(importer_path, importer_pkg, role, path, span, &names) {
+            return;
+        }
+        // What a module imports is loaded in the role its own path
+        // implies, not in the importer's role.
+        let target_role = self.role_for(path);
+        if let Some(target) = self.load_path(path, target_role, span) {
+            self.wake(target, wanted.as_deref());
+        }
+        // Only a module of the program's own that imports from `ui/` can
+        // hand a node a style that `classify` names at run time.
+        if !matches!(role, Role::Std | Role::Platform) && path.starts_with("ui/") {
+            self.load_std(standard_library::CLASSIFY_MODULE, Span::NONE);
+        }
+    }
+
+    /// Loads the waiting re-exports of the standard library module `id` that
+    /// an import wanting `wanted` of it needs.
+    fn wake(&mut self, id: ModuleId, wanted: Option<&[String]>) {
+        let module = self.modules.get(id);
+        if standard_library::find(&module.path).is_none() {
+            return;
+        }
+        let woken: Vec<(usize, String, Span, Wanted)> = reexports_wanted(module, wanted)
+            .filter(|&at| !self.woken.contains(&(id, at)))
+            .filter_map(|at| match module.ast.items.get(at) {
+                Some(tree::Item::ReExport(r)) => Some((
+                    at,
+                    r.path.clone(),
+                    r.path_span,
+                    reexported(&module.ast.tree, r),
+                )),
+                _ => None,
+            })
+            .collect();
+        let (path, role, pkg) = (module.path.clone(), module.role, module.pkg);
+        for (at, to, span, names) in woken {
+            self.woken.insert((id, at));
+            self.load_import(&path, pkg, role, &to, span, names);
         }
     }
 
@@ -1045,10 +1093,11 @@ impl<'a> Loader<'a> {
             return false;
         }
 
-        // An internal module is the compiler's own: it loads the module and
-        // calls into it itself, so no module, the library's included, imports
-        // it.
-        if let Some(module) = standard_library::find(path).filter(|m| m.internal) {
+        // An internal module is the library's own: the compiler loads it, or
+        // another standard library module imports it, and nothing else does.
+        if let Some(module) = standard_library::find(path)
+            .filter(|m| m.internal && standard_library::find(importer_path).is_none())
+        {
             self.diags.push(
                 Diagnostic::templated("internal-std-import", span).with_bind("path", module.path),
             );
@@ -1323,4 +1372,90 @@ static MODULES_LOADED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 /// See [`MODULES_LOADED`].
 pub fn modules_loaded() -> u64 {
     MODULES_LOADED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Set by [`load_every_reexport`].
+static EVERY_REEXPORT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Makes every load of this process load a standard library module's
+/// re-exports with the module, rather than when an import names one.
+///
+/// The language server calls it: an editor completing `import { | }` from
+/// `platform/effect/testing` should be offered `render` before anything
+/// names it, and an editor's analysis isn't counted in instructions.
+pub fn load_every_reexport() {
+    EVERY_REEXPORT.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// What an import wants of the module it names: the names it imports, or
+/// `None` for a namespace import, which can reach every one.
+pub(crate) type Wanted = Option<Vec<String>>;
+
+/// What an import line wants of its module.
+pub(crate) fn wanted(t: &crate::parsing::flat::Tree, clause: &tree::ImportClause) -> Wanted {
+    match clause {
+        tree::ImportClause::Named(specs) => Some(
+            t.list(*specs)
+                .iter()
+                .map(|s| t.name(s.name).to_string())
+                .collect(),
+        ),
+        tree::ImportClause::Namespace(_) => None,
+    }
+}
+
+/// What a re-export wants of the module it names: the names it lists.
+pub(crate) fn reexported(t: &crate::parsing::flat::Tree, r: &tree::ReExport) -> Wanted {
+    Some(
+        t.list(r.specs)
+            .iter()
+            .map(|s| t.name(s.name).to_string())
+            .collect(),
+    )
+}
+
+/// The re-exports of `module`, as indices into its items, that an import
+/// wanting `wanted` of it needs loaded.
+///
+/// A namespace import needs every one, and so does a name the module neither
+/// declares nor re-exports: the import is a mistake, and its diagnostic says
+/// which names the module does have. Otherwise it's the re-exports that list
+/// a wanted name. The loader asks this of a standard library module only,
+/// and [`crate::compiler::driver`]'s `reach` asks it the same way.
+pub(crate) fn reexports_wanted<'m>(
+    module: &'m ModuleData,
+    wanted: Option<&'m [String]>,
+) -> impl Iterator<Item = usize> + 'm {
+    let t = &module.ast.tree;
+    let items = &module.ast.items;
+    let lists =
+        |r: &tree::ReExport, name: &str| t.list(r.specs).iter().any(|s| t.name(s.local()) == name);
+    let known = |name: &str| {
+        items.iter().any(|item| {
+            let declared = match item {
+                tree::Item::Fn(d) => d.name,
+                tree::Item::Struct(d) => d.name,
+                tree::Item::Enum(d) => d.name,
+                tree::Item::TypeAlias(d) => d.name,
+                tree::Item::Let(d) => d.name,
+                tree::Item::Trait(d) => d.name,
+                tree::Item::Context(d) => d.name,
+                tree::Item::ReExport(r) => return lists(r, name),
+                _ => return false,
+            };
+            t.name(declared) == name
+        })
+    };
+    let every = wanted.is_none_or(|names| names.iter().any(|n| !known(n)));
+    items
+        .iter()
+        .enumerate()
+        .filter_map(move |(at, item)| match item {
+            tree::Item::ReExport(r)
+                if every || wanted.is_some_and(|names| names.iter().any(|n| lists(r, n))) =>
+            {
+                Some(at)
+            }
+            _ => None,
+        })
 }

@@ -4524,13 +4524,13 @@ const FAILING_TESTING_FUNCTIONS: &[(&str, &str, &str)] = &[
     ("platform/effect/testing", "", "describeFsPlan"),
     ("platform/effect/testing", "", "describeNetPlan"),
     ("platform/effect/testing", "", "describeTaskPlan"),
-    ("platform/effect/testing", "", "paint"),
-    ("platform/effect/testing", "", "snapshot"),
-    ("platform/effect/testing", "", "snapshotWide"),
     ("platform/effect/testing", "TestFileSystem", "faults"),
     ("platform/effect/testing", "TestNetwork", "faults"),
     ("platform/effect/testing", "TestTasks", "addFault"),
     ("platform/effect/testing", "TestTasks", "faults"),
+    ("platform/effect/testing/ui", "", "paint"),
+    ("platform/effect/testing/ui", "", "snapshot"),
+    ("platform/effect/testing/ui", "", "snapshotWide"),
 ];
 
 /// Every library a package's own code reaches through a resolved call, which
@@ -4662,10 +4662,10 @@ mod tests {
             let (module, _, name) = function_key(checked, loaded, f);
             match module.as_str() {
                 "core/testing/assert" => true,
-                "platform/effect/testing" => matches!(
-                    name.as_str(),
-                    "paint" | "addFsFault" | "addNetFault" | "addFault"
-                ),
+                "platform/effect/testing" => {
+                    matches!(name.as_str(), "addFsFault" | "addNetFault" | "addFault")
+                }
+                "platform/effect/testing/ui" => name == "paint",
                 _ => false,
             }
         };

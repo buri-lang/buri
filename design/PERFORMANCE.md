@@ -9436,6 +9436,32 @@ parameter's retain across the list's release, so `list.last().show(ctx)` read
 a freed element. `cli/tests/repositories/middle/elements_outlive_their_list`
 covers it.
 
+### 6.122 A test that renders nothing loads none of `ui/`, 2026-11-12
+
+```buri
+// platform/effect/testing
+from "platform/effect/testing/ui" export {
+    install, render, Rendered, snapshot, snapshotWide, stylesheet, variables,
+};
+```
+
+Every test that takes an allocator imports `platform/effect/testing`, and its
+headless renderer imported `ui/node`, `ui/style` and `ui/theme`. So every
+test lexed, parsed and checked all of `ui/`: a quarter of `test/one-edit`.
+`ui/node`'s render function only cost a non-UI test through this load.
+
+The renderer now lives in the internal module `platform/effect/testing/ui`,
+and `platform/effect/testing` re-exports it. A standard library module's
+re-export loads only when an import names something it re-exports
+(`Loader::wake` in `cli/src/compiler/modules.rs`). A namespace import wakes
+them all, and so does a name the module doesn't have, so a typo still gets
+"did you mean `render`?". `driver::reach` follows the same rule. The language
+server loads every re-export, so completion still offers `render`.
+
+On the arm64 VM, `test/one-edit` went from 83.84M to 63.05M instructions
+(−24.8%). The guard is `loading.rs`'s
+`a_test_that_renders_nothing_lexes_none_of_the_renderer`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

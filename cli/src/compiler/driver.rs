@@ -692,6 +692,8 @@ pub(crate) fn reach(
         }
         queue.push(id);
     }
+    // The standard library re-exports reached, as the loader wakes them.
+    let mut woken: crate::hash::Set<(ModuleId, usize)> = crate::hash::Set::default();
     while let Some(id) = queue.pop() {
         let seen = holds.get_mut(id);
         if std::mem::replace(seen, true) {
@@ -704,11 +706,45 @@ pub(crate) fn reach(
         let classify = (own && imports(module).any(|path| path.starts_with("ui/")))
             .then(|| loaded.find(crate::compiler::standard_library::CLASSIFY_MODULE))
             .flatten();
-        queue.extend(
-            imports(module)
-                .filter_map(|path| loaded.find(path))
-                .chain(classify),
-        );
+        queue.extend(classify);
+        let waits = crate::compiler::standard_library::find(&module.path).is_some();
+        let t = &module.ast.tree;
+        let mut edges: Vec<(ModuleId, crate::compiler::modules::Wanted)> = Vec::new();
+        for item in &module.ast.items {
+            let (path, wanted) = match item {
+                crate::parsing::tree::Item::Import(i) => {
+                    (&i.path, crate::compiler::modules::wanted(t, &i.clause))
+                }
+                crate::parsing::tree::Item::ReExport(r) if !waits => {
+                    (&r.path, crate::compiler::modules::reexported(t, r))
+                }
+                _ => continue,
+            };
+            if let Some(to) = loaded.find(path) {
+                edges.push((to, wanted));
+            }
+        }
+        // Each edge reaches its module, and the re-exports of it that the
+        // edge wants, which want what they list in turn.
+        while let Some((to, wanted)) = edges.pop() {
+            queue.push(to);
+            let target = loaded.module(to);
+            if crate::compiler::standard_library::find(&target.path).is_none() {
+                continue;
+            }
+            let t = &target.ast.tree;
+            for at in crate::compiler::modules::reexports_wanted(target, wanted.as_deref()) {
+                let Some(crate::parsing::tree::Item::ReExport(r)) = target.ast.items.get(at) else {
+                    continue;
+                };
+                if !woken.insert((to, at)) {
+                    continue;
+                }
+                if let Some(next) = loaded.find(&r.path) {
+                    edges.push((next, crate::compiler::modules::reexported(t, r)));
+                }
+            }
+        }
     }
     Some((holds, rules))
 }

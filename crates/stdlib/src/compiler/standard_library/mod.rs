@@ -69,9 +69,9 @@ pub struct StdModule {
     /// scope everywhere, so it is part of every compilation. `MODULES_AGREE`
     /// below checks that rather than leaving it to review.
     pub prelude: &'static [&'static str],
-    /// The compiler's own: it loads the module and calls into it on a
-    /// program's behalf, but no module imports it and `buri docs` doesn't
-    /// list it.
+    /// The library's own: the compiler loads it and calls into it on a
+    /// program's behalf, or another standard library module imports it, but
+    /// no program's module imports it and `buri docs` doesn't list it.
     pub internal: bool,
 }
 
@@ -262,6 +262,18 @@ pub const MODULES: &[StdModule] = &[
         ..m(
             "platform/effect/testing",
             include_str!("sources/host_testing.buri"),
+        )
+    },
+    // The headless renderer, which `platform/effect/testing` re-exports. Its
+    // own module so that a test that renders nothing loads none of `ui/`: a
+    // standard library module's re-export loads only when an import names
+    // what it re-exports.
+    StdModule {
+        platform: true,
+        internal: true,
+        ..m(
+            "platform/effect/testing/ui",
+            include_str!("sources/host_testing_ui.buri"),
         )
     },
     // The bundled platforms' `platform.buri`, each declaring its host type and
@@ -549,7 +561,7 @@ pub fn source(path: &str) -> Option<&'static str> {
     find(path).map(|m| m.source)
 }
 
-/// Whether a path names an internal module, which only the compiler reaches.
+/// Whether a path names an internal module, which only the library reaches.
 pub fn is_internal(path: &str) -> bool {
     find(path).is_some_and(|m| m.internal)
 }
