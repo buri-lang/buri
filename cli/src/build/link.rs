@@ -1464,6 +1464,39 @@ fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
         })
 }
 
+/// The thin archive [`CDriver::as_one_input`] writes. Every unit's object ends
+/// in `.o`, so no unit can take this name.
+const OBJECTS_ARCHIVE: &str = "objects.a";
+
+/// A GNU thin archive of `members`, each a path and its length: the table of
+/// paths, then one header per member and no contents.
+fn thin_archive<'a>(members: impl Iterator<Item = (&'a str, usize)> + Clone) -> Vec<u8> {
+    let mut paths = String::new();
+    let mut at = Vec::new();
+    for (path, _) in members.clone() {
+        at.push(paths.len());
+        paths.push_str(path);
+        paths.push_str("/\n");
+    }
+    let mut out = b"!<thin>\n".to_vec();
+    ar_header(&mut out, "//", paths.len());
+    out.extend_from_slice(paths.as_bytes());
+    if !paths.len().is_multiple_of(2) {
+        out.push(b'\n');
+    }
+    for ((_, len), at) in members.zip(at) {
+        ar_header(&mut out, &format!("/{at}"), len);
+    }
+    out
+}
+
+/// One 60-byte archive member header.
+fn ar_header(out: &mut Vec<u8>, name: &str, size: usize) {
+    out.extend_from_slice(
+        format!("{name:<16}{:<12}{:<6}{:<6}{:<8}{size:<10}`\n", 0, 0, 0, 644).as_bytes(),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The link
 // ---------------------------------------------------------------------------
@@ -2076,9 +2109,10 @@ impl CDriver {
         let keep = self.store.is_some();
         let replay = self.replay(&args, &names, keep);
         if let Some(replay) = &replay {
+            let inputs = self.as_one_input(&names, units);
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
-            direct.args(replay.argv(&names));
+            direct.args(replay.argv(inputs.as_deref().unwrap_or(&names)));
             if spawn::output(&mut direct).is_ok_and(|done| done.status.success()) {
                 return self.claim(out);
             }
@@ -2122,6 +2156,32 @@ impl CDriver {
                 Err(diagnostics)
             }
         }
+    }
+
+    /// The objects as one linker argument, on an ELF link: a thin archive in
+    /// the link directory that names each object, loaded whole.
+    ///
+    /// mold checks every argument against each of its options, twice, and
+    /// opens each input file on its own. A unit named on the command line
+    /// cost a link about 500 k instructions more than the same unit as an
+    /// archive member. A thin archive holds only the paths, so writing one
+    /// costs a few kilobytes. `--whole-archive` keeps every unit, as naming
+    /// it did, and the linked bytes are the same. `ld64` reads no thin
+    /// archive, so a macOS link still names each object.
+    fn as_one_input(&self, names: &[String], units: &[Emitted]) -> Option<Vec<String>> {
+        if self.target.platform != Platform::Linux {
+            return None;
+        }
+        let members = names
+            .iter()
+            .zip(units)
+            .map(|(n, u)| (n.as_str(), u.bytes.len()));
+        replace_with(&self.dir.join(OBJECTS_ARCHIVE), &thin_archive(members)).ok()?;
+        Some(
+            ["--whole-archive", OBJECTS_ARCHIVE, "--no-whole-archive"]
+                .map(String::from)
+                .to_vec(),
+        )
     }
 
     /// Takes the `artifact` a successful link wrote and puts its bytes at `out`.
