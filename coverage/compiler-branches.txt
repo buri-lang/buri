@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15833 15918 99.47%
+total 15855 15940 99.47%
 area cli/build 1695 1698 99.82%
 area cli/documentation 483 484 99.79%
 area cli/format 94 94 100.00%
@@ -195,7 +195,7 @@ area crates/syntax 1268 1268 100.00%
 24 24 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 150 150 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-382 382 crates/semantics/src/compiler/semantics/styles.rs
+404 404 crates/semantics/src/compiler/semantics/styles.rs
 22 22 crates/semantics/src/compiler/semantics/typed.rs
 116 116 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
