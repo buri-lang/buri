@@ -9568,9 +9568,10 @@ directories.
   under its SDK root.
 
 One link of the `ci` workspace's tests went from 171.3M to 131.8M
-instructions on the arm64 VM. The counted goals' dev-codegen rows fell: `ci`
-by 5.8% (instructions) and 3.5% (cost), `monorepo-ci` by 4.6% and 3.1%, and
-its test build by 4.9% and 4.2%. The native suites link every test binary this way.
+instructions on the arm64 VM. On CI, the counted goals' dev-codegen rows fell:
+`ci` by 5.5% (instructions) and 2.9% (cost), `monorepo-ci` by 4.4% and 2.9%,
+and its test build by 4.7% and 3.5%. The rows were tightened to those figures.
+The archive is removed once the link has read it. The native suites link every test binary this way.
 
 ### 6.127 A value worked out from a read and written back descends once, 2026-11-12
 
