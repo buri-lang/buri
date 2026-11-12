@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:20:35
+   |
+20 |     assert.equal(uuid.zero().hash(@ ), uuid.zero().hash());
+   |                                   ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+   --> main.buri:105:54
+    |
+105 |     assert.equal([1, 2, 3].map(ctx, fn(n) => n * 2)[ ,2, 4, 6]);
+    |                                                      ^
+    |
+    = expected: an expression
+    = actual: `,`
+    = fix: write a value here

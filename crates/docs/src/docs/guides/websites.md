@@ -338,7 +338,11 @@ signal. Reach another site with a `ui.link`, so the reader sees where it goes.
 # from "ui/web" import * as web;
 
 fn backButton<C: Location + Ui>(): Node<C> {
-    ui.button({ label: .Const("Back"), styles: [], onPress: .Some(fn(c) => web.back(c)) })
+    ui.button({
+        label: .Const("Back"),
+        styles: [],
+        onPress: .Some(fn(c) => web.back(c)),
+    })
 }
 ```
 

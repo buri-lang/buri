@@ -1,0 +1,22 @@
+error: "core/lazy" does not export `extra` [unknown-export]
+   --> main.buri:126:18
+    |
+126 |     let f = lazy.extra load(double);
+    |                  ^^^^^
+    |
+    = the module exports `load`
+    = fix: correct the member name, or check `buri docs core/lazy`
+error: a statement ends with `;` [missing-semicolon]
+   --> main.buri:126:23
+    |
+126 |     let f = lazy.extra load(double);
+    |                       ^
+    |
+    = fix: write `;` here
+error: there is nothing named `load` in scope [unknown-name]
+   --> main.buri:126:24
+    |
+126 |     let f = lazy.extra load(double);
+    |                        ^^^^
+    |
+    = fix: declare `load`, or import it — a name is in scope only from this module's own declarations and its imports

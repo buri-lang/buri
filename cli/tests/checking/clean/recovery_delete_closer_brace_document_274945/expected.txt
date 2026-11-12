@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:19:5
+   |
+19 |     ;
+   |     ^
+   |
+  --> main.buri:13:29
+   |
+13 |     let document = web.shell(
+   |                             ^ opened here
+   |
+   = fix: write `)` here
