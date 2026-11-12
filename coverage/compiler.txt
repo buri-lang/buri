@@ -8,7 +8,7 @@ cli/documentation                  485/486   99.79%         2782/2852   97.55%
 cli/format                           98/98  100.00%           377/378   99.74%
 cli/language_server              1239/1246   99.44%         7971/8129   98.06%
 cli/lint                           574/574  100.00%         2972/2998   99.13%
-cli/other                          609/614   99.19%         3588/3707   96.79%
+cli/other                          609/614   99.19%         3590/3709   96.79%
 cli/run                              58/58  100.00%           327/338   96.75%
 cli/serve+watch                      68/68  100.00%           379/398   95.23%
 cli/test                           472/482   97.93%         3649/3721   98.07%
@@ -18,13 +18,13 @@ crates/docs                        246/246  100.00%           813/913   89.05%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1091/1112   98.11%         5717/5956   95.99%
 crates/llvm                        558/558  100.00%         7684/7885   97.45%
-crates/middle                    2366/2392   98.91%       17482/18025   96.99%
+crates/middle                    2416/2442   98.94%       17745/18291   97.01%
 crates/project                   1334/1336   99.85%         6358/6518   97.55%
-crates/semantics                 2262/2262  100.00%       14176/14463   98.02%
+crates/semantics                 2262/2262  100.00%       14174/14460   98.02%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
-crates/stencil                   1096/1104   99.28%         8209/8671   94.67%
+crates/stencil                   1096/1104   99.28%         8228/8728   94.27%
 crates/syntax                    1274/1274  100.00%         6936/7090   97.83%
-total                          15892/15976   99.47%     103777/106894   97.08%
+total                          15942/16026   99.48%     104059/107216   97.06%
 
 cli/src                           branches                      lines         
 build                            1695/1698   99.82%       11376/11694   97.28%
@@ -38,7 +38,7 @@ commands/init                        26/26  100.00%           109/112   97.32%
 commands/interrupt                     1/2   50.00%             16/21   76.19%
 commands/lint                      546/546  100.00%         2576/2596   99.23%
 commands/lint_cache                  28/28  100.00%           396/402   98.51%
-commands/mod                         20/20  100.00%           275/280   98.21%
+commands/mod                         20/20  100.00%           279/284   98.24%
 commands/query                       38/38  100.00%           124/125   99.20%
 commands/run                         58/58  100.00%           327/338   96.75%
 commands/serve                       34/34  100.00%           135/140   96.43%
@@ -46,7 +46,7 @@ commands/test                      470/480   97.92%         3611/3683   98.05%
 commands/test_times                    2/2  100.00%             38/38  100.00%
 commands/version                       4/4  100.00%             23/25   92.00%
 commands/watch                       34/34  100.00%           244/258   94.57%
-compiler                           274/276   99.28%         1704/1763   96.65%
+compiler                           274/276   99.28%         1702/1761   96.65%
 documentation                      485/486   99.79%         2782/2852   97.55%
 hold                                 18/18  100.00%             67/73   91.78%
 language_server                  1239/1246   99.44%         7971/8129   98.06%
@@ -59,7 +59,7 @@ uncovered          branches           file
        10           470/480   97.92%  cli/src/commands/test.rs
         8           166/174   95.40%  crates/middle/src/compiler/middle/monomorphize.rs
         5           203/208   97.60%  crates/middle/src/compiler/middle/derives.rs
-        5           705/710   99.30%  crates/middle/src/compiler/middle/rc.rs
+        5           701/706   99.29%  crates/middle/src/compiler/middle/rc.rs
         3           157/160   98.12%  cli/src/language_server/mod.rs
         3             45/48   93.75%  crates/middle/src/compiler/middle/coverage/derived.rs
         3           105/108   97.22%  crates/middle/src/compiler/middle/monomorphize/hand_written.rs
