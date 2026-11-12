@@ -2112,7 +2112,14 @@ impl CDriver {
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
             direct.args(replay.argv(inputs.as_deref().unwrap_or(&names)));
-            if spawn::output(&mut direct).is_ok_and(|done| done.status.success()) {
+            let linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+            // Only this link reads the archive, so it isn't left in the link
+            // directory. One that can't be removed is harmless: the next link
+            // replaces it.
+            if inputs.is_some() {
+                let _ = std::fs::remove_file(self.dir.join(OBJECTS_ARCHIVE));
+            }
+            if linked {
                 return self.claim(out);
             }
         }
