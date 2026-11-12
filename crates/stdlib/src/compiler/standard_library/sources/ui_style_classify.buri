@@ -324,9 +324,6 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
         .Group(items) => .Nested(items, state, screen),
         .On(on, items) => .Nested(items, stateIndex(on), screen),
         .At(at, items) => .Nested(items, state, screenIndex(at)),
-        .When(_, _, _) => .Unsettled,
-        .Computed(_) => .Unsettled,
-        .Extracted(_) => .Unsettled,
         .Layout(layout) => .Atom(6, 0, "lay", layoutKey(ctx, layout)),
         .AlignMain(align) => .Atom(7, 0, "am", alignKey(align)),
         .AlignCross(align) => .Atom(8, 0, "ac", crossKey(align)),
@@ -508,6 +505,9 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Tabular => "tabular",
             })
         },
+        // `When` and `Computed`, which are decided as the program runs, and
+        // classes already made.
+        _ => .Unsettled,
     }
 }
 

@@ -4150,7 +4150,7 @@ pub struct Reached {
     pub classes: HashSet<String>,
     /// Whether any style in the program can reach the **inline tier** — the
     /// run-time lowering of one property to a `style=` declaration, which the
-    /// runtime spells `$tree_declare` and which is 3.5 KB of an artifact.
+    /// runtime spells `$tree_declare` and which is a few KB of an artifact.
     ///
     /// True for a `Computed`, whose list is built per run and so cannot be
     /// extracted, and for any bare property left standing: extraction rewrites

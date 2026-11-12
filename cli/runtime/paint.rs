@@ -3192,7 +3192,7 @@ fn paint_with(
     // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
     // must not move a pixel. An unstyled `stack` lowers to `display: flex;
-    // flex-direction: column` (`$tree_declare`'s tag 6) and takes flexbox's own
+    // flex-direction: column` (the `lay-col` class) and takes flexbox's own
     // `align-items: stretch`, so the canvas has to be the same thing. `taffy`'s
     // default is a *row*, whose cross axis is vertical, and a canvas left at it
     // stretches its child's height — which the same child one `stack` deeper

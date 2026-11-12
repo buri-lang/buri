@@ -40,9 +40,7 @@ from "ui/prop" import { Prop };
 from "ui/shape" import { group, Shape };
 from "ui/signal" import { Signal };
 from "ui/style" import {
-    Align, Animation, BorderStyle, Color, Corner, Cursor, Edge, Figures, FontFamily,
-    Layout, Length, ListMarker, Shadow, State, Style, TextCase, TextLine, TextWrap,
-    Track, Weight,
+    Animation, Color, Corner, Edge, FontFamily, Length, Shadow, State, Style, Track,
 };
 from "ui/theme" import { Theme };
 
@@ -1018,13 +1016,10 @@ fn framed(ctx: Scope, box: Prop<Str>, inner: Str): Str {
 
 /// A decorative picture's source is inline artwork the compiler reads, so it is
 /// written out as a constant `<svg>`. A source that is not a constant is refused
-/// by `semantics::icons` before this runs, so the fallback is unreachable for a
-/// program that compiles.
+/// by `semantics::icons` before this runs, so reading it reads the constant and
+/// subscribes to nothing.
 fn artworkOf(source: Prop<Str>): Str {
-    match (source) {
-        .Const(svg) => svg,
-        _ => "",
-    }
+    source.read(rootScope())
 }
 
 /// Somewhere to type, and what it is for. The one text-input primitive: a line,
@@ -4995,20 +4990,9 @@ fn variableInline<C: Allocator>(ctx: C, abbreviation: Str, declarations: [Str]):
 /// folded and one that did not paint the same.
 fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
     match (style) {
-        .Layout(layout) => layoutCss(ctx, layout),
-        .AlignMain(align) => [decl(ctx, "justify-content", alignCss(align))],
-        .AlignCross(align) => [decl(ctx, "align-items", alignCss(align))],
-        .AlignSelf(align) => [decl(ctx, "align-self", alignCss(align))],
-        .Wrap(on) => {
-            let css = if (on) { "wrap" } else { "nowrap" };
-            [decl(ctx, "flex-wrap", css)]
-        },
-        .Scroll(axis) => {
-            match (axis) {
-                .X => [decl(ctx, "overflow-x", "auto")],
-                .Y => [decl(ctx, "overflow-y", "auto")],
-                .Both => [decl(ctx, "overflow", "auto")],
-            }
+        .Layout(.Grid(tracks)) => {
+            let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
+            ["display:grid", decl(ctx, "grid-template-columns", columns)]
         },
         .Grow(n) => [decl(ctx, "flex-grow", str.fromInt(ctx, n))],
         .Shrink(n) => [decl(ctx, "flex-shrink", str.fromInt(ctx, n))],
@@ -5020,19 +5004,6 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
                 decl(ctx, "position", "absolute"),
                 decl(ctx, "inset-".concat(ctx, edgeName(edge)), lengthCss(ctx, length)),
             ]
-        },
-        .Position(position) => {
-            match (position) {
-                .Flow => [decl(ctx, "position", "relative")],
-                .Sticky => [decl(ctx, "position", "sticky")],
-                .PinViewport => [decl(ctx, "position", "fixed")],
-                .PinAnchor => {
-                    [
-                        decl(ctx, "position", "fixed"),
-                        decl(ctx, "--buri-pin-anchor", "1"),
-                    ]
-                },
-            }
         },
         .Gap(length) => [decl(ctx, "gap", lengthCss(ctx, length))],
         .GapX(length) => [decl(ctx, "column-gap", lengthCss(ctx, length))],
@@ -5070,7 +5041,6 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             ]
         },
         .BorderColor(color) => [decl(ctx, "border-color", colorCss(ctx, color))],
-        .BorderStyle(border) => [decl(ctx, "border-style", borderStyleName(border))],
         .Radius(length) => [decl(ctx, "border-radius", lengthCss(ctx, length))],
         .RadiusCorner(corner, length) => {
             let name = str.format(ctx, "border-${cornerName(corner)}-radius");
@@ -5083,20 +5053,9 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         },
         .FontFamily(family) => [decl(ctx, "font-family", fontStack(ctx, family))],
         .FontSize(length) => [decl(ctx, "font-size", lengthCss(ctx, length))],
-        .FontWeight(weight) => [decl(ctx, "font-weight", weightName(weight))],
-        .Italic(on) => {
-            let css = if (on) { "italic" } else { "normal" };
-            [decl(ctx, "font-style", css)]
-        },
         .LineHeight(amount) => [decl(ctx, "line-height", str.fromFloat(ctx, amount))],
         .LetterSpacing(length) => [decl(ctx, "letter-spacing", lengthCss(ctx, length))],
-        .TextAlign(align) => [decl(ctx, "text-align", textAlignCss(align))],
-        .TextCase(casing) => [decl(ctx, "text-transform", textCaseName(casing))],
-        .TextLine(line) => [decl(ctx, "text-decoration-line", textLineName(line))],
-        .TextWrap(wrapping) => [decl(ctx, "text-wrap", textWrapName(wrapping))],
         .Truncate(lines) => truncateCss(ctx, lines),
-        .Cursor(cursor) => [decl(ctx, "cursor", cursorName(cursor))],
-        .ListMarker(marker) => [decl(ctx, "list-style-type", markerName(marker))],
         .Bleed(edge, length) => {
             [decl(ctx, "margin-".concat(ctx, edgeName(edge)), outwardsCss(ctx, length))]
         },
@@ -5104,16 +5063,6 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             let across = lengthCss(ctx, x);
             let down = lengthCss(ctx, y);
             [decl(ctx, "transform", str.format(ctx, "translate(${across},${down})"))]
-        },
-        // `clip` rather than `hidden`: both stop the paint, and only `hidden`
-        // also makes a scroll container a keyboard can land in.
-        .Clip(on) => {
-            let css = if (on) { "clip" } else { "visible" };
-            [decl(ctx, "overflow", css)]
-        },
-        .Passthrough(on) => {
-            let css = if (on) { "none" } else { "auto" };
-            [decl(ctx, "pointer-events", css)]
         },
         // Only what is painted behind the box is blurred; the box paints over
         // the blur.
@@ -5130,13 +5079,12 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         // `--buri-visually-hidden` marker tells the painter to paint nothing
         // rather than a clipped pixel.
         .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
-        // `false` writes nothing, so the display `Layout` or the element's kind
-        // gives stands.
-        .Removed(on) => { if (on) { [decl(ctx, "display", "none")] } else { [] } },
-        .Figures(figures) => [decl(ctx, "font-variant-numeric", figuresCss(figures))],
         // An extracted style is classes, which declare nothing inline. So is
         // `VisuallyHidden` by now: it holds no value, so the compiler always
-        // knows it and a node only ever holds its class.
+        // knows it and a node only ever holds its class. And so is a property
+        // with a finite set of values, every `Layout` but `Grid` among them: the
+        // compiler ships each value's class, and `classify` gives the node the
+        // one its value names.
         _ => [],
     }
 }
@@ -5144,23 +5092,6 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
 /// One `name:value` pair.
 fn decl<C: Allocator>(ctx: C, name: Str, value: Str): Str {
     str.format(ctx, "${name}:${value}")
-}
-
-fn layoutCss<C: Allocator>(ctx: C, layout: Layout): [Str] {
-    match (layout) {
-        .Column => ["display:flex", "flex-direction:column"],
-        .Row => ["display:flex", "flex-direction:row"],
-        .ColumnReverse => ["display:flex", "flex-direction:column-reverse"],
-        .RowReverse => ["display:flex", "flex-direction:row-reverse"],
-        .Grid(tracks) => {
-            let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
-            ["display:grid", decl(ctx, "grid-template-columns", columns)]
-        },
-        // The children's half of `Layers` — every child in one grid area — is
-        // a rule about descendants, which an element's own declarations cannot
-        // say; it comes from the class `classify` picks for the value.
-        .Layers => ["display:grid"],
-    }
 }
 
 fn trackList<C: Allocator>(ctx: C, tracks: [Track], at: Int, acc: [Str]): [Str] {
@@ -5302,29 +5233,6 @@ fn animationCss(motion: Animation): Str {
     }
 }
 
-fn alignCss(align: Align): Str {
-    match (align) {
-        .Start => "flex-start",
-        .Center => "center",
-        .End => "flex-end",
-        .Stretch => "stretch",
-        .SpaceBetween => "space-between",
-        .SpaceAround => "space-around",
-        .SpaceEvenly => "space-evenly",
-    }
-}
-
-/// Text has no leftover room to distribute, so every distribution means
-/// justified.
-fn textAlignCss(align: Align): Str {
-    match (align) {
-        .Start => "start",
-        .Center => "center",
-        .End => "end",
-        _ => "justify",
-    }
-}
-
 /// Logical edges, so a right-to-left page is right by construction.
 fn edgeName(edge: Edge): Str {
     match (edge) {
@@ -5343,72 +5251,6 @@ fn cornerName(corner: Corner): Str {
         .TopEnd => "start-end",
         .BottomStart => "end-start",
         .BottomEnd => "end-end",
-    }
-}
-
-fn borderStyleName(border: BorderStyle): Str {
-    match (border) {
-        .None => "none",
-        .Solid => "solid",
-        .Dashed => "dashed",
-    }
-}
-
-fn weightName(weight: Weight): Str {
-    match (weight) {
-        .Regular => "400",
-        .Medium => "500",
-        .Semibold => "600",
-        .Bold => "700",
-    }
-}
-
-fn textCaseName(casing: TextCase): Str {
-    match (casing) {
-        .AsWritten => "none",
-        .Upper => "uppercase",
-        .Lower => "lowercase",
-        .Capitalize => "capitalize",
-    }
-}
-
-fn figuresCss(figures: Figures): Str {
-    match (figures) {
-        .Proportional => "proportional-nums",
-        .Tabular => "tabular-nums",
-    }
-}
-
-fn textLineName(line: TextLine): Str {
-    match (line) {
-        .None => "none",
-        .Underline => "underline",
-        .Strike => "line-through",
-    }
-}
-
-fn textWrapName(wrapping: TextWrap): Str {
-    match (wrapping) {
-        .Wrap => "wrap",
-        .NoWrap => "nowrap",
-        .Balance => "balance",
-    }
-}
-
-fn cursorName(cursor: Cursor): Str {
-    match (cursor) {
-        .Default => "default",
-        .Pointer => "pointer",
-        .Text => "text",
-        .NotAllowed => "not-allowed",
-    }
-}
-
-fn markerName(marker: ListMarker): Str {
-    match (marker) {
-        .None => "none",
-        .Disc => "disc",
-        .Decimal => "decimal",
     }
 }
 

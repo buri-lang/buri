@@ -361,12 +361,6 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
         }
         return [1,items_8,state_2,$t2];
       }
-    case 3:
-    case 4:
-    case 5:
-      {
-        return $k9;
-      }
     case 6:
       {
         const layout_9=style_1[1];
@@ -1160,9 +1154,8 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
       }
     default:
       {
-        $abort('no arm matched');
+        return $k9;
       }
-      break;
   }
 }
 function ui_style_classify$atom$htol58(ctx_0,variant_1,sub_2,state_3,screen_4,abbreviation_5,key_6){

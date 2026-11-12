@@ -5437,57 +5437,11 @@ const $TREE_FIELD_KINDS = [
   "search",
 ];
 
-const $TREE_WEIGHTS = ["400", "500", "600", "700"];
-
-const $TREE_ALIGNMENTS = [
-  "flex-start",
-  "center",
-  "flex-end",
-  "stretch",
-  "space-between",
-  "space-around",
-  "space-evenly",
-];
-
-// Text has no leftover room to distribute, so every distribution means
-// justified. The compiler's own table says the same thing (`semantics::styles`).
-const $TREE_TEXT_ALIGNMENTS = [
-  "start",
-  "center",
-  "end",
-  "justify",
-  "justify",
-  "justify",
-  "justify",
-];
-
-const $TREE_CURSORS = ["default", "pointer", "text", "not-allowed"];
-
-const $TREE_LIST_MARKERS = ["none", "disc", "decimal"];
-
 // Logical edges, so a right-to-left page is right by construction.
 const $TREE_EDGES = ["block-start", "block-end", "inline-start", "inline-end"];
 // CSS names a corner by the two logical edges that meet at it, block first,
 // which is the order `Corner` declares them in.
 const $TREE_CORNERS = ["start-start", "start-end", "end-start", "end-end"];
-
-// `PinAnchor` is `fixed` as well: it takes the box out of every scroll
-// container's clip. The painter keeps it against its `Flow` ancestor from the
-// `--buri-pin-anchor` marker the stylesheet writes beside it; a browser stays
-// on the viewport until CSS anchor positioning closes that gap.
-const $TREE_POSITIONS = ["relative", "sticky", "fixed", "fixed"];
-
-const $TREE_BORDER_STYLES = ["none", "solid", "dashed"];
-
-const $TREE_TEXT_CASES = ["none", "uppercase", "lowercase", "capitalize"];
-
-const $TREE_TEXT_LINES = ["none", "underline", "line-through"];
-
-const $TREE_TEXT_WRAPS = ["wrap", "nowrap", "balance"];
-
-// `flex-direction`, in `Layout`'s own order. The two reversed ones paint
-// backwards and leave the document's order alone.
-const $TREE_DIRECTIONS = ["column", "row", "column-reverse", "row-reverse"];
 
 const $TREE_FONTS = [
   "ui-sans-serif,system-ui,sans-serif",
@@ -5743,33 +5697,9 @@ function $tree_var_slot(tag) {
 function $tree_declare(style, out) {
   const tag = style[0];
   const value = style[1];
-  if (tag === 6) {
-    if (value[0] === 4) {
-      out.set("display", "grid");
-      out.set("grid-template-columns", value[1].map($tree_track).join(" "));
-    } else if (value[0] === 5) {
-      // The children's half of `Layers` — every child in one grid area — is a
-      // rule about descendants, which an element's own style attribute cannot
-      // say. A `Layers` value that did not fold still arrives as a class, since
-      // `semantics::styles` ships every finite value's class and has
-      // `classify` pick it, so this tier only sets the element's own grid.
-      out.set("display", "grid");
-    } else {
-      out.set("display", "flex");
-      out.set("flex-direction", $TREE_DIRECTIONS[value[0]]);
-    }
-  } else if (tag === 7) {
-    out.set("justify-content", $TREE_ALIGNMENTS[value]);
-  } else if (tag === 8) {
-    out.set("align-items", $TREE_ALIGNMENTS[value]);
-  } else if (tag === 9) {
-    out.set("align-self", $TREE_ALIGNMENTS[value]);
-  } else if (tag === 10) {
-    out.set("flex-wrap", value ? "wrap" : "nowrap");
-  } else if (tag === 11) {
-    if (value === 0) out.set("overflow-x", "auto");
-    else if (value === 1) out.set("overflow-y", "auto");
-    else out.set("overflow", "auto");
+  if (tag === 6 && value[0] === 4) {
+    out.set("display", "grid");
+    out.set("grid-template-columns", value[1].map($tree_track).join(" "));
   } else if (tag === 12) {
     out.set("flex-grow", String(value));
   } else if (tag === 13) {
@@ -5779,11 +5709,6 @@ function $tree_declare(style, out) {
   } else if (tag === 15) {
     out.set("position", "absolute");
     out.set("inset-" + $TREE_EDGES[value], $tree_length(style[2]));
-  } else if (tag === 16) {
-    out.set("position", $TREE_POSITIONS[value]);
-    // The painter's marker, so a reactively-applied `PinAnchor` reads the same
-    // as the stylesheet's class does; a browser ignores the custom property.
-    if (value === 3) out.set("--buri-pin-anchor", "1");
   } else if (tag === 17) {
     out.set("gap", $tree_length(value));
   } else if (tag === 18) {
@@ -5831,8 +5756,6 @@ function $tree_declare(style, out) {
     out.set(edge + "-width", $tree_length(style[2]));
   } else if (tag === 35) {
     out.set("border-color", $tree_color(value));
-  } else if (tag === 36) {
-    out.set("border-style", $TREE_BORDER_STYLES[value]);
   } else if (tag === 37) {
     out.set("border-radius", $tree_length(value));
   } else if (tag === 38) {
@@ -5849,22 +5772,10 @@ function $tree_declare(style, out) {
     out.set("font-family", $tree_font(value));
   } else if (tag === 43) {
     out.set("font-size", $tree_length(value));
-  } else if (tag === 44) {
-    out.set("font-weight", $TREE_WEIGHTS[value]);
-  } else if (tag === 45) {
-    out.set("font-style", value ? "italic" : "normal");
   } else if (tag === 46) {
     out.set("line-height", String(value));
   } else if (tag === 47) {
     out.set("letter-spacing", $tree_length(value));
-  } else if (tag === 48) {
-    out.set("text-align", $TREE_TEXT_ALIGNMENTS[value]);
-  } else if (tag === 49) {
-    out.set("text-transform", $TREE_TEXT_CASES[value]);
-  } else if (tag === 50) {
-    out.set("text-decoration-line", $TREE_TEXT_LINES[value]);
-  } else if (tag === 51) {
-    out.set("text-wrap", $TREE_TEXT_WRAPS[value]);
   } else if (tag === 52) {
     if (value > 0) {
       out.set("display", "-webkit-box");
@@ -5875,20 +5786,10 @@ function $tree_declare(style, out) {
       out.set("-webkit-line-clamp", "none");
       out.set("overflow", "visible");
     }
-  } else if (tag === 53) {
-    out.set("cursor", $TREE_CURSORS[value]);
-  } else if (tag === 54) {
-    out.set("list-style-type", $TREE_LIST_MARKERS[value]);
   } else if (tag === 55) {
     out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
   } else if (tag === 56) {
     out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
-  } else if (tag === 57) {
-    // `clip` rather than `hidden`: both stop the paint, and only `hidden` also
-    // makes a scroll container a keyboard can land in.
-    out.set("overflow", value ? "clip" : "visible");
-  } else if (tag === 58) {
-    out.set("pointer-events", value ? "none" : "auto");
   } else if (tag === 59) {
     // Only the page behind the box is blurred; the box paints over the blur.
     out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
@@ -5896,12 +5797,7 @@ function $tree_declare(style, out) {
     // The caret on its own, so a field with transparent text still has a
     // visible one. `Foreground` is otherwise the only thing that reaches it.
     out.set("caret-color", $tree_color(value));
-  } else if (tag === 63) {
-    // `false` writes nothing, so the display `Layout` or the element gives stands.
-    if (value) out.set("display", "none");
-  } else if (tag === 64) {
-    out.set("font-variant-numeric", value ? "tabular-nums" : "proportional-nums");
-  } else {
+  } else if (tag === 61) {
     // Out of sight, in the tree: the "sr-only" clip. The element paints nothing
     // and takes no space while its text stays for the accessible name. The
     // `--buri-visually-hidden` marker is what the snapshot painter reads; a
@@ -5917,6 +5813,9 @@ function $tree_declare(style, out) {
     out.set("border", "0");
     out.set("--buri-visually-hidden", "1");
   }
+  // Any other property has a finite set of values, so it never reaches here:
+  // the compiler ships each value's class, and `classify` gives the node the
+  // one its value names.
 }
 
 // What each `Animation` lowers to, in declaration order: `styles.rs`'s
