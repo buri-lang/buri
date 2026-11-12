@@ -26,7 +26,6 @@ Ordered by the standing priority: bugs and planned issues, then Valgrind, then c
 - **Coverage:** Guard reduction phases 12–13: minted function index for `Program::funcs` (typed table first, then ir). See `.notes/handoff/guard-reduction.md` Next.
 - **Coverage:** next phases per .notes/handoff/compiler-coverage.md (syntax, js, semantics; stencil, `language_server` and middle are done or running). Raise coverage toward 100%, starting with the compiler and type checker (syntax, semantics, middle, backends), then the rest of the CLI (lint, format, LSP and so on), plus stdlib MC/DC, with generated, checked-in end-to-end tests. The invariant helper landed (f136f6195, 2026-10-11 11:10 AM); start these once the bug-tier agents (bounds, language decisions, styles, reset) free slots.
   - Decided 2026-10-11 for the next build-driver phase (build-coverage-4 merged as c0ff3d88c):
-    - Remove `RuntimeArchive::Omitted` and the per-link scan. No Buri program reaches it (yagni). Its three in-process native tests go with it, since that behaviour is no longer wanted.
     - Delete `Backend::forks_read_shared_mask` and the `WithRuntime` wrapper use (touches stencil, llvm, js).
     - The held-cache-lock test waits 10 s by design, which adds suite time. Make the wait shorter or event-driven, without timing flakiness.
     - The 27 sides still uncovered are listed in .notes/handoff/build-coverage-4.md.
