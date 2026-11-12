@@ -1,0 +1,8 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/kept.buri"]
+        backends: [NATIVE, JS]
+    }
+}

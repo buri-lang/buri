@@ -1,0 +1,15 @@
+# An element a short function answers out of a list, read after the list's
+# last use: through `xs[i]`, through `get`, and through `first` and `last`,
+# each shown whole and read field by field. Both backends run every block, with
+# the heap checked natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an element a function answered out of a list outlives the list"
+
+run {
+  args: ["test", "//lib/kept", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

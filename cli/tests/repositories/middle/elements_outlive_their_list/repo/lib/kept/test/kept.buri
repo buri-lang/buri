@@ -1,0 +1,86 @@
+// An element a short function answers out of a list, read after the list's
+// last use.
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Show for Item;
+struct Item {
+    id: Int,
+    name: Str,
+    tags: [Str],
+}
+
+fn items<C: Allocator>(ctx: C, n: Int): [Item] {
+    list
+        .range(ctx, 0, n)
+        .mapCtx(ctx, fn(c, i) => {
+            Item {
+                id: i,
+                name: str.format(c, "item${i}"),
+                tags: [str.format(c, "t${i}")],
+            }
+        })
+}
+
+fn at(xs: [Item], i: Int): Option<Item> {
+    xs[i]
+}
+
+fn got(xs: [Item], i: Int): Option<Item> {
+    xs.get(i)
+}
+
+fn nameOf(o: Option<Item>): Str {
+    o.map(fn(i) => i.name).withDefault("none")
+}
+
+test "an element read by an index, shown" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        at(items(ctx, 3), 1).show(ctx),
+        ".Some(Item { id: 1, name: \"item1\", tags: [\"t1\"] })",
+    );
+    assert.equal(at(items(ctx, 3), 5).show(ctx), ".None")
+}
+
+test "an element read by get, shown" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        got(items(ctx, 3), 2).show(ctx),
+        ".Some(Item { id: 2, name: \"item2\", tags: [\"t2\"] })",
+    );
+    assert.equal(got(items(ctx, 3), -1).show(ctx), ".None")
+}
+
+test "the first and the last element, shown" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        items(ctx, 3).first().show(ctx),
+        ".Some(Item { id: 0, name: \"item0\", tags: [\"t0\"] })",
+    );
+    assert.equal(
+        items(ctx, 3).last().show(ctx),
+        ".Some(Item { id: 2, name: \"item2\", tags: [\"t2\"] })",
+    );
+    assert.equal(items(ctx, 0).last().show(ctx), ".None")
+}
+
+test "an element's field read after its list's last use" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(nameOf(at(items(ctx, 3), 0)), "item0");
+    assert.equal(nameOf(got(items(ctx, 3), 1)), "item1");
+    assert.equal(nameOf(items(ctx, 3).last()), "item2")
+}

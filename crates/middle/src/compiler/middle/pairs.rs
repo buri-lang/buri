@@ -31,7 +31,10 @@
 //!    a tag, a length, an element — or another `incref`, may give it away:
 //!    passing it on, or releasing a struct that holds it. After such a use,
 //!    only the `decref` may touch the value, and that one use may name it
-//!    only once.
+//!    only once. "Holding it" runs both ways: a value built out of others
+//!    (a block parameter, a struct, an enum) is held by whatever holds what
+//!    it was built from, so releasing the list an element came out of is a
+//!    use of an `Option` that wraps the element ([`Paths::within`]).
 //!
 //! Past the `decref`, nothing changes: the value had only the `incref`'s
 //! count there before, and it has only the struct's now.
@@ -97,6 +100,9 @@ pub fn cancel(code: &mut Code) {
             let Inst::IncRef { value: x } = inst else {
                 continue;
             };
+            if !paths.within(*x, &mut scratch) {
+                continue;
+            }
             if let Some(j) = partner(&block.insts, &gone, i, paths.of(*x), &paths, &mut scratch) {
                 // `j` is past `i`, so this marks the two of them.
                 for g in gone
@@ -149,6 +155,9 @@ struct Scratch {
     uses: Vec<ValueId>,
     seen: Vec<ValueId>,
     work: Vec<ValueId>,
+    /// The paths of the value being paired and of everything it holds
+    /// ([`Paths::within`]).
+    inside: Vec<Path>,
 }
 
 /// The `decref` after `insts[i]` that cancels it, if one does. `x` is the
@@ -191,10 +200,17 @@ fn partner(
         if !judged {
             continue;
         }
-        let Scratch { uses, seen, work } = &mut *scratch;
+        let Scratch {
+            uses,
+            seen,
+            work,
+            inside,
+        } = &mut *scratch;
         uses.clear();
         inst.operands(uses);
-        let mut overlapping = uses.iter().filter(|v| paths.reaches(**v, x, seen, work));
+        let mut overlapping = uses
+            .iter()
+            .filter(|v| paths.reaches(**v, inside, seen, work));
         let first = overlapping.next().is_some();
         // A use after the count may have gone reads a freed block, and an
         // instruction that may take the count while it reads the value
@@ -259,12 +275,48 @@ impl Paths {
         self.held.get(from..to).unwrap_or(&[])
     }
 
-    /// Whether reading `v` may read the value at `x`, or something in it.
-    /// Past [`REACH`] values it answers yes.
+    /// Fills `scratch.inside` with the path of `x` and of every value `x`
+    /// holds, or answers `false` past [`REACH`] values, which keeps the pair.
+    ///
+    /// A value is more than its own path where it was **built**: a block
+    /// parameter holds every value its jumps pass it, and a struct or enum
+    /// its fields. Releasing the list an element came out of releases that
+    /// element, so it is a use of an `Option` the element was wrapped in and
+    /// merged into a block parameter, even though the parameter's own path
+    /// is only itself. Asked only of `x`'s path, `decref list` between
+    /// `incref opt` and `decref opt` looked unrelated, the pair went, and
+    /// the list freed the element `opt` still named.
+    fn within(&self, x: ValueId, scratch: &mut Scratch) -> bool {
+        let Scratch {
+            seen, work, inside, ..
+        } = scratch;
+        seen.clear();
+        work.clear();
+        inside.clear();
+        work.push(x);
+        while let Some(v) = work.pop() {
+            if inside.len() >= REACH {
+                return false;
+            }
+            let path = self.of(v);
+            inside.push(path);
+            // Only a value that is its own root was built here. One read out
+            // of another is already named by its path, and the rest of what
+            // its root holds is its siblings.
+            if path.len == 0 && !seen.contains(&v) {
+                seen.push(v);
+                work.extend(self.held(v).iter().map(|(_, v)| *v));
+            }
+        }
+        true
+    }
+
+    /// Whether reading `v` may read a value at one of the paths `xs`, or
+    /// something in it. Past [`REACH`] values it answers yes.
     fn reaches(
         &self,
         v: ValueId,
-        x: Path,
+        xs: &[Path],
         seen: &mut Vec<ValueId>,
         work: &mut Vec<ValueId>,
     ) -> bool {
@@ -278,7 +330,7 @@ impl Paths {
                 return true;
             }
             let path = self.of(v);
-            if self.overlaps(path, x) {
+            if xs.iter().any(|x| self.overlaps(path, *x)) {
                 return true;
             }
             if !seen.contains(&path.root) {
