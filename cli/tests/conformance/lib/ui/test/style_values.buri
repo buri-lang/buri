@@ -403,7 +403,7 @@ test "a style a parameter hands a node is its class" {
     assert.equal(render(ctx, boxed(.Truncate(0))).markup(), "e 0 class:trunc-0");
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".p-8{padding:8px}"));
-    assert.isTrue(sheet.contains(".w-n3{width:-3px}"));
+    assert.isTrue(sheet.contains(".w-n3{width:0px}"));
 }
 
 test "styles a parameter hands a node are their classes, the last per property winning" {
@@ -638,7 +638,7 @@ test "a shadow a parameter hands a node keeps its lengths and colour" {
     ).markup();
     let sheet = stylesheet();
     assert.isTrue(token.startsWith("e 0 class:sh-"));
-    assert.isTrue(sheet.contains("{box-shadow:1.5em 2% auto 100% var(--kit-ink)}"));
+    assert.isTrue(sheet.contains("{box-shadow:1.5em 0px 0px 0px var(--kit-ink)}"));
     assert.isTrue(inherited.startsWith("e 0 class:sh-"));
     assert.isTrue(sheet.contains("{box-shadow:0px 2px 3px 0px inherit}"));
     assert.isTrue(faded.startsWith("e 0 class:sh-"));
@@ -994,6 +994,125 @@ test "a full radius known only at run time is a pill" {
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .BottomEnd), .Full)]),
         "e 0 class:rc-end-end-var;--buri-rc-end-end:9999px",
+    );
+}
+
+test "a value known only at run time that a property can't take is the nearest it can" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // Spacing: a negative or `Auto` one is none.
+    assert.equal(
+        painted(ctx, [.Padding(late(ctx, .Px(-4)))]),
+        "e 0 class:p-var;--buri-p:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Gap(late(ctx, .Auto))]),
+        "e 0 class:gap-var;--buri-gap:0px",
+    );
+    assert.equal(
+        painted(ctx, [.PaddingX(late(ctx, .Percent(-5.0)))]),
+        "e 0 class:px-var;--buri-px:0px",
+    );
+    assert.equal(
+        painted(ctx, [.PaddingY(late(ctx, .Percent(5.0)))]),
+        "e 0 class:py-var;--buri-py:5%",
+    );
+    assert.equal(
+        painted(ctx, [.Radius(late(ctx, .Rem(-1.0)))]),
+        "e 0 class:r-var;--buri-r:0px",
+    );
+    // Sizes: a negative one is zero, and a maximum of `Auto` is no limit.
+    assert.equal(
+        painted(ctx, [.Width(late(ctx, .Em(-2.0)))]),
+        "e 0 class:w-var;--buri-w:0px",
+    );
+    assert.equal(
+        painted(ctx, [.MaxWidth(late(ctx, .Auto))]),
+        "e 0 class:maxw-var;--buri-maxw:none",
+    );
+    assert.equal(
+        painted(ctx, [.FontSize(late(ctx, .Auto))]),
+        "e 0 class:fs-var;--buri-fs:1em",
+    );
+    // A pin takes every length, `Auto` included.
+    assert.equal(
+        painted(ctx, [.Pin(late(ctx, .Top), .Auto)]),
+        "e 0 class:pin-block-start-var;--buri-pin-block-start:auto",
+    );
+    // A translate and a letter spacing go either way: only `Auto` is none.
+    assert.equal(
+        painted(ctx, [.Translate(late(ctx, .Px(-3)), .Auto)]),
+        "e 0 class:tr-var;--buri-tr:translate(-3px,0px)",
+    );
+    assert.equal(
+        painted(ctx, [.Translate(late(ctx, .Rem(-1.0)), .Em(-2.0))]),
+        "e 0 class:tr-var;--buri-tr:translate(-1rem,-2em)",
+    );
+    assert.equal(
+        painted(ctx, [.LetterSpacing(late(ctx, .Percent(-5.0)))]),
+        "e 0 class:ls-var;--buri-ls:-5%",
+    );
+    // A shadow's offsets take no percentage, `Auto` or `Full`.
+    assert.equal(
+        painted(ctx, [
+            .Shadow(
+                late(ctx, Shadow {
+                    x: .Auto,
+                    y: .Percent(50.0),
+                    blur: .Px(-4),
+                    spread: .Full,
+                    color: .Rgb(0, 0, 0),
+                }),
+            ),
+        ]),
+        "e 0 class:sh-var;--buri-sh:0px 0px 0px 0px rgb(0,0,0)",
+    );
+    // Counts, proportions and line heights.
+    assert.equal(
+        painted(ctx, [.Grow(late(ctx, -1))]),
+        "e 0 class:grow-var;--buri-grow:0",
+    );
+    assert.equal(
+        painted(ctx, [.Grow(late(ctx, 2))]),
+        "e 0 class:grow-var;--buri-grow:2",
+    );
+    assert.equal(
+        painted(ctx, [.Span(late(ctx, 0))]),
+        "e 0 class:span-var;--buri-span:span 1",
+    );
+    assert.equal(
+        painted(ctx, [.AspectRatio(late(ctx, 0.0))]),
+        "e 0 class:ar-var;--buri-ar:auto",
+    );
+    assert.equal(
+        painted(ctx, [.AspectRatio(late(ctx, 1.5))]),
+        "e 0 class:ar-var;--buri-ar:1.5",
+    );
+    assert.equal(
+        painted(ctx, [.LineHeight(late(ctx, -1.5))]),
+        "e 0 class:lh-var;--buri-lh:0",
+    );
+    assert.equal(
+        painted(ctx, [.LineHeight(late(ctx, 1.5))]),
+        "e 0 class:lh-var;--buri-lh:1.5",
+    );
+    assert.equal(
+        painted(ctx, [
+            .Layout(late(ctx, .Grid([.Fraction(-1), .Fixed(.Px(-20)), .Fraction(1)]))),
+        ]),
+        "e 0 class:lay-var;--buri-lay:0fr 0px 1fr",
+    );
+    // A fade's share is from none to whole.
+    assert.equal(
+        painted(ctx, [.Background(style.token("brand", "ink").alpha(late(ctx, 1.5)))]),
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 100%,transparent)",
+    );
+    assert.equal(
+        painted(ctx, [.Background(style.token("brand", "ink").alpha(late(ctx, -0.5)))]),
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 0%,transparent)",
     );
 }
 

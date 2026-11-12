@@ -1,0 +1,18 @@
+# A style value a property can't take paints the nearest value it can, however
+# it reaches its node.
+#
+# A browser drops an invalid declaration in a class, so an earlier rule
+# applies, but resets the property when it reads one from a variable, so a
+# negative padding or an `Auto` translate used to paint two ways. Each scene
+# here, written in place and read back from a signal, shares a golden with its
+# twin that writes the nearest valid value.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a style value a property can't take paints what the nearest value it can take paints, however it arrives"
+
+run {
+  args: ["test", "//lib/values", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}

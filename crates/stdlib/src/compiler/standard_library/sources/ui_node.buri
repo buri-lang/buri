@@ -4960,31 +4960,31 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         .Layout(.Grid(tracks)) => {
             readBy(ctx, 1200, "lay", trackList(ctx, tracks, 0, []).join(ctx, " "))
         },
-        .Grow(n) => readBy(ctx, 2400, "grow", str.fromInt(ctx, n)),
-        .Shrink(n) => readBy(ctx, 2600, "shrink", str.fromInt(ctx, n)),
-        .Span(n) => readBy(ctx, 2800, "span", str.format(ctx, "span ${n}")),
+        .Grow(n) => readBy(ctx, 2400, "grow", str.fromInt(ctx, atLeast(n, 0))),
+        .Shrink(n) => readBy(ctx, 2600, "shrink", str.fromInt(ctx, atLeast(n, 0))),
+        .Span(n) => readBy(ctx, 2800, "span", str.format(ctx, "span ${atLeast(n, 1)}")),
         .Pin(edge, length) => edged(ctx, 3000, "pin", edge, lengthCss(ctx, length)),
-        .Gap(length) => readBy(ctx, 3400, "gap", lengthCss(ctx, length)),
-        .GapX(length) => readBy(ctx, 3600, "gapx", lengthCss(ctx, length)),
-        .GapY(length) => readBy(ctx, 3800, "gapy", lengthCss(ctx, length)),
-        .Padding(length) => readBy(ctx, 4000, "p", lengthCss(ctx, length)),
-        .PaddingX(length) => readBy(ctx, 4200, "px", lengthCss(ctx, length)),
-        .PaddingY(length) => readBy(ctx, 4400, "py", lengthCss(ctx, length)),
+        .Gap(length) => readBy(ctx, 3400, "gap", spaceCss(ctx, length)),
+        .GapX(length) => readBy(ctx, 3600, "gapx", spaceCss(ctx, length)),
+        .GapY(length) => readBy(ctx, 3800, "gapy", spaceCss(ctx, length)),
+        .Padding(length) => readBy(ctx, 4000, "p", spaceCss(ctx, length)),
+        .PaddingX(length) => readBy(ctx, 4200, "px", spaceCss(ctx, length)),
+        .PaddingY(length) => readBy(ctx, 4400, "py", spaceCss(ctx, length)),
         .PaddingEdge(edge, length) => {
-            edged(ctx, 4600, "pe", edge, lengthCss(ctx, length))
+            edged(ctx, 4600, "pe", edge, spaceCss(ctx, length))
         },
-        .Width(length) => readBy(ctx, 4800, "w", lengthCss(ctx, length)),
-        .Height(length) => readBy(ctx, 5000, "h", lengthCss(ctx, length)),
-        .MinWidth(length) => readBy(ctx, 5200, "minw", lengthCss(ctx, length)),
-        .MaxWidth(length) => readBy(ctx, 5400, "maxw", lengthCss(ctx, length)),
-        .MinHeight(length) => readBy(ctx, 5600, "minh", lengthCss(ctx, length)),
-        .MaxHeight(length) => readBy(ctx, 5800, "maxh", lengthCss(ctx, length)),
-        .AspectRatio(ratio) => readBy(ctx, 6000, "ar", cssNumber(ctx, ratio)),
+        .Width(length) => readBy(ctx, 4800, "w", sizeCss(ctx, length)),
+        .Height(length) => readBy(ctx, 5000, "h", sizeCss(ctx, length)),
+        .MinWidth(length) => readBy(ctx, 5200, "minw", sizeCss(ctx, length)),
+        .MaxWidth(length) => readBy(ctx, 5400, "maxw", limitCss(ctx, length)),
+        .MinHeight(length) => readBy(ctx, 5600, "minh", sizeCss(ctx, length)),
+        .MaxHeight(length) => readBy(ctx, 5800, "maxh", limitCss(ctx, length)),
+        .AspectRatio(ratio) => readBy(ctx, 6000, "ar", ratioCss(ctx, ratio)),
         .Background(color) => readBy(ctx, 6200, "bg", colorCss(ctx, color)),
         .Foreground(color) => readBy(ctx, 6400, "fg", colorCss(ctx, color)),
-        .BorderWidth(length) => readBy(ctx, 6600, "bw", widthCss(ctx, length)),
+        .BorderWidth(length) => readBy(ctx, 6600, "bw", thicknessCss(ctx, length)),
         .BorderEdge(edge, length) => {
-            edged(ctx, 6800, "be", edge, widthCss(ctx, length))
+            edged(ctx, 6800, "be", edge, thicknessCss(ctx, length))
         },
         .BorderColor(color) => readBy(ctx, 7000, "bc", colorCss(ctx, color)),
         .Radius(length) => readBy(ctx, 7400, "r", radiusCss(ctx, length)),
@@ -5010,9 +5010,9 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
             readBy(ctx, 8000, "sh", shadowList(ctx, shadows, 0, []).join(ctx, ","))
         },
         .FontFamily(family) => readBy(ctx, 8400, "ff", fontStack(ctx, family)),
-        .FontSize(length) => readBy(ctx, 8600, "fs", lengthCss(ctx, length)),
-        .LineHeight(amount) => readBy(ctx, 9200, "lh", cssNumber(ctx, amount)),
-        .LetterSpacing(length) => readBy(ctx, 9400, "ls", lengthCss(ctx, length)),
+        .FontSize(length) => readBy(ctx, 8600, "fs", textSizeCss(ctx, length)),
+        .LineHeight(amount) => readBy(ctx, 9200, "lh", heightCss(ctx, amount)),
+        .LetterSpacing(length) => readBy(ctx, 9400, "ls", shiftCss(ctx, length)),
         .Truncate(lines) => {
             if (lines > 0) {
                 readBy(ctx, 10400, "trunc", str.fromInt(ctx, lines))
@@ -5028,7 +5028,7 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
                 ctx,
                 11200,
                 "tr",
-                str.format(ctx, "translate(${lengthCss(ctx, x)},${lengthCss(ctx, y)})"),
+                str.format(ctx, "translate(${shiftCss(ctx, x)},${shiftCss(ctx, y)})"),
             )
         },
         // Only what is painted behind the box is blurred; the box paints over
@@ -5038,7 +5038,7 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
                 ctx,
                 11800,
                 "bdblur",
-                str.format(ctx, "blur(${lengthCss(ctx, length)})"),
+                str.format(ctx, "blur(${thicknessCss(ctx, length)})"),
             )
         },
         .CaretColor(color) => readBy(ctx, 12000, "caret", colorCss(ctx, color)),
@@ -5098,8 +5098,8 @@ fn trackList<C: Allocator>(ctx: C, tracks: [Track], at: Int, acc: [Str]): [Str] 
 
 fn trackCss<C: Allocator>(ctx: C, track: Track): Str {
     match (track) {
-        .Fraction(n) => str.format(ctx, "${n}fr"),
-        .Fixed(length) => lengthCss(ctx, length),
+        .Fraction(n) => str.format(ctx, "${atLeast(n, 0)}fr"),
+        .Fixed(length) => sizeCss(ctx, length),
         .Auto => "auto",
     }
 }
@@ -5121,21 +5121,94 @@ fn lengthCss<C: Allocator>(ctx: C, length: Length): Str {
 fn radiusCss<C: Allocator>(ctx: C, length: Length): Str {
     match (length) {
         .Full => "9999px",
-        _ => lengthCss(ctx, length),
+        _ => spaceCss(ctx, length),
     }
 }
 
-/// A border width's length, as CSS. A percentage, `.Auto`, `.Full` or a
-/// negative length isn't a width, so it is `0px`, no border, as
-/// `semantics::styles` writes it. Read from a variable as written, a browser
-/// would draw CSS's 3px `medium` default.
-fn widthCss<C: Allocator>(ctx: C, length: Length): Str {
+/// A length as a property that can't take every length writes it, as
+/// `semantics::styles::length` does. A browser drops an invalid declaration in
+/// a class but resets the property when it reads one from a variable, so each
+/// path writes the nearest value the property takes instead. With `floor`, a
+/// negative length is `0px`. `.Auto` is `auto`. With `absolute`, a percentage
+/// and `.Full` are `0px`.
+fn fitCss<C: Allocator>(
+    ctx: C,
+    length: Length,
+    floor: Bool,
+    auto: Str,
+    absolute: Bool,
+): Str {
     match (length) {
-        .Px(n) => if (n >= 0) { lengthCss(ctx, length) } else { "0px" },
-        .Rem(n) => if (n >= 0.0) { lengthCss(ctx, length) } else { "0px" },
-        .Em(n) => if (n >= 0.0) { lengthCss(ctx, length) } else { "0px" },
-        _ => "0px",
+        .Px(n) => zeroOr(ctx, length, floor && n < 0),
+        .Rem(n) => zeroOr(ctx, length, floor && n < 0.0),
+        .Em(n) => zeroOr(ctx, length, floor && n < 0.0),
+        .Percent(n) => zeroOr(ctx, length, absolute || floor && n < 0.0),
+        .Auto => auto,
+        .Full => zeroOr(ctx, length, absolute),
     }
+}
+
+/// `0px` if `zero`, and `length` as it is otherwise.
+fn zeroOr<C: Allocator>(ctx: C, length: Length, zero: Bool): Str {
+    if (zero) { "0px" } else { lengthCss(ctx, length) }
+}
+
+/// A gap, a padding or a radius: a negative or `.Auto` one is none.
+fn spaceCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, true, "0px", false)
+}
+
+/// A width, a height, a minimum or a fixed grid track: a negative one is zero.
+fn sizeCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, true, "auto", false)
+}
+
+/// A maximum: `.Auto` is no limit, and a negative one is zero.
+fn limitCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, true, "none", false)
+}
+
+/// A text size: `.Auto` is the size the text inherits, and a negative one is
+/// zero.
+fn textSizeCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, true, "1em", false)
+}
+
+/// A translate or a letter spacing, which go either way: `.Auto` is none.
+fn shiftCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, false, "0px", false)
+}
+
+/// A shadow's offset or spread: a percentage, `.Auto` or `.Full` is none.
+fn offsetCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, false, "0px", true)
+}
+
+/// A border width or a blur radius: a percentage, `.Auto`, `.Full` or a
+/// negative length is none. Read from a variable as written, a browser would
+/// draw a border as CSS's 3px `medium` default.
+fn thicknessCss<C: Allocator>(ctx: C, length: Length): Str {
+    fitCss(ctx, length, true, "0px", true)
+}
+
+/// `n`, or `least` if `n` is below it.
+fn atLeast(n: Int, least: Int): Int {
+    if (n < least) { least } else { n }
+}
+
+/// An aspect ratio: one of zero or less keeps no proportion.
+fn ratioCss<C: Allocator>(ctx: C, ratio: Float): Str {
+    if (ratio > 0.0) { cssNumber(ctx, ratio) } else { "auto" }
+}
+
+/// A line height: a negative one is zero.
+fn heightCss<C: Allocator>(ctx: C, amount: Float): Str {
+    if (amount < 0.0) { "0" } else { cssNumber(ctx, amount) }
+}
+
+/// A fade's share, which `color-mix` takes from 0 to 1 only.
+fn share(a: Float): Float {
+    if (a < 0.0) { 0.0 } else { if (a > 1.0) { 1.0 } else { a } }
 }
 
 /// A bleed's length, as the margin it writes.
@@ -5182,7 +5255,7 @@ fn colorCss<C: Allocator>(ctx: C, color: Color): Str {
         .Faded(reference, a) => {
             let space = reference.namespace();
             let name = reference.name();
-            let percent = cssNumber(ctx, a * 100.0);
+            let percent = cssNumber(ctx, share(a) * 100.0);
             str.format(
                 ctx,
                 "color-mix(in srgb,var(--${space}-${name}) ${percent}%,transparent)",
@@ -5216,10 +5289,10 @@ fn shadowList<C: Allocator>(ctx: C, shadows: [Shadow], at: Int, acc: [Str]): [St
 }
 
 fn shadowCss<C: Allocator>(ctx: C, shadow: Shadow): Str {
-    let x = lengthCss(ctx, shadow.x);
-    let y = lengthCss(ctx, shadow.y);
-    let blur = lengthCss(ctx, shadow.blur);
-    let spread = lengthCss(ctx, shadow.spread);
+    let x = offsetCss(ctx, shadow.x);
+    let y = offsetCss(ctx, shadow.y);
+    let blur = thicknessCss(ctx, shadow.blur);
+    let spread = offsetCss(ctx, shadow.spread);
     let color = colorCss(ctx, shadow.color);
     str.format(ctx, "${x} ${y} ${blur} ${spread} ${color}")
 }

@@ -3364,14 +3364,17 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                     let Value::Array(tracks) = inner.first()? else {
                         return None;
                     };
+                    // The key is the tracks as written, the one `classify` names.
+                    let mut written = Vec::new();
                     let mut rendered = Vec::new();
                     for track in tracks {
-                        rendered.push(track_value(track)?);
+                        written.push(track_value(track, false)?);
+                        rendered.push(track_value(track, true)?);
                     }
                     let columns = rendered.join(" ");
                     Some((
                         "lay",
-                        format!("grid-{}", digest(&columns)),
+                        format!("grid-{}", digest(&written.join(" "))),
                         one("display", &format!("grid;grid-template-columns:{columns}")),
                     ))
                 }
@@ -3412,19 +3415,20 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         }
         12 => count("grow", "flex-grow", first?),
         13 => count("shrink", "flex-shrink", first?),
+        // A span covers one track at least.
         14 => {
             let n = first?.as_int()?;
             Some((
                 "span",
                 integer_key(n),
-                one("grid-column", &format!("span {n}")),
+                one("grid-column", &format!("span {}", n.max(1))),
             ))
         }
         // Only the inset: the `position` a pin needs is the `pin-out` class
         // `property` writes beside this one, so that four edges compose.
         15 => {
             let (property, edge) = edge_property("inset", first?)?;
-            let (length, key) = length(args.get(1)?)?;
+            let (length, key) = length(args.get(1)?, AS_WRITTEN)?;
             Some(("pin", format!("{edge}-{key}"), one(&property, &length)))
         }
         16 => {
@@ -3448,28 +3452,31 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         }
 
         // spacing
-        17 => spacing("gap", "gap", first?),
-        18 => spacing("gapx", "column-gap", first?),
-        19 => spacing("gapy", "row-gap", first?),
-        20 => spacing("p", "padding", first?),
-        21 => spacing("px", "padding-inline", first?),
-        22 => spacing("py", "padding-block", first?),
+        17 => spacing("gap", "gap", SPACE, first?),
+        18 => spacing("gapx", "column-gap", SPACE, first?),
+        19 => spacing("gapy", "row-gap", SPACE, first?),
+        20 => spacing("p", "padding", SPACE, first?),
+        21 => spacing("px", "padding-inline", SPACE, first?),
+        22 => spacing("py", "padding-block", SPACE, first?),
         23 => {
             let (property, edge) = edge_property("padding", first?)?;
-            let (length, key) = length(args.get(1)?)?;
+            let (length, key) = length(args.get(1)?, SPACE)?;
             Some(("pe", format!("{edge}-{key}"), one(&property, &length)))
         }
 
         // size
-        24 => spacing("w", "width", first?),
-        25 => spacing("h", "height", first?),
-        26 => spacing("minw", "min-width", first?),
-        27 => spacing("maxw", "max-width", first?),
-        28 => spacing("minh", "min-height", first?),
-        29 => spacing("maxh", "max-height", first?),
+        24 => spacing("w", "width", SIZE, first?),
+        25 => spacing("h", "height", SIZE, first?),
+        26 => spacing("minw", "min-width", SIZE, first?),
+        27 => spacing("maxw", "max-width", LIMIT, first?),
+        28 => spacing("minh", "min-height", SIZE, first?),
+        29 => spacing("maxh", "max-height", LIMIT, first?),
+        // A ratio of zero or less keeps no proportion.
         30 => {
-            let ratio = number(first?.as_float()?)?;
-            Some(("ar", number_key(&ratio), one("aspect-ratio", &ratio)))
+            let value = first?.as_float()?;
+            let ratio = number(value)?;
+            let css = if value > 0.0 { ratio.as_str() } else { "auto" };
+            Some(("ar", number_key(&ratio), one("aspect-ratio", css)))
         }
 
         // paint
@@ -3482,7 +3489,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             Some(("fg", key, one("color", &css)))
         }
         33 => {
-            let (css, key) = border_width_length(first?)?;
+            let (css, key) = length(first?, THICKNESS)?;
             // A width on its own draws a solid border; `BorderStyle` is
             // declared later and overrides this.
             Some((
@@ -3495,7 +3502,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         // is written later and overrides it, exactly as it does for `bw`.
         34 => {
             let (property, edge) = edge_property("border", first?)?;
-            let (css, key) = border_width_length(args.get(1)?)?;
+            let (css, key) = length(args.get(1)?, THICKNESS)?;
             Some((
                 "be",
                 format!("{edge}-{key}"),
@@ -3527,9 +3534,14 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let value = number(first?.as_float()?)?;
             Some(("op", number_key(&value), one("opacity", &value)))
         }
+        // The key is the shadow as written, the one `classify` names.
         40 => {
-            let css = shadow(first?)?;
-            Some(("sh", digest(&css), one("box-shadow", &css)))
+            let css = shadow(first?, true)?;
+            Some((
+                "sh",
+                digest(&shadow(first?, false)?),
+                one("box-shadow", &css),
+            ))
         }
         // The layers in the order they were written, which is the order a
         // browser paints them — first over last. One layer here renders what
@@ -3538,12 +3550,14 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let Value::Array(layers) = first? else {
                 return None;
             };
+            let mut written = Vec::with_capacity(layers.len());
             let mut rendered = Vec::with_capacity(layers.len());
             for layer in layers {
-                rendered.push(shadow(layer)?);
+                written.push(shadow(layer, false)?);
+                rendered.push(shadow(layer, true)?);
             }
             let css = rendered.join(",");
-            Some(("sh", digest(&css), one("box-shadow", &css)))
+            Some(("sh", digest(&written.join(",")), one("box-shadow", &css)))
         }
 
         // text
@@ -3570,7 +3584,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             };
             Some(("ff", digest(&stack), one("font-family", &stack)))
         }
-        43 => spacing("fs", "font-size", first?),
+        43 => spacing("fs", "font-size", TEXT_SIZE, first?),
         44 => {
             let (which, _) = first?.as_variant()?;
             let (css, key) = [
@@ -3589,10 +3603,12 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             Some(("it", css.into(), one("font-style", css)))
         }
         46 => {
-            let value = number(first?.as_float()?)?;
-            Some(("lh", number_key(&value), one("line-height", &value)))
+            let value = first?.as_float()?;
+            let height = number(value)?;
+            let css = if value < 0.0 { "0" } else { height.as_str() };
+            Some(("lh", number_key(&height), one("line-height", css)))
         }
-        47 => spacing("ls", "letter-spacing", first?),
+        47 => spacing("ls", "letter-spacing", SHIFT, first?),
         48 => {
             let (_, key) = align(first?)?;
             // Text has no leftover room to distribute, so every distribution
@@ -3713,7 +3729,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         55 => {
             let (property, edge) = edge_property("margin", first?)?;
             let value = args.get(1)?;
-            let (_, key) = length(value)?;
+            let (_, key) = length(value, AS_WRITTEN)?;
             Some((
                 "bleed",
                 format!("{edge}-{key}"),
@@ -3723,8 +3739,8 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
 
         // transform
         56 => {
-            let (x, x_key) = length(first?)?;
-            let (y, y_key) = length(args.get(1)?)?;
+            let (x, x_key) = length(first?, SHIFT)?;
+            let (y, y_key) = length(args.get(1)?, SHIFT)?;
             // A `-` separates the two keys, and no length's key holds one, so
             // the pair is injective the way each half is.
             Some((
@@ -3750,7 +3766,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         // The blur that separates a modal's panel from the page behind it. Only
         // what is painted behind the box is blurred; the box paints over it.
         59 => {
-            let (css, key) = length(first?)?;
+            let (css, key) = length(first?, THICKNESS)?;
             Some((
                 "bdblur",
                 key,
@@ -3881,32 +3897,39 @@ fn alpha_of(colour: &Value) -> Option<f64> {
     }
 }
 
-/// One `Shadow`, as the four lengths and the colour a `box-shadow` layer is.
-fn shadow(value: &Value) -> Option<String> {
+/// One `Shadow`, as the four lengths and the colour a `box-shadow` layer is:
+/// `fit`ted, or as written.
+fn shadow(value: &Value, fit: bool) -> Option<String> {
     let Value::Struct(fields) = value else {
         return None;
     };
-    let (x, _) = length(fields.first()?)?;
-    let (y, _) = length(fields.get(1)?)?;
-    let (blur, _) = length(fields.get(2)?)?;
-    let (spread, _) = length(fields.get(3)?)?;
+    let len = |v: Option<&Value>, f: Fit| length(v?, if fit { f } else { AS_WRITTEN });
+    let (x, _) = len(fields.first(), OFFSET)?;
+    let (y, _) = len(fields.get(1), OFFSET)?;
+    let (blur, _) = len(fields.get(2), THICKNESS)?;
+    let (spread, _) = len(fields.get(3), OFFSET)?;
     let (colour, _) = colour(fields.get(4)?, digest)?;
     Some(format!("{x} {y} {blur} {spread} {colour}"))
 }
 
 /// A property whose only value is a `Length`.
-fn spacing(abbreviation: &'static str, property: &str, value: &Value) -> Option<Declaration> {
-    let (css, key) = length(value)?;
+fn spacing(
+    abbreviation: &'static str,
+    property: &str,
+    fit: Fit,
+    value: &Value,
+) -> Option<Declaration> {
+    let (css, key) = length(value, fit)?;
     Some((abbreviation, key, vec![("", format!("{property}:{css}"))]))
 }
 
-/// A property whose only value is a count.
+/// A property whose only value is a count, which is zero at least.
 fn count(abbreviation: &'static str, property: &str, value: &Value) -> Option<Declaration> {
     let n = value.as_int()?;
     Some((
         abbreviation,
         integer_key(n),
-        vec![("", format!("{property}:{n}"))],
+        vec![("", format!("{property}:{}", n.max(0)))],
     ))
 }
 
@@ -3953,44 +3976,109 @@ fn radius_length(value: &Value) -> Option<(String, String)> {
     if value.as_variant()?.0 == 5 {
         return Some(("9999px".into(), "full".into()));
     }
-    length(value)
+    length(value, SPACE)
 }
 
-/// A `Length` as the border width it names. A percentage, `.Auto`, `.Full` or a
-/// negative length isn't a width, so it writes `0px`: no border, as the painter
-/// draws. Written as is, a browser reading it from a variable would draw CSS's
-/// 3px `medium` default. The key stays the length's, the one `classify` names.
-fn border_width_length(value: &Value) -> Option<(String, String)> {
-    let (css, key) = length(value)?;
-    let (which, args) = value.as_variant()?;
-    let width = match which {
-        0 => args.first()?.as_int()? >= 0,
-        1 | 2 => args.first()?.as_float()? >= 0.0,
-        _ => false,
-    };
-    Some((if width { css } else { "0px".into() }, key))
+/// What a property writes for a length it can't take.
+///
+/// A browser drops an invalid declaration in a class, so an earlier rule
+/// applies, but resets the property when it reads one from a `var()`. So every
+/// path writes the nearest value the property takes instead: `ui/node`'s
+/// `fitCss` and `runtime.js`'s `$tree_fit` write the same.
+#[derive(Clone, Copy)]
+struct Fit {
+    /// A negative length is `0px`.
+    floor: bool,
+    /// What `.Auto` writes.
+    auto: &'static str,
+    /// A percentage and `.Full` are `0px`: the property takes no share of
+    /// anything.
+    absolute: bool,
 }
 
-fn length(value: &Value) -> Option<(String, String)> {
+/// Gaps, padding and radii.
+const SPACE: Fit = Fit {
+    floor: true,
+    auto: "0px",
+    absolute: false,
+};
+/// Widths, heights, their minimums and fixed grid tracks.
+const SIZE: Fit = Fit {
+    floor: true,
+    auto: "auto",
+    absolute: false,
+};
+/// Maximum widths and heights: `.Auto` is no limit.
+const LIMIT: Fit = Fit {
+    floor: true,
+    auto: "none",
+    absolute: false,
+};
+/// A text size: `.Auto` is the size the text inherits.
+const TEXT_SIZE: Fit = Fit {
+    floor: true,
+    auto: "1em",
+    absolute: false,
+};
+/// Translates and letter spacing, which go either way.
+const SHIFT: Fit = Fit {
+    floor: false,
+    auto: "0px",
+    absolute: false,
+};
+/// A shadow's offsets and spread.
+const OFFSET: Fit = Fit {
+    floor: false,
+    auto: "0px",
+    absolute: true,
+};
+/// Border widths and blur radii.
+const THICKNESS: Fit = Fit {
+    floor: true,
+    auto: "0px",
+    absolute: true,
+};
+
+/// A length as written: what `classify` names, and what a value that isn't a
+/// style writes.
+const AS_WRITTEN: Fit = Fit {
+    floor: false,
+    auto: "auto",
+    absolute: false,
+};
+
+/// A `Length` as `fit` writes it, and its key. The key is the length's as
+/// written, the one `classify` names.
+fn length(value: &Value, fit: Fit) -> Option<(String, String)> {
     let (which, args) = value.as_variant()?;
+    let zero = || String::from("0px");
     match which {
         0 => {
             let n = args.first()?.as_int()?;
-            Some((format!("{n}px"), integer_key(n)))
+            let css = if fit.floor && n < 0 {
+                zero()
+            } else {
+                format!("{n}px")
+            };
+            Some((css, integer_key(n)))
         }
-        1 => {
-            let n = number(args.first()?.as_float()?)?;
-            Some((format!("{n}rem"), format!("r{}", number_key(&n))))
+        1..=3 => {
+            let v = args.first()?.as_float()?;
+            let n = number(v)?;
+            let (unit, prefix) = match which {
+                1 => ("rem", "r"),
+                2 => ("em", "e"),
+                _ => ("%", "pc"),
+            };
+            let key = format!("{prefix}{}", number_key(&n));
+            if (fit.floor && v < 0.0) || (which == 3 && fit.absolute) {
+                Some((zero(), key))
+            } else {
+                Some((format!("{n}{unit}"), key))
+            }
         }
-        2 => {
-            let n = number(args.first()?.as_float()?)?;
-            Some((format!("{n}em"), format!("e{}", number_key(&n))))
-        }
-        3 => {
-            let n = number(args.first()?.as_float()?)?;
-            Some((format!("{n}%"), format!("pc{}", number_key(&n))))
-        }
-        4 => Some(("auto".into(), "auto".into())),
+        4 => Some((fit.auto.into(), "auto".into())),
+        5 if fit.absolute => Some((zero(), "full".into())),
         5 => Some(("100%".into(), "full".into())),
         _ => None,
     }
@@ -4050,7 +4138,8 @@ fn colour(value: &Value, digest: Digest) -> Option<(String, String)> {
             let namespace = parts.first()?.as_str()?;
             let name = parts.get(1)?.as_str()?;
             let a = number(args.get(1)?.as_float()?)?;
-            let percent = number(args.get(1)?.as_float()? * 100.0)?;
+            // `color-mix` takes no share outside 0% to 100%.
+            let percent = number(args.get(1)?.as_float()?.clamp(0.0, 1.0) * 100.0)?;
             Some((
                 format!("color-mix(in srgb,var(--{namespace}-{name}) {percent}%,transparent)"),
                 format!("{}a{}", token_key(namespace, name, digest), number_key(&a)),
@@ -4108,14 +4197,15 @@ fn cross_align(value: &Value) -> Option<(&'static str, &'static str)> {
     }
 }
 
-fn track_value(value: &Value) -> Option<String> {
+/// One grid track, `fit`ted or as written.
+fn track_value(value: &Value, fit: bool) -> Option<String> {
     let (which, args) = value.as_variant()?;
     match which {
         0 => {
             let n = args.first()?.as_int()?;
-            Some(format!("{n}fr"))
+            Some(format!("{}fr", if fit { n.max(0) } else { n }))
         }
-        1 => Some(length(args.first()?)?.0),
+        1 => Some(length(args.first()?, if fit { SIZE } else { AS_WRITTEN })?.0),
         _ => Some("auto".into()),
     }
 }

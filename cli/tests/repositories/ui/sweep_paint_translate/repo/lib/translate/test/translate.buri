@@ -22,7 +22,7 @@ test "every unit a translate takes" {
     assert.containsText(scene, "--buri-tr:translate(1em,0px)");
     assert.containsText(scene, "--buri-tr:translate(50%,0px)");
     assert.containsText(scene, "--buri-tr:translate(0px,-25%)");
-    assert.containsText(scene, "--buri-tr:translate(auto,auto)");
+    assert.containsText(scene, "--buri-tr:translate(0px,0px)");
     assert.containsText(scene, "--buri-tr:translate(100%,0px)");
     snapshot(ctx, "translate-units", units(), .Hover, []);
 }

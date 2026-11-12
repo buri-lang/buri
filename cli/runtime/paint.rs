@@ -1905,8 +1905,9 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "height" => set_sides(&mut style.size, [1], len(value)),
         "min-width" => set_sides(&mut style.min, [0], len(value)),
         "min-height" => set_sides(&mut style.min, [1], len(value)),
-        "max-width" => set_sides(&mut style.max, [0], len(value)),
-        "max-height" => set_sides(&mut style.max, [1], len(value)),
+        // `none`, no limit, is what a maximum of `Auto` writes.
+        "max-width" => set_sides(&mut style.max, [0], limit(value, font_size)),
+        "max-height" => set_sides(&mut style.max, [1], limit(value, font_size)),
         "aspect-ratio" => style.aspect = value.parse().ok().filter(|r: &f32| *r > 0.0),
         "position" => {
             style.fixed = value == "fixed";
@@ -2132,6 +2133,14 @@ fn length(value: &str, font_size: f32) -> Option<Len> {
         return n.parse().ok().map(Len::Percent);
     }
     value.parse().ok().map(Len::Px)
+}
+
+/// A maximum: a length, or `none`.
+fn limit(value: &str, font_size: f32) -> Option<Len> {
+    if value == "none" {
+        return Some(Len::Auto);
+    }
+    length(value, font_size)
 }
 
 /// `translate(<length>,<length>)`, the one transform the sheet writes.
@@ -2496,8 +2505,8 @@ fn taffy_style(c: &Computed) -> Style {
 
 fn grid_track(len: Len) -> GridTemplateComponent<String> {
     let sizing = match len {
-        // A negative percent is how `track` carries `<n>fr`.
-        Len::Percent(p) if p < 0.0 => TrackSizingFunction {
+        // A negative percent is how `track` carries `<n>fr`, `-0` for `0fr`.
+        Len::Percent(p) if p.is_sign_negative() => TrackSizingFunction {
             min: MinTrackSizingFunction::AUTO,
             max: MaxTrackSizingFunction::fr(-p),
         },

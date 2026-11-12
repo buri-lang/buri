@@ -5522,26 +5522,27 @@ function $tree_color(color) {
   if (tag === 3) return "transparent";
   if (tag === 4) return "inherit";
   // A faded token. The token stays a token, so a theme decides the hue and the
-  // mix decides only how much of it there is.
+  // mix decides only how much of it there is, which is 0% to 100%.
   return (
     "color-mix(in srgb,var(--" +
     $ui_theme_name(color[1]) +
     ") " +
-    color[2] * 100 +
+    Math.min(Math.max(color[2], 0), 1) * 100 +
     "%,transparent)"
   );
 }
 
-// One layer of a `box-shadow`.
+// One layer of a `box-shadow`: an offset or a spread takes no percentage,
+// `Auto` or `Full`, and a blur no negative either.
 function $tree_shadow(shadow) {
   return (
-    $tree_length(shadow[0]) +
+    $tree_fit(shadow[0], false, "0px", true) +
     " " +
-    $tree_length(shadow[1]) +
+    $tree_fit(shadow[1], false, "0px", true) +
     " " +
-    $tree_length(shadow[2]) +
+    $tree_fit(shadow[2], true, "0px", true) +
     " " +
-    $tree_length(shadow[3]) +
+    $tree_fit(shadow[3], false, "0px", true) +
     " " +
     $tree_color(shadow[4])
   );
@@ -5549,8 +5550,8 @@ function $tree_shadow(shadow) {
 
 function $tree_track(track) {
   const tag = track[0];
-  if (tag === 0) return track[1] + "fr";
-  if (tag === 1) return $tree_length(track[1]);
+  if (tag === 0) return (track[1] < 0 ? 0 : track[1]) + "fr";
+  if (tag === 1) return $tree_fit(track[1], true, "auto", false);
   return "auto";
 }
 
@@ -5716,17 +5717,24 @@ function $tree_declare(style) {
   const tag = style[0];
   const value = style[1];
   if (tag === 6) return value[1].map($tree_track).join(" ");
-  if (tag === 12 || tag === 13 || tag === 30 || tag === 39 || tag === 46 || tag === 52) {
-    return String(value);
-  }
-  if (tag === 14) return "span " + value;
-  if (tag === 15 || tag === 23) return $tree_length(style[2]);
-  if (tag === 33 || tag === 34) return $tree_width(tag === 33 ? value : style[2]);
+  // A grow, a shrink and a line height are zero at least, a span is one track
+  // at least, and a ratio of zero or less keeps no proportion.
+  if (tag === 12 || tag === 13 || tag === 46) return String(value < 0 ? 0 : value);
+  if (tag === 14) return "span " + (value > 0 ? value : 1);
+  if (tag === 30) return value > 0 ? String(value) : "auto";
+  if (tag === 39 || tag === 52) return String(value);
+  if (tag === 15) return $tree_length(style[2]);
+  // Gaps and padding: a negative or `Auto` one is none.
+  if (tag >= 17 && tag <= 23) return $tree_fit(tag === 23 ? style[2] : value, true, "0px", false);
+  // A maximum's `Auto` is no limit; a size's is the content's.
+  if (tag === 27 || tag === 29) return $tree_fit(value, true, "none", false);
+  if (tag >= 24 && tag <= 28) return $tree_fit(value, true, "auto", false);
+  if (tag === 33 || tag === 34) return $tree_fit(tag === 33 ? value : style[2], true, "0px", true);
   // A `Full` radius is a pill on every box; `100%` is an ellipse on one that
   // isn't square.
   if (tag === 37 || tag === 38) {
     const length = tag === 37 ? value : style[2];
-    return length[0] === 5 ? "9999px" : $tree_length(length);
+    return length[0] === 5 ? "9999px" : $tree_fit(length, true, "0px", false);
   }
   if (tag === 31 || tag === 32 || tag === 35 || tag === 60) return $tree_color(value);
   if (tag === 40) return $tree_shadow(value);
@@ -5734,11 +5742,17 @@ function $tree_declare(style) {
   // paints them, first over last.
   if (tag === 41) return value.map($tree_shadow).join(",");
   if (tag === 42) return $tree_font(value);
+  // An `Auto` text size is the size the text inherits.
+  if (tag === 43) return $tree_fit(value, true, "1em", false);
   if (tag === 55) return $tree_outwards(style[2]);
-  if (tag === 56) return "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")";
+  if (tag === 56) {
+    return "translate(" + $tree_fit(value, false, "0px", false) + "," +
+      $tree_fit(style[2], false, "0px", false) + ")";
+  }
   // Only the page behind the box is blurred; the box paints over the blur.
-  if (tag === 59) return "blur(" + $tree_length(value) + ")";
-  return $tree_length(value);
+  if (tag === 59) return "blur(" + $tree_fit(value, true, "0px", true) + ")";
+  // Letter spacing, which goes either way.
+  return $tree_fit(value, false, "0px", false);
 }
 
 // What each `Animation` lowers to, in declaration order: `styles.rs`'s
@@ -5771,11 +5785,18 @@ function $tree_outwards(length) {
   return "-" + length[1] + (tag === 2 ? "em" : "%");
 }
 
-// A border width: a percentage, `Auto`, `Full` or a negative length isn't a
-// width, so it is `0px`, no border. Read from a variable as written, a browser
-// would draw CSS's 3px `medium` default.
-function $tree_width(length) {
-  return length[0] > 2 || length[1] < 0 ? "0px" : $tree_length(length);
+// A length as a property that can't take every length writes it, as
+// `semantics::styles::length` does. A browser drops an invalid declaration in a
+// class but resets the property when it reads one from a variable, so each path
+// writes the nearest value the property takes instead. With `floor`, a negative
+// length is `0px`. `Auto` is `auto`. With `absolute`, a percentage and `Full`
+// are `0px`.
+function $tree_fit(length, floor, auto, absolute) {
+  const tag = length[0];
+  if (tag === 4) return auto;
+  if (absolute && (tag === 3 || tag === 5)) return "0px";
+  if (floor && tag < 4 && length[1] < 0) return "0px";
+  return $tree_length(length);
 }
 
 // A `Prop<T>` is `[tag, payload]`: 0 Const, 1 Cell, 2 Computed.

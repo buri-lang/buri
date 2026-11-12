@@ -1,0 +1,8 @@
+# One library of scene builders, and one test source that gives them values.
+library {
+    sources: ["values.buri"]
+
+    test {
+        sources: ["test/values.buri"]
+    }
+}

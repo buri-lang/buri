@@ -3247,49 +3247,22 @@ for (const group of document.querySelectorAll("[role=group]")) {
     );
 }
 
-/// A page with a `Full` radius and border widths that aren't widths, each
-/// written in place or, when `late`, read back from a signal, which the
-/// compiler can't fold. The two forms are separate pages, so neither names a
-/// class the other could reuse. Each group's label opens with the CSS property
-/// the driver reads.
-fn edge_values_page(late: bool) -> String {
-    let groups = [
-        ("border-top-left-radius", ".Radius(", ".Full"),
-        (
-            "border-start-end-radius",
-            ".RadiusCorner(.TopEnd, ",
-            ".Full",
-        ),
-        (
-            "border-top-width of a percentage",
-            ".BorderWidth(",
-            ".Percent(50.0)",
-        ),
-        ("border-top-width of auto", ".BorderWidth(", ".Auto"),
-        ("border-top-width of full", ".BorderWidth(", ".Full"),
-        ("border-top-width of a negative", ".BorderWidth(", ".Px(-2)"),
-        (
-            "border-block-start-width of a percentage",
-            ".BorderEdge(.Top, ",
-            ".Percent(50.0)",
-        ),
-        (
-            "border-block-start-width of a negative",
-            ".BorderEdge(.Top, ",
-            ".Rem(-0.5)",
-        ),
-    ];
-    let children: String = groups
+/// A page of boxes, each given one style value, written in place or, when
+/// `late`, read back from a signal, which the compiler can't fold. The two
+/// forms are separate pages, so neither names a class the other could reuse.
+/// Each box is a `(label, style, value, expected)`: `style` holds `{}` where
+/// the value goes, and the label opens with the CSS property the driver reads.
+fn values_page(late: bool, boxes: &[(&str, &str, &str, &str)]) -> String {
+    let children: String = boxes
         .iter()
-        .map(|(name, style, value)| {
+        .map(|(label, style, value, _)| {
             let value = if late {
                 format!("late(ctx, {value})")
             } else {
-                value.to_string()
+                (*value).to_string()
             };
-            format!(
-                "                named(\"{name}\", boxed([.Width(.Px(80)), .Height(.Px(40)), .BorderStyle(.Solid), {style}{value})])),\n"
-            )
+            let style = style.replace("{}", &value);
+            format!("                named(\"{label}\", boxed([{style}])),\n")
         })
         .collect();
     format!(
@@ -3297,7 +3270,8 @@ fn edge_values_page(late: bool) -> String {
 from "ui/node" import * as ui;
 from "ui/node" import {{ Node }};
 from "ui/signal" import {{ signal }};
-from "ui/style" import {{ Style }};
+from "ui/style" import * as style;
+from "ui/style" import {{ Shadow, Style }};
 from "web" import {{ WebHost }};
 
 fn named<C>(name: Str, subject: Node<C>): Node<C> {{
@@ -3332,11 +3306,8 @@ export fn main(host: WebHost): Result<(), Str> {{
     )
 }
 
-/// A `Full` radius rounds a box into a pill however it reaches its node, and a
-/// border width that isn't a width (a percentage, `Auto`, `Full` or a negative
-/// length) draws no border however it arrives.
-#[test]
-fn a_radius_and_a_border_width_do_the_same_however_they_arrive() {
+/// Each box's label and the value its property reads on `page`.
+fn values_read(name: &str, page: &str) -> String {
     let driver = r#"
 import { readFileSync } from "node:fs";
 const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
@@ -3350,16 +3321,434 @@ for (const group of document.querySelectorAll("[role=group]")) {
   console.log(`${name}: ${value}`);
 }
 "#;
-    let expected = "border-top-left-radius: 9999px\n\
-                    border-start-end-radius: 9999px\n\
-                    border-top-width of a percentage: 0px\n\
-                    border-top-width of auto: 0px\n\
-                    border-top-width of full: 0px\n\
-                    border-top-width of a negative: 0px\n\
-                    border-block-start-width of a percentage: 0px\n\
-                    border-block-start-width of a negative: 0px\n";
-    let written = drive("edge-values-written-page", &edge_values_page(false), driver);
-    let late = drive("edge-values-late-page", &edge_values_page(true), driver);
+    drive(name, page, driver)
+}
+
+/// Each box's label and the value it expects.
+fn values_expected(boxes: &[(&str, &str, &str, &str)]) -> String {
+    boxes
+        .iter()
+        .map(|(label, _, _, value)| format!("{label}: {value}\n"))
+        .collect()
+}
+
+/// Builds `boxes` written in place and read back from a signal, and asserts
+/// that every box's property reads its expected value on both pages.
+fn arrives_the_same(name: &str, boxes: &[(&str, &str, &str, &str)]) {
+    let expected = values_expected(boxes);
+    let written = values_read(&format!("{name}-written-page"), &values_page(false, boxes));
+    let late = values_read(&format!("{name}-late-page"), &values_page(true, boxes));
     assert_eq!(written, expected, "written in place");
     assert_eq!(late, expected, "read back from a signal");
+}
+
+/// A `Full` radius rounds a box into a pill however it reaches its node, and a
+/// border width that isn't a width (a percentage, `Auto`, `Full` or a negative
+/// length) draws no border however it arrives.
+#[test]
+fn a_radius_and_a_border_width_do_the_same_however_they_arrive() {
+    let b = ".Width(.Px(80)), .Height(.Px(40)), .BorderStyle(.Solid), ";
+    let boxes = [
+        (
+            "border-top-left-radius",
+            format!("{b}.Radius({{}})"),
+            ".Full",
+            "9999px",
+        ),
+        (
+            "border-start-end-radius",
+            format!("{b}.RadiusCorner(.TopEnd, {{}})"),
+            ".Full",
+            "9999px",
+        ),
+        (
+            "border-top-width of a percentage",
+            format!("{b}.BorderWidth({{}})"),
+            ".Percent(50.0)",
+            "0px",
+        ),
+        (
+            "border-top-width of auto",
+            format!("{b}.BorderWidth({{}})"),
+            ".Auto",
+            "0px",
+        ),
+        (
+            "border-top-width of full",
+            format!("{b}.BorderWidth({{}})"),
+            ".Full",
+            "0px",
+        ),
+        (
+            "border-top-width of a negative",
+            format!("{b}.BorderWidth({{}})"),
+            ".Px(-2)",
+            "0px",
+        ),
+        (
+            "border-block-start-width of a percentage",
+            format!("{b}.BorderEdge(.Top, {{}})"),
+            ".Percent(50.0)",
+            "0px",
+        ),
+        (
+            "border-block-start-width of a negative",
+            format!("{b}.BorderEdge(.Top, {{}})"),
+            ".Rem(-0.5)",
+            "0px",
+        ),
+    ];
+    let boxes: Vec<(&str, &str, &str, &str)> = boxes
+        .iter()
+        .map(|(label, style, value, css)| (*label, style.as_str(), *value, *css))
+        .collect();
+    arrives_the_same("edge-values", &boxes);
+}
+
+/// A negative or `Auto` padding is no padding, however it arrives.
+#[test]
+fn a_padding_that_isnt_a_distance_is_none_however_it_arrives() {
+    arrives_the_same(
+        "padding-values",
+        &[
+            (
+                "padding-top of a negative",
+                ".Padding({})",
+                ".Px(-4)",
+                "0px",
+            ),
+            ("padding-top of auto", ".Padding({})", ".Auto", "0px"),
+            (
+                "padding-inline of a negative",
+                ".PaddingX({})",
+                ".Rem(-1.0)",
+                "0px",
+            ),
+            ("padding-block of auto", ".PaddingY({})", ".Auto", "0px"),
+            (
+                "padding-block-start of a negative",
+                ".PaddingEdge(.Top, {})",
+                ".Em(-0.5)",
+                "0px",
+            ),
+            (
+                "padding-inline-end of auto",
+                ".PaddingEdge(.End, {})",
+                ".Auto",
+                "0px",
+            ),
+            (
+                "padding-top of a percentage",
+                ".Padding({})",
+                ".Percent(5.0)",
+                "5%",
+            ),
+        ],
+    );
+}
+
+/// A negative or `Auto` gap is no gap, however it arrives.
+#[test]
+fn a_gap_that_isnt_a_distance_is_none_however_it_arrives() {
+    arrives_the_same(
+        "gap-values",
+        &[
+            ("gap of a negative", ".Gap({})", ".Px(-4)", "0px"),
+            ("gap of auto", ".Gap({})", ".Auto", "0px"),
+            ("column-gap of a negative", ".GapX({})", ".Rem(-1.0)", "0px"),
+            ("row-gap of auto", ".GapY({})", ".Auto", "0px"),
+        ],
+    );
+}
+
+/// A negative size is zero, however it arrives.
+#[test]
+fn a_negative_size_is_zero_however_it_arrives() {
+    arrives_the_same(
+        "size-values",
+        &[
+            ("width of a negative", ".Width({})", ".Px(-10)", "0px"),
+            ("height of a negative", ".Height({})", ".Rem(-1.0)", "0px"),
+            (
+                "min-width of a negative",
+                ".MinWidth({})",
+                ".Em(-2.0)",
+                "0px",
+            ),
+            (
+                "min-height of a negative",
+                ".MinHeight({})",
+                ".Percent(-5.0)",
+                "0px",
+            ),
+            ("width of auto", ".Width({})", ".Auto", "auto"),
+        ],
+    );
+}
+
+/// An `Auto` maximum is no limit, and a negative one is zero, however it
+/// arrives.
+#[test]
+fn a_maximum_of_auto_is_no_limit_however_it_arrives() {
+    arrives_the_same(
+        "maximum-values",
+        &[
+            ("max-width of auto", ".MaxWidth({})", ".Auto", "none"),
+            ("max-height of auto", ".MaxHeight({})", ".Auto", "none"),
+            ("max-width of a negative", ".MaxWidth({})", ".Px(-3)", "0px"),
+            (
+                "max-height of a negative",
+                ".MaxHeight({})",
+                ".Percent(-1.0)",
+                "0px",
+            ),
+        ],
+    );
+}
+
+/// A negative or `Auto` radius squares the corners, however it arrives.
+#[test]
+fn a_radius_that_isnt_a_distance_squares_the_corners_however_it_arrives() {
+    arrives_the_same(
+        "radius-values",
+        &[
+            (
+                "border-top-left-radius of a negative",
+                ".Radius({})",
+                ".Px(-4)",
+                "0px",
+            ),
+            (
+                "border-top-left-radius of auto",
+                ".Radius({})",
+                ".Auto",
+                "0px",
+            ),
+            (
+                "border-start-end-radius of a negative",
+                ".RadiusCorner(.TopEnd, {})",
+                ".Em(-1.0)",
+                "0px",
+            ),
+            (
+                "border-end-start-radius of auto",
+                ".RadiusCorner(.BottomStart, {})",
+                ".Auto",
+                "0px",
+            ),
+        ],
+    );
+}
+
+/// A shadow length that isn't a distance (a percentage, `Auto` or `Full`, or a
+/// negative blur) is zero, however it arrives.
+#[test]
+fn a_shadow_length_that_isnt_a_distance_is_zero_however_it_arrives() {
+    arrives_the_same(
+        "shadow-values",
+        &[
+            (
+                "box-shadow of auto and a percentage",
+                ".Shadow({})",
+                "Shadow { x: .Auto, y: .Percent(50.0), blur: .Px(4), spread: .Full, \
+                 color: .Rgb(0, 0, 0) }",
+                "0px 0px 4px 0px rgb(0,0,0)",
+            ),
+            (
+                "box-shadow of a negative blur",
+                ".Shadow({})",
+                "Shadow { x: .Px(-2), y: .Px(2), blur: .Px(-4), spread: .Px(-1), \
+                 color: .Rgb(0, 0, 0) }",
+                "-2px 2px 0px -1px rgb(0,0,0)",
+            ),
+            (
+                "box-shadow of layers",
+                ".Shadows({})",
+                "[Shadow { x: .Px(1), y: .Auto, blur: .Rem(-1.0), spread: .Px(0), \
+                 color: .Rgb(0, 0, 0) }, Shadow { x: .Full, y: .Px(1), blur: .Px(2), \
+                 spread: .Em(1.0), color: .Rgb(0, 0, 0) }]",
+                "1px 0px 0px 0px rgb(0,0,0),0px 1px 2px 1em rgb(0,0,0)",
+            ),
+        ],
+    );
+}
+
+/// An `Auto` translate doesn't move, however it arrives.
+#[test]
+fn an_auto_translate_doesnt_move_however_it_arrives() {
+    arrives_the_same(
+        "translate-values",
+        &[
+            (
+                "transform of auto across",
+                ".Translate({}, .Px(4))",
+                ".Auto",
+                "translate(0px,4px)",
+            ),
+            (
+                "transform of auto down",
+                ".Translate(.Px(4), {})",
+                ".Auto",
+                "translate(4px,0px)",
+            ),
+        ],
+    );
+}
+
+/// A span of zero or less covers one track, however it arrives.
+#[test]
+fn a_span_of_no_tracks_covers_one_however_it_arrives() {
+    arrives_the_same(
+        "span-values",
+        &[
+            ("grid-column of zero", ".Span({})", "0", "span 1"),
+            ("grid-column of a negative", ".Span({})", "-2", "span 1"),
+        ],
+    );
+}
+
+/// A negative grow or shrink is zero, however it arrives.
+#[test]
+fn a_negative_grow_or_shrink_is_zero_however_it_arrives() {
+    arrives_the_same(
+        "flex-values",
+        &[
+            ("flex-grow of a negative", ".Grow({})", "-1", "0"),
+            ("flex-shrink of a negative", ".Shrink({})", "-2", "0"),
+        ],
+    );
+}
+
+/// A negative text size is zero, and an `Auto` one is the size the text
+/// inherits, however it arrives.
+#[test]
+fn a_text_size_that_isnt_a_distance_is_fitted_however_it_arrives() {
+    arrives_the_same(
+        "font-size-values",
+        &[
+            ("font-size of a negative", ".FontSize({})", ".Px(-4)", "0px"),
+            ("font-size of auto", ".FontSize({})", ".Auto", "16px"),
+        ],
+    );
+}
+
+/// An `Auto` letter spacing adds no space, however it arrives.
+#[test]
+fn an_auto_letter_spacing_adds_nothing_however_it_arrives() {
+    arrives_the_same(
+        "letter-spacing-values",
+        &[(
+            "letter-spacing of auto",
+            ".LetterSpacing({})",
+            ".Auto",
+            "0px",
+        )],
+    );
+}
+
+/// A negative line height is zero, however it arrives.
+#[test]
+fn a_negative_line_height_is_zero_however_it_arrives() {
+    arrives_the_same(
+        "line-height-values",
+        &[("line-height of a negative", ".LineHeight({})", "-1.5", "0")],
+    );
+}
+
+/// An aspect ratio of zero or less keeps no proportion, however it arrives.
+#[test]
+fn an_aspect_ratio_of_no_proportion_is_auto_however_it_arrives() {
+    arrives_the_same(
+        "aspect-ratio-values",
+        &[
+            ("aspect-ratio of zero", ".AspectRatio({})", "0.0", "auto"),
+            (
+                "aspect-ratio of a negative",
+                ".AspectRatio({})",
+                "-1.5",
+                "auto",
+            ),
+        ],
+    );
+}
+
+/// A backdrop blur whose radius isn't a distance blurs nothing, however it
+/// arrives.
+#[test]
+fn a_backdrop_blur_that_isnt_a_distance_blurs_nothing_however_it_arrives() {
+    arrives_the_same(
+        "backdrop-values",
+        &[
+            (
+                "backdrop-filter of a negative",
+                ".BackdropBlur({})",
+                ".Px(-4)",
+                "blur(0px)",
+            ),
+            (
+                "backdrop-filter of a percentage",
+                ".BackdropBlur({})",
+                ".Percent(10.0)",
+                "blur(0px)",
+            ),
+            (
+                "backdrop-filter of auto",
+                ".BackdropBlur({})",
+                ".Auto",
+                "blur(0px)",
+            ),
+            (
+                "backdrop-filter of full",
+                ".BackdropBlur({})",
+                ".Full",
+                "blur(0px)",
+            ),
+        ],
+    );
+}
+
+/// A negative grid track is zero wide, however it arrives.
+#[test]
+fn a_negative_grid_track_is_zero_however_it_arrives() {
+    arrives_the_same(
+        "track-values",
+        &[(
+            "grid-template-columns of negatives",
+            ".Layout({})",
+            ".Grid([.Fraction(-1), .Fixed(.Px(-20)), .Fixed(.Rem(1.0))])",
+            "0fr 0px 1rem",
+        )],
+    );
+}
+
+/// A token faded past whole, by an alpha only known when the page runs, is the
+/// whole token, and one faded below nothing is none of it. An alpha known when
+/// the program is built is refused instead, so there is no page that writes one.
+/// happy-dom reads no `color-mix`, so this reads the value the page writes.
+#[test]
+fn a_fade_out_of_range_known_only_at_run_time_is_clamped() {
+    let boxes = [("more than whole", "1.5"), ("less than none", "-0.5")];
+    let boxes: Vec<(&str, &str, &str, &str)> = boxes
+        .iter()
+        .map(|(label, alpha)| {
+            (
+                *label,
+                ".Background(style.token(\"kit\", \"ink\").alpha({}))",
+                *alpha,
+                "",
+            )
+        })
+        .collect();
+    let driver = r#"
+for (const group of document.querySelectorAll("[role=group]")) {
+  const written = group.firstElementChild.getAttribute("style");
+  console.log(`${group.getAttribute("aria-label")}: ${written.slice(written.indexOf(":") + 1).trim().replace(/;$/, "")}`);
+}
+"#;
+    let late = drive("fade-values-late-page", &values_page(true, &boxes), driver);
+    assert_eq!(
+        late,
+        "more than whole: color-mix(in srgb,var(--kit-ink) 100%,transparent)\n\
+         less than none: color-mix(in srgb,var(--kit-ink) 0%,transparent)\n"
+    );
 }

@@ -2434,7 +2434,7 @@ test "a translate shifts the painted box and moves no sibling" {
         sheet.contains(".active_tr-0-1:active{transform:translate(0px,1px)}"),
     );
     assert.isTrue(sheet.contains(".tr-e0_5-pcn50{transform:translate(0.5em,-50%)}"));
-    assert.isTrue(sheet.contains(".tr-r1-auto{transform:translate(1rem,auto)}"));
+    assert.isTrue(sheet.contains(".tr-r1-auto{transform:translate(1rem,0px)}"));
 }
 
 test "focus-within is a state, and it is the container's own" {

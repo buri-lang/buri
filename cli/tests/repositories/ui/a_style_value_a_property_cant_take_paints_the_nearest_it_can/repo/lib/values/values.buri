@@ -1,0 +1,96 @@
+//! Scenes that each take one style. A test gives one a value written in
+//! place, the same value read back from a signal, which the compiler can't
+//! fold, and the nearest value the property takes. All three paint one picture.
+
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// `x`, read back from a signal, so the compiler can't fold a style that
+/// holds it.
+export fn late<T, C: Ui + Watch>(ctx: C, x: T): T {
+    signal(ctx, x).get(ctx)
+}
+
+/// The white frame every scene is painted in.
+fn frame<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(60)),
+            .Height(.Px(60)),
+            .Padding(.Px(6)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [subject],
+    })
+}
+
+/// A blue box `width` wide and twelve tall, given `style`.
+fn chip<C>(width: Int, style: Style): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(width)),
+            .Height(.Px(12)),
+            .Background(.Rgb(0, 80, 220)),
+            style,
+        ],
+        children: [],
+    })
+}
+
+/// A blue square.
+fn square<C>(): Node<C> {
+    chip(12, .Grow(0))
+}
+
+/// A grey box given `style`, holding two squares.
+export fn holder<C>(style: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Background(.Rgb(200, 200, 200)), style],
+            children: [square(), square()],
+        }),
+    )
+}
+
+/// A two-track grid of three squares, the first given `style`.
+export fn gridded<C>(style: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Grid([.Fraction(1), .Fraction(1)])),
+                .Background(.Rgb(200, 200, 200)),
+            ],
+            children: [chip(12, style), square(), square()],
+        }),
+    )
+}
+
+/// A row too narrow for its two wide squares, the first given `style`.
+export fn rowed<C>(style: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(40)), .Background(.Rgb(200, 200, 200))],
+            children: [chip(30, style), chip(30, .Grow(0))],
+        }),
+    )
+}
+
+/// Two lines of text, set with `style`.
+export fn worded<C>(style: Style): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Background(.Rgb(200, 200, 200)),
+                .Foreground(.Rgb(0, 0, 0)),
+                style,
+            ],
+            children: [
+                ui.text({ content: .Const("Ag") }),
+                ui.text({ content: .Const("Ag") }),
+            ],
+        }),
+    )
+}

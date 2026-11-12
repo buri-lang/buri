@@ -146,7 +146,7 @@ export enum Style {
     /// How much this child gives up when there is not enough room, relative to
     /// its siblings. `0` is "none of it", which is how a sidebar keeps its width.
     Shrink(Int),
-    /// How many grid tracks this child covers.
+    /// How many grid tracks this child covers. Zero or less covers one.
     Span(Int),
     /// Fixes one edge of a child at a distance, taking it out of the flow. Two
     /// `Pin`s naming different edges compose. The distance is measured from the
@@ -493,7 +493,9 @@ export enum Track {
     Auto,
 }
 
-/// A distance.
+/// A distance. A property given one it can't take uses the nearest it can:
+/// a negative padding or size is zero, and `.Auto` in a padding, a translate
+/// or a shadow is none.
 export enum Length {
     /// Device-independent pixels.
     Px(Int),
@@ -563,7 +565,8 @@ impl Color {
     /// there is anything to fade.
     ///
     /// The fraction is `0.0` to `1.0`, and the extractor refuses anything else
-    /// (`alpha-out-of-range`).
+    /// (`alpha-out-of-range`). One only known at run time is clamped to that
+    /// range.
     export fn alpha(self, a: Float): Color {
         match (self) {
             .Rgb(r, g, b) => .Rgba(r, g, b, a),

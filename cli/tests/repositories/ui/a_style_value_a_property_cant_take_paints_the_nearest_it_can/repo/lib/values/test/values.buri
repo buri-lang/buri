@@ -1,0 +1,279 @@
+// A value a property can't take, written in place and read back from a
+// signal, paints what the nearest value it can take paints. The tests that
+// paint that nearest value come last, so they're the ones that record each
+// golden.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
+from "ui/style" import { Shadow };
+from "//lib/values" import { gridded, holder, late, rowed, worded };
+
+test "a negative padding" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "padding-negative", holder(.Padding(.Px(-4))), .Hover, []);
+    snapshot(ctx, "padding-negative", holder(.Padding(late(ctx, .Px(-4)))), .Hover, []);
+}
+
+test "an auto padding" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "padding-auto", holder(.PaddingX(.Auto)), .Hover, []);
+    snapshot(ctx, "padding-auto", holder(.PaddingX(late(ctx, .Auto))), .Hover, []);
+}
+
+test "a negative gap" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "gap-negative", holder(.Gap(.Px(-4))), .Hover, []);
+    snapshot(ctx, "gap-negative", holder(.Gap(late(ctx, .Px(-4)))), .Hover, []);
+}
+
+test "a negative width" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "width-negative", holder(.Width(.Px(-10))), .Hover, []);
+    snapshot(ctx, "width-negative", holder(.Width(late(ctx, .Px(-10)))), .Hover, []);
+}
+
+test "an auto maximum width" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "max-width-auto", holder(.MaxWidth(.Auto)), .Hover, []);
+    snapshot(ctx, "max-width-auto", holder(.MaxWidth(late(ctx, .Auto))), .Hover, []);
+}
+
+test "a negative radius" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "radius-negative", holder(.Radius(.Px(-6))), .Hover, []);
+    snapshot(ctx, "radius-negative", holder(.Radius(late(ctx, .Px(-6)))), .Hover, []);
+}
+
+test "a shadow offset by auto and a percentage" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let shadow = Shadow {
+        x: .Auto,
+        y: .Percent(50.0),
+        blur: .Px(4),
+        spread: .Full,
+        color: .Rgb(0, 0, 0),
+    };
+    snapshot(ctx, "shadow-offsets", holder(.Shadow(shadow)), .Hover, []);
+    snapshot(ctx, "shadow-offsets", holder(.Shadow(late(ctx, shadow))), .Hover, []);
+}
+
+test "an auto translate" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "translate-auto", gridded(.Translate(.Auto, .Px(4))), .Hover, []);
+    snapshot(
+        ctx,
+        "translate-auto",
+        gridded(.Translate(late(ctx, .Auto), .Px(4))),
+        .Hover,
+        [],
+    );
+}
+
+test "a span of no tracks" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "span-zero", gridded(.Span(0)), .Hover, []);
+    snapshot(ctx, "span-zero", gridded(.Span(late(ctx, 0))), .Hover, []);
+}
+
+test "a negative shrink" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "shrink-negative", rowed(.Shrink(-2)), .Hover, []);
+    snapshot(ctx, "shrink-negative", rowed(.Shrink(late(ctx, -2))), .Hover, []);
+}
+
+test "a negative text size" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "font-size-negative", worded(.FontSize(.Px(-4))), .Hover, []);
+    snapshot(
+        ctx,
+        "font-size-negative",
+        worded(.FontSize(late(ctx, .Px(-4)))),
+        .Hover,
+        [],
+    );
+}
+
+test "an auto text size" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "font-size-auto", worded(.FontSize(.Auto)), .Hover, []);
+    snapshot(ctx, "font-size-auto", worded(.FontSize(late(ctx, .Auto))), .Hover, []);
+}
+
+test "an auto letter spacing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "letter-spacing-auto", worded(.LetterSpacing(.Auto)), .Hover, []);
+    snapshot(
+        ctx,
+        "letter-spacing-auto",
+        worded(.LetterSpacing(late(ctx, .Auto))),
+        .Hover,
+        [],
+    );
+}
+
+test "a negative line height" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "line-height-negative", worded(.LineHeight(-1.5)), .Hover, []);
+    snapshot(
+        ctx,
+        "line-height-negative",
+        worded(.LineHeight(late(ctx, -1.5))),
+        .Hover,
+        [],
+    );
+}
+
+test "an aspect ratio of no proportion" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "aspect-ratio-zero", holder(.AspectRatio(0.0)), .Hover, []);
+    snapshot(
+        ctx,
+        "aspect-ratio-zero",
+        holder(.AspectRatio(late(ctx, 0.0))),
+        .Hover,
+        [],
+    );
+}
+
+test "a negative backdrop blur" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "backdrop-negative", holder(.BackdropBlur(.Px(-4))), .Hover, []);
+    snapshot(
+        ctx,
+        "backdrop-negative",
+        holder(.BackdropBlur(late(ctx, .Px(-4)))),
+        .Hover,
+        [],
+    );
+}
+
+test "a negative grid track" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "track-negative",
+        holder(.Layout(.Grid([.Fraction(-1), .Fraction(1)]))),
+        .Hover,
+        [],
+    );
+    snapshot(
+        ctx,
+        "track-negative",
+        holder(.Layout(late(ctx, .Grid([.Fraction(-1), .Fraction(1)])))),
+        .Hover,
+        [],
+    );
+}
+
+test "the nearest values a property takes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "padding-negative", holder(.Padding(.Px(0))), .Hover, []);
+    snapshot(ctx, "padding-auto", holder(.PaddingX(.Px(0))), .Hover, []);
+    snapshot(ctx, "gap-negative", holder(.Gap(.Px(0))), .Hover, []);
+    snapshot(ctx, "width-negative", holder(.Width(.Px(0))), .Hover, []);
+    snapshot(ctx, "max-width-auto", holder(.Grow(0)), .Hover, []);
+    snapshot(ctx, "radius-negative", holder(.Radius(.Px(0))), .Hover, []);
+    snapshot(
+        ctx,
+        "shadow-offsets",
+        holder(
+            .Shadow(Shadow {
+                x: .Px(0),
+                y: .Px(0),
+                blur: .Px(4),
+                spread: .Px(0),
+                color: .Rgb(0, 0, 0),
+            }),
+        ),
+        .Hover,
+        [],
+    );
+    snapshot(ctx, "translate-auto", gridded(.Translate(.Px(0), .Px(4))), .Hover, []);
+    snapshot(ctx, "span-zero", gridded(.Span(1)), .Hover, []);
+    snapshot(ctx, "shrink-negative", rowed(.Shrink(0)), .Hover, []);
+    snapshot(ctx, "font-size-negative", worded(.FontSize(.Px(0))), .Hover, []);
+    snapshot(ctx, "font-size-auto", worded(.FontSize(.Em(1.0))), .Hover, []);
+    snapshot(ctx, "letter-spacing-auto", worded(.LetterSpacing(.Px(0))), .Hover, []);
+    snapshot(ctx, "line-height-negative", worded(.LineHeight(0.0)), .Hover, []);
+    snapshot(ctx, "aspect-ratio-zero", holder(.Grow(0)), .Hover, []);
+    snapshot(ctx, "backdrop-negative", holder(.BackdropBlur(.Px(0))), .Hover, []);
+    snapshot(
+        ctx,
+        "track-negative",
+        holder(.Layout(.Grid([.Fraction(0), .Fraction(1)]))),
+        .Hover,
+        [],
+    );
+}

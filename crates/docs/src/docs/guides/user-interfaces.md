@@ -457,6 +457,17 @@ what tracking wants — `.LetterSpacing(.Em(-0.025))` is right at every size the
 type is ever set at, and the rem that matches it at sixteen pixels is wrong at
 every other.
 
+A value a property can't take becomes the nearest one it can, whether you
+write it in place or it arrives at run time:
+
+- A negative padding, gap, radius, size, text size, line height, border width
+  or blur is zero. A translate, letter spacing and shadow offset can be negative.
+- `.Auto` is none for spacing, a translate, letter spacing and a shadow. A
+  maximum of `.Auto` is no limit, and a text size of `.Auto` is the inherited one.
+- A percentage or `.Full` is zero in a border width, a blur or a shadow.
+- `.Span(0)` covers one track, a negative `.Grow`, `.Shrink` or track fraction
+  is zero, and an `.AspectRatio` of zero or less keeps no proportion.
+
 `Layout` is `.Column`, `.Row`, `.ColumnReverse`, `.RowReverse`, `.Grid` and
 `.Layers`. A reversed stack paints its children backwards and leaves the
 document's order alone — the order the caller wrote, and the order a screen
