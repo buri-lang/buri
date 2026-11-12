@@ -1,0 +1,515 @@
+// What a key does by itself: the default action a browser takes for a key on
+// an element, when no `onKey` claimed it. Escape shuts a dialog, Enter and
+// Space press a button, Space flips a toggle, the arrows move a radio group's
+// choice and a slider's value, and Enter in a form's field submits the form.
+// `language::pages` presses the same keys in a browser.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Location, Ui, Watch };
+from "platform/effect/testing" import {
+    address, headless, observer, Recorder, recorder, render,
+};
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal, watch };
+from "ui/web" import * as web;
+
+/// A dialog holding a button named `Done`, open while `open` holds `true`, and
+/// a line beside it that says whether it is open.
+fn confirm<C>(open: Signal<Bool>, onKey: Option<fn(C, Str) => Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Delete this?"),
+                children: [
+                    ui.button({
+                        label: .Const("Done"),
+                        styles: [],
+                        onPress: .Some(fn(_c) => ()),
+                    }),
+                ],
+                styles: [],
+                onKey: onKey,
+            }),
+            ui.text({
+                content: .Computed(fn(s) => {
+                    if (open.get(s)) { "open" } else { "shut" }
+                }),
+            }),
+        ],
+    })
+}
+
+test "Escape shuts an open dialog and runs what watches it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let open = signal(ctx, true);
+    let _ = watch(ctx, fn(s) => { if (!open.get(s)) { log.record("closed") } else {} });
+    let page = render(ctx, confirm(open, .None));
+    let _ = page.focus("Done");
+    let _ = page.key("Escape");
+    assert.equal(page.count("dialog"), 0);
+    assert.equal(page.text(), "shut");
+    assert.isFalse(open.get(ctx));
+    assert.equal(log.recorded(), ["closed"]);
+}
+
+test "Escape shuts an open dialog when nothing has the focus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(ctx, confirm(open, .None));
+    let _ = page.key("Escape");
+    assert.equal(page.text(), "shut");
+}
+
+test "an onKey that claims Escape keeps the dialog open" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(ctx, confirm(open, .Some(fn(_c, key) => key == "Escape")));
+    let _ = page.focus("Done");
+    let _ = page.key("Escape");
+    assert.equal(page.count("dialog"), 1);
+    assert.equal(page.text(), "Done open");
+}
+
+test "another key leaves the dialog open" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(ctx, confirm(open, .None));
+    let _ = page.focus("Done");
+    let _ = page.key("a");
+    assert.equal(page.text(), "Done open");
+}
+
+/// A button named `name` that records `name` when it is pressed.
+fn pressing<C>(log: Recorder, name: Str): Node<C> {
+    ui.button({
+        label: .Const(name),
+        styles: [],
+        onPress: .Some(fn(_c) => log.record(name)),
+    })
+}
+
+test "Enter and Space press the focused button" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [pressing(log, "Save"), pressing(log, "Undo")],
+        }),
+    );
+    let _ = page.focus("Save");
+    let _ = page.key("Enter");
+    let _ = page.focus("Undo");
+    let _ = page.key(" ");
+    assert.equal(log.recorded(), ["Save", "Undo"]);
+}
+
+test "an onKey that claims Enter keeps the button from being pressed" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [pressing(log, "Save")],
+            onKey: .Some(fn(_c, key) => key == "Enter"),
+        }),
+    );
+    let _ = page.focus("Save");
+    let _ = page.key("Enter");
+    let _ = page.key("x");
+    assert.equal(log.recorded(), []);
+}
+
+test "Enter on a submit button submits its form" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let one = signal(ctx, "");
+    let two = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({ label: .Const("One"), kind: .Text, value: one, styles: [] }),
+                ui.field({ label: .Const("Two"), kind: .Text, value: two, styles: [] }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
+    );
+    let _ = page.focus("Send");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 1);
+    let _ = page.key(" ");
+    assert.equal(submitted.get(ctx), 2);
+}
+
+test "Space flips the focused checkbox and switch, and Enter does not" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let done = signal(ctx, false);
+    let wifi = signal(ctx, true);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.toggle({
+                    label: .Const("Done"),
+                    kind: .Checkbox,
+                    isOn: done,
+                    styles: [],
+                }),
+                ui.toggle({
+                    label: .Const("Wifi"),
+                    kind: .Switch,
+                    isOn: wifi,
+                    styles: [],
+                }),
+            ],
+        }),
+    );
+    let _ = page.focus("Done");
+    let _ = page.key(" ");
+    assert.isTrue(done.get(ctx));
+    let _ = page.key("Enter");
+    assert.isTrue(done.get(ctx));
+    let _ = page.key(" ");
+    assert.isFalse(done.get(ctx));
+    let _ = page.focus("Wifi");
+    let _ = page.key(" ");
+    assert.isFalse(wifi.get(ctx));
+    // The focus stays on the toggle it flipped.
+    assert.equal(page.focused(), "Wifi");
+}
+
+/// A picker of three sizes, bound to `size`.
+fn sizes<C>(size: Signal<Str>): Node<C> {
+    ui.picker({
+        label: .Const("Size"),
+        options: [
+            ("s", ui.text({ content: .Const("Small") })),
+            ("m", ui.text({ content: .Const("Medium") })),
+            ("l", ui.text({ content: .Const("Large") })),
+        ],
+        value: size,
+        styles: [],
+    })
+}
+
+test "the arrow keys move a radio group's choice and its focus, wrapping round" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "s");
+    let page = render(ctx, sizes(size));
+    let _ = page.focus("Small");
+    let _ = page.key("ArrowDown");
+    assert.equal(size.get(ctx), "m");
+    assert.equal(page.focused(), "Medium");
+    let _ = page.key("ArrowRight");
+    assert.equal(size.get(ctx), "l");
+    let _ = page.key("ArrowDown");
+    assert.equal(size.get(ctx), "s");
+    assert.equal(page.focused(), "Small");
+    let _ = page.key("ArrowUp");
+    assert.equal(size.get(ctx), "l");
+    let _ = page.key("ArrowLeft");
+    assert.equal(size.get(ctx), "m");
+    assert.equal(page.focused(), "Medium");
+}
+
+test "Space checks the focused radio" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let size = signal(ctx, "");
+    let page = render(ctx, sizes(size));
+    let _ = page.focus("Large");
+    let _ = page.key(" ");
+    assert.equal(size.get(ctx), "l");
+}
+
+test "the arrow keys, Page Up, Page Down, Home and End move a slider" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let level = signal(ctx, 4.0);
+    let page = render(
+        ctx,
+        ui.slider({
+            label: .Const("Level"),
+            value: level,
+            min: 0.0,
+            max: 20.0,
+            styles: [],
+            step: .Some(0.5),
+        }),
+    );
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowRight");
+    assert.equal(level.get(ctx), 4.5);
+    let _ = page.key("ArrowUp");
+    assert.equal(level.get(ctx), 5.0);
+    let _ = page.key("ArrowLeft");
+    assert.equal(level.get(ctx), 4.5);
+    let _ = page.key("ArrowDown");
+    assert.equal(level.get(ctx), 4.0);
+    // A page is a tenth of the track, or a step when a step is more.
+    let _ = page.key("PageUp");
+    assert.equal(level.get(ctx), 6.0);
+    let _ = page.key("PageDown");
+    assert.equal(level.get(ctx), 4.0);
+    let _ = page.key("End");
+    assert.equal(level.get(ctx), 20.0);
+    // The track ends where it ends.
+    let _ = page.key("ArrowRight");
+    assert.equal(level.get(ctx), 20.0);
+    let _ = page.key("Home");
+    assert.equal(level.get(ctx), 0.0);
+    let _ = page.key("ArrowLeft");
+    assert.equal(level.get(ctx), 0.0);
+}
+
+test "a slider with no step moves by one" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let level = signal(ctx, 3.0);
+    let page = render(
+        ctx,
+        ui.slider({
+            label: .Const("Level"),
+            value: level,
+            min: 0.0,
+            max: 10.0,
+            styles: [],
+        }),
+    );
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowRight");
+    assert.equal(level.get(ctx), 4.0);
+}
+
+/// A form counting its submissions into `submitted`, holding `children`.
+fn counting<C: Ui>(submitted: Signal<Int>, children: [Node<C>]): Node<C> {
+    ui.form({
+        onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+        children: children,
+        styles: [],
+    })
+}
+
+test "Enter in a form's one line field submits the form" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let name = signal(ctx, "");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
+        ]),
+    );
+    let _ = page.focus("Name");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 1);
+}
+
+test "Enter in a field of a form with a submit button submits it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let one = signal(ctx, "");
+    let two = signal(ctx, "");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({ label: .Const("One"), kind: .Text, value: one, styles: [] }),
+            ui.field({ label: .Const("Two"), kind: .Text, value: two, styles: [] }),
+            ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+        ]),
+    );
+    let _ = page.focus("Two");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 1);
+}
+
+test "Enter in a form whose submit button is disabled submits nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let name = signal(ctx, "");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] }),
+            ui.button({
+                label: .Const("Send"),
+                styles: [],
+                kind: .Some(.Submit),
+                isDisabled: .Some(.Const(true)),
+            }),
+        ]),
+    );
+    // The disabled button is still the form's default, so the one line
+    // field does not submit the form on its own.
+    let _ = page.focus("Name");
+    let _ = page.key("Enter");
+    let _ = page.submit(0);
+    assert.equal(submitted.get(ctx), 0);
+}
+
+test "Enter in a form of two fields and no submit button submits nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let one = signal(ctx, "");
+    let two = signal(ctx, "");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({ label: .Const("One"), kind: .Text, value: one, styles: [] }),
+            ui.field({ label: .Const("Two"), kind: .Text, value: two, styles: [] }),
+        ]),
+    );
+    let _ = page.focus("One");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 0);
+}
+
+test "Enter in a multiline field submits nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let note = signal(ctx, "");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({
+                label: .Const("Note"),
+                kind: .Multiline,
+                value: note,
+                styles: [],
+            }),
+            ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+        ]),
+    );
+    let _ = page.focus("Note");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 0);
+}
+
+test "an onKey that claims Enter keeps the form from being submitted" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let name = signal(ctx, "");
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => { submitted.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: name,
+                    styles: [],
+                }),
+            ],
+            styles: [],
+            onKey: .Some(fn(_c, key) => key == "Enter"),
+        }),
+    );
+    let _ = page.focus("Name");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 0);
+}
+
+test "Enter and Space open and shut the focused disclosure" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: open,
+            children: [ui.text({ content: .Const("details") })],
+            styles: [],
+        }),
+    );
+    let _ = page.focus("More");
+    let _ = page.key("Enter");
+    assert.isTrue(open.get(ctx));
+    assert.equal(page.text(), "More details");
+    let _ = page.key(" ");
+    assert.isFalse(open.get(ctx));
+    assert.equal(page.text(), "More");
+}
+
+test "Enter follows the focused route link, and Space does not" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    let page = render(
+        ctx,
+        web.routeLink({
+            dest: .Const("/next"),
+            styles: [],
+            children: [ui.text({ content: .Const("go") })],
+        }),
+    );
+    let _ = page.focus("go");
+    let _ = page.key(" ");
+    assert.equal(web.path(ctx), "/");
+    let _ = page.key("Enter");
+    assert.equal(web.path(ctx), "/next");
+}

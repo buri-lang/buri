@@ -1622,9 +1622,10 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     // does is write the option's key. The checked input then follows the
     // signal, so the one that was on goes off without a handler saying so.
     page.flip("Banana");
+    assert.equal(choice.get(ctx), "b");
     assert.equal(
         page.markup(),
-        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
+        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Banana",
     );
     // Writing the signal from elsewhere checks the matching input too.
     let _ = choice.set(ctx, "a");

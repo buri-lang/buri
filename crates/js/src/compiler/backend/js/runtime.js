@@ -7885,6 +7885,11 @@ function $scene_record(kind, name, body, text) {
     key: null,
     // The stop this element draws, or -1 for one the focus never lands on.
     focusKey: -1,
+    // A radio's key, what its group's signal (`valueSignal`) holds when it is
+    // the one checked, or null for every element but a radio.
+    choice: null,
+    // How far one arrow key moves a slider.
+    step: 1,
   };
 }
 
@@ -8218,6 +8223,32 @@ function $ui_node_markSubmit(builder) {
   const doc = $scene_of(builder);
   const record = doc.records[$scene_openElement(doc)];
   if (record !== undefined) record.submit = true;
+}
+
+// Makes the open input a radio of the group whose selected key `signal` holds,
+// checked while it holds `key` — the native `registerChoice`.
+function $ui_node_registerChoice(builder, signal, key) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) {
+    record.valueSignal = Number(signal);
+    record.choice = key;
+  }
+}
+
+// Keeps how far one arrow key moves the open slider.
+function $ui_node_registerStep(builder, step) {
+  const doc = $scene_of(builder);
+  const record = doc.records[$scene_openElement(doc)];
+  if (record !== undefined) record.step = step;
+}
+
+// Keeps a dialog's `isOpen` signal on the first marker of its region, so Escape
+// can write it `false` — the native `registerDialog`.
+function $ui_node_registerDialog(builder, region, open) {
+  const doc = $scene_of(builder);
+  const at = doc.regions[Number(region)];
+  if (at !== undefined) doc.records[at.start].valueSignal = Number(open);
 }
 
 // Whether the element `openElement` answered is announced as the current page.
@@ -8952,13 +8983,139 @@ function $host_testing_Rendered_shiftTab(self) {
   return 0;
 }
 
+// A key: every `onKey` from the focused element out hears it, and when none
+// claimed it, what a browser does with it by itself follows — the native
+// `Rendered.key`.
 function $host_testing_Rendered_key(self, name) {
   const doc = $scene_of(self);
   if (name === "Tab") {
     $scene_tab(doc, true);
     return 0;
   }
-  if ($scene_dispatchKey(doc, name) || name !== "Escape") return 0;
+  if ($scene_dispatchKey(doc, name)) return 0;
+  if (name === "Escape") {
+    $scene_dismissTips(doc);
+    $scene_shutDialog(doc);
+    return 0;
+  }
+  const at = $scene_focusedRecord(doc);
+  if (at < 0) return 0;
+  const record = doc.records[at];
+  const target = $scene_keyTarget(record);
+  const pressing = name === "Enter" || name === " ";
+  if (target === "button" && pressing) $scene_activate(doc, at);
+  else if (target === "link" && name === "Enter") $scene_follow(doc, at);
+  else if (target === "summary" && pressing) $scene_flip(record);
+  else if (target === "toggle" && name === " ") $scene_flip(record);
+  else if (target === "radio" && name === " ") $scene_choose(record);
+  else if (target === "radio" && $SCENE_ARROWS[name] !== undefined) {
+    $scene_stepRadio(doc, at, $SCENE_ARROWS[name]);
+  } else if (target === "slider") $scene_slide(record, name);
+  // Enter in an input, of whatever kind, submits the form around it.
+  if (name === "Enter" && record.name === "input") {
+    const form = $scene_enclosing(doc, at, "form");
+    if (form >= 0) $scene_submitImplicitly(doc, form, $scene_blocksSubmission(record.body));
+  }
+  return 0;
+}
+
+// Whether an arrow key moves a radio group forward (down or right) or back.
+const $SCENE_ARROWS = { ArrowDown: true, ArrowRight: true, ArrowUp: false, ArrowLeft: false };
+
+// What the focused element is, for the keys a browser handles on it — the
+// native `key_target`.
+function $scene_keyTarget(record) {
+  if (record.name === "button") return "button";
+  if (record.name === "a") return "link";
+  if (record.name === "summary") return "summary";
+  if (record.name !== "input") return null;
+  if (record.choice !== null) return "radio";
+  const field = $scene_declValue(record.body, "field");
+  if (field === "range") return "slider";
+  return field === undefined ? "toggle" : null;
+}
+
+// Flips the `Bool` signal a toggle or a disclosure is bound to. A radio only
+// turns on: it checks itself.
+function $scene_flip(record) {
+  if (record.choice !== null) return $scene_choose(record);
+  const signal = record.valueSignal;
+  if (signal >= 0) $ui_flush(() => $ui_write(signal, !$ui_read(signal)));
+}
+
+// Checks a radio: its group's signal is written its key.
+function $scene_choose(record) {
+  const signal = record.valueSignal;
+  const key = record.choice;
+  if (signal >= 0 && key !== null) $ui_flush(() => $ui_write(signal, key));
+}
+
+// An arrow key on the radio `at`: the focus moves to the next radio of its
+// group, or the previous one, wrapping round, and checks it.
+function $scene_stepRadio(doc, at, forward) {
+  const signal = doc.records[at].valueSignal;
+  const group = [];
+  for (const [i] of $scene_ordered(doc)) {
+    const r = doc.records[i];
+    if (r.choice !== null && r.valueSignal === signal) group.push(i);
+  }
+  const here = group.indexOf(at);
+  if (here < 0) return;
+  const n = group.length;
+  const next = group[forward ? (here + 1) % n : (here + n - 1) % n];
+  const stop = doc.records[next].focusKey;
+  if (stop >= 0) $scene_setFocus(doc, stop);
+  $scene_choose(doc.records[next]);
+}
+
+// The keys that move a slider: an arrow by one step, Page Up and Page Down by
+// a tenth of the track or a step when that is more, Home and End to either end.
+// The value stays on the track and on a step from its start.
+function $scene_slide(record, name) {
+  const range = $scene_declValue(record.body, "range");
+  if (range === undefined || record.valueSignal < 0) return;
+  const [min, max, now] = range.split(" ").map(Number);
+  const step = record.step;
+  const page = Math.max(step, (max - min) / 10);
+  const moves = {
+    ArrowRight: now + step,
+    ArrowUp: now + step,
+    ArrowLeft: now - step,
+    ArrowDown: now - step,
+    PageUp: now + page,
+    PageDown: now - page,
+    Home: min,
+    End: max,
+  };
+  const to = moves[name];
+  if (to === undefined) return;
+  const top = min + Math.floor((max - min) / step) * step;
+  const snapped = Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top);
+  const signal = record.valueSignal;
+  $ui_flush(() => $ui_write(signal, snapped));
+}
+
+// Escape shuts the topmost open dialog: its `isOpen`, kept on the marker that
+// opens the dialog's region, is written `false`.
+function $scene_shutDialog(doc) {
+  const dialogs = $scene_elements(doc, "dialog");
+  if (dialogs.length === 0) return;
+  const scrim = doc.records[dialogs[dialogs.length - 1]].parent;
+  if (scrim === null || scrim === undefined) return;
+  const parent = doc.records[scrim].parent;
+  if (parent === null || parent === undefined) return;
+  const siblings = doc.records[parent].children;
+  for (let i = siblings.indexOf(scrim) - 1; i >= 0; i--) {
+    const marker = doc.records[siblings[i]];
+    if (marker.kind !== 2) continue;
+    const signal = marker.valueSignal;
+    if (signal >= 0) $ui_flush(() => $ui_write(signal, false));
+    return;
+  }
+}
+
+// Escape hides the tooltip that is showing.
+function $scene_dismissTips(doc) {
   const focused = $scene_focusedRecord(doc);
   for (const [i] of $scene_ordered(doc)) {
     const r = doc.records[i];
@@ -8968,7 +9125,6 @@ function $host_testing_Rendered_key(self, name) {
     if (over || inside) r.tipDismissed = true;
   }
   $scene_syncTips(doc);
-  return 0;
 }
 
 function $host_testing_Rendered_press(self, label) {
@@ -8989,8 +9145,16 @@ function $host_testing_Rendered_press(self, label) {
   for (const entry of doc.outside) {
     if (entry.alive && !$scene_within(doc, entry.elem, button)) entry.fire();
   }
+  $scene_activate(doc, button);
+  return 0;
+}
+
+// A button's activation — what a click on it does, and what Enter and Space on
+// it do: its handler runs, and a submit button submits its form. A disabled
+// button does nothing. The native `activate`.
+function $scene_activate(doc, button) {
   const record = doc.records[button];
-  if ($scene_isDisabled(record.body)) return 0;
+  if ($scene_isDisabled(record.body)) return;
   if (record.press !== null) record.press();
   // A submit button has no handler of its own: reaching the form is the
   // browser's default action for the press.
@@ -8998,7 +9162,6 @@ function $host_testing_Rendered_press(self, label) {
     const form = $scene_enclosing(doc, button, "form");
     if (form >= 0 && doc.records[form].press !== null) doc.records[form].press();
   }
-  return 0;
 }
 
 // A route link's follow handler is not in the scene document — the scene drops
@@ -9010,13 +9173,18 @@ function $host_testing_Rendered_follow(self, label) {
   const doc = $scene_of(self);
   const anchor = $scene_labelled(doc, "a", label);
   if (anchor < 0) $abort('this tree has no a labelled "' + label + '"');
-  // A plain left-click the app answers in place: a route link's handler moves
-  // the address and keeps the tree. An ordinary link carries none, so nothing
-  // observable happens — which is what a test asserts by what did not change.
-  if (!$scene_reachable(doc, anchor) || $scene_inert(doc, anchor)) return 0;
+  $scene_follow(doc, anchor);
+  return 0;
+}
+
+// A plain left-click on an anchor, which Enter on it is too: the app answers
+// it in place, as a route link's handler moves the address and keeps the tree.
+// An ordinary link carries none, so nothing observable happens — which is what
+// a test asserts by what did not change.
+function $scene_follow(doc, anchor) {
+  if (!$scene_reachable(doc, anchor) || $scene_inert(doc, anchor)) return;
   const record = doc.records[anchor];
   if (record.follow !== null) record.follow();
-  return 0;
 }
 
 function $host_testing_Rendered_openInNewTab(self, label) {
@@ -9078,10 +9246,7 @@ function $host_testing_Rendered_flip(self, label) {
   if (box < 0) $abort('the label "' + label + '" is not a toggle');
   const record = doc.records[box];
   if ($scene_isDisabled(record.body) || $scene_inert(doc, box)) return 0;
-  if (record.valueSignal >= 0) {
-    const signal = record.valueSignal;
-    $ui_flush(() => $ui_write(signal, !$ui_read(signal)));
-  }
+  $scene_flip(record);
   return 0;
 }
 
@@ -9106,29 +9271,36 @@ function $host_testing_deliverFile(page, label) {
   return 0;
 }
 
-// Pressing Enter in a field, which is implicit submission — the platform's
-// rule, the native `submit`: an enabled submit button submits the form, and a
-// form with none is submitted only while exactly one of its fields blocks
-// implicit submission. A form a `dialog` has taken out of reach submits nothing.
+// Submits the `index`th form the way Enter in one of its line fields does —
+// the native `submit`.
 function $host_testing_Rendered_submit(self, at) {
   const doc = $scene_of(self);
   const forms = $scene_elements(doc, "form");
   const index = Number(at);
   if (index < 0 || index >= forms.length) $abort("this tree has no form " + index);
-  const form = forms[index];
-  if ($scene_inert(doc, form)) return 0;
-  let hasSubmit = false;
-  for (const b of $scene_descendants(doc, form, "button")) {
-    if (doc.records[b].submit && !$scene_isDisabled(doc.records[b].body)) hasSubmit = true;
-  }
-  let blocking = 0;
-  for (const i of $scene_descendants(doc, form, "input")) {
-    if ($scene_blocksSubmission(doc.records[i].body)) blocking++;
-  }
-  if ((hasSubmit || blocking === 1) && doc.records[form].press !== null) {
-    doc.records[form].press();
-  }
+  $scene_submitImplicitly(doc, forms[index], true);
   return 0;
+}
+
+// Implicit submission, the HTML Standard's rule for Enter in a form's field.
+// The form's first submit button is its default: when it has one, the form is
+// submitted unless that button is disabled. When it has none, the form is
+// submitted only from a field that blocks implicit submission (`line`), and
+// only while it is the one such field. A form a `dialog` has taken out of
+// reach submits nothing. The native `submit_implicitly`.
+function $scene_submitImplicitly(doc, form, line) {
+  if ($scene_inert(doc, form)) return;
+  const fallback = $scene_descendants(doc, form, "button").find((b) => doc.records[b].submit);
+  let submits;
+  if (fallback !== undefined) submits = !$scene_isDisabled(doc.records[fallback].body);
+  else {
+    let blocking = 0;
+    for (const i of $scene_descendants(doc, form, "input")) {
+      if ($scene_blocksSubmission(doc.records[i].body)) blocking++;
+    }
+    submits = line && blocking === 1;
+  }
+  if (submits && doc.records[form].press !== null) doc.records[form].press();
 }
 
 // The innermost element whose name — its label, or else its text — is `label`,

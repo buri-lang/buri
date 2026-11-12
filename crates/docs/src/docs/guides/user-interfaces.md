@@ -409,7 +409,7 @@ generic `onTap`: activating something is a `button`'s or a `link`'s job.
 
 **A form ends in a `.Submit` button.** Enter in a field is the browser's own
 dispatch, and the browser's own rule comes with it: a form is submitted
-implicitly through its submit button, and a form with none is submitted only
+implicitly through its submit button unless it's disabled, and a form with none is submitted only
 while it holds exactly one field. So a `button` given `kind: .Some(.Submit)`
 carries no handler of its own — the form's `onSubmit` is its handler — and an
 ordinary `button` beside it stays the Cancel it was written as.
@@ -1051,7 +1051,9 @@ export fn confirm<C: Ui>(open: Signal<Bool>, question: Str): Node<C> {
 The `isOpen` is a `Signal` and not a `Prop`, because the platform writes it: the
 reader presses Escape and the browser shuts the panel without asking, so a
 one-way value would leave the program holding a dialog nobody can see. Write
-`true` to open it and `false` to shut it.
+`true` to open it and `false` to shut it. A headless test's
+`page.key("Escape")` shuts it the same way, as every key a browser handles by
+itself does what it does there.
 
 The `styles` land on the panel, so a dialog is a card you drew. The scrim behind
 it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a

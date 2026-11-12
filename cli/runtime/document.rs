@@ -136,6 +136,11 @@ struct Record {
     /// The focus this element stands for, an index into the document's
     /// `stops`, or `-1` for an element the focus never lands on.
     focus_key: i64,
+    /// A radio's key: what its group's signal, `value_signal`, holds when it
+    /// is the one checked. `None` for every element but a radio.
+    choice: Option<String>,
+    /// How far one arrow key moves a slider, the JavaScript `step`.
+    step: f64,
 }
 
 /// One element the focus can land on, minted once by `focusKey` and handed
@@ -189,6 +194,8 @@ fn plain_record(
         tip_dismissed: false,
         key: -1,
         focus_key: -1,
+        choice: None,
+        step: 1.0,
     }
 }
 
@@ -1308,6 +1315,59 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_follow(
     });
 }
 
+/// `registerChoice(builder, signal, key)` — makes the open input a radio of
+/// the group whose selected key `signal` holds, checked while it holds `key`,
+/// so the arrow keys and Space can pick it.
+///
+/// # Safety
+/// `key` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_register_choice(
+    handle: i64,
+    signal: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let key = unsafe { text_of(ptr, len) };
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.value_signal = signal;
+            r.choice = Some(key);
+        }
+    });
+}
+
+/// `registerStep(builder, step)` — keeps how far one arrow key moves the open
+/// slider.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_register_step(handle: i64, step: f64) {
+    with_doc(handle, |doc| {
+        let open = open_element(doc);
+        if let Some(r) = doc.records.get_mut(open) {
+            r.step = step;
+        }
+    });
+}
+
+/// `registerDialog(builder, region, open)` — keeps a dialog's `isOpen` signal
+/// on the first marker of the region the dialog is drawn in, so Escape can
+/// write it `false`, the way a browser shutting the dialog does.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_node_register_dialog(handle: i64, region: i64, open: i64) {
+    with_doc(handle, |doc| {
+        let start = usize::try_from(region)
+            .ok()
+            .and_then(|r| doc.regions.get(r))
+            .map(|r| r.start);
+        if let Some(r) = start.and_then(|s| doc.records.get_mut(s)) {
+            r.value_signal = open;
+        }
+    });
+}
+
 /// `markSubmit(builder)` — flags the open button as the one whose press submits
 /// its form, the native `type="submit"`.
 #[unsafe(no_mangle)]
@@ -1950,6 +2010,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     for node in outside {
         crate::ui::fire(node, handle);
     }
+    activate(handle, button);
+}
+
+/// A button's activation — what a click on it does, and what Enter and Space
+/// on it do: its handler runs, and a submit button submits its form. A
+/// disabled button does nothing.
+fn activate(handle: i64, button: usize) {
     let (press, submit, disabled) = with_doc(handle, |doc| {
         let r = &doc.records[button];
         (r.press, r.submit, is_disabled(&r.body))
@@ -1998,7 +2065,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_follow(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
-    let a = anchor(handle, &label);
+    follow_anchor(handle, anchor(handle, &label));
+}
+
+/// A plain left-click on the anchor `a`, which Enter on it is too: a route
+/// link's kept handler runs with its destination, and an ordinary link or one
+/// out of reach does nothing.
+fn follow_anchor(handle: i64, a: usize) {
     let kept = with_doc(handle, |doc| {
         let r = &doc.records[a];
         (doc.reachable(a) && !doc.inert(a) && r.follow >= 0)
@@ -2158,22 +2231,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_flip(
     let Some(toggle) = toggle else {
         crate::abort::die(&[b"the label \"", label.as_bytes(), b"\" is not a toggle"])
     };
-    let (disabled, inert, signal) = with_doc(handle, |doc| {
-        (
-            is_disabled(&doc.records[toggle].body),
-            doc.inert(toggle),
-            doc.records[toggle].value_signal,
-        )
+    let blocked = with_doc(handle, |doc| {
+        is_disabled(&doc.records[toggle].body) || doc.inert(toggle)
     })
-    .unwrap_or((true, true, -1));
-    if disabled || inert {
-        return;
-    }
-    if signal >= 0 {
-        // One update transaction, as the JavaScript `change` listener's is.
-        crate::ui::buri_rt_ui_flush_begin();
-        crate::ui::flip_bool_signal(signal);
-        crate::ui::buri_rt_ui_flush_end();
+    .unwrap_or(true);
+    if !blocked {
+        flip(handle, toggle);
     }
 }
 
@@ -2960,8 +3023,13 @@ pub extern "C" fn buri_rt_host_testing_rendered_shift_tab(handle: i64) {
 }
 
 /// `Rendered.key(key)` — every `onKey` from the focused element out to the
-/// root hears `key`, innermost first. An Escape none of them claimed hides the
-/// tooltip that is showing, and a Tab is `tab`.
+/// root hears `key`, innermost first. When none of them claimed it, what a
+/// browser does with the key by itself follows: an Escape hides the tooltip
+/// that is showing and shuts the topmost dialog; Enter and Space press a
+/// button and open or shut a disclosure; Enter follows a link; Space flips a
+/// toggle and checks a radio; the arrows move a radio group's choice, and they,
+/// Page Up, Page Down, Home and End move a slider; and Enter in an input
+/// submits its form. A Tab is `tab`.
 ///
 /// # Safety
 /// `key` is a readable UTF-8 range, or null with a zero length.
@@ -2978,9 +3046,202 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
         tab(handle, true);
         return;
     }
-    if dispatch_key(handle, &name) || name != "Escape" {
+    if dispatch_key(handle, &name) {
         return;
     }
+    if name == "Escape" {
+        dismiss_tips(handle);
+        shut_dialog(handle);
+        return;
+    }
+    let Some(at) = with_doc(handle, |doc| doc.focused_record()).flatten() else {
+        return;
+    };
+    match key_target(handle, at) {
+        Some(Target::Button) if name == "Enter" || name == " " => activate(handle, at),
+        Some(Target::Link) if name == "Enter" => follow_anchor(handle, at),
+        Some(Target::Summary) if name == "Enter" || name == " " => flip(handle, at),
+        Some(Target::Toggle) if name == " " => flip(handle, at),
+        Some(Target::Radio) if name == " " => choose(handle, at),
+        Some(Target::Radio) => {
+            if let Some(forward) = arrow(&name) {
+                step_radio(handle, at, forward);
+            }
+        }
+        Some(Target::Slider) => slide(handle, at, &name),
+        _ => {}
+    }
+    // Enter in an input, of whatever kind, submits the form around it.
+    if name == "Enter"
+        && let Some((form, line)) = with_doc(handle, |doc| {
+            let r = &doc.records[at];
+            (r.name == "input")
+                .then(|| doc.enclosing(at, "form"))
+                .flatten()
+                .map(|form| (form, blocks_submission(&r.body)))
+        })
+        .flatten()
+    {
+        submit_implicitly(handle, form, line);
+    }
+}
+
+/// What the focused element is, for the keys a browser handles on it.
+enum Target {
+    Button,
+    Link,
+    Summary,
+    Toggle,
+    Radio,
+    Slider,
+}
+
+fn key_target(handle: i64, at: usize) -> Option<Target> {
+    with_doc(handle, |doc| {
+        let r = &doc.records[at];
+        match r.name.as_str() {
+            "button" => Some(Target::Button),
+            "a" => Some(Target::Link),
+            "summary" => Some(Target::Summary),
+            "input" if r.choice.is_some() => Some(Target::Radio),
+            "input" => match decl_value(&r.body, "field").as_deref() {
+                Some("range") => Some(Target::Slider),
+                Some(_) => None,
+                None => Some(Target::Toggle),
+            },
+            _ => None,
+        }
+    })
+    .flatten()
+}
+
+/// Whether an arrow key moves forward (down or right) or back (up or left).
+fn arrow(name: &str) -> Option<bool> {
+    match name {
+        "ArrowDown" | "ArrowRight" => Some(true),
+        "ArrowUp" | "ArrowLeft" => Some(false),
+        _ => None,
+    }
+}
+
+/// Flips the `Bool` signal the element `at` is bound to — a toggle's value or
+/// a disclosure's openness. A radio only turns on: it checks itself.
+fn flip(handle: i64, at: usize) {
+    if with_doc(handle, |doc| doc.records[at].choice.is_some()).unwrap_or(false) {
+        return choose(handle, at);
+    }
+    let signal = with_doc(handle, |doc| doc.records[at].value_signal).unwrap_or(-1);
+    if signal >= 0 {
+        // One update transaction, as the JavaScript `change` listener's is.
+        crate::ui::buri_rt_ui_flush_begin();
+        crate::ui::flip_bool_signal(signal);
+        crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// Checks the radio `at`: its group's signal is written its key.
+fn choose(handle: i64, at: usize) {
+    let picked = with_doc(handle, |doc| {
+        let r = &doc.records[at];
+        r.choice.clone().map(|key| (r.value_signal, key))
+    })
+    .flatten();
+    if let Some((signal, key)) = picked {
+        crate::ui::buri_rt_ui_flush_begin();
+        crate::ui::set_str_signal(signal, &key);
+        crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// An arrow key on the radio `at`: the focus moves to the next radio of its
+/// group, or the previous one, wrapping round, and checks it.
+fn step_radio(handle: i64, at: usize, forward: bool) {
+    let next = with_doc(handle, |doc| {
+        let signal = doc.records[at].value_signal;
+        let group: Vec<usize> = doc
+            .ordered()
+            .into_iter()
+            .map(|(i, _)| i)
+            .filter(|&i| doc.records[i].choice.is_some() && doc.records[i].value_signal == signal)
+            .collect();
+        let here = group.iter().position(|&i| i == at)?;
+        let n = group.len();
+        let next = group[if forward {
+            (here + 1) % n
+        } else {
+            (here + n - 1) % n
+        }];
+        Some((next, doc.stop_of(next)))
+    })
+    .flatten();
+    let Some((next, stop)) = next else { return };
+    if stop.is_some() {
+        set_focus(handle, stop);
+    }
+    choose(handle, next);
+}
+
+/// The keys that move the slider `at`: an arrow by one step, Page Up and Page
+/// Down by a tenth of the track or a step when that is more, Home and End to
+/// either end. The value stays on the track and on a step from its start.
+fn slide(handle: i64, at: usize, name: &str) {
+    let moved = with_doc(handle, |doc| {
+        let r = &doc.records[at];
+        let range = decl_value(&r.body, "range")?;
+        let mut bounds = range.split(' ').map(|v| v.parse::<f64>().ok());
+        let (min, max, now) = (bounds.next()??, bounds.next()??, bounds.next()??);
+        let step = r.step;
+        let page = step.max((max - min) / 10.0);
+        let to = match name {
+            "ArrowRight" | "ArrowUp" => now + step,
+            "ArrowLeft" | "ArrowDown" => now - step,
+            "PageUp" => now + page,
+            "PageDown" => now - page,
+            "Home" => min,
+            "End" => max,
+            _ => return None,
+        };
+        let top = min + ((max - min) / step).floor() * step;
+        let snapped = (min + ((to - min) / step).round() * step).clamp(min, top);
+        Some((r.value_signal, snapped))
+    })
+    .flatten();
+    if let Some((signal, value)) = moved
+        && signal >= 0
+    {
+        crate::ui::buri_rt_ui_flush_begin();
+        crate::ui::set_f64_signal(signal, value);
+        crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// Escape shuts the topmost open dialog, the way a browser's does: its
+/// `isOpen` is written `false`. The signal is kept on the marker that opens
+/// the dialog's region, the one before its scrim.
+fn shut_dialog(handle: i64) {
+    let signal = with_doc(handle, |doc| {
+        let dialog = *doc.elements("dialog").last()?;
+        let scrim = doc.records[dialog].parent?;
+        let parent = doc.records[scrim].parent?;
+        let siblings = &doc.records[parent].children;
+        let here = siblings.iter().position(|&c| c == scrim)?;
+        siblings[..here]
+            .iter()
+            .rev()
+            .find(|&&c| doc.records[c].kind == Kind::Marker)
+            .map(|&m| doc.records[m].value_signal)
+    })
+    .flatten()
+    .unwrap_or(-1);
+    if signal >= 0 {
+        crate::ui::buri_rt_ui_flush_begin();
+        crate::ui::set_bool_signal(signal, false);
+        crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// Escape hides the tooltip that is showing.
+fn dismiss_tips(handle: i64) {
     with_doc(handle, |doc| {
         let focused = doc.focused_record();
         let tips: Vec<usize> = doc
@@ -3000,9 +3261,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
     sync_tips(handle);
 }
 
-/// `Rendered.submit(index)` — submit the `index`th form under the implicit-
-/// submission rule: an enabled submit button submits it, and a form with none is
-/// submitted only while exactly one of its fields blocks implicit submission.
+/// `Rendered.submit(index)` — submit the `index`th form the way Enter in one
+/// of its line fields does.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) {
     let forms = with_doc(handle, |doc| doc.elements("form")).unwrap_or_default();
@@ -3012,23 +3272,39 @@ pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) 
     let Some(form) = form else {
         crate::abort::die(&[b"this tree has no form ", index.to_string().as_bytes()])
     };
-    if with_doc(handle, |doc| doc.inert(form)).unwrap_or(true) {
-        return;
-    }
-    let (has_submit, blocking, node) = with_doc(handle, |doc| {
-        let has_submit = doc
+    submit_implicitly(handle, form, true);
+}
+
+/// Implicit submission, the HTML Standard's rule for Enter in a form's field.
+/// The form's first submit button is its default: when it has one, the form
+/// is submitted unless that button is disabled. When it has none, the form is
+/// submitted only from a field that blocks implicit submission (`line`), and
+/// only while it is the one such field. A form a dialog has taken out of
+/// reach submits nothing.
+fn submit_implicitly(handle: i64, form: usize, line: bool) {
+    let node = with_doc(handle, |doc| {
+        if doc.inert(form) {
+            return -1;
+        }
+        let default = doc
             .descendants(form, "button")
             .into_iter()
-            .any(|b| doc.records[b].submit && !is_disabled(&doc.records[b].body));
-        let blocking = doc
-            .descendants(form, "input")
-            .into_iter()
-            .filter(|i| blocks_submission(&doc.records[*i].body))
-            .count();
-        (has_submit, blocking, doc.records[form].press)
+            .find(|&b| doc.records[b].submit);
+        let submits = match default {
+            Some(b) => !is_disabled(&doc.records[b].body),
+            None => {
+                line && doc
+                    .descendants(form, "input")
+                    .into_iter()
+                    .filter(|i| blocks_submission(&doc.records[*i].body))
+                    .count()
+                    == 1
+            }
+        };
+        if submits { doc.records[form].press } else { -1 }
     })
-    .unwrap_or((false, 0, -1));
-    if (has_submit || blocking == 1) && node >= 0 {
+    .unwrap_or(-1);
+    if node >= 0 {
         crate::ui::fire(node, handle);
     }
 }

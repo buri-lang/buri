@@ -1959,6 +1959,17 @@ pub const ENTRIES: &[Entry] = &[
     // a children-button by the label a reader hears rather than its glyphs.
     e("ui_node.registerLabel", &[Scalar, Str], Ret::Void),
     e("ui_node.markSubmit", &[Scalar], Ret::Void),
+    // What the keys a browser handles by itself act on: `registerChoice` makes
+    // the open input a radio of a group's signal, `registerStep` keeps how far
+    // an arrow moves a slider, and `registerDialog` keeps the signal Escape
+    // writes to shut a dialog on its region.
+    e("ui_node.registerChoice", &[Scalar, Scalar, Str], Ret::Void),
+    e("ui_node.registerStep", &[Scalar, Float], Ret::Void),
+    e(
+        "ui_node.registerDialog",
+        &[Scalar, Scalar, Scalar],
+        Ret::Void,
+    ),
     // What a reader is told about an element and a painter never draws:
     // `aria-current` and `aria-hidden`'s scene twins, kept on the record and
     // read back by `isCurrent` and `spoken`.
@@ -2834,7 +2845,7 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(params > 300, "only {params} parameters were read");
-        assert_eq!(floats, 33);
+        assert_eq!(floats, 34);
         assert!(answers > 70, "only {answers} answers were read");
         assert!(narrow > 15, "only {narrow} narrow answers were read");
         let order = module_source("core/order")

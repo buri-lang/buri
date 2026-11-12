@@ -2387,7 +2387,6 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         .Slider(label, value, min, max, step, styles, around, disabled, focus, events) => {
             let key = focusKey(builder);
             let region = enterDynamic(builder);
-            let _ = step;
             let _ = reactive(fn(scope) => {
                 let _ = beginRegion(builder, region);
                 let _ = emitSlider(
@@ -2397,6 +2396,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     value,
                     min,
                     max,
+                    step,
                     styles,
                     around,
                     disabled,
@@ -2524,9 +2524,25 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // over the default) holding a `dialog` element, as `.Raw` trees the
         // reconciler walks and mints — or nothing. Closing it unlinks the panel,
         // so the page behind is reachable again.
+        // The region keeps the signal, so Escape can shut the dialog.
         .Dialog(open, label, styles, children, scrimStyles, events) => {
-            bindDynamic(builder, fn(scope) => {
-                dialogScene(scope, open, label, styles, children, scrimStyles, events)
+            let region = enterDynamic(builder);
+            let _ = registerDialog(builder, region, open.index());
+            reactive(fn(scope) => {
+                rebuildRegion(
+                    builder,
+                    region,
+                    dialogScene(
+                        scope,
+                        open,
+                        label,
+                        styles,
+                        children,
+                        scrimStyles,
+                        events,
+                    ),
+                    renderInto,
+                )
             })
         },
         // The summary is always drawn; the children only when open. `open` is a
@@ -2549,6 +2565,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 "summary",
                 widgetBody(mem, plain(state), [], []),
             );
+            // The summary is the control: it takes the focus, and Enter and
+            // Space on it open and shut the disclosure.
+            let _ = attachFocus(builder, focusKey(builder), true);
+            let _ = registerValue(builder, open.index());
             let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
             let _ = bindDynamic(builder, fn(scope) => {
@@ -3007,6 +3027,7 @@ fn emitPickerOptions<C>(
                     widgetBody(inner, painted, [], radioBox()),
                 );
                 let _ = attachFocus(builder, stop, true);
+                let _ = registerChoice(builder, value.index(), key);
                 let _ = setFocusOrder(builder, stop, reached && (on || first));
                 let _ = emitDot(builder, on);
                 let _ = exitElement(builder);
@@ -3029,6 +3050,7 @@ fn emitSlider<C>(
     value: Signal<Float>,
     min: Float,
     max: Float,
+    step: Option<Float>,
     styles: [Style],
     around: [Style],
     disabled: Prop<Bool>,
@@ -3050,6 +3072,7 @@ fn emitSlider<C>(
         answering(ctx, state, disabled, focus),
         min,
         max,
+        step,
         styles,
         value.get(ctx),
         value.index(),
@@ -3066,6 +3089,7 @@ fn emitSliderControl(
     painted: Painted,
     min: Float,
     max: Float,
+    step: Option<Float>,
     styles: [Style],
     value: Float,
     signal: Int,
@@ -3083,6 +3107,8 @@ fn emitSliderControl(
     );
     let _ = attachFocus(builder, key, true);
     let _ = registerValue(builder, signal);
+    // A browser's step is one when the slider names none.
+    let _ = registerStep(builder, step.withDefault(1.0));
     exitElement(builder)
 }
 
@@ -3760,6 +3786,18 @@ fn registerFollow<C>(builder: Builder, dest: Str, onFollow: fn(C, Str) => ()): (
 /// Flags the open button as the one whose press submits its form — the native
 /// `type="submit"`, the whole of what makes a press or Enter submit.
 fn markSubmit(builder: Builder): ();
+
+/// Makes the open input a radio of the group whose selected key `signal`
+/// holds, checked while it holds `key` — what the arrow keys and Space pick,
+/// the way a browser's radio writes its `value` back.
+fn registerChoice(builder: Builder, signal: Int, key: Str): ();
+
+/// Keeps how far one arrow key moves the open slider — the native `step`.
+fn registerStep(builder: Builder, step: Float): ();
+
+/// Keeps a dialog's `isOpen` signal with the region the dialog is drawn in,
+/// so Escape writes it `false`, the way a browser shutting the dialog does.
+fn registerDialog(builder: Builder, region: I64, open: Int): ();
 
 /// Says whether the element `openElement` answered `at` is announced as the
 /// current page — the scene twin of `aria-current`. Not in the scene a painter

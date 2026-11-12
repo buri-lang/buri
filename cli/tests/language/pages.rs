@@ -357,6 +357,162 @@ console.log(counts());
     );
 }
 
+/// One of each element a key acts on by itself: a dialog, a button, a
+/// checkbox, a radio group, a slider, a disclosure, a form of one field and
+/// a form whose submit button is disabled.
+/// A line under them says what each holds. `conformance/lib/ui/test/keys.buri`
+/// presses the same keys headlessly.
+const KEYS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let open = signal(ctx, true);
+    let saves = signal(ctx, 0);
+    let wifi = signal(ctx, false);
+    let size = signal(ctx, "s");
+    let level = signal(ctx, 4.0);
+    let more = signal(ctx, false);
+    let name = signal(ctx, "");
+    let email = signal(ctx, "");
+    let sent = signal(ctx, 0);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Delete this?"),
+                    children: [
+                        ui.button({ label: .Const("Done"), styles: [], onPress: .Some(fn(_c) => ()) }),
+                    ],
+                    styles: [],
+                }),
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    onPress: .Some(fn(c) => saves.update(c, fn(n) => n + 1)),
+                }),
+                ui.toggle({ label: .Const("Wifi"), kind: .Checkbox, isOn: wifi, styles: [] }),
+                ui.picker({
+                    label: .Const("Size"),
+                    options: [
+                        ("s", ui.text({ content: .Const("Small") })),
+                        ("m", ui.text({ content: .Const("Medium") })),
+                        ("l", ui.text({ content: .Const("Large") })),
+                    ],
+                    value: size,
+                    styles: [],
+                }),
+                ui.slider({
+                    label: .Const("Level"),
+                    value: level,
+                    min: 0.0,
+                    max: 20.0,
+                    styles: [],
+                    step: .Some(0.5),
+                }),
+                ui.disclosure({
+                    summary: .Const("More"),
+                    isOpen: more,
+                    children: [ui.text({ content: .Const("details") })],
+                    styles: [],
+                }),
+                ui.form({
+                    onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+                    children: [ui.field({ label: .Const("Name"), kind: .Text, value: name, styles: [] })],
+                    styles: [],
+                }),
+                ui.form({
+                    onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+                    children: [
+                        ui.field({ label: .Const("Email"), kind: .Text, value: email, styles: [] }),
+                        ui.button({
+                            label: .Const("Send"),
+                            styles: [],
+                            kind: .Some(.Submit),
+                            isDisabled: .Some(.Const(true)),
+                        }),
+                    ],
+                    styles: [],
+                }),
+                ui.text({
+                    content: .Computed(fn(s) => {
+                        str.format(
+                            s,
+                            "open:${open.get(s)} saves:${saves.get(s)} wifi:${wifi.get(s)} size:${size.get(s)} level:${level.get(s)} more:${more.get(s)} sent:${sent.get(s)}",
+                        )
+                    }),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_key_does_in_a_browser_what_it_does_headlessly() {
+    let printed = drive(
+        "keys-page",
+        KEYS_PAGE,
+        r#"
+const said = () => body.firstChild.lastChild.textContent;
+// The input a `<label>` holds beside its words.
+const control = (name) => [...document.querySelectorAll("label")].find((l) => l.textContent === name).querySelector("input");
+labelled("Done").focus();
+press("Escape");
+console.log(`${said()} dialog:${document.querySelector("dialog[open]") === null ? "shut" : "open"}`);
+labelled("Save").focus();
+press("Enter");
+press(" ");
+control("Wifi").focus();
+press(" ");
+press("Enter");
+console.log(said());
+control("Small").focus();
+press("ArrowDown");
+press("ArrowDown");
+press("ArrowDown");
+press("ArrowUp");
+console.log(said());
+control("Level").focus();
+press("ArrowRight");
+press("PageUp");
+console.log(said());
+press("End");
+press("ArrowRight");
+console.log(said());
+press("Home");
+press("ArrowLeft");
+document.querySelector("summary").focus();
+press("Enter");
+control("Name").focus();
+press("Enter");
+// A disabled submit button keeps its form from being submitted.
+control("Email").focus();
+press("Enter");
+console.log(said());
+"#,
+    );
+    assert_eq!(
+        printed,
+        "open:false saves:0 wifi:false size:s level:4.0 more:false sent:0 dialog:shut\n\
+         open:false saves:2 wifi:true size:s level:4.0 more:false sent:0\n\
+         open:false saves:2 wifi:true size:l level:4.0 more:false sent:0\n\
+         open:false saves:2 wifi:true size:l level:6.5 more:false sent:0\n\
+         open:false saves:2 wifi:true size:l level:20.0 more:false sent:0\n\
+         open:false saves:2 wifi:true size:l level:0.0 more:true sent:1\n"
+    );
+}
+
 /// One of each element that has an accessible name, beside a decorative
 /// picture and a decorative drawing. `conformance/lib/ui/test/names.buri`
 /// reads the same names through `spoken()`.

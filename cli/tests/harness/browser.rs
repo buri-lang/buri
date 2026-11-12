@@ -19,7 +19,11 @@
 ///  * `labelled(label)`, the element whose `aria-label` is `label`, or `null`;
 ///  * `fire(target, type, fields)`, which dispatches `type` at `target` as the
 ///    event a browser fires for it and answers the event;
-///  * `press(key)`, a keydown at the focused element;
+///  * `press(key)`, a keydown at the focused element and, when no listener
+///    cancelled it, the key's default action — Escape cancels a dialog, Enter
+///    and Space click a button, Space a checkbox or a radio, the arrows move a
+///    radio group or a slider, and Enter in a form's field submits the form —
+///    which happy-dom doesn't take itself;
 ///  * `moves`, every move the address bar made, in order.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
@@ -67,8 +71,85 @@ function fire(target, type, fields = {}) {
   return event;
 }
 
-// A keydown where the focus is: the body when nothing has it.
-const press = (key) => fire(document.activeElement, "keydown", { key });
+// A keydown where the focus is (the body when nothing has it), then, unless a
+// listener cancelled it, what a browser does with the key by itself.
+function press(key) {
+  const at = document.activeElement;
+  const event = fire(at, "keydown", { key });
+  if (!event.defaultPrevented) byItself(at, key);
+  return event;
+}
+
+// The fields a browser submits a form from when it has no submit button.
+const LINE_FIELDS = ["text", "search", "url", "tel", "email", "password", "number"];
+
+// A key's default action on `at`, which happy-dom leaves out. It does
+// implement what each one comes down to: `click()`, a dialog's `close()`, and
+// `requestSubmit()`.
+function byItself(at, key) {
+  const tag = at.tagName;
+  const type = tag === "INPUT" ? at.type : "";
+  const pressing = key === "Enter" || key === " ";
+  if (key === "Escape") {
+    // Escape cancels the topmost modal dialog: `cancel`, which a listener can
+    // cancel, then `close`.
+    const dialog = [...document.querySelectorAll("dialog[open]")].pop();
+    if (dialog !== undefined && dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) {
+      dialog.close();
+    }
+  } else if (pressing && (tag === "BUTTON" || tag === "SUMMARY")) at.click();
+  else if (key === "Enter" && tag === "A") at.click();
+  else if (key === " " && (type === "checkbox" || type === "radio")) at.click();
+  else if (type === "radio" && key.startsWith("Arrow")) {
+    // The arrows move to the next radio of the group, wrapping, and check it.
+    const group = [...document.querySelectorAll(`input[type=radio][name=${JSON.stringify(at.name)}]`)];
+    const forward = key === "ArrowDown" || key === "ArrowRight";
+    const next = group[(group.indexOf(at) + (forward ? 1 : group.length - 1)) % group.length];
+    next.focus();
+    next.click();
+  } else if (type === "range") slide(at, key);
+  if (key === "Enter" && tag === "INPUT" && at.form !== null) submitImplicitly(at);
+}
+
+// A slider's keys: an arrow moves one step, Page Up and Page Down a tenth of
+// the track or a step when that is more, Home and End to either end. The value
+// stays on the track and on a step from its start.
+function slide(at, key) {
+  const min = Number(at.min || 0);
+  const max = Number(at.max || 100);
+  const step = at.step === "" || at.step === "any" ? 1 : Number(at.step);
+  const now = Number(at.value);
+  const page = Math.max(step, (max - min) / 10);
+  const moves = {
+    ArrowRight: now + step,
+    ArrowUp: now + step,
+    ArrowLeft: now - step,
+    ArrowDown: now - step,
+    PageUp: now + page,
+    PageDown: now - page,
+    Home: min,
+    End: max,
+  };
+  const to = moves[key];
+  if (to === undefined) return;
+  const top = min + Math.floor((max - min) / step) * step;
+  at.value = String(Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top));
+  at.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  at.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+// Implicit submission: the form's first submit button is clicked unless it is
+// disabled; a form with none is submitted from its one line field.
+function submitImplicitly(at) {
+  const form = at.form;
+  const fallback = [...form.elements].find((e) => e.type === "submit");
+  if (fallback !== undefined) {
+    if (!fallback.disabled) fallback.click();
+    return;
+  }
+  const lines = [...form.elements].filter((e) => e.tagName === "INPUT" && LINE_FIELDS.includes(e.type));
+  if (lines.length === 1 && lines[0] === at) form.requestSubmit();
+}
 
 // The address bar's moves, as the program asked for them.
 const moves = [];

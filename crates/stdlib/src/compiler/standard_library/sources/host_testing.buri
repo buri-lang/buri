@@ -2278,8 +2278,22 @@ impl Rendered {
     /// — while the focus is where it is.
     ///
     /// Every `onKey` from the focused element out to the root hears it, the
-    /// innermost first. When none of them claims it, the platform's own
-    /// handling follows: Escape hides a tooltip that is showing.
+    /// innermost first. When none of them claims it, what a browser does with
+    /// the key by itself follows:
+    ///
+    ///  * Escape hides a tooltip that is showing and shuts the open `dialog`,
+    ///    writing its `isOpen` `false`.
+    ///  * Enter and Space press a focused button, as `press` does, and open or
+    ///    shut a focused disclosure. Enter follows a focused link, as `follow`
+    ///    does.
+    ///  * Space flips a focused toggle and checks a focused radio.
+    ///  * The arrow keys move a radio group's focus and choice to the next
+    ///    option or the one before, wrapping round.
+    ///  * On a slider, an arrow moves the value one `step` (one when it has
+    ///    none), Page Up and Page Down a tenth of the track or a step when that
+    ///    is more, and Home and End to either end.
+    ///  * Enter in a form's field submits the form, as `submit` does. A
+    ///    multiline field takes Enter as a new line, so it submits nothing.
     export fn key(self, key: Str): ();
 
     /// Presses the button whose label is `label`.
@@ -2346,7 +2360,7 @@ impl Rendered {
     export fn select(self, label: Str, start: Int, end: Int): ();
 
     /// Flips the toggle labelled `label`, unless it is disabled or a `dialog`
-    /// has taken it out of reach.
+    /// has taken it out of reach. A radio labelled `label` is checked.
     export fn flip(self, label: Str): ();
 
     /// Chooses a file in the `filePicker` labelled `label`, the way a reader
@@ -2423,8 +2437,9 @@ impl Rendered {
     /// its fields does.
     ///
     /// Implicit submission is the platform's rule, so this follows it: a form
-    /// is submitted through its `.Submit` button, and a form with none is submitted
-    /// only while exactly one of its fields blocks implicit submission. A form
+    /// is submitted through its first `.Submit` button, unless that button is
+    /// disabled, and a form with none is submitted only while exactly one of
+    /// its fields blocks implicit submission. A form
     /// of two fields ending in an ordinary `button` is left alone, because that
     /// is what a browser does with the keypress. A double that submitted it
     /// anyway would pass a suite whose form nobody can send. A form a `dialog`

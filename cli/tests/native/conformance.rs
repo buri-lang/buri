@@ -832,6 +832,10 @@ const PACKAGES: &[Case] = &[
     // The handlers a headless interaction runs: `onFocus` as the focus moves
     // and `onHover` as the pointer does. `BUILD.buri` lists it too.
     included("ui/handlers.buri"),
+    // The keys a browser handles by itself: Escape shuts a dialog, Enter and
+    // Space press a button, arrows move a radio group or a slider, Enter
+    // submits a form. `BUILD.buri` lists it too.
+    included("ui/keys.buri"),
     // What a reader hears each element called, in `spoken()` and `markup()`.
     // `BUILD.buri` lists it too.
     included("ui/names.buri"),
