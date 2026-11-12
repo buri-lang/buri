@@ -195,6 +195,30 @@ impl Monomorphizer<'_> {
         stmts.retain(|_| at.next().unwrap_or(true));
     }
 
+    /// Whether [`Monomorphizer::upsert_block`] could rewrite anything in the
+    /// block: a `let` of a read, or a `let` right in front of an insert.
+    pub(super) fn may_upsert(&self, stmts: &[Stmt], tail: Option<&Expr>) -> bool {
+        if !self.upsert_here {
+            return false;
+        }
+        let upserts = &self.upserts;
+        let is_insert =
+            |e: &Expr| call(e).is_some_and(|(f, _)| upserts.maps.iter().any(|m| m.insert == f));
+        let next = stmts
+            .iter()
+            .skip(1)
+            .map(|s| Some(stmt_expr(s)))
+            .chain([tail]);
+        stmts.iter().zip(next).any(|(s, next)| {
+            let Stmt::Let { pattern, value, .. } = s else {
+                return false;
+            };
+            read(upserts, &pattern.kind, value).is_some()
+                || matches!(pattern.kind, PatKind::Bind { sub: None, .. })
+                    && next.is_some_and(is_insert)
+        })
+    }
+
     /// Finds the insert that holds every one of the `total` reads of the
     /// value, under `e` and outside any lambda, and rewrites it. Answers the
     /// local the new call reads the default from.

@@ -1488,40 +1488,23 @@ impl Monomorphizer<'_> {
                 }
             }
             Key::CtxCtor(_, ctor) => {
-                let body = self
-                    .checked
-                    .bodies
-                    .get(&ctor)
-                    .or_ice("a checked context has a constructor body");
-                let mut b = typed::Body::clone(body);
-                for l in &mut b.locals {
-                    l.ty = self.sub(&l.ty, &[]);
-                }
-                self.locals = std::mem::take(&mut b.locals);
-                b.expr = self.rewrite(b.expr, &[]);
-                b.locals = std::mem::take(&mut self.locals);
-                f.params = b.params;
-                f.locals = b.locals;
-                f.set_body(b.expr);
+                let checked = self.checked;
+                let body =
+                    (checked.bodies.get(&ctor)).or_ice("a checked context has a constructor body");
+                let expr = self.rewrite_body(body, &[]);
+                f.params = body.params.clone();
+                f.locals = std::mem::take(&mut self.locals);
+                f.set_body(expr);
             }
             Key::Test(i, case) => {
-                let body = self
-                    .checked
-                    .bodies
-                    .get(&case.func)
-                    .or_ice("a checked test has a body");
-                let mut b = typed::Body::clone(body);
-                for l in &mut b.locals {
-                    l.ty = self.sub(&l.ty, &[]);
-                }
-                self.locals = std::mem::take(&mut b.locals);
-                let rewritten = self.rewrite(b.expr, &[]);
-                b.expr = self.leaving(i, slot, rewritten);
-                b.locals = std::mem::take(&mut self.locals);
+                let checked = self.checked;
+                let body = (checked.bodies.get(&case.func)).or_ice("a checked test has a body");
+                let rewritten = self.rewrite_body(body, &[]);
+                let expr = self.leaving(i, slot, rewritten);
                 // No parameters, which is what makes a test a `Root`: a
                 // `test` block declares none, so its body binds none.
-                f.locals = b.locals;
-                f.set_body(b.expr);
+                f.locals = std::mem::take(&mut self.locals);
+                f.set_body(expr);
             }
             Key::Derived {
                 derive,
@@ -1641,7 +1624,8 @@ impl Monomorphizer<'_> {
         let info = checked.tables.fn_info(id);
         // Checking gives every function a build reaches its body, so one
         // without is an operation the runtime supplies.
-        let Some(body) = self.extracted.bodies.get(&id) else {
+        let extracted = self.extracted;
+        let Some(body) = extracted.bodies.get(&id) else {
             let key = self.intrinsic_key(info, &targs);
             // The instantiated parameter types, which only the descriptor
             // choice below reads. They used to live on `Func` as a second
@@ -1722,22 +1706,30 @@ impl Monomorphizer<'_> {
             }
             return;
         };
-        let mut b = typed::Body::clone(body);
-        for l in &mut b.locals {
-            l.ty = self.sub(&l.ty, &targs);
-        }
-        // Parked so that `rewrite` can retype the ones a corrected `Self`
-        // reaches — a lambda's parameter is a local of the function it is
-        // written in, and that is where the wrong layout was recorded.
-        self.locals = std::mem::take(&mut b.locals);
-        b.expr = self.rewrite(b.expr, &targs);
-        b.locals = std::mem::take(&mut self.locals);
+        let expr = self.rewrite_body(body, &targs);
         // An entry's `js` file reads its answer by this type.
         let ret = self.sub(&info.ret, &targs);
-        f.params = b.params;
-        f.locals = b.locals;
+        f.params = body.params.clone();
+        f.locals = std::mem::take(&mut self.locals);
         f.ret = ret;
-        f.set_body(b.expr);
+        f.set_body(expr);
+    }
+
+    /// `body`'s expression at `targs`, with its locals retyped and left in
+    /// `self.locals` for the caller to take.
+    ///
+    /// Parked there so that `rewrite` can retype the ones a corrected `Self`
+    /// reaches — a lambda's parameter is a local of the function it is
+    /// written in, and that is where the wrong layout was recorded.
+    fn rewrite_body(&mut self, body: &typed::Body, targs: &[Ty]) -> typed::Expr {
+        self.locals = (body.locals.iter())
+            .map(|l| typed::Local {
+                name: l.name,
+                ty: self.sub(&l.ty, targs),
+                span: l.span,
+            })
+            .collect();
+        self.rewrite(&body.expr, targs)
     }
 
     /// The name the backend looks up for an operation the runtime supplies.
@@ -1990,7 +1982,7 @@ impl Monomorphizer<'_> {
         method: MethodId,
         recv: &Ty,
         recv_at: &Ty,
-        args: Vec<typed::Expr>,
+        args: &[typed::Expr],
         targs: &[Ty],
     ) -> (Vec<typed::Expr>, Option<typed::Stmt>) {
         let implementation = match (recv.kind(), recv_at.kind()) {
@@ -2138,22 +2130,22 @@ impl Monomorphizer<'_> {
     /// primitive operator it stands for. Its match, its arms and its call all
     /// carry the operator's span, which a `match` someone wrote cannot.
     ///
-    /// Answers the operator and the call's operands, taken out of `e`.
-    fn float_operator(
+    /// Answers the operator and the call's operands.
+    fn float_operator<'e>(
         &self,
-        e: &mut typed::Expr,
+        e: &'e typed::Expr,
         targs: &[Ty],
-    ) -> Option<(typed::PrimOp, Prim, [typed::Expr; 2])> {
-        let ExprKind::Match { scrutinee, arms } = &mut e.kind else {
+    ) -> Option<(typed::PrimOp, Prim, [&'e typed::Expr; 2])> {
+        let ExprKind::Match { scrutinee, arms } = &e.kind else {
             return None;
         };
-        let ExprKind::CallTrait { recv, args, .. } = &mut scrutinee.kind else {
+        let ExprKind::CallTrait { recv, args, .. } = &scrutinee.kind else {
             return None;
         };
         let [tested, rest] = arms.as_slice() else {
             return None;
         };
-        let [lhs, rhs] = args.as_mut_slice() else {
+        let [lhs, rhs] = args.as_slice() else {
             return None;
         };
         let spans = [scrutinee.span, tested.span, rest.span];
@@ -2199,36 +2191,36 @@ impl Monomorphizer<'_> {
             ) => typed::PrimOp::Le,
             _ => return None,
         };
-        // The match is replaced whole, so its operands leave it.
-        let take = |x: &mut typed::Expr| {
-            std::mem::replace(x, typed::Expr::new(ExprKind::Error, Ty::ERROR, e.span))
-        };
-        Some((op, prim, [take(lhs), take(rhs)]))
+        Some((op, prim, [lhs, rhs]))
     }
 
-    fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
-        e.ty = self.sub(&e.ty, targs);
-        if let Some((op, prim, args)) = self.float_operator(&mut e, targs) {
-            let args = Box::new(args.map(|a| self.rewrite(a, targs)));
-            return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
+    /// The instantiation of `e` at `targs`, built from the checked tree in
+    /// one walk.
+    ///
+    /// By reference, because the checked bodies are shared by every program
+    /// a compilation builds: rewriting a copy cost a walk of the whole tree
+    /// to copy it before the walk that rewrote it.
+    fn rewrite(&mut self, e: &typed::Expr, targs: &[Ty]) -> typed::Expr {
+        let ty = self.sub(&e.ty, targs);
+        let span = e.span;
+        if let Some((op, prim, [lhs, rhs])) = self.float_operator(e, targs) {
+            let args = Box::new([self.rewrite(lhs, targs), self.rewrite(rhs, targs)]);
+            return typed::Expr::new(ExprKind::Prim { op, prim, args }, ty, span);
         }
-        e.kind = match e.kind {
+        let kind = match &e.kind {
             ExprKind::CallFn { func, args } => {
-                if let Some(call) = self.upsert_inline(&func, &args, e.span, targs) {
-                    return self.rewrite(typed::Expr::new(call, e.ty, e.span), targs);
+                if let Some(call) = self.upsert_inline(func, args, span, targs) {
+                    return self.rewrite(&typed::Expr::new(call, ty, span), targs);
                 }
-                let typed::Callee {
-                    id,
-                    targs: call_targs,
-                } = func;
+                let id = func.id;
                 // The one place the two index spaces meet: a declaration and
                 // its type arguments in, one concrete function out.
-                let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();
-                if let Some(word) = self.flags_constant(id, &e.ty, e.span) {
+                let resolved: Vec<Ty> = func.targs.iter().map(|t| self.sub(t, targs)).collect();
+                if let Some(word) = self.flags_constant(id, &ty, span) {
                     return word;
                 }
-                if let Some(converted) = self.index_conversion(id, &resolved, &args, e.span) {
-                    return self.rewrite(converted, targs);
+                if let Some(converted) = self.index_conversion(id, &resolved, args, span) {
+                    return self.rewrite(&converted, targs);
                 }
                 let mut args = self.rewrite_all(args, targs);
                 let mut resolved = resolved;
@@ -2246,11 +2238,11 @@ impl Monomorphizer<'_> {
                 targs: mt,
                 args,
             } => {
-                let recv_at = self.sub(&recv, targs);
+                let recv_at = self.sub(recv, targs);
                 let mt: Vec<Ty> = mt.iter().map(|t| self.sub(t, targs)).collect();
                 let (args, prelude) =
-                    self.rewrite_call_args(trait_id, method, &recv, &recv_at, args, targs);
-                let call = self.resolve_trait_call(trait_id, method, recv_at, mt, args, e.span);
+                    self.rewrite_call_args(*trait_id, *method, recv, &recv_at, args, targs);
+                let call = self.resolve_trait_call(*trait_id, *method, recv_at, mt, args, span);
                 // The receiver's binding scopes over the call *and* over the
                 // adapters in its arguments, so it is a statement in front of
                 // the whole call rather than part of one argument.
@@ -2258,17 +2250,17 @@ impl Monomorphizer<'_> {
                     None => call,
                     Some(stmt) => ExprKind::Block {
                         stmts: vec![stmt],
-                        tail: Some(Box::new(typed::Expr::new(call, e.ty, e.span))),
+                        tail: Some(Box::new(typed::Expr::new(call, ty, span))),
                     },
                 }
             }
             ExprKind::FnRef(typed::Callee { id, targs: ft }) => {
                 let resolved: Vec<Ty> = ft.iter().map(|t| self.sub(t, targs)).collect();
-                let slot = self.request(Key::Fn(id, resolved));
+                let slot = self.request(Key::Fn(*id, resolved));
                 ExprKind::FuncRef(slot)
             }
             ExprKind::CtxCall { decl, ctor } => {
-                let slot = self.request(Key::CtxCtor(decl, ctor));
+                let slot = self.request(Key::CtxCtor(*decl, *ctor));
                 ExprKind::CallFunc {
                     func: slot,
                     args: Vec::new(),
@@ -2277,33 +2269,28 @@ impl Monomorphizer<'_> {
             ExprKind::Const(cid) => {
                 // A constant is inlined: it has no address and nothing can
                 // observe whether it was shared.
-                match self.extracted.consts.get(&cid) {
-                    Some(v) => {
-                        let inlined = self.rewrite(v.clone(), &[]);
-                        return inlined;
-                    }
+                let extracted = self.extracted;
+                match extracted.consts.get(cid) {
+                    Some(v) => return self.rewrite(v, &[]),
                     None => ExprKind::Error,
                 }
             }
             ExprKind::CtxLit { bindings, ctx } => ExprKind::CtxLit {
                 bindings: bindings
-                    .into_iter()
-                    .map(|(t, v)| (t, self.rewrite(v, targs)))
+                    .iter()
+                    .map(|(t, v)| (*t, self.rewrite(v, targs)))
                     .collect(),
-                ctx,
+                ctx: *ctx,
             },
             ExprKind::CtxGet {
                 base,
                 trait_id,
                 field,
-            } => {
-                let base = self.rewrite_boxed(base, targs);
-                ExprKind::CtxGet {
-                    base,
-                    trait_id,
-                    field,
-                }
-            }
+            } => ExprKind::CtxGet {
+                base: self.rewrite_boxed(base, targs),
+                trait_id: *trait_id,
+                field: *field,
+            },
             ExprKind::CallValue { callee, args } => ExprKind::CallValue {
                 callee: self.rewrite_boxed(callee, targs),
                 args: self.rewrite_all(args, targs),
@@ -2314,11 +2301,11 @@ impl Monomorphizer<'_> {
                 fields,
             } => {
                 let fields = self.rewrite_all(fields, targs);
-                if let Some(word) = self.flags_word(&e.ty, e.span) {
+                if let Some(word) = self.flags_word(&ty, span) {
                     return word.pack(fields);
                 }
                 ExprKind::StructLit {
-                    con,
+                    con: *con,
                     targs: st.iter().map(|t| self.sub(t, targs)).collect(),
                     fields,
                 }
@@ -2326,14 +2313,18 @@ impl Monomorphizer<'_> {
             ExprKind::StructUpdate { con, base, updates } => {
                 let base = self.rewrite_boxed(base, targs);
                 let updates: Vec<(FieldId, typed::Expr)> = updates
-                    .into_iter()
-                    .map(|(i, v)| (i, self.rewrite(v, targs)))
+                    .iter()
+                    .map(|(i, v)| (*i, self.rewrite(v, targs)))
                     .collect();
-                if let Some(word) = self.flags_word(&e.ty, e.span) {
+                if let Some(word) = self.flags_word(&ty, span) {
                     let bits = updates.into_iter().map(|(i, v)| (i.index(), v));
                     return word.update(*base, bits.collect());
                 }
-                ExprKind::StructUpdate { con, base, updates }
+                ExprKind::StructUpdate {
+                    con: *con,
+                    base,
+                    updates,
+                }
             }
             ExprKind::EnumLit {
                 con,
@@ -2341,54 +2332,44 @@ impl Monomorphizer<'_> {
                 variant,
                 args,
             } => ExprKind::EnumLit {
-                con,
+                con: *con,
                 targs: et.iter().map(|t| self.sub(t, targs)).collect(),
-                variant,
+                variant: *variant,
                 args: self.rewrite_all(args, targs),
             },
             ExprKind::Tuple(xs) => ExprKind::Tuple(self.rewrite_all(xs, targs)),
             ExprKind::Array { elem, elems } => ExprKind::Array {
-                elem: self.sub(&elem, targs),
+                elem: self.sub(elem, targs),
                 elems: self.rewrite_all(elems, targs),
             },
             ExprKind::Field { base, index } => {
                 let base = self.rewrite_boxed(base, targs);
-                if let Some(word) = self.flags_word(&base.ty, e.span) {
+                if let Some(word) = self.flags_word(&base.ty, span) {
                     return word.bit(*base, index.index());
                 }
-                ExprKind::Field { base, index }
+                ExprKind::Field {
+                    base,
+                    index: *index,
+                }
             }
             ExprKind::TupleIndex { base, index } => ExprKind::TupleIndex {
                 base: self.rewrite_boxed(base, targs),
-                index,
+                index: *index,
             },
             ExprKind::Index { base, index, elem } => ExprKind::Index {
                 base: self.rewrite_boxed(base, targs),
                 index: self.rewrite_boxed(index, targs),
-                elem: self.sub(&elem, targs),
+                elem: self.sub(elem, targs),
             },
-            ExprKind::Block {
-                mut stmts,
-                mut tail,
-            } => {
-                self.upsert_block(&mut stmts, &mut tail, targs);
-                ExprKind::Block {
-                    stmts: stmts
-                        .into_iter()
-                        .map(|s| match s {
-                            typed::Stmt::Let {
-                                pattern,
-                                value,
-                                span,
-                            } => typed::Stmt::Let {
-                                pattern: self.rewrite_pattern(pattern, targs),
-                                value: self.rewrite(value, targs),
-                                span,
-                            },
-                            typed::Stmt::Expr(x) => typed::Stmt::Expr(self.rewrite(x, targs)),
-                        })
-                        .collect(),
-                    tail: tail.map(|t| self.rewrite_boxed(t, targs)),
+            ExprKind::Block { stmts, tail } => {
+                if self.may_upsert(stmts, tail.as_deref()) {
+                    // Rewriting the reads takes the block apart, so it works
+                    // on a copy of this block alone.
+                    let (mut stmts, mut tail) = (stmts.clone(), tail.clone());
+                    self.upsert_block(&mut stmts, &mut tail, targs);
+                    self.block(&stmts, tail.as_deref(), targs)
+                } else {
+                    self.block(stmts, tail.as_deref(), targs)
                 }
             }
             ExprKind::If { cond, then, else_ } => ExprKind::If {
@@ -2399,11 +2380,11 @@ impl Monomorphizer<'_> {
             ExprKind::Match { scrutinee, arms } => ExprKind::Match {
                 scrutinee: self.rewrite_boxed(scrutinee, targs),
                 arms: arms
-                    .into_iter()
+                    .iter()
                     .map(|a| typed::Arm {
-                        pattern: self.rewrite_pattern(a.pattern, targs),
-                        guard: a.guard.map(|g| self.rewrite(g, targs)),
-                        body: self.rewrite(a.body, targs),
+                        pattern: self.rewrite_pattern(&a.pattern, targs),
+                        guard: a.guard.as_ref().map(|g| self.rewrite(g, targs)),
+                        body: self.rewrite(&a.body, targs),
                         span: a.span,
                     })
                     .collect(),
@@ -2413,9 +2394,9 @@ impl Monomorphizer<'_> {
                 body,
                 captures,
             } => ExprKind::Lambda {
-                params,
+                params: params.clone(),
                 body: self.rewrite_boxed(body, targs),
-                captures,
+                captures: captures.clone(),
             },
             ExprKind::And { lhs, rhs } => ExprKind::And {
                 lhs: self.rewrite_boxed(lhs, targs),
@@ -2427,24 +2408,26 @@ impl Monomorphizer<'_> {
             },
             ExprKind::Try { base, kind } => ExprKind::Try {
                 base: self.rewrite_boxed(base, targs),
-                kind,
+                kind: *kind,
             },
-            ExprKind::Prim { op, prim, mut args } => {
-                for a in args.iter_mut() {
-                    self.rewrite_in_place(a, targs);
+            ExprKind::Prim { op, prim, args } => {
+                let [lhs, rhs] = &**args;
+                ExprKind::Prim {
+                    op: *op,
+                    prim: *prim,
+                    args: Box::new([self.rewrite(lhs, targs), self.rewrite(rhs, targs)]),
                 }
-                ExprKind::Prim { op, prim, args }
             }
             ExprKind::Unary { op, prim, arg } => ExprKind::Unary {
-                op,
-                prim,
+                op: *op,
+                prim: *prim,
                 arg: self.rewrite_boxed(arg, targs),
             },
             ExprKind::Template { parts } => ExprKind::Template {
                 parts: parts
-                    .into_iter()
+                    .iter()
                     .map(|p| match p {
-                        typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t),
+                        typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t.clone()),
                         typed::TemplatePart::Hole(h)
                         | typed::TemplatePart::Shown { value: h, .. } => {
                             let h = self.rewrite(h, targs);
@@ -2458,89 +2441,103 @@ impl Monomorphizer<'_> {
                 targs: it,
                 args,
             } => ExprKind::Intrinsic {
-                name,
+                name: name.clone(),
                 targs: it.iter().map(|t| self.sub(t, targs)).collect(),
                 args: self.rewrite_all(args, targs),
             },
-            other => other,
+            other => other.clone(),
         };
-        e
+        typed::Expr::new(kind, ty, span)
     }
 
-    /// [`Monomorphizer::rewrite`] of a boxed expression, into the box it came
-    /// in: a body is a fresh copy of the checked one, so its allocations are
-    /// this program's to reuse.
-    fn rewrite_boxed(&mut self, mut e: Box<typed::Expr>, targs: &[Ty]) -> Box<typed::Expr> {
-        self.rewrite_in_place(&mut e, targs);
-        e
+    /// A block's statements and tail, rewritten.
+    fn block(
+        &mut self,
+        stmts: &[typed::Stmt],
+        tail: Option<&typed::Expr>,
+        targs: &[Ty],
+    ) -> ExprKind {
+        ExprKind::Block {
+            stmts: stmts
+                .iter()
+                .map(|s| match s {
+                    typed::Stmt::Let {
+                        pattern,
+                        value,
+                        span,
+                    } => typed::Stmt::Let {
+                        pattern: self.rewrite_pattern(pattern, targs),
+                        value: self.rewrite(value, targs),
+                        span: *span,
+                    },
+                    typed::Stmt::Expr(x) => typed::Stmt::Expr(self.rewrite(x, targs)),
+                })
+                .collect(),
+            tail: tail.map(|t| self.rewrite_boxed(t, targs)),
+        }
     }
 
-    /// [`Monomorphizer::rewrite`] of the expression at `e`, in place.
-    fn rewrite_in_place(&mut self, e: &mut typed::Expr, targs: &[Ty]) {
-        let placeholder = typed::Expr::new(ExprKind::Unit, Ty::UNIT, e.span);
-        let taken = std::mem::replace(e, placeholder);
-        *e = self.rewrite(taken, targs);
+    /// [`Monomorphizer::rewrite`], into a box.
+    fn rewrite_boxed(&mut self, e: &typed::Expr, targs: &[Ty]) -> Box<typed::Expr> {
+        Box::new(self.rewrite(e, targs))
     }
 
-    fn rewrite_all(&mut self, xs: Vec<typed::Expr>, targs: &[Ty]) -> Vec<typed::Expr> {
-        xs.into_iter().map(|x| self.rewrite(x, targs)).collect()
+    fn rewrite_all(&mut self, xs: &[typed::Expr], targs: &[Ty]) -> Vec<typed::Expr> {
+        xs.iter().map(|x| self.rewrite(x, targs)).collect()
     }
 
-    fn rewrite_pattern(&mut self, mut p: typed::Pattern, targs: &[Ty]) -> typed::Pattern {
-        p.ty = self.sub(&p.ty, targs);
-        p.kind = match p.kind {
+    fn rewrite_fields(&mut self, fields: &[typed::FieldPat], targs: &[Ty]) -> Vec<typed::FieldPat> {
+        fields
+            .iter()
+            .map(|f| typed::FieldPat {
+                index: f.index,
+                pattern: self.rewrite_pattern(&f.pattern, targs),
+            })
+            .collect()
+    }
+
+    fn rewrite_patterns(&mut self, ps: &[typed::Pattern], targs: &[Ty]) -> Vec<typed::Pattern> {
+        ps.iter().map(|x| self.rewrite_pattern(x, targs)).collect()
+    }
+
+    fn rewrite_pattern(&mut self, p: &typed::Pattern, targs: &[Ty]) -> typed::Pattern {
+        let ty = self.sub(&p.ty, targs);
+        let kind = match &p.kind {
             PatKind::Bind { local, sub } => PatKind::Bind {
-                local,
-                sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
+                local: *local,
+                sub: sub
+                    .as_ref()
+                    .map(|s| Box::new(self.rewrite_pattern(s, targs))),
             },
-            PatKind::Tuple(ps) => PatKind::Tuple(
-                ps.into_iter()
-                    .map(|x| self.rewrite_pattern(x, targs))
-                    .collect(),
-            ),
+            PatKind::Tuple(ps) => PatKind::Tuple(self.rewrite_patterns(ps, targs)),
             PatKind::Struct { con, fields } => PatKind::Struct {
-                con,
-                fields: fields
-                    .into_iter()
-                    .map(|f| typed::FieldPat {
-                        index: f.index,
-                        pattern: self.rewrite_pattern(f.pattern, targs),
-                    })
-                    .collect(),
+                con: *con,
+                fields: self.rewrite_fields(fields, targs),
             },
             PatKind::Variant {
                 con,
                 variant,
                 fields,
             } => PatKind::Variant {
-                con,
-                variant,
-                fields: fields
-                    .into_iter()
-                    .map(|f| typed::FieldPat {
-                        index: f.index,
-                        pattern: self.rewrite_pattern(f.pattern, targs),
-                    })
-                    .collect(),
+                con: *con,
+                variant: *variant,
+                fields: self.rewrite_fields(fields, targs),
             },
             PatKind::Array { elem, elems, rest } => PatKind::Array {
-                elem: self.sub(&elem, targs),
-                elems: elems
-                    .into_iter()
-                    .map(|x| self.rewrite_pattern(x, targs))
-                    .collect(),
-                rest,
+                elem: self.sub(elem, targs),
+                elems: self.rewrite_patterns(elems, targs),
+                rest: *rest,
             },
-            PatKind::Or(ps) => PatKind::Or(
-                ps.into_iter()
-                    .map(|x| self.rewrite_pattern(x, targs))
-                    .collect(),
-            ),
-            PatKind::Int(v, negative) => self.number(&p.ty, typed::NumberLit::Int(v, negative)),
-            PatKind::Float(v) => self.number(&p.ty, typed::NumberLit::Float(v)),
-            other => other,
+            PatKind::Or(ps) => PatKind::Or(self.rewrite_patterns(ps, targs)),
+            PatKind::Int(v, negative) => self.number(&ty, typed::NumberLit::Int(*v, *negative)),
+            PatKind::Float(v) => self.number(&ty, typed::NumberLit::Float(*v)),
+            other => other.clone(),
         };
-        p
+        typed::Pattern {
+            kind,
+            ty,
+            span: p.span,
+        }
     }
 
     /// A number literal pattern at `ty`, with the primitive it compares at.
