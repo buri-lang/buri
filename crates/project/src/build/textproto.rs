@@ -612,11 +612,12 @@ fn print_fields(out: &mut String, fields: &[&Field], level: usize, top: bool) {
     for (i, f) in fields.iter().enumerate() {
         // A blank line before a field is preserved, so paragraph structure in a
         // hand-written file survives. At the top level, message fields are
-        // always separated.
+        // always separated. Every line before this one ends in a value, a
+        // brace or a comment, so the blank is never a second one.
         let want_blank = f.blank_before
             || (top && i > 0 && matches!(f.value, Value::Message(..)))
             || (!f.comments.is_empty() && i > 0);
-        if want_blank && !out.is_empty() && !out.ends_with("\n\n") {
+        if want_blank && !out.is_empty() {
             out.push('\n');
         }
         for c in &f.comments {
