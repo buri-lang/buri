@@ -43,6 +43,22 @@ fn a_profiled_test_run_names_every_phase_it_went_through() {
     );
 }
 
+/// **A one-test run reads a few hundred of the stencil library's twenty-five
+/// thousand stencils.** The library is read in place, so a run pays for the
+/// stencils it emits and nothing for the rest (design/PERFORMANCE.md §6.124).
+#[test]
+fn a_one_test_run_reads_only_the_stencils_it_emits() {
+    let run = repo().run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+    let read = work_count(&run.all(), "stencils read").unwrap_or_default();
+    assert!(
+        (1.0..1_000.0).contains(&read),
+        "a one-test run read {read} stencils:\n{}",
+        indent(&run.all())
+    );
+}
+
 /// **A phase that waited for no child reads `-` for child instructions**,
 /// rather than a 0 that reads as a child that ran none. Only macOS counts
 /// children at all.

@@ -39,6 +39,15 @@ pub mod llvm {
     pub type Llvm = super::WithRuntime<buri_llvm::compiler::backend::llvm::Llvm>;
 }
 
+/// How many stencils this process read: none in a build without the stencil
+/// backend.
+pub fn stencils_read() -> u64 {
+    #[cfg(feature = "backend-stencil")]
+    return stencil::library::stencils_read();
+    #[cfg(not(feature = "backend-stencil"))]
+    0
+}
+
 /// The copy-and-patch backend, with the runtime archive's gaps folded in.
 #[cfg(feature = "backend-stencil")]
 pub mod stencil {

@@ -9502,6 +9502,24 @@ list, as `replaceAt` does. `core/map`'s `insert`, `update`, `take` and
 root on both backends, with a copy held and without, and reads every change
 back.
 
+### 6.124 The stencil library is read in place, 2026-11-12
+
+```text
+config, n, slots | n rows: key at, key len, record, code, 4 twins | slots: row + 1 | keys | records | code
+```
+
+Every process that emits native code decoded the library at start: it turned
+twenty-five thousand keys into strings, hashed them into a map, and worked out
+each stencil's twins. That was about 8M instructions, an eighth of a one-test
+`buri test`. Now `build.rs` writes the hash table and each stencil's twins
+into the library, so `Library::decode` reads three numbers and a lookup probes
+the table in the embedded bytes.
+
+On the arm64 VM, `test/one-edit` went from 55.39M to 47.35M instructions
+(−14.5%). `profile.rs`'s `a_one_test_run_reads_only_the_stencils_it_emits`
+checks the run reads a few hundred stencils; `BURI_PROFILE` prints the count
+as `stencils read`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -282,9 +282,9 @@ impl Known {
     ];
 
     /// Each key's index in `index`, or the first key it lacks.
-    fn find(index: &HashMap<&str, u32>) -> Result<Known, String> {
+    fn find(index: &Index) -> Result<Known, String> {
         let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq] =
-            Known::KEYS.map(|key| index.get(key).map(|i| *i as usize).ok_or(key));
+            Known::KEYS.map(|key| index.find(key).map(|i| i as usize).ok_or(key));
         let missing = |key: &str| format!("the library has no `{key}` stencil");
         Ok(Known {
             br_f: br_f.map_err(missing)?,
@@ -343,36 +343,108 @@ impl Builder {
     }
 }
 
+/// How many stencils this process read out of a library: the library is read
+/// in place, so a build pays only for the stencils it emits. `BURI_PROFILE`
+/// prints it, because unlike instructions it is the same on every run.
+static STENCILS_READ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`STENCILS_READ`].
+pub fn stencils_read() -> u64 {
+    STENCILS_READ.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A library read out of the bytes [`Builder::encode`] wrote, a stencil at a
 /// time.
 ///
 /// **Every `buri` process that emits native code decodes one, and most of them
 /// use a few hundred of its twenty-five thousand stencils.** Decoding them all
 /// up front was half a million allocations, 28% of the processor time of a
-/// small `buri test`. So the decode reads the keys and the table of where each
-/// stencil starts, and a stencil's holes, code and constants are read the
-/// first time the emitter asks for that stencil. So are its folded twins.
+/// small `buri test`. So a stencil's holes, code and constants are read the
+/// first time the emitter asks for that stencil.
+///
+/// Nothing is read up front either: the key table and each stencil's twins
+/// are laid out by the build script ([`Builder::encode`]), so a lookup reads
+/// them in place. Hashing the twenty-five thousand keys into a map on every
+/// start was about five million instructions, a tenth of a one-test
+/// `buri test`.
 pub struct Library {
     pub config: String,
     /// The stencils the emitter names without asking.
     pub known: Known,
-    bytes: &'static [u8],
-    index: HashMap<&'static str, u32>,
-    /// Where each stencil's record and its code start, as the table in the
-    /// bytes has them.
-    starts: Vec<(u32, u32)>,
+    index: Index,
     /// Each stencil, read the first time it is asked for. `None` is a record
     /// that did not read back, which reads as a stencil the library lacks.
     stencils: Vec<std::sync::OnceLock<Option<Stencil>>>,
-    /// Each stencil's [`FOLD_SUFFIXES`] twins and its [`SWAP_SUFFIX`] one, by
-    /// index into `stencils`.
-    ///
-    /// The emitter asks for all three on **every stencil it copies**, and it
-    /// used to ask by building three `String`s with `format!` and hashing each
-    /// one — three allocations and three hash lookups per machine instruction
-    /// this backend emits. The names are a function of the library alone, so
-    /// the answer is too, and it is worked out once per stencil.
-    twins: Vec<std::sync::OnceLock<[u32; TWINS]>>,
+}
+
+/// The library's tables, read in place: each stencil's row, and the hash
+/// table that finds a key's row.
+struct Index {
+    bytes: &'static [u8],
+    /// How many stencils, and where their rows start.
+    n: usize,
+    rows: usize,
+    /// Where the hash table starts, and its size less one, a power of two
+    /// less one.
+    table: usize,
+    mask: usize,
+}
+
+/// The `u32`s of a stencil's row: its key's offset and length, where its
+/// record and its code start, and its [`TWINS`].
+const ROW: usize = 4 + TWINS;
+
+/// A key's hash, which the build script and the decode must agree on: the
+/// toolchain's table hasher, over the key's bytes.
+fn key_hash(key: &[u8]) -> usize {
+    use std::hash::Hasher as _;
+    let mut h = crate::hash::FxHasher::default();
+    h.write(key);
+    h.finish() as usize
+}
+
+/// The little-endian `u32` at `at`, or `None` past the end.
+fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
+    let b = bytes.get(at..at.checked_add(4)?)?;
+    Some(u32::from_le_bytes(b.try_into().ok()?))
+}
+
+impl Index {
+    /// The `k`th `u32` of row `i`.
+    fn row(&self, i: usize, k: usize) -> Option<u32> {
+        ((i < self.n) & (k < ROW)).then_some(())?;
+        // In range: the decode checked that `n` rows fit in the bytes.
+        u32_at(
+            self.bytes,
+            self.rows
+                .wrapping_add(i.wrapping_mul(ROW).wrapping_add(k).wrapping_mul(4)),
+        )
+    }
+
+    /// The key of row `i`.
+    fn key(&self, i: usize) -> Option<&'static [u8]> {
+        let at = self.row(i, 0)? as usize;
+        let len = self.row(i, 1)? as usize;
+        self.bytes.get(at..at.checked_add(len)?)
+    }
+
+    /// `key`'s row: open addressing with linear probing, and a slot holds a
+    /// row's index plus one, so zero is an empty slot. The table is at least
+    /// twice the rows, so a probe meets an empty slot well before it has
+    /// looked at every one.
+    fn find(&self, key: &str) -> Option<u32> {
+        let mut slot = key_hash(key.as_bytes()) & self.mask;
+        for _ in 0..=self.mask {
+            // In range: the decode checked that `mask + 1` slots fit.
+            let i = u32_at(self.bytes, self.table.wrapping_add(slot.wrapping_mul(4)))?
+                .checked_sub(1)?;
+            if self.key(i as usize)? == key.as_bytes() {
+                return Some(i);
+            }
+            slot = slot.wrapping_add(1) & self.mask;
+        }
+        None
+    }
 }
 
 impl Library {
@@ -382,22 +454,25 @@ impl Library {
 
     /// [`Library::get`], with the index the fold twins are asked by.
     pub fn at(&self, key: &str) -> Option<(usize, &Stencil)> {
-        let i = *self.index.get(key)? as usize;
+        let i = self.index.find(key)? as usize;
         Some((i, self.stencil(i)?))
     }
 
     /// The stencil at `i`, read out of the bytes the first time.
     pub fn stencil(&self, i: usize) -> Option<&Stencil> {
-        let (record, code) = *self.starts.get(i)?;
         self.stencils
             .get(i)?
-            .get_or_init(|| read_stencil(self.bytes, record, code).ok())
+            .get_or_init(|| {
+                STENCILS_READ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (record, code) = (self.index.row(i, 2)?, self.index.row(i, 3)?);
+                read_stencil(self.index.bytes, record, code).ok()
+            })
             .as_ref()
     }
 
     /// How many stencils the library has.
     pub fn len(&self) -> usize {
-        self.starts.len()
+        self.index.n
     }
 
     pub fn is_empty(&self) -> bool {
@@ -409,9 +484,9 @@ impl Library {
         (0..self.len()).filter_map(|i| self.stencil(i))
     }
 
-    /// Every key, in no particular order.
+    /// Every key, in key order.
     pub fn keys(&self) -> impl Iterator<Item = &str> {
-        self.index.keys().copied()
+        (0..self.len()).filter_map(|i| std::str::from_utf8(self.index.key(i)?).ok())
     }
 
     /// The `k`th [`FOLD_SUFFIXES`] twin of the stencil at `i`, if the library
@@ -421,20 +496,9 @@ impl Library {
     }
 
     /// The [`FOLD_SUFFIXES`] twins of the stencil at `i` that the library has,
-    /// in that order: [`Library::fold_twin`] for every `k`, with the twins
-    /// looked up once rather than once a slot, because the emitter asks on
-    /// every stencil it copies.
+    /// in that order: [`Library::fold_twin`] for every `k`.
     pub fn fold_twins(&self, i: usize) -> impl Iterator<Item = &Stencil> {
-        let twins = self.stencil(i).and_then(|s| {
-            self.twins
-                .get(i)
-                .map(|t| t.get_or_init(|| self.twins_of(&s.name)))
-        });
-        twins
-            .into_iter()
-            .flat_map(|t| t.iter().take(FOLD_SUFFIXES_LEN))
-            .filter(|j| **j != NO_TWIN)
-            .filter_map(|j| self.stencil(*j as usize))
+        (0..FOLD_SUFFIXES_LEN).filter_map(move |k| self.fold_twin(i, k))
     }
 
     /// The [`SWAP_SUFFIX`] twin of the stencil at `i`, and its index, if the
@@ -443,35 +507,16 @@ impl Library {
         self.twin(i, FOLD_SUFFIXES_LEN)
     }
 
+    /// The emitter asks for the fold twins on **every stencil it copies**, so
+    /// they're an index in the stencil's row rather than a lookup of a name
+    /// with a suffix.
     fn twin(&self, i: usize, k: usize) -> Option<(usize, &Stencil)> {
-        let s = self.stencil(i)?;
-        let j = *self
-            .twins
-            .get(i)?
-            .get_or_init(|| self.twins_of(&s.name))
-            .get(k)?;
+        (k < TWINS).then_some(())?;
+        let j = self.index.row(i, k.wrapping_add(4))?;
         if j == NO_TWIN {
             return None;
         }
         Some((j as usize, self.stencil(j as usize)?))
-    }
-
-    /// The twins of the stencil called `name`, looked up by name.
-    fn twins_of(&self, name: &str) -> [u32; TWINS] {
-        let mut out = [NO_TWIN; TWINS];
-        let mut twin = String::new();
-        for (slot, suffix) in out
-            .iter_mut()
-            .zip(FOLD_SUFFIXES.iter().chain([&SWAP_SUFFIX]))
-        {
-            twin.clear();
-            twin.push_str(name);
-            twin.push_str(suffix);
-            if let Some(j) = self.index.get(twin.as_str()) {
-                *slot = *j;
-            }
-        }
-        out
     }
 }
 
@@ -488,15 +533,19 @@ impl Library {
 // `Backend::identity` so that two toolchains whose *stencils* differ do not
 // share cached objects.
 //
-// Everything is little-endian and length-prefixed:
+// Everything is little-endian, and the config is length-prefixed:
 //
-//   config, n, n keys,
-//   n × (record offset, code offset)     where each stencil starts
-//   n records                            name, holes, constants
+//   config, n, slots,
+//   n rows                 key offset, key length, record offset, code
+//                          offset, and the TWINS twins' indices
+//   slots u32s             the hash table: a row's index plus one, or zero
+//   every key, concatenated
+//   n records              name, holes, constants
 //   every stencil's code, concatenated
 //
-// The table is what lets a decode read the keys and stop: a record is read
-// when its stencil is first asked for ([`Library::stencil`]).
+// The rows and the hash table are what let a decode read nothing: a key is
+// found in place, and a record is read when its stencil is first asked for
+// ([`Library::stencil`]).
 
 struct Cursor<'a> {
     bytes: &'a [u8],
@@ -693,34 +742,64 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
 impl Builder {
     /// The bytes `cli/build.rs` writes.
     ///
-    /// The index is not written: it is `(key, id)` for every stencil in order,
-    /// so rebuilding it on decode is a walk of a list that has just been read.
+    /// The hash table and each stencil's twins are worked out here, once, so
+    /// that [`Library::decode`] has nothing to build.
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        put_str(&mut out, &self.config);
-        put_u32(&mut out, self.stencils.len() as u32);
+        let n = self.stencils.len();
         // Keys in the order the stencils are in, which is the order the
         // generators produced them: deterministic, and no map is iterated.
         let mut keys: Vec<(&str, u32)> = self.index.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         keys.sort_unstable_by_key(|(_, v)| *v);
-        for (key, _) in &keys {
-            put_str(&mut out, key);
+        let slots = n.saturating_mul(2).next_power_of_two();
+        let mut table = vec![0u32; slots];
+        let mask = slots.saturating_sub(1);
+        for (key, i) in &keys {
+            // The first empty slot from the key's own: there is one, since
+            // the table is at least twice the keys.
+            let hash = key_hash(key.as_bytes());
+            let empty = (0..slots)
+                .map(|d| hash.wrapping_add(d) & mask)
+                .find(|slot| table.get(*slot) == Some(&0));
+            table
+                .get_mut(empty.unwrap_or_default())
+                .into_iter()
+                .for_each(|s| *s = i.saturating_add(1));
         }
         let mut records = Vec::new();
-        let mut starts = Vec::with_capacity(self.stencils.len());
+        let mut starts = Vec::with_capacity(n);
         let mut code_at = 0usize;
         for s in &self.stencils {
             starts.push((records.len(), code_at));
             put_record(&mut records, s);
             code_at = code_at.saturating_add(s.code.len());
         }
-        let table_end = out
+
+        let mut out = Vec::new();
+        put_str(&mut out, &self.config);
+        put_u32(&mut out, n as u32);
+        put_u32(&mut out, slots as u32);
+        let keys_at = out
             .len()
-            .saturating_add(self.stencils.len().saturating_mul(8));
-        let code_base = table_end.saturating_add(records.len());
-        for (record, code) in starts {
-            put_u32(&mut out, table_end.saturating_add(record) as u32);
+            .saturating_add(n.saturating_mul(ROW * 4))
+            .saturating_add(slots.saturating_mul(4));
+        let records_at = keys_at.saturating_add(keys.iter().map(|(k, _)| k.len()).sum());
+        let code_base = records_at.saturating_add(records.len());
+        let mut key_at = keys_at;
+        for ((key, _), (s, (record, code))) in keys.iter().zip(self.stencils.iter().zip(starts)) {
+            put_u32(&mut out, key_at as u32);
+            put_u32(&mut out, key.len() as u32);
+            key_at = key_at.saturating_add(key.len());
+            put_u32(&mut out, records_at.saturating_add(record) as u32);
             put_u32(&mut out, code_base.saturating_add(code) as u32);
+            for twin in self.twins_of(&s.name) {
+                put_u32(&mut out, twin);
+            }
+        }
+        for slot in table {
+            put_u32(&mut out, slot);
+        }
+        for (key, _) in &keys {
+            out.extend_from_slice(key.as_bytes());
         }
         out.extend_from_slice(&records);
         for s in &self.stencils {
@@ -728,33 +807,56 @@ impl Builder {
         }
         out
     }
+
+    /// The [`FOLD_SUFFIXES`] twins and the [`SWAP_SUFFIX`] one of the stencil
+    /// called `name`, by index, or [`NO_TWIN`].
+    fn twins_of(&self, name: &str) -> [u32; TWINS] {
+        let mut out = [NO_TWIN; TWINS];
+        for (slot, suffix) in out
+            .iter_mut()
+            .zip(FOLD_SUFFIXES.iter().chain([&SWAP_SUFFIX]))
+        {
+            *slot = self
+                .index
+                .get(&format!("{name}{suffix}"))
+                .copied()
+                .unwrap_or(NO_TWIN);
+        }
+        out
+    }
 }
 
 impl Library {
-    /// The inverse, over `include_bytes!`'s slice: the keys and the table, and
-    /// each stencil when it is first asked for ([`Library::stencil`]).
+    /// The inverse, over `include_bytes!`'s slice: where the rows and the
+    /// hash table are, and each stencil when it is first asked for
+    /// ([`Library::stencil`]).
     pub fn decode(bytes: &'static [u8]) -> Result<Library, String> {
         let mut c = Cursor { bytes, at: 0 };
         let config = c.str()?;
         let n = c.usize()?;
-        let mut index: HashMap<&'static str, u32> =
-            HashMap::with_capacity_and_hasher(n, Default::default());
-        for i in 0..n {
-            index.insert(c.text()?, i as u32);
-        }
-        let mut starts = Vec::with_capacity(n);
-        for _ in 0..n {
-            let record = c.u32()?;
-            starts.push((record, c.u32()?));
-        }
+        let slots = c.usize()?;
+        (slots.is_power_of_two() & (slots >= n))
+            .then_some(())
+            .ok_or("stencil library: a bad hash table")?;
+        let rows = c.at;
+        c.take(
+            n.checked_mul(ROW * 4)
+                .ok_or("stencil library: length overflow")?,
+        )?;
+        let table = c.at;
+        c.take(slots.saturating_mul(4))?;
+        let index = Index {
+            bytes,
+            n,
+            rows,
+            table,
+            mask: slots.saturating_sub(1),
+        };
         Ok(Library {
             config,
             known: Known::find(&index)?,
-            bytes,
             index,
-            starts,
             stencils: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
-            twins: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
         })
     }
 }

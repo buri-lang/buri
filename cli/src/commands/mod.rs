@@ -577,6 +577,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
             crate::compiler::semantics::styles::declarations_walked()
         );
         eprintln!(
+            "stencils read {}",
+            crate::compiler::backend::stencils_read()
+        );
+        eprintln!(
             "type values searched {}",
             crate::compiler::semantics::resolve::values_searched()
         );
