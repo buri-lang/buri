@@ -692,8 +692,11 @@ pub(crate) fn reach(
         }
         queue.push(id);
     }
-    // The standard library re-exports reached, as the loader wakes them.
-    let mut woken: crate::hash::Set<(ModuleId, usize)> = crate::hash::Set::default();
+    use crate::compiler::modules::{reexports_of, specs, wanted, wants, Specs};
+    use crate::parsing::tree::Item;
+    // Each module's re-exports not reached yet, as the loader wakes them.
+    let mut waiting: PerModule<Option<Vec<&crate::parsing::tree::ReExport>>> =
+        loaded.modules.per_module(None);
     while let Some(id) = queue.pop() {
         let seen = holds.get_mut(id);
         if std::mem::replace(seen, true) {
@@ -708,41 +711,37 @@ pub(crate) fn reach(
             .flatten();
         queue.extend(classify);
         let waits = crate::compiler::standard_library::find(&module.path).is_some();
-        let t = &module.ast.tree;
-        let mut edges: Vec<(ModuleId, crate::compiler::modules::Wanted)> = Vec::new();
+        // Each edge is the module it reaches, and the tree and specifiers of
+        // the line that reaches it.
+        let mut edges: Vec<(ModuleId, &crate::parsing::flat::Tree, Specs)> = Vec::new();
         for item in &module.ast.items {
-            let (path, wanted) = match item {
-                crate::parsing::tree::Item::Import(i) => {
-                    (&i.path, crate::compiler::modules::wanted(t, &i.clause))
-                }
-                crate::parsing::tree::Item::ReExport(r) if !waits => {
-                    (&r.path, crate::compiler::modules::reexported(t, r))
-                }
+            let (path, specs) = match item {
+                Item::Import(i) => (&i.path, specs(&i.clause)),
+                Item::ReExport(r) if !waits => (&r.path, Some(r.specs)),
                 _ => continue,
             };
-            if let Some(to) = loaded.find(path) {
-                edges.push((to, wanted));
-            }
+            edges.extend(loaded.find(path).map(|to| (to, &module.ast.tree, specs)));
         }
         // Each edge reaches its module, and the re-exports of it that the
-        // edge wants, which want what they list in turn.
-        while let Some((to, wanted)) = edges.pop() {
+        // line wants, which want what they list in turn.
+        while let Some((to, t, specs)) = edges.pop() {
             queue.push(to);
             let target = loaded.module(to);
-            if crate::compiler::standard_library::find(&target.path).is_none() {
+            let at_hand = waiting.get_mut(to).get_or_insert_with(|| {
+                let std = crate::compiler::standard_library::find(&target.path).is_some();
+                reexports_of(target).into_iter().filter(|_| std).collect()
+            });
+            if at_hand.is_empty() {
                 continue;
             }
-            let t = &target.ast.tree;
-            for at in crate::compiler::modules::reexports_wanted(target, wanted.as_deref()) {
-                let Some(crate::parsing::tree::Item::ReExport(r)) = target.ast.items.get(at) else {
-                    continue;
-                };
-                if !woken.insert((to, at)) {
-                    continue;
-                }
-                if let Some(next) = loaded.find(&r.path) {
-                    edges.push((next, crate::compiler::modules::reexported(t, r)));
-                }
+            let names = wanted(t, specs);
+            let woken: Vec<_>;
+            (woken, *at_hand) = std::mem::take(at_hand)
+                .into_iter()
+                .partition(|r| wants(&target.ast.tree, r, names.as_deref()));
+            for r in woken {
+                let next = loaded.find(&r.path);
+                edges.extend(next.map(|next| (next, &target.ast.tree, Some(r.specs))));
             }
         }
     }

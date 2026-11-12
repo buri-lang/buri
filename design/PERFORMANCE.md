@@ -9454,8 +9454,8 @@ The renderer now lives in the internal module `platform/effect/testing/ui`,
 and `platform/effect/testing` re-exports it. A standard library module's
 re-export loads only when an import names something it re-exports
 (`Loader::wake` in `cli/src/compiler/modules.rs`). A namespace import wakes
-them all, and so does a name the module doesn't have, so a typo still gets
-"did you mean `render`?". `driver::reach` follows the same rule. The language
+them all. A typo still gets "did you mean `render`?" from the names the
+re-exports list. `driver::reach` follows the same rule. The language
 server loads every re-export, so completion still offers `render`.
 
 On the arm64 VM, `test/one-edit` went from 83.84M to 63.05M instructions
