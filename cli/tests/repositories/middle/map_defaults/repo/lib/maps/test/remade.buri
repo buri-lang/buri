@@ -1,0 +1,394 @@
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/orderedmap" import * as orderedmap;
+from "core/orderedmap" import { OrderedMap };
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+// A value worked out from what a map holds, other than with `withDefault`,
+// and read only by the insert under the same key right after it.
+
+// A key whose label takes no part in equality, so which of two equal keys a
+// map keeps shows.
+struct Name {
+    id: Int,
+    label: Str,
+}
+
+impl Equal for Name {
+    fn equal(self, other: Name): Bool {
+        self.id == other.id
+    }
+}
+
+impl Ordered for Name {
+    fn compare(self, other: Name): Order {
+        self.id.compare(other.id)
+    }
+}
+
+impl Hash for Name {
+    fn hash(self): U64 {
+        self.id.wrapToU64()
+    }
+}
+
+struct Note {
+    text: Str,
+    version: Int,
+    by: Int,
+}
+
+struct Entry {
+    by: Int,
+    at: Int,
+}
+
+// Keys 0 to 39.
+fn ordered<C: Allocator>(ctx: C): OrderedMap<Int, Note> {
+    list
+        .range(ctx, 0, 40)
+        .foldCtx(
+            ctx,
+            fn(c, m, i) => m.insert(c, i, Note { text: "first", version: 1, by: 0 }),
+            orderedmap.empty<Int, Note>(),
+        )
+}
+
+fn hashed<C: Allocator>(ctx: C): Map<Int, Note> {
+    list
+        .range(ctx, 0, 40)
+        .foldCtx(
+            ctx,
+            fn(c, m, i) => m.insert(c, i, Note { text: "first", version: 1, by: 0 }),
+            map.empty<Int, Note>(),
+        )
+}
+
+// The version goes up by one each write; the record is otherwise new.
+fn written<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, Note>,
+    k: Int,
+    text: Str,
+    entry: Entry,
+): OrderedMap<Int, Note> {
+    let version = m.get(k).map(fn(n) => n.version + 1).withDefault(1);
+    m.insert(ctx, k, Note { text: text, version: version, by: entry.by })
+}
+
+fn hashedWritten<C: Allocator>(
+    ctx: C,
+    m: Map<Int, Note>,
+    k: Int,
+    text: Str,
+    entry: Entry,
+): Map<Int, Note> {
+    let version = m.get(k).map(fn(n) => n.version + 1).withDefault(1);
+    m.insert(ctx, k, Note { text: text, version: version, by: entry.by })
+}
+
+test "a version worked out from the old record changes only the new map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let e = Entry { by: 7, at: 1 };
+    let m = ordered(ctx);
+    let m2 = written(ctx, m, 5, "second", e);
+    let m3 = written(ctx, written(ctx, m2, 5, "third", e), 50, "new", e);
+    assert.equal(
+        m3.get(5).map(fn(n) => (n.text, n.version, n.by)),
+        .Some(("third", 3, 7)),
+    );
+    assert.equal(m2.get(5).map(fn(n) => (n.text, n.version)), .Some(("second", 2)));
+    assert.equal(m3.get(50).map(fn(n) => (n.text, n.version)), .Some(("new", 1)));
+    assert.equal(
+        m.get(5).map(fn(n) => (n.text, n.version, n.by)),
+        .Some(("first", 1, 0)),
+    );
+    assert.equal(m2.get(50).isSome(), false);
+    assert.equal(m3.length(), 41);
+    let h = hashed(ctx);
+    let h2 = hashedWritten(ctx, h, 5, "second", e);
+    let h3 = hashedWritten(ctx, hashedWritten(ctx, h2, 5, "third", e), 50, "new", e);
+    assert.equal(
+        h3.get(5).map(fn(n) => (n.text, n.version, n.by)),
+        .Some(("third", 3, 7)),
+    );
+    assert.equal(h2.get(5).map(fn(n) => (n.text, n.version)), .Some(("second", 2)));
+    assert.equal(h3.get(50).map(fn(n) => (n.text, n.version)), .Some(("new", 1)));
+    assert.equal(
+        h.get(5).map(fn(n) => (n.text, n.version, n.by)),
+        .Some(("first", 1, 0)),
+    );
+    assert.equal(h3.length(), 41);
+}
+
+// Many times over, on a map nothing else holds.
+test "a record rewritten many times holds the last write" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = list
+        .range(ctx, 0, 300)
+        .foldCtx(
+            ctx,
+            fn(c, acc, i) => written(c, acc, i % 30, "x", Entry { by: i, at: i }),
+            ordered(ctx),
+        );
+    assert.equal(m.get(3).map(fn(n) => (n.version, n.by)), .Some((11, 273)));
+    assert.equal(m.get(35).map(fn(n) => n.version), .Some(1));
+    let h = list
+        .range(ctx, 0, 300)
+        .foldCtx(
+            ctx,
+            fn(c, acc, i) => hashedWritten(c, acc, i % 30, "x", Entry { by: i, at: i }),
+            hashed(ctx),
+        );
+    assert.equal(h.get(3).map(fn(n) => (n.version, n.by)), .Some((11, 273)));
+    assert.equal(h.get(35).map(fn(n) => n.version), .Some(1));
+}
+
+// The value taken apart with a `match`, and a list grown from the option.
+fn measured<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = match (m.get(k)) {
+        .Some(xs) => xs.length(),
+        .None => 0,
+    };
+    m.insert(ctx, k, [n])
+}
+
+fn extended<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+    a: Int,
+    b: Int,
+    c: Int,
+): OrderedMap<Int, [Int]> {
+    let found = m.get(k);
+    m.insert(ctx, k, found.withDefault([a]).push(ctx, b).push(ctx, c))
+}
+
+test "an option taken apart, and three other names read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.empty<Int, [Int]>().insert(ctx, 1, [4, 5, 6]);
+    assert.equal(measured(ctx, m, 1).get(1), .Some([3]));
+    assert.equal(measured(ctx, m, 2).get(2), .Some([0]));
+    let m2 = extended(ctx, m, 1, 7, 8, 9);
+    assert.equal(m2.get(1), .Some([4, 5, 6, 8, 9]));
+    assert.equal(extended(ctx, m2, 2, 7, 8, 9).get(2), .Some([7, 8, 9]));
+    assert.equal(m.get(1), .Some([4, 5, 6]));
+}
+
+// The stored key becomes the one written, as an insert makes it.
+fn renamed<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Name, Int>,
+    k: Name,
+): OrderedMap<Name, Int> {
+    let n = m.get(k).map(fn(x) => x * 2).withDefault(1);
+    m.insert(ctx, k, n)
+}
+
+fn hashedRenamed<C: Allocator>(ctx: C, m: Map<Name, Int>, k: Name): Map<Name, Int> {
+    let n = m.get(k).map(fn(x) => x * 2).withDefault(1);
+    m.insert(ctx, k, n)
+}
+
+fn labels<C: Allocator>(ctx: C, keys: [Name]): [Str] {
+    keys.map(ctx, fn(k) => k.label)
+}
+
+test "the key written is the key kept" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.empty<Name, Int>().insert(ctx, Name { id: 1, label: "old" }, 3);
+    let m2 = renamed(ctx, m, Name { id: 1, label: "new" });
+    assert.equal(m2.get(Name { id: 1, label: "" }), .Some(6));
+    assert.equal(labels(ctx, m2.keys(ctx)), ["new"]);
+    assert.equal(labels(ctx, m.keys(ctx)), ["old"]);
+    let h = map.empty<Name, Int>().insert(ctx, Name { id: 1, label: "old" }, 3);
+    let h2 = hashedRenamed(ctx, h, Name { id: 1, label: "new" });
+    assert.equal(h2.get(Name { id: 1, label: "" }), .Some(6));
+    assert.equal(labels(ctx, h2.keys(ctx)), ["new"]);
+    assert.equal(labels(ctx, h.keys(ctx)), ["old"]);
+}
+
+// The shapes below are left as they are written; each reader still keeps its
+// own view.
+
+// Something else is worked out between the read and the write.
+fn between<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    let twice = n * 2;
+    m.insert(ctx, k, [n, twice])
+}
+
+// The value is read again after the write, or by the key.
+fn reread<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): (OrderedMap<Int, [Int]>, Int) {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    let m2 = m.insert(ctx, k, [n]);
+    (m2, n)
+}
+
+fn keyed<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    m.insert(ctx, n, [n])
+}
+
+// The value is read only after the write.
+fn unread<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    let m2 = m.insert(ctx, k, [9]);
+    m2.insert(ctx, n, [n])
+}
+
+// The value can leave early, or makes a function that reads another name.
+fn early<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+    r: Result<Int, Str>,
+): Result<OrderedMap<Int, [Int]>, Str> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(r?);
+    .Ok(m.insert(ctx, k, [n]))
+}
+
+fn shifted<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+    d: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length() + d).withDefault(0);
+    m.insert(ctx, k, [n])
+}
+
+// Read under another key, from another map, or written into one; the read
+// made inside a function; a worked-out key or map; the name taken apart.
+fn otherKey<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+    j: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(j).map(fn(xs) => xs.length()).withDefault(0);
+    m.insert(ctx, k, [n])
+}
+
+fn otherMap<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    o: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = o.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    m.insert(ctx, k, [n])
+}
+
+fn hashedInto<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    h: Map<Int, [Int]>,
+    k: Int,
+): Map<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    h.insert(ctx, k, [n])
+}
+
+fn same(m: OrderedMap<Int, [Int]>): OrderedMap<Int, [Int]> {
+    m
+}
+
+fn madeMap<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k).map(fn(xs) => xs.length()).withDefault(0);
+    same(m).insert(ctx, k, [n])
+}
+
+fn applied(f: fn() => Int): Int {
+    f()
+}
+
+fn deferred<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = applied(fn() => m.get(k).map(fn(xs) => xs.length()).withDefault(0));
+    m.insert(ctx, k, [n])
+}
+
+fn workedKey<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let n = m.get(k + 1).map(fn(xs) => xs.length()).withDefault(0);
+    m.insert(ctx, k + 1, [n])
+}
+
+fn apart<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Int, [Int]>,
+    k: Int,
+): OrderedMap<Int, [Int]> {
+    let (n, d) = (m.get(k).map(fn(xs) => xs.length()).withDefault(0), 1);
+    m.insert(ctx, k, [n, d])
+}
+
+test "the remade shapes left as written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = orderedmap.empty<Int, [Int]>().insert(ctx, 1, [4, 5]).insert(ctx, 2, [6]);
+    assert.equal(between(ctx, m, 1).get(1), .Some([2, 4]));
+    let (r, n) = reread(ctx, m, 1);
+    assert.equal(r.get(1), .Some([2]));
+    assert.equal(n, 2);
+    assert.equal(keyed(ctx, m, 1).get(2), .Some([2]));
+    assert.equal(unread(ctx, m, 1).get(1), .Some([9]));
+    assert.equal(unread(ctx, m, 1).get(2), .Some([2]));
+    assert.equal(early(ctx, m, 1, .Ok(0)).map(fn(x) => x.get(1)), .Ok(.Some([2])));
+    assert.equal(early(ctx, m, 1, .Err("no")).map(fn(x) => x.get(1)), .Err("no"));
+    assert.equal(shifted(ctx, m, 1, 3).get(1), .Some([5]));
+    assert.equal(otherKey(ctx, m, 1, 2).get(1), .Some([1]));
+    assert.equal(otherMap(ctx, m, m, 3).get(3), .Some([0]));
+    assert.equal(hashedInto(ctx, m, map.empty<Int, [Int]>(), 1).get(1), .Some([2]));
+    assert.equal(deferred(ctx, m, 1).get(1), .Some([2]));
+    assert.equal(workedKey(ctx, m, 0).get(1), .Some([2]));
+    assert.equal(madeMap(ctx, m, 2).get(2), .Some([1]));
+    assert.equal(apart(ctx, m, 2).get(2), .Some([1, 1]));
+    assert.equal(m.get(1), .Some([4, 5]));
+}

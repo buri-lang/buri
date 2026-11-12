@@ -2069,6 +2069,41 @@ test "a value read with withDefault and inserted back changes only the new map" 
     );
 }
 
+// --- a value worked out from a read and inserted back ------------------------
+
+/// `key`'s count doubled, or one, inserted back.
+fn doubled<C: Allocator>(ctx: C, m: Map<Collider, Int>, id: Int): Map<Collider, Int> {
+    let key = Collider { id: id };
+    let n = m.get(key).map(fn(v) => v * 2).withDefault(1);
+    m.insert(ctx, key, n)
+}
+
+test "a value worked out from a read and inserted back changes only the new map" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Forty keys in eight hashes: entries, collisions, and branches below the
+    // root. Each key is changed again at once.
+    let grown = list
+        .range(ctx, 0, 40)
+        .foldCtx(
+            ctx,
+            fn(c, m, i) => doubled(c, doubled(c, m, i), i),
+            map.empty<Collider, Int>(),
+        );
+    let again = list
+        .range(ctx, 0, 40)
+        .foldCtx(ctx, fn(c, m, i) => doubled(c, m, i), grown);
+    assert.equal(grown.length(), 40);
+    assert.equal(again.length(), 40);
+    assert.isTrue(
+        list.range(ctx, 0, 40).all(fn(i) => grown.get(Collider { id: i }) == .Some(2)),
+    );
+    assert.isTrue(
+        list.range(ctx, 0, 40).all(fn(i) => again.get(Collider { id: i }) == .Some(4)),
+    );
+}
+
 // --- a `?` in an insert's value ------------------------------------------------
 
 fn checkedInsert<C: Allocator>(

@@ -1,12 +1,17 @@
 # A value read out of a map with `withDefault`, changed, and written back
 # under the same key, on both the ordered and the hash map: with a change that
-# reads nothing else, one other name, or names values of its own; a map held
-# in a field and written inside a call; a key equal to the stored one but not
-# the same; and a value never read. And the shapes left as written: a change
-# that reads two other names, can leave early or makes a function; the value
-# read again after the write; a write under another key, into another map, on
-# both sides of a branch, or inside a function; a worked-out key; a map made
-# by the read. Every older copy keeps its view, on both backends, and under
+# reads nothing else, one other name, two, or names values of its own; a map
+# held in a field and written inside a call; a key equal to the stored one but
+# not the same; and a value never read. The read written inside the value the
+# insert stores, with a default that is a name or a list of one, or under a
+# branch. A value worked out from the read some other way, with `map` or a
+# `match`, read only by the insert right after it. And the shapes left as
+# written: a change that can leave early or makes a function reading a name of
+# its own scope; a default worked out; the value read again after the write,
+# by the key, or not at all; something worked out in between; a write under
+# another key, into another map or kind of map, on both sides of a branch, or
+# inside a function; a worked-out key; a name taken apart; a map made by the
+# read. Every older copy keeps its view, on both backends, and under
 # --coverage.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,

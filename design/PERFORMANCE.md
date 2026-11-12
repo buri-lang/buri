@@ -9572,6 +9572,32 @@ instructions on the arm64 VM. The counted goals' dev-codegen rows fell: `ci`
 by 5.8% (instructions) and 3.5% (cost), `monorepo-ci` by 4.6% and 3.1%, and
 its test build by 4.9% and 4.2%. The native suites link every test binary this way.
 
+### 6.127 A value worked out from a read and written back descends once, 2026-11-12
+
+```buri
+let version = store.get(key).map(fn(r) => r.version + 1).withDefault(1);
+store.insert(ctx, key, Record { value, version, writer: entry.client })
+```
+
+§6.125 covered only `let w = m.get(k).withDefault(d)` and a change reading at
+most one other name. Now monomorphization also rewrites:
+
+- A `let` worked out from `m.get(k)` any other way, read only by the insert
+  under `k` right after it. The insert becomes a call to the map's private
+  `remade`, which hands the change what the descent found.
+- A read inside the stored value, `m.insert(ctx, k, m.get(k).withDefault(0) + 1)`,
+  when the default is a literal or a name.
+- A change reading two or more other names. They travel as one tuple, which
+  is passed flat, so the lambda still allocates nothing.
+
+`run-dev/kvstore` went from 1,163.2 M to 1,130.0 M instructions on an arm64 VM,
+2.86% fewer. The inline read gave 1.02% of it, `remade` the rest. Allocations
+stay at 583,491, and the soak's output is byte for byte the same.
+
+`compactAll` and `popped` stay as they are. `compactAll` inserts into the map
+its fold also reads, so the sharing is inherent, and kvstore never reaches
+`popped`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

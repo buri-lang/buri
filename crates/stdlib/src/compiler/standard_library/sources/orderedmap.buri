@@ -793,6 +793,59 @@ fn upserted<K: Ordered, V, C: Allocator, A>(
     rooted(grown, added, size)
 }
 
+/// `insertInto` with the value `make` makes of what `key` holds, if
+/// anything, in the same descent.
+fn remakeInto<K: Ordered, V, C: Allocator, A>(
+    ctx: C,
+    n: Node<K, V>,
+    key: K,
+    arg: A,
+    make: fn(C, Option<V>, A) => V,
+): (Grown<K, V>, Bool) {
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    let Node { keys, values, children } = n;
+    match (children.get(at)) {
+        .None => {
+            if (found) {
+                let made = make(ctx, values.get(seen), arg);
+                let replaced = leaf(
+                    replaceAt(ctx, keys, seen, key),
+                    replaceAt(ctx, values, seen, made),
+                );
+                (.Fit(replaced), false)
+            } else {
+                let made = make(ctx, .None, arg);
+                let added = leaf(
+                    insertAt(ctx, keys, seen, key),
+                    insertAt(ctx, values, seen, made),
+                );
+                (overfull(ctx, added), true)
+            }
+        },
+        .Some(_) => {
+            let (rest, child) = exchangeAt(ctx, children, at, leaf([], []));
+            let (grown, added) = remakeInto(ctx, child, key, arg, make);
+            (regrown(ctx, keys, rest, at, grown), added)
+        },
+    }
+}
+
+/// `m.insert(ctx, key, make(ctx, m.get(key), arg))` in one descent. The
+/// compiler writes a value worked out from `m.get(key)` and read only by the
+/// insert under `key` right after it as a call to this.
+fn remade<K: Ordered, V, C: Allocator, A>(
+    ctx: C,
+    m: OrderedMap<K, V>,
+    key: K,
+    arg: A,
+    make: fn(C, Option<V>, A) => V,
+): OrderedMap<K, V> {
+    let OrderedMap { root, size } = m;
+    let (grown, added) = remakeInto(ctx, root, key, arg, make);
+    rooted(grown, added, size)
+}
+
 /// The map whose root grew into `grown`, with `added` saying whether a key
 /// was new.
 fn rooted<K, V>(grown: Grown<K, V>, added: Bool, size: Int): OrderedMap<K, V> {

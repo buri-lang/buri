@@ -2213,14 +2213,14 @@ impl Monomorphizer<'_> {
             return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
         }
         e.kind = match e.kind {
-            ExprKind::CallFn {
-                func:
-                    typed::Callee {
-                        id,
-                        targs: call_targs,
-                    },
-                args,
-            } => {
+            ExprKind::CallFn { func, args } => {
+                if let Some(call) = self.upsert_inline(&func, &args, e.span, targs) {
+                    return self.rewrite(typed::Expr::new(call, e.ty, e.span), targs);
+                }
+                let typed::Callee {
+                    id,
+                    targs: call_targs,
+                } = func;
                 // The one place the two index spaces meet: a declaration and
                 // its type arguments in, one concrete function out.
                 let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();

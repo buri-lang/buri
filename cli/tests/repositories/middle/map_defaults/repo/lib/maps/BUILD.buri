@@ -2,7 +2,11 @@ library {
     sources: []
 
     test {
-        sources: ["test/defaults.buri"]
+        sources: [
+            "test/defaults.buri",
+            "test/inline.buri",
+            "test/remade.buri",
+        ]
         backends: [NATIVE, JS]
     }
 }

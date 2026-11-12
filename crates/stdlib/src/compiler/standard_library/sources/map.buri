@@ -382,6 +382,73 @@ fn upserted<K: Hash + Equal, V, C: Allocator, A>(
     Map { root: top, size: if (added) { size + 1 } else { size } }
 }
 
+/// `insertNode` with the value `make` makes of what `key` holds, if
+/// anything, in the same descent.
+fn remakeNode<K: Equal, V, C: Allocator, A>(
+    ctx: C,
+    n: Node<K, V>,
+    hash: U64,
+    shifted: U64,
+    key: K,
+    arg: A,
+    make: fn(C, Option<V>, A) => V,
+    depth: Int,
+): (Node<K, V>, Bool) {
+    match (n) {
+        .Branch(bitmap, children) => {
+            let bit = bitOf(chunkOf(shifted));
+            let idx = indexOf(bitmap, bit);
+            if (hasSlot(bitmap, bit)) {
+                let (rest, child) = exchangeAt(ctx, children, idx, empty<K, V>().root);
+                let (grown, added) = remakeNode(
+                    ctx,
+                    child,
+                    hash,
+                    below(shifted),
+                    key,
+                    arg,
+                    make,
+                    depth + 1,
+                );
+                (.Branch(bitmap, replaceAt(ctx, rest, idx, grown)), added)
+            } else {
+                let entry: Node<K, V> = .Entry(hash, key, make(ctx, .None, arg));
+                (.Branch(bitmap | bit, insertAt(ctx, children, idx, entry)), true)
+            }
+        },
+        .Entry(h, k, v) => {
+            if (k == key) {
+                (.Entry(hash, key, make(ctx, .Some(v), arg)), false)
+            } else {
+                let value = make(ctx, .None, arg);
+                insertNode(ctx, .Entry(h, k, v), hash, shifted, key, value, depth)
+            }
+        },
+        .Collision(h, ks, vs) => {
+            // A key that isn't in the slots has `at` past the end, where
+            // `get` answers `.None`.
+            let value = make(ctx, vs.get(positionOf(ks, key, 0)), arg);
+            insertNode(ctx, .Collision(h, ks, vs), hash, shifted, key, value, depth)
+        },
+    }
+}
+
+/// `m.insert(ctx, key, make(ctx, m.get(key), arg))` in one descent. The
+/// compiler writes a value worked out from `m.get(key)` and read only by the
+/// insert under `key` right after it as a call to this.
+fn remade<K: Hash + Equal, V, C: Allocator, A>(
+    ctx: C,
+    m: Map<K, V>,
+    key: K,
+    arg: A,
+    make: fn(C, Option<V>, A) => V,
+): Map<K, V> {
+    let Map { root, size } = m;
+    let hash = key.hash();
+    let (top, added) = remakeNode(ctx, root, hash, hash, key, arg, make, 0);
+    Map { root: top, size: if (added) { size + 1 } else { size } }
+}
+
 /// The subtree after removing `key`, or `.None` when that emptied it.
 ///
 /// `key` is in the subtree: `remove` asks first, so a removal never descends

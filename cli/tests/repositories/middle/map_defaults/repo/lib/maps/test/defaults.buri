@@ -273,9 +273,6 @@ test "a value read and never used" {
     assert.equal(m.get(2), .Some([2]));
 }
 
-// The shapes below are left as they are written; each reader still keeps its
-// own view.
-
 // The change reads two other names.
 fn twice<C: Allocator>(
     ctx: C,
@@ -287,6 +284,20 @@ fn twice<C: Allocator>(
     let xs = m.get(k).withDefault([]);
     m.insert(ctx, k, xs.push(ctx, a + b))
 }
+
+test "a change that reads two other names" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = ordered(ctx);
+    assert.equal(twice(ctx, m, 3, 4, 5).get(3), .Some([3, 9]));
+    assert.equal(twice(ctx, m, 60, 4, 5).get(60), .Some([9]));
+    assert.equal(m.get(3), .Some([3]));
+    assert.equal(m.get(60), .None);
+}
+
+// The shapes below are left as they are written; each reader still keeps its
+// own view.
 
 // The value is read again after the write.
 fn after<C: Allocator>(
@@ -409,7 +420,6 @@ test "the shapes left as written" {
         Allocator: alloc(),
     };
     let m = ordered(ctx);
-    assert.equal(twice(ctx, m, 3, 4, 5).get(3), .Some([3, 9]));
     let (m2, n) = after(ctx, m, 3);
     assert.equal(m2.get(3), .Some([3, 1]));
     assert.equal(n, 1);
