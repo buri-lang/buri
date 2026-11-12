@@ -3,13 +3,13 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15875 15960 99.47%
+total 15892 15976 99.47%
 area cli/build 1695 1698 99.82%
-area cli/documentation 483 484 99.79%
+area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
 area cli/lint 570 570 100.00%
-area cli/other 592 598 99.00%
+area cli/other 609 614 99.19%
 area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
 area cli/test 472 482 97.93%
@@ -67,14 +67,14 @@ area crates/syntax 1268 1268 100.00%
 34 34 cli/src/commands/watch.rs
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
-51 52 cli/src/compiler/driver.rs
-201 202 cli/src/compiler/modules.rs
+58 58 cli/src/compiler/driver.rs
+211 212 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 4 4 cli/src/documentation/assemble.rs
 169 170 cli/src/documentation/examples.rs
 86 86 cli/src/documentation/layout.rs
 148 148 cli/src/documentation/mod.rs
-76 76 cli/src/documentation/reference.rs
+78 78 cli/src/documentation/reference.rs
 18 18 cli/src/hold.rs
 60 60 cli/src/language_server/build_files.rs
 16 16 cli/src/language_server/call_hierarchy.rs
@@ -191,7 +191,7 @@ area crates/syntax 1268 1268 100.00%
 2 2 crates/semantics/src/compiler/semantics/name.rs
 84 84 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-408 408 crates/semantics/src/compiler/semantics/resolve.rs
+406 406 crates/semantics/src/compiler/semantics/resolve.rs
 24 24 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 150 150 crates/semantics/src/compiler/semantics/resolve/platforms.rs
