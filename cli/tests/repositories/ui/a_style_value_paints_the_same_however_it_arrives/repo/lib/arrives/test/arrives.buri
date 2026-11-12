@@ -1,0 +1,107 @@
+// Each scene with its values written in place, then the same scene with them
+// arriving another way. Both of a pair compare against one golden, so a value
+// that paints differently for how it arrived fails.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/arrives" import {
+    alignByParameter, alignWritten, layersByConditional, layersByLocal,
+    layersByParameter, layersByResult, layersByStyleParameter, layersWritten,
+    markerByParameter, markerWritten, removedByParameter, removedWritten,
+};
+
+test "a layer stack written in place puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersWritten(), .Checked, []);
+}
+
+test "a layer stack handed through a parameter puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersByParameter(), .Checked, []);
+}
+
+test "a layer stack held in a local puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersByLocal(), .Checked, []);
+}
+
+test "a layer stack a function answers puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersByResult(), .Checked, []);
+}
+
+test "a layer stack a conditional chooses puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersByConditional(), .Checked, []);
+}
+
+test "a layer stack handed as a whole style puts its children in one space" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layersByStyleParameter(), .Checked, []);
+}
+
+test "a list's numbers written in place mark each item" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "marker", markerWritten(), .Checked, []);
+}
+
+test "a list's numbers handed through a parameter mark each item" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "marker", markerByParameter(), .Checked, []);
+}
+
+test "an alignment written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "align", alignWritten(), .Checked, []);
+}
+
+test "an alignment handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "align", alignByParameter(), .Checked, []);
+}
+
+test "a removal written in place stays removed under a layout" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "removed", removedWritten(), .Checked, []);
+}
+
+test "a removal handed through a parameter stays removed under a layout" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "removed", removedByParameter(), .Checked, []);
+}

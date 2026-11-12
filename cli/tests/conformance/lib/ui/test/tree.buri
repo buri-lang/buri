@@ -1037,7 +1037,7 @@ test "a clip and a scroll are two slots, and the clip is the later rule" {
     assert.isTrue(scroll < clip);
 }
 
-test "a clip takes a state and a breakpoint, and degrades to an inline style" {
+test "a clip takes a state and a breakpoint, and a run-time one picks its class" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
@@ -1055,15 +1055,15 @@ test "a clip takes a state and a breakpoint, and degrades to an inline style" {
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".hover_clip-visible:hover{overflow:visible}"));
     assert.isTrue(sheet.contains(".md_clip-visible{overflow:visible}"));
-    // `get` takes a context, so the folder stops there and the style lands in
-    // the tier `Computed` lives in.
+    // `get` takes a context, so the folder stops there, and the node picks the
+    // value's class when it runs.
     let cut = signal(ctx, 1);
     assert.equal(
         render(
             ctx,
             ui.stack({ styles: [.Clip(cut.get(ctx) > 0)], children: [] }),
         ).markup(),
-        "e 0 overflow:clip",
+        "e 0 class:clip-clip",
     );
 }
 
@@ -1078,13 +1078,12 @@ test "the scene document writes the clip the browser was given" {
         ctx,
         ui.stack({ styles: [.Radius(.Px(4)), .Clip(cut.get(ctx) == 0)], children: [] }),
     );
-    assert.equal(render(ctx, tree).markup(), "e 0 class:r-4;overflow:clip");
-    // The radius folded and the clip did not, so the element carries one of
-    // each tier — and the scene says both, in the order the browser was given
-    // them.
+    assert.equal(render(ctx, tree).markup(), "e 0 class:r-4 clip-clip");
+    // The radius folded and the clip did not, yet both arrive as classes — and
+    // the scene says both, in the order the browser was given them.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:r-4;overflow:clip",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:r-4 clip-clip",
     );
 }
 
@@ -1172,7 +1171,7 @@ test "a press does not reach an element the pointer passes through" {
     assert.equal(ignored.get(ctx), 10);
 }
 
-test "a pass-through takes a state and degrades to an inline style" {
+test "a pass-through takes a state, and a run-time one picks its class" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
@@ -1196,7 +1195,7 @@ test "a pass-through takes a state and degrades to an inline style" {
             ctx,
             ui.stack({ styles: [.Passthrough(through.get(ctx) > 0)], children: [] }),
         ).markup(),
-        "e 0 pointer-events:none",
+        "e 0 class:pass-none",
     );
 }
 
@@ -2525,12 +2524,12 @@ test "the three new entries write themselves out, letter-spacing through a varia
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:ls-var;display:flex;flex-direction:column-reverse;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
+        "e 0 class:lay-colrev ls-var;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
     );
     // The scene document the headless painter reads says the same thing.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:ls-var;display:flex;flex-direction:column-reverse;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-colrev ls-var;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
     );
     // The value stays out of the sheet; the class that reads it is what is in it.
     assert.isFalse(stylesheet().contains("letter-spacing:0.1em"));

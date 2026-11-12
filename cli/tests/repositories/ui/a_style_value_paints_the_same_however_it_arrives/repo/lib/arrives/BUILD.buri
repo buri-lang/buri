@@ -1,0 +1,9 @@
+# One library and one test source: each scene beside its twin with the value
+# written in place.
+library {
+    sources: ["arrives.buri"]
+
+    test {
+        sources: ["test/arrives.buri"]
+    }
+}

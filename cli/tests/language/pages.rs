@@ -2619,3 +2619,154 @@ console.log(moves.join("\n"));
     );
     assert_eq!(printed, "/next /next\n/ /\n2\npushed /next\n");
 }
+
+/// Each style value twice, each in a stack named for it: once written where
+/// the node is given it, and once arriving through a parameter, a local, a
+/// function's result or a conditional.
+const ARRIVING_STYLES_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Align, Layout, ListMarker };
+from "web" import { WebHost };
+
+fn named<C>(name: Str, subject: Node<C>): Node<C> {
+    ui.stack({ styles: [], children: [subject], role: .Some(.Group), label: .Some(.Const(name)) })
+}
+
+fn box<C>(): Node<C> {
+    ui.stack({ styles: [.Width(.Px(20)), .Height(.Px(20))], children: [] })
+}
+
+fn item<C>(words: Str): Node<C> {
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(words) })] })
+}
+
+fn laidOut<C>(layout: Layout): Node<C> {
+    ui.stack({ styles: [.Layout(layout)], children: [box(), box()] })
+}
+
+fn heldInALocal<C>(layout: Layout): Node<C> {
+    let chosen = layout;
+    ui.stack({ styles: [.Layout(chosen)], children: [box(), box()] })
+}
+
+fn pick(stacked: Bool): Layout {
+    if (stacked) { .Layers } else { .Column }
+}
+
+fn picked<C>(stacked: Bool): Node<C> {
+    ui.stack({ styles: [.Layout(pick(stacked))], children: [box(), box()] })
+}
+
+fn chosenHere<C>(stacked: Bool): Node<C> {
+    ui.stack({ styles: [.Layout(if (stacked) { .Layers } else { .Column })], children: [box(), box()] })
+}
+
+fn marked<C>(marker: ListMarker): Node<C> {
+    ui.stack({ styles: [.ListMarker(marker)], children: [item("One"), item("Two")] })
+}
+
+fn aligned<C>(align: Align): Node<C> {
+    ui.stack({ styles: [.Layout(.Row), .AlignMain(align), .At(.Medium, [.AlignMain(.End)])], children: [box()] })
+}
+
+fn crossed<C>(align: Align): Node<C> {
+    ui.stack({ styles: [.Layout(.Row), .AlignCross(.Center), .AlignCross(align)], children: [box()] })
+}
+
+fn removable<C>(gone: Bool, layout: Layout): Node<C> {
+    ui.stack({ styles: [.Removed(gone), .Layout(layout)], children: [box()] })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                named("layers written", ui.stack({ styles: [.Layout(.Layers)], children: [box(), box()] })),
+                named("layers by parameter", laidOut(.Layers)),
+                named("layers by local", heldInALocal(.Layers)),
+                named("layers by result", picked(true)),
+                named("layers by conditional", chosenHere(true)),
+                named("marker written", ui.stack({ styles: [.ListMarker(.Decimal)], children: [item("One"), item("Two")] })),
+                named("marker by parameter", marked(.Decimal)),
+                named("align written", ui.stack({ styles: [.Layout(.Row), .AlignMain(.Start), .At(.Medium, [.AlignMain(.End)])], children: [box()] })),
+                named("align by parameter", aligned(.Start)),
+                named("cross written", ui.stack({ styles: [.Layout(.Row), .AlignCross(.Center), .AlignCross(.SpaceBetween)], children: [box()] })),
+                named("cross by parameter", crossed(.SpaceBetween)),
+                named("removed written", ui.stack({ styles: [.Removed(true), .Layout(.Row)], children: [box()] })),
+                named("removed by parameter", removable(true, .Row)),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+/// A style value does on the page what the same value written in place does,
+/// however it reached its node: a layer stack puts its children in one space,
+/// a list's numbers mark each item, a breakpoint overrides an alignment, a
+/// distribution across the axis stretches, and a removal stays removed under
+/// a layout written after it.
+#[test]
+fn a_style_value_does_the_same_however_it_reaches_its_node() {
+    let printed = drive(
+        "arriving-styles-page",
+        ARRIVING_STYLES_PAGE,
+        r#"
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+const sheet = document.createElement("style");
+sheet.textContent = css;
+document.head.appendChild(sheet);
+window.happyDOM.setViewport({ width: 800, height: 600 });
+sheet.textContent += " ";
+// happy-dom computes no `::after`, so a mark is found the way a browser finds
+// it: a rule for the item's `::after` whose `content` draws something.
+const marks = [];
+for (const [, selector, body] of css.matchAll(/([^{}@]+)\{([^}]*)\}/g)) {
+  const at = selector.indexOf("::after");
+  if (at >= 0 && /content:(?!none)/.test(body)) marks.push(selector.slice(0, at).trim());
+}
+const marked = (el) => (marks.some((s) => el.matches(s)) ? "marked" : "unmarked");
+for (const group of document.querySelectorAll("[role=group]")) {
+  const name = group.getAttribute("aria-label");
+  const el = group.firstElementChild;
+  let read;
+  if (name.startsWith("layers")) {
+    read = [...el.children].map((c) => getComputedStyle(c).gridArea || "auto").join(" ");
+  } else if (name.startsWith("marker")) {
+    read = [...el.children].map(marked).join(" ");
+  } else if (name.startsWith("align")) {
+    read = getComputedStyle(el).justifyContent;
+  } else if (name.startsWith("cross")) {
+    read = getComputedStyle(el).alignItems;
+  } else {
+    read = getComputedStyle(el).display;
+  }
+  console.log(`${name}: ${read}`);
+}
+"#,
+    );
+    assert_eq!(
+        printed,
+        "layers written: 1/1 1/1\n\
+         layers by parameter: 1/1 1/1\n\
+         layers by local: 1/1 1/1\n\
+         layers by result: 1/1 1/1\n\
+         layers by conditional: 1/1 1/1\n\
+         marker written: marked marked\n\
+         marker by parameter: marked marked\n\
+         align written: flex-end\n\
+         align by parameter: flex-end\n\
+         cross written: stretch\n\
+         cross by parameter: stretch\n\
+         removed written: none\n\
+         removed by parameter: none\n"
+    );
+}

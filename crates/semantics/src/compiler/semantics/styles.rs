@@ -53,6 +53,10 @@
 //! A style the interpreter cannot reduce degrades to the inline tier, which is
 //! where `Computed` already lives; that is the design's documented default and
 //! it is what lets folding get better wave by wave with no correctness window.
+//! A property with a finite set of values is the exception: every value's class
+//! ships, and the node's `classify` picks the one the value names at run time,
+//! so a value handed through a parameter, a local, a result or a conditional
+//! keeps its child rules and its place in the cascade.
 //!
 //! `On` and `At` are the exception, because a pseudo-class and a media query
 //! have nowhere to degrade *to*: there is no inline form of `:hover`. Styles
@@ -112,6 +116,9 @@ const STYLE_ANIMATION: usize = 62;
 /// `Removed(Bool)`, whose unconditional rules `stylesheet` writes as width
 /// ranges rather than one rule per class.
 const STYLE_REMOVED: usize = 63;
+
+/// `ui/style`'s `Layout::Grid`, the one layout whose value is open-ended.
+const LAYOUT_GRID: usize = 4;
 
 /// `ui/style`'s `State::Focus`, which is `:focus-visible`. The one state the
 /// sheet says anything about beyond the class that names it.
@@ -293,8 +300,8 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
 /// fixed name and one leaf value — the shape a parameter is threaded through,
 /// which is the case #195 is about. An edge- or corner-named property, and one
 /// that writes more than a single declaration, still degrades to an inline
-/// declaration: its CSS property name is not fixed at compile time, so there is
-/// no one class the variable could feed. `Shadows` shares `Shadow`'s slot and
+/// declaration, unless `every_value` lists its values: its CSS property name is
+/// not fixed at compile time, so there is no one class the variable could feed. `Shadows` shares `Shadow`'s slot and
 /// class, so it is folded onto `Shadow` here the way `slot` folds it.
 fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
     let variant = if variant == STYLE_SHADOWS {
@@ -1157,10 +1164,29 @@ impl<'a> Extractor<'a> {
             // This puts that rule in the sheet; the bare property is left
             // standing for the runtime, which writes the `--buri-…` value out
             // and takes the class.
+            //
+            // A property whose value is one of a few is the class the sheet
+            // holds for that value instead, the way a value written in place
+            // is. Its declarations alone can't be: `Layout(.Layers)` and every
+            // `ListMarker` are rules about the children too, and a declaration
+            // written inline outranks every `At` and `On` rule. So every value
+            // it can have puts its rule in the sheet, and `classify` picks the
+            // class when the program runs.
             Some(variant) => {
                 self.variable_rule(variant);
                 self.taint(s.to);
-                self.descend(e, Some(s), cond);
+                let pairs = self.every_value(variant);
+                if pairs.is_empty() || self.mode == Mode::Checking {
+                    self.descend(e, Some(s), cond);
+                } else if self.leaf_site(s) {
+                    let leaf = Demand::Leaf(self.wrapped.len());
+                    self.leaf_or_descend(e, s, cond, self.classify_style);
+                    self.taint(leaf);
+                    self.direct(leaf, pairs);
+                } else {
+                    self.direct(s.to, pairs);
+                    self.descend(e, Some(s), cond);
+                }
             }
             None => self.leaf_or_descend(e, s, cond, self.classify_style),
         }
@@ -1196,11 +1222,32 @@ impl<'a> Extractor<'a> {
         let pairs: Vec<(String, String)> = atoms.into_iter().map(|a| (a.name, a.class)).collect();
         if let Some(did) = &mut self.did {
             did.sources.extend(sources.iter().cloned());
-            did.directs
-                .push((renumbered(s.to, self.first_leaf, 0), pairs.clone()));
         }
         self.sources.extend(sources);
-        self.directs.entry(s.to).or_default().extend(pairs);
+        self.direct(s.to, pairs);
+    }
+
+    /// Notes that a value reaching `to` can be any of `pairs`, each a name
+    /// `classify` looks a class up by and the class.
+    fn direct(&mut self, to: Demand, pairs: Vec<(String, String)>) {
+        if let Some(did) = &mut self.did {
+            did.directs
+                .push((renumbered(to, self.first_leaf, 0), pairs.clone()));
+        }
+        self.directs.entry(to).or_default().extend(pairs);
+    }
+
+    /// Puts the rule of every value a property of a few values can have in
+    /// the sheet, and answers each one's name and class. Nothing for a
+    /// property whose values are open-ended.
+    fn every_value(&mut self, variant: usize) -> Vec<(String, String)> {
+        every_value(variant)
+            .into_iter()
+            .map(|(atom, rule)| {
+                self.put(rule);
+                (atom.name, atom.class)
+            })
+            .collect()
     }
 
     /// A style a node is given whose value isn't known here: through
@@ -1758,6 +1805,51 @@ fn property(
     };
     out.push(atom(variant, sub, cond, declared, &name)?);
     Some(())
+}
+
+/// Every class a property of a few values can be at no condition, each with
+/// its rule: the classes a value of it the compiler couldn't fold may need.
+/// Empty for a property whose values are open-ended, and for `Animation`,
+/// whose `anim-var` rule already reads any value.
+///
+/// A `Layout` is one of a few unless it's a `Grid`, whose tracks are
+/// open-ended, so a grid it can't fold keeps its inline declarations.
+fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
+    let enumerated = |count: usize| -> Vec<Value> {
+        (0..count)
+            .map(|index| Value::Variant {
+                variant: VariantId::declared(index),
+                args: Vec::new(),
+            })
+            .collect()
+    };
+    let values = match variant {
+        6 => enumerated(6)
+            .into_iter()
+            .filter(|v| {
+                v.as_variant()
+                    .is_some_and(|(which, _)| which != LAYOUT_GRID)
+            })
+            .collect(),
+        // `Align`, along the axis and across it, and a text's.
+        7 | 8 | 9 | 48 => enumerated(7),
+        // `Wrap`, `Italic`, `Clip`, `Passthrough` and `Removed`.
+        10 | 45 | 57 | 58 | STYLE_REMOVED => vec![Value::Bool(false), Value::Bool(true)],
+        11 | 50 | 51 | 54 | 36 => enumerated(3),
+        16 | 44 | 49 | 53 => enumerated(4),
+        64 => enumerated(2),
+        _ => Vec::new(),
+    };
+    let mut out = Vec::new();
+    for value in values {
+        let _ = property(
+            variant,
+            std::slice::from_ref(&value),
+            Cond::default(),
+            &mut out,
+        );
+    }
+    out
 }
 
 /// One class: its name, its slot, and the rule it puts in the sheet. `name` is
@@ -4194,6 +4286,10 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
             if let Some((abbreviation, _)) = variable_property(other) {
                 out.classes.insert(format!("{abbreviation}-var"));
             }
+            // A property of a few values takes the class of whichever it
+            // holds, so the sheet keeps them all.
+            out.classes
+                .extend(every_value(other).into_iter().map(|(atom, _)| atom.class));
         }
     }
 }

@@ -1,0 +1,17 @@
+# A style value paints the same however it reaches its node.
+#
+# A layer stack, a list's numbers, an alignment a breakpoint overrides and a
+# removal under a layout each used to paint only when written in place; handed
+# through a parameter, a local, a function's result or a conditional, the
+# value went to the inline tier and lost its child rules or its cascade order.
+# Each scene here shares a golden with its twin that writes the value in place.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a style value handed through a parameter, a local, a result or a conditional paints what the same value written in place paints"
+
+run {
+  args: ["test", "//lib/arrives", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}

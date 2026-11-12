@@ -1,0 +1,209 @@
+//! Each scene twice: once with its style values written where the node is
+//! given them, and once with the same values arriving another way, through a
+//! parameter, a local, a function's result or a conditional. A style value is
+//! the same value however it arrives, so each pair paints one picture.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Align, Layout, ListMarker, Style };
+
+/// The white frame every scene is painted in.
+fn frame<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(100)),
+            .Height(.Px(100)),
+            .Padding(.Px(10)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [subject],
+    })
+}
+
+fn box<C>(width: Int, height: Int, red: Int): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+            .Background(.Rgb(red, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+/// A black square and a smaller red one: stacked, the red one covers the black
+/// one's corner; in a column, it sits under it.
+fn pair<C>(): [Node<C>] {
+    [box(40, 40, 0), box(20, 20, 220)]
+}
+
+// ---------------------------------------------------------------------------
+// A layer stack.
+// ---------------------------------------------------------------------------
+
+export fn layersWritten<C>(): Node<C> {
+    frame(ui.stack({ styles: [.Layout(.Layers), .Width(.Px(80))], children: pair() }))
+}
+
+fn laidOut<C>(layout: Layout): Node<C> {
+    frame(ui.stack({ styles: [.Layout(layout), .Width(.Px(80))], children: pair() }))
+}
+
+export fn layersByParameter<C>(): Node<C> {
+    laidOut(.Layers)
+}
+
+fn heldInALocal<C>(layout: Layout): Node<C> {
+    let chosen = layout;
+    frame(ui.stack({ styles: [.Layout(chosen), .Width(.Px(80))], children: pair() }))
+}
+
+export fn layersByLocal<C>(): Node<C> {
+    heldInALocal(.Layers)
+}
+
+fn pick(stacked: Bool): Layout {
+    if (stacked) { .Layers } else { .Column }
+}
+
+fn picked<C>(stacked: Bool): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Layout(pick(stacked)), .Width(.Px(80))],
+            children: pair(),
+        }),
+    )
+}
+
+export fn layersByResult<C>(): Node<C> {
+    picked(true)
+}
+
+fn chosenHere<C>(stacked: Bool): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(if (stacked) { .Layers } else { .Column }),
+                .Width(.Px(80)),
+            ],
+            children: pair(),
+        }),
+    )
+}
+
+export fn layersByConditional<C>(): Node<C> {
+    chosenHere(true)
+}
+
+fn styledBy<C>(style: Style): Node<C> {
+    frame(ui.stack({ styles: [style, .Width(.Px(80))], children: pair() }))
+}
+
+export fn layersByStyleParameter<C>(): Node<C> {
+    styledBy(.Layout(.Layers))
+}
+
+// ---------------------------------------------------------------------------
+// A list's marks.
+// ---------------------------------------------------------------------------
+
+fn item<C>(words: Str): Node<C> {
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(words) })] })
+}
+
+export fn markerWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.ListMarker(.Decimal), .PaddingEdge(.Start, .Px(24))],
+            children: [item("One"), item("Two")],
+        }),
+    )
+}
+
+fn marked<C>(marker: ListMarker): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.ListMarker(marker), .PaddingEdge(.Start, .Px(24))],
+            children: [item("One"), item("Two")],
+        }),
+    )
+}
+
+export fn markerByParameter<C>(): Node<C> {
+    marked(.Decimal)
+}
+
+// ---------------------------------------------------------------------------
+// An alignment a breakpoint overrides. The page a snapshot paints is 800
+// wide, so `.Medium` applies and the square goes to the end.
+// ---------------------------------------------------------------------------
+
+export fn alignWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Row),
+                .Width(.Px(80)),
+                .AlignMain(.Start),
+                .At(.Medium, [.AlignMain(.End)]),
+            ],
+            children: [box(20, 20, 0)],
+        }),
+    )
+}
+
+fn aligned<C>(align: Align): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Row),
+                .Width(.Px(80)),
+                .AlignMain(align),
+                .At(.Medium, [.AlignMain(.End)]),
+            ],
+            children: [box(20, 20, 0)],
+        }),
+    )
+}
+
+export fn alignByParameter<C>(): Node<C> {
+    aligned(.Start)
+}
+
+// ---------------------------------------------------------------------------
+// A removal, which no layout written after it puts back.
+// ---------------------------------------------------------------------------
+
+export fn removedWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Layout(.Row)],
+            children: [
+                box(20, 20, 0),
+                ui.stack({
+                    styles: [.Removed(true), .Layout(.Row)],
+                    children: [box(20, 20, 220)],
+                }),
+            ],
+        }),
+    )
+}
+
+fn removable<C>(gone: Bool, layout: Layout): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Layout(.Row)],
+            children: [
+                box(20, 20, 0),
+                ui.stack({
+                    styles: [.Removed(gone), .Layout(layout)],
+                    children: [box(20, 20, 220)],
+                }),
+            ],
+        }),
+    )
+}
+
+export fn removedByParameter<C>(): Node<C> {
+    removable(true, .Row)
+}

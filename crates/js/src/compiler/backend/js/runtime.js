@@ -5748,9 +5748,11 @@ function $tree_declare(style, out) {
       out.set("display", "grid");
       out.set("grid-template-columns", value[1].map($tree_track).join(" "));
     } else if (value[0] === 5) {
-      // The children's half of `Layers` — every child in one cell — is a rule
-      // about descendants, which an element's own style attribute cannot say.
-      // A `Layers` that reached this tier stacks nothing.
+      // The children's half of `Layers` — every child in one grid area — is a
+      // rule about descendants, which an element's own style attribute cannot
+      // say. A `Layers` value that did not fold still arrives as a class, since
+      // `semantics::styles` ships every finite value's class and has
+      // `classify` pick it, so this tier only sets the element's own grid.
       out.set("display", "grid");
     } else {
       out.set("display", "flex");

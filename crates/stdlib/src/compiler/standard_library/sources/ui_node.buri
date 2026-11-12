@@ -5156,8 +5156,9 @@ fn layoutCss<C: Allocator>(ctx: C, layout: Layout): [Str] {
             let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
             ["display:grid", decl(ctx, "grid-template-columns", columns)]
         },
-        // The children's half of `Layers` — every child in one cell — is a rule
-        // about descendants, which an element's own declarations cannot say.
+        // The children's half of `Layers` — every child in one grid area — is
+        // a rule about descendants, which an element's own declarations cannot
+        // say; it comes from the class `classify` picks for the value.
         .Layers => ["display:grid"],
     }
 }

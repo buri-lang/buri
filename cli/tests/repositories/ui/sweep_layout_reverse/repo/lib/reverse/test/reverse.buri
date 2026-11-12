@@ -11,11 +11,11 @@ test "four children, four layouts" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    // The layout arrives as a parameter here, so it lands in the inline tier
-    // rather than the sheet. `shapes` below writes one out and gets the class.
+    // The layout arrives as a parameter here, and gets the same class as
+    // `shapes` below, which writes one out.
     let scene = ui.describe(ctx, direction(), .Hover);
-    assert.containsText(scene, "flex-direction:row-reverse");
-    assert.containsText(scene, "flex-direction:column-reverse");
+    assert.containsText(scene, "lay-rowrev");
+    assert.containsText(scene, "lay-colrev");
     snapshot(ctx, "reverse-direction", direction(), .Hover, []);
 }
 

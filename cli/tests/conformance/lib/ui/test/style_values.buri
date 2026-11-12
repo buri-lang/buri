@@ -793,34 +793,28 @@ test "a layout style known only at run time writes itself out" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.equal(
-        painted(ctx, [.Layout(late(ctx, .Column))]),
-        "e 0 display:flex;flex-direction:column",
-    );
-    assert.equal(
-        painted(ctx, [.Layout(late(ctx, .Row))]),
-        "e 0 display:flex;flex-direction:row",
-    );
+    assert.equal(painted(ctx, [.Layout(late(ctx, .Column))]), "e 0 class:lay-col");
+    assert.equal(painted(ctx, [.Layout(late(ctx, .Row))]), "e 0 class:lay-row");
     assert.equal(
         painted(ctx, [.Layout(late(ctx, .ColumnReverse))]),
-        "e 0 display:flex;flex-direction:column-reverse",
+        "e 0 class:lay-colrev",
     );
     assert.equal(
         painted(ctx, [.Layout(late(ctx, .RowReverse))]),
-        "e 0 display:flex;flex-direction:row-reverse",
+        "e 0 class:lay-rowrev",
     );
-    assert.equal(painted(ctx, [.Layout(late(ctx, .Layers))]), "e 0 display:grid");
+    assert.equal(painted(ctx, [.Layout(late(ctx, .Layers))]), "e 0 class:lay-layers");
     assert.equal(
         painted(ctx, [
             .Layout(late(ctx, .Grid([.Fraction(2), .Fixed(.Rem(1.5)), .Auto]))),
         ]),
         "e 0 display:grid;grid-template-columns:2fr 1.5rem auto",
     );
-    assert.equal(painted(ctx, [.Wrap(late(ctx, true))]), "e 0 flex-wrap:wrap");
-    assert.equal(painted(ctx, [.Wrap(late(ctx, false))]), "e 0 flex-wrap:nowrap");
-    assert.equal(painted(ctx, [.Scroll(late(ctx, .X))]), "e 0 overflow-x:auto");
-    assert.equal(painted(ctx, [.Scroll(late(ctx, .Y))]), "e 0 overflow-y:auto");
-    assert.equal(painted(ctx, [.Scroll(late(ctx, .Both))]), "e 0 overflow:auto");
+    assert.equal(painted(ctx, [.Wrap(late(ctx, true))]), "e 0 class:wrap-wrap");
+    assert.equal(painted(ctx, [.Wrap(late(ctx, false))]), "e 0 class:wrap-nowrap");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .X))]), "e 0 class:scroll-x");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .Y))]), "e 0 class:scroll-y");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .Both))]), "e 0 class:scroll-both");
     assert.equal(
         painted(ctx, [.Span(late(ctx, 2))]),
         "e 0 class:span-var;--buri-span:span 2",
@@ -833,43 +827,31 @@ test "an alignment known only at run time writes itself out" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.equal(
-        painted(ctx, [.AlignMain(late(ctx, .Start))]),
-        "e 0 justify-content:flex-start",
-    );
-    assert.equal(
-        painted(ctx, [.AlignMain(late(ctx, .Center))]),
-        "e 0 justify-content:center",
-    );
-    assert.equal(
-        painted(ctx, [.AlignMain(late(ctx, .End))]),
-        "e 0 justify-content:flex-end",
-    );
+    assert.equal(painted(ctx, [.AlignMain(late(ctx, .Start))]), "e 0 class:am-start");
+    assert.equal(painted(ctx, [.AlignMain(late(ctx, .Center))]), "e 0 class:am-center");
+    assert.equal(painted(ctx, [.AlignMain(late(ctx, .End))]), "e 0 class:am-end");
     assert.equal(
         painted(ctx, [.AlignCross(late(ctx, .Stretch))]),
-        "e 0 align-items:stretch",
+        "e 0 class:ac-stretch",
     );
     assert.equal(
         painted(ctx, [.AlignCross(late(ctx, .SpaceBetween))]),
-        "e 0 align-items:space-between",
+        "e 0 class:ac-stretch",
     );
     assert.equal(
         painted(ctx, [.AlignSelf(late(ctx, .SpaceAround))]),
-        "e 0 align-self:space-around",
+        "e 0 class:as-stretch",
     );
     assert.equal(
         painted(ctx, [.AlignSelf(late(ctx, .SpaceEvenly))]),
-        "e 0 align-self:space-evenly",
+        "e 0 class:as-stretch",
     );
-    assert.equal(painted(ctx, [.TextAlign(late(ctx, .Start))]), "e 0 text-align:start");
-    assert.equal(
-        painted(ctx, [.TextAlign(late(ctx, .Center))]),
-        "e 0 text-align:center",
-    );
-    assert.equal(painted(ctx, [.TextAlign(late(ctx, .End))]), "e 0 text-align:end");
+    assert.equal(painted(ctx, [.TextAlign(late(ctx, .Start))]), "e 0 class:ta-start");
+    assert.equal(painted(ctx, [.TextAlign(late(ctx, .Center))]), "e 0 class:ta-center");
+    assert.equal(painted(ctx, [.TextAlign(late(ctx, .End))]), "e 0 class:ta-end");
     assert.equal(
         painted(ctx, [.TextAlign(late(ctx, .Stretch))]),
-        "e 0 text-align:justify",
+        "e 0 class:ta-stretch",
     );
 }
 
@@ -879,15 +861,15 @@ test "a position known only at run time writes itself out" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.equal(painted(ctx, [.Position(late(ctx, .Flow))]), "e 0 position:relative");
-    assert.equal(painted(ctx, [.Position(late(ctx, .Sticky))]), "e 0 position:sticky");
+    assert.equal(painted(ctx, [.Position(late(ctx, .Flow))]), "e 0 class:pos-flow");
+    assert.equal(painted(ctx, [.Position(late(ctx, .Sticky))]), "e 0 class:pos-sticky");
     assert.equal(
         painted(ctx, [.Position(late(ctx, .PinViewport))]),
-        "e 0 position:fixed",
+        "e 0 class:pos-viewport",
     );
     assert.equal(
         painted(ctx, [.Position(late(ctx, .PinAnchor))]),
-        "e 0 position:fixed;--buri-pin-anchor:1",
+        "e 0 class:pos-anchor",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Top), .Px(1))]),
@@ -1075,17 +1057,11 @@ test "a border and corner known only at run time write themselves out" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.equal(
-        painted(ctx, [.BorderStyle(late(ctx, .None))]),
-        "e 0 border-style:none",
-    );
-    assert.equal(
-        painted(ctx, [.BorderStyle(late(ctx, .Solid))]),
-        "e 0 border-style:solid",
-    );
+    assert.equal(painted(ctx, [.BorderStyle(late(ctx, .None))]), "e 0 class:bs-none");
+    assert.equal(painted(ctx, [.BorderStyle(late(ctx, .Solid))]), "e 0 class:bs-solid");
     assert.equal(
         painted(ctx, [.BorderStyle(late(ctx, .Dashed))]),
-        "e 0 border-style:dashed",
+        "e 0 class:bs-dashed",
     );
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .TopStart), .Px(1))]),
@@ -1129,19 +1105,19 @@ test "a font known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.FontWeight(late(ctx, .Regular))]),
-        "e 0 font-weight:400",
+        "e 0 class:fw-regular",
     );
     assert.equal(
         painted(ctx, [.FontWeight(late(ctx, .Medium))]),
-        "e 0 font-weight:500",
+        "e 0 class:fw-medium",
     );
     assert.equal(
         painted(ctx, [.FontWeight(late(ctx, .Semibold))]),
-        "e 0 font-weight:600",
+        "e 0 class:fw-semibold",
     );
-    assert.equal(painted(ctx, [.FontWeight(late(ctx, .Bold))]), "e 0 font-weight:700");
-    assert.equal(painted(ctx, [.Italic(late(ctx, true))]), "e 0 font-style:italic");
-    assert.equal(painted(ctx, [.Italic(late(ctx, false))]), "e 0 font-style:normal");
+    assert.equal(painted(ctx, [.FontWeight(late(ctx, .Bold))]), "e 0 class:fw-bold");
+    assert.equal(painted(ctx, [.Italic(late(ctx, true))]), "e 0 class:it-italic");
+    assert.equal(painted(ctx, [.Italic(late(ctx, false))]), "e 0 class:it-normal");
 }
 
 test "a text style known only at run time writes itself out" {
@@ -1152,37 +1128,25 @@ test "a text style known only at run time writes itself out" {
     };
     assert.equal(
         painted(ctx, [.TextCase(late(ctx, .AsWritten))]),
-        "e 0 text-transform:none",
+        "e 0 class:tc-aswritten",
     );
-    assert.equal(
-        painted(ctx, [.TextCase(late(ctx, .Upper))]),
-        "e 0 text-transform:uppercase",
-    );
-    assert.equal(
-        painted(ctx, [.TextCase(late(ctx, .Lower))]),
-        "e 0 text-transform:lowercase",
-    );
+    assert.equal(painted(ctx, [.TextCase(late(ctx, .Upper))]), "e 0 class:tc-upper");
+    assert.equal(painted(ctx, [.TextCase(late(ctx, .Lower))]), "e 0 class:tc-lower");
     assert.equal(
         painted(ctx, [.TextCase(late(ctx, .Capitalize))]),
-        "e 0 text-transform:capitalize",
+        "e 0 class:tc-capitalize",
     );
-    assert.equal(
-        painted(ctx, [.TextLine(late(ctx, .None))]),
-        "e 0 text-decoration-line:none",
-    );
+    assert.equal(painted(ctx, [.TextLine(late(ctx, .None))]), "e 0 class:tl-none");
     assert.equal(
         painted(ctx, [.TextLine(late(ctx, .Underline))]),
-        "e 0 text-decoration-line:underline",
+        "e 0 class:tl-underline",
     );
-    assert.equal(
-        painted(ctx, [.TextLine(late(ctx, .Strike))]),
-        "e 0 text-decoration-line:line-through",
-    );
-    assert.equal(painted(ctx, [.TextWrap(late(ctx, .Wrap))]), "e 0 text-wrap:wrap");
-    assert.equal(painted(ctx, [.TextWrap(late(ctx, .NoWrap))]), "e 0 text-wrap:nowrap");
+    assert.equal(painted(ctx, [.TextLine(late(ctx, .Strike))]), "e 0 class:tl-strike");
+    assert.equal(painted(ctx, [.TextWrap(late(ctx, .Wrap))]), "e 0 class:tw-wrap");
+    assert.equal(painted(ctx, [.TextWrap(late(ctx, .NoWrap))]), "e 0 class:tw-nowrap");
     assert.equal(
         painted(ctx, [.TextWrap(late(ctx, .Balance))]),
-        "e 0 text-wrap:balance",
+        "e 0 class:tw-balance",
     );
     assert.equal(
         painted(ctx, [.Truncate(late(ctx, 2))]),
@@ -1200,35 +1164,23 @@ test "a pointer style known only at run time writes itself out" {
         Ui: headless(),
         Watch: observer(),
     };
-    assert.equal(painted(ctx, [.Cursor(late(ctx, .Default))]), "e 0 cursor:default");
-    assert.equal(painted(ctx, [.Cursor(late(ctx, .Pointer))]), "e 0 cursor:pointer");
-    assert.equal(painted(ctx, [.Cursor(late(ctx, .Text))]), "e 0 cursor:text");
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Default))]), "e 0 class:cur-default");
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Pointer))]), "e 0 class:cur-pointer");
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Text))]), "e 0 class:cur-text");
     assert.equal(
         painted(ctx, [.Cursor(late(ctx, .NotAllowed))]),
-        "e 0 cursor:not-allowed",
+        "e 0 class:cur-notallowed",
     );
-    assert.equal(
-        painted(ctx, [.ListMarker(late(ctx, .None))]),
-        "e 0 list-style-type:none",
-    );
-    assert.equal(
-        painted(ctx, [.ListMarker(late(ctx, .Disc))]),
-        "e 0 list-style-type:disc",
-    );
+    assert.equal(painted(ctx, [.ListMarker(late(ctx, .None))]), "e 0 class:lm-none");
+    assert.equal(painted(ctx, [.ListMarker(late(ctx, .Disc))]), "e 0 class:lm-disc");
     assert.equal(
         painted(ctx, [.ListMarker(late(ctx, .Decimal))]),
-        "e 0 list-style-type:decimal",
+        "e 0 class:lm-decimal",
     );
-    assert.equal(painted(ctx, [.Clip(late(ctx, true))]), "e 0 overflow:clip");
-    assert.equal(painted(ctx, [.Clip(late(ctx, false))]), "e 0 overflow:visible");
-    assert.equal(
-        painted(ctx, [.Passthrough(late(ctx, true))]),
-        "e 0 pointer-events:none",
-    );
-    assert.equal(
-        painted(ctx, [.Passthrough(late(ctx, false))]),
-        "e 0 pointer-events:auto",
-    );
+    assert.equal(painted(ctx, [.Clip(late(ctx, true))]), "e 0 class:clip-clip");
+    assert.equal(painted(ctx, [.Clip(late(ctx, false))]), "e 0 class:clip-visible");
+    assert.equal(painted(ctx, [.Passthrough(late(ctx, true))]), "e 0 class:pass-none");
+    assert.equal(painted(ctx, [.Passthrough(late(ctx, false))]), "e 0 class:pass-auto");
 }
 
 test "a variable-backed style known only at run time sets its variable" {
@@ -1472,8 +1424,8 @@ test "a removal a condition or a run-time value decides follows it" {
     assert.equal(page.spoken(), "Before After");
     gone.set(ctx, false);
     assert.equal(page.spoken(), "Before Middle After");
-    assert.equal(painted(ctx, [.Removed(late(ctx, true))]), "e 0 display:none");
-    assert.equal(painted(ctx, [.Removed(late(ctx, false))]), "e 0 ");
+    assert.equal(painted(ctx, [.Removed(late(ctx, true))]), "e 0 class:rm-on");
+    assert.equal(painted(ctx, [.Removed(late(ctx, false))]), "e 0 class:rm-off");
     let decided = render(ctx, removable(presses, [.Removed(late(ctx, true))]));
     assert.equal(decided.spoken(), "Before After");
     assert.equal(tabbed(ctx, decided), "Before After Before");
@@ -1527,10 +1479,10 @@ test "a figures style known only at run time writes itself out" {
     };
     assert.equal(
         painted(ctx, [.Figures(late(ctx, .Tabular))]),
-        "e 0 font-variant-numeric:tabular-nums",
+        "e 0 class:fig-tabular",
     );
     assert.equal(
         painted(ctx, [.Figures(late(ctx, .Proportional))]),
-        "e 0 font-variant-numeric:proportional-nums",
+        "e 0 class:fig-proportional",
     );
 }
