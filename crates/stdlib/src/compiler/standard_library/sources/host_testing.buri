@@ -2502,8 +2502,9 @@ export fn variables(): Str {
 /// ```
 ///
 /// Fails the test when the bytes differ, and writes
-/// `test/__snapshots__/<name>.diff.png` beside the golden. `buri test --update`
-/// writes the golden instead of comparing.
+/// `test/__snapshots__/<name>.diff.png` beside the golden, or
+/// `<name>.2.diff.png` when another test sharing the golden already failed in
+/// this run. `buri test --update` writes the golden instead of comparing.
 ///
 /// No window and no browser: `describe` resolves the tree to a scene document
 /// and the toolchain's own renderer paints it. `state` is the pseudo-class to

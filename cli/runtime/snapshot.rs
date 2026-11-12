@@ -5,7 +5,7 @@
 //! paint in. [`crate::paint`] turns those into PNG bytes. What is left is the
 //! verdict, and it is all here.
 //!
-//! `buri test` sets three environment variables, and
+//! `buri test` sets four environment variables, and
 //! `cli/src/commands/test.rs` is the other half of each:
 //!
 //!   * `BURI_SNAPSHOT_DIR` — the package's `test/__snapshots__`. **Absent means
@@ -16,6 +16,9 @@
 //!   * `BURI_SNAPSHOT_SHEET` — a file holding the stylesheet the compiler
 //!     extracted. Absent, or unreadable, is an empty sheet: a program with no
 //!     static styles writes none, and that has to paint rather than fail.
+//!   * `BURI_SNAPSHOT_RUN` — a file listing the diffs this run has written.
+//!     Two tests can share one golden: when the first fails, the second must
+//!     neither clear its diff by passing nor overwrite it by failing too.
 //!
 //! A changed snapshot **fails the test**; it does not report a toolchain
 //! problem. That is the same path a failed assertion takes — [`crate::abort::die`],
@@ -30,6 +33,10 @@ const UPDATE: &str = "BURI_SNAPSHOT_UPDATE";
 
 /// The file holding the stylesheet this artifact's static styles extracted to.
 const SHEET: &str = "BURI_SNAPSHOT_SHEET";
+
+/// The file listing every diff this `buri test` run has written so far, one
+/// path a line. Absent is an empty list.
+const RUN: &str = "BURI_SNAPSHOT_RUN";
 
 /// What the paint that follows is to make of a `var(--token)`.
 ///
@@ -120,11 +127,12 @@ fn compare(name: &str, scene: &str, state: &str) {
             why.as_bytes(),
         ]),
     };
-    let golden = std::path::Path::new(&dir).join(format!("{name}.png"));
-    let beside = std::path::Path::new(&dir).join(format!("{name}.diff.png"));
+    let dir = std::path::Path::new(&dir);
+    let golden = dir.join(format!("{name}.png"));
+    let written = written();
 
     if std::env::var(UPDATE).is_ok_and(|v| v == "1") {
-        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::create_dir_all(dir);
         if let Err(e) = std::fs::write(&golden, crate::paint::encode_png(&actual)) {
             crate::abort::die(&[
                 b"cannot write ",
@@ -134,7 +142,7 @@ fn compare(name: &str, scene: &str, state: &str) {
             ]);
         }
         // A golden that has just been recorded has no difference to show.
-        let _ = std::fs::remove_file(&beside);
+        clear_stale(dir, name, &written);
         return;
     }
 
@@ -148,18 +156,23 @@ fn compare(name: &str, scene: &str, state: &str) {
     match crate::paint::compare(&recorded, &actual) {
         // Equal, and any difference left over from a previous run goes with it,
         // so a fixed snapshot does not leave a diff behind.
-        Ok(None) => {
-            let _ = std::fs::remove_file(&beside);
-        }
+        Ok(None) => clear_stale(dir, name, &written),
         Ok(Some(image)) => {
-            let _ = std::fs::create_dir_all(&dir);
+            clear_stale(dir, name, &written);
+            let _ = std::fs::create_dir_all(dir);
+            // After the clearing, the first name this run has not written is free.
+            let file = (1..)
+                .map(|n| diff_file(name, n))
+                .find(|file| !written.contains(&dir.join(file).display().to_string()))
+                .unwrap_or_else(|| diff_file(name, 1));
+            let beside = dir.join(&file);
             let _ = std::fs::write(&beside, &image);
+            record(&beside);
             crate::abort::die(&[
                 b"the snapshot \"",
                 name.as_bytes(),
                 b"\" changed: see test/__snapshots__/",
-                name.as_bytes(),
-                b".diff.png",
+                file.as_bytes(),
             ]);
         }
         Err(why) => crate::abort::die(&[
@@ -168,6 +181,56 @@ fn compare(name: &str, scene: &str, state: &str) {
             b"\": ",
             why.as_bytes(),
         ]),
+    }
+}
+
+/// The `n`th diff of the snapshot `name` in one run: `card.diff.png`, then
+/// `card.2.diff.png`. Two tests can share one golden, and a second one that
+/// fails in the same run must not overwrite the diff the first one wrote.
+fn diff_file(name: &str, n: u32) -> String {
+    if n == 1 {
+        format!("{name}.diff.png")
+    } else {
+        format!("{name}.{n}.diff.png")
+    }
+}
+
+/// Removes every diff of `name` that an earlier run left: a snapshot that
+/// passes, or is recorded again, has no difference to show. A diff another test
+/// wrote in this run is that test's evidence, and stays.
+fn clear_stale(dir: &std::path::Path, name: &str, written: &[String]) {
+    for n in 1.. {
+        let path = dir.join(diff_file(name, n));
+        if !path.exists() {
+            break;
+        }
+        if !written.contains(&path.display().to_string()) {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// The diffs this run has written so far, from the file [`RUN`] names.
+fn written() -> Vec<String> {
+    std::env::var(RUN)
+        .ok()
+        .and_then(|file| std::fs::read_to_string(file).ok())
+        .map(|text| text.lines().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// Lists `diff` in the file [`RUN`] names, for the tests after this one.
+fn record(diff: &std::path::Path) {
+    use std::io::Write as _;
+    let Ok(file) = std::env::var(RUN) else {
+        return;
+    };
+    if let Ok(mut out) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file)
+    {
+        let _ = writeln!(out, "{}", diff.display());
     }
 }
 

@@ -1690,7 +1690,8 @@ The rest is short:
   a height that cuts something off.
 - A snapshot name is a file name: never empty, never holding a path separator.
   It names one file, so two `snapshot` calls with one name share one golden and
-  the last `--update` wins.
+  the last `--update` wins. When both fail, the second diff is
+  `<name>.2.diff.png`, and neither call clears the other's diff.
 - `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
   program may ask for and not a picture anyone can compare.
 - **A decorative image's `currentColor` is the colour its element paints in**,

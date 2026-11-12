@@ -1,0 +1,73 @@
+# Two tests share one golden and both fail, the second on a narrower page.
+#
+# The first writes `card.diff.png`. The second must not overwrite it, so it
+# writes `card.2.diff.png`, and each failure names its own file. The blocks of a
+# suite that paints run in source order, so which one comes first is fixed.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "when two tests share a golden and both fail, each writes a diff of its own and neither overwrites the other"
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: true }
+path { path: "lib/card/test/__snapshots__/card.2.diff.png"  exists: true }
+
+# Fixed, the next run clears both diffs the earlier run left. An 800-wide page
+# is the one `snapshot` paints on.
+edit {
+  file: "lib/card/test/card.buri"
+  replace: ".Const(\"Grace\")"
+  with: ".Const(\"Ada\")"
+}
+
+edit {
+  file: "lib/card/test/card.buri"
+  replace: "[], 390)"
+  with: "[], 800)"
+}
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 0
+  golden: "fixed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }
+path { path: "lib/card/test/__snapshots__/card.2.diff.png"  exists: false }
+
+# Broken both ways again, then recorded: `--update` clears both diffs too.
+edit {
+  file: "lib/card/test/card.buri"
+  replace: "\"card\", card(.Const(\"Ada\")), .Hover, []);"
+  with: "\"card\", card(.Const(\"Grace\")), .Hover, []);"
+}
+
+edit {
+  file: "lib/card/test/card.buri"
+  replace: "[], 800)"
+  with: "[], 390)"
+}
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: true }
+path { path: "lib/card/test/__snapshots__/card.2.diff.png"  exists: true }
+
+run {
+  args: ["test", "//lib/card", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }
+path { path: "lib/card/test/__snapshots__/card.2.diff.png"  exists: false }

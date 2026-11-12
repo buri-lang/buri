@@ -472,6 +472,7 @@ fn one_pass(
         workspace: std::sync::Arc::clone(&session.workspace),
         coverage,
         times: test_times::Times::load(&session.root),
+        diffs: Diffs::new(),
     };
     let width = if slots.iter().all(|s| s.answer.is_some()) {
         1
@@ -1383,6 +1384,37 @@ struct Shared {
     sharing: Vec<SlotId>,
     /// How long each test took when it last ran, which orders the runs.
     times: test_times::Times,
+    /// The diffs this pass's snapshots have written ([`SNAPSHOT_RUN`]).
+    diffs: Diffs,
+}
+
+/// The file the runtime lists each `.diff.png` it writes in, one per pass.
+///
+/// A failing snapshot exits its process, so the blocks after it run in another
+/// one, and two suites can paint into one directory. Only a file every process
+/// of the pass shares can tell a diff this pass wrote, which a later snapshot of
+/// the same name must keep, from one an earlier pass left, which it clears.
+/// Removed when the pass is done.
+struct Diffs(std::path::PathBuf);
+
+impl Diffs {
+    fn new() -> Self {
+        static PASSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let pass = PASSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        Diffs(std::env::temp_dir().join(format!(
+            "buri-snapshot-diffs-{}-{pass}-{nanos}",
+            std::process::id()
+        )))
+    }
+}
+
+impl Drop for Diffs {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// Each platform's first suite to build, in the pass's order: the one binary
@@ -1949,7 +1981,7 @@ fn run_solo(
     };
     if spec.limit.is_some() {
         let program = binary.program().display().to_string();
-        let mut snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, written);
+        let mut snapshots = snapshot_env(&spec.snapshot_dir, shared, written);
         snapshots.extend(binary.environment());
         let done = run_alone(&program, &spec, &seeds, &snapshots, shared);
         // A failing verdict isn't cached, so the next run starts this binary again.
@@ -2099,9 +2131,12 @@ fn run_alone(
 }
 
 /// The environment that tells a test binary where its goldens are.
-fn snapshot_env(dir: &str, update: bool, sheet: Option<String>) -> Vec<(&'static str, String)> {
-    let mut env = vec![(SNAPSHOT_DIR, dir.to_string())];
-    if update {
+fn snapshot_env(dir: &str, shared: &Shared, sheet: Option<String>) -> Vec<(&'static str, String)> {
+    let mut env = vec![
+        (SNAPSHOT_DIR, dir.to_string()),
+        (SNAPSHOT_RUN, shared.diffs.0.display().to_string()),
+    ];
+    if shared.flags.update {
         env.push((SNAPSHOT_UPDATE, "1".to_string()));
     }
     if let Some(path) = sheet {
@@ -3706,12 +3741,16 @@ const SEED: &str = "BURI_TEST_SEED";
 
 /// The directory `platform/effect/testing`'s `snapshot` compares against and records into:
 /// the package's own `test/__snapshots__`. `cli/runtime/snapshot.rs` is the
-/// other half of this and of the two below.
+/// other half of this and of the three below.
 const SNAPSHOT_DIR: &str = "BURI_SNAPSHOT_DIR";
 
 /// Set to `1` by `--update`, which records what was painted instead of
 /// comparing it.
 const SNAPSHOT_UPDATE: &str = "BURI_SNAPSHOT_UPDATE";
+
+/// The file listing the diffs this pass wrote ([`Diffs`]), so one test never
+/// clears or overwrites the diff another test's failure left in the same run.
+const SNAPSHOT_RUN: &str = "BURI_SNAPSHOT_RUN";
 
 /// The file the artifact's extracted stylesheet was written to.
 ///
@@ -5350,7 +5389,7 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         spec,
         gathered,
     } = job;
-    let mut snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
+    let mut snapshots = snapshot_env(&spec.snapshot_dir, shared, sheet);
     snapshots.extend(binary.environment());
     let program = binary.program().display().to_string();
     if spec.limit.is_some() {

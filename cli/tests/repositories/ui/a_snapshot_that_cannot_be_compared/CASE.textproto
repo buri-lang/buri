@@ -52,10 +52,8 @@ run {
   golden: "after.txt"
 }
 
-# And there is no difference on disk to look at, which is the second half of
-# what one file shared by two blocks costs. The earlier block wrote
+# And the difference is on disk to look at. The earlier block wrote
 # `shared.diff.png` on its way out; the later one matched, and a block that
-# matches takes the difference beside its golden with it. Two blocks that name
-# one snapshot get one report and one picture between them, and the report is
-# the half that survives.
-path { path: "lib/broken/test/__snapshots__/shared.diff.png"  exists: false }
+# matches clears only a difference an earlier run left, never one another block
+# wrote in this run.
+path { path: "lib/broken/test/__snapshots__/shared.diff.png"  exists: true }

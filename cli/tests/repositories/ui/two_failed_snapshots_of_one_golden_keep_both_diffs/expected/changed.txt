@@ -1,0 +1,8 @@
+FAIL //lib/card  test/card.buri  "a card with another name"
+  the snapshot "card" changed: see test/__snapshots__/card.diff.png
+  --> lib/card/test/card.buri:5:1
+FAIL //lib/card  test/card.buri  "a narrow card"
+  the snapshot "card" changed: see test/__snapshots__/card.2.diff.png
+  --> lib/card/test/card.buri:13:1
+
+0 passed, 2 failed, 0 skipped (0.0s)

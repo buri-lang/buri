@@ -148,6 +148,10 @@ assertion and writes `<name>.diff.png` beside the golden, showing where the two
 disagree. A repository from `buri init` ignores `*.diff.png`, so a diff is
 something you look at rather than something you commit.
 
+Two tests can share one golden. When both fail in one run, the second writes
+`<name>.2.diff.png`, so neither diff overwrites the other. A test that passes
+clears only the diffs an earlier run left, never one another test just wrote.
+
 `--update` records what each `snapshot` painted as its golden instead of
 comparing, and clears any diff left from an earlier run:
 

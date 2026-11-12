@@ -1,0 +1,34 @@
+# Two tests share one golden. The first fails and the second passes.
+#
+# The failing test writes `card.diff.png`. The passing one runs after it in the
+# same `buri test`, and a pass clears only a diff an earlier run left, so the
+# evidence of the failure is still on disk when the run ends. The blocks of a
+# suite that paints run in source order, so the failure always comes first.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "when two tests share a golden and the first fails, the second passing keeps the first one's diff"
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: true }
+
+# Fixed, the next run clears the diff the earlier run left.
+edit {
+  file: "lib/card/test/card.buri"
+  replace: ".Const(\"Grace\")"
+  with: ".Const(\"Ada\")"
+}
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 0
+  golden: "fixed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }

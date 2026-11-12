@@ -2,7 +2,7 @@ FAIL //lib/labels  test/labels.buri  "each month's name is centred under its bar
   the snapshot "labels" changed: see test/__snapshots__/labels.diff.png
   --> lib/labels/test/labels.buri:8:1
 FAIL //lib/labels  test/labels.buri  "the space around a name is not drawn"
-  the snapshot "labels" changed: see test/__snapshots__/labels.diff.png
+  the snapshot "labels" changed: see test/__snapshots__/labels.2.diff.png
   --> lib/labels/test/labels.buri:16:1
 
 1 passed, 2 failed, 0 skipped (0.0s)
