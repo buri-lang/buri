@@ -9599,6 +9599,28 @@ stay at 583,491, and the soak's output is byte for byte the same.
 its fold also reads, so the sharing is inherent, and kvstore never reaches
 `popped`.
 
+### 6.128 The last call to a function takes its body, 2026-11-12
+
+Inlining copied the callee's body at every call, and `dce` then dropped the
+original once nothing else called it. Copying and dropping were most of what
+inlining cost, mostly in cache misses. Now a round keeps live counts of each
+function's calls and references. When a call is the last one, and the function
+isn't a root of the program, the call takes the body itself. A copied body
+adds its own calls and references to the counts, so a function whose last
+caller gets pasted elsewhere first keeps its body for the copy.
+
+Monomorphization rewrites a fresh copy of each checked body. It now rewrites
+boxed children into the boxes they came in, instead of freeing each box and
+allocating a new one.
+
+On the arm64 VM, the counted goals' dev-codegen rows fell: `ci` by 3.35%
+(instructions) and 5.0% (cost), `monorepo-ci` by 1.6% and 1.4%, and its test
+build by 1.0% and 1.1%. The rows were tightened to those figures.
+
+`agreement.rs`'s `a_function_inlined_at_its_last_call_agrees` passes a function
+both as a value and through a wrapper whose own body moves, and checks native
+and JS print the same.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
