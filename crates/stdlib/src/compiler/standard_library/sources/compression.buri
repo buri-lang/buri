@@ -557,11 +557,10 @@ fn chains<C: Allocator>(ctx: C, raw: [U8]): [Int] {
 }
 
 /// The position before `j` in sorted order, when it starts with the same three
-/// bytes.
+/// bytes. The first in sorted order has none before it: `at` answers [`NONE`]
+/// for that place and for its key, and no three bytes make a negative key.
 fn earlier(keys: [Int], order: [Int], j: Int): Int {
-    if (j == 0) {
-        NONE
-    } else if (at(keys, at(order, j - 1)) == at(keys, at(order, j))) {
+    if (at(keys, at(order, j - 1)) == at(keys, at(order, j))) {
         at(order, j - 1)
     } else {
         NONE
