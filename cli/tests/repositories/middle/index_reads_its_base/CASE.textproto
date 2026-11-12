@@ -1,0 +1,15 @@
+# `xs[i]` whose index reads the list again, as `xs[xs.length() - 1]` does,
+# where that read was the list's last: a list parameter, a list in a record's
+# field, an index that grows a copy of the list, and an index read inside a
+# tuple. Both backends run every block, with the heap checked natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an element read by an index that reads its own list answers that element"
+
+run {
+  args: ["test", "//lib/index", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

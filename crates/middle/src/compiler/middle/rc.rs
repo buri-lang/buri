@@ -3710,9 +3710,18 @@ impl Scan<'_> {
                 }
             }
             ExprKind::Index { base, index, .. } => {
-                let base_dead = dead_after(borrowed_root(base), live);
+                let root = borrowed_root(base);
+                let base_dead = dead_after(root, live);
+                // The element is loaded after the index runs, so a read of
+                // the base's root inside the index, as in
+                // `xs[xs.length() - 1]`, is not its last: the root is live
+                // across the index, and dies at the load if it dies here.
+                root.into_iter().for_each(|r| self.enliven(live, r));
                 let iid = self.child(id, 1);
                 self.expr(index, iid, live, Mode::Borrow);
+                root.filter(|_| base_dead)
+                    .into_iter()
+                    .for_each(|r| live.remove(&r));
                 let bid = self.child(id, 0);
                 let bmode = if self.tail_shaped_base(base) {
                     Mode::Own
