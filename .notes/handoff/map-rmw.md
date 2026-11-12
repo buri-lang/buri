@@ -1,30 +1,21 @@
 # Map read-change-write without `update`/`take`
 
-Phase 4, 2026-11-11, landed `75fad0cc4`. See
-PERFORMANCE.md §6.120: `core/map`'s `insert` and `remove` hold the child's
-place with an empty branch instead of shifting the children.
+Phase 5, 2026-11-12. See PERFORMANCE.md §6.121: `lower::lend_gets` makes
+each call of `list.get` an `xs[i]`, so `rc` lends the element.
 
-- An insert of a key a 64-key map holds went from 7,255 to 3,003
-  instructions with a value of eight `Str`s, and from 2,447 to 1,442 with
-  one (arm64 VM).
-- `glue_counts.rs`'s cost a field went from 344 to 209 (stencil) and from
-  321 to 192 (LLVM).
-- `run-dev/kvstore` didn't change: 1,209.2 M instructions and 589,381
-  allocations. It uses no `core/map`.
+- `run-dev/kvstore` went from 1,209.2 M to 1,199.8 M instructions (arm64
+  VM), with 589,381 allocations before and after.
+- `glue_counts.rs`'s `core/map` cost a field went from 209 to 201 (stencil)
+  and from 192 to 184 (LLVM).
+- Lending exposed an `rc` bug: `xs[xs.length() - 1]` released `xs` before
+  the load. Fixed in the same landing, with
+  `cli/tests/repositories/middle/index_reads_its_base`.
 
 ## What's left
 
 About 38.7k list copies remain in kvstore's soak. `copies.sh` in the VM
 breaks them down by call site.
 
-- **`list.get` retains its element.** A prototype that rewrites each call of
-  the `list.get` intrinsic into `ExprKind::Index` after `vacate`, so `rc`
-  lends it, cut kvstore by 0.12% instructions (1,207.8 M) with the same
-  allocations. It's in `~/.buri-agent/rmw4/lend.patch`. Write it with
-  `expect` rather than `?` or `if`, so it adds no branch a test can't take,
-  and keep `list_get`'s lowering for function values. It needs a
-  `collection_costs.rs` guard: `get` against `xs[i]` on records of `Str`s.
-  This also covers `mergeEntries`' `log.get(i).map(..)`.
 - **`network.send` / `request`.** The copy is about 1% of instructions and
   an extra descent costs about 3%, so a fix must not descend twice. Vacate's
   let-sourced form and sending through `take` both failed. Don't redo them.
@@ -74,3 +65,5 @@ breaks them down by call site.
   `prof.sh <name>`, `copies.sh <name>`, `bless.sh <name>`, `two.sh <name>`
   and `flat.sh <name>` each work on `<name>.tar`, made with `git archive`.
   `bench2.sh <name> <warm-from>` runs the kvstore bench with a heap report.
+- Phase 5 remade the `maprmw` VM. `~/.buri-agent/rmw5/run.sh <name>`
+  benches `<name>.tar` and prints the kvstore row and the heap report.

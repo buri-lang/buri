@@ -61,10 +61,11 @@ use crate::compiler::middle::ir::{
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::{pairs, rc};
-use crate::compiler::semantics::typed::{Expr, ExprKind};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind};
 use crate::compiler::semantics::types::{
     FieldId, FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind, VariantId,
 };
+use crate::diagnostics::Invariant as _;
 
 /// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] or
 /// [`Inst::Handover`] a runtime-driven key is.
@@ -188,6 +189,49 @@ fn elem_of(list: &Ty) -> Option<Ty> {
     match list.kind() {
         TyKind::Array(elem) => Some(*elem),
         _ => None,
+    }
+}
+
+/// Makes each call of `list.get` the `xs[i]` it means, before `rc` runs.
+///
+/// Both answer an `Option` of the element. A call answers a value of its own,
+/// so [`FnLower::list_get`] retains the element and the caller releases it,
+/// even where the caller only reads a field of it. An index is a projection,
+/// so `rc` lends it, and retains the element only where it outlives the list
+/// or is stored. `list.get` passed as a function value keeps its lowering.
+pub(crate) fn lend_gets(program: &mut Program) {
+    fn lend(e: &mut Expr, gets: &[FuncIdx]) {
+        typed::children_mut(e, &mut |c| lend(c, gets));
+        let ExprKind::CallFunc { func, args } = &mut e.kind else {
+            return;
+        };
+        if !gets.contains(func) {
+            return;
+        }
+        let [base, index]: [Expr; 2] = std::mem::take(args)
+            .try_into()
+            .ok()
+            .or_ice("`list.get` takes a list and an index");
+        let elem = elem_of(&base.ty).or_ice("`list.get`'s first operand is a list");
+        e.kind = ExprKind::Index {
+            base: Box::new(base),
+            index: Box::new(index),
+            elem,
+        };
+    }
+    let gets: Vec<FuncIdx> = program
+        .funcs
+        .entries()
+        .filter(|(_, f)| matches!(&f.kind, FuncKind::Intrinsic(k) if k == "list.get"))
+        .map(|(i, _)| i)
+        .collect();
+    if gets.is_empty() {
+        return;
+    }
+    for f in program.funcs.iter_mut() {
+        if let Some(body) = f.body_mut() {
+            lend(body, &gets);
+        }
     }
 }
 

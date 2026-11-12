@@ -9403,6 +9403,35 @@ arm, and the descent, unreachable for small maps of some key types. Per
 instance, the stdlib MC/DC gate fell from 95.6% to 92.2%, so that half
 waits.
 
+### 6.121 `get` lends the element as `xs[i]` does, 2026-11-12
+
+```buri
+match (children.get(idx)) { .Some(child) => ..., .None => ... }
+```
+
+A call of `list.get` answered a value of its own, so it retained the element
+and the caller released it, even where the caller only read a field. Natively,
+`lower::lend_gets` now makes each call the `xs[i]` it means, right before
+`rc`, which lends an index and retains the element only where it outlives the
+list or is stored. `get` passed as a function value keeps its own lowering.
+An index's bounds test is now one unsigned comparison, as `get`'s was.
+
+- `run-dev/kvstore` went from 1,209.2 M to 1,199.8 M instructions on an
+  arm64 VM, 0.78% fewer. Allocations stayed at 589,381.
+- `glue_counts.rs`'s cost a field of replacing a `core/map` value went from
+  209 to 201 (stencil) and from 192 to 184 (LLVM).
+
+`cli/src/compiler/tests/lower.rs`'s
+`an_element_read_through_get_is_lent_like_an_index` checks that a field read
+through `get` retains nothing, as through an index.
+`cli/tests/repositories/middle/list_gets` reads elements back under the heap
+check, out of bounds on both sides, after their list is gone, and changed
+while the list holds them.
+
+Lending exposed a bug in `rc`: `xs[xs.length() - 1]` released `xs` after
+`length`, before the load read it. `cli/tests/repositories/middle/index_reads_its_base`
+covers it.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

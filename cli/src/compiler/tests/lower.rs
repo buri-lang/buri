@@ -790,3 +790,36 @@ export fn sum(xs: [Int]): Int { xs.fold(fn(a, b) => a + b, 0) }
     assert!(p.funcs.iter().any(|f| f.code().is_some()));
     assert!(p.funcs.iter().any(|f| f.runtime().is_some()));
 }
+
+/// `xs.get(i)` lends the element as `xs[i]` does: a field read through it
+/// retains nothing, where the call used to retain the element for the
+/// `Option` and release it again after the read.
+#[test]
+fn an_element_read_through_get_is_lent_like_an_index() {
+    let p = lower_plain(&program(
+        "
+struct Card { name: Str, note: Str }
+
+export fn viaGet(xs: [Card], i: Int): Int {
+  match (xs.get(i)) { .Some(c) => c.name.length(), .None => 0 }
+}
+
+export fn viaIndex(xs: [Card], i: Int): Int {
+  match (xs[i]) { .Some(c) => c.name.length(), .None => 0 }
+}
+",
+        "  let xs = [Card { name: \"a\", note: \"b\" }];\n  let _ = viaGet(xs, 0) + viaIndex(xs, 0);",
+    ));
+    let counts = |name: &str| {
+        let text = render(&p, name);
+        let ops = |op: &str| {
+            text.lines()
+                .filter(|l| l.trim_start().starts_with(op))
+                .count()
+        };
+        (ops("incref"), ops("decref"), text)
+    };
+    let (get, index) = (counts(":viaGet"), counts(":viaIndex"));
+    assert_eq!(get.0, 0, "a field read through `get` retained\n{}", get.2);
+    assert_eq!((get.0, get.1), (index.0, index.1), "{}\n{}", get.2, index.2);
+}

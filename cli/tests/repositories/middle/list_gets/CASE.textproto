@@ -1,0 +1,16 @@
+# `xs.get(i)` on lists of records of strings and of lists: a field read
+# through it, an index outside the list on either side, an element that
+# outlives its list or is stored somewhere else, and one changed while the
+# list still holds it. Both backends run every block, with the heap checked
+# natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an element read out of a list by get answers as before and leaves the list as it was"
+
+run {
+  args: ["test", "//lib/gets", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

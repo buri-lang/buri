@@ -169,6 +169,8 @@ pub fn native(program: &mut Program) -> Planned {
     // After `forward`, which would put a field read back where this names
     // the key, and before `rc`, which the rewrite is for.
     vacate::run(program);
+    // Before `rc`, which lends a projection and retains what a call answers.
+    lower::lend_gets(program);
     // The last thing before the analysis, because it is the analysis's own
     // precondition rather than a transformation anybody else wants: a value a
     // `let` pattern skips over has no name, and `rc`'s plan can only release

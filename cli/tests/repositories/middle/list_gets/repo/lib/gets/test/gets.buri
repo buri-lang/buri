@@ -1,0 +1,100 @@
+// `xs.get(i)` on lists of records of strings and of lists: a field read
+// through it, an index outside the list on either side, an element that
+// outlives its list or is stored somewhere else, and an element changed while
+// the list still holds it.
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+// Tests only.
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Card { name: Str, note: Str, tags: [Str] }
+
+fn card<C: Allocator>(ctx: C, i: Int): Card {
+    Card {
+        name: str.format(ctx, "card${i}"),
+        note: str.format(ctx, "n${i % 7}"),
+        tags: [str.format(ctx, "t${i}"), str.format(ctx, "u${i}")],
+    }
+}
+
+fn cards<C: Allocator>(ctx: C, n: Int): [Card] {
+    list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => card(c, i))
+}
+
+fn nameLengths(xs: [Card], i: Int, acc: Int): Int {
+    if (i >= xs.length()) {
+        acc
+    } else {
+        nameLengths(xs, i + 1, acc + xs.get(i).map(fn(c) => c.name.length()).withDefault(0))
+    }
+}
+
+// The element at `i` of a list built and dropped here.
+fn onlyOne<C: Allocator>(ctx: C, i: Int): Option<Card> {
+    let xs = cards(ctx, 5);
+    xs.get(i)
+}
+
+// The name at `i` of a list built and dropped here.
+fn nameAt<C: Allocator>(ctx: C, i: Int): Str {
+    let xs = cards(ctx, 5);
+    match (xs.get(i)) {
+        .Some(c) => c.name,
+        .None => "none",
+    }
+}
+
+test "a field read through get leaves the list as it was" {
+    let ctx = context { Allocator: alloc() };
+    let xs = cards(ctx, 300);
+    assert.equal(nameLengths(xs, 0, 0), 1990);
+    assert.equal(xs.length(), 300);
+    assert.equal(xs.get(299).map(fn(c) => c.name), .Some("card299"))
+}
+
+test "an index outside the list answers nothing on either side" {
+    let ctx = context { Allocator: alloc() };
+    let xs = cards(ctx, 3);
+    assert.equal(xs.get(3).map(fn(c) => c.name), .None);
+    assert.equal(xs.get(-1).map(fn(c) => c.name), .None);
+    assert.equal(xs.get(-9223372036854775807).map(fn(c) => c.name), .None);
+    let empty: [Card] = [];
+    assert.equal(empty.get(0).map(fn(c) => c.name), .None)
+}
+
+test "an element outlives the list it came from" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(onlyOne(ctx, 2).map(fn(c) => c.tags), .Some(["t2", "u2"]));
+    assert.equal(onlyOne(ctx, 5).map(fn(c) => c.tags), .None);
+    assert.equal(nameAt(ctx, 4), "card4");
+    assert.equal(nameAt(ctx, 7), "none")
+}
+
+test "an element stored elsewhere reads back after the list is gone" {
+    let ctx = context { Allocator: alloc() };
+    let xs = cards(ctx, 4);
+    let picked = [1, 3, 8].mapCtx(ctx, fn(c, i) => xs.get(i));
+    let names = picked.map(ctx, fn(p) => p.map(fn(c) => c.note).withDefault("-"));
+    assert.equal(names, ["n1", "n3", "-"]);
+    assert.equal(xs.getOr(2, card(ctx, 9)).name, "card2");
+    assert.equal(xs.first().map(fn(c) => c.name), .Some("card0"));
+    assert.equal(xs.last().map(fn(c) => c.name), .Some("card3"))
+}
+
+test "an element changed after get leaves the list's copy as it was" {
+    let ctx = context { Allocator: alloc() };
+    let xs = [["a", "b"], ["c"]];
+    let grown = match (xs.get(1)) {
+        .Some(ys) => ys.push(ctx, "d"),
+        .None => [],
+    };
+    assert.equal(grown, ["c", "d"]);
+    assert.equal(xs, [["a", "b"], ["c"]]);
+    let ys = cards(ctx, 2);
+    let renamed = ys.get(0).map(fn(c) => Card { ..c, name: "other" });
+    assert.equal(renamed.map(fn(c) => c.name), .Some("other"));
+    assert.equal(ys.get(0).map(fn(c) => c.name), .Some("card0"))
+}

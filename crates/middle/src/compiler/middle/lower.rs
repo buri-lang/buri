@@ -100,6 +100,8 @@ use crate::hash::Map as HashMap;
 
 mod lists;
 
+pub(crate) use lists::lend_gets;
+
 /// The most parts a template joins by a chain of `str.concat`s. One with more
 /// is joined by the runtime in one call ([`FnLower::template_joined`]).
 pub(crate) const CONCAT_CHAIN_MAX: usize = 16;
@@ -1707,43 +1709,28 @@ impl FnLower<'_> {
     // -- the pieces ---------------------------------------------------------
 
     /// `xs[i]`, which answers `Option<T>` and cannot go out of bounds
-    /// (`list.buri:24-27`). The check is two comparisons and a branch here
-    /// rather than a runtime call, so that the optimizer can see it: a bound
-    /// it can prove is a bound it can delete.
+    /// (`list.buri:24-27`). The check is a comparison and a branch here rather
+    /// than a runtime call, so that the optimizer can see it: a bound it can
+    /// prove is a bound it can delete. One unsigned comparison covers both
+    /// bounds, because a negative index is a very large unsigned one.
     fn index(&mut self, ty: Type, opt: &Ty, base: &Expr, index: &Expr, elem: &Ty) -> ValueId {
         let xs = self.expr(base);
         let i = self.expr(index);
         let len = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
-        let zero = self.int(Type::I64, 0);
-        let low = self.emit(Type::I1, |dest| Inst::Binary {
+        let outside = self.emit(Type::I1, |dest| Inst::Binary {
             dest,
             op: BinOp::Ge,
-            prim: Prim::I64,
+            prim: Prim::U64,
             lhs: i,
-            rhs: zero,
+            rhs: len,
         });
-        let high_b = self.block(&[]);
         let some_b = self.block(&[]);
         let none_b = self.block(&[]);
         let (join, join_v) = self.join(ty);
         self.set_term(Term::Branch {
-            cond: low,
-            then: Target::to(high_b),
-            else_: Target::to(none_b),
-        });
-
-        self.cur = high_b;
-        let high = self.emit(Type::I1, |dest| Inst::Binary {
-            dest,
-            op: BinOp::Lt,
-            prim: Prim::I64,
-            lhs: i,
-            rhs: len,
-        });
-        self.set_term(Term::Branch {
-            cond: high,
-            then: Target::to(some_b),
-            else_: Target::to(none_b),
+            cond: outside,
+            then: Target::to(none_b),
+            else_: Target::to(some_b),
         });
 
         self.cur = some_b;
