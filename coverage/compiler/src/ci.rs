@@ -1,6 +1,6 @@
 //! `--against-ci`: this host's shard merged with the other platforms' shards
-//! from the newest green CI run on main, and gated as CI's `coverage` job
-//! gates. So a drop only this host's tests show is caught before it lands.
+//! from the newest CI run on main whose `coverage` job passed, and gated as
+//! CI's `coverage` job gates. So a drop only this host's tests show is caught before it lands.
 //!
 //! The other shards measured that run's commit. Each of their lines moves to
 //! where `git diff` from that commit puts it, and a line the diff changed is
@@ -142,35 +142,50 @@ fn git(root: &Path) -> Command {
     git
 }
 
-/// Run `id` and its commit, or else the newest successful CI run on main's.
+/// Run `id` and its commit, or else the newest CI run on main whose
+/// `coverage` job passed. Another job failing doesn't make its shards wrong,
+/// and the baseline may already hold what they measured.
 fn green_run(root: &Path, id: Option<&str>) -> (String, String) {
-    let mut gh = Command::new("gh");
-    gh.current_dir(root).arg("run");
-    match id {
-        Some(id) => gh.args(["view", id]),
-        None => gh.args([
+    let gh = || {
+        let mut gh = Command::new("gh");
+        gh.current_dir(root).arg("run");
+        gh
+    };
+    let found = match id {
+        Some(id) => output(
+            gh().args(["view", id, "--json", "databaseId,headSha", "--jq"])
+                .arg("\"\\(.databaseId) \\(.headSha)\""),
+        ),
+        None => output(gh().args([
             "list",
             "--workflow",
             "ci.yml",
             "--branch",
             "main",
             "--status",
-            "success",
+            "completed",
             "--limit",
-            "1",
-        ]),
+            "20",
+            "--json",
+            "databaseId,headSha",
+            "--jq",
+            ".[] | \"\\(.databaseId) \\(.headSha)\"",
+        ])),
     };
-    let jq = if id.is_some() { "" } else { ".[] | " };
-    let found = output(gh.args([
-        "--json",
-        "databaseId,headSha",
-        "--jq",
-        &format!("{jq}\"\\(.databaseId) \\(.headSha)\""),
-    ]));
+    let coverage_passed = |id: &str| {
+        let jq = "[.jobs[] | select(.name == \"coverage\") | .conclusion] | first";
+        output(gh().args(["view", id, "--json", "jobs", "--jq", jq])).trim() == "success"
+    };
     let (id, commit) = found
-        .trim()
-        .split_once(' ')
-        .unwrap_or_else(|| panic!("no successful CI run on main: `{}`", found.trim()));
+        .lines()
+        .filter_map(|line| line.trim().split_once(' '))
+        .find(|(run, _)| id.is_some() || coverage_passed(run))
+        .unwrap_or_else(|| {
+            panic!(
+                "no CI run on main whose coverage passed: `{}`",
+                found.trim()
+            )
+        });
     (id.to_string(), commit.to_string())
 }
 

@@ -8,7 +8,7 @@
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --release     # any of the three, of a release `buri`
 //! cargo run -p buri-compiler-coverage -- --merge=<dir>                           # CI: merge every platform's shards, gate
 //! cargo run -p buri-compiler-coverage -- --raise                                 # CI: the ratchet
-//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --against-ci  # this host's shard, gated with green CI's others
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --against-ci  # this host's shard, gated with the others from CI's newest passing coverage
 //! cargo run -p buri-compiler-coverage -- --against-ci=<dir> --run=<id>           # of a shard already measured, against run <id>
 //! ```
 //!

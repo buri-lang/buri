@@ -1,6 +1,7 @@
 //! `--against-ci` on a measured shard: the other platforms' shards come from a
-//! `gh` that hands out a green run's, and the diff from that run's commit
-//! moves their lines.
+//! `gh` that hands out the newest run's whose coverage passed, and the diff
+//! from that run's commit moves their lines. Run 8 is the newest, and its
+//! coverage failed unless a test says it passed; run 7's passed.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,7 +16,7 @@ const X86: &str = "x86_64-unknown-linux-gnu";
 const MAC: &str = "aarch64-apple-darwin";
 const LINK: &str = "cli/src/build/link.rs";
 
-/// A checkout whose one commit CI's green run measured.
+/// A checkout whose one commit CI's runs measured.
 struct Repo {
     root: PathBuf,
 }
@@ -51,9 +52,9 @@ impl Repo {
         std::fs::write(
             &gh,
             format!(
-                "#!/bin/sh\ncase \"$2\" in\n  list) echo \"7 {}\" ;;\n  download) cp -R {}/. \"$7\" ;;\nesac\n",
-                commit.trim(),
-                green.display()
+                "#!/bin/sh\ncase \"$2\" in\n  list) echo \"8 {c}\"; echo \"7 {c}\" ;;\n  view) if [ \"$3\" = 7 ] || [ -e passed-$3 ]; then echo success; else echo failure; fi ;;\n  download) cp -R {}/. \"$7\" ;;\nesac\n",
+                green.display(),
+                c = commit.trim(),
             ),
         )
         .unwrap();
@@ -168,6 +169,26 @@ fn a_side_this_host_stops_taking_fails_and_is_named() {
     );
     assert!(
         text(&out).contains("can do that too):\n  cli/src/build/link.rs:5:4, the false side\n"),
+        "{}",
+        text(&out)
+    );
+}
+
+#[test]
+fn the_newest_run_whose_coverage_passed_is_the_one_taken() {
+    let repo = Repo::new("newest");
+    let out = repo.against_ci(&[(3, 0, 1), (5, 0, 0)]);
+    assert!(
+        text(&out).contains("against CI run 7, of "),
+        "{}",
+        text(&out)
+    );
+    // A run another job failed in still has its coverage.
+    std::fs::write(repo.root.join("passed-8"), "").unwrap();
+    let out = repo.against_ci(&[(3, 0, 1), (5, 0, 0)]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(
+        text(&out).contains("against CI run 8, of "),
         "{}",
         text(&out)
     );
