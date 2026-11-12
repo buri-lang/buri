@@ -70,8 +70,20 @@ if [ "$step" != use ]; then
   # suites share one run name, so their cases share one pool as wide as the
   # machine; each suite apart opens a pool that wide, and six at once starved the
   # 3-core macOS runner until it stopped answering.
+  #
+  # A test that fails often stops early, for a tool the machine lacks, and the
+  # profile then covers less. So each suite's output is dropped but its result
+  # line is kept, and one line sums them; a suite that ends without one counts
+  # as a crash.
   cores=$(getconf _NPROCESSORS_ONLN)
-  NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c '{} --test-threads=2 >/dev/null 2>&1 || true' < "$work/units.txt"
+  : > "$work/results.txt"
+  NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c \
+    '{} --test-threads=2 2>/dev/null | grep "^test result:" || echo "test result: crashed"' \
+    < "$work/units.txt" >> "$work/results.txt"
+  awk '/crashed/ { crashed++ }
+    { for (i = 1; i < NF; i++) if ($(i+1) ~ /^(passed|failed);$/) n[$(i+1)] += $i }
+    END { printf "training: %d passed, %d failed, %d suites without a result\n", n["passed;"], n["failed;"], crashed }' \
+    "$work/results.txt"
 
   "$profdata" merge -o "$work/buri.profdata" "$work/raw"
   rm -rf "$work/suites" "$work/raw"

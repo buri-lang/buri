@@ -1,0 +1,49 @@
+name: Test tools
+description: >
+  What the e2e suites run besides cargo, for ci.yml's test job and the nightly's
+  PGO training: bun and node at the pinned versions, and on macOS the Linux
+  target's standard library and the ELF tools. A suite missing one of these
+  fails the tests that need it, and a training run then profiles less code.
+
+inputs:
+  llvm:
+    description: >
+      The Homebrew LLVM keg, such as llvm@20, whose llvm-nm, llvm-objdump and
+      llvm-readelf go on PATH on macOS. Its version picks the lld formula.
+    required: false
+    default: llvm@20
+
+runs:
+  using: composite
+  steps:
+    # Compiled programs run under bun; the constant-stack tail-call tests also
+    # run under node, because JavaScriptCore has proper tail calls and V8 does not.
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: .bun-version
+    - uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+    # A macOS host cross-builds the Linux output in the output-selection and
+    # cross tests (#194), which needs the Linux target's standard library.
+    - if: runner.os == 'macOS'
+      shell: bash
+      run: rustup target add x86_64-unknown-linux-musl
+    # The ELF tools `cli/tests/native/stencil.rs::cross_tools` probes, alone on
+    # `PATH`: the keg's LLVM tools and the lld of the same version. Not the whole
+    # llvm `bin`, whose clang would shadow Apple's.
+    - if: runner.os == 'macOS'
+      shell: bash
+      env:
+        LLVM_KEG: ${{ inputs.llvm }}
+      run: |
+        set -euo pipefail
+        lld="lld@${LLVM_KEG#llvm@}"
+        brew install "$lld"
+        tools="$RUNNER_TEMP/elf-tools"
+        mkdir -p "$tools"
+        for t in llvm-nm llvm-objdump llvm-readelf; do
+          ln -s "$(brew --prefix "$LLVM_KEG")/bin/$t" "$tools/$t"
+        done
+        ln -s "$(brew --prefix "$lld")/bin/ld.lld" "$tools/ld.lld"
+        echo "$tools" >> "$GITHUB_PATH"

@@ -834,6 +834,31 @@ fn the_pgo_training_runs_no_wider_than_the_machine() {
     );
 }
 
+/// The nightly's PGO training has the tools the `test` matrix has, and says how
+/// its suites did.
+///
+/// Its suites' output is dropped, so a test that failed for a missing tool
+/// showed nowhere, and the profile covered less: run 43287290664 trained
+/// without bun, node, the Linux target or the ELF tools. One action installs
+/// them for both jobs, and the training prints its passed and failed counts.
+#[test]
+fn the_pgo_training_has_the_test_jobs_tools() {
+    let read = |path: &str| std::fs::read_to_string(repo_root().join(path)).unwrap();
+    let tools = "uses: ./.github/actions/test-tools";
+    let test = &jobs(&read(".github/workflows/ci.yml"))["test"];
+    assert!(test.contains(tools), "ci.yml's `test` job has no `{tools}`");
+    let train = &jobs(&read(".github/workflows/nightly.yml"))["pgo-train"];
+    assert!(
+        train.contains(tools),
+        "nightly.yml's `pgo-train` lacks the `test` job's tools; add `{tools}`:\n{train}"
+    );
+    let script = read(".github/pgo.sh");
+    assert!(
+        script.contains("training: %d passed, %d failed"),
+        "pgo.sh no longer prints how its training suites did"
+    );
+}
+
 /// The local runner's config only schedules tests: it never kills, retries or
 /// filters one.
 ///
@@ -2023,7 +2048,7 @@ fn every_tool_the_workflow_assumes_is_on_path() {
     assert!(
         missing.is_empty(),
         "these tools are not on PATH: {}\n\nEvery job that runs this suite installs them (the \
-         `test` matrix's apt and brew steps, `oven-sh/setup-bun` and `actions/setup-node`).",
+         `test` matrix's apt step and `.github/actions/test-tools`).",
         missing.join(", ")
     );
 }
