@@ -318,9 +318,10 @@ while it's `true`. A picture is the same either way. A decorative stack takes
 no `role`, because a hidden element has nothing to announce
 ([`decorative-with-role`](../reference/errors/decorative-with-role.md)).
 
-A test reads both off the rendered tree. `spoken()` is `text()` without what a
-decorative stack hides, and `isCurrent(name)` asks about the element with that
-name:
+A test reads both off the rendered tree. `spoken()` is what a screen reader
+hears: each element's name where it sits, then what's in it, with nothing a
+decorative stack hides. A button is heard by its label alone. `isCurrent(name)`
+asks about the element with that name:
 
 ```buri role=test
 from "core/testing/assert" import * as assert;

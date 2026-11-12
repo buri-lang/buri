@@ -8555,15 +8555,24 @@ function $scene_escapeRun(content) {
   return content.split("\\").join("\\\\").split("\n").join("\\n").split("\r").join("\\r");
 }
 
+// An `e` line's body with the element's accessible name written last — the
+// native `named_body` / `ui_node.buri`'s `named`: a `label:` declaration, its
+// value escaped the way `escapeInline` escapes one. An empty name writes none.
+function $scene_namedBody(body, label) {
+  if (label === "") return body;
+  const value = label.split("\\").join("\\\\").split(";").join("\\;").replace(/[\n\r]/g, " ");
+  return body === "" ? "label:" + value : body + ";label:" + value;
+}
+
 function $host_testing_Rendered_markup(self) {
   const doc = $scene_of(self);
   const lines = [];
   // A drawing's shapes are in its artwork already, so an `svg`'s own elements
-  // write no line.
+  // write no line. Each element writes the name a reader hears for it last.
   const visit = (node, depth) => {
     for (const child of doc.records[node].children) {
       const record = doc.records[child];
-      if (record.kind === 0) lines.push("e " + depth + " " + record.body);
+      if (record.kind === 0) lines.push("e " + depth + " " + $scene_namedBody(record.body, record.label));
       else if (record.kind === 1) lines.push("t " + depth + " " + $scene_escapeRun(record.text));
       if (record.name !== "svg") visit(child, depth + 1);
     }
@@ -8581,8 +8590,9 @@ function $host_testing_Rendered_text(self) {
   return runs.join(" ");
 }
 
-// Every run a screen reader reaches: `text()` without what a decorative
-// element hides.
+// What a screen reader reads — the native `spoken_runs`: an element's name
+// before what is in it, and every run, without what a decorative element
+// hides. A named button's name stands in for what it draws.
 function $host_testing_Rendered_spoken(self) {
   const doc = $scene_of(self);
   const runs = [];
@@ -8590,7 +8600,11 @@ function $host_testing_Rendered_spoken(self) {
     for (const child of doc.records[node].children) {
       const r = doc.records[child];
       if (r.kind === 1) runs.push(r.text);
-      else if (!(r.kind === 0 && (r.decorative || $scene_removed(doc, child)))) visit(child);
+      else if (r.kind === 0 && (r.decorative || $scene_removed(doc, child))) continue;
+      else if (r.kind === 0 && r.label !== "") {
+        runs.push(r.label);
+        if (r.name !== "button") visit(child);
+      } else visit(child);
     }
   };
   visit(0);

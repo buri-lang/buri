@@ -1,0 +1,300 @@
+// What a reader hears an element called: its accessible name, read the way a
+// browser's accessibility tree reads it. `spoken()` says each name where the
+// element sits, and a control's name stands in for what is drawn inside it, as
+// a button's `aria-label` does. `markup()` writes each name as a `label:`
+// declaration on its element. `language::pages` reads the same names off a
+// browser's document.
+
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+
+/// A cross, drawn and never read out.
+fn cross<C>(): ui.Node<C> {
+    ui.image({
+        source: .Const("<svg viewBox=\"0 0 10 10\"><path d=\"M0 0L10 10\"/></svg>"),
+        alt: .Decorative,
+        styles: [],
+    })
+}
+
+test "an icon-only button is heard and written by its label" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.button({
+            label: .Const("Close"),
+            styles: [],
+            onPress: .Some(fn(_c) => ()),
+            children: .Some([cross()]),
+        }),
+    );
+    assert.equal(page.spoken(), "Close");
+    assert.equal(
+        page.markup(),
+        "e 0 label:Close\ne 1 icon:<svg viewBox=\"0 0 10 10\"><path d=\"M0 0L10 10\"/></svg>",
+    );
+}
+
+test "a button's label is heard once, in place of the text it draws" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Save"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.button({
+                    label: .Const("Add to basket"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    children: .Some([ui.text({ content: .Const("Add") })]),
+                }),
+            ],
+        }),
+    );
+    assert.equal(page.text(), "Save Add");
+    assert.equal(page.spoken(), "Save Add to basket");
+    assert.equal(
+        page.markup(),
+        "e 0 \ne 1 label:Save\nt 2 Save\ne 1 label:Add to basket\nt 2 Add",
+    );
+}
+
+test "a label that changes is heard and written as it is now" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let count = signal(ctx, 1);
+    let page = render(
+        ctx,
+        ui.button({
+            label: .Computed(fn(s) => str.format(s, "Remove ${count.get(s)} items")),
+            styles: [],
+            onPress: .Some(fn(_c) => ()),
+            children: .Some([cross()]),
+        }),
+    );
+    count.set(ctx, 3);
+    assert.equal(page.spoken(), "Remove 3 items");
+    assert.isTrue(page.markup().startsWith("e 0 label:Remove 3 items\n"));
+}
+
+test "an image is heard by its alt, and a decorative one not at all" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.image({
+                    source: .Const("logo.png"),
+                    alt: .AccessibilityText("Acme"),
+                    styles: [],
+                }),
+                cross(),
+            ],
+        }),
+    );
+    assert.equal(page.spoken(), "Acme");
+    assert.isTrue(page.markup().contains("e 1 image:logo.png;label:Acme\n"));
+}
+
+test "a drawing is heard by its alt, then by each labelled shape in it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.drawing({
+            alt: .AccessibilityText("Sales by month"),
+            size: .Const((20.0, 10.0)),
+            styles: [],
+            shapes: [
+                shape.rect({
+                    at: .Const((0.0, 0.0)),
+                    size: .Const((8.0, 10.0)),
+                    label: .Some(.Const("Jan: 10")),
+                }),
+                shape.rect({ at: .Const((10.0, 0.0)), size: .Const((8.0, 10.0)) }),
+            ],
+        }),
+    );
+    assert.equal(page.spoken(), "Sales by month Jan: 10");
+    let markup = page.markup();
+    assert.isTrue(markup.endsWith(";label:Sales by month"));
+    assert.isTrue(
+        markup.contains("<rect x='0' y='0' width='8' height='10' aria-label='Jan: 10'"),
+    );
+    assert.isTrue(markup.contains("<rect x='10' y='0' width='8' height='10' fill="));
+}
+
+test "a decorative drawing's labelled shapes are not heard" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("Trend") }),
+                ui.drawing({
+                    alt: .Decorative,
+                    size: .Const((10.0, 10.0)),
+                    styles: [],
+                    shapes: [
+                        shape.rect({
+                            at: .Const((0.0, 0.0)),
+                            size: .Const((8.0, 10.0)),
+                            label: .Some(.Const("Jan")),
+                        }),
+                    ],
+                }),
+            ],
+        }),
+    );
+    assert.equal(page.spoken(), "Trend");
+}
+
+test "a labelled region is heard by its name, then by what is in it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [ui.text({ content: .Const("Home") })],
+            role: .Some(.Navigation),
+            label: .Some(.Const("Primary")),
+        }),
+    );
+    assert.equal(page.spoken(), "Primary Home");
+    assert.equal(page.markup(), "e 0 label:Primary\nt 1 Home");
+}
+
+test "a picker is heard by its label, then by its options" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let size = signal(ctx, "s");
+    let page = render(
+        ctx,
+        ui.picker({
+            label: .Const("Size"),
+            options: [
+                ("s", ui.text({ content: .Const("Small") })),
+                ("l", ui.text({ content: .Const("Large") })),
+            ],
+            value: size,
+            styles: [],
+        }),
+    );
+    assert.equal(page.spoken(), "Size Small Large");
+    assert.isTrue(page.markup().startsWith("e 0 label:Size\n"));
+}
+
+test "an open dialog is heard by its label, then by what is in it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(
+        ctx,
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Delete this?"),
+            children: [ui.text({ content: .Const("Are you sure?") })],
+            styles: [],
+        }),
+    );
+    assert.equal(page.spoken(), "Delete this? Are you sure?");
+    assert.isTrue(
+        page.markup().endsWith("\ne 1 label:Delete this?\nt 2 Are you sure?"),
+    );
+}
+
+test "a progress bar is heard by its label" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.progress({
+            label: .Const("Uploading"),
+            value: .Some(.Const(0.5)),
+            styles: [.Width(.Px(20))],
+        }),
+    );
+    assert.equal(page.spoken(), "Uploading");
+    assert.isTrue(page.markup().startsWith("e 0 class:w-20;label:Uploading"));
+}
+
+test "a submit button is heard once, by its label" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(_c) => (),
+            children: [
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
+    );
+    assert.equal(page.spoken(), "Send");
+    assert.equal(page.markup(), "e 0 \ne 1 label:Send\nt 2 Send");
+}
+
+test "a file picker is heard once, by its label" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.filePicker({
+            label: .Const("Import"),
+            maxBytes: 100,
+            onPick: fn(_c, _file) => (),
+            styles: [],
+        }),
+    );
+    assert.equal(page.spoken(), "Import");
+    assert.equal(page.markup(), "e 0 label:Import\nt 1 Import");
+}
+
+test "a semicolon in a name is escaped the way a declaration's value is" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(
+        ctx,
+        ui.button({
+            label: .Const("Undo; redo"),
+            styles: [],
+            onPress: .Some(fn(_c) => ()),
+            children: .Some([cross()]),
+        }),
+    );
+    assert.equal(page.spoken(), "Undo; redo");
+    assert.isTrue(page.markup().startsWith("e 0 label:Undo\\; redo\n"));
+}

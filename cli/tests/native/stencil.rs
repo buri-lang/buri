@@ -2268,6 +2268,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/path.buri",
     "ui/drawings.buri",
     "ui/handlers.buri",
+    "ui/names.buri",
     "ui/reactive.buri",
     "ui/reactivity.buri",
     "ui/render.buri",

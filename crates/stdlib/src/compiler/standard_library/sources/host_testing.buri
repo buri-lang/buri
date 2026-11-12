@@ -2164,6 +2164,12 @@ impl Rendered {
     /// The tree as markup: elements, their attributes, their styles and their
     /// text, in order.
     ///
+    /// An element a reader hears by a name ends in a `label:` declaration
+    /// holding it: a button's or a file picker's label, an image's or a
+    /// drawing's alt, a labelled stack's, picker's, dialog's or progress bar's
+    /// label. A labelled shape's name is an `aria-label` in its drawing's
+    /// artwork.
+    ///
     /// It leaves out the runtime's own bookkeeping, the markers it puts around
     /// a region that can change.
     export fn markup(self): Str;
@@ -2171,8 +2177,15 @@ impl Rendered {
     /// Every run of text in the tree, in order, separated by a space.
     export fn text(self): Str;
 
-    /// Every run of text a screen reader reaches, in order, separated by a
-    /// space: `text()` without what an `isDecorative` stack hides.
+    /// What a screen reader reads, in order, separated by a space: each
+    /// element's name, where `markup` writes it, and each run of text, without
+    /// what an `isDecorative` stack, a decorative image or a decorative
+    /// drawing hides.
+    ///
+    /// A container's name comes before what is in it, so a labelled
+    /// navigation holding "Home" reads "Primary Home". A button's name stands
+    /// in for what it draws, as a browser reads it: an icon-only button reads
+    /// its label, and a button that draws its label reads it once.
     export fn spoken(self): Str;
 
     /// Whether the element named `name` is announced as the current page — a

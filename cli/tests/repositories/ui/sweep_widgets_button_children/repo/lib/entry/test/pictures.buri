@@ -16,8 +16,8 @@ test "what a button holds" {
         Allocator: alloc(),
         Ui: headless(),
     };
-    // The label is the name and never the glyphs, so it is not in the scene at
-    // all once there are children to draw.
+    // The label is the name and never the glyphs, so once there are children
+    // to draw it is the button's `label:` and never a line of text.
     let scene = ui.describe(
         ctx,
         ui.button({
@@ -28,8 +28,8 @@ test "what a button holds" {
         }),
         .Hover,
     );
-    assert.containsText(scene, "t 1 *");
-    assert.isFalse(scene.contains("Overview"));
+    assert.containsText(scene, "label:Overview\nt 1 *");
+    assert.isFalse(scene.contains("t 1 Overview"));
     snapshot(ctx, "button-content", contentPage(), .Hover, []);
 }
 

@@ -446,6 +446,24 @@ fn escape_run(content: &str) -> String {
         .replace('\r', "\\r")
 }
 
+/// An `e` line's body with the element's accessible name written last, as
+/// `ui_node.buri`'s `named` writes it: a `label:` declaration, its value
+/// escaped the way `escapeInline` escapes one. An empty name writes none.
+fn named_body(body: &str, label: &str) -> String {
+    if label.is_empty() {
+        return body.to_string();
+    }
+    let value = label
+        .replace('\\', "\\\\")
+        .replace(';', "\\;")
+        .replace(['\n', '\r'], " ");
+    if body.is_empty() {
+        format!("label:{value}")
+    } else {
+        format!("{body};label:{value}")
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
@@ -3096,12 +3114,17 @@ fn markup_of(doc: &Document) -> String {
 }
 
 /// `markup_of`'s lines for everything under `node`. A drawing's shapes are in
-/// its artwork already, so an `svg`'s own elements write no line.
+/// its artwork already, so an `svg`'s own elements write no line. Each element
+/// writes the name a reader hears for it last, as `describe` does.
 fn markup_under(doc: &Document, node: usize, depth: i64, lines: &mut Vec<String>) {
     for &child in &doc.records[node].children {
         let record = &doc.records[child];
         match record.kind {
-            Kind::Element => lines.push(format!("e {} {}", depth, record.body)),
+            Kind::Element => lines.push(format!(
+                "e {} {}",
+                depth,
+                named_body(&record.body, &record.label)
+            )),
             Kind::Text => lines.push(format!("t {} {}", depth, escape_run(&record.text))),
             Kind::Marker => {}
         }
@@ -3182,8 +3205,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_text(handle: i64, out: *m
     unsafe { out.write(answer) };
 }
 
-/// `Rendered.spoken()` — every run of text a screen reader reaches, in order,
-/// joined by a space: `text()` without what a decorative element hides.
+/// `Rendered.spoken()` — what a screen reader reads, in order, joined by a
+/// space: each element's accessible name and each run of text, without what a
+/// decorative element hides.
 ///
 /// # Safety
 /// `out` is writable and aligned for a [`BuriStr`].
@@ -3205,14 +3229,22 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_spoken(handle: i64, out: 
 }
 
 impl Document {
-    /// The runs under `node` a screen reader reaches, in document order: every
-    /// one, except under an element that is decorative.
+    /// What a screen reader reads under `node`, in document order: an
+    /// element's name before what is in it, and every run, except under an
+    /// element that is decorative. A named button's name stands in for what
+    /// it draws, the way a browser reads no more of a button than its name.
     fn spoken_runs<'a>(&'a self, node: usize, out: &mut Vec<&'a str>) {
         for &child in &self.records[node].children {
             let r = &self.records[child];
             match r.kind {
                 Kind::Text => out.push(r.text.as_str()),
                 Kind::Element if r.decorative || self.removed(child) => {}
+                Kind::Element if !r.label.is_empty() => {
+                    out.push(r.label.as_str());
+                    if r.name != "button" {
+                        self.spoken_runs(child, out);
+                    }
+                }
                 _ => self.spoken_runs(child, out),
             }
         }

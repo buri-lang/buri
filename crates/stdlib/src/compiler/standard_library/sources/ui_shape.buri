@@ -71,15 +71,24 @@ impl<C> Shape<C> {
         }
     }
 
-    /// The start of the shape's SVG: its element and attributes, unclosed.
+    /// The start of the shape's SVG: its element and attributes, unclosed. A
+    /// labelled shape's name is an `aria-label` after its geometry, as the
+    /// browser's element carries it.
     fn opening(self, ctx: Scope): Str {
-        let attributes = self.1
-            .concat(ctx, self.2)
-            .mapCtx(ctx, fn(s, pair) => {
-                str.format(s, " ${pair.0}='${pair.1.read(s)}'")
-            })
-            .join(ctx, "");
-        str.format(ctx, "<${self.0}${attributes}")
+        let geometry = attributesOf(ctx, self.1);
+        let paint = attributesOf(ctx, self.2);
+        let name = match (self.6) {
+            .Some(stop) => {
+                let quoted = stop.0
+                    .read(ctx)
+                    .replace(ctx, "&", "&amp;")
+                    .replace(ctx, "<", "&lt;")
+                    .replace(ctx, "'", "&apos;");
+                str.format(ctx, " aria-label='${quoted}'")
+            },
+            .None => "",
+        };
+        str.format(ctx, "<${self.0}${geometry}${name}${paint}")
     }
 
     /// The shape with every `each` in it replaced by its rows, each row built
@@ -158,6 +167,13 @@ impl<C> Shape<C> {
             },
         }
     }
+}
+
+/// `attributes` written out as SVG attributes, each read through `ctx`.
+fn attributesOf(ctx: Scope, attributes: [(Str, Prop<Str>)]): Str {
+    attributes
+        .mapCtx(ctx, fn(s, pair) => str.format(s, " ${pair.0}='${pair.1.read(s)}'"))
+        .join(ctx, "")
 }
 
 /// `lay` for each of `shapes` from `at` on.

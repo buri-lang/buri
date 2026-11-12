@@ -1134,8 +1134,10 @@ takes no `role` (`decorative-with-role`). A stack with a `role` takes a
 `label: Option<Prop<Str>>` too, the name a reader hears for it, written as
 `aria-label`; one without a role takes none (`label-without-role`).
 `platform/effect/testing`'s `spoken()`
-is `text()` without what one hides, and `isCurrent(name)` asks whether the
-element with that name is the current page.
+is what a screen reader hears: each name (a label, an image's or a drawing's
+alt) where it sits, then what's in it, minus what one hides, with a button heard
+by its label alone. `markup()` writes each name as a `label:` declaration.
+`isCurrent(name)` asks whether the element with that name is the current page.
 
 `progress({ label, styles, value, children })` is a bar that announces how far along
 a task has come. Set `value` and it runs from `0.0` to `1.0` and lowers to

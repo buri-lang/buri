@@ -338,7 +338,8 @@ enum NodeKind<C> {
     // the open state as a plain element tree the reconciler walks and mints
     // afresh, and the widget's events ride on the element that stands for it.
     // Appended last, because the variant order is load-bearing and append-only.
-    Raw(Str, [Style], [Node<C>], Events<C>),
+    // Its label is the name a reader hears for it: an open dialog's panel's.
+    Raw(Str, [Style], [Node<C>], Events<C>, Option<Prop<Str>>),
     // A list of children with no element of their own — the renderer's own, for
     // a reactive region that shows several children directly under their parent
     // (a disclosure's body). Appended last, the variant order being load-bearing
@@ -2215,7 +2216,7 @@ fn emitDrawing<C>(
     let opened = openElement(builder, "svg", "");
     let _ = match (alt) {
         .AccessibilityText(name) => registerLabel(builder, name),
-        .Decorative => {},
+        .Decorative => markDecorative(builder),
     };
     let repaint = fn(s: Scope) => {
         let artwork = framed(s, box, drawnUnder(builder, opened));
@@ -2321,13 +2322,14 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let _ = emitChildren(ctx, builder, children, state, 0);
             exitElement(builder)
         },
-        .Image(source, _alt, styles, events) => {
+        .Image(source, alt, styles, events) => {
             let declaration = decl(mem, "image", escapeValue(mem, source.read(scope)));
             let _ = emitElement(
                 builder,
                 "img",
                 widgetBody(mem, plain(state), [declaration], styles),
             );
+            let _ = registerLabel(builder, alt);
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
@@ -2338,6 +2340,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 "svg",
                 widgetBody(mem, plain(state), [artwork], styles),
             );
+            let _ = markDecorative(builder);
             let _ = registerEvents(builder, events);
             exitElement(builder)
         },
@@ -2440,8 +2443,17 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // and re-dots without rebuilding the content beside it. `style` picks
         // the shape and does not change the scene the painter reads.
         .Picker(label, options, styles, value, _style, _disabled, focus, events) => {
-            let _ = label;
-            emitPicker(ctx, builder, options, styles, value, focus, events, state)
+            emitPicker(
+                ctx,
+                builder,
+                label,
+                options,
+                styles,
+                value,
+                focus,
+                events,
+                state,
+            )
         },
         .Form(onSubmit, styles, children, events) => {
             let _ = emitElement(
@@ -2476,6 +2488,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 );
                 let _ = attachFocus(builder, key, true);
                 let _ = markSubmit(builder);
+                let _ = registerLabel(builder, label.read(scope));
                 let _ = registerEvents(builder, events);
                 let _ = emitText(builder, label.read(scope));
                 let _ = exitElement(builder);
@@ -2511,9 +2524,9 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // over the default) holding a `dialog` element, as `.Raw` trees the
         // reconciler walks and mints — or nothing. Closing it unlinks the panel,
         // so the page behind is reachable again.
-        .Dialog(open, _label, styles, children, scrimStyles, events) => {
+        .Dialog(open, label, styles, children, scrimStyles, events) => {
             bindDynamic(builder, fn(scope) => {
-                dialogScene(scope, open, styles, children, scrimStyles, events)
+                dialogScene(scope, open, label, styles, children, scrimStyles, events)
             })
         },
         // The summary is always drawn; the children only when open. `open` is a
@@ -2545,11 +2558,20 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         },
         // A bar and whatever fills it. The role and the `aria-value*` are a
         // reader's, not a painter's, so the scene is the caller's own boxes.
-        .Progress(_label, _value, styles, children, events) => {
-            emitBox(ctx, builder, "div", plain(state), styles, children, state, events)
+        .Progress(label, _value, styles, children, events) => {
+            emitNamed(
+                ctx,
+                builder,
+                "div",
+                styles,
+                children,
+                state,
+                events,
+                .Some(label),
+            )
         },
-        .Raw(name, styles, children, events) => {
-            emitBox(ctx, builder, name, plain(state), styles, children, state, events)
+        .Raw(name, styles, children, events, label) => {
+            emitNamed(ctx, builder, name, styles, children, state, events, label)
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
         // A file picker's scene is its button: the label drawn in the caller's
@@ -2700,10 +2722,7 @@ fn emitButton<C>(
     let _ = announce(builder, at, current, false);
     let _ = bindFocus(builder, focusKey(builder), true, focus);
     let _ = registerPress(builder, onPress);
-    let _ = match (label) {
-        .Const(name) => registerLabel(builder, name),
-        _ => reactive(fn(scope) => relabel(builder, at, label.read(scope))),
-    };
+    let _ = bindLabel(builder, at, label);
     let _ = registerEvents(builder, events);
     let _ = if (children.isEmpty()) {
         emitReactiveText(builder, label)
@@ -2916,6 +2935,7 @@ fn emitField<C>(
 fn emitPicker<C>(
     ctx: C,
     builder: Builder,
+    label: Prop<Str>,
     options: [(Str, Node<C>)],
     styles: [Style],
     value: Signal<Str>,
@@ -2924,7 +2944,8 @@ fn emitPicker<C>(
     state: State,
 ): () {
     let mem = alloc.generalPurpose();
-    let _ = emitElement(builder, "div", widgetBody(mem, plain(state), [], styles));
+    let at = openElement(builder, "div", widgetBody(mem, plain(state), [], styles));
+    let _ = bindLabel(builder, at, label);
     let _ = if (focus.signal.isSome()) {
         let group = focusKey(builder);
         let _ = attachFocus(builder, group, false);
@@ -3156,6 +3177,35 @@ fn emitBox<C>(
     emitBoxWith(ctx, builder, name, painted, [], styles, children, state, events)
 }
 
+/// `emitBox` for a box a reader hears by `label`: a progress bar, or an open
+/// dialog's panel.
+fn emitNamed<C>(
+    ctx: C,
+    builder: Builder,
+    name: Str,
+    styles: [Style],
+    children: [Node<C>],
+    state: State,
+    events: Events<C>,
+    label: Option<Prop<Str>>,
+): () {
+    emitAnnounced(
+        ctx,
+        builder,
+        name,
+        plain(state),
+        [],
+        styles,
+        children,
+        state,
+        events,
+        .Const(false),
+        false,
+        label,
+        noFocus(),
+    )
+}
+
 /// `emitBox`, with the scene-only declarations `leading` names on the element
 /// ahead of what its styles write out — what `widgetLine` takes for a line.
 fn emitBoxWith<C>(
@@ -3244,12 +3294,7 @@ fn emitAnnounced<C>(
     };
     let _ = announce(builder, at, current, decorative);
     let _ = match (label) {
-        .Some(name) => {
-            match (name) {
-                .Const(text) => registerLabel(builder, text),
-                _ => reactive(fn(scope) => relabel(builder, at, name.read(scope))),
-            }
-        },
+        .Some(name) => bindLabel(builder, at, name),
         .None => {},
     };
     let _ = if (asksFocus(focus)) {
@@ -3258,6 +3303,15 @@ fn emitAnnounced<C>(
     let _ = registerEvents(builder, events);
     let _ = emitChildren(ctx, builder, children, state, 0);
     exitElement(builder)
+}
+
+/// Keeps `label` as the accessible name of the element `openElement` answered
+/// `at`, and keeps it following the prop. A constant registers no watcher.
+fn bindLabel(builder: Builder, at: I64, label: Prop<Str>): () {
+    match (label) {
+        .Const(name) => registerLabel(builder, name),
+        _ => reactive(fn(scope) => relabel(builder, at, label.read(scope))),
+    }
 }
 
 /// Tells the document what a reader hears about the element `at`: that it is
@@ -3475,6 +3529,7 @@ fn sliderTrack(styles: [Style]): [Style] {
 fn dialogScene<C>(
     ctx: Scope,
     open: Signal<Bool>,
+    label: Prop<Str>,
     styles: [Style],
     children: [Node<C>],
     scrimStyles: [Style],
@@ -3485,8 +3540,9 @@ fn dialogScene<C>(
             .Raw(
                 "div",
                 scrimWith(scrimStyles),
-                [Node(.Raw("dialog", styles, children, events))],
+                [Node(.Raw("dialog", styles, children, events, .Some(label)))],
                 noEvents(),
+                .None,
             ),
         )
     } else {
@@ -3799,13 +3855,18 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // A role paints nothing — it is what a reader is told, not what a
         // painter draws — except the table roles, whose whole point is a
         // two-dimensional arrangement a browser gives them for free.
-        .Region(role, styles, children, _current, _label, focus, _events) => {
-            let line = widgetLine(
+        .Region(role, styles, children, _current, label, focus, _events) => {
+            let line = named(
                 ctx,
-                answered(plain(state), focus),
-                roleScene(ctx, role),
-                roleStyles(role, styles),
+                widgetLine(
+                    ctx,
+                    answered(plain(state), focus),
+                    roleScene(ctx, role),
+                    roleStyles(role, styles),
+                    depth,
+                ),
                 depth,
+                readLabel(scope, label),
             );
             [line].concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
         },
@@ -3814,13 +3875,20 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // are the same string.
         .Button(label, styles, children, _onPress, disabled, _expanded, _current, focus, _events) => {
             let painted = answering(scope, state, disabled, focus);
+            let name = label.read(scope);
+            let line = named(
+                ctx,
+                styledLine(ctx, painted, styles, depth),
+                depth,
+                .Some(name),
+            );
             if (children.isEmpty()) {
-                [
-                    styledLine(ctx, painted, styles, depth),
-                    textLine(ctx, depth + 1, label.read(scope)),
-                ]
+                [line, textLine(ctx, depth + 1, name)]
             } else {
-                boxed(ctx, painted, styles, children, depth)
+                [line].concat(
+                    ctx,
+                    childLines(ctx, painted.state, children, depth + 1, 0, []),
+                )
             }
         },
         // A link — plain or routing — paints as the anchor it is. The
@@ -3833,9 +3901,16 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // it can and paints a placeholder box at the same size for one it
         // cannot; `alt` is what a reader is *told* and never what is drawn, so
         // it is not in the scene.
-        .Image(source, _alt, styles, _events) => {
+        .Image(source, alt, styles, _events) => {
             let declaration = decl(ctx, "image", escapeValue(ctx, source.read(scope)));
-            [widgetLine(ctx, plain(state), [declaration], styles, depth)]
+            [
+                named(
+                    ctx,
+                    widgetLine(ctx, plain(state), [declaration], styles, depth),
+                    depth,
+                    .Some(alt),
+                ),
+            ]
         },
         // Artwork, not an address: the scene carries the drawing itself, which
         // is what lets the painter resolve `currentColor` against the colour
@@ -3847,13 +3922,20 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // A drawing is artwork the shapes write out, so the painter draws it
         // the way it draws an icon's. Its `alt` is what a reader is told.
-        .Drawing(_alt, _box, markup, styles, _shapes, _events, _lay) => {
+        .Drawing(alt, _box, markup, styles, _shapes, _events, _lay) => {
             let artwork = decl(
                 ctx,
                 "icon",
                 escapeInline(ctx, markup(ctx, scope).read(scope)),
             );
-            [widgetLine(ctx, plain(state), [artwork], styles, depth)]
+            [
+                named(
+                    ctx,
+                    widgetLine(ctx, plain(state), [artwork], styles, depth),
+                    depth,
+                    altName(alt),
+                ),
+            ]
         },
         // Two boxes and two style lists: `around` on the label, `styles` on the
         // control inside it.
@@ -3918,14 +4000,20 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // the same string. It answers for its own `disabled`, the way a field's
         // control does.
         .Submit(label, styles, disabled, focus, _events) => {
+            let name = label.read(scope);
             [
-                styledLine(
+                named(
                     ctx,
-                    answering(scope, state, disabled, focus),
-                    styles,
+                    styledLine(
+                        ctx,
+                        answering(scope, state, disabled, focus),
+                        styles,
+                        depth,
+                    ),
                     depth,
+                    .Some(name),
                 ),
-                textLine(ctx, depth + 1, label.read(scope)),
+                textLine(ctx, depth + 1, name),
             ]
         },
         .When(cond, then, otherwise) => {
@@ -3942,11 +4030,11 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // Shut, a browser draws none of it, so neither does this. Open, it is
         // the two things a browser draws: the scrim over the page, and the
         // panel centred on it.
-        .Dialog(open, _label, styles, children, scrimStyles, events) => {
+        .Dialog(open, label, styles, children, scrimStyles, events) => {
             nodeLines(
                 ctx,
                 state,
-                dialogScene(scope, open, styles, children, scrimStyles, events),
+                dialogScene(scope, open, label, styles, children, scrimStyles, events),
                 depth,
             )
         },
@@ -3955,8 +4043,15 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // `:checked` off the signal — the option whose key equals it — and a
         // checked one draws the dot the reset paints, in the box's own
         // foreground. `style` picks the shape and changes no line here.
-        .Picker(_label, options, styles, value, _style, _disabled, _focus, _events) => {
-            [styledLine(ctx, plain(state), styles, depth)].concat(
+        .Picker(label, options, styles, value, _style, _disabled, _focus, _events) => {
+            [
+                named(
+                    ctx,
+                    styledLine(ctx, plain(state), styles, depth),
+                    depth,
+                    .Some(label.read(scope)),
+                ),
+            ].concat(
                 ctx,
                 pickerOptionLines(
                     ctx,
@@ -3974,8 +4069,8 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // own boxes — the same picture the nested `stack`s painted before, now
         // announced. An indeterminate bar draws the same; the missing value is a
         // fact for a reader, not the painter.
-        .Progress(_label, _value, styles, children, _events) => {
-            container(ctx, state, styles, children, depth)
+        .Progress(label, _value, styles, children, _events) => {
+            namedBox(ctx, state, styles, children, depth, .Some(label.read(scope)))
         },
         // The summary is always drawn; the children only when it is open. A
         // browser draws a shut `<details>` as its `<summary>` alone, so the body
@@ -3993,8 +4088,8 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         },
         // The renderer's own element, nameless here as every box is: an open
         // dialog's scrim and panel, drawn as a stack is.
-        .Raw(_name, styles, children, _events) => {
-            container(ctx, state, styles, children, depth)
+        .Raw(_name, styles, children, _events, label) => {
+            namedBox(ctx, state, styles, children, depth, readLabel(scope, label))
         },
         // A fragment draws its children at the depth it sits, with no box of its
         // own: an open disclosure's body.
@@ -4003,9 +4098,20 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // button is: the label in the caller's styles. The hidden input a
         // browser opens the chooser through is drawn nowhere.
         .FilePicker(label, styles, disabled, _accept, _admit, _land, _events) => {
+            let name = label.read(scope);
             [
-                styledLine(ctx, refusing(state, disabled.read(scope)), styles, depth),
-                textLine(ctx, depth + 1, label.read(scope)),
+                named(
+                    ctx,
+                    styledLine(
+                        ctx,
+                        refusing(state, disabled.read(scope)),
+                        styles,
+                        depth,
+                    ),
+                    depth,
+                    .Some(name),
+                ),
+                textLine(ctx, depth + 1, name),
             ]
         },
         // The wrapper and its trigger, and the bubble after them while the
@@ -4410,6 +4516,54 @@ fn container<C: Allocator>(
     depth: Int,
 ): [Str] {
     boxed(ctx, plain(state), styles, children, depth)
+}
+
+/// `container`, for a box a reader hears by `label`.
+fn namedBox<C: Allocator>(
+    ctx: C,
+    state: State,
+    styles: [Style],
+    children: [Node<C>],
+    depth: Int,
+    label: Option<Str>,
+): [Str] {
+    let line = named(ctx, styledLine(ctx, plain(state), styles, depth), depth, label);
+    [line].concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
+}
+
+/// The name `label` holds now, when there is one.
+fn readLabel(ctx: Scope, label: Option<Prop<Str>>): Option<Str> {
+    match (label) {
+        .Some(name) => .Some(name.read(ctx)),
+        .None => .None,
+    }
+}
+
+/// The accessible name `alt` gives a picture: none for a decorative one.
+fn altName(alt: Alt): Option<Str> {
+    match (alt) {
+        .AccessibilityText(name) => .Some(name),
+        .Decorative => .None,
+    }
+}
+
+/// The `e` line `line`, at `depth`, with the accessible name `label` written
+/// last as a `label:` declaration — the scene twin of `aria-label`. The painter
+/// draws no name, so it reads past the declaration; `markup()` writes the same
+/// one from the name the document keeps. An empty name writes none.
+fn named<C: Allocator>(ctx: C, line: Str, depth: Int, label: Option<Str>): Str {
+    match (label) {
+        .Some(name) => {
+            if (name.isEmpty()) {
+                line
+            } else if (line == str.format(ctx, "e ${depth} ")) {
+                str.format(ctx, "${line}label:${escapeInline(ctx, name)}")
+            } else {
+                str.format(ctx, "${line};label:${escapeInline(ctx, name)}")
+            }
+        },
+        .None => line,
+    }
 }
 
 /// The same, for a box that answers for a state of its own — a button holding

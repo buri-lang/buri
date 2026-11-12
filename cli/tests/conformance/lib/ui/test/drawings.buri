@@ -176,7 +176,7 @@ test "an area chart fills and strokes in its token" {
     let page = render(ctx, visitors(values));
     assert.equal(
         page.markup(),
-        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20 L100 40 L0 40 Z' stroke-width='1' fill='color-mix(in srgb,var(--app-accent,currentColor) 20%,transparent)' stroke='none'/><path d='M0 30 L50 10 L100 20' stroke-width='1.5' fill='none' stroke='var(--app-accent,currentColor)'/></svg>",
+        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20 L100 40 L0 40 Z' stroke-width='1' fill='color-mix(in srgb,var(--app-accent,currentColor) 20%,transparent)' stroke='none'/><path d='M0 30 L50 10 L100 20' stroke-width='1.5' fill='none' stroke='var(--app-accent,currentColor)'/></svg>;label:Visitors over the last 30 days",
     );
 }
 
@@ -192,9 +192,9 @@ test "the monthly bars are stops a reader tabs through, kept through a reorder" 
     let picked = signal(ctx, "");
     let page = render(ctx, monthly(.Cell(months), picked));
     let janBar =
-        "<rect x='1' y='30' width='8' height='10' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
+        "<rect x='1' y='30' width='8' height='10' aria-label='Jan: 10.0' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
     let febBar =
-        "<rect x='1' y='10' width='8' height='30' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
+        "<rect x='1' y='10' width='8' height='30' aria-label='Feb: 30.0' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
     assert.equal(page.markup(), barsLine(ctx, janBar, febBar));
     page.tab();
     assert.equal(page.focused(), "Jan: 10.0");
@@ -214,9 +214,9 @@ test "the monthly bars draw a fixed list and a worked-out one alike" {
     let jan = Month { name: "Jan", total: 10.0 };
     let feb = Month { name: "Feb", total: 30.0 };
     let janBar =
-        "<rect x='1' y='30' width='8' height='10' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
+        "<rect x='1' y='30' width='8' height='10' aria-label='Jan: 10.0' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Jan</text>";
     let febBar =
-        "<rect x='1' y='10' width='8' height='30' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
+        "<rect x='1' y='10' width='8' height='30' aria-label='Feb: 30.0' fill='var(--app-accent,currentColor)'/><text x='5' y='48' text-anchor='middle' font-size='5' fill='currentColor'>Feb</text>";
     let picked = signal(ctx, "");
     let fixed = render(ctx, monthly(.Const([jan, feb]), picked));
     assert.equal(fixed.markup(), barsLine(ctx, janBar, febBar));
@@ -237,7 +237,7 @@ test "the monthly bars draw a fixed list and a worked-out one alike" {
 fn barsLine<C: Allocator>(ctx: C, first: Str, second: Str): Str {
     str.format(
         ctx,
-        "e 0 class:w-full h-200;icon:<svg viewBox='0 0 120 50' preserveAspectRatio='none'><g transform='translate(0 0)'>${first}</g><g transform='translate(10 0)'>${second}</g></svg>",
+        "e 0 class:w-full h-200;icon:<svg viewBox='0 0 120 50' preserveAspectRatio='none'><g transform='translate(0 0)'>${first}</g><g transform='translate(10 0)'>${second}</g></svg>;label:Sales by month",
     )
 }
 
@@ -260,6 +260,6 @@ test "the readout's marker follows the pointer to the nearest value" {
 fn readoutLine<C: Allocator>(ctx: C, center: Str): Str {
     str.format(
         ctx,
-        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20' stroke-width='1' fill='none' stroke='currentColor'/><circle ${center} r='1.5' fill='currentColor'/></svg>",
+        "e 0 class:w-full h-160;icon:<svg viewBox='0 0 100 40' preserveAspectRatio='none'><path d='M0 30 L50 10 L100 20' stroke-width='1' fill='none' stroke='currentColor'/><circle ${center} r='1.5' fill='currentColor'/></svg>;label:Visitors over the last 30 days",
     )
 }

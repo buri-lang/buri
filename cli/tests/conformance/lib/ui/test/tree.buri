@@ -1354,7 +1354,7 @@ test "a spinner is an indeterminate progress that turns a full circle" {
             styles: [.Width(.Px(20)), .Height(.Px(20)), .Animation(.Spin)],
         }),
     );
-    assert.equal(page.markup(), "e 0 class:w-20 h-20 anim-spin");
+    assert.equal(page.markup(), "e 0 class:w-20 h-20 anim-spin;label:Loading");
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
@@ -1567,7 +1567,7 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     // Space from there.
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Large",
+        "e 0 label:Size\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Large",
     );
     // One input per option, and nothing shared with a second group: a page of
     // two groups numbers them apart, which is what makes the browser's model
@@ -1624,13 +1624,13 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     page.flip("Banana");
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
+        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
     );
     // Writing the signal from elsewhere checks the matching input too.
     let _ = choice.set(ctx, "a");
     assert.containsText(
         page.markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
+        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
     );
 }
 
@@ -2398,7 +2398,7 @@ test "a translate shifts the painted box and moves no sibling" {
             onPress: .Some(fn(_c) => ()),
         }),
     );
-    assert.equal(render(ctx, save).markup(), "e 0 class:r-8\nt 1 Save");
+    assert.equal(render(ctx, save).markup(), "e 0 class:r-8;label:Save\nt 1 Save");
     // One slot: two translates are one transform, and the last wins.
     assert.equal(
         render(
@@ -2603,7 +2603,7 @@ test "a button's `When` follows its condition, and a constant one follows the br
     );
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:bg-0000ff\nt 2 Lit\ne 1 class:w-var;--buri-w:137px\nt 2 Then\ne 1 class:w-var;--buri-w:137px\nt 2 Otherwise\ne 1 class:bg-00ff00\nt 2 Still",
+        "e 0 \ne 1 class:bg-0000ff;label:Lit\nt 2 Lit\ne 1 class:w-var;--buri-w:137px;label:Then\nt 2 Then\ne 1 class:w-var;--buri-w:137px;label:Otherwise\nt 2 Otherwise\ne 1 class:bg-00ff00;label:Still\nt 2 Still",
     );
     // A `When` over a signal swaps branches, and the branch a constant picks
     // keeps following what it reads, whichever branch that is.
@@ -2611,7 +2611,7 @@ test "a button's `When` follows its condition, and a constant one follows the br
     width.set(ctx, 241);
     assert.equal(
         page.markup(),
-        "e 0 \ne 1 class:bg-ff0000\nt 2 Lit\ne 1 class:w-var;--buri-w:241px\nt 2 Then\ne 1 class:w-var;--buri-w:241px\nt 2 Otherwise\ne 1 class:bg-00ff00\nt 2 Still",
+        "e 0 \ne 1 class:bg-ff0000;label:Lit\nt 2 Lit\ne 1 class:w-var;--buri-w:241px;label:Then\nt 2 Then\ne 1 class:w-var;--buri-w:241px;label:Otherwise\nt 2 Otherwise\ne 1 class:bg-00ff00;label:Still\nt 2 Still",
     );
 }
 
@@ -2724,7 +2724,7 @@ test "a button carries its label, and a press runs its handler" {
     let page = render(ctx, tree);
     // The label is the accessible name, so it is an attribute; a button with no
     // children shows it, which is the one place the name and the glyphs agree.
-    assert.equal(page.markup(), "e 0 \nt 1 add");
+    assert.equal(page.markup(), "e 0 label:add\nt 1 add");
     let _ = page.press("add");
     let _ = page.press("add");
     assert.equal(count.get(ctx), 2);
@@ -2753,7 +2753,7 @@ test "a button holds children, and its label stays its name" {
         }),
     );
     let page = render(ctx, tree);
-    assert.equal(page.markup(), "e 0 class:p-4\nt 1 *\nt 1 Overview");
+    assert.equal(page.markup(), "e 0 class:p-4;label:Overview\nt 1 *\nt 1 Overview");
     // Pressed by the name a reader hears, which is the label and never the
     // glyphs.
     let _ = page.press("Overview");
@@ -2762,7 +2762,7 @@ test "a button holds children, and its label stays its name" {
     // the button paints them.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4\nt 1 *\nt 1 Overview",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4;label:Overview\nt 1 *\nt 1 Overview",
     );
 }
 
@@ -2846,7 +2846,7 @@ test "an image says what it shows" {
     // which a reader has to be told and cannot guess.
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 image:/cat.png\ne 1 image:/rule.png",
+        "e 0 \ne 1 image:/cat.png;label:a cat, asleep\ne 1 image:/rule.png",
     );
 }
 
@@ -3499,11 +3499,13 @@ test "a labelled shape is a stop in the focus order, named by its label" {
     suffix.set(ctx, " sold");
     let _ = page.focus("20.0 sold");
     assert.equal(page.focused(), "20.0 sold");
-    // A label is what a reader hears, never what is painted.
+    // A label is written on its shape for a reader, never painted as text.
+    let picture = ui.describe(ctx, labelledBars(suffix), .Hover);
     assert.containsText(
-        ui.describe(ctx, labelledBars(suffix), .Hover),
-        "<rect x='0' y='30' width='8' height='10' fill='none'/>",
+        picture,
+        "<rect x='0' y='30' width='8' height='10' aria-label='10.0 sold' fill='none'/>",
     );
+    assert.isFalse(picture.contains(">10.0 sold<"));
 }
 
 test "a drawing hears the pointer in its own units" {
@@ -3564,7 +3566,7 @@ test "each keeps the shapes whose keys stay, and the focus on one of them" {
         page.markup(),
         drawingLine(
             ctx,
-            "<rect x='0' y='0' width='8' height='10' fill='none'/><rect x='10' y='0' width='8' height='10' fill='none'/><rect x='20' y='0' width='8' height='10' fill='none'/>",
+            "<rect x='0' y='0' width='8' height='10' aria-label='Mar' fill='none'/><rect x='10' y='0' width='8' height='10' aria-label='Jan' fill='none'/><rect x='20' y='0' width='8' height='10' aria-label='Apr' fill='none'/>",
         ),
     );
     let _ = page.tab();
@@ -4421,14 +4423,20 @@ test "a picture's styles take the conflict slots every other element's do" {
     let classes = "class:pe-top-8 pe-bottom-6 pos-sticky hover_op-0_5 md_w-40";
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        str.format(ctx, "buri-scene 1\nviewport 800 fit\ne 0 ${classes};image:/a.png"),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 fit\ne 0 ${classes};image:/a.png;label:a",
+        ),
     );
     // The same list at rest keeps the breakpoint class — a breakpoint is the
     // stylesheet's business, not the snapshot's — and drops the hover one.
     let resting = "class:pe-top-8 pe-bottom-6 pos-sticky md_w-40";
     assert.equal(
         ui.describe(ctx, tree, .Focus),
-        str.format(ctx, "buri-scene 1\nviewport 800 fit\ne 0 ${resting};image:/a.png"),
+        str.format(
+            ctx,
+            "buri-scene 1\nviewport 800 fit\ne 0 ${resting};image:/a.png;label:a",
+        ),
     );
 }
 
@@ -4473,15 +4481,15 @@ test "a disabled control says so in its markup" {
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
 }
 
@@ -4582,17 +4590,17 @@ test "On(.Disabled) fires from the control's own flag, in every state" {
     );
     assert.equal(
         ui.describe(ctx, refusing, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;disabled:true\nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;disabled:true;label:save\nt 1 save",
     );
     assert.equal(
         ui.describe(ctx, pressable, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 \nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 label:save\nt 1 save",
     );
     // The snapshot still reaches a control that holds no such flag, which is
     // the question `.Disabled` was always asking.
     assert.equal(
         ui.describe(ctx, pressable, .Disabled),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5\nt 1 save",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:disabled_op-0_5;label:save\nt 1 save",
     );
 }
 
@@ -4982,7 +4990,7 @@ test "a control takes styles of its own, and they land on the control" {
     // is hovered, focused or disabled.
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 class:p-12 hover_op-0_9\nt 2 go\ne 1 class:fg-090909\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 class:r-4;field:text\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center h-r1 shrink-0 am-start w-20;checked:false\nt 2 done",
+        "e 0 \ne 1 class:p-12 hover_op-0_9;label:go\nt 2 go\ne 1 class:fg-090909\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 class:r-4;field:text\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center h-r1 shrink-0 am-start w-20;checked:false\nt 2 done",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
@@ -5346,7 +5354,7 @@ test "a designed focus ring replaces the platform's rather than joining it" {
             onPress: .Some(fn(_c) => ()),
         }),
     );
-    assert.equal(render(ctx, ringed).markup(), "e 0 \nt 1 focus me");
+    assert.equal(render(ctx, ringed).markup(), "e 0 label:focus me\nt 1 focus me");
 
     // A fade is not a ring: it is drawn *beside* the platform's, so the
     // platform's stays. So does a ring that only applies from a breakpoint
@@ -5367,8 +5375,8 @@ test "a designed focus ring replaces the platform's rather than joining it" {
             onPress: .Some(fn(_c) => ()),
         }),
     );
-    assert.equal(render(ctx, faded).markup(), "e 0 \nt 1 dim");
-    assert.equal(render(ctx, wide).markup(), "e 0 \nt 1 wide");
+    assert.equal(render(ctx, faded).markup(), "e 0 label:dim\nt 1 dim");
+    assert.equal(render(ctx, wide).markup(), "e 0 label:wide\nt 1 wide");
 
     // The suppression opens the sheet, so a class named in it is read before
     // the rule that draws it and a class left out of it is read after.
@@ -5738,7 +5746,7 @@ test "a dialog is a panel its signal opens and shuts" {
     // accessible name, the rule a button's label follows.
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 \nt 2 Are you sure?",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:Delete this?\nt 2 Are you sure?",
     );
     // Shut, a browser draws none of a dialog, so the scene holds none: the
     // panel is gone rather than merely flagged, which is the whole of what frees
@@ -5751,7 +5759,7 @@ test "a dialog is a panel its signal opens and shuts" {
     // the scene, not a hidden element, so there is nothing to keep across it.
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 \nt 2 Are you sure?",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:Delete this?\nt 2 Are you sure?",
     );
     assert.equal(page.count("dialog"), 1);
 }
@@ -5771,7 +5779,7 @@ test "a dialog's styles land on the panel" {
                 styles: [.Padding(.Px(8)), .Radius(.Px(4))],
             }),
         ).markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-8 r-4",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-8 r-4;label:Settings",
     );
     // The panel's look is the styles', so the reset drops the bordered, padded
     // white card a browser draws a `<dialog>` as — and keeps the half no style
@@ -5830,7 +5838,7 @@ test "a dialog's panel lets what hangs off its edge show, as the painter does" {
     );
     assert.equal(
         panel.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-24\ne 2 class:pos-flow\ne 3 \nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-24;label:Billing\ne 2 class:pos-flow\ne 3 label:Trigger\nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
     );
     // A browser's own sheet makes a modal a scroll container. The reset undoes
     // that; a panel that should scroll asks for `Scroll`, which beats it.
@@ -5855,12 +5863,12 @@ test "a dialog's label may vary, and the panel follows it" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:first",
     );
     named.set(ctx, "second");
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 ",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:second",
     );
 }
 
@@ -6014,7 +6022,7 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 fit\ne 0 ${scrim}\ne 1 class:p-8\nt 2 here",
+            "buri-scene 1\nviewport 800 fit\ne 0 ${scrim}\ne 1 class:p-8;label:x\nt 2 here",
         ),
     );
 }
@@ -6038,11 +6046,11 @@ test "a button that expands something says so, and whether it is open" {
     // Collapsed, it announces the same as any button, because `aria-expanded`
     // is written only when it is `true` — the way `aria-invalid` is, so an
     // ordinary button carries no markup it did not ask for.
-    assert.equal(page.markup(), "e 0 \nt 1 Menu");
+    assert.equal(page.markup(), "e 0 label:Menu\nt 1 Menu");
     open.set(ctx, true);
     // Open, the button says a region it controls is expanded, which is what a
     // reader is never told when the trigger is a plain button beside a `choose`.
-    assert.equal(page.markup(), "e 0 \nt 1 Menu");
+    assert.equal(page.markup(), "e 0 label:Menu\nt 1 Menu");
 }
 
 test "aria-expanded is announced and not painted, so the scene carries none of it" {
@@ -6063,7 +6071,7 @@ test "aria-expanded is announced and not painted, so the scene carries none of i
     // own styles and its label, the same lines an unexpanded button writes.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4\nt 1 Menu",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:p-4;label:Menu\nt 1 Menu",
     );
 }
 
@@ -6161,8 +6169,8 @@ test "a stack with a role is named by its label, and the name follows its prop" 
     assert.equal(page.focused(), "Value from 12 to 40");
     high.set(ctx, 50);
     assert.equal(page.focused(), "Value from 12 to 50");
-    // A name is heard, not read as text.
-    assert.equal(page.spoken(), "Home");
+    // A name is heard where its element sits, before what is in it.
+    assert.equal(page.spoken(), "Primary Home Value from 12 to 50");
 }
 
 /// A picture whose props a match picks, with one more style given by an update.
@@ -6430,7 +6438,7 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         }),
     );
     let shown =
-        "e 0 \ne 1 \nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
+        "e 0 \ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
     // A snapshot in a state that hovers or focuses the trigger draws the
     // bubble, and one in any other state draws the trigger alone.
     assert.equal(
@@ -6451,12 +6459,12 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
     );
     assert.equal(
         ui.describe(ctx, tip, .Checked),
-        "buri-scene 1\nviewport 800 fit\ne 0 \ne 1 \nt 2 Copy",
+        "buri-scene 1\nviewport 800 fit\ne 0 \ne 1 label:Copy\nt 2 Copy",
     );
     // The document draws the bubble only while the trigger is hovered, and
     // then it is the same lines.
     let page = render(ctx, tip);
-    assert.equal(page.markup(), "e 0 \ne 1 \nt 2 Copy");
+    assert.equal(page.markup(), "e 0 \ne 1 label:Copy\nt 2 Copy");
     let _ = page.pointerMove("Copy", 0.0, 0.0);
     assert.equal(page.markup(), shown);
 }
@@ -7342,7 +7350,7 @@ test "a control bound to hasFocus answers for its own focus in the scene" {
     assert.isFalse(ui.describe(ctx, tree, .Focus).contains("focus_p-9"));
     // The document follows the signal, the way its markup follows a toggle's.
     let page = render(ctx, tree);
-    assert.equal(page.markup(), "e 0 focused:false\nt 1 Save");
+    assert.equal(page.markup(), "e 0 focused:false;label:Save\nt 1 Save");
     held.set(ctx, true);
     assert.containsText(page.markup(), "focused:true");
 }
@@ -7367,7 +7375,10 @@ test "a progress bar announces the role, the bounds and how far along it is" {
             ]),
         }),
     );
-    assert.equal(render(ctx, tree).markup(), "e 0 class:w-full\ne 1 class:w-pc40");
+    assert.equal(
+        render(ctx, tree).markup(),
+        "e 0 class:w-full;label:Loading\ne 1 class:w-pc40",
+    );
 }
 
 test "a progress bar follows its value when it changes" {
@@ -7379,12 +7390,12 @@ test "a progress bar follows its value when it changes" {
         ctx,
         ui.progress({ label: .Const("Upload"), value: .Some(.Cell(done)), styles: [] }),
     );
-    assert.equal(page.markup(), "e 0 ");
+    assert.equal(page.markup(), "e 0 label:Upload");
     // The value a reader hears is `aria-valuenow`, an attribute the scene does
     // not carry, so a write to it changes nothing the scene shows — the bar's
     // own markup is its children. `ui/web`'s document pins the announced value.
     let _ = done.set(ctx, 0.9);
-    assert.equal(page.markup(), "e 0 ");
+    assert.equal(page.markup(), "e 0 label:Upload");
 }
 
 test "a progress bar paints its children and announces the rest" {
@@ -7409,7 +7420,7 @@ test "a progress bar paints its children and announces the rest" {
     let scene = ui.describe(ctx, tree, .Hover);
     assert.equal(
         scene,
-        "buri-scene 1\nviewport 800 fit\ne 0 class:w-full\ne 1 class:w-pc40",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:w-full;label:Loading\ne 1 class:w-pc40",
     );
     assert.isFalse(scene.contains("progressbar"));
     assert.isFalse(scene.contains("valuenow"));
@@ -8550,7 +8561,7 @@ test "an open dialog runs its own pointer handlers" {
             onPointerUp: .Some(fn(c, at) => sawPointer(c, log, "Panel", "up", at)),
         }),
     );
-    let _ = pressMoveRelease(page, "Are you sure?");
+    let _ = pressMoveRelease(page, "Panel");
     assert.equal(log.recorded(), pressMoveReleaseLog("Panel"));
 }
 

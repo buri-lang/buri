@@ -357,6 +357,140 @@ console.log(counts());
     );
 }
 
+/// One of each element that has an accessible name, beside a decorative
+/// picture and a decorative drawing. `conformance/lib/ui/test/names.buri`
+/// reads the same names through `spoken()`.
+const NAMES_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+fn cross<C>(): ui.Node<C> {
+    ui.image({
+        source: .Const("<svg viewBox=\"0 0 10 10\"><path d=\"M0 0L10 10\"/></svg>"),
+        alt: .Decorative,
+        styles: [],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Close"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    children: .Some([cross()]),
+                }),
+                ui.button({
+                    label: .Const("Add to basket"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    children: .Some([ui.text({ content: .Const("Add") })]),
+                }),
+                ui.image({ source: .Const("logo.png"), alt: .AccessibilityText("Acme"), styles: [] }),
+                ui.drawing({
+                    alt: .AccessibilityText("Sales by month"),
+                    size: .Const((20.0, 10.0)),
+                    styles: [],
+                    shapes: [
+                        shape.rect({
+                            at: .Const((0.0, 0.0)),
+                            size: .Const((8.0, 10.0)),
+                            label: .Some(.Const("Jan: 10")),
+                        }),
+                        shape.rect({ at: .Const((10.0, 0.0)), size: .Const((8.0, 10.0)) }),
+                    ],
+                }),
+                ui.drawing({
+                    alt: .Decorative,
+                    size: .Const((10.0, 10.0)),
+                    styles: [],
+                    shapes: [
+                        shape.rect({
+                            at: .Const((0.0, 0.0)),
+                            size: .Const((8.0, 10.0)),
+                            label: .Some(.Const("Feb")),
+                        }),
+                    ],
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Home") })],
+                    role: .Some(.Navigation),
+                    label: .Some(.Const("Primary")),
+                }),
+                ui.picker({
+                    label: .Const("Size"),
+                    options: [
+                        ("s", ui.text({ content: .Const("Small") })),
+                        ("l", ui.text({ content: .Const("Large") })),
+                    ],
+                    value: signal(ctx, "s"),
+                    styles: [],
+                }),
+                ui.progress({ label: .Const("Uploading"), value: .Some(.Const(0.5)), styles: [] }),
+                ui.form({
+                    onSubmit: fn(_c) => (),
+                    children: [ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) })],
+                    styles: [],
+                }),
+                ui.dialog({
+                    isOpen: signal(ctx, true),
+                    label: .Const("Delete this?"),
+                    children: [ui.text({ content: .Const("Are you sure?") })],
+                    styles: [],
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_browser_hears_each_element_by_the_name_spoken_gives_it() {
+    // A reader's walk of the accessibility tree: nothing hidden, each element's
+    // name where it sits, and a button's or a picture's children presentational
+    // but for a stop in the focus order inside it.
+    let printed = drive(
+        "names-page",
+        NAMES_PAGE,
+        r#"
+const heard = (node, out, presentational) => {
+  if (node.nodeType === 3) {
+    const words = node.textContent.trim();
+    if (words !== "" && !presentational) out.push(words);
+    return;
+  }
+  if (node.nodeType !== 1 || node.getAttribute("aria-hidden") === "true") return;
+  if (node.tagName === "DIALOG" && !node.open) return;
+  const stop = node.getAttribute("tabindex") === "0";
+  const name = node.getAttribute("aria-label") ?? (node.tagName === "IMG" ? node.getAttribute("alt") : null);
+  if (name && (stop || !presentational)) out.push(name);
+  const role = node.getAttribute("role");
+  const inner = presentational || node.tagName === "BUTTON" || role === "button" || role === "img";
+  for (const child of node.childNodes) heard(child, out, inner);
+};
+const out = [];
+heard(body, out, false);
+console.log(out.join(" "));
+"#,
+    );
+    assert_eq!(
+        printed,
+        "Close Add to basket Acme Sales by month Jan: 10 Primary Home Size Small Large Uploading Send Delete this? Are you sure?\n"
+    );
+}
+
 /// Two lists whose rows are built by functions that only *hold* a handler
 /// that navigates: one written inline, one bound to a `let` first. Building a
 /// row waits on nothing, so every row renders, and pressing one still
