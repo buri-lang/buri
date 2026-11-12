@@ -7638,6 +7638,60 @@ export fn main(host: NativeHost): Result<(), Str> {{
     );
 }
 
+/// Functions the inliner pastes at their last call, where the body moves
+/// rather than being copied, and the cases where something else still names
+/// one.
+///
+/// `scale` is called once, from `wrap`, and `wrap` is small enough to paste
+/// wherever it is called, but is also passed as a value, so its body stays.
+/// `main` pastes `wrap` before `wrap` is visited, so by the time `wrap` inlines
+/// `scale`, `main` calls `scale` too, and `scale`'s body has to stay where it
+/// is. `once` has one call and nothing else names it, so its body moves.
+/// `bump` has one call and is also passed as a value, which keeps its body.
+#[test]
+fn a_function_inlined_at_its_last_call_agrees() {
+    rows_or_skip!();
+    agree(
+        "inlined at its last call",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn scale(n: Int): Int {
+  let doubled = n * 2;
+  let tripled = n * 3;
+  doubled + tripled + 1
+}
+
+fn wrap(n: Int): Int { scale(n) }
+
+fn once(n: Int): Int {
+  let a = n + 10;
+  let b = a * a;
+  b - n
+}
+
+fn bump(n: Int): Int {
+  let m = n + 1;
+  let k = m * 2;
+  k - n
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let a = wrap(1);
+  let b = wrap(2);
+  let c = once(3);
+  let d = bump(4);
+  let e = [1, 2].map(host.alloc, bump).fold(fn(x, y) => x + y, 0);
+  let f = [1, 2].map(host.alloc, wrap).fold(fn(x, y) => x + y, 0);
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e} ${f}").ignore();
+  .Ok(())
+}
+"#,
+        "6 11 166 6 7 17\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]

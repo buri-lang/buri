@@ -349,6 +349,51 @@ fn a_signal_compares_with_the_types_equal_on_every_backend() {
     }
 }
 
+const CALLED_ONCE: &str = r#"from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, recorder };
+from "ui/signal" import { signal, watch };
+
+// Equal by label alone.
+struct Tag {
+    label: Str,
+    noise: Int,
+}
+
+impl Equal for Tag {
+    fn equal(self, other: Tag): Bool {
+        self.label == other.label
+    }
+}
+
+test "an Equal the program calls once is still the signal's" {
+    let same = Tag { label: "a", noise: 1 } == Tag { label: "a", noise: 2 };
+    let ctx = context { Ui: headless(), Watch: observer() };
+    let cell = signal(ctx, Tag { label: "a", noise: 1 });
+    let seen = recorder();
+    watch(ctx, fn(s) => {
+        let _ = seen.note(cell.get(s).noise);
+    });
+    cell.set(ctx, Tag { label: "a", noise: 2 });
+    cell.set(ctx, Tag { label: "b", noise: 3 });
+    assert.equal(seen.noted(), [1, 3]);
+    assert.isTrue(same);
+}
+"#;
+
+/// A type's `Equal` that the program calls in one place is pasted there, body
+/// and all, and a signal over the type still compares with it.
+#[test]
+fn an_equal_called_once_still_decides_a_signals_write_on_every_backend() {
+    let repo = repository("called_once", CALLED_ONCE);
+    for (backend, status, stdout, stderr) in every_backend(&repo) {
+        assert!(
+            status == 0 && stdout.contains("1 passed, 0 failed"),
+            "{backend}:\n{stdout}\n{stderr}"
+        );
+    }
+}
+
 const MAPS: &str = r#"from "core/testing/assert" import * as assert;
 from "core/orderedmap" import * as ordmap;
 from "core/orderedmap" import { OrderedMap };

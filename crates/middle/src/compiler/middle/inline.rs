@@ -70,7 +70,7 @@ pub fn run(program: &mut Program) -> Stats {
         if let Some(before) = &before {
             revisit(&mut dirty, &own, &facts, before);
         }
-        let inlined = inline_round(program, &facts, &dirty, &own);
+        let (inlined, moved) = inline_round(program, &facts, &dirty, &own);
         // Inlining a constructor into a projection is what makes most of the
         // folding below possible, so it runs after rather than before.
         let folded = fold_round(program, &dirty, &inlined, &own);
@@ -79,8 +79,10 @@ pub fn run(program: &mut Program) -> Stats {
         if total == 0 {
             break;
         }
-        for ((d, i), f) in dirty.iter_mut().zip(&inlined).zip(&folded) {
-            *d = *i > 0 || *f > 0;
+        // A function whose body moved names nothing now, so it is measured
+        // again too.
+        for (((d, i), f), m) in dirty.iter_mut().zip(&inlined).zip(&folded).zip(&moved) {
+            *d = *i > 0 || *f > 0 || *m;
         }
         for ((o, f), d) in own.iter_mut().zip(&program.funcs).zip(&dirty) {
             if *d {
@@ -379,7 +381,8 @@ impl Facts {
 // ---------------------------------------------------------------------------
 
 /// One round of inlining over the functions `dirty` names, in index order,
-/// answering how many calls each one inlined.
+/// answering how many calls each one inlined and which ones it moved the body
+/// out of.
 ///
 /// Serial on purpose. The answer depends on the order — a caller pastes the
 /// body its callee has at that moment — and cutting a round into levels that
@@ -391,8 +394,9 @@ fn inline_round(
     facts: &Facts,
     dirty: &Dense<FuncIdx, bool>,
     own: &Dense<FuncIdx, Own>,
-) -> Dense<FuncIdx, usize> {
+) -> (Dense<FuncIdx, usize>, Dense<FuncIdx, bool>) {
     let mut done = program.funcs.map(|_| 0);
+    let mut live = Live::of(program, facts);
     for i in program.funcs.ids() {
         let func = program.funcs.get_mut(i);
         // Out of the table while it is walked, so it cannot paste itself.
@@ -412,6 +416,7 @@ fn inline_round(
             &mut body,
             program,
             facts,
+            &mut live,
             limit,
             &mut locals,
             &mut size,
@@ -422,7 +427,54 @@ fn inline_round(
         func.locals = locals;
         *done.get_mut(i) = count;
     }
-    done
+    (done, live.moved)
+}
+
+/// How many times each function is named in the program as it stands now,
+/// part way through a round.
+///
+/// [`Facts`] counts the bodies as they were when the round started, and pasting
+/// a body names everything it names once more. These counts follow that, so
+/// [`inline_expr`] knows when the call it is inlining is the last thing that
+/// names its callee.
+struct Live {
+    calls: Dense<FuncIdx, usize>,
+    refs: Dense<FuncIdx, usize>,
+    /// A root of the program is reached without being named in a body.
+    rooted: Dense<FuncIdx, bool>,
+    /// The functions whose body this round moved into a caller.
+    moved: Dense<FuncIdx, bool>,
+}
+
+impl Live {
+    fn of(program: &Program, facts: &Facts) -> Live {
+        let mut rooted = program.funcs.map(|_| false);
+        for r in crate::compiler::middle::dce::program_roots(program) {
+            *rooted.get_mut(r) = true;
+        }
+        Live {
+            calls: facts.per_func.map(|f| f.calls),
+            refs: facts.per_func.map(|f| f.refs),
+            rooted,
+            moved: program.funcs.map(|_| false),
+        }
+    }
+
+    /// Whether the one call left that names `callee` is the one being
+    /// inlined. Its body can then be moved rather than copied: nothing else
+    /// reaches the original, so `dce` would drop it straight after.
+    fn last(&self, callee: FuncIdx) -> bool {
+        *self.calls.get(callee) == 1 && *self.refs.get(callee) == 0 && !*self.rooted.get(callee)
+    }
+
+    /// Counts what a copied body names.
+    fn copied(&mut self, body: &Expr) {
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::CallFunc { func, .. } => *self.calls.get_mut(*func) += 1,
+            ExprKind::FuncRef(func) => *self.refs.get_mut(*func) += 1,
+            _ => {}
+        });
+    }
 }
 
 /// The folds, over the functions `dirty` names. Answers how many rewrites
@@ -449,8 +501,9 @@ fn fold_round(
 #[allow(clippy::too_many_arguments)]
 fn inline_expr(
     e: &mut Expr,
-    program: &Program,
+    program: &mut Program,
     facts: &Facts,
+    live: &mut Live,
     limit: usize,
     locals: &mut typed::Locals,
     size: &mut usize,
@@ -459,28 +512,41 @@ fn inline_expr(
     // Children first, so a call that only becomes visible after its own
     // arguments are rewritten is still seen this round.
     typed::children_mut(e, &mut |child| {
-        inline_expr(child, program, facts, limit, locals, size, done);
+        inline_expr(child, program, facts, live, limit, locals, size, done);
     });
 
     let ExprKind::CallFunc { func, args } = &mut e.kind else {
         return;
     };
     let callee = *func;
-    let target = program.funcs.get(callee);
-    let Some(callee_body) = target.body() else {
-        return;
-    };
     // The checker gave the call one argument per parameter.
     if !facts.may_inline(callee, *size, limit) {
         return;
     }
+    // Copying a body and then dropping the original is most of what inlining
+    // costs, so the last call to a function takes the body itself.
+    let last = live.last(callee);
+    let target = program.funcs.get_mut(callee);
+    let Some(mut body) = (if last {
+        target.take_body()
+    } else {
+        target.body().cloned()
+    }) else {
+        return;
+    };
+    *live.calls.get_mut(callee) -= 1;
+    if last {
+        *live.moved.get_mut(callee) = true;
+    } else {
+        live.copied(&body);
+    }
+    let target = program.funcs.get(callee);
 
     // Every local of the callee is appended to the caller's table and every
     // reference to one shifted by where they landed. `LocalId` is an index
     // into that table (`typed::Body`), so nothing else can capture: no two
     // bindings can end up with the same id.
     let shift = locals.append(&target.locals);
-    let mut body = callee_body.clone();
     shift_expr(&mut body, &shift);
 
     // Each argument is bound in turn, before the body runs. That is exactly
@@ -791,6 +857,45 @@ mod tests {
             p.roots,
             crate::compiler::middle::monomorphize::ProgramRoots::Main(f) if f.func() == func_id(0)
         ));
+    }
+
+    /// A body is moved into its last caller rather than copied, and only
+    /// when nothing else reaches the function: a root, such as a reactive
+    /// cell's comparison, keeps its own.
+    #[test]
+    fn the_last_call_takes_the_body_unless_the_function_is_a_root() {
+        let body = || {
+            e(ExprKind::Prim {
+                op: typed::PrimOp::Add,
+                prim: crate::compiler::semantics::types::Prim::I64,
+                args: Box::new([local(0), local(0)]),
+            })
+        };
+        let main = func(
+            "main",
+            vec![0],
+            1,
+            Some(e(ExprKind::Tuple(vec![
+                call(1, vec![local(0)]),
+                call(2, vec![local(0)]),
+            ]))),
+        );
+        let mut p = program(vec![
+            main,
+            func("moved", vec![0], 1, Some(body())),
+            func("rooted", vec![0], 1, Some(body())),
+        ]);
+        p.cell_equal.insert(Ty::ERROR, func_id(2));
+
+        assert_eq!(run(&mut p).inlined, 2);
+        assert!(
+            p.funcs.as_slice()[1].body().is_none(),
+            "the body was copied"
+        );
+        assert!(
+            p.funcs.as_slice()[2].body().is_some(),
+            "a root lost its body"
+        );
     }
 
     fn tuple(xs: Vec<Expr>) -> Expr {

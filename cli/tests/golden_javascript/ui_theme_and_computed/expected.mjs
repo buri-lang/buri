@@ -26,9 +26,8 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=ui_node$stack$f6at44([$k6,[ui_node$stack$f6at44([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
-  const bindings_14=[[__cmd_x_main_buri$Token_color(0),__cmd_x_main_buri$light(0)]];
-  return $ui_node_mount(ctx_1,$t3,[[[0,bindings_14]]]);
+  const $t5=ui_node$stack$f6at44([$k6,[ui_node$stack$f6at44([[$k10,[4,scope_3=>[[24,[0,$effect_Scope_read(scope_3,width_2[0])]]]]],[],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+  return $ui_node_mount(ctx_1,$t5,[ui_theme$themed([[[2,['both','bg']],__cmd_x_main_buri$light(0)]])]);
 }
 function ui_node$stack$f6at44(config_0){
   const events_1=[config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]];
@@ -65,8 +64,8 @@ function ui_node$stack$f6at44(config_0){
 function __cmd_x_main_buri$light(t_0){
   return $k12;
 }
-function __cmd_x_main_buri$Token_color(self_0){
-  return [2,['both','bg']];
+function ui_theme$themed(bindings_0){
+  return [[0,bindings_0]];
 }
 const $buri$program={main:async ()=>{
   const $r=await __cmd_x_main_buri$main();

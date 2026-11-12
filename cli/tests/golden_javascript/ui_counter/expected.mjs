@@ -31,10 +31,7 @@ function __cmd_x_main_buri$main(){
   }
   const label_8='clicks';
   const count_9=[$host_HostUi_signal(ctx_1[2],0n)];
-  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k5,[ui_node$button$f6at44([[0,label_8],[],void 0,c_10=>ui_signal$Signal_update$lmaabn(count_9,c_10,n_11=>n_11+1n),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$f6at44([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$f6at44($k6,[2,c_12=>$effect_Scope_read(c_12,count_9[0])*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
-}
-function ui_signal$Signal_update$lmaabn(self_0,ctx_1,f_2){
-  return $host_HostUi_write(ctx_1[2],self_0[0],f_2($host_HostUi_read(ctx_1[2],self_0[0])));
+  return $ui_node_mount(ctx_1,ui_node$stack$f6at44([$k5,[ui_node$button$f6at44([[0,label_8],[],void 0,c_10=>$host_HostUi_write(c_10[2],count_9[0],(n_11=>n_11+1n)($host_HostUi_read(c_10[2],count_9[0]))),void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),__cmd_x_main_buri$badge$f6at44([0,label_8],[1,count_9]),__cmd_x_main_buri$badge$f6at44($k6,[2,c_12=>ui_signal$Signal_get$prr42g(count_9,c_12)*2n])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]),[]);
 }
 function ui_node$button$f6at44(config_0){
   const events_1=ui_node$listen$f6at44(config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15],config_0[16],config_0[17]);
@@ -118,6 +115,9 @@ function __cmd_x_main_buri$badge$f6at44(title_0,count_1){
     }
     return String($t1);
   }],void 0,void 0])],void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0,void 0]);
+}
+function ui_signal$Signal_get$prr42g(self_0,ctx_1){
+  return $effect_Scope_read(ctx_1,self_0[0]);
 }
 function ui_node$stack$f6at44(config_0){
   const events_1=ui_node$listen$f6at44(config_0[8],config_0[9],config_0[10],config_0[11],config_0[12],config_0[13],config_0[14],config_0[15]);
