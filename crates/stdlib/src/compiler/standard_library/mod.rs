@@ -264,6 +264,18 @@ pub const MODULES: &[StdModule] = &[
             include_str!("sources/host_testing.buri"),
         )
     },
+    // The doubles for what lies past the process, which
+    // `platform/effect/testing` re-exports. Their own module so that a test
+    // that takes an allocator and nothing else loads none of `core/fs`,
+    // `core/path`, `core/process`, `core/net/server` or `core/alloc`.
+    StdModule {
+        platform: true,
+        internal: true,
+        ..m(
+            "platform/effect/testing/world",
+            include_str!("sources/host_testing_world.buri"),
+        )
+    },
     // The headless renderer, which `platform/effect/testing` re-exports. Its
     // own module so that a test that renders nothing loads none of `ui/`: a
     // standard library module's re-export loads only when an import names

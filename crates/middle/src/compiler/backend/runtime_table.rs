@@ -1427,7 +1427,7 @@ pub const ENTRIES: &[Entry] = &[
     // landed, and an argument crosses as its leaves — so a row taking `self`
     // would be handed three values where it expects one, which is the crash
     // `TestNetwork.calls` found first. The eleven filesystem methods are Buri bodies
-    // over these rows; `host_testing.buri` says why the plan is in the program.
+    // over these rows; `host_testing_world.buri` says why the plan is in the program.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
     // elements, which is the layout `str.splitOnce` already writes through an
@@ -1481,7 +1481,7 @@ pub const ENTRIES: &[Entry] = &[
     // The plan itself never crosses. It is a list of Buri values holding an
     // `IoError`, and §2.1 cannot name an error variant that carries a field, so
     // matching is the `Equal` the `Call` records derive and happens in
-    // `host_testing.buri`. What crosses is the half a program cannot keep:
+    // `host_testing_world.buri`. What crosses is the half a program cannot keep:
     // `fsWithPlan`/`netWithPlan` mint the plan, `addFsFault`/`addNetFault` say
     // what each entry would read like in a failure message, `noteFault` records
     // that one fired, and `test.leave` below reports the rest. `noteFsCall` is
@@ -2606,6 +2606,7 @@ mod tests {
         ("host", "platform/host"),
         ("host_testing", "platform/effect/testing"),
         ("host_testing", "platform/effect/testing/ui"),
+        ("host_testing", "platform/effect/testing/world"),
         ("list", "core/list"),
         ("math", "core/math"),
         ("str", "core/str"),

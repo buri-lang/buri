@@ -9718,6 +9718,42 @@ misspelling of either is reported with the names it could have meant.
 `a_file_packed_with_tokens_reads_whole` grows the token buffer past its first
 reserve.
 
+### 6.132 A test that takes an allocator loads no filesystem, 2026-11-12
+
+```buri
+// platform/effect/testing
+from "platform/effect/testing/world" export {
+    fs, net, spawn, sockets, headless, observer, address, /* and their types */
+};
+```
+
+After §6.122, `platform/effect/testing` still declared the doubles for what
+lies past the process: the filesystem, the network, child processes, sockets
+and the headless graph. Their effects come from `core/fs`, `core/path`,
+`core/process`, `core/net/server` and `core/alloc`. So a test that took only
+an allocator lexed, parsed and checked all of those modules: 7,104 lines of
+source for `test/one-edit`.
+
+Those doubles now live in the internal module `platform/effect/testing/world`,
+and `platform/effect/testing` re-exports them, as it does the renderer. The
+allocator, output, clock, randomness, environment, process, TCP and task
+doubles stay where they were, because they need only `platform/effect`.
+
+On the arm64 VM, `test/one-edit` went from 46.49M to 27.38M instructions
+(−41.1%), and from 7,104 to 3,372 lines lexed. The guard is `loading.rs`'s
+`a_test_that_takes_an_allocator_lexes_none_of_the_filesystem`.
+
+The counted goals' `ci` dev-codegen rows rose per line, though the build does
+less work: the lines it drops lowered cheaply. On the arm64 VM:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` dev-codegen instructions | 54806.8 | 57355.9 (+4.7%) |
+| `ci` dev-codegen cost | 88993.0 | 92853.4 (+4.3%) |
+
+The user approved raising those two baseline rows for this change only. The
+`monorepo-ci` rows and every parse and check row stayed within their gates.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -9697,7 +9697,7 @@ function $host_testing_spelled(b) {
 // The plan itself never reaches this file. It is a list of Buri values holding
 // an `IoError`, and `cli/runtime/lib.rs` §2.1 cannot name an error variant that
 // carries a field, so matching is the `Equal` the `Call` records derive and happens
-// in `host_testing.buri` — on both backends, from one implementation. What is
+// in `host_testing_world.buri` — on both backends, from one implementation. What is
 // here is the half a program cannot keep: which entries have fired, and what
 // each of them would read like in a failure message.
 //
@@ -10791,7 +10791,7 @@ function $host_testing_newSpawn() {
 
 // The plan is the program, the working directory, the two output files and
 // then the arguments, and the split happens here for the reason
-// `host_testing.buri` gives: a Buri body would need an `Allocator` and an
+// `host_testing_world.buri` gives: a Buri body would need an `Allocator` and an
 // effect method takes only `self`.
 function $host_testing_recordSpawn(h, plan) {
   $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(4)]);

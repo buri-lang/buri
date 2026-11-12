@@ -6,8 +6,8 @@
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
 aarch64 ci check cost                                        7923.5
 aarch64 ci check instructions                                4847.6
-aarch64 ci dev-codegen cost                                 89305.2
-aarch64 ci dev-codegen instructions                         54835.7
+aarch64 ci dev-codegen cost                                 93179.1
+aarch64 ci dev-codegen instructions                         57386.1
 aarch64 ci parse cost                                        2194.6
 aarch64 ci parse instructions                                1587.6
 aarch64 monorepo-ci check cost                              12724.5

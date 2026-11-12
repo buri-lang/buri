@@ -653,13 +653,7 @@ fn lines_lexed(all: &str) -> Option<u64> {
 #[test]
 fn a_test_that_renders_nothing_lexes_none_of_the_renderer() {
     let lexed = |source: &str| {
-        let scratch = Scratch::repo("loading-renderer-lexed");
-        scratch.write(
-            "lib/a/BUILD.buri",
-            "library {\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n",
-        );
-        scratch.write("lib/a/lib.buri", "export fn answer(): Int {\n    42\n}\n");
-        scratch.write("lib/a/test/a.buri", source);
+        let scratch = one_test("loading-renderer-lexed", source);
         let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
         run.ok();
         assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
@@ -678,4 +672,83 @@ fn a_test_that_renders_nothing_lexes_none_of_the_renderer() {
         allocates + 3_000 < renders,
         "a test that renders nothing lexed {allocates} lines, one that renders {renders}"
     );
+}
+
+/// **A test that takes an allocator doesn't load the doubles for what lies
+/// past the process.** `fs()`, `net()`, `spawn()`, `sockets()` and the
+/// headless graph answer effects declared in `core/fs`, `core/path`,
+/// `core/process`, `core/net/server` and `core/alloc`, which brought those
+/// modules into every test that imports `platform/effect/testing`: two fifths
+/// of `test/one-edit`'s instructions (design/PERFORMANCE.md §6.132). Those
+/// modules and the doubles are well over 3,000 lines between them.
+#[test]
+fn a_test_that_takes_an_allocator_lexes_none_of_the_filesystem() {
+    let lexed = |source: &str| {
+        let scratch = one_test("loading-world-lexed", source);
+        let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+        lines_lexed(&run.all()).unwrap_or_else(|| panic!("no source line:\n{}", indent(&run.all())))
+    };
+    let reads = "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect/testing\" import { fs };\n\n\
+         test \"a fixture holds its file\" {\n    \
+         assert.equal(fs().files([(\"a.txt\", \"A\")]).snapshot(), [(\"a.txt\", \"A\")]);\n}\n";
+    let (allocates, reads) = (lexed(ALLOCATES), lexed(reads));
+    assert!(
+        allocates + 3_000 < reads,
+        "a test that takes an allocator lexed {allocates} lines, one that takes a filesystem {reads}"
+    );
+}
+
+/// Each double past the process still answers through a named import of
+/// `platform/effect/testing`, though it is declared in a module of its own.
+#[test]
+fn every_double_past_the_process_answers_through_a_named_import() {
+    let source = "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Allocator, Ui, Watch };\n\
+         from \"platform/effect/testing\" import {\n    \
+         alloc, fs, headless, net, observer, readFile, sockets, spawn,\n};\n\
+         from \"ui/signal\" import { signal };\n\n\
+         test \"each double answers\" {\n    \
+         let disk = fs().files([(\"a.txt\", \"A\")]);\n    \
+         assert.equal(disk.read(\"a.txt\"), .Ok(\"A\"));\n    \
+         assert.equal(disk.calls(), []);\n    \
+         assert.equal(readFile(\"a.txt\"), readFile(\"a.txt\"));\n    \
+         assert.equal(net().calls(), []);\n    \
+         assert.equal(spawn().calls(), []);\n    \
+         let pushes = sockets();\n    \
+         assert.isTrue(pushes.isOpen(pushes.open()));\n    \
+         let ui = context { Ui: headless(), Watch: observer() };\n    \
+         let count = signal(ui, 7);\n    \
+         assert.equal(count.get(ui), 7);\n    \
+         let ctx = context {\n        Allocator: alloc(),\n    };\n    \
+         assert.equal([1].map(ctx, fn(n) => n + 1), [2]);\n}\n";
+    let run = one_test("loading-world-named", source).run(&["test", "//..."]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+}
+
+/// The page for `platform/effect/testing` lists the doubles past the process
+/// and their methods, though they are declared in a module of their own.
+#[test]
+fn the_testing_module_page_lists_the_filesystem_double_and_its_methods() {
+    let run = Scratch::repo("loading-world-docs").run(&["docs", "platform/effect/testing"]);
+    run.ok()
+        .says("fn fs(): TestFileSystem")
+        .says("fn files(self, entries: [(Str, Str)]): TestFileSystem")
+        .says("fn spawn(): TestSpawn")
+        .says("fn headless(): Headless");
+}
+
+/// A repository whose one library has one test source, `source`.
+fn one_test(name: &str, source: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/a.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/a/lib.buri", "export fn answer(): Int {\n    42\n}\n");
+    scratch.write("lib/a/test/a.buri", source);
+    scratch
 }

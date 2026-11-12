@@ -3752,7 +3752,9 @@ pub fn runtime_module_key(module: &str) -> String {
     }
     match module {
         "platform/host" => String::from("host"),
-        "platform/effect/testing" | "platform/effect/testing/ui" => String::from("host_testing"),
+        "platform/effect/testing"
+        | "platform/effect/testing/ui"
+        | "platform/effect/testing/world" => String::from("host_testing"),
         "platform/effect" => String::from("effect"),
         _ => module
             .strip_prefix("core/")
