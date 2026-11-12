@@ -771,13 +771,14 @@ test "an edge and a corner reach the scene document the way the sheet does" {
     );
 }
 
-test "an edge and a corner the compiler cannot evaluate become inline styles" {
+test "an edge and a corner the compiler cannot evaluate are written out through variables" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
     };
     // `get` takes a context, so the folder stops and both degrade to the tier
-    // `Computed` lives in — the same declarations, written out.
+    // `Computed` lives in: each value written out as the custom property its
+    // edge's or corner's `-var` class reads.
     let thickness = signal(ctx, 2);
     let rounding = signal(ctx, 5);
     assert.equal(
@@ -788,7 +789,7 @@ test "an edge and a corner the compiler cannot evaluate become inline styles" {
                 children: [],
             }),
         ).markup(),
-        "e 0 border-block-end-style:solid;border-block-end-width:2px",
+        "e 0 class:be-block-end-var;--buri-be-block-end:2px",
     );
     assert.equal(
         render(
@@ -798,7 +799,7 @@ test "an edge and a corner the compiler cannot evaluate become inline styles" {
                 children: [],
             }),
         ).markup(),
-        "e 0 border-end-end-radius:5px",
+        "e 0 class:rc-end-end-var;--buri-rc-end-end:5px",
     );
 }
 
@@ -942,7 +943,7 @@ test "a bleed shares an edge with a pin and a padding and fights neither" {
     );
 }
 
-test "a bleed the compiler cannot evaluate is written out inline" {
+test "a bleed the compiler cannot evaluate is written out through a variable" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
@@ -954,7 +955,10 @@ test "a bleed the compiler cannot evaluate is written out inline" {
         ctx,
         ui.stack({ styles: [.Bleed(.Start, .Px(out.get(ctx)))], children: [] }),
     );
-    assert.equal(render(ctx, tree).markup(), "e 0 margin-inline-start:-23px");
+    assert.equal(
+        render(ctx, tree).markup(),
+        "e 0 class:bleed-inline-start-var;--buri-bleed-inline-start:-23px",
+    );
     assert.isFalse(stylesheet().contains("bleed-start-23"));
 }
 
@@ -964,8 +968,9 @@ test "the scene document writes the bleed the browser was given" {
         Ui: headless(),
         Watch: observer(),
     };
-    // The inline tier on both sides: the painter reads the scene, a browser
-    // reads the style attribute, and the two say the same thing.
+    // The variable-backed tier on both sides: the painter reads the scene, a
+    // browser reads the class and the style attribute, and the two say the same
+    // thing.
     let out = signal(ctx, 8);
     let tree = rooted(
         ctx,
@@ -979,11 +984,11 @@ test "the scene document writes the bleed the browser was given" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 margin-inline-start:-8px;margin-block-start:0px",
+        "e 0 class:bleed-inline-start-var bleed-block-start-var;--buri-bleed-inline-start:-8px;--buri-bleed-block-start:0px",
     );
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 margin-inline-start:-8px;margin-block-start:0px",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:bleed-inline-start-var bleed-block-start-var;--buri-bleed-inline-start:-8px;--buri-bleed-block-start:0px",
     );
 }
 
@@ -2505,9 +2510,10 @@ test "the three new entries write themselves out, letter-spacing through a varia
         Watch: observer(),
     };
     // `get` takes a context, so the folder stops at each of these. The layout
-    // and the translate write themselves out inline; the letter-spacing writes
-    // its value as the `--buri-ls` its `ls-var` class reads (#195). What each
-    // ends up meaning is still the CSS the folded classes above mean.
+    // takes the class its value names; the letter-spacing and the translate
+    // write their values as the `--buri-ls` and `--buri-tr` their `-var`
+    // classes read (#195). What each ends up meaning is still the CSS the
+    // folded classes above mean.
     let reversed = signal(ctx, true);
     let tracking = signal(ctx, 0.1);
     let sunk = signal(ctx, -0.5);
@@ -2524,12 +2530,12 @@ test "the three new entries write themselves out, letter-spacing through a varia
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:lay-colrev ls-var;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
+        "e 0 class:lay-colrev ls-var tr-var;--buri-ls:0.1em;--buri-tr:translate(0px,-0.5em)",
     );
     // The scene document the headless painter reads says the same thing.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-colrev ls-var;--buri-ls:0.1em;transform:translate(0px,-0.5em)",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-colrev ls-var tr-var;--buri-ls:0.1em;--buri-tr:translate(0px,-0.5em)",
     );
     // The value stays out of the sheet; the class that reads it is what is in it.
     assert.isFalse(stylesheet().contains("letter-spacing:0.1em"));

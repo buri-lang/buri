@@ -53,10 +53,12 @@
 //! A style the interpreter cannot reduce degrades to the inline tier, which is
 //! where `Computed` already lives; that is the design's documented default and
 //! it is what lets folding get better wave by wave with no correctness window.
-//! A property with a finite set of values is the exception: every value's class
-//! ships, and the node's `classify` picks the one the value names at run time,
-//! so a value handed through a parameter, a local, a result or a conditional
-//! keeps its child rules and its place in the cascade.
+//! The tier keeps the value's place in the cascade either way. A property with
+//! a finite set of values ships every value's class, and the node's `classify`
+//! picks the one the value names at run time. Any other property writes only
+//! its open part inline, as a `--buri-…` custom property its `-var` rule reads.
+//! So a value handed through a parameter, a local, a result or a conditional
+//! still gives way to an `At` or `On` rule, as one written in place does.
 //!
 //! `On` and `At` are the exception, because a pseudo-class and a media query
 //! have nowhere to degrade *to*: there is no inline form of `:hover`. Styles
@@ -106,6 +108,8 @@ const STYLE_SHADOW: usize = 40;
 /// `Shadows([Shadow])`, which writes the same declaration and so shares
 /// `Shadow`'s conflict slot.
 const STYLE_SHADOWS: usize = 41;
+/// `Truncate(Int)`.
+const STYLE_TRUNCATE: usize = 52;
 /// `ListMarker(ListMarker)`.
 const STYLE_LIST_MARKER: usize = 54;
 /// `Bleed(Edge, Length)`, declared last because nothing else writes a margin.
@@ -288,59 +292,100 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
         .checked_add(cond.code())
 }
 
-/// The variable-backed lowering for a dynamic value the compiler could not fold
-/// (#195): the class abbreviation that names it, and the CSS property the class
-/// sets. A dynamic value is written inline as the custom property
-/// `--buri-<abbreviation>`, and this rule — `<property>:var(--buri-<abbr>)` on
-/// `.<abbr>-var` — reads it out, so the property comes from the stylesheet like
-/// any other and an `At`/`On` rule can still override it at its breakpoint,
-/// rather than an inline declaration outranking every rule at every width.
+/// The variable-backed rules for a dynamic value the compiler could not fold
+/// (#195). A dynamic value is written inline as the custom property
+/// `--buri-<name>`, and the rule on `.<name>-var` reads it out where `$` stands
+/// below, so the property comes from the stylesheet like any other and an
+/// `At`/`On` rule can still override it at its breakpoint, rather than an
+/// inline declaration outranking every rule at every width.
 ///
-/// `Some` only for the properties whose declaration is one property with a
-/// fixed name and one leaf value — the shape a parameter is threaded through,
-/// which is the case #195 is about. An edge- or corner-named property, and one
-/// that writes more than a single declaration, still degrades to an inline
-/// declaration, unless `every_value` lists its values: its CSS property name is
-/// not fixed at compile time, so there is no one class the variable could feed. `Shadows` shares `Shadow`'s slot and
-/// class, so it is folded onto `Shadow` here the way `slot` folds it.
-fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
-    let variant = if variant == STYLE_SHADOWS {
+/// The custom property holds only what's open about the value; the rest is in
+/// the rule. A property keyed by an edge or a corner has a rule per edge or
+/// corner, named after the CSS one where `@` stands (`pe-inline-start-var`),
+/// since its CSS property isn't known until its value is. `Truncate` reads its
+/// line count past zero, and at zero takes `trunc-0`, the class a zero written
+/// in place takes: a line count of zero writes no `display`. `Shadows` shares
+/// `Shadow`'s class, and `Layout`'s rule is a grid's, the one layout whose
+/// value is open. Empty for a property of a few values, whose classes
+/// [`every_value`] lists.
+fn variable_rules(variant: usize) -> Vec<StyleRule> {
+    const EDGES: [&str; 4] = ["block-start", "block-end", "inline-start", "inline-end"];
+    const CORNERS: [&str; 4] = ["start-start", "start-end", "end-start", "end-end"];
+    let (name, keys, declarations): (&str, &[&str], &str) = match variant {
+        6 => ("lay", &[], "display:grid;grid-template-columns:$"),
+        12 => ("grow", &[], "flex-grow:$"),
+        13 => ("shrink", &[], "flex-shrink:$"),
+        14 => ("span", &[], "grid-column:$"),
+        STYLE_PIN => ("pin", &EDGES, "position:absolute;inset-@:$"),
+        17 => ("gap", &[], "gap:$"),
+        18 => ("gapx", &[], "column-gap:$"),
+        19 => ("gapy", &[], "row-gap:$"),
+        20 => ("p", &[], "padding:$"),
+        21 => ("px", &[], "padding-inline:$"),
+        22 => ("py", &[], "padding-block:$"),
+        STYLE_PADDING_EDGE => ("pe", &EDGES, "padding-@:$"),
+        24 => ("w", &[], "width:$"),
+        25 => ("h", &[], "height:$"),
+        26 => ("minw", &[], "min-width:$"),
+        27 => ("maxw", &[], "max-width:$"),
+        28 => ("minh", &[], "min-height:$"),
+        29 => ("maxh", &[], "max-height:$"),
+        30 => ("ar", &[], "aspect-ratio:$"),
+        31 => ("bg", &[], "background-color:$"),
+        32 => ("fg", &[], "color:$"),
+        STYLE_BORDER_WIDTH => ("bw", &[], "border-style:solid;border-width:$"),
+        STYLE_BORDER_EDGE => ("be", &EDGES, "border-@-style:solid;border-@-width:$"),
+        35 => ("bc", &[], "border-color:$"),
+        37 => ("r", &[], "border-radius:$"),
+        STYLE_RADIUS_CORNER => ("rc", &CORNERS, "border-@-radius:$"),
+        39 => ("op", &[], "opacity:$"),
+        STYLE_SHADOW | STYLE_SHADOWS => ("sh", &[], "box-shadow:$"),
+        42 => ("ff", &[], "font-family:$"),
+        43 => ("fs", &[], "font-size:$"),
+        46 => ("lh", &[], "line-height:$"),
+        47 => ("ls", &[], "letter-spacing:$"),
+        STYLE_TRUNCATE => (
+            "trunc",
+            &[],
+            "display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;\
+             -webkit-line-clamp:$",
+        ),
+        STYLE_BLEED => ("bleed", &EDGES, "margin-@:$"),
+        56 => ("tr", &[], "transform:$"),
+        59 => ("bdblur", &[], "backdrop-filter:$"),
+        60 => ("caret", &[], "caret-color:$"),
+        STYLE_ANIMATION => ("anim", &[], "animation:$"),
+        _ => return Vec::new(),
+    };
+    // `Shadows` writes `Shadow`'s declaration, so its rule sorts as one.
+    let folded = if variant == STYLE_SHADOWS {
         STYLE_SHADOW
     } else {
         variant
     };
-    let pair = match variant {
-        12 => ("grow", "flex-grow"),
-        13 => ("shrink", "flex-shrink"),
-        14 => ("span", "grid-column"),
-        17 => ("gap", "gap"),
-        18 => ("gapx", "column-gap"),
-        19 => ("gapy", "row-gap"),
-        20 => ("p", "padding"),
-        21 => ("px", "padding-inline"),
-        22 => ("py", "padding-block"),
-        24 => ("w", "width"),
-        25 => ("h", "height"),
-        26 => ("minw", "min-width"),
-        27 => ("maxw", "max-width"),
-        28 => ("minh", "min-height"),
-        29 => ("maxh", "max-height"),
-        30 => ("ar", "aspect-ratio"),
-        31 => ("bg", "background-color"),
-        32 => ("fg", "color"),
-        35 => ("bc", "border-color"),
-        37 => ("r", "border-radius"),
-        39 => ("op", "opacity"),
-        40 => ("sh", "box-shadow"),
-        43 => ("fs", "font-size"),
-        46 => ("lh", "line-height"),
-        47 => ("ls", "letter-spacing"),
-        59 => ("bdblur", "backdrop-filter"),
-        60 => ("caret", "caret-color"),
-        STYLE_ANIMATION => ("anim", "animation"),
-        _ => return None,
+    let rule = |name: String, declarations: String| StyleRule {
+        blocks: vec![(
+            "",
+            declarations.replace('$', &format!("var(--buri-{name})")),
+        )],
+        class: format!("{name}-var"),
+        property: u16::try_from(folded).unwrap_or(0),
+        state: None,
+        screen: None,
     };
-    Some(pair)
+    let mut rules: Vec<StyleRule> = if keys.is_empty() {
+        vec![rule(name.to_owned(), declarations.to_owned())]
+    } else {
+        keys.iter()
+            .map(|key| rule(format!("{name}-{key}"), declarations.replace('@', key)))
+            .collect()
+    };
+    if variant == STYLE_TRUNCATE {
+        let mut zero = Vec::new();
+        let _ = property(variant, &[Value::Int(0)], Cond::default(), &mut zero);
+        rules.extend(zero.into_iter().map(|(_, rule)| rule));
+    }
+    rules
 }
 
 /// The sub-key a property's value falls in: the edge or corner it names, or
@@ -1477,30 +1522,12 @@ impl<'a> Extractor<'a> {
         )
     }
 
-    /// Records the variable-backed rule a dynamic value at no condition needs
-    /// (#195), once per class. Nothing for a property whose value is threaded
-    /// through more than one declaration or an edge-named one — those keep
-    /// degrading to an inline declaration, as [`variable_property`] says.
+    /// Records the variable-backed rules a dynamic value at no condition can
+    /// need (#195), once per class: [`variable_rules`].
     fn variable_rule(&mut self, variant: usize) {
-        let Some((abbreviation, property)) = variable_property(variant) else {
-            return;
-        };
-        let class = format!("{abbreviation}-var");
-        if self.recorded.contains(&class) && self.did.is_none() {
-            return;
+        for rule in variable_rules(variant) {
+            self.put(rule);
         }
-        let folded = if variant == STYLE_SHADOWS {
-            STYLE_SHADOW
-        } else {
-            variant
-        };
-        self.put(StyleRule {
-            class,
-            property: u16::try_from(folded).unwrap_or(0),
-            state: None,
-            screen: None,
-            blocks: vec![("", format!("{property}:var(--buri-{abbreviation})"))],
-        });
     }
 
     /// Puts `rule` in the sheet unless it is there already, noting it for
@@ -1813,7 +1840,7 @@ fn property(
 /// whose `anim-var` rule already reads any value.
 ///
 /// A `Layout` is one of a few unless it's a `Grid`, whose tracks are
-/// open-ended, so a grid it can't fold keeps its inline declarations.
+/// open-ended, so a grid it can't fold takes the `lay-var` rule instead.
 fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
     let enumerated = |count: usize| -> Vec<Value> {
         (0..count)
@@ -4283,9 +4310,8 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
             // A dynamic value that lowers to a variable-backed rule
             // (#195) names that rule's class here, so the sheet keeps it
             // the way it keeps a class an `Extracted` pair names.
-            if let Some((abbreviation, _)) = variable_property(other) {
-                out.classes.insert(format!("{abbreviation}-var"));
-            }
+            out.classes
+                .extend(variable_rules(other).into_iter().map(|rule| rule.class));
             // A property of a few values takes the class of whichever it
             // holds, so the sheet keeps them all.
             out.classes

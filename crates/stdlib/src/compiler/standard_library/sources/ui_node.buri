@@ -4464,7 +4464,7 @@ fn widgetLine<C: Allocator>(
 /// out. What `renderInto` hands the runtime for one element.
 /// The style list flattened to the concrete declarations and extracted classes
 /// an element carries, with every `Computed`/`When`/`Group` resolved
-/// **once**. `classNames` and `inlineIn` then walk a list that holds no
+/// **once**. `lowered` then walks a list that holds no
 /// computation, so a `Computed` style's body runs a single time per render
 /// rather than once for the classes and once for the inline tier.
 fn resolve(
@@ -4503,12 +4503,11 @@ fn widgetBody<C: Allocator>(
     styles: [Style],
 ): Str {
     let flat = resolve(rootScope(), painted, styles, 0, []);
+    let (classes, inline) = lowered(ctx, painted, flat);
     elementBody(
         ctx,
-        classNames(ctx, painted, flat),
-        leading
-            .concat(ctx, answers(ctx, painted))
-            .concat(ctx, inlineIn(ctx, flat, 0, [])),
+        classes,
+        leading.concat(ctx, answers(ctx, painted)).concat(ctx, inline),
     )
 }
 
@@ -4522,12 +4521,11 @@ fn widgetBody<C: Allocator>(
 /// holds a `checked` and only the other states are answered.
 fn widgetBodyUnder(ctx: Scope, painted: Painted, leading: [Str], styles: [Style]): Str {
     let flat = resolve(ctx, painted, styles, 0, []);
+    let (classes, inline) = lowered(ctx, painted, flat);
     elementBody(
         ctx,
-        classNames(ctx, painted, flat),
-        leading
-            .concat(ctx, stateAnswers(ctx, painted, []))
-            .concat(ctx, inlineIn(ctx, flat, 0, [])),
+        classes,
+        leading.concat(ctx, stateAnswers(ctx, painted, [])).concat(ctx, inline),
     )
 }
 
@@ -4819,41 +4817,52 @@ fn applies(scoped: Int, painted: Painted): Bool {
     }
 }
 
-/// The class each conflict slot ended up with. Last slot wins, which is the
-/// scan the runtime makes over the same pairs.
-fn classNames<C: Allocator>(ctx: C, painted: Painted, styles: [Style]): [Str] {
-    lastPerSlot(ctx, slotsIn(ctx, painted, styles, 0, []), 0, [])
+/// The classes an element carries, the class each conflict slot ended up
+/// with, and the declarations it writes out inline, in order. The list is
+/// `resolve`'s, so it holds no `Group`, `On`, `When`, `Computed` or `At`.
+fn lowered<C: Allocator>(ctx: C, painted: Painted, styles: [Style]): ([Str], [Str]) {
+    let (pairs, inline) = lowerFrom(ctx, painted, styles, 0, [], []);
+    (lastPerSlot(ctx, pairs, 0, []), inline)
 }
 
-/// Every `(slot, class)` pair the list contributes, in order. The list is
-/// `resolve`'s, so it holds no `Group`, `On`, `When`, `Computed` or `At`.
-fn slotsIn<C: Allocator>(
+/// Every `(slot, class)` pair and every inline declaration the list
+/// contributes from `at` on. Last slot wins, which is the scan the runtime
+/// makes over the same pairs; a later declaration of the same property wins,
+/// which is what the painter does with them.
+fn lowerFrom<C: Allocator>(
     ctx: C,
     painted: Painted,
     styles: [Style],
     at: Int,
-    acc: [(Int, Str)],
-): [(Int, Str)] {
+    pairs: [(Int, Str)],
+    inline: [Str],
+): ([(Int, Str)], [Str]) {
     match (styles.get(at)) {
-        .None => acc,
+        .None => (pairs, inline),
         .Some(style) => {
-            let more = match (style) {
+            let extracted = match (style) {
                 .Extracted(classes) => statePairs(ctx, painted, classes.pairs(), 0, []),
-                // A dynamic value the compiler could not fold takes the class
-                // that reads the `--buri-…` it writes out, so an `At`/`On` rule
-                // can still win over it (#195). Its slot is the property's, so a
-                // literal of the same property at the same condition last-wins.
-                _ => {
-                    match (variableProperty(style)) {
-                        .Some(named) => {
-                            let (slot, abbreviation) = named;
-                            [(slot, str.format(ctx, "${abbreviation}-var"))]
-                        },
-                        .None => [],
-                    }
-                },
+                _ => [],
             };
-            slotsIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
+            // A dynamic value the compiler could not fold takes the class that
+            // reads the `--buri-…` it writes out, so an `At`/`On` rule can
+            // still win over it (#195). Its slot is the property's, so a literal
+            // of the same property at the same condition last-wins.
+            let (more, declarations) = match (variable(ctx, style)) {
+                .Some(lowering) => {
+                    let (slot, class, written) = lowering;
+                    ([(slot, class)], written)
+                },
+                .None => ([], []),
+            };
+            lowerFrom(
+                ctx,
+                painted,
+                styles,
+                at + 1,
+                pairs.concat(ctx, extracted).concat(ctx, more),
+                inline.concat(ctx, declarations),
+            )
         },
     }
 }
@@ -4925,193 +4934,152 @@ fn slotAgain(pairs: [(Int, Str)], at: Int, slot: Int): Bool {
     }
 }
 
-/// Every inline declaration the list writes out, in order. A later declaration
-/// of the same property wins, which is what the painter does with them. The
-/// list is `resolve`'s, so it holds no `Group`, `On`, `When`, `Computed` or `At`.
-fn inlineIn<C: Allocator>(ctx: C, styles: [Style], at: Int, acc: [Str]): [Str] {
-    match (styles.get(at)) {
-        .None => acc,
-        .Some(style) => {
-            // A dynamic value the compiler could not fold writes its value out
-            // as the `--buri-…` custom property its `<abbr>-var` class reads,
-            // rather than the property itself — so the class, and a breakpoint
-            // rule above it, decide the cascade (#195). An extracted style
-            // declares nothing inline.
-            let more = match (variableProperty(style)) {
-                .Some(named) => {
-                    let (_slot, abbreviation) = named;
-                    variableInline(ctx, abbreviation, declare(ctx, style))
-                },
-                .None => declare(ctx, style),
-            };
-            inlineIn(ctx, styles, at + 1, acc.concat(ctx, more))
-        },
-    }
-}
-
 /// The variable-backed lowering of a dynamic value the compiler could not fold
-/// (#195): the conflict slot the `<abbr>-var` class takes, and the abbreviation
-/// that names it. A dynamic value is written out as `--buri-<abbr>` and a
-/// stylesheet rule reads it, so the property comes from a class and a breakpoint
-/// rule can still override it — rather than an inline declaration outranking
-/// every rule at every width.
+/// (#195): the conflict slot its class takes, the class, and the declarations
+/// it writes out inline. A dynamic value's open part is written out as
+/// `--buri-<name>` and the `<name>-var` rule reads it, so the property comes
+/// from a class and a breakpoint rule can still override it, rather than an
+/// inline declaration outranking every rule at every width. An extracted style
+/// has none.
 ///
-/// `Some` only for the properties whose CSS declaration is one property with a
-/// fixed name; an edge-named or many-declaration one keeps writing itself out
-/// inline. The slot is `semantics::styles::slot(variant, 0, plain)` — the
-/// variant's index times two hundred — so this stays in step with that table,
-/// with `styles.rs::variable_property` and with `runtime.js`'s `$TREE_VAR_ABBR`.
-/// `Shadows` shares `Shadow`'s slot and class.
-fn variableProperty(style: Style): Option<(Int, Str)> {
-    match (style) {
-        .Grow(_) => .Some((2400, "grow")),
-        .Shrink(_) => .Some((2600, "shrink")),
-        .Span(_) => .Some((2800, "span")),
-        .Gap(_) => .Some((3400, "gap")),
-        .GapX(_) => .Some((3600, "gapx")),
-        .GapY(_) => .Some((3800, "gapy")),
-        .Padding(_) => .Some((4000, "p")),
-        .PaddingX(_) => .Some((4200, "px")),
-        .PaddingY(_) => .Some((4400, "py")),
-        .Width(_) => .Some((4800, "w")),
-        .Height(_) => .Some((5000, "h")),
-        .MinWidth(_) => .Some((5200, "minw")),
-        .MaxWidth(_) => .Some((5400, "maxw")),
-        .MinHeight(_) => .Some((5600, "minh")),
-        .MaxHeight(_) => .Some((5800, "maxh")),
-        .AspectRatio(_) => .Some((6000, "ar")),
-        .Background(_) => .Some((6200, "bg")),
-        .Foreground(_) => .Some((6400, "fg")),
-        .BorderColor(_) => .Some((7000, "bc")),
-        .Radius(_) => .Some((7400, "r")),
-        .Opacity(_) => .Some((7800, "op")),
-        .Shadow(_) => .Some((8000, "sh")),
-        .Shadows(_) => .Some((8000, "sh")),
-        .FontSize(_) => .Some((8600, "fs")),
-        .LineHeight(_) => .Some((9200, "lh")),
-        .LetterSpacing(_) => .Some((9400, "ls")),
-        .BackdropBlur(_) => .Some((11800, "bdblur")),
-        .CaretColor(_) => .Some((12000, "caret")),
-        .Animation(_) => .Some((12400, "anim")),
-        _ => .None,
-    }
-}
-
-/// The one declaration a variable-backed property produced, rewritten to set
-/// the `--buri-<abbr>` custom property the `<abbr>-var` rule reads instead of
-/// the property itself (#195). The value is what stood after the first colon.
-fn variableInline<C: Allocator>(ctx: C, abbreviation: Str, declarations: [Str]): [Str] {
-    declarations
-        .take(ctx, 1)
-        .mapCtx(ctx, fn(c, declaration) => {
-            let value = declaration.split(c, ":").drop(c, 1).join(c, ":");
-            str.format(c, "--buri-${abbreviation}:${value}")
-        })
-}
-
-/// One property, as the declarations it lowers to.
+/// The values are the CSS `semantics::styles` writes into the stylesheet, so a
+/// style that folded and one that did not paint the same. Any other property
+/// has a finite set of values, every `Layout` but `Grid` among them: the
+/// compiler ships each value's class, and `classify` gives the node the one its
+/// value names.
 ///
-/// The same CSS `semantics::styles` writes into the stylesheet, so a style that
-/// folded and one that did not paint the same.
-fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
+/// A property keyed by an edge or a corner has a class and a slot per edge or
+/// corner, named after the CSS one. A line count of zero takes `trunc-0`, the
+/// class a zero written in place takes, and reads nothing. The slot is
+/// `semantics::styles::slot(variant, sub, plain)`: the variant's index times
+/// two hundred, plus forty per edge or corner. So this stays in step with that
+/// table, with `styles.rs::variable_rules` and with `runtime.js`'s
+/// `$TREE_VAR_ABBR`. `Shadows` shares `Shadow`'s slot and class.
+fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
     match (style) {
         .Layout(.Grid(tracks)) => {
-            let columns = trackList(ctx, tracks, 0, []).join(ctx, " ");
-            ["display:grid", decl(ctx, "grid-template-columns", columns)]
+            readBy(ctx, 1200, "lay", trackList(ctx, tracks, 0, []).join(ctx, " "))
         },
-        .Grow(n) => [decl(ctx, "flex-grow", str.fromInt(ctx, n))],
-        .Shrink(n) => [decl(ctx, "flex-shrink", str.fromInt(ctx, n))],
-        .Span(n) => [decl(ctx, "grid-column", str.format(ctx, "span ${n}"))],
-        // A pin takes the child out of the flow, so it carries its own
-        // position.
-        .Pin(edge, length) => {
-            [
-                decl(ctx, "position", "absolute"),
-                decl(ctx, "inset-".concat(ctx, edgeName(edge)), lengthCss(ctx, length)),
-            ]
-        },
-        .Gap(length) => [decl(ctx, "gap", lengthCss(ctx, length))],
-        .GapX(length) => [decl(ctx, "column-gap", lengthCss(ctx, length))],
-        .GapY(length) => [decl(ctx, "row-gap", lengthCss(ctx, length))],
-        .Padding(length) => [decl(ctx, "padding", lengthCss(ctx, length))],
-        .PaddingX(length) => [decl(ctx, "padding-inline", lengthCss(ctx, length))],
-        .PaddingY(length) => [decl(ctx, "padding-block", lengthCss(ctx, length))],
+        .Grow(n) => readBy(ctx, 2400, "grow", str.fromInt(ctx, n)),
+        .Shrink(n) => readBy(ctx, 2600, "shrink", str.fromInt(ctx, n)),
+        .Span(n) => readBy(ctx, 2800, "span", str.format(ctx, "span ${n}")),
+        .Pin(edge, length) => edged(ctx, 3000, "pin", edge, lengthCss(ctx, length)),
+        .Gap(length) => readBy(ctx, 3400, "gap", lengthCss(ctx, length)),
+        .GapX(length) => readBy(ctx, 3600, "gapx", lengthCss(ctx, length)),
+        .GapY(length) => readBy(ctx, 3800, "gapy", lengthCss(ctx, length)),
+        .Padding(length) => readBy(ctx, 4000, "p", lengthCss(ctx, length)),
+        .PaddingX(length) => readBy(ctx, 4200, "px", lengthCss(ctx, length)),
+        .PaddingY(length) => readBy(ctx, 4400, "py", lengthCss(ctx, length)),
         .PaddingEdge(edge, length) => {
-            [decl(ctx, "padding-".concat(ctx, edgeName(edge)), lengthCss(ctx, length))]
+            edged(ctx, 4600, "pe", edge, lengthCss(ctx, length))
         },
-        .Width(length) => [decl(ctx, "width", lengthCss(ctx, length))],
-        .Height(length) => [decl(ctx, "height", lengthCss(ctx, length))],
-        .MinWidth(length) => [decl(ctx, "min-width", lengthCss(ctx, length))],
-        .MaxWidth(length) => [decl(ctx, "max-width", lengthCss(ctx, length))],
-        .MinHeight(length) => [decl(ctx, "min-height", lengthCss(ctx, length))],
-        .MaxHeight(length) => [decl(ctx, "max-height", lengthCss(ctx, length))],
-        .AspectRatio(ratio) => [decl(ctx, "aspect-ratio", str.fromFloat(ctx, ratio))],
-        .Background(color) => [decl(ctx, "background-color", colorCss(ctx, color))],
-        .Foreground(color) => [decl(ctx, "color", colorCss(ctx, color))],
-        // A width on its own draws a solid border. `BorderStyle` comes after it
-        // and overrides that.
-        .BorderWidth(length) => {
-            [
-                decl(ctx, "border-style", "solid"),
-                decl(ctx, "border-width", lengthCss(ctx, length)),
-            ]
-        },
-        // One edge, drawing the same solid a whole-box width implies.
-        // `BorderColor` stays whole-box.
+        .Width(length) => readBy(ctx, 4800, "w", lengthCss(ctx, length)),
+        .Height(length) => readBy(ctx, 5000, "h", lengthCss(ctx, length)),
+        .MinWidth(length) => readBy(ctx, 5200, "minw", lengthCss(ctx, length)),
+        .MaxWidth(length) => readBy(ctx, 5400, "maxw", lengthCss(ctx, length)),
+        .MinHeight(length) => readBy(ctx, 5600, "minh", lengthCss(ctx, length)),
+        .MaxHeight(length) => readBy(ctx, 5800, "maxh", lengthCss(ctx, length)),
+        .AspectRatio(ratio) => readBy(ctx, 6000, "ar", str.fromFloat(ctx, ratio)),
+        .Background(color) => readBy(ctx, 6200, "bg", colorCss(ctx, color)),
+        .Foreground(color) => readBy(ctx, 6400, "fg", colorCss(ctx, color)),
+        .BorderWidth(length) => readBy(ctx, 6600, "bw", lengthCss(ctx, length)),
         .BorderEdge(edge, length) => {
-            let side = "border-".concat(ctx, edgeName(edge));
-            [
-                decl(ctx, side.concat(ctx, "-style"), "solid"),
-                decl(ctx, side.concat(ctx, "-width"), lengthCss(ctx, length)),
-            ]
+            edged(ctx, 6800, "be", edge, lengthCss(ctx, length))
         },
-        .BorderColor(color) => [decl(ctx, "border-color", colorCss(ctx, color))],
-        .Radius(length) => [decl(ctx, "border-radius", lengthCss(ctx, length))],
+        .BorderColor(color) => readBy(ctx, 7000, "bc", colorCss(ctx, color)),
+        .Radius(length) => readBy(ctx, 7400, "r", lengthCss(ctx, length)),
         .RadiusCorner(corner, length) => {
-            let name = str.format(ctx, "border-${cornerName(corner)}-radius");
-            [decl(ctx, name, lengthCss(ctx, length))]
+            let (sub, name) = match (corner) {
+                .TopStart => (0, "start-start"),
+                .TopEnd => (1, "start-end"),
+                .BottomStart => (2, "end-start"),
+                .BottomEnd => (3, "end-end"),
+            };
+            readBy(
+                ctx,
+                7600 + sub * 40,
+                str.format(ctx, "rc-${name}"),
+                lengthCss(ctx, length),
+            )
         },
-        .Opacity(amount) => [decl(ctx, "opacity", str.fromFloat(ctx, amount))],
-        .Shadow(shadow) => [decl(ctx, "box-shadow", shadowCss(ctx, shadow))],
+        .Opacity(amount) => readBy(ctx, 7800, "op", str.fromFloat(ctx, amount)),
+        .Shadow(shadow) => readBy(ctx, 8000, "sh", shadowCss(ctx, shadow)),
+        // The layers in the order they were written, which is the order a
+        // browser paints them, first over last.
         .Shadows(shadows) => {
-            [decl(ctx, "box-shadow", shadowList(ctx, shadows, 0, []).join(ctx, ","))]
+            readBy(ctx, 8000, "sh", shadowList(ctx, shadows, 0, []).join(ctx, ","))
         },
-        .FontFamily(family) => [decl(ctx, "font-family", fontStack(ctx, family))],
-        .FontSize(length) => [decl(ctx, "font-size", lengthCss(ctx, length))],
-        .LineHeight(amount) => [decl(ctx, "line-height", str.fromFloat(ctx, amount))],
-        .LetterSpacing(length) => [decl(ctx, "letter-spacing", lengthCss(ctx, length))],
-        .Truncate(lines) => truncateCss(ctx, lines),
+        .FontFamily(family) => readBy(ctx, 8400, "ff", fontStack(ctx, family)),
+        .FontSize(length) => readBy(ctx, 8600, "fs", lengthCss(ctx, length)),
+        .LineHeight(amount) => readBy(ctx, 9200, "lh", str.fromFloat(ctx, amount)),
+        .LetterSpacing(length) => readBy(ctx, 9400, "ls", lengthCss(ctx, length)),
+        .Truncate(lines) => {
+            if (lines > 0) {
+                readBy(ctx, 10400, "trunc", str.fromInt(ctx, lines))
+            } else {
+                .Some((10400, "trunc-0", []))
+            }
+        },
         .Bleed(edge, length) => {
-            [decl(ctx, "margin-".concat(ctx, edgeName(edge)), outwardsCss(ctx, length))]
+            edged(ctx, 11000, "bleed", edge, outwardsCss(ctx, length))
         },
         .Translate(x, y) => {
-            let across = lengthCss(ctx, x);
-            let down = lengthCss(ctx, y);
-            [decl(ctx, "transform", str.format(ctx, "translate(${across},${down})"))]
+            readBy(
+                ctx,
+                11200,
+                "tr",
+                str.format(ctx, "translate(${lengthCss(ctx, x)},${lengthCss(ctx, y)})"),
+            )
         },
         // Only what is painted behind the box is blurred; the box paints over
         // the blur.
         .BackdropBlur(length) => {
-            let css = str.format(ctx, "blur(${lengthCss(ctx, length)})");
-            [decl(ctx, "backdrop-filter", css)]
+            readBy(
+                ctx,
+                11800,
+                "bdblur",
+                str.format(ctx, "blur(${lengthCss(ctx, length)})"),
+            )
         },
-        // The caret on its own, so a field with transparent text still has a
-        // visible one. `Foreground` is otherwise the only thing that reaches it.
-        .CaretColor(color) => [decl(ctx, "caret-color", colorCss(ctx, color))],
-        // Out of sight, in the tree: the "sr-only" clip. A one-pixel box out of
-        // the flow with its overflow clipped away, so it paints nothing and
-        // takes no space while its text stays for the accessible name. The
-        // `--buri-visually-hidden` marker tells the painter to paint nothing
-        // rather than a clipped pixel.
-        .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
-        // An extracted style is classes, which declare nothing inline. So is
-        // `VisuallyHidden` by now: it holds no value, so the compiler always
-        // knows it and a node only ever holds its class. And so is a property
-        // with a finite set of values, every `Layout` but `Grid` among them: the
-        // compiler ships each value's class, and `classify` gives the node the
-        // one its value names.
-        _ => [],
+        .CaretColor(color) => readBy(ctx, 12000, "caret", colorCss(ctx, color)),
+        .Animation(motion) => readBy(ctx, 12400, "anim", animationCss(motion)),
+        _ => .None,
     }
+}
+
+/// `variable` for the property whose class is `<name>-var`, at `slot`: the
+/// class, and `value` written out as the `--buri-<name>` it reads.
+fn readBy<C: Allocator>(
+    ctx: C,
+    slot: Int,
+    name: Str,
+    value: Str,
+): Option<(Int, Str, [Str])> {
+    .Some(
+        (
+            slot,
+            str.format(ctx, "${name}-var"),
+            [str.format(ctx, "--buri-${name}:${value}")],
+        ),
+    )
+}
+
+/// `variable` for a property keyed by `edge`, whose slots start at `slot`.
+/// Logical edges, so a right-to-left page is right by construction.
+fn edged<C: Allocator>(
+    ctx: C,
+    slot: Int,
+    abbreviation: Str,
+    edge: Edge,
+    value: Str,
+): Option<(Int, Str, [Str])> {
+    let (sub, name) = match (edge) {
+        .Top => (0, "block-start"),
+        .Bottom => (1, "block-end"),
+        .Start => (2, "inline-start"),
+        .End => (3, "inline-end"),
+    };
+    readBy(ctx, slot + sub * 40, str.format(ctx, "${abbreviation}-${name}"), value)
 }
 
 /// One `name:value` pair.
@@ -5234,19 +5202,6 @@ fn fontStack<C: Allocator>(ctx: C, family: FontFamily): Str {
     }
 }
 
-fn truncateCss<C: Allocator>(ctx: C, lines: Int): [Str] {
-    if (lines > 0) {
-        [
-            "display:-webkit-box",
-            "-webkit-box-orient:vertical",
-            decl(ctx, "-webkit-line-clamp", str.fromInt(ctx, lines)),
-            "overflow:hidden",
-        ]
-    } else {
-        ["-webkit-line-clamp:none", "overflow:visible"]
-    }
-}
-
 /// The `animation` each `Animation` lowers to: `semantics::styles`'s
 /// `ANIMATIONS` and `runtime.js`'s `$TREE_MOTION`, word for word. The
 /// keyframes it names are in the stylesheet, and the painter draws neither: a
@@ -5255,27 +5210,6 @@ fn animationCss(motion: Animation): Str {
     match (motion) {
         .Pulse => "buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
         .Spin => "buri-spin 1s linear infinite",
-    }
-}
-
-/// Logical edges, so a right-to-left page is right by construction.
-fn edgeName(edge: Edge): Str {
-    match (edge) {
-        .Top => "block-start",
-        .Bottom => "block-end",
-        .Start => "inline-start",
-        .End => "inline-end",
-    }
-}
-
-/// CSS names a corner by the two logical edges that meet at it, block first,
-/// which is the order `Corner` declares them in.
-fn cornerName(corner: Corner): Str {
-    match (corner) {
-        .TopStart => "start-start",
-        .TopEnd => "start-end",
-        .BottomStart => "end-start",
-        .BottomEnd => "end-end",
     }
 }
 

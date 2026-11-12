@@ -5464,8 +5464,8 @@ let $ui_sheet = "";
 
 // The inline tier's lowering, reached through a hole rather than by name.
 //
-// `$tree_declare` below is the run-time lowering of all fifty-three properties
-// and is 3.5 KB of an artifact. `$tree_style_collect` is the only thing that
+// `$tree_declare` below is the run-time lowering of every open-valued property
+// and is about 1 KB of an artifact. `$tree_style_collect` is the only thing that
 // needs it, and a call by name is a reference dead-code elimination cannot
 // argue with — so every user interface carried the whole tier, including one
 // whose styles are all static and are therefore all classes before the artifact
@@ -5624,19 +5624,23 @@ function $tree_style_collect(styles, scope, slots, inline) {
       // condition, which it rejects — so this is the invariant, said out loud.
       $abort("a pseudo-class or a breakpoint exists only in the stylesheet");
     } else if ($tree_declare_hook !== null) {
-      const abbreviation = $TREE_VAR_ABBR[tag];
-      if (abbreviation !== undefined) {
-        // A dynamic value the compiler could not fold: write it out as the
-        // `--buri-…` custom property a stylesheet rule reads, and take that
-        // rule's class, so an `At`/`On` rule can still win over it (#195). The
-        // one declaration `$tree_declare` produces is the value; the class the
-        // compiler already put in the sheet reads it back.
-        const declared = new Map();
-        $tree_declare_hook(style, declared);
-        for (const value of declared.values()) inline.set("--buri-" + abbreviation, value);
-        slots.set($tree_var_slot(tag), abbreviation + "-var");
+      // A dynamic value the compiler could not fold: write what is open about
+      // it out as the `--buri-…` custom property a stylesheet rule reads, and
+      // take that rule's class, so an `At`/`On` rule can still win over it
+      // (#195). An edge or a corner names its own rule and slot, and a line
+      // count of zero is the class a zero written in place is.
+      let name = $TREE_VAR_ABBR[tag];
+      let slot = (tag === 41 ? 40 : tag) * 200;
+      const keys = tag === 38 ? $TREE_CORNERS : $TREE_VAR_EDGED.includes(tag) ? $TREE_EDGES : null;
+      if (keys !== null) {
+        name += "-" + keys[style[1]];
+        slot += style[1] * 40;
+      }
+      if (tag === 52 && !(style[1] > 0)) {
+        slots.set(slot, "trunc-0");
       } else {
-        $tree_declare_hook(style, inline);
+        inline.set("--buri-" + name, $tree_declare_hook(style));
+        slots.set(slot, name + "-var");
       }
     } else {
       // The compiler said no style here could reach the inline tier, so it
@@ -5647,21 +5651,24 @@ function $tree_style_collect(styles, scope, slots, inline) {
   }
 }
 
-// A dynamic value's variable-backed lowering (#195): the class abbreviation per
-// `Style` variant, and the conflict slot it takes — `styles.rs::slot(variant,
-// 0, plain)`, which is `variant * SUB_KEYS * CONDITIONS`. Only the properties
-// `styles.rs::variable_property` names; the rest still write out inline. Kept
-// in step with that table and with `ui_node.buri`'s `variableProperty`.
+// A dynamic value's variable-backed lowering (#195): the name of the rule each
+// `Style` variant's value is read by, which `styles.rs::variable_rules` writes.
+// Its conflict slot is `styles.rs::slot(variant, sub, plain)`, which is
+// `(variant * SUB_KEYS + sub) * CONDITIONS`. Kept in step with that table and
+// with `ui_node.buri`'s `variable`.
 const $TREE_VAR_ABBR = {
+  6: "lay",
   12: "grow",
   13: "shrink",
   14: "span",
+  15: "pin",
   17: "gap",
   18: "gapx",
   19: "gapy",
   20: "p",
   21: "px",
   22: "py",
+  23: "pe",
   24: "w",
   25: "h",
   26: "minw",
@@ -5671,151 +5678,60 @@ const $TREE_VAR_ABBR = {
   30: "ar",
   31: "bg",
   32: "fg",
+  33: "bw",
+  34: "be",
   35: "bc",
   37: "r",
+  38: "rc",
   39: "op",
   40: "sh",
   41: "sh",
+  42: "ff",
   43: "fs",
   46: "lh",
   47: "ls",
+  52: "trunc",
+  55: "bleed",
+  56: "tr",
   59: "bdblur",
   60: "caret",
 };
 
-function $tree_var_slot(tag) {
-  return (tag === 41 ? 40 : tag) * 200;
-}
+// The variants keyed by an edge, each with a rule and a slot per edge:
+// `Pin`, `PaddingEdge`, `BorderEdge` and `Bleed`. `RadiusCorner` is keyed by a
+// corner.
+const $TREE_VAR_EDGED = [15, 23, 34, 55];
 
-// One property, written out as inline declarations.
+// What is open about one property's value: what its rule's `var(--buri-…)`
+// reads.
 //
 // This is the tier a style lands in when the compiler could not evaluate it,
 // and the tier `Computed` always lands in. A static style never reaches here:
-// it arrived as a class. The two lowerings are deliberately the same CSS —
-// `semantics::styles::declaration` is the other half — so that whether a style
-// folded changes what it costs and not what it looks like.
-function $tree_declare(style, out) {
+// it arrived as a class. The values are the CSS `semantics::styles::declaration`
+// writes into the stylesheet, so that whether a style folded changes what it
+// costs and not what it looks like. Any other property has a finite set of
+// values, so it never reaches here: the compiler ships each value's class, and
+// `classify` gives the node the one its value names.
+function $tree_declare(style) {
   const tag = style[0];
   const value = style[1];
-  if (tag === 6 && value[0] === 4) {
-    out.set("display", "grid");
-    out.set("grid-template-columns", value[1].map($tree_track).join(" "));
-  } else if (tag === 12) {
-    out.set("flex-grow", String(value));
-  } else if (tag === 13) {
-    out.set("flex-shrink", String(value));
-  } else if (tag === 14) {
-    out.set("grid-column", "span " + value);
-  } else if (tag === 15) {
-    out.set("position", "absolute");
-    out.set("inset-" + $TREE_EDGES[value], $tree_length(style[2]));
-  } else if (tag === 17) {
-    out.set("gap", $tree_length(value));
-  } else if (tag === 18) {
-    out.set("column-gap", $tree_length(value));
-  } else if (tag === 19) {
-    out.set("row-gap", $tree_length(value));
-  } else if (tag === 20) {
-    out.set("padding", $tree_length(value));
-  } else if (tag === 21) {
-    // Logical rather than left-and-right, so a right-to-left page is right by
-    // construction rather than by a second stylesheet.
-    out.set("padding-inline", $tree_length(value));
-  } else if (tag === 22) {
-    out.set("padding-block", $tree_length(value));
-  } else if (tag === 23) {
-    out.set("padding-" + $TREE_EDGES[value], $tree_length(style[2]));
-  } else if (tag === 24) {
-    out.set("width", $tree_length(value));
-  } else if (tag === 25) {
-    out.set("height", $tree_length(value));
-  } else if (tag === 26) {
-    out.set("min-width", $tree_length(value));
-  } else if (tag === 27) {
-    out.set("max-width", $tree_length(value));
-  } else if (tag === 28) {
-    out.set("min-height", $tree_length(value));
-  } else if (tag === 29) {
-    out.set("max-height", $tree_length(value));
-  } else if (tag === 30) {
-    out.set("aspect-ratio", String(value));
-  } else if (tag === 31) {
-    out.set("background-color", $tree_color(value));
-  } else if (tag === 32) {
-    out.set("color", $tree_color(value));
-  } else if (tag === 33) {
-    // A width on its own draws a solid border, because a border nobody can see
-    // is not what asking for one means. `BorderStyle` is applied after it.
-    out.set("border-style", "solid");
-    out.set("border-width", $tree_length(value));
-  } else if (tag === 34) {
-    // One edge, and the same solid a whole-box width implies. `BorderStyle` is
-    // applied after it, and `BorderColor` stays whole-box.
-    const edge = "border-" + $TREE_EDGES[value];
-    out.set(edge + "-style", "solid");
-    out.set(edge + "-width", $tree_length(style[2]));
-  } else if (tag === 35) {
-    out.set("border-color", $tree_color(value));
-  } else if (tag === 37) {
-    out.set("border-radius", $tree_length(value));
-  } else if (tag === 38) {
-    out.set("border-" + $TREE_CORNERS[value] + "-radius", $tree_length(style[2]));
-  } else if (tag === 39) {
-    out.set("opacity", String(value));
-  } else if (tag === 40) {
-    out.set("box-shadow", $tree_shadow(value));
-  } else if (tag === 41) {
-    // One declaration, the layers in the order they were written — which is
-    // the order a browser paints them, first over last.
-    out.set("box-shadow", value.map($tree_shadow).join(","));
-  } else if (tag === 42) {
-    out.set("font-family", $tree_font(value));
-  } else if (tag === 43) {
-    out.set("font-size", $tree_length(value));
-  } else if (tag === 46) {
-    out.set("line-height", String(value));
-  } else if (tag === 47) {
-    out.set("letter-spacing", $tree_length(value));
-  } else if (tag === 52) {
-    if (value > 0) {
-      out.set("display", "-webkit-box");
-      out.set("-webkit-box-orient", "vertical");
-      out.set("-webkit-line-clamp", String(value));
-      out.set("overflow", "hidden");
-    } else {
-      out.set("-webkit-line-clamp", "none");
-      out.set("overflow", "visible");
-    }
-  } else if (tag === 55) {
-    out.set("margin-" + $TREE_EDGES[value], $tree_outwards(style[2]));
-  } else if (tag === 56) {
-    out.set("transform", "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")");
-  } else if (tag === 59) {
-    // Only the page behind the box is blurred; the box paints over the blur.
-    out.set("backdrop-filter", "blur(" + $tree_length(value) + ")");
-  } else if (tag === 60) {
-    // The caret on its own, so a field with transparent text still has a
-    // visible one. `Foreground` is otherwise the only thing that reaches it.
-    out.set("caret-color", $tree_color(value));
-  } else if (tag === 61) {
-    // Out of sight, in the tree: the "sr-only" clip. The element paints nothing
-    // and takes no space while its text stays for the accessible name. The
-    // `--buri-visually-hidden` marker is what the snapshot painter reads; a
-    // browser ignores the custom property.
-    out.set("position", "absolute");
-    out.set("width", "1px");
-    out.set("height", "1px");
-    out.set("padding", "0");
-    out.set("margin", "-1px");
-    out.set("overflow", "hidden");
-    out.set("clip", "rect(0,0,0,0)");
-    out.set("white-space", "nowrap");
-    out.set("border", "0");
-    out.set("--buri-visually-hidden", "1");
+  if (tag === 6) return value[1].map($tree_track).join(" ");
+  if (tag === 12 || tag === 13 || tag === 30 || tag === 39 || tag === 46 || tag === 52) {
+    return String(value);
   }
-  // Any other property has a finite set of values, so it never reaches here:
-  // the compiler ships each value's class, and `classify` gives the node the
-  // one its value names.
+  if (tag === 14) return "span " + value;
+  if (tag === 15 || tag === 23 || tag === 34 || tag === 38) return $tree_length(style[2]);
+  if (tag === 31 || tag === 32 || tag === 35 || tag === 60) return $tree_color(value);
+  if (tag === 40) return $tree_shadow(value);
+  // The layers in the order they were written, which is the order a browser
+  // paints them, first over last.
+  if (tag === 41) return value.map($tree_shadow).join(",");
+  if (tag === 42) return $tree_font(value);
+  if (tag === 55) return $tree_outwards(style[2]);
+  if (tag === 56) return "translate(" + $tree_length(value) + "," + $tree_length(style[2]) + ")";
+  // Only the page behind the box is blurred; the box paints over the blur.
+  if (tag === 59) return "blur(" + $tree_length(value) + ")";
+  return $tree_length(value);
 }
 
 // What each `Animation` lowers to, in declaration order: `styles.rs`'s
@@ -5832,10 +5748,7 @@ const $TREE_MOTION = [
 // `anim-var` rule reads, and that rule sits inside the reduced-motion guard.
 function $tree_motion() {
   $TREE_VAR_ABBR[62] = "anim";
-  return (style, out) => {
-    if (style[0] === 62) out.set("animation", $TREE_MOTION[style[1]]);
-    else $tree_declare(style, out);
-  };
+  return (style) => (style[0] === 62 ? $TREE_MOTION[style[1]] : $tree_declare(style));
 }
 
 // A bleed's length, as the margin it writes: a distance outwards, so the margin

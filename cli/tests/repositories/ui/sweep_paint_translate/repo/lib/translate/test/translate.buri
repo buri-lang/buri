@@ -15,15 +15,15 @@ test "every unit a translate takes" {
     // in the inline tier. `neighbours` and `press` below write theirs out and
     // get classes, and the two tiers are the same CSS by construction.
     let scene = ui.describe(ctx, units(), .Hover);
-    assert.containsText(scene, "transform:translate(12px,0px)");
-    assert.containsText(scene, "transform:translate(0px,12px)");
-    assert.containsText(scene, "transform:translate(-12px,-12px)");
-    assert.containsText(scene, "transform:translate(1.0rem,0px)");
-    assert.containsText(scene, "transform:translate(1.0em,0px)");
-    assert.containsText(scene, "transform:translate(50.0%,0px)");
-    assert.containsText(scene, "transform:translate(0px,-25.0%)");
-    assert.containsText(scene, "transform:translate(auto,auto)");
-    assert.containsText(scene, "transform:translate(100%,0px)");
+    assert.containsText(scene, "--buri-tr:translate(12px,0px)");
+    assert.containsText(scene, "--buri-tr:translate(0px,12px)");
+    assert.containsText(scene, "--buri-tr:translate(-12px,-12px)");
+    assert.containsText(scene, "--buri-tr:translate(1.0rem,0px)");
+    assert.containsText(scene, "--buri-tr:translate(1.0em,0px)");
+    assert.containsText(scene, "--buri-tr:translate(50.0%,0px)");
+    assert.containsText(scene, "--buri-tr:translate(0px,-25.0%)");
+    assert.containsText(scene, "--buri-tr:translate(auto,auto)");
+    assert.containsText(scene, "--buri-tr:translate(100%,0px)");
     snapshot(ctx, "translate-units", units(), .Hover, []);
 }
 

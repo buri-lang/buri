@@ -808,7 +808,7 @@ test "a layout style known only at run time writes itself out" {
         painted(ctx, [
             .Layout(late(ctx, .Grid([.Fraction(2), .Fixed(.Rem(1.5)), .Auto]))),
         ]),
-        "e 0 display:grid;grid-template-columns:2fr 1.5rem auto",
+        "e 0 class:lay-var;--buri-lay:2fr 1.5rem auto",
     );
     assert.equal(painted(ctx, [.Wrap(late(ctx, true))]), "e 0 class:wrap-wrap");
     assert.equal(painted(ctx, [.Wrap(late(ctx, false))]), "e 0 class:wrap-nowrap");
@@ -873,27 +873,27 @@ test "a position known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Top), .Px(1))]),
-        "e 0 position:absolute;inset-block-start:1px",
+        "e 0 class:pin-block-start-var;--buri-pin-block-start:1px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Bottom), .Px(2))]),
-        "e 0 position:absolute;inset-block-end:2px",
+        "e 0 class:pin-block-end-var;--buri-pin-block-end:2px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Start), .Px(3))]),
-        "e 0 position:absolute;inset-inline-start:3px",
+        "e 0 class:pin-inline-start-var;--buri-pin-inline-start:3px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .End), .Px(4))]),
-        "e 0 position:absolute;inset-inline-end:4px",
+        "e 0 class:pin-inline-end-var;--buri-pin-inline-end:4px",
     );
     assert.equal(
         painted(ctx, [.PaddingEdge(late(ctx, .Top), .Em(1.0))]),
-        "e 0 padding-block-start:1.0em",
+        "e 0 class:pe-block-start-var;--buri-pe-block-start:1.0em",
     );
     assert.equal(
         painted(ctx, [.BorderEdge(late(ctx, .Start), .Percent(5.0))]),
-        "e 0 border-inline-start-style:solid;border-inline-start-width:5.0%",
+        "e 0 class:be-inline-start-var;--buri-be-inline-start:5.0%",
     );
 }
 
@@ -929,11 +929,11 @@ test "a length known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.BorderWidth(late(ctx, .Px(2)))]),
-        "e 0 border-style:solid;border-width:2px",
+        "e 0 class:bw-var;--buri-bw:2px",
     );
     assert.equal(
         painted(ctx, [.Translate(late(ctx, .Px(1)), .Rem(2.0))]),
-        "e 0 transform:translate(1px,2.0rem)",
+        "e 0 class:tr-var;--buri-tr:translate(1px,2.0rem)",
     );
 }
 
@@ -945,43 +945,43 @@ test "a bleed known only at run time writes its margin out" {
     };
     assert.equal(
         painted(ctx, [.Bleed(.Top, late(ctx, .Px(2)))]),
-        "e 0 margin-block-start:-2px",
+        "e 0 class:bleed-block-start-var;--buri-bleed-block-start:-2px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.Top, late(ctx, .Px(-2)))]),
-        "e 0 margin-block-start:0px",
+        "e 0 class:bleed-block-start-var;--buri-bleed-block-start:0px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.Bottom, late(ctx, .Rem(1.5)))]),
-        "e 0 margin-block-end:-1.5rem",
+        "e 0 class:bleed-block-end-var;--buri-bleed-block-end:-1.5rem",
     );
     assert.equal(
         painted(ctx, [.Bleed(.Bottom, late(ctx, .Rem(0.0)))]),
-        "e 0 margin-block-end:0px",
+        "e 0 class:bleed-block-end-var;--buri-bleed-block-end:0px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.Start, late(ctx, .Em(1.5)))]),
-        "e 0 margin-inline-start:-1.5em",
+        "e 0 class:bleed-inline-start-var;--buri-bleed-inline-start:-1.5em",
     );
     assert.equal(
         painted(ctx, [.Bleed(.Start, late(ctx, .Em(-1.5)))]),
-        "e 0 margin-inline-start:0px",
+        "e 0 class:bleed-inline-start-var;--buri-bleed-inline-start:0px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Percent(10.0)))]),
-        "e 0 margin-inline-end:-10.0%",
+        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:-10.0%",
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Percent(0.0)))]),
-        "e 0 margin-inline-end:0px",
+        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:0px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Auto))]),
-        "e 0 margin-inline-end:0px",
+        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:0px",
     );
     assert.equal(
         painted(ctx, [.Bleed(.End, late(ctx, .Full))]),
-        "e 0 margin-inline-end:-100%",
+        "e 0 class:bleed-inline-end-var;--buri-bleed-inline-end:-100%",
     );
 }
 
@@ -1065,19 +1065,19 @@ test "a border and corner known only at run time write themselves out" {
     );
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .TopStart), .Px(1))]),
-        "e 0 border-start-start-radius:1px",
+        "e 0 class:rc-start-start-var;--buri-rc-start-start:1px",
     );
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .TopEnd), .Px(1))]),
-        "e 0 border-start-end-radius:1px",
+        "e 0 class:rc-start-end-var;--buri-rc-start-end:1px",
     );
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .BottomStart), .Px(1))]),
-        "e 0 border-end-start-radius:1px",
+        "e 0 class:rc-end-start-var;--buri-rc-end-start:1px",
     );
     assert.equal(
         painted(ctx, [.RadiusCorner(late(ctx, .BottomEnd), .Px(1))]),
-        "e 0 border-end-end-radius:1px",
+        "e 0 class:rc-end-end-var;--buri-rc-end-end:1px",
     );
 }
 
@@ -1089,19 +1089,19 @@ test "a font known only at run time writes itself out" {
     };
     assert.equal(
         painted(ctx, [.FontFamily(late(ctx, .Sans))]),
-        "e 0 font-family:ui-sans-serif,system-ui,sans-serif",
+        "e 0 class:ff-var;--buri-ff:ui-sans-serif,system-ui,sans-serif",
     );
     assert.equal(
         painted(ctx, [.FontFamily(late(ctx, .Serif))]),
-        "e 0 font-family:ui-serif,Georgia,serif",
+        "e 0 class:ff-var;--buri-ff:ui-serif,Georgia,serif",
     );
     assert.equal(
         painted(ctx, [.FontFamily(late(ctx, .Mono))]),
-        "e 0 font-family:ui-monospace,SFMono-Regular,monospace",
+        "e 0 class:ff-var;--buri-ff:ui-monospace,SFMono-Regular,monospace",
     );
     assert.equal(
         painted(ctx, [.FontFamily(late(ctx, .Named("Inter")))]),
-        "e 0 font-family:\"Inter\",ui-sans-serif,sans-serif",
+        "e 0 class:ff-var;--buri-ff:\"Inter\",ui-sans-serif,sans-serif",
     );
     assert.equal(
         painted(ctx, [.FontWeight(late(ctx, .Regular))]),
@@ -1150,12 +1150,9 @@ test "a text style known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.Truncate(late(ctx, 2))]),
-        "e 0 display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden",
+        "e 0 class:trunc-var;--buri-trunc:2",
     );
-    assert.equal(
-        painted(ctx, [.Truncate(late(ctx, 0))]),
-        "e 0 -webkit-line-clamp:none;overflow:visible",
-    );
+    assert.equal(painted(ctx, [.Truncate(late(ctx, 0))]), "e 0 class:trunc-0");
 }
 
 test "a pointer style known only at run time writes itself out" {

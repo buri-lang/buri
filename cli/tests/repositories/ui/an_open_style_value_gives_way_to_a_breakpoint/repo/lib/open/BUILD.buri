@@ -1,0 +1,10 @@
+# One library and one test source: each scene beside its twin with the base
+# value written in place, and one pair whose
+# later border style keeps its place after a width handed through a parameter.
+library {
+    sources: ["open.buri"]
+
+    test {
+        sources: ["test/open.buri"]
+    }
+}

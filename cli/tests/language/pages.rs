@@ -2934,3 +2934,170 @@ for (const group of document.querySelectorAll("[role=group]")) {
          removed by parameter: none\n"
     );
 }
+
+/// Each open style value twice, written in place and handed through a
+/// parameter, under an `At(.Medium, ...)` rule for the same property. Each
+/// group's label opens with the CSS property the driver reads.
+const OPEN_STYLES_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Corner, Edge, FontFamily, Length, Style, Track };
+from "web" import { WebHost };
+
+fn named<C>(name: Str, subject: Node<C>): Node<C> {
+    ui.stack({ styles: [], children: [subject], role: .Some(.Group), label: .Some(.Const(name)) })
+}
+
+fn pinned<C>(edge: Edge, length: Length): Node<C> {
+    ui.stack({ styles: [.Pin(edge, length), .At(.Medium, [.Pin(.Top, .Px(40))])], children: [] })
+}
+
+fn padded<C>(edge: Edge, length: Length): Node<C> {
+    ui.stack({ styles: [.PaddingEdge(edge, length), .At(.Medium, [.PaddingEdge(.Start, .Px(40))])], children: [] })
+}
+
+fn bordered<C>(edge: Edge, length: Length): Node<C> {
+    ui.stack({ styles: [.BorderEdge(edge, length), .At(.Medium, [.BorderEdge(.Top, .Px(12))])], children: [] })
+}
+
+fn rounded<C>(corner: Corner, length: Length): Node<C> {
+    ui.stack({ styles: [.RadiusCorner(corner, length), .At(.Medium, [.RadiusCorner(.TopStart, .Px(30))])], children: [] })
+}
+
+fn bled<C>(edge: Edge, length: Length): Node<C> {
+    ui.stack({ styles: [.Bleed(edge, length), .At(.Medium, [.Bleed(.Start, .Px(30))])], children: [] })
+}
+
+fn moved<C>(x: Length, y: Length): Node<C> {
+    ui.stack({ styles: [.Translate(x, y), .At(.Medium, [.Translate(.Px(40), .Px(30))])], children: [] })
+}
+
+fn framed<C>(width: Length): Node<C> {
+    ui.stack({ styles: [.BorderWidth(width), .At(.Medium, [.BorderWidth(.Px(12))])], children: [] })
+}
+
+fn dashed<C>(width: Length): Node<C> {
+    ui.stack({ styles: [.BorderWidth(width), .BorderStyle(.Dashed)], children: [] })
+}
+
+fn typeset<C>(family: FontFamily): Node<C> {
+    ui.stack({ styles: [.FontFamily(family), .At(.Medium, [.FontFamily(.Mono)])], children: [] })
+}
+
+fn clamped<C>(lines: Int): Node<C> {
+    ui.stack({ styles: [.Truncate(lines), .At(.Medium, [.Truncate(0)])], children: [] })
+}
+
+fn unclamped<C>(lines: Int): Node<C> {
+    ui.stack({ styles: [.Truncate(lines), .At(.Medium, [.Truncate(1)])], children: [] })
+}
+
+fn gridded<C>(tracks: [Track]): Node<C> {
+    ui.stack({ styles: [.Layout(.Grid(tracks)), .At(.Medium, [.Layout(.Grid([.Fixed(.Px(50)), .Fixed(.Px(20))]))])], children: [] })
+}
+
+fn styledBy<C>(style: Style): Node<C> {
+    ui.stack({ styles: [style, .At(.Medium, [.PaddingEdge(.Start, .Px(40))])], children: [] })
+}
+
+fn paddedBy<C>(length: Length): Node<C> {
+    styledBy(.PaddingEdge(.Start, length))
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                named("inset-block-start written", ui.stack({ styles: [.Pin(.Top, .Px(0)), .At(.Medium, [.Pin(.Top, .Px(40))])], children: [] })),
+                named("inset-block-start by parameter", pinned(.Top, .Px(0))),
+                named("padding-inline-start written", ui.stack({ styles: [.PaddingEdge(.Start, .Px(0)), .At(.Medium, [.PaddingEdge(.Start, .Px(40))])], children: [] })),
+                named("padding-inline-start by parameter", padded(.Start, .Px(0))),
+                named("padding-inline-start by style parameter", paddedBy(.Px(0))),
+                named("border-block-start-width written", ui.stack({ styles: [.BorderEdge(.Top, .Px(2)), .At(.Medium, [.BorderEdge(.Top, .Px(12))])], children: [] })),
+                named("border-block-start-width by parameter", bordered(.Top, .Px(2))),
+                named("border-start-start-radius written", ui.stack({ styles: [.RadiusCorner(.TopStart, .Px(0)), .At(.Medium, [.RadiusCorner(.TopStart, .Px(30))])], children: [] })),
+                named("border-start-start-radius by parameter", rounded(.TopStart, .Px(0))),
+                named("margin-inline-start written", ui.stack({ styles: [.Bleed(.Start, .Px(0)), .At(.Medium, [.Bleed(.Start, .Px(30))])], children: [] })),
+                named("margin-inline-start by parameter", bled(.Start, .Px(0))),
+                named("transform written", ui.stack({ styles: [.Translate(.Px(0), .Px(0)), .At(.Medium, [.Translate(.Px(40), .Px(30))])], children: [] })),
+                named("transform by parameter", moved(.Px(0), .Px(0))),
+                named("border-width written", ui.stack({ styles: [.BorderWidth(.Px(2)), .At(.Medium, [.BorderWidth(.Px(12))])], children: [] })),
+                named("border-width by parameter", framed(.Px(2))),
+                named("border-top-style written", ui.stack({ styles: [.BorderWidth(.Px(2)), .BorderStyle(.Dashed)], children: [] })),
+                named("border-top-style by parameter", dashed(.Px(2))),
+                named("font-family written", ui.stack({ styles: [.FontFamily(.Sans), .At(.Medium, [.FontFamily(.Mono)])], children: [] })),
+                named("font-family by parameter", typeset(.Sans)),
+                named("overflow of lines written", ui.stack({ styles: [.Truncate(3), .At(.Medium, [.Truncate(0)])], children: [] })),
+                named("overflow of lines by parameter", clamped(3)),
+                named("overflow of no lines written", ui.stack({ styles: [.Truncate(0), .At(.Medium, [.Truncate(1)])], children: [] })),
+                named("overflow of no lines by parameter", unclamped(0)),
+                named("grid-template-columns written", ui.stack({ styles: [.Layout(.Grid([.Fixed(.Px(20)), .Fixed(.Px(20))])), .At(.Medium, [.Layout(.Grid([.Fixed(.Px(50)), .Fixed(.Px(20))]))])], children: [] })),
+                named("grid-template-columns by parameter", gridded([.Fixed(.Px(20)), .Fixed(.Px(20))])),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+/// An `At` rule overrides an open style value on the page whether the value is
+/// written in place or handed through a parameter: an edge's pin, padding,
+/// border and bleed, a corner's rounding, a translation, a border width, a
+/// font, a line count and a grid's tracks. A border style written after a
+/// border width applies however the width arrives.
+#[test]
+fn a_breakpoint_overrides_an_open_style_value_however_it_arrives() {
+    let printed = drive(
+        "open-styles-page",
+        OPEN_STYLES_PAGE,
+        r#"
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+const sheet = document.createElement("style");
+sheet.textContent = css;
+document.head.appendChild(sheet);
+window.happyDOM.setViewport({ width: 800, height: 600 });
+sheet.textContent += " ";
+for (const group of document.querySelectorAll("[role=group]")) {
+  const name = group.getAttribute("aria-label");
+  const property = name.split(" ")[0];
+  const value = getComputedStyle(group.firstElementChild).getPropertyValue(property);
+  console.log(`${name}: ${value.replace(/, /g, ",")}`);
+}
+"#,
+    );
+    assert_eq!(
+        printed,
+        "inset-block-start written: 40px\n\
+         inset-block-start by parameter: 40px\n\
+         padding-inline-start written: 40px\n\
+         padding-inline-start by parameter: 40px\n\
+         padding-inline-start by style parameter: 40px\n\
+         border-block-start-width written: 12px\n\
+         border-block-start-width by parameter: 12px\n\
+         border-start-start-radius written: 30px\n\
+         border-start-start-radius by parameter: 30px\n\
+         margin-inline-start written: -30px\n\
+         margin-inline-start by parameter: -30px\n\
+         transform written: translate(40px,30px)\n\
+         transform by parameter: translate(40px,30px)\n\
+         border-width written: 12px\n\
+         border-width by parameter: 12px\n\
+         border-top-style written: dashed\n\
+         border-top-style by parameter: dashed\n\
+         font-family written: ui-monospace,SFMono-Regular,monospace\n\
+         font-family by parameter: ui-monospace,SFMono-Regular,monospace\n\
+         overflow of lines written: visible\n\
+         overflow of lines by parameter: visible\n\
+         overflow of no lines written: hidden\n\
+         overflow of no lines by parameter: hidden\n\
+         grid-template-columns written: 50px 20px\n\
+         grid-template-columns by parameter: 50px 20px\n"
+    );
+}

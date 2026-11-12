@@ -1,0 +1,462 @@
+//! Each scene twice: once with its base style value written where the node is
+//! given it, and once with the same value handed through a parameter. Each
+//! scene also holds an `At(.Medium, ...)` rule for the same property, and the
+//! page a snapshot paints is 800 wide, so that rule applies. A breakpoint
+//! overrides a base value however the value arrives, so each pair paints one
+//! picture.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Corner, Edge, FontFamily, Length, Track };
+
+/// The white frame every scene is painted in.
+fn frame<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(100)),
+            .Height(.Px(100)),
+            .Padding(.Px(10)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+        children: [subject],
+    })
+}
+
+fn box<C>(width: Int, height: Int, red: Int): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+            .Background(.Rgb(red, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+/// A grey box the scene's subject sits in, so a subject that moves shows it.
+fn holder<C>(subject: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Position(.Flow),
+            .Width(.Px(80)),
+            .Height(.Px(80)),
+            .Background(.Rgb(200, 200, 200)),
+        ],
+        children: [subject],
+    })
+}
+
+// ---------------------------------------------------------------------------
+// A pin, on an edge and at a length.
+// ---------------------------------------------------------------------------
+
+export fn pinWritten<C>(): Node<C> {
+    frame(
+        holder(
+            ui.stack({
+                styles: [
+                    .Width(.Px(20)),
+                    .Height(.Px(20)),
+                    .Background(.Rgb(220, 0, 0)),
+                    .Pin(.Top, .Px(0)),
+                    .At(.Medium, [.Pin(.Top, .Px(40))]),
+                ],
+                children: [],
+            }),
+        ),
+    )
+}
+
+fn pinned<C>(edge: Edge, length: Length): Node<C> {
+    frame(
+        holder(
+            ui.stack({
+                styles: [
+                    .Width(.Px(20)),
+                    .Height(.Px(20)),
+                    .Background(.Rgb(220, 0, 0)),
+                    .Pin(edge, length),
+                    .At(.Medium, [.Pin(.Top, .Px(40))]),
+                ],
+                children: [],
+            }),
+        ),
+    )
+}
+
+export fn pinByParameter<C>(): Node<C> {
+    pinned(.Top, .Px(0))
+}
+
+// ---------------------------------------------------------------------------
+// Padding on one edge.
+// ---------------------------------------------------------------------------
+
+export fn paddingEdgeWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Background(.Rgb(200, 200, 200)),
+                .PaddingEdge(.Start, .Px(0)),
+                .At(.Medium, [.PaddingEdge(.Start, .Px(40))]),
+            ],
+            children: [box(20, 20, 220)],
+        }),
+    )
+}
+
+fn padded<C>(edge: Edge, length: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Background(.Rgb(200, 200, 200)),
+                .PaddingEdge(edge, length),
+                .At(.Medium, [.PaddingEdge(.Start, .Px(40))]),
+            ],
+            children: [box(20, 20, 220)],
+        }),
+    )
+}
+
+export fn paddingEdgeByParameter<C>(): Node<C> {
+    padded(.Start, .Px(0))
+}
+
+// ---------------------------------------------------------------------------
+// A border on one edge.
+// ---------------------------------------------------------------------------
+
+export fn borderEdgeWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderEdge(.Top, .Px(2)),
+                .At(.Medium, [.BorderEdge(.Top, .Px(12))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+fn bordered<C>(edge: Edge, length: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderEdge(edge, length),
+                .At(.Medium, [.BorderEdge(.Top, .Px(12))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn borderEdgeByParameter<C>(): Node<C> {
+    bordered(.Top, .Px(2))
+}
+
+// ---------------------------------------------------------------------------
+// A rounded corner.
+// ---------------------------------------------------------------------------
+
+export fn radiusCornerWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .Background(.Rgb(220, 0, 0)),
+                .RadiusCorner(.TopStart, .Px(0)),
+                .At(.Medium, [.RadiusCorner(.TopStart, .Px(30))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+fn rounded<C>(corner: Corner, length: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .Background(.Rgb(220, 0, 0)),
+                .RadiusCorner(corner, length),
+                .At(.Medium, [.RadiusCorner(.TopStart, .Px(30))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn radiusCornerByParameter<C>(): Node<C> {
+    rounded(.TopStart, .Px(0))
+}
+
+// ---------------------------------------------------------------------------
+// A bleed past one edge.
+// ---------------------------------------------------------------------------
+
+export fn bleedWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.PaddingEdge(.Start, .Px(30)), .Background(.Rgb(200, 200, 200))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Width(.Px(20)),
+                        .Height(.Px(20)),
+                        .Background(.Rgb(220, 0, 0)),
+                        .Bleed(.Start, .Px(0)),
+                        .At(.Medium, [.Bleed(.Start, .Px(30))]),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    )
+}
+
+fn bled<C>(edge: Edge, length: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.PaddingEdge(.Start, .Px(30)), .Background(.Rgb(200, 200, 200))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Width(.Px(20)),
+                        .Height(.Px(20)),
+                        .Background(.Rgb(220, 0, 0)),
+                        .Bleed(edge, length),
+                        .At(.Medium, [.Bleed(.Start, .Px(30))]),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    )
+}
+
+export fn bleedByParameter<C>(): Node<C> {
+    bled(.Start, .Px(0))
+}
+
+// ---------------------------------------------------------------------------
+// A translation.
+// ---------------------------------------------------------------------------
+
+export fn translateWritten<C>(): Node<C> {
+    frame(
+        holder(
+            ui.stack({
+                styles: [
+                    .Width(.Px(20)),
+                    .Height(.Px(20)),
+                    .Background(.Rgb(220, 0, 0)),
+                    .Translate(.Px(0), .Px(0)),
+                    .At(.Medium, [.Translate(.Px(40), .Px(30))]),
+                ],
+                children: [],
+            }),
+        ),
+    )
+}
+
+fn moved<C>(x: Length, y: Length): Node<C> {
+    frame(
+        holder(
+            ui.stack({
+                styles: [
+                    .Width(.Px(20)),
+                    .Height(.Px(20)),
+                    .Background(.Rgb(220, 0, 0)),
+                    .Translate(x, y),
+                    .At(.Medium, [.Translate(.Px(40), .Px(30))]),
+                ],
+                children: [],
+            }),
+        ),
+    )
+}
+
+export fn translateByParameter<C>(): Node<C> {
+    moved(.Px(0), .Px(0))
+}
+
+// ---------------------------------------------------------------------------
+// A border all round.
+// ---------------------------------------------------------------------------
+
+export fn borderWidthWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderWidth(.Px(2)),
+                .At(.Medium, [.BorderWidth(.Px(12))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+fn framed<C>(width: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderWidth(width),
+                .At(.Medium, [.BorderWidth(.Px(12))]),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn borderWidthByParameter<C>(): Node<C> {
+    framed(.Px(2))
+}
+
+// A border style written after a border's width: the style applies however the
+// width arrives. No breakpoint here; the width's place among the node's other
+// styles is what is checked.
+
+export fn dashedWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderWidth(.Px(8)),
+                .BorderStyle(.Dashed),
+            ],
+            children: [],
+        }),
+    )
+}
+
+fn dashed<C>(width: Length): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Width(.Px(60)),
+                .Height(.Px(60)),
+                .BorderColor(.Rgb(0, 0, 0)),
+                .BorderWidth(width),
+                .BorderStyle(.Dashed),
+            ],
+            children: [],
+        }),
+    )
+}
+
+export fn dashedByParameter<C>(): Node<C> {
+    dashed(.Px(8))
+}
+
+// ---------------------------------------------------------------------------
+// A font.
+// ---------------------------------------------------------------------------
+
+export fn fontFamilyWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.FontFamily(.Sans), .At(.Medium, [.FontFamily(.Mono)])],
+            children: [ui.text({ content: .Const("Wim") })],
+        }),
+    )
+}
+
+fn typeset<C>(family: FontFamily): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.FontFamily(family), .At(.Medium, [.FontFamily(.Mono)])],
+            children: [ui.text({ content: .Const("Wim") })],
+        }),
+    )
+}
+
+export fn fontFamilyByParameter<C>(): Node<C> {
+    typeset(.Sans)
+}
+
+// ---------------------------------------------------------------------------
+// A line count, past zero and at it.
+// ---------------------------------------------------------------------------
+
+export fn truncateWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Width(.Px(40)), .Truncate(3), .At(.Medium, [.Truncate(1)])],
+            children: [ui.text({ content: .Const("one two three four five") })],
+        }),
+    )
+}
+
+fn clamped<C>(lines: Int): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Width(.Px(40)), .Truncate(lines), .At(.Medium, [.Truncate(1)])],
+            children: [ui.text({ content: .Const("one two three four five") })],
+        }),
+    )
+}
+
+export fn truncateByParameter<C>(): Node<C> {
+    clamped(3)
+}
+
+export fn untruncatedWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [.Width(.Px(40)), .Truncate(0), .At(.Medium, [.Truncate(1)])],
+            children: [ui.text({ content: .Const("one two three four five") })],
+        }),
+    )
+}
+
+export fn untruncatedByParameter<C>(): Node<C> {
+    clamped(0)
+}
+
+// ---------------------------------------------------------------------------
+// A grid's tracks.
+// ---------------------------------------------------------------------------
+
+export fn gridWritten<C>(): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Grid([.Fixed(.Px(20)), .Fixed(.Px(20))])),
+                .At(.Medium, [.Layout(.Grid([.Fixed(.Px(50)), .Fixed(.Px(20))]))]),
+            ],
+            children: [box(20, 20, 0), box(20, 20, 220)],
+        }),
+    )
+}
+
+fn gridded<C>(tracks: [Track]): Node<C> {
+    frame(
+        ui.stack({
+            styles: [
+                .Layout(.Grid(tracks)),
+                .At(.Medium, [.Layout(.Grid([.Fixed(.Px(50)), .Fixed(.Px(20))]))]),
+            ],
+            children: [box(20, 20, 0), box(20, 20, 220)],
+        }),
+    )
+}
+
+export fn gridByParameter<C>(): Node<C> {
+    gridded([.Fixed(.Px(20)), .Fixed(.Px(20))])
+}

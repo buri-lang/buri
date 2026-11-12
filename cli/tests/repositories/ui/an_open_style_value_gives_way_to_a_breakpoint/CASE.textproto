@@ -1,0 +1,18 @@
+# A breakpoint overrides an open style value however the value arrives.
+#
+# A property whose values are open-ended (a length on an edge or a corner, a
+# translation, a border width, a font, a line count, a grid's tracks) used to
+# be written inline when its value came through a parameter, and an inline
+# declaration outranks every `At` rule. Each scene here holds a base value and
+# an `At(.Medium, ...)` override, and shares a golden with its twin that writes
+# the base value in place.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an `At` rule overrides an open style value handed through a parameter the way it overrides the value written in place"
+
+run {
+  args: ["test", "//lib/open", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}

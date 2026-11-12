@@ -1,0 +1,207 @@
+// Each scene with its base value written in place, then the same scene with
+// the value handed through a parameter. Both of a pair compare against one
+// golden, so a value a breakpoint overrides only when written in place fails.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/open" import {
+    bleedByParameter, bleedWritten, borderEdgeByParameter, borderEdgeWritten,
+    borderWidthByParameter, borderWidthWritten, dashedByParameter, dashedWritten,
+    fontFamilyByParameter, fontFamilyWritten, gridByParameter, gridWritten,
+    paddingEdgeByParameter, paddingEdgeWritten, pinByParameter, pinWritten,
+    radiusCornerByParameter, radiusCornerWritten, translateByParameter,
+    translateWritten, truncateByParameter, truncateWritten, untruncatedByParameter,
+    untruncatedWritten,
+};
+
+test "a pin written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "pin", pinWritten(), .Checked, []);
+}
+
+test "a pin handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "pin", pinByParameter(), .Checked, []);
+}
+
+test "an edge's padding written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "paddingEdge", paddingEdgeWritten(), .Checked, []);
+}
+
+test "an edge's padding handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "paddingEdge", paddingEdgeByParameter(), .Checked, []);
+}
+
+test "an edge's border written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "borderEdge", borderEdgeWritten(), .Checked, []);
+}
+
+test "an edge's border handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "borderEdge", borderEdgeByParameter(), .Checked, []);
+}
+
+test "a corner's rounding written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "radiusCorner", radiusCornerWritten(), .Checked, []);
+}
+
+test "a corner's rounding handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "radiusCorner", radiusCornerByParameter(), .Checked, []);
+}
+
+test "a bleed written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed", bleedWritten(), .Checked, []);
+}
+
+test "a bleed handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "bleed", bleedByParameter(), .Checked, []);
+}
+
+test "a translation written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translate", translateWritten(), .Checked, []);
+}
+
+test "a translation handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translate", translateByParameter(), .Checked, []);
+}
+
+test "a border written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "borderWidth", borderWidthWritten(), .Checked, []);
+}
+
+test "a border handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "borderWidth", borderWidthByParameter(), .Checked, []);
+}
+
+test "a border style after a border width written in place applies" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dashed", dashedWritten(), .Checked, []);
+}
+
+test "a border style after a border width handed through a parameter applies" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dashed", dashedByParameter(), .Checked, []);
+}
+
+test "a font written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "fontFamily", fontFamilyWritten(), .Checked, []);
+}
+
+test "a font handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "fontFamily", fontFamilyByParameter(), .Checked, []);
+}
+
+test "a line count written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "truncate", truncateWritten(), .Checked, []);
+}
+
+test "a line count handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "truncate", truncateByParameter(), .Checked, []);
+}
+
+test "a line count of zero written in place gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "untruncated", untruncatedWritten(), .Checked, []);
+}
+
+test "a line count of zero handed through a parameter gives way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "untruncated", untruncatedByParameter(), .Checked, []);
+}
+
+test "a grid's tracks written in place give way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid", gridWritten(), .Checked, []);
+}
+
+test "a grid's tracks handed through a parameter give way to a breakpoint" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "grid", gridByParameter(), .Checked, []);
+}
