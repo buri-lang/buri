@@ -4203,10 +4203,9 @@ impl Scan<'_> {
         }
         // A scrutinee the arm is done with is taken apart: each name keeps the
         // count the scrutinee held for it, and an unread name is released here.
-        // Not under a guard, whose names are lent and whose arm may not run.
+        // Never under a guard, which holds the token and rules out `built`.
         let moves = (token.is_some_and(|t| !live.contains(&t)) || built.is_some())
             && !self.opts.sharing
-            && a.guard.is_none()
             && binds_something(&a.pattern)
             && self.apart(&a.pattern);
         if moves {
