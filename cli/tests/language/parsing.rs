@@ -1,6 +1,7 @@
 //! What the parser reads where its fast paths stop: a name or a literal
-//! against what follows it, a bare type or binding against a path, and the
-//! nesting and chain budgets either side of their limits.
+//! against what follows it, a bare type or binding against a path, the
+//! nesting and chain budgets either side of their limits, and a file denser
+//! than the parser sets room aside for.
 use crate::harness::*;
 
 /// `//app`, a JavaScript binary whose `main.buri` is `source`.
@@ -127,4 +128,26 @@ fn nesting_and_chains_are_refused_one_past_their_limits() {
             );
         }
     }
+}
+
+/// **A file denser than any the parser sizes for builds the same**: type
+/// annotations nested three deep in every parameter, and a sum of hundreds of
+/// calls, outgrow the room set aside for types and nodes up front.
+#[test]
+fn a_file_of_dense_types_and_calls_builds() {
+    let n = 300;
+    let ty = "[[[Int]]]";
+    let items: String = (0..n)
+        .map(|k| format!("fn f{k}(a: {ty}, b: {ty}, c: ({ty}, {ty})): Int {{\n    {k}\n}}\n\n"))
+        .collect();
+    let calls: Vec<String> = (0..n).map(|k| format!("f{k}([], [], ([], []))")).collect();
+    let body = format!(
+        "    let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    let total = {};\n    let _ = io.println(ctx, \"${{total}}\").ignore();\n",
+        calls.join(" + ")
+    );
+    let imports = "from \"platform/effect\" import { Allocator, Stdout };\nfrom \"core/io\" import * as io;\n\n";
+    let scratch = app(&main_with(&format!("{imports}{items}"), &body));
+    scratch.run(&["build", "//app"]).ok();
+    let total: usize = (0..n).sum();
+    scratch.exec_js("app").ok().says(&total.to_string());
 }

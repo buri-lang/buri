@@ -670,11 +670,14 @@ impl Tree {
     /// held capacity it never used.
     ///
     /// Each figure is the most any of the goals workspaces (`ci`, `full` and
-    /// `monorepo`) writes per token, rounded up by about a tenth: 0.32
-    /// expression nodes, 0.10 child links, 0.09 names, 0.09 types, 0.05
-    /// patterns and so on down. A file denser than that grows an arena once,
-    /// which copies all of it; capacity a sparser one never writes costs
-    /// nothing but address space. The declaration lists follow the same rule:
+    /// `monorepo`) writes per token, rounded up by about a tenth: 0.10 child
+    /// links, 0.09 names, 0.05 patterns and so on down. A file denser than
+    /// that grows an arena once, which copies all of it; capacity a sparser
+    /// one never writes costs nothing but address space. Expression nodes and
+    /// types, the two arenas a dense file outgrows soonest, are sized past
+    /// that, at 0.46 and 0.23 per token: measured on the goals workspaces,
+    /// the copies the larger room saves cost more instructions and cache
+    /// misses than the untouched room does. The declaration lists follow the same rule:
     /// 0.028 parameters and 0.011 generics per token. So do the small arenas a
     /// typical file still writes to — struct literal fields, lambda
     /// parameters, template parts, declared fields, variants, methods and
@@ -687,8 +690,8 @@ impl Tree {
         Tree {
             file,
             src,
-            nodes: Vec::with_capacity(per(7, 20)),
-            spans: Vec::with_capacity(per(7, 20)),
+            nodes: Vec::with_capacity(per(23, 50)),
+            spans: Vec::with_capacity(per(23, 50)),
             pnodes: Vec::with_capacity(per(1, 18)),
             pspans: Vec::with_capacity(per(1, 18)),
             kids: Vec::with_capacity(per(1, 9)),
@@ -705,7 +708,7 @@ impl Tree {
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
             ppay: Vec::with_capacity(per(1, 96)),
-            types: Vec::with_capacity(per(1, 10)),
+            types: Vec::with_capacity(per(23, 100)),
             ints: Vec::new(),
             floats: Vec::new(),
             cooked: String::new(),
