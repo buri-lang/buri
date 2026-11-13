@@ -325,7 +325,13 @@ test "a false guard over a map with a heap key leaves the map to the next arm" {
 fn untilMarked<C: Allocator>(ctx: C, text: Str, steps: Int): Int {
     match (text) {
         _ if text.contains("x") => steps,
-        _ => if (steps > 3) { steps } else { untilMarked(ctx, str.format(ctx, "${text}y"), steps + 1) },
+        _ => {
+            if (steps > 3) {
+                steps
+            } else {
+                untilMarked(ctx, str.format(ctx, "${text}y"), steps + 1)
+            }
+        },
     }
 }
 
