@@ -507,10 +507,11 @@ impl Styled {
 /// immediately, which is every program that is not a user interface, test
 /// builds included — so this costs nothing at all for the rest of the corpus.
 ///
-/// `also` is run at every expression of every declaration `walked` names,
-/// before anything is rewritten, by the walk that draws the graph: a pass
-/// that only reports then needn't walk every body again. The last answer
-/// says whether it was: not where the run returned before drawing.
+/// `also` is run at every struct literal and update of every declaration
+/// `walked` names, before anything is rewritten, by the walk that draws the
+/// graph: a pass that only reports then needn't walk every body again. The
+/// last answer says whether it was: not where the run returned before
+/// drawing.
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
@@ -638,9 +639,9 @@ pub fn run(
     (styled, Some(style_con), also.is_some())
 }
 
-/// What [`run`] also does at each expression it walks first: the bodies and
-/// constants it is handed are the ones the expression reads, as nothing has
-/// rewritten them.
+/// What [`run`] also does at each struct literal and update it walks first,
+/// which is where a node is written. The bodies and constants it is handed
+/// are the ones the expression reads, as nothing has rewritten them.
 pub type Also<'a> = &'a dyn Fn(&typed::Expr, &BodyMap, &ConstMap);
 
 /// How many times this process drew [`Flow`]'s graph of what reads what, over
@@ -2644,7 +2645,9 @@ impl<'a> Flow<'a> {
         (stopped, also): (bool, Option<Also<'_>>),
         out: &mut Edges,
     ) {
-        if let Some(also) = also {
+        if let (Some(also), ExprKind::StructLit { .. } | ExprKind::StructUpdate { .. }) =
+            (also, &e.kind)
+        {
             also(e, self.bodies, self.consts);
         }
         let stops = !stopped && ctx.is_some() && self.extracts(owner, e);
