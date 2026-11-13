@@ -1,15 +1,21 @@
 # Check speed
 
-Landed: the intern fast path, a single path resolution in `elaborate`, and `Prim::named` (PERFORMANCE.md §6.134). Check instructions fell 2.5%, check cost 1.1–1.3%. The check rows hold the VM's figures.
+Landed:
 
-The +0.2% cost rise after 177a853ab was instruction-cache misses from code layout. Ir and data misses stayed flat. Fewer check instructions is the only lever.
+- §6.134: the intern fast path, a single path resolution in `elaborate`, and `Prim::named`.
+- §6.135: the style pass walks each declaration once to read it.
+- §6.136: the icon and decorative-stack checks ride on `Flow::edges` (an `Also` callback, struct literals and updates only), so their own walk runs only where extraction draws no graph. Check instructions fell 1.6–1.9%, cost 1.3–2.7%.
 
-What's left, from a line-table callgrind profile of `ci-count/check` at 9e5e03e1e (123M Ir):
+The check rows hold the VM's figures. CI's check figures matched the VM's within 0.05%. CI's dev-codegen rows read higher than the VM's, so leave those to CI's figures.
 
-- Allocation is about 14% of check Ir. DHAT's top check sites: `styles::Edges::add` (10k blocks, 2.8 MB), `Infer::call_fn`, `Flow::positions` (a `Vec<Pos>` per block, `if`, `match` and call), and `fresh_int`'s `vec![lit]`.
-- `styles.rs` is 13% of `monorepo-ci` check cost: `Flow::edges`, `Extractor::alphas`, and misses reading `e.ty`/`e.kind`. Several whole-tree walks (icons, reactive, endless, styles, const cycles) each miss the cache; merging them saves misses.
-- `check_icons_and_builders`' walk: 27.7M cost on `monorepo-ci`.
-- `ModuleScope::name` hashes the string up to three times, about 3M Ir. `std`'s map has no stable `raw_entry`, so this needs a merged table or a hash-once map.
-- `carries_effect` (2.3M) and `Name::new` (1.5M).
+A callback at every expression cost more instructions than the walk it replaced. Filter by expression kind before any dynamic call on the hot walk.
 
-Tooling, in `/tmp/cs/` (gone after a reboot): `m.sh <rev>` counts the check group of both workspaces in a Lima VM; `dbg-in.sh` takes a line-table profile; `dhat.py` groups a DHAT profile by its first own frame.
+What's left, from a callgrind profile of the test build's check at e6a4fbe60 (477M Ir, about 783M cost):
+
+- Restyle (`Checked::restyle`, once per program): about 55M Ir. `Flow::of` is 29.6M of it, spread over `Demand` hashing, `Edges::merge` of each kept part, and repeated `Walked::unsettled` iteration (resolve.rs, `holds` per body). Ideas: index `Demand` densely instead of hashing; precompute each program's held declaration list once.
+- `Flow::edges`: 46M with 253k LL misses.
+- `ModuleScope::name` hashes the string up to three times, about 7.7M Ir on the test build. `std`'s map has no stable `raw_entry`, so this needs a merged table or a hash-once map.
+- Allocation is about 47M Ir on the test build. DHAT's top sites: `styles::Edges::add`, `Infer::call_fn`, `fresh_int`'s `vec![lit]`.
+- `carries_effect` (2.3M) and `Name::new` (1.5M) on `ci`.
+
+Tooling, in `/tmp/cs/` (gone after a reboot): `sync.sh <rev>` copies a tree into the Lima VM `buri-check`; `goals.sh <rev>` runs the counted goals there without writing anything back; `m.sh <rev>` counts the check group of both workspaces; `prof2.sh <label>` takes line-table profiles of the test build; `dhat.py` groups a DHAT profile by its first own frame. Delete `buri-check` when done; never `buri-goals`.
