@@ -220,6 +220,53 @@ fn files_read_after_a_large_one_keep_their_own_text_and_literals() {
     run.says("lits/m2.buri:1:14").says("export fn f2(: Str {");
 }
 
+/// `//names`, whose `main.buri` prints `shout("hi!")` with `call` in place of
+/// `shout` and `print` in place of `io.println`. `shout` comes from
+/// `words.buri`, a file read from disk, and `io.println` from the library.
+fn names(call: &str, print: &str) -> Scratch {
+    let scratch = Scratch::repo("loading-names");
+    scratch.write("names/BUILD.buri", JS_BINARY);
+    scratch.write(
+        "names/words.buri",
+        "export fn shout(word: Str): Str {\n    word\n}\n",
+    );
+    scratch.write(
+        "names/main.buri",
+        &format!(
+            "from \"node\" import {{ NodeHost }};\n\
+             from \"platform/effect\" import {{ Stdout }};\n\
+             from \"core/io\" import * as io;\n\
+             from \"//names/words.buri\" import {{ shout }};\n\n\
+             export fn main(host: NodeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Stdout: host.stdout }};\n    \
+             let _ = {print}(ctx, {call}(\"hi!\")).ignore();\n    \
+             .Ok(())\n}}\n"
+        ),
+    );
+    scratch
+}
+
+/// **Names from a file and from the library are read by their text**: a
+/// call of a function a file declares, through one the library declares,
+/// runs; and a misspelling of either is reported with the names it could
+/// have meant.
+#[test]
+fn names_from_a_file_and_from_the_library_are_read_by_their_text() {
+    let scratch = names("shout", "io.println");
+    scratch.run(&["build", "//names"]).ok();
+    scratch.exec_js("names").ok().says("hi!");
+
+    let run = names("shuot", "io.println").run(&["build", "//names"]);
+    run.exits(1);
+    run.says("names/main.buri:8:29")
+        .says("did you mean `shout`?");
+
+    let run = names("shout", "io.printn").run(&["build", "//names"]);
+    run.exits(1);
+    run.says("names/main.buri:8:16")
+        .says("`print`, `println`, `readAll`");
+}
+
 // ---------------------------------------------------------------------------
 // What parsing and loading cost a line, on every pinned shape
 // ---------------------------------------------------------------------------

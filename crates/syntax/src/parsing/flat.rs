@@ -731,6 +731,10 @@ impl Tree {
     /// offset here came from the lexer, so in a correct front end that cannot
     /// happen, and a total accessor makes the one arrangement of bytes where
     /// it does a wrong answer rather than a panic.
+    ///
+    /// Inlined: building an identifier's view calls it, and the type checker
+    /// builds one at every use of a name.
+    #[inline]
     pub fn text(&self, at: Location) -> &str {
         self.src
             .get(at.start as usize..at.end as usize)

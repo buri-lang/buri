@@ -694,40 +694,60 @@ impl Diagnostic {
 /// it share rather than each holding a copy. A copy was a second write of
 /// every byte a build reads, into memory nothing had touched yet. The standard
 /// library's text is the binary's own and isn't copied at all.
-#[derive(Clone, Debug)]
-pub struct SourceText(Text);
-
-#[derive(Clone, Debug)]
-enum Text {
-    Static(&'static str),
-    Read(Arc<String>),
+///
+/// Reading it is one load with no branch on where the text lives, as an
+/// `Arc<str>` was: the type checker reads identifiers through the tree's
+/// copy of it at every use.
+#[derive(Clone)]
+pub struct SourceText {
+    /// The binary's own text, or the heap buffer of `_owner`'s `String`.
+    text: *const str,
+    /// Keeps `text` alive when the build read it from disk.
+    _owner: Option<Arc<String>>,
 }
+
+// SAFETY: a `SourceText` is a `&'static str`, or an `Arc<String>` with a
+// pointer into it that's only read. Both of those are `Send` and `Sync`.
+unsafe impl Send for SourceText {}
+// SAFETY: as for `Send`.
+unsafe impl Sync for SourceText {}
 
 impl Default for SourceText {
     fn default() -> SourceText {
-        SourceText(Text::Static(""))
+        SourceText::from("")
+    }
+}
+
+impl std::fmt::Debug for SourceText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&**self, f)
     }
 }
 
 impl std::ops::Deref for SourceText {
     type Target = str;
     fn deref(&self) -> &str {
-        match &self.0 {
-            Text::Static(text) => text,
-            Text::Read(text) => text,
-        }
+        // SAFETY: `text` is `'static`, or points into the heap buffer of the
+        // `String` that `_owner` keeps alive as long as `self`. Nothing
+        // mutates that `String`, which is only ever shared, and moving the
+        // `Arc` or `self` doesn't move its buffer.
+        unsafe { &*self.text }
     }
 }
 
 impl From<String> for SourceText {
     fn from(text: String) -> SourceText {
-        SourceText(Text::Read(Arc::new(text)))
+        let owner = Arc::new(text);
+        SourceText {
+            text: owner.as_str(),
+            _owner: Some(owner),
+        }
     }
 }
 
 impl From<&'static str> for SourceText {
     fn from(text: &'static str) -> SourceText {
-        SourceText(Text::Static(text))
+        SourceText { text, _owner: None }
     }
 }
 
