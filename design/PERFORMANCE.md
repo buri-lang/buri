@@ -9877,6 +9877,41 @@ through a tuple `let`, a guarded arm and an index.
 The check rows hold the VM's figure. The four `ci` and `monorepo-ci`
 dev-codegen rows hold CI's from 24e2e83c0, the higher of the two.
 
+### 6.136 The UI literal checks ride on the style graph's walk, 2026-11-13
+
+```rust
+// styles.rs, Flow::edges: every body, before anything rewrites it
+if let (Some(also), ExprKind::StructLit { .. } | ExprKind::StructUpdate { .. }) =
+    (also, &e.kind)
+{
+    also(e, self.bodies, self.consts);
+}
+```
+
+- The icon and decorative-stack checks read each `Image` and `Stack` as
+  written. They had a walk of their own over every body. Style extraction
+  already walks every body before it rewrites any, so it now runs both
+  checks as it goes. A compilation it doesn't walk still gets the old walk.
+- The checks run only at struct literals and updates. Calling them at every
+  expression cost more instructions than the walk saved.
+- Their diagnostics go where the old walk put them, before the builders'.
+
+On the arm64 VM, from e6a4fbe60 to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` check cost | 7689.4 | 7592.0 (-1.3%) |
+| `ci` check instructions | 4667.1 | 4576.3 (-1.9%) |
+| `monorepo-ci` check cost | 11891.2 | 11566.9 (-2.7%) |
+| `monorepo-ci` check instructions | 7181.3 | 7052.6 (-1.8%) |
+| `monorepo-ci` test-build check cost | 13498.2 | 13206.2 (-2.2%) |
+| `monorepo-ci` test-build check instructions | 8228.8 | 8096.5 (-1.6%) |
+
+`ui_literals_checked_where_no_node_reaches` covers an image and a stack in
+a helper nothing calls and a constant nothing reads.
+
+The check rows hold the VM's figure.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
