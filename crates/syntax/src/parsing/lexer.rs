@@ -718,7 +718,11 @@ enum StrEnd {
 /// scalar value of a character literal, and unread for every other kind. It
 /// is three bytes, little-endian, which holds every scalar value and an index
 /// up to sixteen million; [`WIDE`] stands for one that does not fit.
+///
+/// `repr(C)` puts `kind` and `pay` side by side at offset 8, so
+/// [`push_record`] writes the two of them as one 32-bit store.
 #[derive(Clone, Copy)]
+#[repr(C)]
 struct Record {
     loc: Location,
     kind: TokenKind,
@@ -731,6 +735,9 @@ const WIDE: u32 = 0x00ff_ffff;
 const _: () = assert!(std::mem::size_of::<TokenKind>() == 1);
 const _: () = assert!(std::mem::size_of::<Location>() == 8);
 const _: () = assert!(std::mem::size_of::<Record>() == 12);
+const _: () = assert!(std::mem::align_of::<Record>() == 4);
+const _: () = assert!(std::mem::offset_of!(Record, kind) == 8);
+const _: () = assert!(std::mem::offset_of!(Record, pay) == 9);
 /// `Token` is a view built on demand and never stored, so its width is a
 /// register-allocation question rather than a memory one. It is pinned anyway,
 /// because a variant that grew past this would mean somebody had put owned
@@ -1999,15 +2006,24 @@ fn push_record(records: &mut Vec<Record>, loc: Location, kind: TokenKind, word: 
         let len = records.len();
         if let Some(slot) = records.spare_capacity_mut().first_mut() {
             let [a, b, c, _] = word.to_le_bytes();
-            slot.write(Record {
-                loc,
-                kind,
-                pay: [a, b, c],
-            });
-            // SAFETY: the slot at `len`, the first spare one, was just
-            // written, so the first `len + 1` records are initialized; and it
-            // lies within the capacity, or there would have been no slot.
-            unsafe { records.set_len(len.wrapping_add(1)) };
+            // `kind` then `pay`, in memory order: one store rather than four.
+            let tail = u32::from_ne_bytes([kind as u8, a, b, c]);
+            let at = slot.as_mut_ptr();
+            // SAFETY: `at` is the spare slot at `len`, valid for writes of a
+            // whole `Record`. `loc` is written as itself. The four bytes from
+            // offset 8 are `kind` and `pay` (asserted beside `Record`), and
+            // offset 8 of a 4-aligned record is 4-aligned; the first byte is
+            // `kind as u8`, a valid `TokenKind`. So the record is initialized,
+            // the first `len + 1` are, and `len + 1` is within the capacity,
+            // or there would have been no slot.
+            unsafe {
+                std::ptr::addr_of_mut!((*at).loc).write(loc);
+                at.cast::<u8>()
+                    .add(std::mem::offset_of!(Record, kind))
+                    .cast::<u32>()
+                    .write(tail);
+                records.set_len(len.wrapping_add(1));
+            }
             return;
         }
         *records = grown(std::mem::take(records));

@@ -1,7 +1,8 @@
 //! What the lexer reads at the edges its fast paths stop at: a word against
 //! its first eight bytes and the end of the file, an integer against the
 //! nineteen digits a `u64` holds, and a comment against the line's end. Each
-//! one-byte punctuator, read from a table, reads as itself.
+//! one-byte punctuator, read from a table, reads as itself, and a character
+//! as its scalar value.
 use crate::harness::*;
 
 /// `//app`, a JavaScript binary whose `main.buri` is `source`.
@@ -149,4 +150,24 @@ fn each_one_byte_punctuator_reads_as_itself() {
          .Ok(())\n}\n");
     scratch.run(&["build", "//app"]).ok();
     scratch.exec_js("app").ok().says("[17, 39, 20, -18, 34]");
+}
+
+/// **A character literal reads as its scalar value**, whichever of its three
+/// bytes the value fills, and each token beside it keeps its own kind.
+#[test]
+fn a_character_reads_as_its_scalar_value() {
+    let scratch = app("from \"node\" import { NodeHost };\n\
+         from \"platform/effect\" import { Stdout };\n\
+         from \"core/io\" import * as io;\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n    \
+         let ctx = context { Stdout: host.stdout };\n    \
+         let _ = io.println(ctx, \"${'\\u{0}'.toU32()} ${'A'.toU32()} ${'\\u{ff}'.toU32()} \
+         ${'\\u{100}'.toU32()} ${'\\u{ffff}'.toU32()} ${'\\u{10000}'.toU32()} \
+         ${'\\u{10FFFF}'.toU32()} ${'\u{1F600}'.toU32()} ${'x' == 'x'} ${'A'}\").ignore();\n    \
+         .Ok(())\n}\n");
+    scratch.run(&["build", "//app"]).ok();
+    scratch
+        .exec_js("app")
+        .ok()
+        .says("0 65 255 256 65535 65536 1114111 128512 true A");
 }
