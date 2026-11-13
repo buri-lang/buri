@@ -9836,6 +9836,47 @@ body of 3000 literals, past the direct slots.
 The check rows hold the VM's figure. The three dev-codegen cost rows hold
 CI's from 9e5e03e1e, the higher of the two.
 
+### 6.135 The style pass walks each declaration once to read it, 2026-11-13
+
+```rust
+// styles.rs, Extractor::scan: the graph's walk saw every expression already
+let mentions = match seen {
+    Some(seen) if !seen.colour => seen.style,
+    _ => self.alphas(e, true),
+};
+```
+
+- `Flow::edges` notes whether a declaration has a style or a colour as it
+  draws the graph. The colour check's own walk now runs only where there's
+  a colour. That walk was a second pass over every body, and each pass
+  misses the cache about 230k times on `monorepo-ci`.
+- `Flow::positions` hands out each child's position one at a time, read
+  off the tree, instead of building a `Vec<Pos>` per expression.
+- `Style`, `[Style]` and `Color` take no type arguments, so each is one
+  interned type, and recognising one is a pointer compare.
+
+On the arm64 VM, from 24e2e83c0 to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` check cost | 7838.3 | 7689.4 (-1.9%) |
+| `ci` check instructions | 4764.5 | 4667.1 (-2.0%) |
+| `monorepo-ci` check cost | 12549.8 | 11891.2 (-5.2%) |
+| `monorepo-ci` check instructions | 7363.4 | 7181.3 (-2.5%) |
+| `monorepo-ci` test-build check cost | 14185.0 | 13498.2 (-4.8%) |
+| `monorepo-ci` test-build check instructions | 8406.0 | 8228.8 (-2.1%) |
+
+The test build checks 10% more instructions than the plain build because
+it restyles each program on its own (`Checked::restyle`), about 5M
+instructions a program. No one function dominates that.
+
+`styles_reach_a_node_through_bindings` covers a style reaching a node
+through a tuple `let`, a guarded arm and an index.
+`ui_style_alpha_outside_any_style` covers a colour outside any style.
+
+The check rows hold the VM's figure. The four `ci` and `monorepo-ci`
+dev-codegen rows hold CI's from 24e2e83c0, the higher of the two.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

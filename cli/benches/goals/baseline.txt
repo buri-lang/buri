@@ -4,20 +4,20 @@
 # lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
-aarch64 ci check cost                                        7838.3
-aarch64 ci check instructions                                4764.5
-aarch64 ci dev-codegen cost                                 92467.2
-aarch64 ci dev-codegen instructions                         57413.4
+aarch64 ci check cost                                        7689.4
+aarch64 ci check instructions                                4667.1
+aarch64 ci dev-codegen cost                                 92446.3
+aarch64 ci dev-codegen instructions                         57400.2
 aarch64 ci parse cost                                        2136.6
 aarch64 ci parse instructions                                1549.6
-aarch64 monorepo-ci check cost                              12549.8
-aarch64 monorepo-ci check instructions                       7363.4
-aarch64 monorepo-ci dev-codegen cost                        35523.5
-aarch64 monorepo-ci dev-codegen instructions                22876.4
+aarch64 monorepo-ci check cost                              11891.2
+aarch64 monorepo-ci check instructions                       7181.3
+aarch64 monorepo-ci dev-codegen cost                        35361.2
+aarch64 monorepo-ci dev-codegen instructions                22837.7
 aarch64 monorepo-ci parse cost                               2724.0
 aarch64 monorepo-ci parse instructions                       1983.3
-aarch64 monorepo-ci test-build check cost                   14185.0
-aarch64 monorepo-ci test-build check instructions            8406.0
+aarch64 monorepo-ci test-build check cost                   13498.2
+aarch64 monorepo-ci test-build check instructions            8228.8
 aarch64 monorepo-ci test-build dev-codegen cost             35552.8
 aarch64 monorepo-ci test-build dev-codegen instructions     23807.1
 aarch64 monorepo-ci test-build parse cost                    2728.2
