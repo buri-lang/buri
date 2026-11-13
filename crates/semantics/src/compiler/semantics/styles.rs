@@ -509,9 +509,8 @@ impl Styled {
 ///
 /// `also` is run at every struct literal and update of every declaration
 /// `walked` names, before anything is rewritten, by the walk that draws the
-/// graph: a pass that only reports then needn't walk every body again. The
-/// last answer says whether it was: not where the run returned before
-/// drawing.
+/// graph: a pass that only reports then needn't walk every body again. A run
+/// that returns before drawing walks them for it.
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
@@ -520,14 +519,15 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
     (memory, also): (Memory<'_>, Option<Also<'_>>),
-) -> (Styled, Option<TyConId>, bool) {
+) -> (Styled, Option<TyConId>) {
     // `ui/style` declares all three, so a program has all or none.
     let (Some(style_con), Some(classes_con), Some(extracted)) = (
         own_type(loaded, scopes, "ui/style", "Style"),
         own_type(loaded, scopes, "ui/style", "Classes"),
         own_fn(loaded, scopes, "ui/style", "extracted"),
     ) else {
-        return (Styled::default(), None, false);
+        also_alone(also, walked, tables, (bodies, consts));
+        return (Styled::default(), None);
     };
     // Only a module of the program's own that imports from `ui/` can build a
     // node, and only such a program loads `classify`. A test build without
@@ -537,7 +537,8 @@ pub fn run(
     let Some((classify, classify_style)) = classifiers(loaded, scopes)
         .filter(|(classify, _)| walked.holds(tables.fn_info(*classify).module))
     else {
-        return (Styled::default(), Some(style_con), false);
+        also_alone(also, walked, tables, (bodies, consts));
+        return (Styled::default(), Some(style_con));
     };
 
     // The interpreter reads bodies and constants as they were *before* this
@@ -636,13 +637,32 @@ pub fn run(
     for (id, body) in new_bodies {
         bodies.insert(id, body);
     }
-    (styled, Some(style_con), also.is_some())
+    (styled, Some(style_con))
 }
 
 /// What [`run`] also does at each struct literal and update it walks first,
-/// which is where a node is written. The bodies and constants it is handed
-/// are the ones the expression reads, as nothing has rewritten them.
+/// which is where a node is written, and passes over any other expression.
+/// The bodies and constants it is handed are the ones the expression reads,
+/// as nothing has rewritten them.
 pub type Also<'a> = &'a dyn Fn(&typed::Expr, &BodyMap, &ConstMap);
+
+/// Runs `also` over every expression of every declaration `walked` names,
+/// for a [`run`] that draws no graph.
+fn also_alone(
+    also: Option<Also<'_>>,
+    walked: &Walked,
+    tables: &Tables,
+    (bodies, consts): (&BodyMap, &ConstMap),
+) {
+    let Some(also) = also else { return };
+    let each = |e: &typed::Expr| typed::walk(e, &mut |e| also(e, bodies, consts));
+    for (_, init) in walked.constants(tables, consts) {
+        each(init);
+    }
+    for (_, body) in walked.functions(tables, bodies) {
+        each(&body.expr);
+    }
+}
 
 /// How many times this process drew [`Flow`]'s graph of what reads what, over
 /// every declaration a compilation reads, rather than over the few a round

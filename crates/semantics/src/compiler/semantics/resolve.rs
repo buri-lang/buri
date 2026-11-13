@@ -322,7 +322,7 @@ impl Checked {
             fns_from: unstyled.fns_from,
             consts_from: unstyled.consts_from,
         };
-        let (styles, style_sources, _, _) = extract(
+        let (styles, style_sources, _) = extract(
             loaded,
             &self.tables,
             &self.scopes,
@@ -359,9 +359,9 @@ impl Restyled {
 }
 
 /// Style extraction over what `walked` names, rewriting `bodies` and `consts`,
-/// merged with what it made of the base's: the rules, the sources,
-/// `ui/style`'s `Style`, and whether it ran `also` (see
-/// [`styles::run`](crate::compiler::semantics::styles::run)).
+/// merged with what it made of the base's: the rules, the sources, and
+/// `ui/style`'s `Style`. It runs `also` as
+/// [`styles::run`](crate::compiler::semantics::styles::run) does.
 fn extract(
     loaded: &Loaded,
     tables: &Tables,
@@ -378,9 +378,8 @@ fn extract(
     Vec<crate::compiler::semantics::styles::StyleRule>,
     crate::compiler::semantics::styles::Sources,
     Option<TyConId>,
-    bool,
 ) {
-    let (found, style_con, also_ran) = crate::compiler::semantics::styles::run(
+    let (found, style_con) = crate::compiler::semantics::styles::run(
         loaded,
         tables,
         scopes,
@@ -400,7 +399,7 @@ fn extract(
             found.sources,
         ),
     };
-    (styles, sources, style_con, also_ran)
+    (styles, sources, style_con)
 }
 
 /// `ui/node`'s `Image` and `Stack`: every literal of either is checked as
@@ -409,8 +408,7 @@ fn extract(
 /// may not take a role.
 ///
 /// Style extraction walks every body before it rewrites any, so it runs the
-/// check as it goes ([`Also`](crate::compiler::semantics::styles::Also)), and
-/// a walk of its own is left for a compilation extraction doesn't walk.
+/// check as it goes ([`Also`](crate::compiler::semantics::styles::Also)).
 #[derive(Clone, Copy)]
 struct UiLiterals {
     image: TyConId,
@@ -429,25 +427,6 @@ impl UiLiterals {
     ) {
         crate::compiler::semantics::icons::check(e, self.image, tables, bodies, consts, found);
         crate::compiler::semantics::decorative::check(e, self.stack, tables, bodies, consts, found);
-    }
-
-    /// Every expression of every declaration `walked` names.
-    fn walk(
-        self,
-        walked: &Walked,
-        tables: &Tables,
-        (bodies, consts): (&BodyMap, &ConstMap),
-        found: &mut Vec<Diagnostic>,
-    ) {
-        let mut each = |e: &typed::Expr| {
-            typed::walk(e, &mut |e| self.check(e, tables, bodies, consts, found));
-        };
-        for (_, init) in walked.constants(tables, consts) {
-            each(init);
-        }
-        for (_, body) in walked.functions(tables, bodies) {
-            each(&body.expr);
-        }
     }
 }
 
@@ -907,13 +886,13 @@ impl<'a> Checker<'a> {
             waiting = self.check_builders(&walked, &HashSet::default());
             let (mut bodies, mut consts) = (self.bodies.layer(), self.const_values.layer());
             let found_literals = std::cell::RefCell::new(Vec::new());
-            let tables = &self.tables;
-            let check = |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
-                if let Some(literals) = literals {
-                    literals.check(e, tables, bodies, consts, &mut found_literals.borrow_mut());
+            let (tables, found) = (&self.tables, &found_literals);
+            let check = literals.map(|literals| {
+                move |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
+                    literals.check(e, tables, bodies, consts, &mut found.borrow_mut());
                 }
-            };
-            let (found, _, checked) = crate::compiler::semantics::styles::run(
+            });
+            let (found, _) = crate::compiler::semantics::styles::run(
                 self.loaded,
                 &self.tables,
                 &self.scopes,
@@ -922,15 +901,14 @@ impl<'a> Checker<'a> {
                 &walked,
                 (
                     crate::compiler::semantics::styles::Memory::Off,
-                    literals.map(|_| &check as crate::compiler::semantics::styles::Also),
+                    check
+                        .as_ref()
+                        .map(|c| c as crate::compiler::semantics::styles::Also),
                 ),
             );
-            let mut found_literals = found_literals.into_inner();
-            if let (Some(literals), false) = (literals, checked) {
-                let (bodies, consts) = (&self.bodies, &self.const_values);
-                literals.walk(&walked, &self.tables, (bodies, consts), &mut found_literals);
-            }
-            self.diags.items.splice(mark..mark, found_literals);
+            self.diags
+                .items
+                .splice(mark..mark, found_literals.into_inner());
             // What the pass rewrote is what it wrote into its own layer.
             styled = std::sync::Arc::new(crate::compiler::semantics::styles::Styled {
                 bodies: bodies
@@ -1047,13 +1025,13 @@ impl<'a> Checker<'a> {
             _ => crate::compiler::semantics::styles::Memory::Off,
         };
         let found_literals = std::cell::RefCell::new(Vec::new());
-        let tables = &self.tables;
-        let check = |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
-            if let Some(literals) = literals {
-                literals.check(e, tables, bodies, consts, &mut found_literals.borrow_mut());
+        let (tables, found) = (&self.tables, &found_literals);
+        let check = literals.map(|literals| {
+            move |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
+                literals.check(e, tables, bodies, consts, &mut found.borrow_mut());
             }
-        };
-        let (styles, style_sources, style_con, checked) = extract(
+        });
+        let (styles, style_sources, style_con) = extract(
             self.loaded,
             &self.tables,
             &self.scopes,
@@ -1063,19 +1041,16 @@ impl<'a> Checker<'a> {
             (
                 settled.map(|b| &*b.styled),
                 memory,
-                literals.map(|_| &check as crate::compiler::semantics::styles::Also),
+                check
+                    .as_ref()
+                    .map(|c| c as crate::compiler::semantics::styles::Also),
             ),
         );
-        // A run that didn't draw its graph rewrote nothing, so the literals
-        // read the bodies as written still.
-        let mut found_literals = found_literals.into_inner();
-        if let (Some(literals), false) = (literals, checked) {
-            let (bodies, consts) = (&self.bodies, &self.const_values);
-            literals.walk(&walked, &self.tables, (bodies, consts), &mut found_literals);
-        }
         // Where the pass that walked them on its own reported them: before
         // the builders' and the styles'.
-        self.diags.items.splice(mark..mark, found_literals);
+        self.diags
+            .items
+            .splice(mark..mark, found_literals.into_inner());
         let classify_fns =
             crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
