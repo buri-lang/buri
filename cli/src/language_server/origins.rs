@@ -59,7 +59,7 @@ impl Located {
     pub fn text(&self, session: &Session) -> Option<String> {
         let rel = session.workspace.rel_of(&self.path);
         match session.map.find(&rel) {
-            Some(id) => Some(session.map.get(id).text.clone()),
+            Some(id) => Some(session.map.text(id).to_owned()),
             None => std::fs::read_to_string(&self.path).ok(),
         }
     }

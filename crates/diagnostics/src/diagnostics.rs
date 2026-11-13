@@ -690,20 +690,61 @@ impl Diagnostic {
     }
 }
 
+/// A source file's text, which the source map and the syntax tree parsed from
+/// it share rather than each holding a copy. A copy was a second write of
+/// every byte a build reads, into memory nothing had touched yet. The standard
+/// library's text is the binary's own and isn't copied at all.
+#[derive(Clone, Debug)]
+pub struct SourceText(Text);
+
+#[derive(Clone, Debug)]
+enum Text {
+    Static(&'static str),
+    Read(Arc<String>),
+}
+
+impl Default for SourceText {
+    fn default() -> SourceText {
+        SourceText(Text::Static(""))
+    }
+}
+
+impl std::ops::Deref for SourceText {
+    type Target = str;
+    fn deref(&self) -> &str {
+        match &self.0 {
+            Text::Static(text) => text,
+            Text::Read(text) => text,
+        }
+    }
+}
+
+impl From<String> for SourceText {
+    fn from(text: String) -> SourceText {
+        SourceText(Text::Read(Arc::new(text)))
+    }
+}
+
+impl From<&'static str> for SourceText {
+    fn from(text: &'static str) -> SourceText {
+        SourceText(Text::Static(text))
+    }
+}
+
 #[derive(Clone)]
 pub struct SourceFile {
     /// Repository-relative where possible, so that two checkouts in different
     /// directories produce identical diagnostics and identical cache keys.
     pub name: String,
     pub abs_path: PathBuf,
-    pub text: String,
+    pub text: SourceText,
     /// Byte offset of the start of each line, found the first time a line is
     /// asked for. Most files a build reads report nothing, and never are.
     line_starts: std::sync::OnceLock<Vec<u32>>,
 }
 
 impl SourceFile {
-    pub(crate) fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
+    pub(crate) fn new(name: String, abs_path: PathBuf, text: SourceText) -> SourceFile {
         SourceFile {
             name,
             abs_path,
@@ -838,7 +879,7 @@ impl Default for SourceMap {
             missing: Arc::new(SourceFile::new(
                 "<none>".to_string(),
                 PathBuf::new(),
-                String::new(),
+                SourceText::default(),
             )),
             shared: None,
         }
@@ -867,13 +908,18 @@ impl SourceMap {
         copy
     }
 
-    pub fn add(&mut self, name: impl Into<String>, abs_path: PathBuf, text: String) -> FileId {
+    pub fn add(
+        &mut self,
+        name: impl Into<String>,
+        abs_path: PathBuf,
+        text: impl Into<SourceText>,
+    ) -> FileId {
         let id = FileId(self.files.len() as u32);
         let name = name.into();
         self.shared = None;
         self.by_name.insert(name.clone(), id);
         self.files
-            .push(Arc::new(SourceFile::new(name, abs_path, text)));
+            .push(Arc::new(SourceFile::new(name, abs_path, text.into())));
         id
     }
 
@@ -972,7 +1018,7 @@ impl SourceMap {
         for (i, slot) in self.files.iter_mut().enumerate() {
             if let Some(text) = texts.remove(&FileId(i as u32)) {
                 let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
-                *slot = Arc::new(SourceFile::new(name, abs_path, text));
+                *slot = Arc::new(SourceFile::new(name, abs_path, text.into()));
             }
         }
         self.shared = None;
@@ -1012,6 +1058,11 @@ impl SourceMap {
     }
 
     pub fn text(&self, id: FileId) -> &str {
+        &self.get(id).text
+    }
+
+    /// [`SourceMap::text`], for a holder that keeps it: the syntax tree.
+    pub fn shared_text(&self, id: FileId) -> &SourceText {
         &self.get(id).text
     }
 
@@ -1371,8 +1422,8 @@ pub fn standard_file(index: usize) -> &'static SourceFile {
     static FILES: [std::sync::OnceLock<SourceFile>; MODULES.len()] =
         [const { std::sync::OnceLock::new() }; MODULES.len()];
     static MISSING: std::sync::OnceLock<SourceFile> = std::sync::OnceLock::new();
-    let new = |name: &str, text: &str| {
-        SourceFile::new(name.to_string(), PathBuf::new(), text.to_string())
+    let new = |name: &str, text: &'static str| {
+        SourceFile::new(name.to_string(), PathBuf::new(), text.into())
     };
     match (FILES.get(index), MODULES.get(index)) {
         (Some(slot), Some(m)) => slot.get_or_init(|| new(m.path, m.source)),

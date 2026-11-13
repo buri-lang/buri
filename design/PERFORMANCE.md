@@ -9649,6 +9649,33 @@ What is left of the copies and drops:
   a second time, and the LLVM backend's `classifier` walks every body after
   lowering.
 
+### 6.130 Parsing writes less fresh memory, 2026-11-12
+
+Under callgrind, a write to memory nothing had touched yet is a last-level
+miss, and parsing wrote a lot of it. These cuts each remove some:
+
+- The syntax tree shares the source map's text (`SourceText`) instead of
+  copying the file into an `Arc<str>`.
+- The standard library's text is the binary's own `&'static str`, not a
+  `String` copied from it once a process.
+- A thread's next `Tokens` lexes into the record and cooked-string buffers its
+  last one dropped, which are warm.
+- The tree's literal tables are sized from what the lexer read, the trivia
+  table for a comment every 200 bytes, and the arenas for the densest goals
+  workspace. `monorepo` writes 0.32 expression nodes a token, and the old
+  reserve of 0.28 made three files in four grow theirs.
+
+On the arm64 VM, the parse rows fell: `ci` by 2.0% (instructions) and 10.4%
+(cost), `monorepo-ci` by 1.1% and 8.8%, and its test build by 1.1% and 8.8%.
+The rows were tightened to those figures. The check rows rose 0.3% to 0.5%:
+reading a `SourceText` branches on where the text lives, and goes through the
+`Arc` to the `String`.
+
+`loading.rs`'s `files_read_after_a_large_one_keep_their_own_text_and_literals`
+reads a large file of integers and escaped strings, then small ones. It checks
+each file's own literals print, and a syntax error in a small file quotes its
+own line.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

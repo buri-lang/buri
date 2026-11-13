@@ -48,7 +48,13 @@ pub struct Loader<'a> {
     resolved: HashMap<String, std::rc::Rc<Result<ModuleLocation, String>>>,
     /// Files read and parsed ahead of the walk, by their path from the
     /// repository root — see [`Loader::prefetch`].
-    prefetched: HashMap<String, (String, crate::parsing::parser::Parsed)>,
+    prefetched: HashMap<
+        String,
+        (
+            crate::diagnostics::SourceText,
+            crate::parsing::parser::Parsed,
+        ),
+    >,
     /// Each module's re-exports not loaded yet: none for a module outside
     /// the standard library, whose re-exports don't wait. See
     /// [`Loader::load_imports`].
@@ -402,7 +408,7 @@ impl<'a> Loader<'a> {
             None => self.map.add(path.to_string(), PathBuf::new(), text),
         };
         let bodyless = matches!(role, Role::Std | Role::Platform);
-        let (ast, errors) = self.cache.parse(self.map.text(file), file, bodyless);
+        let (ast, errors) = self.cache.parse(self.map.shared_text(file), file, bodyless);
         self.diags.extend(errors.iter().cloned());
         let id = self.modules.push(|id| ModuleData {
             id,
@@ -664,7 +670,7 @@ impl<'a> Loader<'a> {
             return Some(id);
         }
         let file = self.map.standard(index);
-        let (ast, errors) = self.cache.parse(self.map.text(file), file, true);
+        let (ast, errors) = self.cache.parse(self.map.shared_text(file), file, true);
         self.diags.extend(errors.iter().cloned());
         let role = if standard_library::is_platform_module(path) {
             Role::Platform
@@ -814,7 +820,7 @@ impl<'a> Loader<'a> {
                 }
                 self.cache.adopt(file, parsed)
             }
-            None => self.cache.parse(self.map.text(file), file, bodyless),
+            None => self.cache.parse(self.map.shared_text(file), file, bodyless),
         };
         self.diags.extend(errors.iter().cloned());
 
@@ -971,11 +977,11 @@ impl<'a> Loader<'a> {
         }
         let one = |i: usize| {
             let (disk, _, bodyless) = wanted.get(i)?;
-            let text = SourceMap::read(disk).ok()?;
+            let text = crate::diagnostics::SourceText::from(SourceMap::read(disk).ok()?);
             let parsed = if *bodyless {
-                crate::parsing::parser::parse_stdlib(&text, UNFILED)
+                crate::parsing::parser::parse_stdlib_shared(&text, UNFILED)
             } else {
-                crate::parsing::parser::parse(&text, UNFILED)
+                crate::parsing::parser::parse_shared(&text, UNFILED)
             };
             Some((text, parsed))
         };

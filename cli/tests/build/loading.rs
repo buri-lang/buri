@@ -152,6 +152,74 @@ fn modules_read_side_by_side_load_as_they_would_one_at_a_time() {
         .says("wide/main.buri:7:6");
 }
 
+/// `//lits`, whose `main.buri` prints what `g0()` and `f0()` to `f3()`
+/// return, one a line. `m0.buri` is large: 3,000 pairs of functions, one
+/// returning an integer and one an escaped string. `small(i)` writes
+/// `m1.buri` to `m3.buri`.
+fn large_then_small(small: impl Fn(usize) -> String) -> Scratch {
+    let scratch = Scratch::repo("loading-lits");
+    scratch.write("lits/BUILD.buri", JS_BINARY);
+    let mut large = String::new();
+    for j in 0..3000 {
+        large.push_str(&format!(
+            "export fn k{j}(): Int {{\n    {j}000\n}}\n\
+             export fn s{j}(): Str {{\n    \"large \\\"{j}\\\" \\u{{e9}}\"\n}}\n"
+        ));
+    }
+    large
+        .push_str("export fn f0(): Str {\n    s2999()\n}\nexport fn g0(): Int {\n    k2999()\n}\n");
+    scratch.write("lits/m0.buri", &large);
+    let mut imports = String::from("from \"//lits/m0.buri\" import { g0 };\n");
+    let mut prints = String::from("    let _ = io.println(ctx, \"${g0()}\").ignore();\n");
+    for i in 0..4 {
+        if i > 0 {
+            scratch.write(&format!("lits/m{i}.buri"), &small(i));
+        }
+        imports.push_str(&format!("from \"//lits/m{i}.buri\" import {{ f{i} }};\n"));
+        prints.push_str(&format!("    let _ = io.println(ctx, f{i}()).ignore();\n"));
+    }
+    scratch.write(
+        "lits/main.buri",
+        &format!(
+            "from \"node\" import {{ NodeHost }};\n\
+             from \"platform/effect\" import {{ Stdout }};\n\
+             from \"core/io\" import * as io;\n{imports}\n\
+             export fn main(host: NodeHost): Result<(), Str> {{\n    \
+             let ctx = context {{ Stdout: host.stdout }};\n{prints}    \
+             .Ok(())\n}}\n"
+        ),
+    );
+    scratch
+}
+
+fn small_string(i: usize) -> String {
+    format!("export fn f{i}(): Str {{\n    \"small \\\"{i}\\\"\"\n}}\n")
+}
+
+/// **Each file keeps its own text and literals**, read after a much larger
+/// one: the program prints every file's own integers and strings, and a
+/// syntax error in a small file is reported at its place there, quoting its
+/// own line.
+#[test]
+fn files_read_after_a_large_one_keep_their_own_text_and_literals() {
+    let scratch = large_then_small(small_string);
+    scratch.run(&["build", "//lits"]).ok();
+    let run = scratch.exec_js("lits");
+    run.ok();
+    assert_eq!(
+        run.stdout,
+        "2999000\nlarge \"2999\" é\nsmall \"1\"\nsmall \"2\"\nsmall \"3\"\n"
+    );
+
+    let broken = large_then_small(|i| match i {
+        2 => "export fn f2(: Str {\n    \"two\"\n}\n".to_string(),
+        _ => small_string(i),
+    });
+    let run = broken.run(&["build", "//lits"]);
+    run.exits(1);
+    run.says("lits/m2.buri:1:14").says("export fn f2(: Str {");
+}
+
 // ---------------------------------------------------------------------------
 // What parsing and loading cost a line, on every pinned shape
 // ---------------------------------------------------------------------------

@@ -4529,7 +4529,9 @@ fn left_out(
             return None;
         }
         let file = session.map.load(&found.rel, &found.file).ok()?;
-        let (ast, errors) = session.parsed.parse(session.map.text(file), file, false);
+        let (ast, errors) = session
+            .parsed
+            .parse(session.map.shared_text(file), file, false);
         if !errors.is_empty() {
             return None;
         }

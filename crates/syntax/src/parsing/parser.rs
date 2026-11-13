@@ -19,7 +19,7 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
-use crate::diagnostics::{Diagnostic, FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, SourceText, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId, FieldPatData,
     InitData, Kind, LambdaParamData, List, Location, PartData, PatId, PatPayloadData, PatternKind,
@@ -72,14 +72,14 @@ impl Cache {
     /// the file's role, which does not change between calls for one file.
     pub fn parse(
         &mut self,
-        text: &str,
+        text: &SourceText,
         file: FileId,
         allow_bodyless: bool,
     ) -> (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>) {
         if let Some(hit) = self.entries.get(&file) {
             return hit.clone();
         }
-        let parsed = parse_with(text, file, allow_bodyless);
+        let parsed = parse_inner(text, text.clone(), file, allow_bodyless).0;
         let entry = (
             std::sync::Arc::new(parsed.module),
             std::sync::Arc::new(parsed.errors),
@@ -139,14 +139,42 @@ pub struct Kept<'a> {
 
 /// [`parse`] or [`parse_stdlib`], keeping what the lexer said.
 pub fn parse_kept(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<'_>) {
-    parse_inner(text, file, allow_bodyless)
+    parse_inner(
+        text,
+        SourceText::from(text.to_owned()),
+        file,
+        allow_bodyless,
+    )
+}
+
+/// [`parse`] of text held elsewhere, which the tree shares rather than copies.
+pub fn parse_shared(text: &SourceText, file: FileId) -> Parsed {
+    parse_inner(text, text.clone(), file, false).0
+}
+
+/// [`parse_stdlib`] of text held elsewhere, which the tree shares rather than
+/// copies.
+pub fn parse_stdlib_shared(text: &SourceText, file: FileId) -> Parsed {
+    parse_inner(text, text.clone(), file, true).0
 }
 
 fn parse_with(text: &str, file: FileId, allow_bodyless: bool) -> Parsed {
-    parse_inner(text, file, allow_bodyless).0
+    parse_inner(
+        text,
+        SourceText::from(text.to_owned()),
+        file,
+        allow_bodyless,
+    )
+    .0
 }
 
-fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<'_>) {
+/// `shared` holds `text`, for the tree.
+fn parse_inner(
+    text: &str,
+    shared: SourceText,
+    file: FileId,
+    allow_bodyless: bool,
+) -> (Parsed, Kept<'_>) {
     let lexed = lex(text, file);
     if buri_diagnostics::profile::enabled() {
         let tokens = &lexed.tokens;
@@ -159,8 +187,10 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
     let mut p = Parser {
         src: text,
         tree: {
-            let mut tree = Tree::new(file, text, lexed.tokens.len());
+            let mut tree = Tree::new(file, shared, lexed.tokens.len());
             tree.adopt_docs(lexed.docs);
+            let (ints, strs, cooked) = lexed.tokens.literals();
+            tree.reserve_literals(ints, strs, cooked);
             tree
         },
         scratch: Scratch::sized(),

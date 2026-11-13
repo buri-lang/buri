@@ -11,6 +11,8 @@
 //!   so a `}` closing a block inside a hole is told apart from the `}` that
 //!   resumes template text by which of the two is on top.
 
+use std::cell::Cell;
+
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{Docs, Location};
 
@@ -735,6 +737,51 @@ const _: () = assert!(std::mem::size_of::<Record>() == 12);
 /// data on a token again.
 const _: () = assert!(std::mem::size_of::<Token<'_>>() == 32);
 
+thread_local! {
+    /// The buffers of the last [`Tokens`] this thread dropped, which the next
+    /// one lexes into.
+    ///
+    /// A build lexes a file, parses it and drops its tokens, one file after
+    /// another, while the trees it keeps grow. So buffers of its own for each
+    /// file were always memory nothing had touched yet, three times the size
+    /// of the file: a cache miss for every line of it written, and a page
+    /// fault for every page. The one set is as large as the largest file this
+    /// thread has lexed, up to [`SPARE_BYTES`] a buffer, and is warm.
+    static SPARE: Cell<Spare> = const {
+        Cell::new(Spare {
+            records: Vec::new(),
+            cooked: String::new(),
+        })
+    };
+}
+
+#[derive(Default)]
+struct Spare {
+    records: Vec<Record>,
+    cooked: String,
+}
+
+/// The most a spare buffer keeps: the records of a 4 MiB file. A larger one is
+/// freed, so a long-lived process that once lexed a huge file doesn't hold its
+/// buffers for good.
+const SPARE_BYTES: usize = 12 << 20;
+
+/// Hands the buffers to the next file this thread lexes.
+impl Drop for Tokens<'_> {
+    fn drop(&mut self) {
+        let keep = |bytes: usize| bytes <= SPARE_BYTES;
+        let mut spare = Spare::default();
+        if keep(self.records.capacity().saturating_mul(size_of::<Record>())) {
+            spare.records = std::mem::take(&mut self.records);
+        }
+        if keep(self.cooked.capacity()) {
+            spare.cooked = std::mem::take(&mut self.cooked);
+        }
+        // A thread that is exiting has no spare to keep: the buffers are freed.
+        let _ = SPARE.try_with(|slot| slot.set(spare));
+    }
+}
+
 impl<'a> Tokens<'a> {
     fn new(src: &'a str, file: FileId) -> Tokens<'a> {
         // Buri source runs about four bytes to the token, comments included,
@@ -743,14 +790,28 @@ impl<'a> Tokens<'a> {
         // The side tables follow the goals workspace (§6.101): a token in 27
         // is an integer, one in 64 a string, and a string cooks to 5 bytes.
         let n = src.len().wrapping_div(4).saturating_add(1);
+        let Spare {
+            mut records,
+            mut cooked,
+        } = SPARE.try_with(Cell::take).unwrap_or_default();
+        // A buffer too small is replaced rather than grown, which would copy
+        // all of it for nothing.
+        if records.capacity() < n {
+            records = Vec::with_capacity(n);
+        }
+        records.clear();
+        if cooked.capacity() < n / 12 {
+            cooked = String::with_capacity(n / 12);
+        }
+        cooked.clear();
         Tokens {
             src,
             file,
-            records: Vec::with_capacity(n),
+            records,
             wide: Vec::new(),
             ints: Vec::with_capacity(n / 32),
             floats: Vec::new(),
-            cooked: String::with_capacity(n / 12),
+            cooked,
             strs: Vec::with_capacity(n / 64),
             unterminated: Vec::new(),
         }
@@ -836,6 +897,12 @@ impl<'a> Tokens<'a> {
 
     pub fn float(&self, i: usize) -> f64 {
         self.floats.get(self.pay(i)).copied().unwrap_or(0.0)
+    }
+
+    /// How many integers and strings were read, and the bytes the strings
+    /// cooked to.
+    pub fn literals(&self) -> (usize, usize, usize) {
+        (self.ints.len(), self.strs.len(), self.cooked.len())
     }
 
     /// The cooked text of a string literal or template segment.
@@ -1018,8 +1085,9 @@ pub fn lex(text: &str, file: FileId) -> Lexed<'_> {
         file,
         tokens: Tokens::new(text, file),
         // A file whose every declaration is documented writes a run of
-        // comments every few hundred bytes: sized for that, not grown to it.
-        trivia: Vec::with_capacity(text.len() / 512),
+        // comments every couple of hundred bytes, as the goals workspace
+        // does: sized for that, not grown to it.
+        trivia: Vec::with_capacity(text.len() / 200),
         errors: Vec::new(),
         holes: Vec::new(),
         has_trivia: false,

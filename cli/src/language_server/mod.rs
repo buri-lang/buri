@@ -2528,7 +2528,7 @@ fn moved_finding(
         None => {
             let text = match &input {
                 Some(at) => at.text(session)?,
-                None => session.map.get(span.file).text.clone(),
+                None => session.map.text(span.file).to_owned(),
             };
             // The secondary spans are offsets into the generated text and would
             // land anywhere in the file this is going to, so they go. The `fix`

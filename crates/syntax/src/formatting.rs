@@ -335,6 +335,7 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // is sorted and a comment travels with the import it sits above.
     let tree = &check.module.tree;
     let mut afterwards = shapes_of(&out, &kept, |d| tree.doc_lines(d));
+    drop(kept);
     before.sort();
     afterwards.sort();
     if before != afterwards {

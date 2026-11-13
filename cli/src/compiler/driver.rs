@@ -505,7 +505,7 @@ pub fn shared(
         if crate::compiler::standard_library::find(&m.path).is_some() {
             continue;
         }
-        let (_, errors) = cache.parse(map.text(m.file), m.file, false);
+        let (_, errors) = cache.parse(map.shared_text(m.file), m.file, false);
         parse_errors.extend(errors.iter().map(said));
     }
     if !loading

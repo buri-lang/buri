@@ -45,9 +45,7 @@
 //! the one exhaustive `match` that builds a view, where the test suite finds
 //! it immediately.
 
-use std::sync::Arc;
-
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, SourceText, Span};
 use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
@@ -570,14 +568,12 @@ pub struct Tree {
     file: FileId,
     /// The text the spans index.
     ///
-    /// The tree owns it because an identifier's text is now `src[span]` and
-    /// `parse(text: &str, file)` is called with temporaries at six sites whose
-    /// signature may not change — so a borrow is out and an `Arc<str>` is one
-    /// allocation and one memcpy of the file against the ~2 600 `String`s per
-    /// thousand lines it deletes. `Arc` rather than `Box` so that the day the
-    /// `SourceMap` learns to hand its text out shared, `parse` can take one
-    /// and the copy goes away without any other change.
-    src: Arc<str>,
+    /// The tree holds it because an identifier's text is `src[span]`. It is
+    /// the source map's own text, shared rather than copied: a copy was a
+    /// second write of every byte a build reads, into memory nothing had
+    /// touched yet. A caller with only a `&str` pays that copy once, in
+    /// [`parse`](crate::parsing::parser::parse).
+    src: SourceText,
 
     nodes: Vec<Node>,
     /// Parallel to `nodes`. Split out rather than folded in because span-only
@@ -645,7 +641,7 @@ pub struct Tree {
 
 impl Default for Tree {
     fn default() -> Tree {
-        Tree::new(FileId(0), "", 0)
+        Tree::new(FileId(0), SourceText::default(), 0)
     }
 }
 
@@ -673,52 +669,54 @@ impl Tree {
     /// everything written so far for each doubling, while a documented one
     /// held capacity it never used.
     ///
-    /// Each figure is what the `mixed` corpus writes per token, rounded up by
-    /// about a tenth: 0.26 expression nodes, 0.09 names, 0.08 types, 0.05
-    /// patterns and so on down. A file denser than that grows an arena once;
-    /// one sparser holds a tenth more than it needs rather than half. The
-    /// declaration lists follow the same rule: 0.023 parameters and 0.010
-    /// generics per token. So do the small arenas a typical file still
-    /// writes to — struct literal fields, lambda parameters, template parts,
-    /// declared fields, variants, methods and specs, one entry per 145 to 555
-    /// tokens — since growing one from empty costs a handful of copies per
-    /// file (§6.101). Arenas that only some files touch, such as `context`
-    /// bindings, start empty.
-    pub fn new(file: FileId, src: &str, tokens: usize) -> Tree {
+    /// Each figure is the most any of the goals workspaces (`ci`, `full` and
+    /// `monorepo`) writes per token, rounded up by about a tenth: 0.32
+    /// expression nodes, 0.10 child links, 0.09 names, 0.09 types, 0.05
+    /// patterns and so on down. A file denser than that grows an arena once,
+    /// which copies all of it; capacity a sparser one never writes costs
+    /// nothing but address space. The declaration lists follow the same rule:
+    /// 0.028 parameters and 0.011 generics per token. So do the small arenas a
+    /// typical file still writes to — struct literal fields, lambda
+    /// parameters, template parts, declared fields, variants, methods and
+    /// specs, one entry per 40 to 250 tokens — since growing one from empty
+    /// costs a handful of copies per file (§6.101). Arenas that only some
+    /// files touch, such as `context` bindings, start empty, and the literal
+    /// tables are sized by [`Tree::reserve_literals`] from what the lexer read.
+    pub fn new(file: FileId, src: SourceText, tokens: usize) -> Tree {
         let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
             file,
-            src: Arc::from(src),
-            nodes: Vec::with_capacity(per(9, 32)),
-            spans: Vec::with_capacity(per(9, 32)),
+            src,
+            nodes: Vec::with_capacity(per(7, 20)),
+            spans: Vec::with_capacity(per(7, 20)),
             pnodes: Vec::with_capacity(per(1, 18)),
             pspans: Vec::with_capacity(per(1, 18)),
-            kids: Vec::with_capacity(per(1, 16)),
+            kids: Vec::with_capacity(per(1, 9)),
             pkids: Vec::with_capacity(per(1, 40)),
-            tkids: Vec::with_capacity(per(1, 36)),
+            tkids: Vec::with_capacity(per(1, 29)),
             names: Vec::with_capacity(per(1, 10)),
             blocks: Vec::with_capacity(per(1, 40)),
-            stmts: Vec::with_capacity(per(1, 56)),
+            stmts: Vec::with_capacity(per(1, 50)),
             arms: Vec::with_capacity(per(1, 80)),
-            inits: Vec::with_capacity(per(1, 130)),
+            inits: Vec::with_capacity(per(1, 38)),
             fpats: Vec::new(),
             lparams: Vec::with_capacity(per(1, 220)),
             parts: Vec::with_capacity(per(1, 135)),
             ctxb: Vec::new(),
             ctxbind: Vec::new(),
             ppay: Vec::with_capacity(per(1, 96)),
-            types: Vec::with_capacity(per(1, 12)),
-            ints: Vec::with_capacity(per(1, 28)),
+            types: Vec::with_capacity(per(1, 10)),
+            ints: Vec::new(),
             floats: Vec::new(),
-            cooked: String::with_capacity(per(1, 20)),
-            strs: Vec::with_capacity(per(1, 90)),
-            generics: Vec::with_capacity(per(1, 90)),
-            params: Vec::with_capacity(per(1, 40)),
-            fields: Vec::with_capacity(per(1, 190)),
+            cooked: String::new(),
+            strs: Vec::new(),
+            generics: Vec::with_capacity(per(1, 82)),
+            params: Vec::with_capacity(per(1, 32)),
+            fields: Vec::with_capacity(per(1, 145)),
             tfields: Vec::new(),
             variants: Vec::with_capacity(per(1, 220)),
-            methods: Vec::with_capacity(per(1, 500)),
-            specs: Vec::with_capacity(per(1, 250)),
+            methods: Vec::with_capacity(per(1, 220)),
+            specs: Vec::with_capacity(per(1, 87)),
             docs: Vec::new(),
         }
     }
@@ -727,10 +725,6 @@ impl Tree {
 
     pub fn file(&self) -> FileId {
         self.file
-    }
-
-    pub fn source(&self) -> &Arc<str> {
-        &self.src
     }
 
     /// The text under a location. Empty if it does not describe one — every
@@ -1537,6 +1531,14 @@ impl Tree {
             }
             at(&mut s.span);
         }
+    }
+
+    /// Room for the literals the lexer read: the parser copies each one here
+    /// at most once.
+    pub fn reserve_literals(&mut self, ints: usize, strs: usize, cooked: usize) {
+        self.ints.reserve_exact(ints);
+        self.strs.reserve_exact(strs);
+        self.cooked.reserve_exact(cooked);
     }
 
     /// Take the lexer's doc comment lines as this tree's. A [`Docs`] the

@@ -8,17 +8,17 @@ aarch64 ci check cost                                        7973.2
 aarch64 ci check instructions                                4899.1
 aarch64 ci dev-codegen cost                                 89305.2
 aarch64 ci dev-codegen instructions                         54835.7
-aarch64 ci parse cost                                        2501.0
-aarch64 ci parse instructions                                1669.1
+aarch64 ci parse cost                                        2241.2
+aarch64 ci parse instructions                                1635.2
 aarch64 monorepo-ci check cost                              12758.3
 aarch64 monorepo-ci check instructions                       7618.4
 aarch64 monorepo-ci dev-codegen cost                        35795.8
 aarch64 monorepo-ci dev-codegen instructions                22835.8
-aarch64 monorepo-ci parse cost                               3166.5
-aarch64 monorepo-ci parse instructions                       2130.4
+aarch64 monorepo-ci parse cost                               2886.7
+aarch64 monorepo-ci parse instructions                       2106.6
 aarch64 monorepo-ci test-build check cost                   14398.5
 aarch64 monorepo-ci test-build check instructions            8665.7
 aarch64 monorepo-ci test-build dev-codegen cost             35819.9
 aarch64 monorepo-ci test-build dev-codegen instructions     23804.4
-aarch64 monorepo-ci test-build parse cost                    3171.3
-aarch64 monorepo-ci test-build parse instructions            2130.8
+aarch64 monorepo-ci test-build parse cost                    2891.7
+aarch64 monorepo-ci test-build parse instructions            2106.7
