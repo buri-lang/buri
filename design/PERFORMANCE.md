@@ -9751,8 +9751,9 @@ less work: the lines it drops lowered cheaply. On the arm64 VM:
 | `ci` dev-codegen instructions | 54806.8 | 57355.9 (+4.7%) |
 | `ci` dev-codegen cost | 88993.0 | 92853.4 (+4.3%) |
 
-The user approved raising those two baseline rows for this change only. The
-`monorepo-ci` rows and every parse and check row stayed within their gates.
+The user approved setting the dev-codegen baseline rows to what this change
+measured, for this change only: each row holds the higher of CI's figure and
+the VM's. Every parse and check row stayed within its gate.
 
 ## 7. Profiling, on this platform
 
