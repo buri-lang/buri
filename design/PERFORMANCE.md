@@ -9910,7 +9910,8 @@ On the arm64 VM, from e6a4fbe60 to this section:
 `ui_literals_checked_where_no_node_reaches` covers an image and a stack in
 a helper nothing calls and a constant nothing reads.
 
-The check rows hold the VM's figure.
+The check rows hold the VM's figure, CI's being lower. The three dev-codegen
+cost rows hold the higher of CI's from e6f2b8ae6 and the VM's.
 
 ## 7. Profiling, on this platform
 
