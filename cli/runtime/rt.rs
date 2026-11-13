@@ -4875,6 +4875,9 @@ mod tests {
         let _alone = alone();
         let _burners = Burners::start();
         let released = Arc::new(AtomicBool::new(false));
+        // The steps poll it with plain loads, and on arm64 its `SeqCst` store
+        // is a plain store too, which helgrind doesn't order.
+        valgrind::atomic(&*released);
         unsafe extern "C" fn hold(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
             // SAFETY: `state` is the flag, which outlives the call.
             let released = unsafe { &*state.cast::<AtomicBool>() };
@@ -5635,22 +5638,50 @@ mod tests {
         assert_eq!(answer, (0..=DEPTH).sum::<u64>());
     }
 
+    /// A task's first frames start more than 512 bytes below the top of the
+    /// stack it runs on, so Valgrind can walk them.
+    ///
+    /// Valgrind's arm64 unwinder gives up on any frame within 512 bytes of its
+    /// stack's top and reports that frame alone. A race filed against a lone
+    /// frame names no caller, so the Races check can't tell whose it is.
+    #[test]
+    fn a_task_starts_far_enough_below_its_stack_top_to_be_unwound() {
+        use crate::memory::BURI_RT_STACK_BYTES;
+        let _alone = alone();
+        let gap = on_thread(|| {
+            let here = std::hint::black_box(0u8);
+            let here = std::ptr::addr_of!(here) as usize;
+            // SAFETY: the task on this thread is this one, and its stack is
+            // set for as long as it runs.
+            let base = unsafe { *(*running()).stack.get() } as usize;
+            base + BURI_RT_STACK_BYTES - here
+        })
+        .join()
+        .expect("the task did not finish");
+        assert!(gap > 512, "the task's frame is {gap} bytes below its top");
+    }
+
     /// The two mappings a task is given are the two the constants name, and
     /// the machine one is writable at both ends of its usable range.
     ///
     /// The guard is **not** written to here — it is `PROT_NONE`, so a test
     /// that touched it would be a signal rather than a failure. What is
     /// asserted is its geometry: the usable range starts a whole guard above
-    /// the base and runs to the top, which is where a downward-growing stack
-    /// starts and where `switch::prepare` puts its frame.
+    /// the base and runs to the top, less the room left for Valgrind's
+    /// unwinder. That is where a downward-growing stack starts and where
+    /// `switch::prepare` puts its frame.
     #[test]
     fn a_task_machine_stack_is_guarded_at_the_end_it_grows_towards() {
         use crate::memory::{
-            BURI_RT_STACK_ALIGN, BURI_RT_STACK_BYTES, BURI_RT_STACK_GUARD, BURI_RT_STACK_USABLE,
-            buri_rt_task_stack_acquire, buri_rt_task_stack_release,
+            BURI_RT_STACK_ALIGN, BURI_RT_STACK_BYTES, BURI_RT_STACK_GUARD,
+            BURI_RT_STACK_UNWIND_ROOM, BURI_RT_STACK_USABLE, buri_rt_task_stack_acquire,
+            buri_rt_task_stack_release,
         };
         let (base, top) = buri_rt_task_stack_acquire();
-        assert_eq!(top as usize - base as usize, BURI_RT_STACK_BYTES);
+        assert_eq!(
+            top as usize - base as usize,
+            BURI_RT_STACK_BYTES - BURI_RT_STACK_UNWIND_ROOM
+        );
         assert!((base as usize).is_multiple_of(BURI_RT_STACK_ALIGN));
         assert!(
             (top as usize).is_multiple_of(16),
@@ -5664,7 +5695,10 @@ mod tests {
             top.sub(1).write(0xa5);
             assert_eq!(low.read(), 0x5a);
             assert_eq!(top.sub(1).read(), 0xa5);
-            assert_eq!(top as usize - low as usize, BURI_RT_STACK_USABLE);
+            assert_eq!(
+                top as usize - low as usize,
+                BURI_RT_STACK_USABLE - BURI_RT_STACK_UNWIND_ROOM
+            );
         }
         // SAFETY: nothing is running on it.
         unsafe { buri_rt_task_stack_release(base) };

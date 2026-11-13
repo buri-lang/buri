@@ -5148,8 +5148,21 @@ pub extern "C" fn buri_rt_task_stacks_peak() -> u64 {
     TASK_STACKS_PEAK.load(Ordering::Relaxed) as u64
 }
 
-/// A machine stack for a task, and the address of its **top** — the high end,
-/// which is where a downward-growing stack starts.
+/// The bytes left unused at the top of a task stack: 512.
+///
+/// Valgrind's arm64 unwinder reports any frame within 512 bytes of its
+/// stack's top on its own, without its callers. A task's first frames would
+/// sit there, so a race in one of them would name no caller.
+pub(crate) const BURI_RT_STACK_UNWIND_ROOM: usize = 512;
+
+/// Where a task stack mapped at `base` starts: [`BURI_RT_STACK_UNWIND_ROOM`]
+/// below its high end, which keeps it sixteen-byte aligned.
+fn task_stack_start(base: *mut u8) -> *mut u8 {
+    base.wrapping_add(BURI_RT_STACK_BYTES - BURI_RT_STACK_UNWIND_ROOM)
+}
+
+/// A machine stack for a task, and the address its frames start at, near the
+/// high end, since the stack grows down.
 ///
 /// The pair `(base, top)`: `base` is what [`buri_rt_task_stack_release`] takes
 /// back, and `top` is what `switch::prepare` builds a frame at.
@@ -5157,7 +5170,7 @@ pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
     let live = TASK_STACKS_LIVE.fetch_add(1, Ordering::Relaxed) + 1;
     TASK_STACKS_PEAK.fetch_max(live, Ordering::Relaxed);
     let base = map_task_stack();
-    (base, base.wrapping_add(BURI_RT_STACK_BYTES))
+    (base, task_stack_start(base))
 }
 
 /// Run `program` on a machine stack of its own, [`BURI_RT_STACK_USABLE`] deep,
@@ -5185,9 +5198,9 @@ pub(crate) fn buri_rt_task_stack_acquire() -> (*mut u8, *mut u8) {
 /// `program` is safe to call with no arguments.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_main_on_stack(program: extern "C" fn() -> i32) -> i32 {
-    let top = map_task_stack().wrapping_add(BURI_RT_STACK_BYTES);
+    let top = task_stack_start(map_task_stack());
     let answer: u64;
-    // SAFETY: `top` is the sixteen-byte-aligned high end of a mapping nothing
+    // SAFETY: `top` is the sixteen-byte-aligned start of a mapping nothing
     // else runs on, with its guard at the low end. The old stack pointer is
     // saved on the new stack and restored from it, so the block leaves `sp` as
     // it found it, and `clobber_abi` names every register the call may change.
@@ -5577,7 +5590,10 @@ mod tests {
                 (base as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
                 "a task was handed a stack at {base:p}, which is not 16 KiB aligned"
             );
-            assert_eq!(top as usize - base as usize, BURI_RT_STACK_BYTES);
+            assert_eq!(
+                top as usize - base as usize,
+                BURI_RT_STACK_BYTES - BURI_RT_STACK_UNWIND_ROOM
+            );
             // SAFETY: `[base + GUARD, top)` is the usable range the mapping
             // left readable and writable; the guard is below it and untouched.
             unsafe {
@@ -5605,11 +5621,14 @@ mod tests {
         let tail = (BURI_RT_STACK_USABLE - BURI_RT_STACK_WARM) as u64;
 
         let before = decommitted();
-        let (base, top) = buri_rt_task_stack_acquire();
-        // SAFETY: the 64 bytes just below the retained prefix, in the usable
-        // range, on a stack nothing runs on. A deep task's frames write
-        // through them on the way down.
-        unsafe { top.sub(BURI_RT_STACK_WARM + 64).write_bytes(7, 64) };
+        let (base, _) = buri_rt_task_stack_acquire();
+        // SAFETY: the 64 bytes just below the retained prefix, which is at the
+        // mapping's high end, in the usable range, on a stack nothing runs on.
+        // A deep task's frames write through them on the way down.
+        unsafe {
+            base.add(BURI_RT_STACK_BYTES - BURI_RT_STACK_WARM - 64)
+                .write_bytes(7, 64)
+        };
         // SAFETY: nothing is running on it.
         unsafe { buri_rt_task_stack_release(base) };
         assert!(
