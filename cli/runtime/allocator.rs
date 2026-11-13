@@ -108,8 +108,18 @@ static RELEASED: [AtomicU32; RANGE / PAGE] = {
 };
 static RELEASED_TOP: AtomicUsize = AtomicUsize::new(0);
 
-/// The installed allocator.
+/// The toolchain's installed allocator, and the type this file's tests use.
 pub struct Allocator;
+
+/// A compiled program's installed allocator: [`Allocator`], for code whose
+/// stack frames move between threads.
+///
+/// A task that parks can wake on another thread, and the frames on its stack
+/// carry on there. The compiler reads the thread pointer once per function and
+/// keeps it, so a frame that reached [`HEAP`] before the move would reach the
+/// old thread's heap after it, and both threads would take blocks off one free
+/// list. Here every lookup is a call of its own ([`this_heap`]).
+pub struct TaskAllocator;
 
 #[repr(C, align(128))]
 struct Page {
@@ -348,8 +358,35 @@ fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
     page.cast()
 }
 
+/// The calling thread's heap: null until its first small allocation, then its
+/// heap or `SYSTEM`.
+///
+/// Where `FRAMES_MOVE`, through [`heap_here`], a call no caller can see into.
+/// The caller may be a frame on a task's stack, and the thread under it may
+/// change at any call it makes. A thread-local read inline is a read of the
+/// thread pointer, which the compiler is entitled to take once per function and
+/// keep across those calls.
+#[inline(always)]
+fn this_heap<const FRAMES_MOVE: bool>() -> *mut Heap {
+    if FRAMES_MOVE {
+        heap_here()
+    } else {
+        HEAP.try_with(Cell::get).unwrap_or(SYSTEM)
+    }
+}
+
+/// [`this_heap`], out of line.
+#[inline(never)]
+fn heap_here() -> *mut Heap {
+    HEAP.try_with(Cell::get).unwrap_or(SYSTEM)
+}
+
 /// The calling thread's heap, adopted or made, or `SYSTEM`.
+///
+/// Out of line, so its thread-local reads happen in its own frame
+/// ([`this_heap`]).
 #[cold]
+#[inline(never)]
 fn start_thread() -> *mut Heap {
     // Registering the exit hook may allocate, and that allocation comes from the system.
     let _ = HEAP.try_with(|h| h.set(SYSTEM));
@@ -704,18 +741,17 @@ impl Allocator {
     }
 }
 
-// SAFETY: a block of class `c` is `SIZES[c]` bytes at 16-byte alignment, from a
-// page in the range or from the system, and is handed out once until it's freed
-// again. A block in the range goes back to its page; one outside it goes back to
-// the system with the layout it was allocated with.
-unsafe impl GlobalAlloc for Allocator {
+// The allocator's four operations, for either of the two installed types: what
+// `FRAMES_MOVE` changes is only how each finds the calling thread's heap
+// (`this_heap`).
+impl Allocator {
     #[inline]
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+    unsafe fn take<const FRAMES_MOVE: bool>(layout: Layout) -> *mut u8 {
         let Some(c) = class(layout) else {
             // SAFETY: the caller's contract, passed through.
             return unsafe { system_alloc(layout, layout.size(), false) };
         };
-        let mut heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
+        let mut heap = this_heap::<FRAMES_MOVE>();
         if heap.is_null() {
             heap = start_thread();
         }
@@ -739,7 +775,7 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     #[inline]
-    unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+    unsafe fn give<const FRAMES_MOVE: bool>(p: *mut u8, layout: Layout) {
         let Some(c) = class(layout) else {
             // SAFETY: the caller's contract, passed through.
             return unsafe { system_dealloc(p, layout) };
@@ -748,7 +784,7 @@ unsafe impl GlobalAlloc for Allocator {
             // SAFETY: a small block outside the range came from the system at its class's layout.
             return unsafe { system_dealloc(p, class_layout(c)) };
         };
-        let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
+        let heap = this_heap::<FRAMES_MOVE>();
         // SAFETY: `p` is a free block of `page`, whose `owner` never changes.
         unsafe {
             if (*page).owner == heap {
@@ -791,13 +827,13 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     #[inline]
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+    unsafe fn take_zeroed<const FRAMES_MOVE: bool>(layout: Layout) -> *mut u8 {
         if class(layout).is_none() {
             // SAFETY: the caller's contract, passed through.
             return unsafe { system_alloc(layout, layout.size(), true) };
         }
         // SAFETY: the caller's contract.
-        let p = unsafe { self.alloc(layout) };
+        let p = unsafe { Self::take::<FRAMES_MOVE>(layout) };
         if !p.is_null() {
             // SAFETY: `p` holds at least `layout.size()` bytes.
             unsafe { p.write_bytes(0, layout.size()) };
@@ -806,7 +842,11 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     #[inline]
-    unsafe fn realloc(&self, p: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+    unsafe fn resize<const FRAMES_MOVE: bool>(
+        p: *mut u8,
+        layout: Layout,
+        new_size: usize,
+    ) -> *mut u8 {
         // SAFETY: the caller's contract makes this a valid layout.
         let new = unsafe { Layout::from_size_align_unchecked(new_size, layout.align()) };
         match (class(layout), class(new)) {
@@ -823,12 +863,12 @@ unsafe impl GlobalAlloc for Allocator {
             },
             _ => {
                 // SAFETY: the caller's contract.
-                let q = unsafe { self.alloc(new) };
+                let q = unsafe { Self::take::<FRAMES_MOVE>(new) };
                 if !q.is_null() {
                     // SAFETY: both blocks hold the smaller size, and they're distinct.
                     unsafe {
                         ptr::copy_nonoverlapping(p, q, layout.size().min(new_size));
-                        self.dealloc(p, layout);
+                        Self::give::<FRAMES_MOVE>(p, layout);
                     }
                 }
                 q
@@ -836,6 +876,45 @@ unsafe impl GlobalAlloc for Allocator {
         }
     }
 }
+
+/// Both installed types are the same allocator; `$frames_move` is how each
+/// finds the calling thread's heap ([`this_heap`]).
+macro_rules! installed {
+    ($ty:ty, $frames_move:literal) => {
+        // SAFETY: a block of class `c` is `SIZES[c]` bytes at 16-byte alignment,
+        // from a page in the range or from the system, and is handed out once
+        // until it's freed again. A block in the range goes back to its page; one
+        // outside it goes back to the system with the layout it was allocated with.
+        unsafe impl GlobalAlloc for $ty {
+            #[inline]
+            unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+                // SAFETY: the caller's contract, passed through.
+                unsafe { Allocator::take::<$frames_move>(layout) }
+            }
+
+            #[inline]
+            unsafe fn dealloc(&self, p: *mut u8, layout: Layout) {
+                // SAFETY: the caller's contract, passed through.
+                unsafe { Allocator::give::<$frames_move>(p, layout) }
+            }
+
+            #[inline]
+            unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+                // SAFETY: the caller's contract, passed through.
+                unsafe { Allocator::take_zeroed::<$frames_move>(layout) }
+            }
+
+            #[inline]
+            unsafe fn realloc(&self, p: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+                // SAFETY: the caller's contract, passed through.
+                unsafe { Allocator::resize::<$frames_move>(p, layout, new_size) }
+            }
+        }
+    };
+}
+
+installed!(Allocator, false);
+installed!(TaskAllocator, true);
 
 #[cfg(test)]
 mod tests {
@@ -890,6 +969,17 @@ mod tests {
     #[test]
     fn blocks_freed_on_other_threads_are_reused_intact() {
         let _one = serial();
+        freed_on_other_threads(&Allocator);
+    }
+
+    /// The same, through the type a compiled program installs.
+    #[test]
+    fn blocks_a_task_allocator_freed_on_other_threads_are_reused_intact() {
+        let _one = serial();
+        freed_on_other_threads(&TaskAllocator);
+    }
+
+    fn freed_on_other_threads<A: GlobalAlloc + Sync>(a: &A) {
         const THREADS: usize = 16;
         const PER_THREAD: usize = 60_000;
         // Each round's threads adopt the heaps the last round's left behind.
@@ -904,7 +994,7 @@ mod tests {
                         for i in 0..PER_THREAD {
                             let seed = round * 1_000_003 + t * PER_THREAD + i;
                             let n = size(seed);
-                            let p = unsafe { Allocator.alloc(layout(n)) };
+                            let p = unsafe { a.alloc(layout(n)) };
                             assert!(!p.is_null());
                             assert_eq!(p as usize % 8, 0);
                             unsafe { fill(p, n, seed) };
@@ -916,12 +1006,12 @@ mod tests {
                                 // Freed here, now.
                                 2 => unsafe {
                                     check(p, n, seed);
-                                    Allocator.dealloc(p, layout(n));
+                                    a.dealloc(p, layout(n));
                                 },
                                 // Grown or shrunk, and freed here at the end.
                                 _ => {
                                     let to = size(seed + 7);
-                                    let q = unsafe { Allocator.realloc(p, layout(n), to) };
+                                    let q = unsafe { a.realloc(p, layout(n), to) };
                                     assert!(!q.is_null());
                                     unsafe { check(q, n.min(to), seed) };
                                     unsafe { fill(q, to, seed + 1) };
@@ -930,18 +1020,18 @@ mod tests {
                             }
                             while let Ok(Block(p, n, seed)) = rx.try_recv() {
                                 unsafe { check(p, n, seed) };
-                                unsafe { Allocator.dealloc(p, layout(n)) };
+                                unsafe { a.dealloc(p, layout(n)) };
                             }
                         }
                         for Block(p, n, seed) in kept {
                             unsafe { check(p, n, seed) };
-                            unsafe { Allocator.dealloc(p, layout(n)) };
+                            unsafe { a.dealloc(p, layout(n)) };
                         }
                         drop(senders);
                         // The rest, once every thread is done sending.
                         for Block(p, n, seed) in rx {
                             unsafe { check(p, n, seed) };
-                            unsafe { Allocator.dealloc(p, layout(n)) };
+                            unsafe { a.dealloc(p, layout(n)) };
                         }
                     });
                 }

@@ -1300,3 +1300,132 @@ fn the_two_aarch64_switch_blocks_are_one_body() {
         "the two AArch64 switch blocks have drifted apart"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Thread-locals in frames that can switch threads
+// ---------------------------------------------------------------------------
+
+/// **No function that can switch a task to another thread reads a
+/// thread-local itself.**
+///
+/// A task parks on one thread and resumes on another, mid-function. The
+/// compiler takes a thread-local's address from the thread pointer once per
+/// function and may keep it across any call, the switch included. So a frame
+/// that reads one inline and then switches can go on using the old thread's:
+/// popping a block off another thread's free list, or entering another thread's
+/// reactor. The rule, in `cli/runtime/rt.rs` at `running`, is that such reads
+/// go through a call that is not inlined.
+///
+/// The check is on the archive as built, because only the compiler's output
+/// says what was inlined where. No function that can reach the switch through
+/// direct calls may carry a thread-local relocation. A thread's own loop is
+/// exempt: its frame is on the thread's stack and never moves.
+#[test]
+fn no_frame_that_can_switch_threads_reads_a_thread_local() {
+    use std::collections::{HashMap, HashSet};
+    if skip() {
+        return;
+    }
+    let present = Command::new("llvm-objdump")
+        .arg("--version")
+        .capped_output()
+        .is_ok_and(|o| o.status.success());
+    if !present {
+        crate::ci::missing("runtime_native", "`llvm-objdump` is not on PATH");
+        return;
+    }
+    let archive = crate::shared::runtime_archive();
+    let out = Command::new("llvm-objdump")
+        .args(["-d", "-r", "--no-show-raw-insn"])
+        .arg(archive)
+        .capped_output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "llvm-objdump failed on {}:\n{}",
+        archive.display(),
+        stderr(&out)
+    );
+    let text = stdout(&out);
+
+    // A relocation's target, named as the function it lands in is.
+    fn target(symbol: &str) -> String {
+        let s = symbol
+            .trim_start_matches(".text.unlikely.")
+            .trim_start_matches(".text.");
+        let end = s.find(['+', '-']).unwrap_or(s.len());
+        s[..end].to_string()
+    }
+    let mut calls: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut reads: HashMap<String, String> = HashMap::new();
+    let mut current = String::new();
+    for line in text.lines() {
+        if let Some((_, name)) = line.strip_suffix(">:").and_then(|l| l.split_once(" <")) {
+            current = name.to_string();
+            continue;
+        }
+        let mut words = line.split_whitespace();
+        let (Some(_), Some(kind), Some(symbol)) = (words.next(), words.next(), words.next()) else {
+            continue;
+        };
+        if !kind.starts_with("R_") && !kind.contains("_RELOC_") {
+            continue;
+        }
+        if ["TLS", "TLV", "TPOFF"].iter().any(|k| kind.contains(k)) {
+            reads
+                .entry(current.clone())
+                .or_insert_with(|| target(symbol));
+        } else if ["CALL26", "JUMP26", "BRANCH", "PLT32"]
+            .iter()
+            .any(|k| kind.contains(k))
+        {
+            let callee = target(symbol);
+            if callee != current {
+                calls.entry(current.clone()).or_default().insert(callee);
+            }
+        }
+    }
+
+    let switch = |name: &str| name.trim_start_matches('_') == "buri_rt_task_switch";
+    let mut reach: HashSet<String> = HashSet::new();
+    loop {
+        let more: Vec<String> = calls
+            .iter()
+            .filter(|(f, callees)| {
+                !reach.contains(*f) && callees.iter().any(|c| switch(c) || reach.contains(c))
+            })
+            .map(|(f, _)| f.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        reach.extend(more);
+    }
+    // Without these the check has read nothing, and would pass on nothing.
+    for known in ["buri_rt_tasks_scope_claim", "buri_rt_host_tasks_parallel"] {
+        assert!(
+            reach.iter().any(|f| f.trim_start_matches('_') == known),
+            "`{known}` can switch threads, but the disassembly of {} shows no path from it to \
+             `buri_rt_task_switch`",
+            archive.display()
+        );
+    }
+    assert!(
+        !reads.is_empty(),
+        "the disassembly of {} shows no thread-local read anywhere",
+        archive.display()
+    );
+
+    let mut offenders: Vec<String> = reach
+        .iter()
+        .filter(|f| !f.contains("thread_loop"))
+        .filter_map(|f| reads.get(f).map(|local| format!("{f}\n    reads {local}")))
+        .collect();
+    offenders.sort();
+    assert!(
+        offenders.is_empty(),
+        "these functions can switch a task to another thread and read a thread-local inline; \
+         read it through a call that is not inlined instead (cli/runtime/rt.rs, at `running`):\n{}",
+        offenders.join("\n")
+    );
+}

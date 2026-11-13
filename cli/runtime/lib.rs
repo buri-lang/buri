@@ -621,7 +621,7 @@ mod abort;
 pub(crate) mod allocator;
 #[cfg(not(test))]
 #[global_allocator]
-static ALLOCATOR: allocator::Allocator = allocator::Allocator;
+static ALLOCATOR: allocator::TaskAllocator = allocator::TaskAllocator;
 mod bytes;
 mod character;
 /// `core/hash`'s `crc32c`, through the processor's CRC instructions.

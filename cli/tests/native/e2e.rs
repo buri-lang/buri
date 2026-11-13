@@ -5335,7 +5335,7 @@ fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
 /// across the rounds, a task carries on on a different thread thousands of
 /// times while those threads are busy waking tasks of their own.
 ///
-/// Sixty rounds of six spawns, each spawned task sleeping four times. A scope
+/// 120 rounds of 24 spawns, each spawned task sleeping four times. A scope
 /// returns once every task spawned into it has finished, so the line the
 /// program prints is how many tasks it waited for.
 fn waking_on_another_thread() -> String {
@@ -5373,7 +5373,7 @@ fn rounds<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int, spawned: Int
     match (left <= 0) {
         true => spawned,
         false => {
-            let here = tasks.scope(ctx, fn(c, scope) => spawning(c, scope, 6));
+            let here = tasks.scope(ctx, fn(c, scope) => spawning(c, scope, 24));
             rounds(ctx, left - 1, spawned + here)
         },
     }
@@ -5386,7 +5386,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let spawned = rounds(ctx, 60, 0);
+    let spawned = rounds(ctx, 120, 0);
     let _ = io.println(ctx, "every scope waited for ${spawned} tasks").ignore();
     .Ok(())
 }
@@ -5404,6 +5404,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// internal runtime error. On a Linux `--release` build that happened in about
 /// one run of `a_spawned_task_runs_beside_the_body_that_spawned_it` in sixty.
 /// These rounds wake tasks on other threads thousands of times per run.
+///
+/// A task that carried on on another thread could also allocate from the free
+/// list of the thread it had waited on, while that thread used the list too.
+/// Two blocks then shared an address. The program aborted inside tokio,
+/// crashed, or hung, in most runs on Linux and macOS.
 #[test]
 fn a_task_that_wakes_on_another_thread_still_finishes() {
     unless_ready!();
@@ -5416,7 +5421,212 @@ fn a_task_that_wakes_on_another_thread_still_finishes() {
     );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["every scope waited for 360 tasks"],
+        vec!["every scope waited for 2880 tasks"],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// Rounds of a scope whose tasks each sleep and then fan out, three times over:
+/// 180 rounds of 24 tasks.
+///
+/// A task that fans out waits for its steps, and carries on on whichever
+/// thread is free when they finish. Each fan-out builds strings in its steps
+/// and in the task, so the task allocates on a thread it did not start on.
+fn fanning_out_on_another_thread() -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+
+fn fanning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int, total: Int): Int {
+    match (left <= 0) {
+        true => total,
+        false => {
+            let _ = time.sleep(ctx, time.milliseconds(1));
+            let lengths = tasks.parallel(ctx, [1, 2, 3, 4, 5, 6, 7, 8], fn(c, i, n) => {
+                str.format(c, "step ${i} of ${n}").length()
+            });
+            let words = str.format(ctx, "fanned ${lengths.length()}");
+            fanning(ctx, left - 1, total + lengths.length() + words.length() - 8)
+        },
+    }
+}
+
+fn spawning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, here: Scope, left: Int): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let _ = tasks.spawn(ctx, here, fn(c2) => {
+                let _ = fanning(c2, 3, 0);
+            });
+            1 + spawning(ctx, here, left - 1)
+        },
+    }
+}
+
+fn rounds<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int, spawned: Int): Int {
+    match (left <= 0) {
+        true => spawned,
+        false => {
+            let here = tasks.scope(ctx, fn(c, scope) => spawning(c, scope, 24));
+            rounds(ctx, left - 1, spawned + here)
+        },
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let spawned = rounds(ctx, 180, 0);
+    let _ = io.println(ctx, "every scope waited for ${spawned} tasks").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A task that fans out and carries on on another thread still finishes.**
+///
+/// The task allocates once its steps are done, on the thread it carries on on.
+/// Before this row, the runtime could take that block from the free list of
+/// the thread the task had waited on, while that thread used the list itself.
+/// The program aborted inside tokio, crashed, or hung, in most runs.
+#[test]
+fn a_task_that_fans_out_and_wakes_on_another_thread_still_finishes() {
+    unless_ready!();
+    let binary = built(
+        "e2e-fanning-out-on-another-thread",
+        &fanning_out_on_another_thread(),
+    );
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec!["every scope waited for 4320 tasks"],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// Rounds of a scope whose tasks each sleep and then send to one actor, three
+/// times over: 180 rounds of 24 tasks. The actor is stopped at the end.
+///
+/// A sender waits for the actor's answer and carries on on whichever thread is
+/// free. Each message and answer is built on the thread the sender is on now.
+fn sending_on_another_thread() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+
+fn counter<C: Allocator + Clock + Stdout + Tasks>(): Actor<C, Int, Str, Str> {
+    Actor {
+        state: 0,
+        step: fn(c, seen, message) => Stepped {
+            state: seen + message.length(),
+            answer: str.format(c, "seen ${seen}"),
+        },
+    }
+}
+
+fn sending<C: Allocator + Clock + Stdout + Tasks>(ctx: C, to: Address<C, Int, Str, Str>, left: Int, ok: Int): Int {
+    match (left <= 0) {
+        true => ok,
+        false => {
+            let _ = time.sleep(ctx, time.milliseconds(1));
+            let sent = to.sendMessage(ctx, str.format(ctx, "x${left}")).isOk();
+            sending(ctx, to, left - 1, ok + if (sent) { 1 } else { 0 })
+        },
+    }
+}
+
+fn spawning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, here: Scope, to: Address<C, Int, Str, Str>, left: Int): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let _ = tasks.spawn(ctx, here, fn(c2) => {
+                let _ = sending(c2, to, 3, 0);
+            });
+            1 + spawning(ctx, here, to, left - 1)
+        },
+    }
+}
+
+fn rounds<C: Allocator + Clock + Stdout + Tasks>(ctx: C, to: Address<C, Int, Str, Str>, left: Int, spawned: Int): Int {
+    match (left <= 0) {
+        true => spawned,
+        false => {
+            let here = tasks.scope(ctx, fn(c, scope) => spawning(c, scope, to, 24));
+            rounds(ctx, to, left - 1, spawned + here)
+        },
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let to = actor.start(ctx, counter());
+    let spawned = rounds(ctx, to, 180, 0);
+    let last = to.sendMessage(ctx, "").isOk();
+    let _ = io.println(ctx, "every scope waited for ${spawned} tasks; the actor answered ${last}").ignore();
+    let _ = io.println(ctx, "stopped ${to.stop(ctx).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A task that sends to an actor and carries on on another thread still
+/// finishes, and so does the actor.**
+///
+/// Each send waits for the actor's answer, and the sender goes on on whichever
+/// thread is free. Before this row, the runtime could take a block from the
+/// free list of the thread the sender had waited on. The program aborted
+/// inside tokio, crashed, or hung, in most runs.
+#[test]
+fn a_task_that_sends_to_an_actor_and_wakes_on_another_thread_still_finishes() {
+    unless_ready!();
+    let binary = built(
+        "e2e-sending-on-another-thread",
+        &sending_on_another_thread(),
+    );
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![
+            "every scope waited for 4320 tasks; the actor answered true",
+            "stopped true"
+        ],
         "stderr:\n{}",
         out.stderr
     );

@@ -14,9 +14,45 @@
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use crate::allocator::valgrind;
 use crate::sync::{Mutex, MutexGuard};
-use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
+use std::alloc::{GlobalAlloc, Layout};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+
+/// The installed allocator, with the calling thread's heap looked up inline
+/// rather than through the call `allocator::TaskAllocator` makes for it.
+///
+/// No memory entry switches threads, so no frame on these paths moves while
+/// it holds the lookup. A path inlined into one that does would show in the
+/// runtime test `no_frame_that_can_switch_threads_reads_a_thread_local`.
+#[cfg(not(test))]
+static BLOCKS: crate::allocator::Allocator = crate::allocator::Allocator;
+/// A test build's installed allocator, which is the system's.
+#[cfg(test)]
+static BLOCKS: std::alloc::System = std::alloc::System;
+
+#[inline(always)]
+unsafe fn alloc(layout: Layout) -> *mut u8 {
+    // SAFETY: the caller's contract, passed through.
+    unsafe { BLOCKS.alloc(layout) }
+}
+
+#[inline(always)]
+unsafe fn alloc_zeroed(layout: Layout) -> *mut u8 {
+    // SAFETY: the caller's contract, passed through.
+    unsafe { BLOCKS.alloc_zeroed(layout) }
+}
+
+#[inline(always)]
+unsafe fn dealloc(p: *mut u8, layout: Layout) {
+    // SAFETY: the caller's contract, passed through.
+    unsafe { BLOCKS.dealloc(p, layout) }
+}
+
+#[inline(always)]
+unsafe fn realloc(p: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+    // SAFETY: the caller's contract, passed through.
+    unsafe { BLOCKS.realloc(p, layout, new_size) }
+}
 
 /// A reference count that is never decremented and never freed.
 ///
@@ -3954,6 +3990,11 @@ impl ArenaSlot {
 }
 
 /// This thread's scope, for `rt.rs` to put aside.
+///
+/// Out of line, as every thread-local read is in a frame that can move to
+/// another thread: inlined into one, the thread's address would be read once
+/// and kept (`rt.rs`, at `running`).
+#[inline(never)]
 pub fn arena_slot_of_thread() -> ArenaSlot {
     // SAFETY: this thread's own cell, and nothing derived from it escapes.
     CACHE
@@ -3968,7 +4009,9 @@ pub fn arena_slot_of_thread() -> ArenaSlot {
         .unwrap_or(ArenaSlot::NONE)
 }
 
-/// Puts back what [`arena_slot_of_thread`] answered.
+/// Puts back what [`arena_slot_of_thread`] answered. Out of line for the
+/// same reason.
+#[inline(never)]
 pub fn set_arena_slot_of_thread(slot: ArenaSlot) {
     // SAFETY: as above.
     let _ = CACHE.try_with(|c| unsafe {

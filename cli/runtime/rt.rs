@@ -514,7 +514,7 @@ enum Who {
 fn who() -> Who {
     let here = running();
     if here.is_null() {
-        Who::Thread(thread::current().id())
+        Who::Thread(this_thread())
     } else {
         Who::Task(here as usize)
     }
@@ -533,7 +533,7 @@ fn who() -> Who {
 fn within(holder: Who) -> bool {
     let here = running();
     if here.is_null() {
-        return holder == Who::Thread(thread::current().id());
+        return holder == Who::Thread(this_thread());
     }
     if holder == Who::Task(here as usize) {
         return true;
@@ -548,7 +548,7 @@ fn within(holder: Who) -> bool {
 fn lineage_here() -> Arc<[Who]> {
     let here = running();
     if here.is_null() {
-        return Arc::from([Who::Thread(thread::current().id())]);
+        return Arc::from([Who::Thread(this_thread())]);
     }
     // SAFETY: as in [`within`].
     let mut lineage = unsafe { (*here).lineage.to_vec() };
@@ -942,6 +942,12 @@ thread_local! {
 /// what stops it: the address is computed inside the callee, used inside the
 /// callee, and never crosses the switch. It is the one thing in this file that
 /// would still be correct-looking and wrong.
+///
+/// The rule holds for every thread-local in the runtime, `std`'s and tokio's
+/// included, read from any frame that can switch: the allocator's heap, the
+/// memory cache, the current thread, the reactor. The runtime test
+/// `no_frame_that_can_switch_threads_reads_a_thread_local` checks the built
+/// archive for it.
 #[inline(never)]
 fn running() -> *const Task {
     HERE.with(Cell::get)
@@ -960,6 +966,13 @@ fn thread_slot() -> *mut *mut u8 {
 #[inline(never)]
 fn thread_context() -> *mut u8 {
     THREAD_SP.with(Cell::get)
+}
+
+/// This thread's id, for [`Who::Thread`]. Out of line for the reason the four
+/// above are: `std` keeps the current thread in a thread-local too.
+#[inline(never)]
+fn this_thread() -> thread::ThreadId {
+    thread::current().id()
 }
 
 /// The list `memory::buri_rt_stack_acquire` draws a Buri data stack from, when
@@ -3111,6 +3124,10 @@ fn fire_due() {
 ///
 /// Both futures are boxed, for the reason [`park_on`] gives: `block_on` would
 /// pin its own on this stack, and it holds a `Notified`.
+///
+/// Out of line, so tokio's thread-locals, which `block_on` reads, are read in
+/// this frame and not in [`park_on`]'s caller, whose frame may be a task's.
+#[inline(never)]
 fn firing_while<T>(future: impl Future<Output = T>) -> T {
     let mut future = Box::pin(future);
     loop {
