@@ -1086,7 +1086,10 @@ impl Cache {
             self.until_sweep = CACHE_SWEEP_OPS;
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             let _ = CACHE.try_with(|t| heap_slot::set(t));
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(all(
+                target_os = "linux",
+                any(target_arch = "aarch64", target_arch = "x86_64")
+            ))]
             let _ = CACHE.try_with(|t| heap_offset::set(t));
         }
     }
@@ -1297,22 +1300,50 @@ thread_local! {
 }
 
 /// This thread's [`ThreadHeap`] for the fast paths, or null where they must not
-/// run: on arm64 before any cache is armed, and on macOS arm64 after this
-/// thread's closes.
+/// run: on Linux and macOS arm64 before any cache is armed, and on macOS arm64
+/// after this thread's closes.
 ///
 /// **On macOS a `thread_local!` is a call into dyld**, `_tlv_get_addr`, and
 /// the call made both `buri_rt_alloc` and `buri_rt_free` keep a stack frame.
 /// [`heap_slot`] keeps the address where one load from the thread's own
-/// register finds it. On Linux arm64 the thread-local is a load already, but
-/// one the linker rewrites from a call, so the frame stayed; [`heap_offset`]
-/// is the same load without it. Elsewhere the thread-local is used as it is.
+/// register finds it. On Linux the thread-local is a load already, but one the
+/// linker rewrites from a call, so the frame stayed; [`heap_offset`] is the
+/// same load without it.
+///
+/// **Each read of the thread's register is its own `asm!`**, which the
+/// compiler never merges or moves. An inline thread-local read is an address
+/// the compiler may compute once per function and keep, and `buri_rt_alloc`
+/// inlines into frames that switch threads (`rt.rs`, at `running`). Elsewhere
+/// the thread-local is read out of line, in [`heap_here`], for that reason.
 #[inline(always)]
 fn heap_fast() -> *const ThreadHeap {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     return heap_slot::get();
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
     return heap_offset::get();
-    #[cfg(not(all(any(target_os = "macos", target_os = "linux"), target_arch = "aarch64")))]
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        )
+    )))]
+    heap_here()
+}
+
+/// [`heap_fast`] where no register read stands in for the thread-local.
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )
+)))]
+#[inline(never)]
+fn heap_here() -> *const ThreadHeap {
     CACHE
         .try_with(|t| std::ptr::from_ref(t))
         .unwrap_or(std::ptr::null())
@@ -1327,12 +1358,17 @@ fn heap_fast() -> *const ThreadHeap {
 /// the function, so `buri_rt_alloc` and `buri_rt_free` still saved the link
 /// register around it.
 ///
-/// The constant is the thread-local's offset from `tpidr_el0`, the same for
-/// every thread, because the runtime is always in the executable's own TLS
-/// block. [`set`](heap_offset::set) learns it on each thread that arms a
-/// cache and checks that it agrees, and an offset that ever disagrees leaves
-/// every thread on the slow path.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+/// The constant is the thread-local's offset from the thread pointer
+/// (`tpidr_el0` on arm64, `%fs:0` on x86_64). It is the same for every thread,
+/// because the runtime is always in the executable's own TLS block. On x86_64
+/// that block sits below the thread pointer, so the offset wraps.
+/// [`set`](heap_offset::set) learns it on each thread that arms a cache and
+/// checks that it agrees, and an offset that ever disagrees leaves every
+/// thread on the slow path.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "x86_64")
+))]
 mod heap_offset {
     use super::ThreadHeap;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1346,6 +1382,7 @@ mod heap_offset {
     static BROKEN: AtomicBool = AtomicBool::new(false);
 
     /// This thread's thread pointer.
+    #[cfg(target_arch = "aarch64")]
     #[inline(always)]
     fn tp() -> usize {
         let tp: usize;
@@ -1355,6 +1392,23 @@ mod heap_offset {
                 "mrs {}, tpidr_el0",
                 out(reg) tp,
                 options(nomem, nostack, preserves_flags)
+            );
+        }
+        tp
+    }
+
+    /// This thread's thread pointer, which the thread control block keeps at
+    /// its own start, `%fs:0`.
+    #[cfg(target_arch = "x86_64")]
+    #[inline(always)]
+    fn tp() -> usize {
+        let tp: usize;
+        // SAFETY: reads the thread control block's pointer to itself.
+        unsafe {
+            core::arch::asm!(
+                "mov {}, qword ptr fs:[0]",
+                out(reg) tp,
+                options(readonly, nostack, preserves_flags)
             );
         }
         tp

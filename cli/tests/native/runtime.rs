@@ -1359,6 +1359,10 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
     let mut calls: HashMap<String, HashSet<String>> = HashMap::new();
     let mut reads: HashMap<String, String> = HashMap::new();
     let mut current = String::new();
+    // The instruction a relocation line belongs to: x86-64 calls a function
+    // outside the object through the GOT, `call *(%rip)` with a GOTPCREL
+    // relocation, the same kind a plain load of an address carries.
+    let mut instruction = String::new();
     for line in text.lines() {
         if let Some((_, name)) = line.strip_suffix(">:").and_then(|l| l.split_once(" <")) {
             current = name.to_string();
@@ -1369,15 +1373,19 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
             continue;
         };
         if !kind.starts_with("R_") && !kind.contains("_RELOC_") {
+            instruction = kind.to_string();
             continue;
         }
+        let through_got = kind.contains("GOTPCREL")
+            && (instruction.starts_with("call") || instruction.starts_with("jmp"));
         if ["TLS", "TLV", "TPOFF"].iter().any(|k| kind.contains(k)) {
             reads
                 .entry(current.clone())
                 .or_insert_with(|| target(symbol));
-        } else if ["CALL26", "JUMP26", "BRANCH", "PLT32"]
-            .iter()
-            .any(|k| kind.contains(k))
+        } else if through_got
+            || ["CALL26", "JUMP26", "BRANCH", "PLT32"]
+                .iter()
+                .any(|k| kind.contains(k))
         {
             let callee = target(symbol);
             if callee != current {
