@@ -224,9 +224,17 @@
 //!
 //! `position: fixed` is honoured the way the page does it: the element leaves
 //! the flow, is laid out against the **page** rather than against whatever it
-//! was written inside, escapes every ancestor's clip, and paints last so an
-//! overlay covers the page it is over. Which page that is, on a picture whose
-//! height nobody stated, is written above.
+//! was written inside, and escapes every ancestor's clip. Which page that is,
+//! on a picture whose height nobody stated, is written above.
+//!
+//! **Boxes paint in a browser's order** (CSS 2.1 Appendix E). A stacking
+//! context paints its own box, then its flow in tree order, then its
+//! positioned boxes and the stacking contexts inside it in tree order, then
+//! those with a `z-index` above zero, lowest first. A fixed box is one more of
+//! these, so a box pinned after it covers it. A box pinned inside a pinned box
+//! belongs to the same context as its wrapper and paints right after it, before
+//! the wrapper's later siblings (#347). An open dialog's scrim says it is in
+//! the top layer, and it and its panel paint after the whole page.
 //!
 //! A run of text answers all three intrinsic-width questions a layout engine
 //! asks it, so `grid-template-columns: 1fr 2fr` divides the room the other
@@ -1481,6 +1489,10 @@ struct Computed {
     /// `position: sticky`. In the flow, and the inset it carries is a
     /// threshold rather than an offset — see [`taffy_style`].
     sticky: bool,
+    /// `position: relative`, which `Position(.Flow)` writes: in the flow, and
+    /// still positioned, so it paints with the pinned boxes rather than with
+    /// the flow ([`Computed::lifted`]).
+    relative: bool,
     /// `Position(.PinAnchor)`: a positioned box that leaves every ancestor's
     /// clip while staying placed against its nearest `Flow` ancestor, so a
     /// panel pinned to a trigger inside a `Scroll` box hangs below the trigger
@@ -1528,6 +1540,14 @@ struct Computed {
     /// `transform: translate(x, y)`, applied after the layout, so nothing
     /// around the box moves with it. A percentage is of the box's own size.
     translate: Option<(Len, Len)>,
+    /// `z-index`, where one was written: `None` is `auto`. It orders a
+    /// positioned box among its stacking context's other positioned boxes
+    /// ([`Computed::level`]), and makes the box a stacking context of its own.
+    z: Option<i32>,
+    /// The scene-only `top-layer:true` an open dialog's scrim carries: the
+    /// box is in the top layer a browser puts a `showModal` dialog in, so it
+    /// paints after the whole page, over everything written after it too.
+    top: bool,
     marker: Marker,
     mark: Mark,
     /// A slider, and where its thumb sits. Not inherited: it belongs to the
@@ -1598,6 +1618,7 @@ impl Computed {
             absolute: false,
             fixed: false,
             sticky: false,
+            relative: false,
             escape: false,
             hidden: false,
             inset: [Len::Auto; 4],
@@ -1612,6 +1633,8 @@ impl Computed {
             shadow: Vec::new(),
             backdrop_blur: 0.0,
             translate: None,
+            z: None,
+            top: false,
             marker: Marker::None,
             mark: Mark::None,
             range: None,
@@ -1665,6 +1688,52 @@ impl Computed {
             }
         }
         out
+    }
+
+    /// Whether the element paints with its stacking context's positioned
+    /// boxes, in tree order after the context's flow, rather than with the
+    /// flow: CSS 2.1 Appendix E step 8. A positioned box does, and so does a
+    /// box that is a stacking context of its own ([`Computed::isolates`]),
+    /// whether or not it is positioned.
+    fn lifted(&self) -> bool {
+        self.positioned() || self.isolates()
+    }
+
+    /// Whether the element is positioned: pinned, held to the viewport, or
+    /// `relative` or `sticky` in the flow.
+    fn positioned(&self) -> bool {
+        self.absolute || self.relative || self.sticky
+    }
+
+    /// Where the element paints among its stacking context's lifted boxes:
+    /// those at a level above zero paint after every other one, lowest first,
+    /// and those at one level in tree order (CSS 2.1 Appendix E steps 8 and
+    /// 9). A `z-index` orders only a positioned box. Nothing writes one below
+    /// zero, so the levels a browser paints under the flow do not arise.
+    fn level(&self) -> i32 {
+        if self.positioned() {
+            self.z.unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Whether the element is a stacking context of its own, which paints
+    /// whole: what is positioned inside it paints inside it, rather than with
+    /// the context it sits in. A fixed or sticky box is one, and so is the
+    /// `position: fixed` a `PinAnchor` is to a browser, and a positioned box
+    /// with a `z-index`; so is a box with an opacity under one, a transform or
+    /// a backdrop filter. A box that is only pinned, or only positioned in the
+    /// flow, is not one: what is pinned inside it paints in tree order with it
+    /// and its siblings.
+    fn isolates(&self) -> bool {
+        self.fixed
+            || self.sticky
+            || self.escape
+            || (self.positioned() && self.z.is_some())
+            || self.opacity < 1.0
+            || self.translate.is_some()
+            || self.backdrop_blur > 0.0
     }
 
     /// A fresh style holding only what CSS inherits from `self`.
@@ -1913,6 +1982,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.fixed = value == "fixed";
             style.absolute = style.fixed || value == "absolute";
             style.sticky = value == "sticky";
+            style.relative = value == "relative";
         }
         // `Position(.PinAnchor)`: the stylesheet writes it as `position: fixed`
         // (a browser's clip escape) followed by this marker, which the painter
@@ -1929,6 +1999,9 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // this marker makes the painter draw the subtree not at all, while the
         // node stays in the scene for the accessible name (#188).
         "--buri-visually-hidden" => style.hidden = true,
+        // An integer, or `auto`, which parses as none.
+        "z-index" => style.z = value.parse().ok(),
+        "top-layer" => style.top = value == "true",
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
         "inset-block-start" => set_sides(&mut style.inset, [2], len(value)),
@@ -3326,38 +3399,33 @@ fn paint_with(
         ids: &ids,
         fonts,
         deferred: Vec::new(),
-        layers: 0,
-        claimed: Vec::new(),
+        raised: Vec::new(),
     };
     for &index in &scene.roots {
-        if painter.is_fixed(index) {
+        let Some(style) = styles.get(index) else {
+            continue;
+        };
+        if style.top {
             continue;
         }
-        // A pinned root paints after the page's in-flow content, the same as a
-        // pinned box anywhere else.
-        if painter.is_deferred(index) {
-            painter.deferred.push((index, 0.0, 0.0, None));
+        // A positioned root paints after the page's in-flow content, the same
+        // as a positioned box anywhere else.
+        if style.lifted() {
+            painter.hold(index, (0.0, 0.0), None, None);
             continue;
         }
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
     }
     // The page's positioned descendants, after all of its in-flow content: a
     // pinned panel over the boxes written after it, not under them (#176).
-    painter.drain_deferred(&mut canvas);
-    // Out of the flow and out of every ancestor's clip, at the origin the
-    // viewport gave it.
+    painter.close(&mut canvas);
+    // The top layer, over the whole page: an open dialog's scrim and its
+    // panel, and every overlay opened in the panel. A browser paints a
+    // `showModal` dialog there whatever is written after it.
     for &index in &fixed {
-        if painter.claimed.contains(&index) {
-            continue;
+        if styles.get(index).is_some_and(|style| style.top) {
+            painter.draw(&mut canvas, index, 0.0, 0.0, None);
         }
-        painter.draw(&mut canvas, index, 0.0, 0.0, None);
-        // A fixed box is its own stacking context, so its positioned
-        // descendants paint after its in-flow content, the same as the page's
-        // do above (#176) — and a dialog is a fixed box (its scrim is a
-        // `PinViewport`), so its pinned close button, a select's chevron and
-        // every overlay opened in it are drained here rather than pushed onto
-        // the queue and dropped (#197).
-        painter.drain_deferred(&mut canvas);
     }
     Ok(canvas)
 }
@@ -3903,6 +3971,16 @@ fn picture_style(style: &Computed, picture: Option<&Picture>) -> Style {
     out
 }
 
+/// A box held back from the in-flow walk of its stacking context: the origin,
+/// clip and list mark it would have been drawn with there.
+struct Held {
+    index: usize,
+    x: f32,
+    y: f32,
+    clip: Option<Mask>,
+    marker: Option<(Marker, u32)>,
+}
+
 struct Painter<'a> {
     scene: &'a Scene,
     styles: &'a [Computed],
@@ -3911,48 +3989,80 @@ struct Painter<'a> {
     tree: &'a TaffyTree<usize>,
     ids: &'a [Option<NodeId>],
     fonts: &'a mut Fonts,
-    /// Positioned (pinned) boxes met during the in-flow walk, held back to be
-    /// painted after it. A browser paints a stacking context's positioned
-    /// descendants after all its in-flow content (CSS 2.1 Appendix E step 8),
-    /// so a pinned panel sits over the in-flow siblings written after its
-    /// anchor rather than under them (#176). Each entry is the box and the
-    /// origin and clip it would have been drawn at, so draining the queue
-    /// paints it exactly where the in-flow walk would have — only later.
-    deferred: Vec<(usize, f32, f32, Option<Mask>)>,
-    /// How many layers of an element with an opacity the walk is inside.
-    layers: u32,
-    /// Fixed boxes drawn into such a layer, which the page does not draw again.
-    claimed: Vec<usize>,
+    /// Positioned boxes and stacking contexts met during the in-flow walk,
+    /// held back to be painted after it. A browser paints a stacking
+    /// context's positioned descendants, and the stacking contexts inside it,
+    /// after all its in-flow content (CSS 2.1 Appendix E step 8), so a pinned
+    /// panel sits over the in-flow siblings written after its anchor rather
+    /// than under them (#176). Each entry is where the box would have been
+    /// drawn, so draining the queue paints it exactly there, only later.
+    deferred: Vec<Held>,
+    /// The held boxes at a level above zero ([`Computed::level`]), with their
+    /// level: they paint after every box in `deferred`, lowest level first and
+    /// in tree order within one (step 9).
+    raised: Vec<(i32, Held)>,
 }
 
 impl Painter<'_> {
-    /// Whether a node was lifted out of the flow and onto the viewport.
-    fn is_fixed(&self, index: usize) -> bool {
-        self.styles.get(index).is_some_and(|style| style.fixed)
-    }
-
-    /// Whether a node is a positioned (pinned) box that paints after the
-    /// in-flow content of its stacking context rather than in tree order. A
-    /// `Pin` lowers to `position: absolute`; a `position: fixed` box is lifted
-    /// onto the viewport instead and drawn from its own list, so it is not one
-    /// of these.
-    fn is_deferred(&self, index: usize) -> bool {
-        self.styles
-            .get(index)
-            .is_some_and(|style| style.absolute && !style.fixed)
-    }
-
-    /// Paints the positioned boxes the in-flow walk held back, in the tree
-    /// order they were met. A positioned box drawn here may itself hold
-    /// positioned descendants, which land in the queue as it paints; taking the
-    /// queue a batch at a time paints those after the boxes already waiting,
-    /// which keeps a box ahead of its own descendants.
-    fn drain_deferred(&mut self, canvas: &mut Pixmap) {
-        while !self.deferred.is_empty() {
-            for (index, x, y, clip) in std::mem::take(&mut self.deferred) {
-                self.draw(canvas, index, x, y, clip.as_ref());
-            }
+    /// Holds a lifted box back until its stacking context closes
+    /// ([`Painter::close`]), with the origin, clip and list mark it would
+    /// have painted with in the flow.
+    fn hold(
+        &mut self,
+        index: usize,
+        (x, y): (f32, f32),
+        clip: Option<Mask>,
+        marker: Option<(Marker, u32)>,
+    ) {
+        let held = Held {
+            index,
+            x,
+            y,
+            clip,
+            marker,
+        };
+        let level = self.styles.get(index).map_or(0, Computed::level);
+        if level > 0 {
+            self.raised.push((level, held));
+        } else {
+            self.deferred.push(held);
         }
+    }
+
+    /// Paints the positioned boxes the in-flow walk held back, in tree order.
+    /// A positioned box drawn here may itself hold positioned descendants,
+    /// which land in the queue as it paints. They come next in tree order,
+    /// before the boxes still waiting: a pinned box is not a stacking context,
+    /// so what is pinned inside it belongs to the same context as it does, and
+    /// a box pinned after the wrapper paints over it (#347).
+    fn drain_deferred(&mut self, canvas: &mut Pixmap) {
+        for held in std::mem::take(&mut self.deferred) {
+            let at = (held.x, held.y);
+            self.draw_item(canvas, held.index, at, held.clip.as_ref(), held.marker);
+            self.drain_deferred(canvas);
+        }
+    }
+
+    /// Ends a stacking context: its boxes held at level zero in tree order,
+    /// then the raised ones by level. A raised box is a stacking context of
+    /// its own, so it holds nothing back into this one.
+    fn close(&mut self, canvas: &mut Pixmap) {
+        self.drain_deferred(canvas);
+        let mut raised = std::mem::take(&mut self.raised);
+        raised.sort_by_key(|(level, _)| *level);
+        for (_, held) in raised {
+            let at = (held.x, held.y);
+            self.draw_item(canvas, held.index, at, held.clip.as_ref(), held.marker);
+        }
+    }
+
+    /// Opens a stacking context: what was held back for the one around it is
+    /// set aside until this one closes, and answered so it can be put back.
+    fn open(&mut self) -> (Vec<Held>, Vec<(i32, Held)>) {
+        (
+            std::mem::take(&mut self.deferred),
+            std::mem::take(&mut self.raised),
+        )
     }
 
     /// Draws one node and its children, in document order, which is paint
@@ -3983,24 +4093,31 @@ impl Painter<'_> {
         };
         let opacity = style.opacity;
         if opacity >= 1.0 || style.hidden {
+            // A stacking context paints whole: what is lifted inside it paints
+            // at its own end, not with the context it sits in.
+            let outer = style.isolates().then(|| self.open());
             if let Some((kind, item)) = marker {
                 self.marker(canvas, kind, item, index, (x, y), clip);
             }
             self.paint(canvas, None, index, x, y, clip);
+            if let Some((deferred, raised)) = outer {
+                self.close(canvas);
+                self.deferred = deferred;
+                self.raised = raised;
+            }
             return;
         }
         let Some(mut layer) = Pixmap::new(canvas.width(), canvas.height()) else {
             return;
         };
-        let outer = std::mem::take(&mut self.deferred);
-        self.layers = self.layers.saturating_add(1);
+        let (deferred, raised) = self.open();
         if let Some((kind, item)) = marker {
             self.marker(&mut layer, kind, item, index, (x, y), clip);
         }
         self.paint(&mut layer, Some(canvas), index, x, y, clip);
-        self.drain_deferred(&mut layer);
-        self.layers = self.layers.saturating_sub(1);
-        self.deferred = outer;
+        self.close(&mut layer);
+        self.deferred = deferred;
+        self.raised = raised;
         canvas.draw_pixmap(
             0,
             0,
@@ -4154,42 +4271,45 @@ impl Painter<'_> {
         let mut item = 0_u32;
         let from = children_origin(style, self.tree, id, (x + across, y + down), (left, top));
         for &child in &node.children {
-            // A fixed child hangs off the viewport, so it is neither placed
-            // here nor clipped by anything here. It is drawn last, from the
-            // top — or, under an element with an opacity, last in that
-            // element's picture, which is where a browser composites it.
-            if self.is_fixed(child) {
-                if self.layers > 0 {
-                    self.claimed.push(child);
-                    self.deferred.push((child, 0.0, 0.0, None));
-                }
+            let Some(kid) = self.styles.get(child) else {
+                continue;
+            };
+            // The top layer paints after the whole page, from the top.
+            if kid.top {
                 continue;
             }
-            // A pinned child paints after the in-flow content of its stacking
-            // context, not here in tree order, so it is held back with the
-            // origin and clip it would have painted at (#176). It carries no
-            // list marker — a marker is for the in-flow items of a list.
-            //
-            // A `PinAnchor` child (`escape`) is held back at the same flow
-            // origin but with **no clip**: it keeps its placement against this
-            // anchor while leaving every ancestor's clip, so a panel pinned to a
-            // trigger inside a `Scroll` box hangs below the trigger rather than
-            // being cut off at the scroller's edge (#168).
-            if self.is_deferred(child) {
-                let clip = if self.styles.get(child).is_some_and(|s| s.escape) {
-                    None
-                } else {
-                    inner.cloned()
-                };
-                self.deferred.push((child, from.0, from.1, clip));
-                continue;
-            }
+            // A list marker is for the in-flow items of a list, so a pinned
+            // child neither carries one nor counts.
             let mut mark = None;
             if style.marker != Marker::None
+                && !kid.absolute
                 && self.scene.node(child).is_some_and(|c| c.text.is_none())
             {
                 item = item.saturating_add(1);
                 mark = Some((style.marker, item));
+            }
+            // A positioned child, or one that is a stacking context of its
+            // own, paints after the in-flow content of its stacking context,
+            // not here in tree order, so it is held back with the origin, clip
+            // and mark it would have painted with (#176, #347). An item of a
+            // marked list is one: the sheet positions it, as the box its mark
+            // hangs from.
+            //
+            // A fixed child hangs off the viewport, so it is neither placed
+            // here nor clipped by anything here. A `PinAnchor` child
+            // (`escape`) is held back at the same flow origin but with **no
+            // clip**: it keeps its placement against this anchor while leaving
+            // every ancestor's clip, so a panel pinned to a trigger inside a
+            // `Scroll` box hangs below the trigger rather than being cut off
+            // at the scroller's edge (#168).
+            if kid.lifted() || mark.is_some() {
+                if kid.fixed {
+                    self.hold(child, (0.0, 0.0), None, None);
+                } else {
+                    let clip = if kid.escape { None } else { inner.cloned() };
+                    self.hold(child, from, clip, mark);
+                }
+                continue;
             }
             self.draw_item(canvas, child, from, inner, mark);
         }

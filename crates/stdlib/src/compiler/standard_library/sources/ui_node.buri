@@ -2587,7 +2587,21 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             )
         },
         .Raw(name, styles, children, events, label) => {
-            emitNamed(ctx, builder, name, styles, children, state, events, label)
+            emitAnnounced(
+                ctx,
+                builder,
+                name,
+                plain(state),
+                rawLeading(name),
+                styles,
+                children,
+                state,
+                events,
+                .Const(false),
+                false,
+                label,
+                noFocus(),
+            )
         },
         .Fragment(children) => { emitChildren(ctx, builder, children, state, 0) },
         // A file picker's scene is its button: the label drawn in the caller's
@@ -2630,7 +2644,11 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // whether or not the bubble is showing, because a reader hears it with
         // the trigger either way.
         .Tooltip(text, styles, children, events) => {
-            let at = openElement(builder, "div", widgetBody(mem, plain(state), [], []));
+            let at = openElement(
+                builder,
+                "div",
+                widgetBody(mem, plain(state), ["position:relative"], []),
+            );
             let shown = openTip(builder);
             let _ = match (text) {
                 .Const(said) => describeTip(builder, at, said),
@@ -2659,16 +2677,17 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
 }
 
 /// Where a tooltip's bubble sits: below its trigger at the start edge, out of
-/// the flow so it covers what follows rather than moving it, and on one line.
-/// The widget's own drawing, the way a dialog's scrim is. The sheet's reset
-/// says the same to a browser, and the caller's styles come after, so a `Pin`
-/// moves it.
+/// the flow so it covers what follows rather than moving it, on one line, and
+/// raised (`z-index: 1`) over every positioned box around it. The widget's own
+/// drawing, the way a dialog's scrim is. The sheet's reset says the same to a
+/// browser, and the caller's styles come after, so a `Pin` moves it.
 fn bubbleScene(): [Str] {
     [
         "position:absolute",
         "inset-block-start:100%",
         "inset-inline-start:0",
         "text-wrap:nowrap",
+        "z-index:1",
     ]
 }
 
@@ -3593,6 +3612,14 @@ fn dialogScene<C>(
     }
 }
 
+/// The scene-only declarations a renderer's own element carries. Its one `div`
+/// is an open dialog's scrim, which is in the top layer `showModal` puts the
+/// dialog in: it and the panel paint over the whole page, whatever is written
+/// after the dialog.
+fn rawLeading(name: Str): [Str] {
+    if (name == "div") { ["top-layer:true"] } else { [] }
+}
+
 /// A disclosure's body, read under `ctx`: its children while it is open, and
 /// nothing while it is shut.
 fn disclosureBody<C>(ctx: Scope, open: Signal<Bool>, children: [Node<C>]): Node<C> {
@@ -4143,9 +4170,16 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             )
         },
         // The renderer's own element, nameless here as every box is: an open
-        // dialog's scrim and panel, drawn as a stack is.
-        .Raw(_name, styles, children, _events, label) => {
-            namedBox(ctx, state, styles, children, depth, readLabel(scope, label))
+        // dialog's scrim and panel, drawn as a stack is, the scrim marked as in
+        // the top layer.
+        .Raw(name, styles, children, _events, label) => {
+            let line = named(
+                ctx,
+                widgetLine(ctx, plain(state), rawLeading(name), styles, depth),
+                depth,
+                readLabel(scope, label),
+            );
+            [line].concat(ctx, childLines(ctx, state, children, depth + 1, 0, []))
         },
         // A fragment draws its children at the depth it sits, with no box of its
         // own: an open disclosure's body.
@@ -4171,9 +4205,18 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
             ]
         },
         // The wrapper and its trigger, and the bubble after them while the
-        // snapshot's state hovers or focuses the trigger.
+        // snapshot's state hovers or focuses the trigger. The wrapper is
+        // positioned, as the sheet says to a browser, so it paints with the
+        // positioned boxes around it.
         .Tooltip(text, styles, children, _events) => {
-            let head = [styledLine(ctx, plain(state), [], depth)].concat(
+            let wrapper = widgetLine(
+                ctx,
+                plain(state),
+                ["position:relative"],
+                [],
+                depth,
+            );
+            let head = [wrapper].concat(
                 ctx,
                 childLines(ctx, state, children, depth + 1, 0, []),
             );

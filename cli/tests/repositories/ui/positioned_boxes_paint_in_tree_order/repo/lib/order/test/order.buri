@@ -1,0 +1,153 @@
+// Each scene beside its flat twin: both tests of a pair compare against one
+// golden, so a pinned box painted out of tree order fails its scene.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/order" import {
+    anchored, deep, drawing, drawingTwin, faded, fadedTwin, flat, layers, nested,
+    onViewport, onViewportTwin, scrolled, siblings, siblingsTwin,
+};
+
+test "a pinned field inside a pinned wrapper paints under the square pinned after the wrapper" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "nested", nested(), .Checked, []);
+}
+
+test "a pinned field and then a pinned square" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "nested", flat(), .Checked, []);
+}
+
+test "a pinned field three wrappers deep paints under the square pinned after them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "deep", deep(), .Checked, []);
+}
+
+test "the same field and square with no wrapper, for the deep scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "deep", flat(), .Checked, []);
+}
+
+test "a pinned field inside an anchored wrapper paints under the square pinned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "anchored", anchored(), .Checked, []);
+}
+
+test "the same field and square with no wrapper, for the anchored scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "anchored", flat(), .Checked, []);
+}
+
+test "a pinned field inside a scroll box paints under the square pinned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "scrolled", scrolled(), .Checked, []);
+}
+
+test "the same field and square with no wrapper, for the scrolled scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "scrolled", flat(), .Checked, []);
+}
+
+test "a pinned field in one layer paints under the square pinned in the next" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", layers(), .Checked, []);
+}
+
+test "the same field and square with no wrapper, for the layers scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "layers", flat(), .Checked, []);
+}
+
+test "a nested pinned field paints over the square pinned before it and under the one after" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "siblings", siblings(), .Checked, []);
+}
+
+test "the same three pinned boxes with no wrapper" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "siblings", siblingsTwin(), .Checked, []);
+}
+
+test "a drawing inside a pinned wrapper paints under the square pinned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "drawing", drawing(), .Checked, []);
+}
+
+test "the same drawing and square with no wrapper" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "drawing", drawingTwin(), .Checked, []);
+}
+
+test "the nested scene in a faded group keeps its order" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded", faded(), .Checked, []);
+}
+
+test "the flat scene in a faded group" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded", fadedTwin(), .Checked, []);
+}
+
+test "the nested scene in a box held to the viewport keeps its order" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "viewport", onViewport(), .Checked, []);
+}
+
+test "the flat scene in a box held to the viewport" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "viewport", onViewportTwin(), .Checked, []);
+}

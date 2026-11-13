@@ -1,0 +1,8 @@
+# One library and three test sources: each scene beside its twin.
+library {
+    sources: ["order.buri"]
+
+    test {
+        sources: ["test/order.buri", "test/lifted.buri", "test/layered.buri"]
+    }
+}

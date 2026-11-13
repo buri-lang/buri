@@ -1,0 +1,339 @@
+//! Pinned boxes in tree order, each scene beside a flat twin.
+//!
+//! A browser paints a stacking context's positioned boxes with no z-index in
+//! tree order, after its in-flow content. A pinned box inside another pinned
+//! box is one of them: it belongs to the same stacking context as its
+//! wrapper, so it paints before anything pinned that is written after the
+//! wrapper. Each scene here writes a red field and then a blue square, with
+//! the field inside one or more wrappers, and has a flat twin with no
+//! wrapper. A scene and its twin share a golden, so a painter that holds the
+//! field back until after the square fails the scene.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+fn box<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: styles, children: children })
+}
+
+/// Pinned to the top start corner of whatever it is placed against.
+fn corner(): [Style] {
+    [.Pin(.Start, .Px(0)), .Pin(.Top, .Px(0))]
+}
+
+/// The 100 by 80 box every scene is painted in, and what its pinned boxes are
+/// placed against.
+fn frame<C>(children: [Node<C>]): Node<C> {
+    box([.Position(.Flow), .Width(.Px(100)), .Height(.Px(80))], children)
+}
+
+/// A red field, pinned to fill what it is placed against.
+fn red<C>(): Node<C> {
+    box(
+        [.Group(corner()), .Width(.Full), .Height(.Full), .Background(.Rgb(255, 0, 0))],
+        [],
+    )
+}
+
+/// A blue square, pinned 20 in from the frame's corner.
+fn blue<C>(): Node<C> {
+    box(
+        [
+            .Pin(.Start, .Px(20)),
+            .Pin(.Top, .Px(20)),
+            .Width(.Px(40)),
+            .Height(.Px(40)),
+            .Background(.Rgb(0, 0, 255)),
+        ],
+        [],
+    )
+}
+
+/// A green square, pinned at the frame's far end, where the red field covers
+/// it once the field paints after it.
+fn green<C>(): Node<C> {
+    box(
+        [
+            .Pin(.Start, .Px(60)),
+            .Pin(.Top, .Px(0)),
+            .Width(.Px(40)),
+            .Height(.Px(40)),
+            .Background(.Rgb(0, 160, 0)),
+        ],
+        [],
+    )
+}
+
+/// A wrapper pinned to fill the frame, painting nothing of its own.
+fn pinned<C>(inner: Node<C>): Node<C> {
+    box([.Group(corner()), .Width(.Full), .Height(.Full)], [inner])
+}
+
+/// The red field and then the blue square, with nothing around either.
+export fn flat<C>(): Node<C> {
+    frame([red(), blue()])
+}
+
+/// The field inside a pinned wrapper, then the square (#347).
+export fn nested<C>(): Node<C> {
+    frame([pinned(red()), blue()])
+}
+
+/// The field three pinned wrappers deep.
+export fn deep<C>(): Node<C> {
+    frame([pinned(pinned(pinned(red()))), blue()])
+}
+
+/// The field inside a wrapper held to its anchor out of every clip, which a
+/// browser writes as `position: fixed`.
+export fn anchored<C>(): Node<C> {
+    frame([
+        box([.Group(corner()), .Position(.PinAnchor), .Width(.Full), .Height(.Full)], [
+            red(),
+        ]),
+        blue(),
+    ])
+}
+
+/// The field's wrapper inside a scroll box in the flow, which a browser does
+/// not paint pinned boxes in an order of its own for.
+export fn scrolled<C>(): Node<C> {
+    frame([box([.Scroll(.Y), .Width(.Full), .Height(.Full)], [pinned(red())]), blue()])
+}
+
+/// The field's wrapper in one layer of a layer stack, the square in the next.
+export fn layers<C>(): Node<C> {
+    box([.Position(.Flow), .Layout(.Layers), .Width(.Px(100)), .Height(.Px(80))], [
+        box([.Width(.Full), .Height(.Full)], [pinned(red())]),
+        box([.Width(.Full), .Height(.Full)], [blue()]),
+    ])
+}
+
+/// A green square pinned before the field's wrapper and the blue square
+/// after it: the field covers the green and the blue covers the field.
+export fn siblings<C>(): Node<C> {
+    frame([green(), pinned(red()), blue()])
+}
+
+export fn siblingsTwin<C>(): Node<C> {
+    frame([green(), red(), blue()])
+}
+
+/// A red drawing filling the frame.
+fn redDrawing<C>(): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("A red field"),
+        size: .Const((100.0, 80.0)),
+        styles: [.Group(corner()), .Width(.Px(100)), .Height(.Px(80))],
+        shapes: [
+            shape.rect({
+                at: .Const((0.0, 0.0)),
+                size: .Const((100.0, 80.0)),
+                fill: .Some(.Const(.Rgb(255, 0, 0))),
+            }),
+        ],
+    })
+}
+
+/// A drawing inside a pinned wrapper, then the square: a chart drawn inside a
+/// wrapper stays under the markers pinned after it.
+export fn drawing<C>(): Node<C> {
+    frame([pinned(redDrawing()), blue()])
+}
+
+export fn drawingTwin<C>(): Node<C> {
+    frame([redDrawing(), blue()])
+}
+
+/// The nested scene inside a group at half opacity, which is a stacking
+/// context of its own.
+export fn faded<C>(): Node<C> {
+    box([.Opacity(0.5)], [nested()])
+}
+
+export fn fadedTwin<C>(): Node<C> {
+    box([.Opacity(0.5)], [flat()])
+}
+
+/// The nested scene inside a box held to the viewport.
+export fn onViewport<C>(): Node<C> {
+    box([.Position(.PinViewport), .Group(corner())], [nested()])
+}
+
+export fn onViewportTwin<C>(): Node<C> {
+    box([.Position(.PinViewport), .Group(corner())], [flat()])
+}
+
+/// A 40 by 40 blue square at the frame's corner, written with `extra`.
+fn square<C>(extra: [Style]): Node<C> {
+    box(
+        [
+            .Width(.Px(40)),
+            .Height(.Px(40)),
+            .Background(.Rgb(0, 0, 255)),
+            .Group(extra),
+        ],
+        [],
+    )
+}
+
+/// What makes a box paint with the pinned boxes rather than in the flow, by
+/// kind: `Position(.Flow)` and `Position(.Sticky)` position it, and an
+/// opacity, a translate and a backdrop blur each make it a stacking context.
+fn kind(which: Int): [Style] {
+    match (which) {
+        0 => [.Position(.Flow)],
+        1 => [.Position(.Sticky)],
+        2 => [.Opacity(0.5)],
+        3 => [.Translate(.Px(10), .Px(10))],
+        _ => [.BackdropBlur(.Px(4))],
+    }
+}
+
+/// The paint `kind(which)` changes, without what lifts the box: an opacity,
+/// a translate and a blur still paint, and a position on its own does not.
+fn look(which: Int): [Style] {
+    match (which) {
+        0 => [],
+        1 => [],
+        _ => kind(which),
+    }
+}
+
+/// The red field and then a square in the flow, of the kind `which`: the
+/// square paints after the field, which is pinned and written before it.
+export fn afterPin<C>(which: Int): Node<C> {
+    frame([red(), square(kind(which))])
+}
+
+/// The field and the square, both pinned, the square with the same look.
+export fn afterPinTwin<C>(which: Int): Node<C> {
+    frame([red(), square([.Group(corner()), .Group(look(which))])])
+}
+
+/// Two boxes in one layer stack, painted at the same spot.
+fn stacked<C>(children: [Node<C>]): Node<C> {
+    box([.Layout(.Layers), .Width(.Px(100)), .Height(.Px(80))], children)
+}
+
+/// A 60 by 60 red square written with `extra`.
+fn redSquare<C>(extra: [Style]): Node<C> {
+    box(
+        [
+            .Width(.Px(60)),
+            .Height(.Px(60)),
+            .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
+        ],
+        [],
+    )
+}
+
+/// A 100 by 40 blue bar in the flow, with nothing to lift it.
+fn blueBar<C>(): Node<C> {
+    box([.Width(.Px(100)), .Height(.Px(40)), .Background(.Rgb(0, 0, 255))], [])
+}
+
+/// A red square of the kind `which` and then a blue bar in the flow at the
+/// same spot: the bar paints with the flow, and the square after it.
+export fn beforeFlow<C>(which: Int): Node<C> {
+    stacked([redSquare(kind(which)), blueBar()])
+}
+
+/// The bar and then the square, so tree order paints the square last too.
+export fn beforeFlowTwin<C>(which: Int): Node<C> {
+    stacked([blueBar(), redSquare(look(which))])
+}
+
+/// The red field, held to the viewport rather than pinned in the frame. The
+/// frame sits at the page's corner, so the two cover the same pixels.
+fn fixedRed<C>(): Node<C> {
+    box(
+        [
+            .Position(.PinViewport),
+            .Group(corner()),
+            .Width(.Px(100)),
+            .Height(.Px(80)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        [],
+    )
+}
+
+/// The field held to the viewport, then the pinned square: a box held to the
+/// viewport is one more positioned box, and paints in tree order with them.
+export fn onViewportFirst<C>(): Node<C> {
+    frame([fixedRed(), blue()])
+}
+
+/// An open dialog holding nothing but its own blue panel, written before the
+/// red field or after it: a dialog is in the top layer, over everything
+/// written after it too.
+export fn modal<C: Ui>(ctx: C, first: Bool): Node<C> {
+    let open = signal(ctx, true);
+    let dialog: Node<C> = ui.dialog({
+        isOpen: open,
+        label: .Const("Blue"),
+        children: [],
+        styles: [.Width(.Px(40)), .Height(.Px(40)), .Background(.Rgb(0, 0, 255))],
+    });
+    if (first) { frame([dialog, red()]) } else { frame([red(), dialog]) }
+}
+
+/// A trigger with a blue tooltip, and then a red bar positioned in the flow,
+/// or in the flow when `positioned` is false. The bubble hangs over the bar,
+/// and a browser raises it over every positioned box (`z-index: 1`).
+export fn tipOver<C>(positioned: Bool): Node<C> {
+    let lift: [Style] = if (positioned) { [.Position(.Flow)] } else { [] };
+    box([.Width(.Px(100))], [
+        ui.tooltip({
+            text: .Const(""),
+            styles: [.Width(.Px(60)), .Height(.Px(30)), .Background(.Rgb(0, 0, 255))],
+            children: [box([.Width(.Px(40)), .Height(.Px(20))], [])],
+        }),
+        box(
+            [
+                .Width(.Px(100)),
+                .Height(.Px(40)),
+                .Background(.Rgb(255, 0, 0)),
+                .Group(lift),
+            ],
+            [],
+        ),
+    ])
+}
+
+/// A marked list of two items: a red field 40 tall hanging out of the first,
+/// which is 20 tall, and a blue second item over where it hangs. A browser
+/// positions every item of a marked list, so what is pinned in the first
+/// paints with it, before the second. Unpinned, the field overflows in the
+/// flow, which paints in the same order.
+export fn listed<C>(pinnedField: Bool): Node<C> {
+    let field: [Style] = if (pinnedField) { corner() } else { [.Shrink(0)] };
+    box([.ListMarker(.Disc), .PaddingEdge(.Start, .Px(24)), .Width(.Px(124))], [
+        ui.stack({
+            styles: [.Height(.Px(20))],
+            children: [
+                box(
+                    [
+                        .Width(.Px(100)),
+                        .Height(.Px(40)),
+                        .Background(.Rgb(255, 0, 0)),
+                        .Group(field),
+                    ],
+                    [],
+                ),
+            ],
+            role: .Some(.ListItem),
+        }),
+        ui.stack({
+            styles: [.Height(.Px(40)), .Background(.Rgb(0, 0, 255))],
+            children: [],
+            role: .Some(.ListItem),
+        }),
+    ])
+}

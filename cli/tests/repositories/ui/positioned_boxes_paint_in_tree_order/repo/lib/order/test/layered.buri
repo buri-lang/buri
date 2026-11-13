@@ -1,0 +1,71 @@
+// A box held to the viewport, a dialog, a tooltip and a list item, each in the
+// order a browser paints it. Each scene beside its twin, which paints the same
+// picture in plain tree order.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/order" import { flat, listed, modal, onViewportFirst, tipOver };
+
+test "a box held to the viewport paints under the square pinned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "viewport-first", onViewportFirst(), .Checked, []);
+}
+
+test "the field pinned and then the square, for the box held to the viewport" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "viewport-first", flat(), .Checked, []);
+}
+
+test "an open dialog paints over the pinned field written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dialog-first", modal(ctx, true), .Checked, []);
+}
+
+test "an open dialog written after the pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dialog-first", modal(ctx, false), .Checked, []);
+}
+
+test "a tooltip paints over a box positioned in the flow after its trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "tooltip-over", tipOver(true), .Hover, []);
+}
+
+test "a tooltip over a box in the flow after its trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "tooltip-over", tipOver(false), .Hover, []);
+}
+
+test "what is pinned in a list item paints under the item after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-item", listed(true), .Checked, []);
+}
+
+test "what overflows a list item paints under the item after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-item", listed(false), .Checked, []);
+}

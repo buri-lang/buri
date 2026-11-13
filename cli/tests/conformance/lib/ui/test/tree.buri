@@ -5752,7 +5752,7 @@ test "a dialog is a panel its signal opens and shuts" {
     // accessible name, the rule a button's label follows.
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:Delete this?\nt 2 Are you sure?",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 label:Delete this?\nt 2 Are you sure?",
     );
     // Shut, a browser draws none of a dialog, so the scene holds none: the
     // panel is gone rather than merely flagged, which is the whole of what frees
@@ -5765,7 +5765,7 @@ test "a dialog is a panel its signal opens and shuts" {
     // the scene, not a hidden element, so there is nothing to keep across it.
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:Delete this?\nt 2 Are you sure?",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 label:Delete this?\nt 2 Are you sure?",
     );
     assert.equal(page.count("dialog"), 1);
 }
@@ -5785,7 +5785,7 @@ test "a dialog's styles land on the panel" {
                 styles: [.Padding(.Px(8)), .Radius(.Px(4))],
             }),
         ).markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-8 r-4;label:Settings",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 class:p-8 r-4;label:Settings",
     );
     // The panel's look is the styles', so the reset drops the bordered, padded
     // white card a browser draws a `<dialog>` as — and keeps the half no style
@@ -5844,7 +5844,7 @@ test "a dialog's panel lets what hangs off its edge show, as the painter does" {
     );
     assert.equal(
         panel.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 class:p-24;label:Billing\ne 2 class:pos-flow\ne 3 label:Trigger\nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 class:p-24;label:Billing\ne 2 class:pos-flow\ne 3 label:Trigger\nt 4 Trigger\ne 3 class:pin-out pin-top-pc100 bg-ff0000 h-200",
     );
     // A browser's own sheet makes a modal a scroll container. The reset undoes
     // that; a panel that should scroll asks for `Scroll`, which beats it.
@@ -5869,12 +5869,12 @@ test "a dialog's label may vary, and the panel follows it" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:first",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 label:first",
     );
     named.set(ctx, "second");
     assert.equal(
         page.markup(),
-        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\ne 1 label:second",
+        "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 label:second",
     );
 }
 
@@ -6028,7 +6028,7 @@ test "an open dialog is a scrim and a panel, and a shut one is nothing at all" {
         ),
         str.format(
             ctx,
-            "buri-scene 1\nviewport 800 fit\ne 0 ${scrim}\ne 1 class:p-8;label:x\nt 2 here",
+            "buri-scene 1\nviewport 800 fit\ne 0 ${scrim};top-layer:true\ne 1 class:p-8;label:x\nt 2 here",
         ),
     );
 }
@@ -6444,7 +6444,7 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         }),
     );
     let shown =
-        "e 0 \ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
+        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap;z-index:1\nt 2 Copy to clipboard";
     // A snapshot in a state that hovers or focuses the trigger draws the
     // bubble, and one in any other state draws the trigger alone.
     assert.equal(
@@ -6465,12 +6465,12 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
     );
     assert.equal(
         ui.describe(ctx, tip, .Checked),
-        "buri-scene 1\nviewport 800 fit\ne 0 \ne 1 label:Copy\nt 2 Copy",
+        "buri-scene 1\nviewport 800 fit\ne 0 position:relative\ne 1 label:Copy\nt 2 Copy",
     );
     // The document draws the bubble only while the trigger is hovered, and
     // then it is the same lines.
     let page = render(ctx, tip);
-    assert.equal(page.markup(), "e 0 \ne 1 label:Copy\nt 2 Copy");
+    assert.equal(page.markup(), "e 0 position:relative\ne 1 label:Copy\nt 2 Copy");
     let _ = page.pointerMove("Copy", 0.0, 0.0);
     assert.equal(page.markup(), shown);
 }

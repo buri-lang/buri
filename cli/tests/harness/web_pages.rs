@@ -67,6 +67,80 @@ struct Rendered {
 }
 
 fn render_case(case: &Path) -> Rendered {
+    let pages = match build_pages(case) {
+        Ok(pages) => pages,
+        Err(rendered) => return rendered,
+    };
+    let mut rendered = Rendered {
+        pages: pages.imports.len(),
+        snapshots: pages.imports.iter().map(|(_, n)| n).sum(),
+        problems: Vec::new(),
+    };
+    let out = pages.drive(&pages.imports, DRIVER);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if out.status.code() != Some(0) || !stdout.contains(ALL_RENDERED) {
+        rendered.problems.push(format!(
+            "{}: its snapshots did not render as pages for `web`:\n{}{}",
+            pages.name,
+            super::indent(&stdout),
+            super::indent(&String::from_utf8_lossy(&out.stderr))
+        ));
+    }
+    rendered
+}
+
+/// The order a browser paints the boxes of each of `case`'s snapshots in, as
+/// `(name, colours)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted in a happy-dom document of its own, so its boxes are
+/// styled by its own stylesheet, and the hover a snapshot names is driven;
+/// the order is then read off the computed styles by the
+/// rules of CSS 2.1 Appendix E: a stacking context's own background, its
+/// lifted boxes below zero, its flow, then its lifted boxes at zero in tree
+/// order and those above zero by level, and an open dialog in the top layer
+/// last. A box is named by its colour — `red`, `blue` or `green` — and a box
+/// painted any other colour, or none, is left out.
+pub fn paint_orders(case: &Path) -> Vec<(String, String)> {
+    let pages = match build_pages(case) {
+        Ok(pages) => pages,
+        Err(rendered) => panic!("{}", rendered.problems.join("\n\n")),
+    };
+    let mut orders = Vec::new();
+    for page in &pages.imports {
+        let out = pages.drive(std::slice::from_ref(page), ORDERS);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            out.status.code() == Some(0) && stdout.contains(ALL_RENDERED),
+            "{}: its snapshots did not render as pages for `web`:\n{}{}",
+            pages.name,
+            super::indent(&stdout),
+            super::indent(&String::from_utf8_lossy(&out.stderr))
+        );
+        orders.extend(
+            stdout
+                .lines()
+                .filter_map(|line| line.strip_prefix("order "))
+                .filter_map(|line| line.split_once(": "))
+                .map(|(name, colours)| (name.to_string(), colours.to_string())),
+        );
+    }
+    orders
+}
+
+/// A case's test sources that call `snapshot`, built as pages for `web` in a
+/// scratch copy of its repository.
+struct Pages {
+    name: String,
+    scratch: Scratch,
+    /// The module of each page, as the driver imports it, and how many
+    /// snapshots it mounts.
+    imports: Vec<(String, usize)>,
+}
+
+/// Builds `case`'s pages, or answers what the case came to without them:
+/// nothing, when no source calls `snapshot`, and the problem when the pages
+/// do not build.
+fn build_pages(case: &Path) -> Result<Pages, Rendered> {
     let name = case.file_name().unwrap().to_string_lossy().to_string();
     let scratch = Scratch::empty(&format!("web-{name}"));
     copy_tree(&case.join("repo"), &scratch.root, &[".buri", "out"]);
@@ -74,23 +148,23 @@ fn render_case(case: &Path) -> Rendered {
     collect_sources(&scratch.root, &mut sources);
     widen_surfaces(&scratch.root, &scratch.root);
     let mut targets = Vec::new();
-    let mut snapshots = 0;
+    let mut counts = Vec::new();
     for source in sources {
         let text = std::fs::read_to_string(&source).unwrap();
         let Some(page) = page_of(&text) else { continue };
         let package = format!("buri_web/page_{}", targets.len());
         scratch.write(&format!("{package}/BUILD.buri"), PAGE_BUILD);
         scratch.write(&format!("{package}/main.buri"), &page.source);
-        snapshots += page.snapshots;
+        counts.push(page.snapshots);
         targets.push(package);
     }
     let mut rendered = Rendered {
         pages: targets.len(),
-        snapshots,
+        snapshots: counts.iter().sum(),
         problems: Vec::new(),
     };
     if targets.is_empty() {
-        return rendered;
+        return Err(rendered);
     }
     scratch.write("buri_web/snapshot/BUILD.buri", LIBRARY_BUILD);
     scratch.write("buri_web/snapshot/lib.buri", SNAPSHOT_LIB);
@@ -106,33 +180,38 @@ fn render_case(case: &Path) -> Rendered {
             "{name}: its snapshots cannot be built as pages for `web`:\n{}",
             super::indent(&built.normalised(&scratch.root))
         ));
-        return rendered;
+        return Err(rendered);
     }
-
-    let imports: Vec<String> = targets
+    let imports = targets
         .iter()
-        .map(|t| format!("\"./.buri/out/web/{t}/main.mjs\""))
+        .zip(counts)
+        .map(|(t, n)| (format!("\"./.buri/out/web/{t}/main.mjs\""), n))
         .collect();
-    let script = format!(
-        "{}\nconst PAGES = [{}];\nconst EXPECTED = {snapshots};\n{DRIVER}",
-        browser(),
-        imports.join(", ")
-    );
-    let path = scratch.write("drive.mjs", &script);
-    let out = Command::new(js_runtime())
-        .arg(&path)
-        .current_dir(&scratch.root)
-        .capped_output()
-        .expect("the javascript runtime runs");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    if out.status.code() != Some(0) || !stdout.contains(ALL_RENDERED) {
-        rendered.problems.push(format!(
-            "{name}: its snapshots did not render as pages for `web`:\n{}{}",
-            super::indent(&stdout),
-            super::indent(&String::from_utf8_lossy(&out.stderr))
-        ));
+    Ok(Pages {
+        name,
+        scratch,
+        imports,
+    })
+}
+
+impl Pages {
+    /// Mounts `pages` in one document under `js_runtime()`, then runs `then`
+    /// over the snapshots they mounted.
+    fn drive(&self, pages: &[(String, usize)], then: &str) -> std::process::Output {
+        let imports: Vec<&str> = pages.iter().map(|(page, _)| page.as_str()).collect();
+        let script = format!(
+            "{}\nconst PAGES = [{}];\nconst EXPECTED = {};\n{MOUNT}{then}",
+            browser(),
+            imports.join(", "),
+            pages.iter().map(|(_, n)| n).sum::<usize>()
+        );
+        let path = self.scratch.write("drive.mjs", &script);
+        Command::new(js_runtime())
+            .arg(&path)
+            .current_dir(&self.scratch.root)
+            .capped_output()
+            .expect("the javascript runtime runs")
     }
-    rendered
 }
 
 /// Puts every method a library's sources export on its surface, under `dir`.
@@ -574,9 +653,9 @@ export fn some<T>(option: Option<T>): T {
 /// What the driver prints last when every snapshot rendered.
 const ALL_RENDERED: &str = "every snapshot rendered";
 
-/// Imports each page in `PAGES`, checking each snapshot as it is mounted, then
-/// drives what they mounted.
-const DRIVER: &str = r#"
+/// Imports each page in `PAGES`, checking each snapshot as it is mounted into
+/// `snapshots`. A driver script goes on from here.
+const MOUNT: &str = r#"
 const problems = [];
 process.on("unhandledRejection", (e) => problems.push(`a promise was rejected: ${e?.stack ?? e}`));
 // What the driver is doing, for a problem the page reports while it does it.
@@ -662,6 +741,10 @@ for (const page of PAGES) {
 }
 await settle();
 if (snapshots.length !== EXPECTED) problems.push(`${snapshots.length} of ${EXPECTED} snapshots mounted`);
+"#;
+
+/// Drives what the pages mounted.
+const DRIVER: &str = r#"
 
 // Then each tree is driven the way its state describes, and everything that
 // listens for a click is clicked.
@@ -698,6 +781,94 @@ for (const { name, state, tree } of snapshots) {
   await settle();
 }
 await settle();
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints the order a browser paints each mounted snapshot's boxes in, one
+/// `order <name>: <colours>` line each, after driving the hover a hovered
+/// snapshot names ([`paint_orders`]).
+const ORDERS: &str = r#"
+const NAMED = { "255,0,0": "red", "0,0,255": "blue", "0,160,0": "green" };
+// The name of an opaque colour written as `#rrggbb`, `rgb()` or `rgba()`.
+function named(text) {
+  const hex = /^#([0-9a-f]{6})$/i.exec(text ?? "");
+  const rgb = /^rgba?\(([^)]*)\)$/.exec(text ?? "");
+  let parts;
+  if (hex) parts = [0, 2, 4].map((k) => parseInt(hex[1].slice(k, k + 2), 16));
+  else if (rgb) parts = rgb[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+  else return null;
+  if (parts.length > 3 && parts[3] < 1) return null;
+  return NAMED[parts.slice(0, 3).join(",")] ?? null;
+}
+// What a box paints of its own: its background, or the fill of a drawing's
+// first shape.
+function own(element, out) {
+  const shape = element.localName === "svg" ? element.firstElementChild : null;
+  const colour =
+    element.localName === "svg"
+      ? named(shape?.style.fill)
+      : named(getComputedStyle(element).backgroundColor);
+  if (colour !== null) out.push(colour);
+}
+const unset = (value) => value === "" || value === "none" || value === "auto";
+const positioned = (s) => ["relative", "absolute", "fixed", "sticky"].includes(s.position);
+const isolates = (s) =>
+  s.position === "fixed" ||
+  s.position === "sticky" ||
+  (positioned(s) && !unset(s.zIndex)) ||
+  (s.opacity !== "" && Number(s.opacity) < 1) ||
+  !unset(s.transform) ||
+  !unset(s.backdropFilter);
+const level = (s) => (positioned(s) && !unset(s.zIndex) ? Number(s.zIndex) : 0);
+const topLayer = (element) => element.localName === "dialog" && element.open;
+// The flow under `element` into `out`, in tree order, and its stacking
+// context's lifted boxes under it into `lifted`, in tree order.
+function walk(element, out, lifted) {
+  for (const child of element.children) {
+    const s = getComputedStyle(child);
+    if (topLayer(child) || s.display === "none") continue;
+    if (positioned(s) || isolates(s)) {
+      lifted.push(child);
+      if (!isolates(s)) walk(child, [], lifted);
+      continue;
+    }
+    own(child, out);
+    if (child.localName !== "svg") walk(child, out, lifted);
+  }
+}
+function lift(element, out) {
+  if (isolates(getComputedStyle(element))) return context(element, out);
+  own(element, out);
+  walk(element, out, []);
+}
+// A stacking context, painted whole.
+function context(element, out) {
+  own(element, out);
+  const flow = [];
+  const lifted = [];
+  walk(element, flow, lifted);
+  const levels = lifted
+    .map((box, at) => [level(getComputedStyle(box)), at, box])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (const [at, , box] of levels) if (at < 0) lift(box, out);
+  out.push(...flow);
+  for (const [at, , box] of levels) if (at >= 0) lift(box, out);
+}
+for (const { root, name, state, tree } of snapshots) {
+  if (state === "hover") {
+    for (const node of tree) {
+      for (const element of [node, ...(node.querySelectorAll?.("*") ?? [])]) {
+        fire(element, "pointerenter");
+        fire(element, "mouseenter");
+      }
+    }
+    await settle();
+  }
+  const out = [];
+  context(root, out);
+  for (const dialog of root.querySelectorAll("dialog")) if (topLayer(dialog)) context(dialog, out);
+  console.log(`order ${name}: ${out.join(" ")}`);
+}
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;
 

@@ -1,0 +1,11 @@
+FAIL //lib/order  test/order.buri  "a pinned field inside a pinned wrapper paints under the square pinned after the wrapper"
+  the snapshot "nested" changed: see test/__snapshots__/nested.diff.png
+  --> lib/order/test/order.buri:11:1
+FAIL //lib/order  test/order.buri  "the nested scene in a faded group keeps its order"
+  the snapshot "faded" changed: see test/__snapshots__/faded.diff.png
+  --> lib/order/test/order.buri:123:1
+FAIL //lib/order  test/order.buri  "the nested scene in a box held to the viewport keeps its order"
+  the snapshot "viewport" changed: see test/__snapshots__/viewport.diff.png
+  --> lib/order/test/order.buri:139:1
+
+43 passed, 3 failed, 0 skipped (0.0s)

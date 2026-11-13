@@ -639,6 +639,16 @@ fn serving_a_page() {
 /// trigger covering the line below against the toolbar alone. `focus` is two
 /// fields bound to `hasFocus`, the focus on one, hovered and focused, so the
 /// ring is on the field that answers that it has the focus and on no other.
+///
+/// `positioned_boxes_paint_in_tree_order` is the order a browser paints
+/// positioned boxes and stacking contexts in (#347). Each scene shares a
+/// golden with a twin that paints the same picture in plain tree order, so a
+/// box painted out of order fails its scene: pinned boxes inside pinned
+/// wrappers at every depth and inside every other kind of box, every kind of
+/// lifted box against the flow and against a pinned box, a box held to the
+/// viewport, an open dialog, a tooltip and a marked list item.
+/// `positioned_boxes_follow_the_browser_order` checks each pair against
+/// happy-dom's computed styles, so the browser's order backs the twin.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 67);
@@ -651,6 +661,55 @@ fn snapshots() {
 #[test]
 fn snapshots_render_as_pages() {
     crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 60);
+}
+
+/// The order a browser paints `positioned_boxes_paint_in_tree_order`'s boxes
+/// in, read off happy-dom's computed styles: each scene and its twin paint
+/// their coloured boxes in the same order, and it is the order the shared
+/// golden shows. So the painter is held to the browser's order, not only to
+/// the twin's.
+#[test]
+fn positioned_boxes_follow_the_browser_order() {
+    let expected: &[(&str, &str)] = &[
+        ("nested", "red blue"),
+        ("deep", "red blue"),
+        ("anchored", "red blue"),
+        ("scrolled", "red blue"),
+        ("layers", "red blue"),
+        ("siblings", "green red blue"),
+        ("drawing", "red blue"),
+        ("faded", "red blue"),
+        ("viewport", "red blue"),
+        ("relative-after-pin", "red blue"),
+        ("relative-before-flow", "blue red"),
+        ("sticky-after-pin", "red blue"),
+        ("sticky-before-flow", "blue red"),
+        ("faded-after-pin", "red blue"),
+        ("faded-before-flow", "blue red"),
+        ("translated-after-pin", "red blue"),
+        ("translated-before-flow", "blue red"),
+        ("blurred-after-pin", "red blue"),
+        ("blurred-before-flow", "blue red"),
+        ("viewport-first", "red blue"),
+        ("dialog-first", "red blue"),
+        ("tooltip-over", "red blue"),
+        ("list-item", "red blue"),
+    ];
+    let case = tests_dir().join("repositories/ui/positioned_boxes_paint_in_tree_order");
+    let orders = crate::harness::web_pages::paint_orders(&case);
+    let mut wrong = Vec::new();
+    for (name, order) in expected {
+        let seen: Vec<&str> = orders
+            .iter()
+            .filter(|(n, _)| n == name)
+            .map(|(_, o)| o.as_str())
+            .collect();
+        if seen != [*order, *order] {
+            wrong.push(format!("{name}: expected {order} twice, painted {seen:?}"));
+        }
+    }
+    assert_eq!(orders.len(), expected.len() * 2, "{orders:?}");
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

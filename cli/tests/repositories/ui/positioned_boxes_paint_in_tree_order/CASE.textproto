@@ -1,0 +1,39 @@
+# Positioned boxes paint in the order a browser paints them (#347).
+#
+# A browser paints a stacking context's positioned boxes, and the stacking
+# contexts inside it, in tree order after its in-flow content, and those with
+# a z-index above zero after that (CSS 2.1 Appendix E). The painter used to
+# hold a pinned box's pinned descendants back until after every later pinned
+# sibling of the wrapper, paint boxes positioned in the flow, faded,
+# translated or blurred boxes with the flow, paint a box held to the viewport
+# after the whole page, and miss a list item's position and a tooltip's
+# z-index. Each scene here shares a golden with a twin that paints the same
+# picture in plain tree order: pinned boxes at every depth, inside a box held
+# to its anchor, a scroll box, a layer stack, a faded group and a box held to
+# the viewport, beside earlier siblings and in a drawing; every kind of lifted
+# box before a box in the flow and after a pinned one; and a box held to the
+# viewport, an open dialog, a tooltip and a marked list item.
+#
+# The last step puts the square before the wrapped field, and that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "positioned boxes and stacking contexts paint in a browser's order, each scene beside a twin in tree order, and a reordered scene fails the golden"
+
+run {
+  args: ["test", "//lib/order", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/order/order.buri"
+  replace: "frame([pinned(red()), blue()])"
+  with: "frame([blue(), pinned(red())])"
+}
+
+run {
+  args: ["test", "//lib/order", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

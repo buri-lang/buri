@@ -1,0 +1,167 @@
+// A box that is positioned, or that is a stacking context of its own, paints
+// with the pinned boxes in tree order, after the flow. Each scene beside its
+// twin, which paints the same picture in plain tree order.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/order" import { afterPin, afterPinTwin, beforeFlow, beforeFlowTwin };
+
+test "a box positioned in the flow paints over the pinned field written before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "relative-after-pin", afterPin(0), .Checked, []);
+}
+
+test "the same square pinned, for a box positioned in the flow after a pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "relative-after-pin", afterPinTwin(0), .Checked, []);
+}
+
+test "a box positioned in the flow paints over the box in the flow written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "relative-before-flow", beforeFlow(0), .Checked, []);
+}
+
+test "the same boxes in tree order, for a box positioned in the flow before the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "relative-before-flow", beforeFlowTwin(0), .Checked, []);
+}
+
+test "a sticky box paints over the pinned field written before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sticky-after-pin", afterPin(1), .Checked, []);
+}
+
+test "the same square pinned, for a sticky box after a pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sticky-after-pin", afterPinTwin(1), .Checked, []);
+}
+
+test "a sticky box paints over the box in the flow written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sticky-before-flow", beforeFlow(1), .Checked, []);
+}
+
+test "the same boxes in tree order, for a sticky box before the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sticky-before-flow", beforeFlowTwin(1), .Checked, []);
+}
+
+test "a faded box paints over the pinned field written before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded-after-pin", afterPin(2), .Checked, []);
+}
+
+test "the same square pinned, for a faded box after a pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded-after-pin", afterPinTwin(2), .Checked, []);
+}
+
+test "a faded box paints over the box in the flow written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded-before-flow", beforeFlow(2), .Checked, []);
+}
+
+test "the same boxes in tree order, for a faded box before the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded-before-flow", beforeFlowTwin(2), .Checked, []);
+}
+
+test "a translated box paints over the pinned field written before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated-after-pin", afterPin(3), .Checked, []);
+}
+
+test "the same square pinned, for a translated box after a pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated-after-pin", afterPinTwin(3), .Checked, []);
+}
+
+test "a translated box paints over the box in the flow written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated-before-flow", beforeFlow(3), .Checked, []);
+}
+
+test "the same boxes in tree order, for a translated box before the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated-before-flow", beforeFlowTwin(3), .Checked, []);
+}
+
+test "a box with a backdrop blur paints over the pinned field written before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blurred-after-pin", afterPin(4), .Checked, []);
+}
+
+test "the same square pinned, for a box with a backdrop blur after a pinned field" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blurred-after-pin", afterPinTwin(4), .Checked, []);
+}
+
+test "a box with a backdrop blur paints over the box in the flow written after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blurred-before-flow", beforeFlow(4), .Checked, []);
+}
+
+test "the same boxes in tree order, for a box with a backdrop blur before the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blurred-before-flow", beforeFlowTwin(4), .Checked, []);
+}
