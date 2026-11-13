@@ -9,6 +9,7 @@
 // `Str` through such a guard on both backends and read it afterward, so the
 // value the guard borrowed is still the same characters.
 
+from "core/map" import * as map;
 from "core/orderedmap" import * as ordmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
@@ -167,4 +168,170 @@ test "a guard that fails on a bound heap value falls through cleanly" {
     );
     assert.equal(total, 16);
     assert.equal(assert.some(decoded(ctx, 2)).node, "node-2");
+}
+
+// A false guard reading the local the match consumes leaves it to the arm the
+// match falls through to, which releases it once (issue #345).
+
+fn wildcardGuard<C: Allocator>(ctx: C, n: Int): Str {
+    let lower = str.format(ctx, "page-${n}");
+    match (lower) {
+        _ if lower.contains("x") => "has x",
+        _ => "no x",
+    }
+}
+
+test "a false guard calling a method on the scrutinee leaves it to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(wildcardGuard(ctx, 1), "no x");
+    assert.equal(wildcardGuard(ctx, 2), "no x");
+}
+
+fn handsOnScrutinee<C: Allocator>(ctx: C, n: Int): Str {
+    let lower = str.format(ctx, "page-${n}");
+    match (lower) {
+        "page-0" => "zero",
+        _ if lower.contains("x") => "has x",
+        _ => lower,
+    }
+}
+
+test "the arm past a false guard on the scrutinee answers the scrutinee itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(handsOnScrutinee(ctx, 7), "page-7");
+    assert.equal(handsOnScrutinee(ctx, 0), "zero");
+}
+
+fn takesText(text: Str): Bool {
+    text.endsWith("x")
+}
+
+fn consumingGuard<C: Allocator>(ctx: C, n: Int): Str {
+    let lower = str.format(ctx, "page-${n}");
+    match (lower) {
+        _ if takesText(lower) => "ends in x",
+        _ => lower,
+    }
+}
+
+test "a false guard handing the scrutinee to a function leaves it to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(consumingGuard(ctx, 3), "page-3");
+}
+
+fn shortCircuitGuard<C: Allocator>(ctx: C, n: Int): Str {
+    let lower = str.format(ctx, "page-${n}");
+    match (lower) {
+        _ if n > 0 && lower.contains("x") => "has x",
+        _ => "no x",
+    }
+}
+
+test "a false guard reading the scrutinee on the right of && leaves it to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(shortCircuitGuard(ctx, 4), "no x");
+    assert.equal(shortCircuitGuard(ctx, 0), "no x");
+}
+
+fn capturingGuard<C: Allocator>(ctx: C, n: Int): Int {
+    let lower = str.format(ctx, "page-${n}");
+    let known = ["home", "about"];
+    match (lower) {
+        _ if known.any(fn(name) => name == lower) => 1,
+        _ => 2,
+    }
+}
+
+test "a false guard whose closure captures the scrutinee leaves it to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(capturingGuard(ctx, 5), 2);
+}
+
+fn payloadGuard<C: Allocator>(ctx: C, n: Int): Str {
+    let found: Option<Str> = .Some(str.format(ctx, "page-${n}"));
+    match (found) {
+        .Some(text) if found.isSome() && text.contains("x") => text,
+        _ => "no x",
+    }
+}
+
+test "a false guard reading both a payload and the enum it came from falls through" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(payloadGuard(ctx, 6), "no x");
+}
+
+struct Titled {
+    title: Str,
+    rank: Int,
+}
+
+fn recordGuard<C: Allocator>(ctx: C, n: Int): Str {
+    let titled = Titled { title: str.format(ctx, "page-${n}"), rank: n };
+    match (titled) {
+        Titled { rank, .. } if rank > 0 && titled.title.contains("x") => "has x",
+        Titled { title, rank: _ } => title,
+    }
+}
+
+test "a false guard reading a field of the struct the match takes apart falls through" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(recordGuard(ctx, 8), "page-8");
+}
+
+fn listGuard<C: Allocator>(ctx: C, n: Int): Int {
+    let pages = [str.format(ctx, "page-${n}"), str.format(ctx, "page-${n + 1}")];
+    match (pages) {
+        _ if pages.contains("x") => 0,
+        _ => pages.length(),
+    }
+}
+
+test "a false guard over a list of heap Strs leaves the list to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(listGuard(ctx, 9), 2);
+}
+
+fn mapGuard<C: Allocator>(ctx: C, n: Int): Int {
+    let pages = map.empty<Str, Int>().insert(ctx, str.format(ctx, "page-${n}"), n);
+    match (pages) {
+        _ if pages.has("x") => 0,
+        _ => pages.size,
+    }
+}
+
+test "a false guard over a map with a heap key leaves the map to the next arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(mapGuard(ctx, 10), 1);
+}
+
+fn untilMarked<C: Allocator>(ctx: C, text: Str, steps: Int): Int {
+    match (text) {
+        _ if text.contains("x") => steps,
+        _ => if (steps > 3) { steps } else { untilMarked(ctx, str.format(ctx, "${text}y"), steps + 1) },
+    }
+}
+
+test "a recursive arm past a false guard on the scrutinee leaves it to that arm" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(untilMarked(ctx, str.format(ctx, "page-${1}"), 0), 4);
 }

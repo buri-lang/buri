@@ -4106,6 +4106,9 @@ impl Scan<'_> {
         } else {
             Vec::new()
         };
+        // Whether the body reads a consumed scrutinee, asked before a guard
+        // that reads it is scanned into the same set.
+        let body_reads_token = token.is_some_and(|t| live.contains(&t));
         if let (Some(g), Some(gid)) = (a.guard.as_ref(), gid) {
             // A guard is speculative: when it is false the *next* arm runs,
             // so the guard is not the last use of anything, even a value it
@@ -4152,6 +4155,11 @@ impl Scan<'_> {
                 .collect();
             for l in &held {
                 self.enliven(live, *l);
+            }
+            // So is a consumed scrutinee, released at the arm's entry below: a
+            // false guard that released it left the next arm a freed one (#345).
+            if let Some(t) = token {
+                self.enliven(live, t);
             }
             // The names the pattern binds out of a consumed scrutinee take
             // their counts at the arm's entry, which is *after* the guard:
@@ -4218,7 +4226,7 @@ impl Scan<'_> {
             // `.None => failExpected("some", o)` — has already had its own
             // last-use drop placed after the read, and a second one here
             // would take the count to zero before the arm ran.
-            if !live.contains(&t) {
+            if !body_reads_token {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
             }
         } else if let Some(sid) = built {

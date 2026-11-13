@@ -593,3 +593,27 @@ test "a drawing and its paths, styled and not" {
         }),
     );
 }
+
+/// A computation matching on a string it allocated with its `Scope`, behind a
+/// false guard that reads the string (issue #345).
+fn guardedText<C>(): Node<C> {
+    ui.text({
+        content: .Computed(fn(scope) => {
+            let lower = "Page".toLower(scope);
+            match (lower) {
+                _ if lower.contains("x") => "has x",
+                _ => "no x",
+            }
+        }),
+    })
+}
+
+test "text a computation picks with a guard over a string it allocated" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.isTrue(ui.describe(ctx, guardedText(), .Checked).contains("no x"));
+    assert.isTrue(ui.describe(ctx, guardedText(), .Hover).contains("no x"));
+    matchesDescribe(ctx, guardedText());
+}
