@@ -9755,6 +9755,47 @@ The user approved setting the dev-codegen baseline rows to what this change
 measured, for this change only: each row holds the higher of CI's figure and
 the VM's. Every parse and check row stayed within its gate.
 
+### 6.133 Parsing copies no literal and grows fewer arenas, 2026-11-13
+
+```rust
+// lexer.rs, push_record: kind and payload, side by side in a repr(C) record
+let tail = u32::from_ne_bytes([kind as u8, a, b, c]);
+at.cast::<u8>().add(offset_of!(Record, kind)).cast::<u32>().write(tail);
+
+// parser.rs: the tree takes the lexer's tables, so a node holds the token's index
+tree.adopt_literals(lexed.tokens.take_literals());
+```
+
+- `push_record` writes a token's kind and its three payload bytes as one
+  32-bit store, not four. §6.131's `repr(C)` alone changed nothing; it pays
+  once the store relies on it.
+- The tree reserves 0.46 expression nodes and 0.23 types per token, up from
+  0.35 and 0.10. Dense files outgrew the old room and copied the arena at
+  each doubling.
+- The parser used to copy every integer, float and cooked string from the
+  lexer's tables into the tree's. The tree now takes the tables whole.
+
+On the arm64 VM, from 8839cdbdb to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` parse cost | 2196.5 | 2136.6 (-2.7%) |
+| `ci` parse instructions | 1590.1 | 1549.6 (-2.5%) |
+| `monorepo-ci` parse cost | 2822.2 | 2724.0 (-3.5%) |
+| `monorepo-ci` parse instructions | 2042.3 | 1983.3 (-2.9%) |
+
+Two ideas didn't pay. A fast path for a literal or name standing alone as an
+operand ran 1.2% more instructions. Scanning a word eight bytes at a time
+saved nothing on average, because most names are short.
+
+`lexing.rs`'s `a_character_reads_as_its_scalar_value` covers each payload
+width. `parsing.rs`'s `literals_read_as_their_values` reads every kind of
+literal, and `a_file_of_dense_types_and_calls_builds` outgrows both arenas.
+
+The parse rows and the `monorepo-ci` check rows now hold the higher of CI's
+figure and the VM's. x86_64 `test/one-edit` holds CI's 38.41M, which §6.132
+had brought down from 62.15M.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
