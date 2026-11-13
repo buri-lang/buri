@@ -43,8 +43,13 @@ fn runtime_script(scratch: &Scratch, body: &str) -> String {
 /// A shell loop that waits up to two minutes for `condition`, and gives up with
 /// `why` on standard error.
 fn wait_for(condition: &str, why: &str) -> String {
+    wait_every(condition, why, 2400, "0.05")
+}
+
+/// [`wait_for`], looking `tries` times with `pause` seconds between looks.
+fn wait_every(condition: &str, why: &str, tries: u32, pause: &str) -> String {
     format!(
-        "n=0\nuntil {condition}; do\n  n=$((n+1))\n  if [ \"$n\" -gt 2400 ]; then echo '{why}' >&2; exit 3; fi\n  /bin/sleep 0.05\ndone\n"
+        "n=0\nuntil {condition}; do\n  n=$((n+1))\n  if [ \"$n\" -gt {tries} ]; then echo '{why}' >&2; exit 3; fi\n  /bin/sleep {pause}\ndone\n"
     )
 }
 
@@ -1160,12 +1165,12 @@ fn a_suite_waiting_on_nothing_lets_another_start() {
     let js = js_path();
     // A quarter of a second between looks, so the waiting shell is asleep
     // rather than starting a `sleep` twenty times a second.
-    let wait = wait_for(
+    let wait = wait_every(
         &format!("[ \"$(/bin/ls '{dir}' | /usr/bin/wc -l)\" -ge 2 ]"),
         "the other suite never started while this one waited",
-    )
-    .replace("2400", "480")
-    .replace("sleep 0.05", "sleep 0.25");
+        480,
+        "0.25",
+    );
     let script = runtime_script(
         &scratch,
         &format!("/bin/mkdir -p '{dir}'\n: > '{dir}/'$$\n{wait}exec '{js}' \"$@\"\n"),
