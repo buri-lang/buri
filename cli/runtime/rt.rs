@@ -273,10 +273,18 @@ pub fn handle() -> &'static tokio::runtime::Handle {
 /// chooses, and it is the same test `memory::stack_list` makes for the other
 /// stack.
 ///
-/// The future is polled on **this** stack, in both arms, so it need be neither
-/// `Send` nor `'static`: it lives in this frame, and a task's frame goes where
-/// the task goes. A body that is still synchronous (`http.rs`'s client) costs
-/// no copy and no thread hop to route through here.
+/// The future is polled on **this** thread, in both arms, so it need be neither
+/// `Send` nor `'static`: a task's frame goes where the task goes. A body that
+/// is still synchronous (`http.rs`'s client) costs no thread hop to route
+/// through here.
+///
+/// **The future is boxed, not pinned in this frame.** tokio's threads keep
+/// pointers into what it waits on, a timer's entry or a `Notified`'s place in a
+/// queue, and order their accesses with locks helgrind can't see. On a stack,
+/// the frames that reused that memory after the wait were races to helgrind
+/// (#348): on x86_64 Valgrind counts the 128 bytes below the stack pointer as
+/// still in use, so a frame that reuses them is never new memory to it. A
+/// freed block is.
 ///
 /// **The loop is not a spin.** `Poll::Pending` is answered by a switch, and
 /// the only thing that goes round again is a task the waker reached *during*
@@ -306,7 +314,7 @@ pub fn park_on<T>(future: impl Future<Output = T>) -> T {
     let task: &Task = unsafe { &*here };
     let waker = task.waker();
     let mut cx = Context::from_waker(&waker);
-    let mut future = std::pin::pin!(future);
+    let mut future = Box::pin(future);
     loop {
         task.state.store(RUNNING, Ordering::Release);
         if let Poll::Ready(answer) = poll_in_reactor(future.as_mut(), &mut cx) {
@@ -2877,13 +2885,12 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
             return -1;
         }
         let wake = Arc::clone(&beside.wake);
-        // Armed before the lock is let go, so a spawn or an ending that lands
-        // between here and the park still wakes this worker.
+        // Made before the lock is let go, so a spawn or an ending that lands
+        // between here and the park still wakes this worker: a `Notified` is
+        // owed every `notify_waiters` from when it is made, polled or not.
         let notified = wake.notified();
-        let mut notified = std::pin::pin!(notified);
-        notified.as_mut().enable();
         drop(table);
-        park_on(notified.as_mut());
+        park_on(notified);
     }
 }
 
@@ -3101,12 +3108,15 @@ fn fire_due() {
 
 /// [`park_on`]'s arm for a thread that is not a task: `future`, with every
 /// timer that comes due meanwhile fired on this thread.
+///
+/// Both futures are boxed, for the reason [`park_on`] gives: `block_on` would
+/// pin its own on this stack, and it holds a `Notified`.
 fn firing_while<T>(future: impl Future<Output = T>) -> T {
-    let mut future = std::pin::pin!(future);
+    let mut future = Box::pin(future);
     loop {
         let deadline = earliest();
         let mine = future.as_mut();
-        let answer = handle().block_on(async move {
+        let answer = handle().block_on(Box::pin(async move {
             let mut woken = std::pin::pin!(started().notified());
             let mut sleep = deadline
                 .map(|at| Box::pin(tokio::time::sleep_until(tokio::time::Instant::from_std(at))));
@@ -3126,7 +3136,7 @@ fn firing_while<T>(future: impl Future<Output = T>) -> T {
                 Poll::Pending
             })
             .await
-        });
+        }));
         match answer {
             // What came due while the wait was ending fires before the code
             // that waited goes on: a timer due before a sleep ends has fired
@@ -3539,6 +3549,71 @@ mod tests {
             started.elapsed() >= Duration::from_millis(25),
             "the sleep did not wait"
         );
+    }
+
+    /// A future that answers whether it was polled where a stack frame is:
+    /// between its own poll's frame and `above`, an address in a caller's.
+    struct OnTheStack {
+        above: usize,
+    }
+
+    impl Future for OnTheStack {
+        type Output = bool;
+        // Out of line, so its frame is below its caller's.
+        #[inline(never)]
+        fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<bool> {
+            let here = 0u8;
+            let below = std::hint::black_box(std::ptr::addr_of!(here)).addr();
+            let at = std::ptr::from_ref(&*self).addr();
+            Poll::Ready((below..self.above).contains(&at))
+        }
+    }
+
+    /// Whether [`park_on`] polls what it waits on from the stack of the
+    /// frames below this one.
+    #[inline(never)]
+    fn parks_on_the_stack() -> bool {
+        let mark = 0u8;
+        let above = std::hint::black_box(std::ptr::addr_of!(mark)).addr();
+        assert!(polled_below(above), "the probe can't tell a stack");
+        waits_below(above)
+    }
+
+    /// The control: the same future, polled on the stack, says so.
+    #[inline(never)]
+    fn polled_below(above: usize) -> bool {
+        let mut here = std::pin::pin!(OnTheStack { above });
+        let mut cx = Context::from_waker(Waker::noop());
+        here.as_mut().poll(&mut cx) == Poll::Ready(true)
+    }
+
+    #[inline(never)]
+    fn waits_below(above: usize) -> bool {
+        park_on(OnTheStack { above })
+    }
+
+    /// **What a thread parks on is not on its stack.** tokio's threads keep
+    /// pointers into it, a timer's entry or a `Notified`'s place in a queue,
+    /// and order those accesses with locks helgrind can't see. On a stack, the
+    /// next frame over it was a race to helgrind (#348): on x86_64 Valgrind
+    /// counts the 128 bytes below the stack pointer as still in use, so a frame
+    /// that reuses them is never new memory to it. A freed block is.
+    #[test]
+    fn a_future_a_thread_parks_on_is_not_on_its_stack() {
+        assert!(running().is_null(), "the test thread is a task");
+        assert!(!parks_on_the_stack(), "the future was on the stack");
+    }
+
+    /// [`a_future_a_thread_parks_on_is_not_on_its_stack`], for a task, whose
+    /// machine stack is reused by the next task.
+    #[test]
+    fn a_future_a_task_parks_on_is_not_on_its_stack() {
+        let _alone = alone();
+        let parked = on_thread(|| {
+            assert!(!running().is_null(), "the job is not a task");
+            parks_on_the_stack()
+        });
+        assert_eq!(parked.join(), Some(false), "the future was on the stack");
     }
 
     /// A thread that parks does not stop another one from running.

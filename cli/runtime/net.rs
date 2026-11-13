@@ -6814,7 +6814,8 @@ mod tests {
                 Some(crate::tls::ALPN_H2),
                 "a listener that asked for HTTP/2 did not negotiate it"
             );
-            crate::rt::handle().block_on(async move {
+            // Boxed, for the reason `rt::park_on` boxes what it waits on.
+            crate::rt::handle().block_on(Box::pin(async move {
                 let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
                 let (send, driving) =
                     hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
@@ -6846,7 +6847,7 @@ mod tests {
                 let one = one.await.expect("the first stream finished");
                 let two = two.await.expect("the second stream finished");
                 (chosen, one, two)
-            })
+            }))
         });
 
         // The server's half: two connections in hand at once, off one socket.
@@ -6904,7 +6905,8 @@ mod tests {
         let (answered, was_answered) = std::sync::mpsc::channel();
         let client = std::thread::spawn(move || {
             let (conn, sock) = handshaken(port, vec![crate::tls::ALPN_H2.to_vec()]);
-            crate::rt::handle().block_on(async move {
+            // Boxed, for the reason `rt::park_on` boxes what it waits on.
+            crate::rt::handle().block_on(Box::pin(async move {
                 let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
                 let (mut send, driving) =
                     hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
@@ -6934,7 +6936,7 @@ mod tests {
                 // is the tls-hang incident.
                 let ended = tokio::time::timeout(PATIENCE, driven).await.is_ok();
                 (status, String::from_utf8_lossy(&body).into_owned(), ended)
-            })
+            }))
         });
 
         let connection = accept(handle).expect("the one stream");
@@ -6983,8 +6985,9 @@ mod tests {
     fn a_stream_whose_handler_never_answers_is_told_so_at_the_deadline() {
         let (back, written) = tokio::sync::oneshot::channel::<Reply>();
         let started = Instant::now();
-        let response =
-            crate::rt::handle().block_on(answered_within(written, Duration::from_millis(80)));
+        // Boxed, for the reason `rt::park_on` boxes what it waits on.
+        let waiting = Box::pin(answered_within(written, Duration::from_millis(80)));
+        let response = crate::rt::handle().block_on(waiting);
         let waited = started.elapsed();
         assert_eq!(
             response.status().as_u16(),
@@ -7045,7 +7048,8 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let (conn, sock) = handshaken(port, vec![crate::tls::ALPN_H2.to_vec()]);
-            crate::rt::handle().block_on(async move {
+            // Boxed, for the reason `rt::park_on` boxes what it waits on.
+            crate::rt::handle().block_on(Box::pin(async move {
                 let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
                 let (mut send, driving) =
                     hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
@@ -7067,7 +7071,7 @@ mod tests {
                 let ended = tokio::time::timeout(PATIENCE, driven).await.is_ok();
                 asking.abort();
                 ended
-            })
+            }))
         });
 
         let connection = accept(handle).expect("the one stream");
