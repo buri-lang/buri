@@ -9693,21 +9693,22 @@ parse:
   `push_record` hands the buffer to its grow path by value, so the `Vec` stays
   in registers.
 
-On the arm64 VM:
+On the arm64 VM, from §6.130 to this section:
 
 | Row | Before | After |
 | --- | --- | --- |
-| `ci` check cost | 8017.7 | 7929.9 (-1.1%) |
+| `ci` check cost | 8017.7 | 7923.5 (-1.2%) |
 | `ci` check instructions | 4919.0 | 4847.6 (-1.5%) |
-| `ci` parse cost | 2242.5 | 2208.9 (-1.5%) |
-| `ci` parse instructions | 1634.9 | 1602.9 (-2.0%) |
-| `monorepo-ci` parse instructions | 2106.2 | 2061.9 (-2.1%) |
+| `ci` parse cost | 2242.5 | 2194.6 (-2.1%) |
+| `ci` parse instructions | 1634.9 | 1587.6 (-2.9%) |
+| `monorepo-ci` parse instructions | 2106.2 | 2040.7 (-3.1%) |
 | `monorepo-ci` check instructions | 7647.4 | 7546.8 (-1.3%) |
 
-The check and parse rows were tightened to these figures. Two ideas didn't
-pay. `#[repr(C)]` on the token record didn't change a count. Passing the
-record itself to `push_record` spilled its three payload bytes to the stack,
-and the lexer ran 0.9M more instructions on `ci`.
+CI measured the same within 0.1%, and the check and parse rows were tightened
+to the higher of the two. Two ideas didn't pay. `#[repr(C)]` on the token
+record didn't change a count. Passing the record itself to `push_record`
+spilled its three payload bytes to the stack, and the lexer ran 0.9M more
+instructions on `ci`.
 
 `lexing.rs`'s `each_one_byte_punctuator_reads_as_itself` runs a program that
 uses each one-byte punctuator. `loading.rs`'s
