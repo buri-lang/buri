@@ -157,12 +157,26 @@ pub struct Bounds {
 }
 
 impl Bounds {
-    /// The standard ceilings, with `idle` as the cap.
+    /// The standard ceilings, with `idle` as the cap: Valgrind's when the
+    /// environment asks for a tool.
     pub fn idle(idle: Duration) -> Self {
-        let valgrind = ["BURI_MEMCHECK", "BURI_HELGRIND"]
+        Self::within(idle, false)
+    }
+
+    /// The ceilings for `cmd`'s tree, with `idle` as the cap: Valgrind's when
+    /// `cmd` is Valgrind, whatever the environment says.
+    pub fn of(cmd: &std::process::Command, idle: Duration) -> Self {
+        let program = std::path::Path::new(cmd.get_program());
+        Self::within(idle, program.file_name() == Some("valgrind".as_ref()))
+    }
+
+    /// The standard ceilings, or Valgrind's when `valgrind` is set or the
+    /// environment asks for a tool.
+    fn within(idle: Duration, valgrind: bool) -> Self {
+        let asked = ["BURI_MEMCHECK", "BURI_HELGRIND"]
             .iter()
             .any(|v| std::env::var_os(v).is_some_and(|d| !d.is_empty()));
-        let (more_work, more_memory) = if valgrind { VALGRIND } else { (1, 1) };
+        let (more_work, more_memory) = if valgrind || asked { VALGRIND } else { (1, 1) };
         Self {
             idle,
             work: WORK.saturating_mul(more_work),
@@ -426,6 +440,7 @@ fn signal(pid: u32, sig: i32) {
 /// hang, truthfully but unhelpfully. Standard input is closed, which is what
 /// `output` does and what a CLI under test should see.
 pub fn capped_output(mut cmd: std::process::Command, what: &str, cap: Duration) -> Output {
+    let bounds = Bounds::of(&cmd, cap);
     let mut child = cmd
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -433,7 +448,7 @@ pub fn capped_output(mut cmd: std::process::Command, what: &str, cap: Duration) 
         .spawn()
         .unwrap_or_else(|e| panic!("`{what}` did not start: {e}"));
     let (out, err) = drain(&mut child);
-    let status = wait_capped(&mut child, what, cap);
+    let status = wait_within(&mut child, what, bounds);
     Output {
         status,
         stdout: out.take(),
@@ -454,18 +469,20 @@ pub trait Capped {
 impl Capped for std::process::Command {
     fn capped_output(&mut self) -> std::io::Result<Output> {
         let what = argv(self);
+        let bounds = Bounds::of(self, cap());
         let mut child = self
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        Ok(waited_with_output(&mut child, &what))
+        Ok(waited_with_output(&mut child, &what, bounds))
     }
 
     fn capped_status(&mut self) -> std::io::Result<ExitStatus> {
         let what = argv(self);
+        let bounds = Bounds::of(self, cap());
         let mut child = self.spawn()?;
-        Ok(wait_capped(&mut child, &what, cap()))
+        Ok(wait_within(&mut child, &what, bounds))
     }
 }
 
@@ -491,14 +508,14 @@ impl CappedChild for Child {
         // to the end of its input gets there.
         drop(self.stdin.take());
         let what = named(self.id());
-        Ok(waited_with_output(&mut self, &what))
+        Ok(waited_with_output(&mut self, &what, Bounds::idle(cap())))
     }
 }
 
 /// Wait for `child` under the cap, reading both of its pipes as it runs.
-fn waited_with_output(child: &mut Child, what: &str) -> Output {
+fn waited_with_output(child: &mut Child, what: &str, bounds: Bounds) -> Output {
     let (out, err) = drain(child);
-    let status = wait_capped(child, what, cap());
+    let status = wait_within(child, what, bounds);
     Output {
         status,
         stdout: out.take(),
@@ -1188,6 +1205,18 @@ mod hang_tests {
             !alive.success(),
             "the cap fired and left process {id} running"
         );
+    }
+
+    /// A command run under Valgrind gets Valgrind's ceilings, whether or not
+    /// the environment asks for a tool: the Valgrind tool's own rerun
+    /// command doesn't set it.
+    #[test]
+    fn a_command_under_valgrind_gets_valgrinds_ceilings() {
+        let cap = Duration::from_secs(1);
+        let under = Bounds::of(&std::process::Command::new("/usr/bin/valgrind"), cap);
+        assert_eq!(under.memory, memory() * VALGRIND.1);
+        assert_eq!(under.work, WORK * VALGRIND.0);
+        assert_eq!(under.idle, cap);
     }
 
     /// A zero cap fires however fast the child is. Here the child has already
