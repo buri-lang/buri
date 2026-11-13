@@ -255,6 +255,34 @@ fn a_cached_archive_overwritten_in_place_is_staged_again() {
     scratch.run(&["run", "//cmd/app"]).ok().says("edited");
 }
 
+/// A link directory that can't be written, beside a cache that can't take the
+/// edited unit: the build is refused by the object it could not write, rather
+/// than linking without it.
+#[test]
+fn an_unwritable_link_directory_is_refused_by_the_object() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let mut dirs = vec![scratch.path(".buri/cache")];
+    for top in [".buri/cache", ".buri/link"] {
+        for dir in std::fs::read_dir(scratch.path(top)).unwrap().flatten() {
+            if dir.path().is_dir() {
+                dirs.push(dir.path());
+            }
+        }
+    }
+    let mode = |m| {
+        for dir in &dirs {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(m)).unwrap();
+        }
+    };
+    scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
+    mode(0o555);
+    let built = scratch.run(&["build", "//cmd/app"]);
+    mode(0o755);
+    built.exits(1).says("cannot write").says(".o:");
+}
+
 /// The files under `.buri/cache`'s two-character directories, which is where
 /// its entries are.
 fn cache_entries(scratch: &Scratch) -> Vec<std::path::PathBuf> {

@@ -1949,13 +1949,14 @@ impl CDriver {
                     return Ok(entry);
                 }
                 // A unit this build emitted, or a link with no cache.
-                if let Err(e) = replace_with(&path, &unit.bytes) {
-                    return Err(Diagnostic::error(
-                        Span::NONE,
-                        format!("cannot write {}: {e}", path.display()),
-                    ));
-                }
-                Ok(path)
+                replace_with(&path, &unit.bytes)
+                    .map_err(|e| {
+                        Diagnostic::error(
+                            Span::NONE,
+                            format!("cannot write {}: {e}", path.display()),
+                        )
+                    })
+                    .map(|()| path)
             });
         let mut objects: Vec<PathBuf> = Vec::with_capacity(units.len());
         for one in staged {
