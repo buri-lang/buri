@@ -9953,7 +9953,9 @@ On the arm64 VM, from f71cf851a to this section:
 `a_style_handed_three_helpers_deep_reaches_its_node` covers a style handed
 through three and four generic helpers in two test programs.
 
-The check rows hold the VM's figure where it's lower than the baseline.
+The check rows hold the VM's figure where it's lower than the baseline. The
+three dev-codegen cost rows hold the higher of CI's from 93ed232e6 and the
+VM's.
 
 ## 7. Profiling, on this platform
 
