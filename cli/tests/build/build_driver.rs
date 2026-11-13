@@ -232,6 +232,29 @@ fn a_cached_object_overwritten_in_place_is_compiled_again() {
     scratch.run(&["run", "//cmd/app"]).ok().says("edited");
 }
 
+/// Every archive in the cache overwritten with zeros, its length kept: the
+/// runtime archive everywhere, and on Linux the musl sysroot's `libc.a` and
+/// `libunwind.a`. Each is hard-linked into every link directory, so a tool
+/// that edits one there in place, or a disk that damages it, reaches the
+/// cache. A build after an edit links the archives' real bytes again.
+#[test]
+fn a_cached_archive_overwritten_in_place_is_staged_again() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let mut zeroed = 0;
+    for entry in cache_entries(&scratch) {
+        let bytes = std::fs::read(&entry).unwrap();
+        if bytes.starts_with(b"!<arch>\n") {
+            std::fs::write(&entry, vec![0; bytes.len()]).unwrap();
+            zeroed += 1;
+        }
+    }
+    assert!(zeroed > 0, "the cache holds no archives");
+    scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
+    scratch.run(&["build", "//cmd/app"]).ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("edited");
+}
+
 /// The files under `.buri/cache`'s two-character directories, which is where
 /// its entries are.
 fn cache_entries(scratch: &Scratch) -> Vec<std::path::PathBuf> {

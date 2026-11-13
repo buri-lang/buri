@@ -373,16 +373,41 @@ impl Cache {
     ///
     /// Tagged with its length, so that [`Cache::entry`] notices it cut short.
     pub fn put(&self, key: &ActionKey, data: &[u8]) {
-        self.put_tagged(key, data, &(data.len() as u64).to_le_bytes());
+        self.put_tagged(key, data, |_| (data.len() as u64).to_le_bytes().to_vec());
     }
 
     /// [`Cache::put`], tagged with the bytes' hash too, so that
     /// [`Cache::get_checked`] notices them changed.
     pub fn put_checked(&self, key: &ActionKey, data: &[u8]) {
-        self.put_tagged(key, data, &tag::of(data));
+        self.put_tagged(key, data, |_| tag::of(data).to_vec());
     }
 
-    fn put_tagged(&self, key: &ActionKey, data: &[u8], tag: &[u8]) {
+    /// [`Cache::put`], tagged with the entry's modification time too, so that
+    /// [`Cache::entry_stamped`] notices an edit in place without reading the
+    /// bytes. A write into the file moves its modification time; the `rename`
+    /// that stores it and a hard link to it do not.
+    pub fn put_stamped(&self, key: &ActionKey, data: &[u8]) {
+        self.put_tagged(key, data, |file| {
+            stamp(data.len() as u64, file.metadata().ok())
+        });
+    }
+
+    /// Where an entry [`Cache::put_stamped`] stored is, while its length and
+    /// modification time are still the stamped ones. An entry with no tag,
+    /// which a filesystem without extended attributes leaves, is taken as it
+    /// is, as [`Cache::entry`] takes one.
+    pub fn entry_stamped(&self, key: &ActionKey) -> Option<PathBuf> {
+        let path = self.path(key);
+        let meta = std::fs::metadata(&path)
+            .ok()
+            .filter(std::fs::Metadata::is_file)?;
+        match tag::get(&path) {
+            Some(tag) if tag != stamp(meta.len(), Some(meta)) => None,
+            _ => Some(path),
+        }
+    }
+
+    fn put_tagged(&self, key: &ActionKey, data: &[u8], tag: impl Fn(&std::fs::File) -> Vec<u8>) {
         use std::io::Write as _;
         let p = self.path(key);
         let tmp = p.with_extension(temporary_extension());
@@ -391,7 +416,7 @@ impl Cache {
         let write = || {
             let mut file = std::fs::File::create(&tmp)?;
             file.write_all(data)?;
-            tag::set_open(&file, tag);
+            tag::set_open(&file, &tag(&file));
             Ok::<(), std::io::Error>(())
         };
         // The entry's directory is made only when the write finds it missing.
@@ -458,8 +483,20 @@ impl Cache {
     }
 }
 
+/// A length and a modification time, in nanoseconds since the epoch: what
+/// [`Cache::put_stamped`] tags an entry with. A file whose time can't be read
+/// gets a stamp no file has.
+fn stamp(len: u64, meta: Option<std::fs::Metadata>) -> Vec<u8> {
+    let nanos = meta
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(u128::MAX, |since| since.as_nanos());
+    [&len.to_le_bytes()[..], &nanos.to_le_bytes()[..]].concat()
+}
+
 /// What an entry was when it was stored, kept beside its bytes as an extended
-/// attribute: its length, then, from [`Cache::put_checked`], its hash.
+/// attribute: its length, then, from [`Cache::put_checked`], its hash, or,
+/// from [`Cache::put_stamped`], its modification time.
 ///
 /// An attribute rather than a header or a second file, because the linker reads
 /// an object entry where it is (`build::link`), and a second file per entry is
@@ -532,7 +569,8 @@ mod tag {
     /// The tag on the file at `path`, if it has one.
     pub fn get(path: &Path) -> Option<Vec<u8>> {
         let path = CString::new(path.as_os_str().as_bytes()).ok()?;
-        let mut tag = vec![0; 16];
+        // Room for the longest tag, a stamp ([`super::stamp`]).
+        let mut tag = vec![0; 24];
         // SAFETY: two NUL-terminated strings and a buffer of the length given.
         let n = unsafe {
             getxattr(
