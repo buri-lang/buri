@@ -1,0 +1,20 @@
+# A style handed through three generic helpers before it reaches a node, in
+# two test programs.
+#
+# **The claim is that each style a test hands on is a class of the node
+# `inner` builds, in both programs.** Each helper hands on the styles its
+# `Look` carries, so the compiler only finds that `outer`'s reach a node once
+# it has followed `middle`'s, and `middle`'s once it has followed `inner`'s.
+# `plain` writes its style where its node is, beside them. The second program
+# hands its style through `//lib/sheet`'s `spaced` first, a fourth call.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a style handed through three generic helpers is a class of its node in every test program"
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "pass.txt"
+}

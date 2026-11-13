@@ -1,0 +1,8 @@
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+from "//lib/shell" import { Look, outer };
+
+/// A box from `//lib/shell` with the styles it is handed and a gap.
+export fn spaced<C>(styles: [Style]): Node<C> {
+    outer(Look { children: [], styles: [.Group(styles), .Gap(.Px(5))] })
+}

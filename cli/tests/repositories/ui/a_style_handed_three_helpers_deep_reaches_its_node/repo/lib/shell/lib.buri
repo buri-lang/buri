@@ -1,0 +1,33 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// What each helper below is given.
+export struct Look<C> {
+    export children: [Node<C>],
+    export styles: [Style],
+}
+
+fn inner<C>(look: Look<C>): Node<C> {
+    ui.stack({ styles: [.Group(look.styles)], children: look.children })
+}
+
+fn middle<C>(look: Look<C>): Node<C> {
+    inner(Look {
+        children: look.children,
+        styles: [.Group(look.styles), .Padding(.Px(2))],
+    })
+}
+
+/// A box with the styles it is handed, three calls from its node.
+export fn outer<C>(look: Look<C>): Node<C> {
+    middle(Look {
+        children: look.children,
+        styles: [.Group(look.styles), .Height(.Px(3))],
+    })
+}
+
+/// A box whose style is written where its node is.
+export fn plain<C>(): Node<C> {
+    ui.stack({ styles: [.Width(.Px(9))], children: [] })
+}

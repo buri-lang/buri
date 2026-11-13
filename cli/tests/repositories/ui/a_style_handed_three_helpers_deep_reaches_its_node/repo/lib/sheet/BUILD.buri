@@ -1,0 +1,6 @@
+library {
+    dependencies: ["//lib/shell"]
+    test {
+        sources: ["test/sheet.buri"]
+    }
+}

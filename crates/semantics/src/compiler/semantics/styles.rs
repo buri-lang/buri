@@ -744,7 +744,7 @@ type Asked = Vec<(Query, bool)>;
 /// One declaration's part of the graph, as drawn where it asked `asked`.
 struct Drawn {
     asked: Asked,
-    edges: Edges,
+    part: Part,
 }
 
 /// What [`Extractor::alphas`] reported in one declaration, and whether it
@@ -1343,20 +1343,15 @@ impl<'a> Extractor<'a> {
             return;
         }
         let to = Demand::Leaf(self.wrapped.len());
-        if let Some(did) = &mut self.did {
-            let mut extra = Edges::default();
-            self.flow
-                .edges(self.owner, e, Some(to), (false, None), &mut extra);
-            let local = |d| renumbered(d, self.first_leaf, 0);
-            for (from, reads) in extra.reads {
-                for (read, stopped) in reads {
-                    did.extra.push((local(from), local(read), stopped));
-                    self.extra.add(from, read, stopped);
-                }
+        let mut extra = Part::default();
+        self.flow
+            .edges(self.owner, e, Some(to), (false, None), &mut extra);
+        let local = |d| renumbered(d, self.first_leaf, 0);
+        for (from, read, stopped) in extra.reads {
+            if let Some(did) = &mut self.did {
+                did.extra.push((local(from), local(read), stopped));
             }
-        } else {
-            self.flow
-                .edges(self.owner, e, Some(to), (false, None), &mut self.extra);
+            self.extra.add(from, read, stopped);
         }
         self.descend(e, Some(Sink { to, site: false }), cond);
         let span = e.span;
@@ -1987,20 +1982,57 @@ impl Edges {
         self.stops.extend(fresh.stops);
     }
 
-    /// Adds what `other` reads, after what this does.
-    fn merge(&mut self, other: &Edges) {
-        for (from, reads) in &other.reads {
-            let to = self.reads.entry(*from).or_default();
-            to.extend(reads.iter().copied());
+    /// Adds `owner`'s part, after what this reads.
+    fn merge(&mut self, owner: Owner, part: &Part) {
+        // A walk reads one position's children in a row, so a read most often
+        // comes from where the one before it did.
+        let mut last: Option<(Demand, &mut Vec<(Demand, bool)>)> = None;
+        for &(from, to, stopped) in &part.reads {
+            let reads = match last {
+                Some((d, reads)) if d == from => reads,
+                _ => self.reads.entry(from).or_default(),
+            };
+            reads.push((to, stopped));
+            last = Some((from, reads));
         }
-        self.stops.extend(other.stops.iter().copied());
-        self.called.extend(other.called.iter().copied());
-        self.referenced.extend(other.referenced.iter().copied());
-        self.bound.extend(other.bound.iter().copied());
-        for (f, callers) in &other.callers {
-            let to = self.callers.entry(*f).or_default();
-            to.extend(callers.iter().copied());
+        if part.stops {
+            self.stops.insert(owner);
         }
+        self.called.extend(part.called.iter().copied());
+        self.referenced.extend(part.referenced.iter().copied());
+        self.bound.extend(part.bound.iter().copied());
+        for f in &part.calls_passing {
+            self.callers.entry(*f).or_default().insert(owner);
+        }
+    }
+}
+
+/// One declaration's part of [`Edges`], as [`Flow::edges`] walks it: kept in
+/// the order it was found, since only the whole graph is ever looked up.
+#[derive(Default)]
+struct Part {
+    reads: Vec<(Demand, Demand, bool)>,
+    /// Whether it holds a style extracted where a node is given it.
+    stops: bool,
+    called: Vec<FnId>,
+    referenced: Vec<FnId>,
+    bound: Vec<(Owner, LocalId)>,
+    /// The functions it calls with a `Param::Passed` parameter.
+    calls_passing: Vec<FnId>,
+}
+
+impl Part {
+    fn add(&mut self, from: Demand, to: Demand, stopped: bool) {
+        self.reads.push((from, to, stopped));
+    }
+
+    fn clear(&mut self) {
+        self.reads.clear();
+        self.stops = false;
+        self.called.clear();
+        self.referenced.clear();
+        self.bound.clear();
+        self.calls_passing.clear();
     }
 }
 
@@ -2022,7 +2054,8 @@ fn closure(from: Demand, graphs: &[&Edges]) -> HashSet<Demand> {
 /// each local of a function in `fns` read there from outside that function:
 /// not by its result or another of its locals.
 fn reach(edges: &Edges, fns: &HashSet<FnId>) -> (HashSet<Demand>, Vec<(FnId, LocalId)>) {
-    let mut found = HashSet::default();
+    // Most of what reads anything is reached, so this seldom grows.
+    let mut found = HashSet::with_capacity_and_hasher(edges.reads.len(), Default::default());
     let mut outside = Vec::new();
     let mut work = vec![Demand::Node];
     while let Some(d) = work.pop() {
@@ -2398,11 +2431,12 @@ impl<'a> Flow<'a> {
         (kept, also): (&mut Side<'_, HashMap<Owner, Vec<Drawn>>>, Option<Also<'_>>),
     ) -> Edges {
         let mut edges = Edges::default();
+        let mut part = Part::default();
         let consts = walked.unsettled_constants(self.tables, self.consts);
         for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
             let owner = Owner::Const(id);
             let also = also.filter(|_| walked.wants(self.tables.const_(id).span.file));
-            self.draw(owner, kept, &mut edges, |out| {
+            self.draw(owner, kept, (&mut edges, &mut part), |out| {
                 self.seeing(owner, || {
                     self.edges(owner, init, Some(Demand::Const(id)), (false, also), out);
                 });
@@ -2413,7 +2447,7 @@ impl<'a> Flow<'a> {
             let owner = Owner::Fn(id);
             let info = self.tables.fn_info(id);
             let also = also.filter(|_| walked.wants(info.span.file));
-            self.draw(owner, kept, &mut edges, |out| {
+            self.draw(owner, kept, (&mut edges, &mut part), |out| {
                 if let Some((t, m)) = info.impl_of {
                     out.add(Demand::Method(t, m), Demand::Ret(id), false);
                 }
@@ -2439,29 +2473,29 @@ impl<'a> Flow<'a> {
         &self,
         owner: Owner,
         kept: &mut Side<'_, HashMap<Owner, Vec<Drawn>>>,
-        into: &mut Edges,
-        draw: impl FnOnce(&mut Edges),
+        (into, scratch): (&mut Edges, &mut Part),
+        draw: impl FnOnce(&mut Part),
     ) {
         let found = kept
             .kept()
             .and_then(|kept| kept.get(&owner))
             .and_then(|drawn| drawn.iter().find(|d| self.answers(&d.asked)));
         if let Some(found) = found {
-            into.merge(&found.edges);
+            into.merge(owner, &found.part);
             return;
         }
         let Side::Record(kept) = kept else {
-            draw(into);
+            scratch.clear();
+            draw(scratch);
+            into.merge(owner, scratch);
             return;
         };
-        let mut own = Edges::default();
+        let mut part = Part::default();
         self.asking();
-        draw(&mut own);
+        draw(&mut part);
         let asked = self.asked();
-        into.merge(&own);
-        kept.entry(owner)
-            .or_default()
-            .push(Drawn { asked, edges: own });
+        into.merge(owner, &part);
+        kept.entry(owner).or_default().push(Drawn { asked, part });
     }
 
     /// Starts keeping the questions asked.
@@ -2663,7 +2697,7 @@ impl<'a> Flow<'a> {
         e: &typed::Expr,
         ctx: Option<Demand>,
         (stopped, also): (bool, Option<Also<'_>>),
-        out: &mut Edges,
+        out: &mut Part,
     ) {
         if let (Some(also), ExprKind::StructLit { .. } | ExprKind::StructUpdate { .. }) =
             (also, &e.kind)
@@ -2672,7 +2706,7 @@ impl<'a> Flow<'a> {
         }
         let stops = !stopped && ctx.is_some() && self.extracts(owner, e);
         if stops {
-            out.stops.insert(owner);
+            out.stops = true;
         }
         let stopped = stopped || stops;
         let seen = self.seen.get();
@@ -2682,13 +2716,13 @@ impl<'a> Flow<'a> {
         });
         match &e.kind {
             ExprKind::CallFn { func, .. } => {
-                out.called.insert(func.id);
+                out.called.push(func.id);
                 if self.passing.contains(&func.id) {
-                    out.callers.entry(func.id).or_default().insert(owner);
+                    out.calls_passing.push(func.id);
                 }
             }
             ExprKind::FnRef(func) => {
-                out.referenced.insert(func.id);
+                out.referenced.push(func.id);
             }
             _ => {}
         }

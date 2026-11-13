@@ -1,0 +1,6 @@
+library {
+    visibility: ["//lib/sheet"]
+    test {
+        sources: ["test/shell.buri"]
+    }
+}
