@@ -1921,26 +1921,43 @@ fn class_of(c: u8) -> Class {
     CLASSES.get(usize::from(c)).copied().unwrap_or(Class::Other)
 }
 
-/// The punctuator a [`Class::One`] byte is.
+/// The punctuator a [`Class::One`] byte is: one load, where the `match` the
+/// table is built from was a jump table.
 #[inline]
 fn one_byte(c: u8) -> TokenKind {
-    use TokenKind::*;
-    match c {
-        b'(' => LParen,
-        b')' => RParen,
-        b'[' => LBracket,
-        b']' => RBracket,
-        b',' => Comma,
-        b';' => Semi,
-        b'@' => At,
-        b'+' => Plus,
-        b'-' => Minus,
-        b'*' => Star,
-        b'%' => Percent,
-        b'^' => Caret,
-        _ => Tilde,
-    }
+    ONE_BYTE
+        .get(usize::from(c))
+        .copied()
+        .unwrap_or(TokenKind::Tilde)
 }
+
+const ONE_BYTE: [TokenKind; 256] = {
+    use TokenKind::*;
+    let mut table = [Tilde; 256];
+    let mut c = 0usize;
+    while c < 256 {
+        let kind = match c as u8 {
+            b'(' => LParen,
+            b')' => RParen,
+            b'[' => LBracket,
+            b']' => RBracket,
+            b',' => Comma,
+            b';' => Semi,
+            b'@' => At,
+            b'+' => Plus,
+            b'-' => Minus,
+            b'*' => Star,
+            b'%' => Percent,
+            b'^' => Caret,
+            _ => Tilde,
+        };
+        if let Some((_, [entry, ..])) = table.split_at_mut_checked(c) {
+            *entry = kind;
+        }
+        c = c.wrapping_add(1);
+    }
+    table
+};
 
 /// Append a token with no payload: a word or a punctuator, nine tokens in ten.
 #[inline]
@@ -1949,11 +1966,7 @@ fn push_plain(records: &mut Vec<Record>, kind: TokenKind, start: usize, end: usi
         start: start as u32,
         end: end as u32,
     };
-    records.push(Record {
-        loc,
-        kind,
-        pay: [0; 3],
-    });
+    push_record(records, loc, kind, 0);
 }
 
 /// Append a token with a payload, putting one too wide for the record in
@@ -1971,12 +1984,42 @@ fn push_paid(
         wide.push((records.len() as u32, pay));
         word = WIDE;
     }
-    let [a, b, c, _] = word.to_le_bytes();
-    records.push(Record {
-        loc,
-        kind,
-        pay: [a, b, c],
-    });
+    push_record(records, loc, kind, word);
+}
+
+/// `records.push(..)`, written so the lexer's buffer stays in registers.
+///
+/// `Vec::push` grows the buffer through a call that takes its address, so
+/// the compiler keeps the whole `Vec` in memory and reloads its pointer and
+/// capacity at every token. Here the buffer only leaves by value, to
+/// [`grown`].
+#[inline]
+fn push_record(records: &mut Vec<Record>, loc: Location, kind: TokenKind, word: u32) {
+    loop {
+        let len = records.len();
+        if let Some(slot) = records.spare_capacity_mut().first_mut() {
+            let [a, b, c, _] = word.to_le_bytes();
+            slot.write(Record {
+                loc,
+                kind,
+                pay: [a, b, c],
+            });
+            // SAFETY: the slot at `len`, the first spare one, was just
+            // written, so the first `len + 1` records are initialized; and it
+            // lies within the capacity, or there would have been no slot.
+            unsafe { records.set_len(len.wrapping_add(1)) };
+            return;
+        }
+        *records = grown(std::mem::take(records));
+    }
+}
+
+/// `records` with room for at least one more.
+#[cold]
+#[inline(never)]
+fn grown(mut records: Vec<Record>) -> Vec<Record> {
+    records.reserve(1);
+    records
 }
 
 /// The byte at `at`, or 0 past the end.

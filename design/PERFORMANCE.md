@@ -9676,6 +9676,47 @@ reads a large file of integers and escaped strings, then small ones. It checks
 each file's own literals print, and a syntax error in a small file quotes its
 own line.
 
+### 6.131 A name's text is one load, and the lexer pushes in registers, 2026-11-12
+
+§6.130 cost check 0.3% to 0.5%. These changes win that back and cut more from
+parse:
+
+- `SourceText` is a `*const str` plus the `Arc<String>` that keeps it alive.
+  Reading it is one load with no branch, as reading an `Arc<str>` was.
+- `Tree::text` is inlined. The type checker calls it to build the view of
+  every name it reads.
+- A one-byte punctuator's kind comes from a 256-entry table, not a `match`
+  that compiled to a jump table.
+- The lexer pushes a token with `push_record`, not `Vec::push`. `Vec::push`
+  grows through a call that takes the `Vec`'s address, so LLVM kept the `Vec`
+  in memory and reloaded its pointer and capacity at every token.
+  `push_record` hands the buffer to its grow path by value, so the `Vec` stays
+  in registers.
+
+On the arm64 VM:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` check cost | 8017.7 | 7929.9 (-1.1%) |
+| `ci` check instructions | 4919.0 | 4847.6 (-1.5%) |
+| `ci` parse cost | 2242.5 | 2208.9 (-1.5%) |
+| `ci` parse instructions | 1634.9 | 1602.9 (-2.0%) |
+| `monorepo-ci` parse instructions | 2106.2 | 2061.9 (-2.1%) |
+| `monorepo-ci` check instructions | 7647.4 | 7546.8 (-1.3%) |
+
+The check and parse rows were tightened to these figures. Two ideas didn't
+pay. `#[repr(C)]` on the token record didn't change a count. Passing the
+record itself to `push_record` spilled its three payload bytes to the stack,
+and the lexer ran 0.9M more instructions on `ci`.
+
+`lexing.rs`'s `each_one_byte_punctuator_reads_as_itself` runs a program that
+uses each one-byte punctuator. `loading.rs`'s
+`names_from_a_file_and_from_the_library_are_read_by_their_text` checks that a
+call through a file's function and a library function runs, and that a
+misspelling of either is reported with the names it could have meant.
+`a_file_packed_with_tokens_reads_whole` grows the token buffer past its first
+reserve.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

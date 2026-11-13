@@ -1,6 +1,7 @@
 //! What the lexer reads at the edges its fast paths stop at: a word against
 //! its first eight bytes and the end of the file, an integer against the
-//! nineteen digits a `u64` holds, and a comment against the line's end.
+//! nineteen digits a `u64` holds, and a comment against the line's end. Each
+//! one-byte punctuator, read from a table, reads as itself.
 use crate::harness::*;
 
 /// `//app`, a JavaScript binary whose `main.buri` is `source`.
@@ -128,4 +129,24 @@ fn a_file_packed_with_tokens_reads_whole() {
     scratch.exec_js("app").ok().says(&format!(
         "[{printed}] 16 2.5 b word [[[1], [2, 3]], [[4], [5, 6]]]"
     ));
+}
+
+/// **Each one-byte punctuator reads as itself**: brackets, the separators,
+/// the arithmetic operators, `^`, `~` and a pattern's `@`.
+#[test]
+fn each_one_byte_punctuator_reads_as_itself() {
+    let scratch = app("from \"node\" import { NodeHost };\n\
+         from \"platform/effect\" import { Stdout };\n\
+         from \"core/io\" import * as io;\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n    \
+         let ctx = context { Stdout: host.stdout };\n    \
+         let a: I64 = 17;\n    \
+         let b = (a + 3) * 2 - a % 4;\n    \
+         let c = a ^ 5;\n    \
+         let d = ~a;\n    \
+         let e = match (a) { n @ 17 => n * 2, _ => 0 };\n    \
+         let _ = io.println(ctx, \"${[a, b, c, d, e]}\").ignore();\n    \
+         .Ok(())\n}\n");
+    scratch.run(&["build", "//app"]).ok();
+    scratch.exec_js("app").ok().says("[17, 39, 20, -18, 34]");
 }
