@@ -9913,6 +9913,48 @@ a helper nothing calls and a constant nothing reads.
 The check rows hold the VM's figure, CI's being lower. The three dev-codegen
 cost rows hold the higher of CI's from e6f2b8ae6 and the VM's.
 
+### 6.137 A declaration's part of the style graph is a list, 2026-11-13
+
+```rust
+// styles.rs: what Flow::edges writes for one declaration
+struct Part {
+    reads: Vec<(Demand, Demand, bool)>,
+    stops: bool,
+    called: Vec<FnId>,
+    referenced: Vec<FnId>,
+    bound: Vec<(Owner, LocalId)>,
+    calls_passing: Vec<FnId>,
+}
+```
+
+- A test build keeps each declaration's part of the style graph so each
+  suite's restyle can reuse it (§6.106). Each part was a hash map of its
+  own, merged into the program's graph. Nothing ever looked a part up, so
+  it's now a list in the order the walk finds reads. Only the program's
+  graph is hashed.
+- `Edges::merge` reuses the last entry while reads come from the same
+  demand, which they mostly do.
+- A build keeps no parts. It draws into one reused `Part` and merges it, a
+  little more work than adding to the graph directly: `ci` check
+  instructions rose 0.15%.
+- `reach` sizes its set from the graph up front, so it seldom grows.
+
+On the arm64 VM, from f71cf851a to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` check cost | 7558.8 | 7557.6 (-0.0%) |
+| `ci` check instructions | 4576.1 | 4583.2 (+0.2%) |
+| `monorepo-ci` check cost | 11522.9 | 11502.7 (-0.2%) |
+| `monorepo-ci` check instructions | 7052.1 | 7030.4 (-0.3%) |
+| `monorepo-ci` test-build check cost | 13153.6 | 12922.3 (-1.8%) |
+| `monorepo-ci` test-build check instructions | 8095.8 | 7947.1 (-1.8%) |
+
+`a_style_handed_three_helpers_deep_reaches_its_node` covers a style handed
+through three and four generic helpers in two test programs.
+
+The check rows hold the VM's figure where it's lower than the baseline.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
