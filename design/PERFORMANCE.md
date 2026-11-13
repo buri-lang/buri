@@ -9796,6 +9796,46 @@ The parse rows and the `monorepo-ci` check rows now hold the higher of CI's
 figure and the VM's. x86_64 `test/one-edit` holds CI's 38.41M, which §6.132
 had brought down from 62.15M.
 
+### 6.134 A type variable's entry is one load, 2026-11-13
+
+```rust
+// intern.rs: small inference variables, generic parameters and bare type
+// constructors skip the hash and the shard lock after their first use
+TyKindIn::Var(id) => VARS.get(id.index()),
+...
+Some(slot) => *slot.get_or_init(|| shared(probe)),
+```
+
+- `intern` keeps a direct slot for each of the first 2048 inference
+  variables, generic parameters and argument-free constructors. Every body
+  mints the same small variable ids, so after the first body they're one
+  load. The sharded table still makes each entry, so either path returns
+  the same type.
+- `elaborate` resolved a named type's path twice, once for aliases and once
+  for the match below. It resolves it once now.
+- `builtin_type` matches a name against the 16 primitives instead of
+  scanning `Prim::all()` and comparing each name.
+
+On the arm64 VM, from 9e5e03e1e to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` check cost | 7928.9 | 7838.3 (-1.1%) |
+| `ci` check instructions | 4890.2 | 4764.5 (-2.6%) |
+| `monorepo-ci` check cost | 12716.9 | 12549.8 (-1.3%) |
+| `monorepo-ci` check instructions | 7550.0 | 7363.4 (-2.5%) |
+
+The +0.2% check cost that §6.133 showed wasn't the parse tree's data. Its
+instructions and data misses stayed flat; instruction-cache misses rose with
+a lexer-only change, so code layout moved. Fewer check instructions is the
+only lever there.
+
+`named_types.rs` covers each built-in name and alias in an annotation, and a
+body of 3000 literals, past the direct slots.
+
+The check rows hold the VM's figure. The three dev-codegen cost rows hold
+CI's from 9e5e03e1e, the higher of the two.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
