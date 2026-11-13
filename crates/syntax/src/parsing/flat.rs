@@ -46,6 +46,7 @@
 //! it immediately.
 
 use crate::diagnostics::{FileId, SourceText, Span};
+use crate::parsing::lexer::Literals;
 use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
@@ -684,7 +685,7 @@ impl Tree {
     /// specs, one entry per 40 to 250 tokens — since growing one from empty
     /// costs a handful of copies per file (§6.101). Arenas that only some
     /// files touch, such as `context` bindings, start empty, and the literal
-    /// tables are sized by [`Tree::reserve_literals`] from what the lexer read.
+    /// tables are the lexer's own, taken by [`Tree::adopt_literals`].
     pub fn new(file: FileId, src: SourceText, tokens: usize) -> Tree {
         let per = |n: usize, d: usize| tokens.saturating_mul(n).checked_div(d).unwrap_or(0);
         Tree {
@@ -1061,7 +1062,7 @@ impl Tree {
         }
         match n.kind {
             Kind::Int => ExprView::Int {
-                value: self.ints.get(p[0] as usize).copied().unwrap_or(0),
+                value: self.int_at(p[0]),
                 raw: self.text(Location {
                     start: p[1],
                     end: p[2],
@@ -1069,7 +1070,7 @@ impl Tree {
                 span,
             },
             Kind::Float => ExprView::Float {
-                value: self.floats.get(p[0] as usize).copied().unwrap_or(0.0),
+                value: self.float_at(p[0]),
                 raw: self.text(Location {
                     start: p[1],
                     end: p[2],
@@ -1236,7 +1237,7 @@ impl Tree {
                 }
             }
             PatternKind::LitInt => PatView::LitInt {
-                value: self.ints.get(p[0] as usize).copied().unwrap_or(0),
+                value: self.int_at(p[0]),
                 negative: p[3] != 0,
                 raw: self.text(Location {
                     start: p[1],
@@ -1245,7 +1246,7 @@ impl Tree {
                 span,
             },
             PatternKind::LitFloat => PatView::LitFloat {
-                value: self.floats.get(p[0] as usize).copied().unwrap_or(0.0),
+                value: self.float_at(p[0]),
                 negative: p[3] != 0,
                 raw: self.text(Location {
                     start: p[1],
@@ -1447,14 +1448,14 @@ impl Tree {
         TypeId(self.types.len().saturating_sub(1) as u32)
     }
 
-    pub fn push_int(&mut self, v: u128) -> u32 {
-        self.ints.push(v);
-        self.ints.len().saturating_sub(1) as u32
+    /// The integer at `at` in the literal table, as the lexer read it.
+    pub(crate) fn int_at(&self, at: u32) -> u128 {
+        self.ints.get(at as usize).copied().unwrap_or(0)
     }
 
-    pub fn push_float(&mut self, v: f64) -> u32 {
-        self.floats.push(v);
-        self.floats.len().saturating_sub(1) as u32
+    /// The float at `at` in the literal table, as the lexer read it.
+    pub(crate) fn float_at(&self, at: u32) -> f64 {
+        self.floats.get(at as usize).copied().unwrap_or(0.0)
     }
 
     pub fn push_str(&mut self, v: &str) -> u32 {
@@ -1465,8 +1466,9 @@ impl Tree {
         self.strs.len().saturating_sub(1) as u32
     }
 
-    /// The cooked text [`Tree::push_str`] stored at `at`.
-    fn str_at(&self, at: u32) -> &str {
+    /// The cooked text at `at`: a string the lexer read, or one
+    /// [`Tree::push_str`] stored.
+    pub(crate) fn str_at(&self, at: u32) -> &str {
         self.strs
             .get(at as usize)
             .and_then(|&(start, end)| self.cooked.get(start as usize..end as usize))
@@ -1540,12 +1542,16 @@ impl Tree {
         }
     }
 
-    /// Room for the literals the lexer read: the parser copies each one here
-    /// at most once.
-    pub fn reserve_literals(&mut self, ints: usize, strs: usize, cooked: usize) {
-        self.ints.reserve_exact(ints);
-        self.strs.reserve_exact(strs);
-        self.cooked.reserve_exact(cooked);
+    /// Take the lexer's literal tables as this tree's, so a literal token's
+    /// [`Tokens::literal`](crate::parsing::lexer::Tokens::literal) indexes
+    /// its value here: nothing is copied, literal by literal, into the tree.
+    pub fn adopt_literals(&mut self, literals: Literals) {
+        Literals {
+            ints: self.ints,
+            floats: self.floats,
+            cooked: self.cooked,
+            strs: self.strs,
+        } = literals;
     }
 
     /// Take the lexer's doc comment lines as this tree's. A [`Docs`] the

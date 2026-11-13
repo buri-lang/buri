@@ -1,7 +1,7 @@
 //! What the parser reads where its fast paths stop: a name or a literal
 //! against what follows it, a bare type or binding against a path, the
-//! nesting and chain budgets either side of their limits, and a file denser
-//! than the parser sets room aside for.
+//! nesting and chain budgets either side of their limits, each literal as its
+//! value, and a file denser than the parser sets room aside for.
 use crate::harness::*;
 
 /// `//app`, a JavaScript binary whose `main.buri` is `source`.
@@ -128,6 +128,69 @@ fn nesting_and_chains_are_refused_one_past_their_limits() {
             );
         }
     }
+}
+
+/// **Each literal reads as the value written**: integers past 32 bits,
+/// floats, strings with and without escapes, template pieces either side of
+/// an interpolation, the negative and string literals of patterns, a tuple
+/// element, and a literal the parser reads again after trying it as
+/// something else.
+#[test]
+fn literals_read_as_their_values() {
+    let scratch = app(r#"from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "core/io" import * as io;
+
+fn sign(n: Int): Int {
+    match (n) {
+        -1 => 100,
+        0 => 200,
+        4294967296 => 300,
+        _ => 400,
+    }
+}
+
+fn half(x: Float): Int {
+    match (x) {
+        -0.5 => 1,
+        0.5 => 2,
+        _ => 3,
+    }
+}
+
+fn word(s: Str): Int {
+    match (s) {
+        "" => 10,
+        "one" => 20,
+        _ => 30,
+    }
+}
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+    let big = 9007199254740993;
+    let t = (1.25, 4294967297, "mid");
+    let plain = "plain";
+    let escaped = "a\tb";
+    let a = 7;
+    let b = "x";
+    let pieces = "${a}-${b}";
+    let around = "head ${a} mid ${b} tail";
+    let tried = (2 < 5, 6 > 3);
+    let _ = io.println(ctx, "${sign(-1)} ${sign(0)} ${sign(4294967296)} ${sign(3)}").ignore();
+    let _ = io.println(ctx, "${half(-0.5)} ${half(0.5)} ${half(2.0)}").ignore();
+    let _ = io.println(ctx, "${word("")} ${word("one")} ${word("two")}").ignore();
+    let _ = io.println(ctx, "${big} ${t.0} ${t.1} ${t.2} ${tried.0} ${tried.1}").ignore();
+    let _ = io.println(ctx, "${plain}|${escaped}|").ignore();
+    let _ = io.println(ctx, pieces).ignore();
+    let _ = io.println(ctx, around).ignore();
+    .Ok(())
+}
+"#);
+    scratch.run(&["build", "//app"]).ok();
+    scratch.exec_js("app").ok().says(
+        "100 200 300 400\n1 2 3\n10 20 30\n9007199254740993 1.25 4294967297 mid true true\nplain|a\tb|\n7-x\nhead 7 mid x tail",
+    );
 }
 
 /// **A file denser than any the parser sizes for builds the same**: type

@@ -175,7 +175,7 @@ fn parse_inner(
     file: FileId,
     allow_bodyless: bool,
 ) -> (Parsed, Kept<'_>) {
-    let lexed = lex(text, file);
+    let mut lexed = lex(text, file);
     if buri_diagnostics::profile::enabled() {
         let tokens = &lexed.tokens;
         buri_diagnostics::profile::lexed(
@@ -189,8 +189,7 @@ fn parse_inner(
         tree: {
             let mut tree = Tree::new(file, shared, lexed.tokens.len());
             tree.adopt_docs(lexed.docs);
-            let (ints, strs, cooked) = lexed.tokens.literals();
-            tree.reserve_literals(ints, strs, cooked);
+            tree.adopt_literals(lexed.tokens.take_literals());
             tree
         },
         scratch: Scratch::sized(),
@@ -889,12 +888,16 @@ impl<'a> Parser<'a> {
     /// column wide enough for a `u128` would have been paid for by all of
     /// them. Each of these is reached only from the arm that has already read
     /// the kind, so a token that is not a literal of that kind cannot get here.
+    ///
+    /// The tree holds the lexer's literal tables (see [`Tree::adopt_literals`]),
+    /// so a literal node's payload is the token's own [`Parser::literal`].
     fn int_value(&self) -> u128 {
-        self.tokens.int(self.pos)
+        self.tree.int_at(self.literal())
     }
 
-    fn float_value(&self) -> f64 {
-        self.tokens.float(self.pos)
+    /// Where the literal under the cursor sits in the tree's tables.
+    fn literal(&self) -> u32 {
+        self.tokens.literal(self.pos)
     }
 
     fn char_value(&self) -> u32 {
@@ -941,21 +944,19 @@ impl<'a> Parser<'a> {
     /// span, so it is borrowed rather than owned and there is nothing to copy.
     /// See [`Parser::expect_name`].
     fn text_here(&self) -> &str {
-        self.tokens.str_at(self.pos)
+        self.tree.str_at(self.literal())
     }
 
-    /// The text under the cursor, copied onto the end of the tree's cooked
-    /// text, and the index the tree keeps it at.
+    /// The index the tree keeps the text under the cursor at: the lexer's
+    /// own, for a string or template piece, and an empty text otherwise.
     fn text_into_tree(&mut self) -> u32 {
-        let pos = self.pos;
-        let text = match self.tokens.kind(pos) {
+        match self.cur {
             TokenKind::Str
             | TokenKind::TemplateHead
             | TokenKind::TemplateSpan
-            | TokenKind::TemplateTail => self.tokens.str_at(pos),
-            _ => "",
-        };
-        self.tree.push_str(text)
+            | TokenKind::TemplateTail => self.literal(),
+            _ => self.tree.push_str(""),
+        }
     }
 
     /// Whether the cursor is on a string whose closing `"` was never written.
@@ -1726,7 +1727,8 @@ impl<'a> Parser<'a> {
             return Ok((s, span));
         }
         if let Some(i) = self.take_early_at(TokenKind::Str) {
-            return Ok((self.tokens.str_at(i).to_string(), self.tokens.span(i)));
+            let text = self.tree.str_at(self.tokens.literal(i));
+            return Ok((text.to_string(), self.tokens.span(i)));
         }
         let found = self.found();
         let span = self.span();
@@ -3566,9 +3568,8 @@ impl<'a> Parser<'a> {
         }
         let at = self.tree.next_node();
         let payload = if kind == Kind::Int {
-            let value = self.int_value();
             let span = self.span();
-            [self.tree.push_int(value), span.start, span.end, 0]
+            [self.literal(), span.start, span.end, 0]
         } else {
             [0; 4]
         };
@@ -3860,9 +3861,8 @@ impl<'a> Parser<'a> {
             // are carried separately for that reason, here as well as there,
             // so that there is one rule rather than two.
             TokenKind::Int => {
-                let value = self.int_value();
+                let ix = self.literal();
                 let (span, read) = self.take();
-                let ix = self.tree.push_int(value);
                 Ok((
                     self.tree
                         .push(Kind::Int, [ix, span.start, span.end, 0], span, at),
@@ -3870,9 +3870,8 @@ impl<'a> Parser<'a> {
                 ))
             }
             TokenKind::Float => {
-                let value = self.float_value();
+                let ix = self.literal();
                 let (span, read) = self.take();
-                let ix = self.tree.push_float(value);
                 Ok((
                     self.tree
                         .push(Kind::Float, [ix, span.start, span.end, 0], span, at),
@@ -4403,9 +4402,8 @@ impl<'a> Parser<'a> {
                 self.bump();
                 match self.peek() {
                     TokenKind::Int => {
-                        let value = self.int_value();
+                        let ix = self.literal();
                         let end = self.bump();
-                        let ix = self.tree.push_int(value);
                         Ok(self.tree.ppush(
                             PatternKind::LitInt,
                             [ix, end.start, end.end, 1],
@@ -4414,9 +4412,8 @@ impl<'a> Parser<'a> {
                         ))
                     }
                     TokenKind::Float => {
-                        let value = self.float_value();
+                        let ix = self.literal();
                         let end = self.bump();
-                        let ix = self.tree.push_float(value);
                         Ok(self.tree.ppush(
                             PatternKind::LitFloat,
                             [ix, end.start, end.end, 1],
@@ -4438,17 +4435,15 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::Int => {
-                let value = self.int_value();
+                let ix = self.literal();
                 let span = self.bump();
-                let ix = self.tree.push_int(value);
                 Ok(self
                     .tree
                     .ppush(PatternKind::LitInt, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Float => {
-                let value = self.float_value();
+                let ix = self.literal();
                 let span = self.bump();
-                let ix = self.tree.push_float(value);
                 Ok(self.tree.ppush(
                     PatternKind::LitFloat,
                     [ix, span.start, span.end, 0],

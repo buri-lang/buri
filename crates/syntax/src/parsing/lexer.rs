@@ -700,6 +700,15 @@ pub struct Tokens<'a> {
     unterminated: Vec<u32>,
 }
 
+/// A file's literal tables, as [`Tokens::take_literals`] hands them to the
+/// tree. `strs` holds each string's range in `cooked`.
+pub struct Literals {
+    pub ints: Vec<u128>,
+    pub floats: Vec<f64>,
+    pub cooked: String,
+    pub strs: Vec<(u32, u32)>,
+}
+
 /// How a run of string body ended — see [`Lexer::scan_str_body`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum StrEnd {
@@ -906,10 +915,24 @@ impl<'a> Tokens<'a> {
         self.floats.get(self.pay(i)).copied().unwrap_or(0.0)
     }
 
-    /// How many integers and strings were read, and the bytes the strings
-    /// cooked to.
-    pub fn literals(&self) -> (usize, usize, usize) {
-        (self.ints.len(), self.strs.len(), self.cooked.len())
+    /// The literal tables, handed over whole: the tree keeps them as its own,
+    /// so a literal is written once, by the lexer, rather than copied into
+    /// the tree token by token. A token's [`Tokens::literal`] indexes them.
+    /// After this, [`Tokens::int`], [`Tokens::float`] and [`Tokens::str_at`]
+    /// read nothing here; the tree answers them.
+    pub fn take_literals(&mut self) -> Literals {
+        Literals {
+            ints: std::mem::take(&mut self.ints),
+            floats: std::mem::take(&mut self.floats),
+            cooked: std::mem::take(&mut self.cooked),
+            strs: std::mem::take(&mut self.strs),
+        }
+    }
+
+    /// Where the literal at `i` sits in its table: an integer's in `ints`, a
+    /// float's in `floats`, and a string's or template piece's in `strs`.
+    pub fn literal(&self, i: usize) -> u32 {
+        self.pay(i) as u32
     }
 
     /// The cooked text of a string literal or template segment.

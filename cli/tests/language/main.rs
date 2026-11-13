@@ -15,7 +15,7 @@
 //! | [`coverage_builtins`] | `core/*` signatures, `coverage::BUILTINS` | Is every stdlib function that picks a path for its caller counted as a branch under `--coverage`, or said not to be? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths, each punctuator as itself, and a character as its scalar value? |
-//! | [`parsing`] | scratch programs | Does the parser read operands, types and bindings as written, spend its nesting and chain budgets the same at their limits, and read a file denser than it sets room aside for? |
+//! | [`parsing`] | scratch programs | Does the parser read operands, types, bindings and literals as written, spend its nesting and chain budgets the same at their limits, and read a file denser than it sets room aside for? |
 //! | [`js_lookups`] | two generated programs | Do the standard library's Unicode lookups answer as `unicodedata` does while building no `BigInt` per digit and checking each table, and each string a scan reads, for astral scalars once? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
 //! | [`js_words`] | two generated programs | Do rotates, shifts, byte reversals and bit counts of a word answer exactly while doing no `BigInt` arithmetic, and converting no literal count? |
