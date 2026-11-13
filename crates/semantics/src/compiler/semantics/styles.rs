@@ -506,6 +506,11 @@ impl Styled {
 /// A compilation none of whose own modules imports from `ui/` returns
 /// immediately, which is every program that is not a user interface, test
 /// builds included — so this costs nothing at all for the rest of the corpus.
+///
+/// `also` is run at every expression of every declaration `walked` names,
+/// before anything is rewritten, by the walk that draws the graph: a pass
+/// that only reports then needn't walk every body again. The last answer
+/// says whether it was: not where the run returned before drawing.
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
@@ -513,15 +518,15 @@ pub fn run(
     (bodies, consts): (&mut BodyMap, &mut ConstMap),
     diags: &mut Diagnostics,
     walked: &Walked,
-    memory: Memory<'_>,
-) -> (Styled, Option<TyConId>) {
+    (memory, also): (Memory<'_>, Option<Also<'_>>),
+) -> (Styled, Option<TyConId>, bool) {
     // `ui/style` declares all three, so a program has all or none.
     let (Some(style_con), Some(classes_con), Some(extracted)) = (
         own_type(loaded, scopes, "ui/style", "Style"),
         own_type(loaded, scopes, "ui/style", "Classes"),
         own_fn(loaded, scopes, "ui/style", "extracted"),
     ) else {
-        return (Styled::default(), None);
+        return (Styled::default(), None, false);
     };
     // Only a module of the program's own that imports from `ui/` can build a
     // node, and only such a program loads `classify`. A test build without
@@ -531,7 +536,7 @@ pub fn run(
     let Some((classify, classify_style)) = classifiers(loaded, scopes)
         .filter(|(classify, _)| walked.holds(tables.fn_info(*classify).module))
     else {
-        return (Styled::default(), Some(style_con));
+        return (Styled::default(), Some(style_con), false);
     };
 
     // The interpreter reads bodies and constants as they were *before* this
@@ -562,7 +567,7 @@ pub fn run(
         walked,
         bodies,
         consts,
-        drawn,
+        (drawn, also),
     );
     let mut ex = Extractor {
         style_con,
@@ -630,8 +635,13 @@ pub fn run(
     for (id, body) in new_bodies {
         bodies.insert(id, body);
     }
-    (styled, Some(style_con))
+    (styled, Some(style_con), also.is_some())
 }
+
+/// What [`run`] also does at each expression it walks first: the bodies and
+/// constants it is handed are the ones the expression reads, as nothing has
+/// rewritten them.
+pub type Also<'a> = &'a dyn Fn(&typed::Expr, &BodyMap, &ConstMap);
 
 /// How many times this process drew [`Flow`]'s graph of what reads what, over
 /// every declaration a compilation reads, rather than over the few a round
@@ -1314,7 +1324,8 @@ impl<'a> Extractor<'a> {
         let to = Demand::Leaf(self.wrapped.len());
         if let Some(did) = &mut self.did {
             let mut extra = Edges::default();
-            self.flow.edges(self.owner, e, Some(to), false, &mut extra);
+            self.flow
+                .edges(self.owner, e, Some(to), (false, None), &mut extra);
             let local = |d| renumbered(d, self.first_leaf, 0);
             for (from, reads) in extra.reads {
                 for (read, stopped) in reads {
@@ -1324,7 +1335,7 @@ impl<'a> Extractor<'a> {
             }
         } else {
             self.flow
-                .edges(self.owner, e, Some(to), false, &mut self.extra);
+                .edges(self.owner, e, Some(to), (false, None), &mut self.extra);
         }
         self.descend(e, Some(Sink { to, site: false }), cond);
         let span = e.span;
@@ -2252,7 +2263,7 @@ impl<'a> Flow<'a> {
         walked: &Walked,
         bodies: &'a BodyMap,
         consts: &'a ConstMap,
-        mut drawn: Side<'_, HashMap<Owner, Vec<Drawn>>>,
+        (mut drawn, also): (Side<'_, HashMap<Owner, Vec<Drawn>>>, Option<Also<'_>>),
     ) -> Flow<'a> {
         let style = Ty::con(style_con, []);
         let mut flow = Flow {
@@ -2302,7 +2313,7 @@ impl<'a> Flow<'a> {
         // anything differently. That can send one of theirs further, so this
         // runs until nothing more does.
         GRAPHS_DRAWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let mut edges = flow.graph(walked, |_| true, &mut drawn);
+        let mut edges = flow.graph(walked, |_| true, (&mut drawn, also));
         loop {
             let (reached, roots) = reach(&edges, &flow.passing);
             let grown = flow.escaping(&edges, roots);
@@ -2316,9 +2327,9 @@ impl<'a> Flow<'a> {
                 .flatten()
                 .copied()
                 .collect();
-            let stale = flow.graph(walked, |o| owners.contains(&o), &mut drawn);
+            let stale = flow.graph(walked, |o| owners.contains(&o), (&mut drawn, None));
             flow.escaping.extend(grown);
-            let fresh = flow.graph(walked, |o| owners.contains(&o), &mut drawn);
+            let fresh = flow.graph(walked, |o| owners.contains(&o), (&mut drawn, None));
             edges.redraw(&owners, stale, fresh);
         }
         flow.demanded = closure(Demand::Node, &[&edges]);
@@ -2355,32 +2366,38 @@ impl<'a> Flow<'a> {
     }
 
     /// What reads what, across the declarations this run reads that `drawn`
-    /// keeps.
+    /// keeps, running `also` at each expression of those `walked` names.
+    ///
+    /// A declaration whose part `kept` holds isn't walked, so a run that
+    /// takes from [`Remembered`] is given no `also`.
     fn graph(
         &self,
         walked: &Walked,
         drawn: impl Fn(Owner) -> bool,
-        kept: &mut Side<'_, HashMap<Owner, Vec<Drawn>>>,
+        (kept, also): (&mut Side<'_, HashMap<Owner, Vec<Drawn>>>, Option<Also<'_>>),
     ) -> Edges {
         let mut edges = Edges::default();
         let consts = walked.unsettled_constants(self.tables, self.consts);
         for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
             let owner = Owner::Const(id);
+            let also = also.filter(|_| walked.wants(self.tables.const_(id).span.file));
             self.draw(owner, kept, &mut edges, |out| {
                 self.seeing(owner, || {
-                    self.edges(owner, init, Some(Demand::Const(id)), false, out);
+                    self.edges(owner, init, Some(Demand::Const(id)), (false, also), out);
                 });
             });
         }
         let bodies = walked.unsettled(self.tables, self.bodies);
         for (id, body) in bodies.filter(|(id, _)| drawn(Owner::Fn(*id))) {
             let owner = Owner::Fn(id);
+            let info = self.tables.fn_info(id);
+            let also = also.filter(|_| walked.wants(info.span.file));
             self.draw(owner, kept, &mut edges, |out| {
-                if let Some((t, m)) = self.tables.fn_info(id).impl_of {
+                if let Some((t, m)) = info.impl_of {
                     out.add(Demand::Method(t, m), Demand::Ret(id), false);
                 }
                 self.seeing(owner, || {
-                    self.edges(owner, &body.expr, Some(Demand::Ret(id)), false, out);
+                    self.edges(owner, &body.expr, Some(Demand::Ret(id)), (false, also), out);
                 });
             });
         }
@@ -2617,16 +2634,19 @@ impl<'a> Flow<'a> {
     }
 
     /// Records what `e` reads when its value goes to `ctx`, and the same for
-    /// everything under it. Under a style `stopped` where a node is given it,
-    /// only [`Flow::reached`] reads it.
+    /// everything under it, running `also` at each. Under a style `stopped`
+    /// where a node is given it, only [`Flow::reached`] reads it.
     fn edges(
         &self,
         owner: Owner,
         e: &typed::Expr,
         ctx: Option<Demand>,
-        stopped: bool,
+        (stopped, also): (bool, Option<Also<'_>>),
         out: &mut Edges,
     ) {
+        if let Some(also) = also {
+            also(e, self.bodies, self.consts);
+        }
         let stops = !stopped && ctx.is_some() && self.extracts(owner, e);
         if stops {
             out.stops.insert(owner);
@@ -2686,7 +2706,7 @@ impl<'a> Flow<'a> {
                     first
                 }),
             };
-            self.edges(owner, child, child_ctx, stopped, out);
+            self.edges(owner, child, child_ctx, (stopped, also), out);
         });
     }
 

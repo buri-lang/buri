@@ -27,7 +27,7 @@ use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
-use crate::diagnostics::{Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
 /// the painter's own SVG subset draws (`cli/runtime/image.rs`).
@@ -94,7 +94,7 @@ pub(crate) fn check(
     tables: &Tables,
     bodies: &BodyMap,
     consts: &ConstMap,
-    diags: &mut Diagnostics,
+    diags: &mut Vec<Diagnostic>,
 ) {
     match &e.kind {
         ExprKind::StructLit { con, .. } if *con == image => {}
@@ -146,10 +146,8 @@ fn const_source(v: &Value) -> Option<&str> {
     }
 }
 
-fn refuse(diags: &mut Diagnostics, span: Span, message: &str) {
-    diags
-        .items
-        .push(Diagnostic::templated("icon-not-drawable", span).with_bind("problem", message));
+fn refuse(diags: &mut Vec<Diagnostic>, span: Span, message: &str) {
+    diags.push(Diagnostic::templated("icon-not-drawable", span).with_bind("problem", message));
 }
 
 /// What is wrong with an artwork, or `None` for one the renderer and the

@@ -1,0 +1,62 @@
+error: an icon's artwork has to start with an `<svg>`, and this one starts with `<p>` [icon-not-drawable]
+  --> cmd/ui_literals_checked_where_no_node_reaches/main.buri:12:45
+   |
+12 | let spare: ui.Node<()> = ui.image({ source: .Const("<p>spare</p>"), alt: .Decorative, styles: [] });
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
+
+     A decorative image, one whose alt is .Decorative, writes its source into
+     the document as an <svg>. That's what lets currentColor inside it follow
+     the element's Foreground, so a theme switch recolours it for free. It's
+     also why the compiler reads the source: whatever the artwork says lands in
+     the page.
+
+     The allowed shapes are g, path, rect, circle, ellipse, line, polyline and
+     polygon, with only the attributes that draw them. A script, an event
+     handler, a <use>, or an <image> pointing elsewhere is refused rather than
+     silently dropped by the renderer.
+
+     The artwork must be a string the compiler can read: written at the call
+     site or in a module-level let, not computed at run time.
+
+error: an icon's artwork has to start with an `<svg>`, and this one starts with `<div>` [icon-not-drawable]
+  --> cmd/ui_literals_checked_where_no_node_reaches/main.buri:17:35
+   |
+17 |     children: [ui.image({ source: .Const("<div>a check</div>"), alt: .Decorative, styles: [] })],
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: write the artwork out at the call site, and keep it to an `<svg>` and the shapes inside it
+error: a `stack` that is decorative takes no `role`, because a hidden element has nothing to announce [decorative-with-role]
+  --> cmd/ui_literals_checked_where_no_node_reaches/main.buri:19:19
+   |
+19 |     isDecorative: .Some(true),
+   |                   ^^^^^^^^^^^
+   |
+   = fix: drop the `role`, or the `isDecorative`
+
+     isDecorative hides a stack and everything in it from assistive technology.
+     A role is what assistive technology is told, so the two can't both hold.
+
+     Wrap the decorative part in a stack of its own inside the one with the
+     role:
+
+       fn crumb<C>(name: Str): Node<C> {
+           ui.stack({
+               styles: [.Layout(.Row)],
+               children: [
+                   ui.text({ content: .Const(name) }),
+                   ui.stack({
+                       styles: [],
+                       children: [ui.text({ content: .Const("/") })],
+                       isDecorative: .Some(true),
+                   }),
+               ],
+               role: .Some(.ListItem),
+           })
+       }
+
+     The compiler reads both fields where the stack is written, in the call or
+     not. A pair it can't read is refused too, because it can't tell that they
+     don't hold together.
+

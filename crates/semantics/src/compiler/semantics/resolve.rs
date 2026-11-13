@@ -322,7 +322,7 @@ impl Checked {
             fns_from: unstyled.fns_from,
             consts_from: unstyled.consts_from,
         };
-        let (styles, style_sources, _) = extract(
+        let (styles, style_sources, _, _) = extract(
             loaded,
             &self.tables,
             &self.scopes,
@@ -332,6 +332,7 @@ impl Checked {
             (
                 unstyled.base.as_deref(),
                 crate::compiler::semantics::styles::Memory::Replay(&unstyled.remembered),
+                None,
             ),
         );
         Some(Restyled {
@@ -358,8 +359,9 @@ impl Restyled {
 }
 
 /// Style extraction over what `walked` names, rewriting `bodies` and `consts`,
-/// merged with what it made of the base's: the rules, the sources, and
-/// `ui/style`'s `Style`.
+/// merged with what it made of the base's: the rules, the sources,
+/// `ui/style`'s `Style`, and whether it ran `also` (see
+/// [`styles::run`](crate::compiler::semantics::styles::run)).
 fn extract(
     loaded: &Loaded,
     tables: &Tables,
@@ -367,23 +369,25 @@ fn extract(
     (bodies, consts): (&mut BodyMap, &mut ConstMap),
     diags: &mut Diagnostics,
     walked: &Walked,
-    (base, memory): (
+    (base, memory, also): (
         Option<&crate::compiler::semantics::styles::Styled>,
         crate::compiler::semantics::styles::Memory<'_>,
+        Option<crate::compiler::semantics::styles::Also<'_>>,
     ),
 ) -> (
     Vec<crate::compiler::semantics::styles::StyleRule>,
     crate::compiler::semantics::styles::Sources,
     Option<TyConId>,
+    bool,
 ) {
-    let (found, style_con) = crate::compiler::semantics::styles::run(
+    let (found, style_con, also_ran) = crate::compiler::semantics::styles::run(
         loaded,
         tables,
         scopes,
         (bodies, consts),
         diags,
         walked,
-        memory,
+        (memory, also),
     );
     let (styles, sources) = match base {
         Some(base) => found.after(base, bodies, consts),
@@ -396,7 +400,55 @@ fn extract(
             found.sources,
         ),
     };
-    (styles, sources, style_con)
+    (styles, sources, style_con, also_ran)
+}
+
+/// `ui/node`'s `Image` and `Stack`: every literal of either is checked as
+/// written, before extraction, so the folder reads bodies nothing has
+/// rewritten. A decorative image's artwork is read, and a decorative stack
+/// may not take a role.
+///
+/// Style extraction walks every body before it rewrites any, so it runs the
+/// check as it goes ([`Also`](crate::compiler::semantics::styles::Also)), and
+/// a walk of its own is left for a compilation extraction doesn't walk.
+#[derive(Clone, Copy)]
+struct UiLiterals {
+    image: TyConId,
+    stack: Option<TyConId>,
+}
+
+impl UiLiterals {
+    /// `e` itself, not what is under it.
+    fn check(
+        self,
+        e: &typed::Expr,
+        tables: &Tables,
+        bodies: &BodyMap,
+        consts: &ConstMap,
+        found: &mut Vec<Diagnostic>,
+    ) {
+        crate::compiler::semantics::icons::check(e, self.image, tables, bodies, consts, found);
+        crate::compiler::semantics::decorative::check(e, self.stack, tables, bodies, consts, found);
+    }
+
+    /// Every expression of every declaration `walked` names.
+    fn walk(
+        self,
+        walked: &Walked,
+        tables: &Tables,
+        (bodies, consts): (&BodyMap, &ConstMap),
+        found: &mut Vec<Diagnostic>,
+    ) {
+        let mut each = |e: &typed::Expr| {
+            typed::walk(e, &mut |e| self.check(e, tables, bodies, consts, found));
+        };
+        for (_, init) in walked.constants(tables, consts) {
+            each(init);
+        }
+        for (_, body) in walked.functions(tables, bodies) {
+            each(&body.expr);
+        }
+    }
 }
 
 /// The traits `derive` can generate. Derivation is a fold over one type
@@ -730,7 +782,7 @@ impl Walked {
             .is_none_or(|within| *within.get(module))
     }
 
-    fn wants(&self, file: FileId) -> bool {
+    pub(crate) fn wants(&self, file: FileId) -> bool {
         self.only.as_ref().is_none_or(|files| files.contains(&file))
     }
 }
@@ -850,17 +902,35 @@ impl<'a> Checker<'a> {
         let (mut waiting, mut styled) = Default::default();
         if bodies_checked {
             let walked = self.walked();
-            waiting = self.check_icons_and_builders(&walked, &HashSet::default());
+            let literals = self.ui_literals();
+            let mark = self.diags.items.len();
+            waiting = self.check_builders(&walked, &HashSet::default());
             let (mut bodies, mut consts) = (self.bodies.layer(), self.const_values.layer());
-            let (found, _) = crate::compiler::semantics::styles::run(
+            let found_literals = std::cell::RefCell::new(Vec::new());
+            let tables = &self.tables;
+            let check = |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
+                if let Some(literals) = literals {
+                    literals.check(e, tables, bodies, consts, &mut found_literals.borrow_mut());
+                }
+            };
+            let (found, _, checked) = crate::compiler::semantics::styles::run(
                 self.loaded,
                 &self.tables,
                 &self.scopes,
                 (&mut bodies, &mut consts),
                 self.diags,
                 &walked,
-                crate::compiler::semantics::styles::Memory::Off,
+                (
+                    crate::compiler::semantics::styles::Memory::Off,
+                    literals.map(|_| &check as crate::compiler::semantics::styles::Also),
+                ),
             );
+            let mut found_literals = found_literals.into_inner();
+            if let (Some(literals), false) = (literals, checked) {
+                let (bodies, consts) = (&self.bodies, &self.const_values);
+                literals.walk(&walked, &self.tables, (bodies, consts), &mut found_literals);
+            }
+            self.diags.items.splice(mark..mark, found_literals);
             // What the pass rewrote is what it wrote into its own layer.
             styled = std::sync::Arc::new(crate::compiler::semantics::styles::Styled {
                 bodies: bodies
@@ -952,7 +1022,9 @@ impl<'a> Checker<'a> {
         let walked = self.walked();
         let settled = self.base.filter(|b| b.bodies_checked);
         let waiting = settled.map(|b| b.waiting.clone()).unwrap_or_default();
-        self.check_icons_and_builders(&walked, &waiting);
+        let literals = self.ui_literals();
+        let mark = self.diags.items.len();
+        self.check_builders(&walked, &waiting);
         // What extraction starts from, shared rather than copied: it writes
         // what it rewrites over these.
         let remembering = self.restylable == Restyling::Remembering;
@@ -974,15 +1046,36 @@ impl<'a> Checker<'a> {
             }
             _ => crate::compiler::semantics::styles::Memory::Off,
         };
-        let (styles, style_sources, style_con) = extract(
+        let found_literals = std::cell::RefCell::new(Vec::new());
+        let tables = &self.tables;
+        let check = |e: &typed::Expr, bodies: &BodyMap, consts: &ConstMap| {
+            if let Some(literals) = literals {
+                literals.check(e, tables, bodies, consts, &mut found_literals.borrow_mut());
+            }
+        };
+        let (styles, style_sources, style_con, checked) = extract(
             self.loaded,
             &self.tables,
             &self.scopes,
             (&mut self.bodies, &mut self.const_values),
             self.diags,
             &walked,
-            (settled.map(|b| &*b.styled), memory),
+            (
+                settled.map(|b| &*b.styled),
+                memory,
+                literals.map(|_| &check as crate::compiler::semantics::styles::Also),
+            ),
         );
+        // A run that didn't draw its graph rewrote nothing, so the literals
+        // read the bodies as written still.
+        let mut found_literals = found_literals.into_inner();
+        if let (Some(literals), false) = (literals, checked) {
+            let (bodies, consts) = (&self.bodies, &self.const_values);
+            literals.walk(&walked, &self.tables, (bodies, consts), &mut found_literals);
+        }
+        // Where the pass that walked them on its own reported them: before
+        // the builders' and the styles'.
+        self.diags.items.splice(mark..mark, found_literals);
         let classify_fns =
             crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
@@ -1044,37 +1137,17 @@ impl<'a> Checker<'a> {
 
     /// The two passes after checking that only report, and answer which
     /// functions wait on a `load` — starting from `waiting`, the base's answer.
-    fn check_icons_and_builders(
-        &mut self,
-        walked: &Walked,
-        waiting: &HashSet<FnId>,
-    ) -> HashSet<FnId> {
-        // Every `Image` and `Stack` as written, in one walk: a decorative
-        // image's artwork is read, and a decorative stack may not take a role.
-        // Before extraction, so the folder reads bodies nothing has rewritten.
-        // A compilation that did not load `ui/node` has neither, which is
-        // every program that is not a user interface; one that did has both.
-        if let Some(image) = own_type(self.loaded, &self.scopes, "ui/node", "Image") {
-            let stack = own_type(self.loaded, &self.scopes, "ui/node", "Stack");
-            let (tables, bodies, consts) = (&self.tables, &self.bodies, &self.const_values);
-            let diags = &mut *self.diags;
-            let mut each = |e: &typed::Expr| {
-                typed::walk(e, &mut |e| {
-                    crate::compiler::semantics::icons::check(
-                        e, image, tables, bodies, consts, diags,
-                    );
-                    crate::compiler::semantics::decorative::check(
-                        e, stack, tables, bodies, consts, diags,
-                    );
-                });
-            };
-            for (_, init) in walked.constants(tables, consts) {
-                each(init);
-            }
-            for (_, body) in walked.functions(tables, bodies) {
-                each(&body.expr);
-            }
-        }
+    /// `ui/node`'s `Image` and `Stack`, whose literals are checked as written
+    /// (see [`UiLiterals`]). A compilation that did not load `ui/node` has
+    /// neither, which is every program that is not a user interface; one
+    /// that did has both.
+    fn ui_literals(&self) -> Option<UiLiterals> {
+        let image = own_type(self.loaded, &self.scopes, "ui/node", "Image")?;
+        let stack = own_type(self.loaded, &self.scopes, "ui/node", "Stack");
+        Some(UiLiterals { image, stack })
+    }
+
+    fn check_builders(&mut self, walked: &Walked, waiting: &HashSet<FnId>) -> HashSet<FnId> {
         // A `load` reached synchronously from a reactive builder answers a
         // promise the renderer cannot render (#152), so it is refused here where
         // the builder's body is still a lambda in the typed tree.

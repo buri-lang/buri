@@ -1,0 +1,26 @@
+// EXPECT: icon-not-drawable
+//
+// An image and a stack are checked where they are written, whether or not
+// anything ever draws them: a helper nothing calls, and a module-level let
+// nothing reads, are refused the same as the node `main` mounts.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+
+let spare: ui.Node<()> = ui.image({ source: .Const("<p>spare</p>"), alt: .Decorative, styles: [] });
+
+fn unused<C>(): ui.Node<C> {
+  ui.stack({
+    styles: [],
+    children: [ui.image({ source: .Const("<div>a check</div>"), alt: .Decorative, styles: [] })],
+    role: .Some(.List),
+    isDecorative: .Some(true),
+  })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.text({ content: .Const("hi") }), [])
+}

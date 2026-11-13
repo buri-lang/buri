@@ -20,7 +20,7 @@ use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
-use crate::diagnostics::{Diagnostic, Diagnostics};
+use crate::diagnostics::Diagnostic;
 
 /// `Stack<C>`'s fields, in declaration order — which is the order a struct
 /// literal stores them in, whatever order the call site wrote them.
@@ -43,7 +43,7 @@ pub(crate) fn check(
     tables: &Tables,
     bodies: &BodyMap,
     consts: &ConstMap,
-    diags: &mut Diagnostics,
+    diags: &mut Vec<Diagnostic>,
 ) {
     let sets = |field: FieldId| match &e.kind {
         ExprKind::StructLit { con, .. } => Some(*con) == stack,
@@ -67,9 +67,7 @@ pub(crate) fn check(
     let unnamed = variant(fold(STACK_LABEL)) == Some(OPTION_NONE);
     if (role_set || label_set) && !unnamed && role.is_none_or(|v| v == OPTION_NONE) {
         let span = e.written_field(STACK_LABEL).map_or(e.span, |f| f.span);
-        diags
-            .items
-            .push(Diagnostic::templated("label-without-role", span));
+        diags.push(Diagnostic::templated("label-without-role", span));
     }
     if !(role_set || decorative_set) || role == Some(OPTION_NONE) {
         return;
@@ -82,8 +80,6 @@ pub(crate) fn check(
     };
     if !shown {
         let span = e.written_field(STACK_DECORATIVE).map_or(e.span, |f| f.span);
-        diags
-            .items
-            .push(Diagnostic::templated("decorative-with-role", span));
+        diags.push(Diagnostic::templated("decorative-with-role", span));
     }
 }
