@@ -1,0 +1,25 @@
+// EXPECT: an alpha is a fraction from 0 to 1
+//
+// An alpha is checked wherever a colour is written, style or not. Neither
+// colour below is written inside a style: one is a function's answer, the
+// other a module-level `let`. Each is still reported where it is written.
+from "platform/effect" import { Allocator };
+// PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
+from "web" import { WebHost };
+from "platform/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/style" import { Color };
+
+let tint: Color = .Rgba(10, 20, 30, 2.5);
+
+fn faded(): Color {
+  .Rgba(0, 0, 0, -0.5)
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Ui: host.ui, Watch: host.watch };
+  ui.mount(ctx, ui.stack({
+    styles: [.Background(tint), .Foreground(faded())],
+    children: [],
+  }), [])
+}

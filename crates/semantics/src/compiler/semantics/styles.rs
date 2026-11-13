@@ -557,7 +557,7 @@ pub fn run(
     };
     let flow = Flow::of(
         tables,
-        style_con,
+        (style_con, own_type(loaded, scopes, "ui/style", "Color")),
         loaded.find("ui/node"),
         walked,
         bodies,
@@ -567,7 +567,6 @@ pub fn run(
     let mut ex = Extractor {
         style_con,
         classes_con,
-        color_con: own_type(loaded, scopes, "ui/style", "Color"),
         classify,
         classify_style,
         extracted,
@@ -781,8 +780,6 @@ struct Extractor<'a> {
     /// `ui/style`'s `Classes`, the private-field wrapper an `Extracted`
     /// payload is: only this pass and `ui/style` can build one.
     classes_con: TyConId,
-    /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
-    color_con: Option<TyConId>,
     /// `ui/style/classify`'s `classify`, for a list of styles, and
     /// `classifyStyle`, for one.
     classify: FnId,
@@ -889,7 +886,14 @@ impl<'a> Extractor<'a> {
             return kept.mentions;
         }
         let from = self.diags.items.len();
-        let mentions = self.alphas(e, true);
+        // The graph walked every expression of it already, and where none
+        // is a colour there is nothing to report, so what it saw says
+        // whether it mentions a style.
+        let seen = self.flow.seen_in.borrow().get(&owner).copied();
+        let mentions = match seen {
+            Some(seen) if !seen.colour => seen.style,
+            _ => self.alphas(e, true),
+        };
         if let Side::Record(kept) = &mut self.scanned {
             let diags = (self.diags.items.get(from..))
                 .map(<[Diagnostic]>::to_vec)
@@ -913,7 +917,7 @@ impl<'a> Extractor<'a> {
     /// once more at every use.
     fn alphas(&mut self, e: &typed::Expr, mut report: bool) -> bool {
         let mut mentions = self.is_style(&e.ty) || self.is_style_list(&e.ty);
-        if report && self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
+        if report && self.flow.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
             if let Some(value) = self.folder().eval(e, &Env::default()) {
                 if let Some(a) = alpha_of(&value) {
                     if !(0.0..=1.0).contains(&a) {
@@ -929,11 +933,6 @@ impl<'a> Extractor<'a> {
         }
         typed::children(e, &mut |child| mentions |= self.alphas(child, report));
         mentions
-    }
-
-    fn is_color(&self, ty: &Ty) -> bool {
-        // `Color` takes no type arguments either.
-        matches!(ty.kind(), TyKind::Con(id, _) if Some(*id) == self.color_con)
     }
 
     /// One expression, given to `sink` when it goes where a node reads.
@@ -962,13 +961,17 @@ impl<'a> Extractor<'a> {
         }
         let carries = carries(e);
         let all = self.mode == Mode::Checking;
-        let positions = self.flow.positions(e);
-        let mut children = Vec::new();
-        typed::children_mut(e, &mut |child| children.push(child));
-        for (child, pos) in children.into_iter().zip(positions) {
-            let to = self.flow.sink(self.owner, &pos, sink, carries, all);
-            self.visit(child, to, cond);
-        }
+        // Where each child goes is read before any is rewritten.
+        let mut positions = self.flow.positions(e);
+        let mut sinks = Vec::new();
+        typed::children(e, &mut |_| {
+            let pos = positions.next(&self.flow);
+            sinks.push(self.flow.sink(self.owner, &pos, sink, carries, all));
+        });
+        let mut sinks = sinks.into_iter();
+        typed::children_mut(e, &mut |child| {
+            self.visit(child, sinks.next().flatten(), cond);
+        });
     }
 
     /// Marks `s` as reachable by a value this run doesn't see, where `e` is a
@@ -2022,6 +2025,15 @@ fn reads(e: &typed::Expr) -> bool {
     found
 }
 
+/// What [`Flow::edges`] saw in one declaration: whether any expression is a
+/// style or a list of them, and whether any is a colour
+/// [`Extractor::alphas`] reads.
+#[derive(Clone, Copy, Default)]
+struct Seen {
+    style: bool,
+    colour: bool,
+}
+
 /// What decides whether a position's value reaches a node.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Demand {
@@ -2046,36 +2058,111 @@ enum Owner {
 }
 
 /// Where one child's value goes, next to its parent's.
-#[derive(Clone)]
-enum Pos {
+#[derive(Clone, Copy)]
+enum Pos<'e> {
     /// Wherever the parent's goes.
     Same,
     /// To this, or nowhere a node reads.
     At(Option<Demand>),
-    /// Into these locals: a `let`'s value, or a match's scrutinee.
-    Bound(Vec<LocalId>),
+    /// Into the locals these bind: a `let`'s value, or a match's scrutinee.
+    Bound(Binds<'e>),
+}
+
+/// The patterns a value is bound by, read where the tree holds them rather
+/// than listed: the walk meets one at every `let` and `match`.
+#[derive(Clone, Copy)]
+enum Binds<'e> {
+    Let(&'e typed::Pattern),
+    Arms(&'e [typed::Arm]),
+}
+
+impl Binds<'_> {
+    /// Each local bound, in [`typed::Pattern::binds`]' order, arm by arm.
+    fn each(self, f: &mut impl FnMut(LocalId)) {
+        match self {
+            Binds::Let(pattern) => pattern.each_bind(f),
+            Binds::Arms(arms) => arms.iter().for_each(|arm| arm.pattern.each_bind(f)),
+        }
+    }
+
+    /// The first local bound, which stands for the value they were all
+    /// bound from.
+    fn first(self) -> Option<LocalId> {
+        let mut first = None;
+        self.each(&mut |l| {
+            first.get_or_insert(l);
+        });
+        first
+    }
 }
 
 /// Where each child of an expression sends its value, in
-/// [`typed::children`]'s order: [`Flow::positions`]' answer.
+/// [`typed::children`]'s order: [`Flow::positions`]' answer, read one child
+/// at a time by [`Positions::next`].
 ///
-/// Most expressions send every child the same way, and that answer holds no
-/// list: the walk asks once per expression of every body, so a list each time
-/// was most of what it allocated.
-enum Positions {
+/// None holds a list: the walk asks once per expression of every body, so a
+/// list each time was most of what it allocated.
+enum Positions<'e> {
     /// Every child to the same place.
-    Each(Pos),
-    /// One for each child.
-    Listed(std::vec::IntoIter<Pos>),
+    Each(Pos<'e>),
+    /// The first child to one place and every other to another: an `if`'s
+    /// condition and branches, an index's base and index.
+    First(Pos<'e>, Pos<'e>),
+    /// A call's arguments, each to its parameter of the function where that
+    /// one is followed, and nowhere a node reads past the last parameter.
+    Params(FnId, std::slice::Iter<'e, (LocalId, Param)>),
+    /// A block's statements, then its tail.
+    Block(std::slice::Iter<'e, typed::Stmt>),
+    /// A match's scrutinee, then each arm's guard and body. `body` is
+    /// whether the arm under way has yet to give its body.
+    Match {
+        arms: &'e [typed::Arm],
+        rest: std::slice::Iter<'e, typed::Arm>,
+        started: bool,
+        body: bool,
+    },
 }
 
-impl Iterator for Positions {
-    type Item = Pos;
-
-    fn next(&mut self) -> Option<Pos> {
+impl<'e> Positions<'e> {
+    /// Where the next child's value goes.
+    fn next(&mut self, flow: &Flow) -> Pos<'e> {
         match self {
-            Positions::Each(pos) => Some(pos.clone()),
-            Positions::Listed(each) => each.next(),
+            Positions::Each(pos) => *pos,
+            Positions::First(first, rest) => std::mem::replace(first, *rest),
+            Positions::Params(f, params) => match params.next() {
+                Some(&(l, kind)) if flow.follows(*f, l, kind) => {
+                    Pos::At(Some(Demand::Local(Owner::Fn(*f), l)))
+                }
+                Some(_) => Pos::Same,
+                None => Pos::At(None),
+            },
+            Positions::Block(stmts) => match stmts.next() {
+                Some(typed::Stmt::Let { pattern, .. }) => Pos::Bound(Binds::Let(pattern)),
+                Some(typed::Stmt::Expr(_)) => Pos::At(None),
+                None => Pos::Same,
+            },
+            Positions::Match {
+                arms,
+                rest,
+                started,
+                body,
+            } => {
+                if !*started {
+                    *started = true;
+                    return Pos::Bound(Binds::Arms(arms));
+                }
+                if *body {
+                    *body = false;
+                    return Pos::Same;
+                }
+                match rest.next() {
+                    Some(arm) if arm.guard.is_some() => {
+                        *body = true;
+                        Pos::At(None)
+                    }
+                    _ => Pos::Same,
+                }
+            }
         }
     }
 }
@@ -2108,7 +2195,13 @@ type Let<'a> = (&'a typed::Pattern, &'a typed::Expr);
 /// an ordinary value for the rest of the program to match on.
 struct Flow<'a> {
     tables: &'a Tables,
-    style_con: TyConId,
+    /// `Style`, and a list of them. `Style` takes no type arguments, so each
+    /// is one interned type, and asking whether a type is one is a compare
+    /// that reads nothing.
+    style: Ty,
+    style_list: Ty,
+    /// `ui/style`'s `Color`, which takes no type arguments either.
+    color: Option<Ty>,
     ui_node: Option<ModuleId>,
     bodies: &'a BodyMap,
     consts: &'a ConstMap,
@@ -2133,9 +2226,14 @@ struct Flow<'a> {
     touched: HashSet<Owner>,
     /// What reads what.
     edges: Edges,
+    /// What [`Flow::edges`] saw in each declaration it walked, so
+    /// [`Extractor::scan`] need not walk it again, and in the one it walks
+    /// now.
+    seen_in: RefCell<HashMap<Owner, Seen>>,
+    seen: Cell<Seen>,
     /// The locals every value of which this run sees bound: a `let`'s or a
     /// pattern's, and the parameters of a function called only by name.
-    seen: HashSet<(Owner, LocalId)>,
+    bound: HashSet<(Owner, LocalId)>,
     /// The functions with a parameter that is `Param::Passed`.
     passing: HashSet<FnId>,
     /// The questions [`Remembered`] keeps, as they are asked, while it is
@@ -2149,16 +2247,19 @@ struct Flow<'a> {
 impl<'a> Flow<'a> {
     fn of(
         tables: &'a Tables,
-        style_con: TyConId,
+        (style_con, color_con): (TyConId, Option<TyConId>),
         ui_node: Option<ModuleId>,
         walked: &Walked,
         bodies: &'a BodyMap,
         consts: &'a ConstMap,
         mut drawn: Side<'_, HashMap<Owner, Vec<Drawn>>>,
     ) -> Flow<'a> {
+        let style = Ty::con(style_con, []);
         let mut flow = Flow {
             tables,
-            style_con,
+            style,
+            style_list: Ty::array(style),
+            color: color_con.map(|con| Ty::con(con, [])),
             ui_node,
             bodies,
             consts,
@@ -2171,7 +2272,9 @@ impl<'a> Flow<'a> {
             reached: HashSet::default(),
             touched: HashSet::default(),
             edges: Edges::default(),
-            seen: HashSet::default(),
+            seen_in: RefCell::default(),
+            seen: Cell::default(),
+            bound: HashSet::default(),
             passing: HashSet::default(),
             asked: RefCell::default(),
             keeping: Cell::new(false),
@@ -2245,8 +2348,8 @@ impl<'a> Flow<'a> {
                 followed.map(move |(l, _)| (Owner::Fn(id), *l))
             })
             .collect();
-        flow.seen.extend(seen);
-        flow.seen.extend(edges.bound.drain(..));
+        flow.bound.extend(seen);
+        flow.bound.extend(edges.bound.drain(..));
         flow.edges = edges;
         flow
     }
@@ -2264,7 +2367,9 @@ impl<'a> Flow<'a> {
         for (id, init) in consts.filter(|(id, _)| drawn(Owner::Const(*id))) {
             let owner = Owner::Const(id);
             self.draw(owner, kept, &mut edges, |out| {
-                self.edges(owner, init, Some(Demand::Const(id)), false, out);
+                self.seeing(owner, || {
+                    self.edges(owner, init, Some(Demand::Const(id)), false, out);
+                });
             });
         }
         let bodies = walked.unsettled(self.tables, self.bodies);
@@ -2274,10 +2379,19 @@ impl<'a> Flow<'a> {
                 if let Some((t, m)) = self.tables.fn_info(id).impl_of {
                     out.add(Demand::Method(t, m), Demand::Ret(id), false);
                 }
-                self.edges(owner, &body.expr, Some(Demand::Ret(id)), false, out);
+                self.seeing(owner, || {
+                    self.edges(owner, &body.expr, Some(Demand::Ret(id)), false, out);
+                });
             });
         }
         edges
+    }
+
+    /// Runs `walk` over `owner`, keeping what [`Flow::edges`] saw there.
+    fn seeing(&self, owner: Owner, walk: impl FnOnce()) {
+        self.seen.set(Seen::default());
+        walk();
+        self.seen_in.borrow_mut().insert(owner, self.seen.get());
     }
 
     /// `owner`'s part of the graph, added to `into`: as `kept` has it where
@@ -2428,7 +2542,7 @@ impl<'a> Flow<'a> {
 
     /// Whether `d` is a local some value of which this run doesn't see.
     fn open(&self, d: Demand) -> bool {
-        matches!(d, Demand::Local(o, l) if !self.seen.contains(&(o, l)))
+        matches!(d, Demand::Local(o, l) if !self.bound.contains(&(o, l)))
     }
 
     /// Whether `e` is a style, or a list of them, that reads something and
@@ -2452,12 +2566,15 @@ impl<'a> Flow<'a> {
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
-        // `Style` takes no type arguments, so its id alone names the type.
-        matches!(ty.kind(), TyKind::Con(id, _) if *id == self.style_con)
+        *ty == self.style
     }
 
     fn is_style_list(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Array(elem) if self.is_style(elem))
+        *ty == self.style_list
+    }
+
+    fn is_color(&self, ty: &Ty) -> bool {
+        Some(*ty) == self.color
     }
 
     /// The value `e` denotes at compile time, reading the `let`s of `owner`.
@@ -2515,6 +2632,11 @@ impl<'a> Flow<'a> {
             out.stops.insert(owner);
         }
         let stopped = stopped || stops;
+        let seen = self.seen.get();
+        self.seen.set(Seen {
+            style: seen.style || self.is_style(&e.ty) || self.is_style_list(&e.ty),
+            colour: seen.colour || (self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_))),
+        });
         match &e.kind {
             ExprKind::CallFn { func, .. } => {
                 out.called.insert(func.id);
@@ -2544,20 +2666,23 @@ impl<'a> Flow<'a> {
                 out.add(d, read, stopped);
             }
         }
-        // `positions` has one for each child.
         let mut positions = self.positions(e);
         typed::children(e, &mut |child| {
-            let child_ctx = match positions.next().unwrap_or(Pos::At(None)) {
+            let child_ctx = match positions.next(self) {
                 Pos::Same => ctx,
                 Pos::At(d) => d,
                 // Any one of them demanded demands the first, which stands for
                 // the value they were all bound from.
-                Pos::Bound(locals) => locals.first().map(|first| {
-                    out.bound.extend(locals.iter().map(|l| (owner, *l)));
-                    let first = Demand::Local(owner, *first);
-                    for l in locals.iter().skip(1) {
-                        out.add(Demand::Local(owner, *l), first, stopped);
-                    }
+                Pos::Bound(binds) => binds.first().map(|first| {
+                    let first = Demand::Local(owner, first);
+                    let mut rest = false;
+                    binds.each(&mut |l| {
+                        out.bound.push((owner, l));
+                        if rest {
+                            out.add(Demand::Local(owner, l), first, stopped);
+                        }
+                        rest = true;
+                    });
                     first
                 }),
             };
@@ -2571,9 +2696,9 @@ impl<'a> Flow<'a> {
         match pos {
             Pos::Same => sink,
             Pos::At(d) => d.is_some_and(|d| self.holds(all, d)),
-            Pos::Bound(locals) => locals
+            Pos::Bound(binds) => binds
                 .first()
-                .is_some_and(|l| self.holds(all, Demand::Local(owner, *l))),
+                .is_some_and(|l| self.holds(all, Demand::Local(owner, l))),
         }
     }
 
@@ -2598,9 +2723,9 @@ impl<'a> Flow<'a> {
                 to,
                 site: to == Demand::Node,
             }),
-            Pos::Bound(locals) => locals
+            Pos::Bound(binds) => binds
                 .first()
-                .map(|l| Demand::Local(owner, *l))
+                .map(|l| Demand::Local(owner, l))
                 .filter(|d| self.holds(all, *d))
                 .map(|to| Sink { to, site: false }),
         }
@@ -2612,8 +2737,7 @@ impl<'a> Flow<'a> {
 
     /// Where each child of `e` sends its value, in [`typed::children`]'s
     /// order.
-    fn positions(&self, e: &typed::Expr) -> Positions {
-        let listed = |each: Vec<Pos>| Positions::Listed(each.into_iter());
+    fn positions<'e>(&'e self, e: &'e typed::Expr) -> Positions<'e> {
         let built = |con: TyConId| {
             if self.in_ui_node(self.tables.tycon(con).module) {
                 Pos::At(Some(Demand::Node))
@@ -2625,7 +2749,7 @@ impl<'a> Flow<'a> {
             // A closure answers what its body does, which may be any of its
             // arguments.
             ExprKind::CallValue { .. } => Positions::Each(Pos::Same),
-            ExprKind::CallFn { func, args } => {
+            ExprKind::CallFn { func, .. } => {
                 let f = func.id;
                 let info = self.tables.fn_info(f);
                 if self.in_ui_node(info.module) {
@@ -2636,20 +2760,7 @@ impl<'a> Flow<'a> {
                     // values, so where only its result reads it, it can't say
                     // which of them reach a node. It passes this call's on,
                     // the way an unread function does.
-                    Some(params) => listed(
-                        params
-                            .iter()
-                            .map(|&(l, kind)| {
-                                if self.follows(f, l, kind) {
-                                    Pos::At(Some(Demand::Local(Owner::Fn(f), l)))
-                                } else {
-                                    Pos::Same
-                                }
-                            })
-                            .chain(std::iter::repeat(Pos::At(None)))
-                            .take(args.len())
-                            .collect(),
-                    ),
+                    Some(params) => Positions::Params(f, params.iter()),
                     // A function this run doesn't read: what it answers may
                     // be any of its arguments.
                     None => Positions::Each(Pos::Same),
@@ -2668,34 +2779,15 @@ impl<'a> Flow<'a> {
             ExprKind::StructLit { con, .. }
             | ExprKind::EnumLit { con, .. }
             | ExprKind::StructUpdate { con, .. } => Positions::Each(built(*con)),
-            ExprKind::Index { .. } => listed(vec![Pos::Same, Pos::At(None)]),
-            ExprKind::Block { stmts, tail } => listed(
-                stmts
-                    .iter()
-                    .map(|s| match s {
-                        typed::Stmt::Let { pattern, .. } => {
-                            let mut locals = Vec::new();
-                            pattern.binds(&mut locals);
-                            Pos::Bound(locals)
-                        }
-                        typed::Stmt::Expr(_) => Pos::At(None),
-                    })
-                    .chain(tail.iter().map(|_| Pos::Same))
-                    .collect(),
-            ),
-            ExprKind::If { .. } => listed(vec![Pos::At(None), Pos::Same, Pos::Same]),
-            ExprKind::Match { arms, .. } => {
-                let mut locals = Vec::new();
-                for arm in arms {
-                    arm.pattern.binds(&mut locals);
-                }
-                let mut out = vec![Pos::Bound(locals)];
-                for arm in arms {
-                    out.extend(arm.guard.iter().map(|_| Pos::At(None)));
-                    out.push(Pos::Same);
-                }
-                listed(out)
-            }
+            ExprKind::Index { .. } => Positions::First(Pos::Same, Pos::At(None)),
+            ExprKind::Block { stmts, .. } => Positions::Block(stmts.iter()),
+            ExprKind::If { .. } => Positions::First(Pos::At(None), Pos::Same),
+            ExprKind::Match { arms, .. } => Positions::Match {
+                arms,
+                rest: arms.iter(),
+                started: false,
+                body: false,
+            },
             // Nothing else hands a child's value on: a condition, an
             // operator, a template, a context.
             _ => Positions::Each(Pos::At(None)),

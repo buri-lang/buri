@@ -1,0 +1,24 @@
+# Styles that reach a node through a binding: the second local a tuple binds,
+# a match arm's binding behind a guard, the arm after it, and the element an
+# index answers. Each helper is called with two different styles, so none of
+# them folds where its node is given it, and each style that can get there is
+# a rule in the stylesheet rather than an inline value.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a style handed to a node through a let, a guarded match arm or an index is a rule in the stylesheet"
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 0
+}
+
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".w-12{width:12px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".w-14{width:14px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".h-21{height:21px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".h-22{height:22px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".h-32{height:32px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".gap-41{gap:41px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".gap-42{gap:42px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  contains: ".gap-43{gap:43px}" }
+file { path: ".buri/out/web/cmd/page/main.mjs"  absent: "-var{" }

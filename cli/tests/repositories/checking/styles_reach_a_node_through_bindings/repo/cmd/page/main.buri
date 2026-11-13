@@ -1,0 +1,55 @@
+// Each style below reaches its node through a binding: the second local a
+// tuple binds, a match arm's binding behind a guard, the arm after it, and
+// the element an index answers. Each function is called twice with different
+// styles, so none folds where its node is given it, and the stylesheet holds
+// a rule for every style that can get there.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+from "web" import { WebHost };
+
+fn second<C>(a: Style, b: Style): Node<C> {
+    let (_, kept) = (a, b);
+    ui.stack({ styles: [kept], children: [] })
+}
+
+fn guarded<C>(n: Int, s: Style): Node<C> {
+    let chosen = match (s) {
+        picked if n > 1 => picked,
+        _ => .Height(.Px(32)),
+    };
+    ui.stack({ styles: [chosen], children: [] })
+}
+
+fn indexed<C>(xs: [Style], i: Int): Node<C> {
+    let first = match (xs[i]) {
+        .Some(s) => s,
+        .None => .Gap(.Px(43)),
+    };
+    ui.stack({ styles: [first], children: [] })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                second(.Width(.Px(11)), .Width(.Px(12))),
+                second(.Width(.Px(13)), .Width(.Px(14))),
+                guarded(2, .Height(.Px(21))),
+                guarded(0, .Height(.Px(22))),
+                indexed([.Gap(.Px(41))], 0),
+                indexed([.Gap(.Px(42))], 1),
+            ],
+        }),
+        [],
+    )
+}
