@@ -208,6 +208,30 @@ impl Prim {
         TyConId(self as u32)
     }
 
+    /// The primitive [`Prim::name`] spells `name`. One `match` rather than a
+    /// scan of [`Prim::all`], since every named type a signature writes asks.
+    pub fn named(name: &str) -> Option<Prim> {
+        Some(match name {
+            "Bool" => Prim::Bool,
+            "I8" => Prim::I8,
+            "I16" => Prim::I16,
+            "I32" => Prim::I32,
+            "I64" => Prim::I64,
+            "I128" => Prim::I128,
+            "U8" => Prim::U8,
+            "U16" => Prim::U16,
+            "U32" => Prim::U32,
+            "U64" => Prim::U64,
+            "U128" => Prim::U128,
+            "F32" => Prim::F32,
+            "F64" => Prim::F64,
+            "Char" => Prim::Char,
+            "Str" => Prim::Str,
+            "Template" => Prim::Template,
+            _ => return None,
+        })
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Prim::Bool => "Bool",
@@ -2395,6 +2419,14 @@ mod tests {
 
     fn tables_with_prims() -> Tables {
         Tables::default()
+    }
+
+    #[test]
+    fn each_primitive_is_named_by_its_own_name() {
+        for &p in Prim::all() {
+            assert_eq!(Prim::named(p.name()), Some(p));
+        }
+        assert_eq!(Prim::named("Int"), None);
     }
 
     #[test]

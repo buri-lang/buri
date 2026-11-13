@@ -1167,7 +1167,7 @@ impl<'a> Checker<'a> {
             "Float" => Prim::F64,
             "Uint" => Prim::U64,
             "Byte" => Prim::U8,
-            other => Prim::all().iter().copied().find(|p| p.name() == other)?,
+            other => Prim::named(other)?,
         };
         Some(self.tables.prim_id(prim))
     }
@@ -2641,9 +2641,11 @@ impl<'a> Checker<'a> {
                 // A type alias is transparent: `type UserId = Str` makes
                 // `UserId` and `Str` the same type. It expands in the module
                 // that declared it, wherever an import carried the name to.
-                if let Some(Sym::Alias(owner, declared, _)) = self.resolve_path(module, path) {
+                // The path is looked up once, for this and the match below.
+                let resolved = self.resolve_path(module, path);
+                if let Some(Sym::Alias(owner, declared, _)) = &resolved {
                     return self
-                        .expand_alias(owner, &declared, &elaborated_args, span)
+                        .expand_alias(*owner, declared, &elaborated_args, span)
                         .unwrap_or(Ty::ERROR);
                 }
                 if path.len() == 1 {
@@ -2658,7 +2660,7 @@ impl<'a> Checker<'a> {
                         return Ty::con(id, []);
                     }
                 }
-                match self.resolve_path(module, path) {
+                match resolved {
                     Some(Sym::Ty(id)) if self.valueless.contains(&id) => Ty::ERROR,
                     Some(Sym::Ty(id)) => {
                         let arity = self.tables.tycon(id).arity();

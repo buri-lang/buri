@@ -52,7 +52,7 @@
 //! * There is no `Ord`.
 
 use std::hash::{BuildHasherDefault, Hash, Hasher};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use crate::compiler::semantics::types::{CtxTypeId, TyConId, TyVarId};
 use crate::hash::{FxHasher, Map};
@@ -311,14 +311,40 @@ fn leak(ts: &[Ty]) -> &'static [Ty] {
     Box::leak(ts.to_vec().into_boxed_slice())
 }
 
+/// How many of the smallest ids of each leaf shape below have an entry of
+/// their own, read with no hash and no lock.
+const DIRECT: usize = 2048;
+
+/// The entry of each small inference variable, generic parameter and
+/// argument-free type constructor, once one is made. These are most of the
+/// types a body asks for, a fresh variable for nearly every expression and
+/// `Int` or `Str` for most of the rest, and each id is reused by every
+/// analysis, so after the first body these find their entry in one load.
+static VARS: [OnceLock<Ty>; DIRECT] = [const { OnceLock::new() }; DIRECT];
+static PARAMS: [OnceLock<Ty>; DIRECT] = [const { OnceLock::new() }; DIRECT];
+static NULLARY: [OnceLock<Ty>; DIRECT] = [const { OnceLock::new() }; DIRECT];
+
 /// The one entry for this shape, made if there is none yet.
 fn intern(probe: TyKindIn<'_>) -> Ty {
-    match probe {
+    let direct = match probe {
         TyKindIn::Unit => return Ty::UNIT,
         TyKindIn::Error => return Ty::ERROR,
         TyKindIn::SelfTy => return Ty::SELF,
-        _ => {}
+        TyKindIn::Var(id) => VARS.get(id.index()),
+        TyKindIn::Param(i) => PARAMS.get(i as usize),
+        TyKindIn::Con(id, []) => NULLARY.get(id.index()),
+        _ => None,
+    };
+    match direct {
+        // The table below still makes the entry, so a type made either way
+        // is the same entry.
+        Some(slot) => *slot.get_or_init(|| shared(probe)),
+        None => shared(probe),
     }
+}
+
+/// [`intern`] through the sharded table.
+fn shared(probe: TyKindIn<'_>) -> Ty {
     let hash = structural_hash(&probe);
     let [top, ..] = hash.to_be_bytes();
     #[expect(clippy::indexing_slicing, reason = "a `u8` is below `SHARDS`")]
