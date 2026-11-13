@@ -341,17 +341,27 @@ pub(crate) fn dial_any(addrs: &[SocketAddr], deadline: Duration) -> std::io::Res
 /// whenever the resolver lets it, and sends into a channel nobody is listening
 /// to; a process that exits before then takes it with it.
 ///
+/// **An answer is waited for twice**: once on the channel, and once more for
+/// the thread to end. A thread that has sent is still running — it returns and
+/// frees what the standard library allocated to start it — and a program that
+/// exits in that moment leaves that block's only address in the thread's
+/// registers, which Memcheck reads as a leak (#346). The second wait is the
+/// few instructions of the thread's epilogue.
+///
+/// Every name lookup in the runtime comes through here: `tcp.rs` and the
+/// WebSocket client in `net.rs` too.
+///
 /// `work` is a parameter rather than the lookup written inline because that is
 /// what makes the bound testable — a test hands it something that never
 /// finishes and gets its answer in milliseconds, which is precisely the case
 /// the network cannot be asked to reproduce on demand.
-fn within<T: Send + 'static>(
+pub(crate) fn within<T: Send + 'static>(
     deadline: Duration,
     what: &str,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, NetFail> {
     let (answer, wait) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
+    let working = std::thread::Builder::new()
         .name(String::from("buri-rt-net"))
         .spawn(move || {
             let _ = answer.send(work());
@@ -362,7 +372,10 @@ fn within<T: Send + 'static>(
             ))
         })?;
     match wait.recv_timeout(deadline) {
-        Ok(value) => Ok(value),
+        Ok(value) => {
+            let _ = working.join();
+            Ok(value)
+        }
         Err(RecvTimeoutError::Timeout) => Err(NetFail::Timeout),
         // The thread ended without sending, which for a closure that cannot
         // return early means it panicked. Its own message has already been
@@ -669,6 +682,33 @@ mod tests {
             start.elapsed() < SOON,
             "the wait took {:?}",
             start.elapsed()
+        );
+    }
+
+    /// **A step that answered has ended its thread** by the time [`within`]
+    /// returns, thread-local destructors and all, for `within`'s reason: a
+    /// program may exit the moment it has its answer (#346).
+    #[test]
+    fn a_step_that_answers_has_ended_its_thread() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static ENDED: AtomicBool = AtomicBool::new(false);
+        struct Ending;
+        impl Drop for Ending {
+            fn drop(&mut self) {
+                ENDED.store(true, Ordering::SeqCst);
+            }
+        }
+        thread_local! {
+            static ENDING: Ending = const { Ending };
+        }
+        let answer = within(SOON, "the test's own step", || {
+            ENDING.with(|_| ());
+            1_u8
+        });
+        assert!(matches!(answer, Ok(1)), "the step answered");
+        assert!(
+            ENDED.load(Ordering::SeqCst),
+            "the step's thread was still running when its answer was returned"
         );
     }
 

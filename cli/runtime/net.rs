@@ -866,6 +866,9 @@ struct Gate {
     /// [`accept`] the same three lines whether the request arrived on its own
     /// socket or as the second stream of an h2 connection.
     ready: VecDeque<i64>,
+    /// The acceptor thread is still inside [`accepting_on`]. It clears this
+    /// on its way out, and [`Listening::stop_acceptor`] waits for that.
+    accepting: bool,
     /// The acceptor thread's own failure, waiting for a worker to ask.
     ///
     /// It exists because the accept moved off the workers and onto a thread
@@ -913,6 +916,8 @@ struct Listening {
     /// condition variable's asynchronous twin, and [`h2`] is its one waiter.
     #[cfg(feature = "net")]
     stopping: tokio::sync::Notify,
+    /// The acceptor thread, for [`Listening::stop_acceptor`] to join.
+    acceptor: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl Listening {
@@ -971,6 +976,49 @@ impl Listening {
         self.stopping.notify_waiters();
         // And if it *is* inside the accept, this is what brings it out.
         self.wake();
+    }
+
+    fn acceptor(&self) -> MutexGuard<'_, Option<std::thread::JoinHandle<()>>> {
+        match self.acceptor.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Wait, until `until`, for the acceptor thread to end, and join it.
+    /// `true` once it has ended, `false` if `until` came first.
+    ///
+    /// **Joined, and not only told to stop**, because a thread that has been
+    /// told is still running: it comes out of `accept(2)`, returns, and frees
+    /// what the standard library allocated to start it. A process that ends
+    /// in that moment ends with that block's only address in the thread's
+    /// registers, and Memcheck, which reads no dead thread's registers, calls
+    /// it lost (#346). So the acceptor has ended, not merely been told to end,
+    /// before [`close`] returns and before a second signal may end the process
+    /// ([`shutdown`]).
+    ///
+    /// The wait is bounded because [`Listening::wake`]'s dial is: a dial that
+    /// failed leaves the thread inside `accept(2)`, and a thread that never
+    /// ends must not hold a shutdown up with it.
+    fn stop_acceptor(&self, until: Instant) -> bool {
+        let mut gate = self.gate();
+        while gate.accepting {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            gate = match self.room.wait_timeout(gate, left) {
+                Ok((g, _)) => g,
+                Err(poisoned) => poisoned.into_inner().0,
+            };
+        }
+        drop(gate);
+        // Past `accepting = false` the thread does nothing that can block, so
+        // this join is the few instructions of its epilogue.
+        if let Some(thread) = self.acceptor().take() {
+            let _ = thread.join();
+        }
+        true
     }
 
     /// Wait until every connection this listener took has been answered, or
@@ -1497,6 +1545,7 @@ pub fn bind(
             served: 0,
             outstanding: 0,
             ready: VecDeque::new(),
+            accepting: true,
             failure: None,
         }),
         arrived: Condvar::new(),
@@ -1508,13 +1557,21 @@ pub fn bind(
         tls: secure,
         #[cfg(feature = "net")]
         stopping: tokio::sync::Notify::new(),
+        acceptor: Mutex::new(None),
     });
     let accepting = Arc::clone(&listening);
     let started = std::thread::Builder::new()
         .name(String::from("buri-acceptor"))
-        .spawn(move || accepting_on(&accepting, handle));
+        .spawn(move || {
+            accepting_on(&accepting, handle);
+            accepting.gate().accepting = false;
+            accepting.room.notify_all();
+        });
     match started {
-        Ok(_joining) => {}
+        // Kept, and not dropped, so that the thread's end can be waited for
+        // ([`Listening::stop_acceptor`] says why). Stored before the table
+        // holds the listener, so nothing can look for it before it is here.
+        Ok(joining) => *listening.acceptor() = Some(joining),
         Err(e) => return Err(ServeErr::io(&e, "starting the acceptor")),
     }
     acceptors(|table| {
@@ -2077,6 +2134,7 @@ pub fn close(handle: i64) {
     };
     listening.finish();
     listening.wake();
+    listening.stop_acceptor(Instant::now() + valgrind::patient(WAKE_DEADLINE));
     // A connection no worker will be handed back is an answer nobody will
     // write, so it is dropped here rather than held until the process ends. An
     // HTTP/1.1 client sees the socket close and an HTTP/2 stream sees its
@@ -2192,12 +2250,14 @@ fn drain_sockets_on(_handle: i64) {}
 // with no listener open is a program whose signals are the operating system's
 // again.
 //
-// **The second signal is the operating system's too.** The handler restores the
-// default disposition for the signal it was called with before it does anything
-// else, so a second Ctrl-C during a slow drain terminates the process the
-// ordinary way. That is the behaviour a person pressing it twice means, and it
-// is also the reason the drain deadline is not the only thing standing between
-// a hung handler and a process that will not stop.
+// **The second signal is the operating system's too.** Once the drain has
+// stopped accepting, the default disposition comes back, so a second Ctrl-C
+// during a slow drain terminates the process the ordinary way. One that arrives
+// sooner is held until then, at most a second (#346 says why: an acceptor
+// thread on its way out is a leak to Memcheck). That is the behaviour a person
+// pressing it twice means, and it is also the reason the drain deadline is not
+// the only thing standing between a hung handler and a process that will not
+// stop.
 
 /// Stop accepting, wait for the requests already in flight, and then say the
 /// listener is closed. `true` if it drained within its deadline.
@@ -2231,13 +2291,23 @@ pub fn drain(handle: i64) -> bool {
 /// one drain deadline to stop rather than four. The instant is the longest any
 /// one of them asked for, because a deadline is a promise to the slowest
 /// listener and not a budget divided between them.
-fn drain_all() {
+///
+/// `settled` is called once every acceptor thread has ended, or its wait has
+/// run out, and before the wait for the requests in flight. It is when
+/// [`shutdown`] lets a second signal end the process ([`Listening::stop_acceptor`]
+/// says why not sooner).
+fn drain_all(settled: impl FnOnce()) {
     let listeners: Vec<(i64, Arc<Listening>)> = acceptors(|table| {
         table
             .iter()
             .map(|(handle, open)| (*handle, Arc::clone(open)))
             .collect()
     });
+    drain_these(&listeners, settled);
+}
+
+/// [`drain_all`], for the listeners it collected.
+fn drain_these(listeners: &[(i64, Arc<Listening>)], settled: impl FnOnce()) {
     // No port open is a signal with nothing to drain, which is the race at the
     // very end of a server's life: the last `close` gave the signals back a
     // moment after this one was delivered. Nothing to do, and nothing lost —
@@ -2249,16 +2319,23 @@ fn drain_all() {
         .max()
         .map(|d| Instant::now() + d)
     else {
+        settled();
         return;
     };
-    for (handle, listening) in &listeners {
+    for (handle, listening) in listeners {
         listening.begin_drain();
         drain_sockets_on(*handle);
     }
-    for (_, listening) in &listeners {
+    // One deadline for every acceptor, for the drain deadline's reason above.
+    let stopped = Instant::now() + valgrind::patient(WAKE_DEADLINE);
+    for (_, listening) in listeners {
+        listening.stop_acceptor(stopped);
+    }
+    settled();
+    for (_, listening) in listeners {
         listening.drained(until);
     }
-    for (_, listening) in &listeners {
+    for (_, listening) in listeners {
         listening.finish();
     }
 }
@@ -2273,9 +2350,10 @@ fn drain_all() {
 /// `malloc`, inside the allocator's own lock, or part-way through B9's stack
 /// switch with a stack pointer that belongs to neither thread nor task. So the
 /// only calls a handler may make are the ones POSIX lists as
-/// async-signal-safe, and [`on_signal`] makes exactly three of them: it takes
-/// the errno slot's address, it restores the default disposition, and it writes
-/// one byte.
+/// async-signal-safe, and [`on_signal`] keeps to them: it takes the errno
+/// slot's address, counts the signal, and writes one byte — or, for a second
+/// signal once the drain has settled, restores the default disposition and
+/// raises it.
 ///
 /// **The byte is the whole design.** Everything a shutdown actually has to do —
 /// take locks, wait on condition variables, dial a socket — is done by
@@ -2298,7 +2376,7 @@ fn drain_all() {
 /// `signal` feature in a crate that is linked into every native binary this
 /// compiler produces. `manifest.toml`'s dependency set is closed by an exact
 /// list for that reason, and the same argument that hand-wrote `mmap`'s three
-/// declarations in `memory.rs` hand-writes these three. It would also be
+/// declarations in `memory.rs` hand-writes these. It would also be
 /// unavailable exactly where the acceptor is not: a `net`-off runtime has no
 /// reactor, and this file's acceptor is compiled into that archive too.
 mod shutdown {
@@ -2306,7 +2384,7 @@ mod shutdown {
     use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
     use std::sync::OnceLock;
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
     /// `SIGINT` — a person at a terminal. Two on both platforms this runtime
     /// is built for; `ARCHITECTURE.md` §9 admits Linux and macOS and no third.
@@ -2323,7 +2401,7 @@ mod shutdown {
     /// `SIG_ERR`, which `signal` answers when it will not do what it was asked.
     const SIG_ERR: usize = usize::MAX;
 
-    // The three calls this module makes into the C library, declared rather
+    // The calls this module makes into the C library, declared rather
     // than depended on — `memory.rs`'s `mmap` block, one file over, is the
     // precedent and carries the argument.
     //
@@ -2338,6 +2416,7 @@ mod shutdown {
     unsafe extern "C" {
         fn signal(sig: i32, handler: usize) -> usize;
         fn write(fd: i32, buf: *const core::ffi::c_void, count: usize) -> isize;
+        fn raise(sig: i32) -> i32;
     }
 
     #[cfg(target_os = "macos")]
@@ -2377,6 +2456,31 @@ mod shutdown {
     /// lock at every use, which is what makes it agree with the table.
     static HELD: AtomicBool = AtomicBool::new(false);
 
+    /// How many `SIGINT`s have arrived since [`listen`] took them.
+    static SEEN_INT: AtomicU32 = AtomicU32::new(0);
+    /// And `SIGTERM`s.
+    static SEEN_TERM: AtomicU32 = AtomicU32::new(0);
+
+    /// Whether the drain a signal began has settled: every acceptor thread has
+    /// ended, and a second signal may end the process ([`super::drain_all`]).
+    static SETTLED: AtomicBool = AtomicBool::new(false);
+
+    /// Where `sig` is counted.
+    fn seen(sig: i32) -> &'static AtomicU32 {
+        if sig == SIGINT { &SEEN_INT } else { &SEEN_TERM }
+    }
+
+    /// End the process the way `sig` would have without a handler.
+    fn end_by(sig: i32) {
+        // SAFETY: setting a disposition and raising a signal are both
+        // async-signal-safe. Raised inside the handler, the signal is blocked
+        // until the handler returns, and then the default ends the process.
+        unsafe {
+            signal(sig, SIG_DFL);
+            raise(sig);
+        }
+    }
+
     /// The watching thread, started once and never stopped: a thread blocked
     /// on a read costs nothing, and a process that has served once may serve
     /// again.
@@ -2388,19 +2492,23 @@ mod shutdown {
         let slot = errno_slot();
         // SAFETY: `errno_slot` answers this thread's own `errno`.
         let saved = unsafe { slot.read() };
-        // The default disposition back, first: from here on a second signal
-        // terminates the process, which is what somebody pressing Ctrl-C twice
-        // means and what stops a hung handler from being unkillable.
-        // SAFETY: setting a disposition is async-signal-safe.
-        unsafe { signal(sig, SIG_DFL) };
         let fd = WAKE.load(Ordering::Relaxed);
-        if fd >= 0 {
+        if fd < 0 {
+            // Nobody to drain: the default disposition back, so that the next
+            // one ends the process.
+            // SAFETY: setting a disposition is async-signal-safe.
+            unsafe { signal(sig, SIG_DFL) };
+        } else if seen(sig).fetch_add(1, Ordering::SeqCst) == 0 {
             let byte = [sig as u8];
             // SAFETY: `fd` is the writing end of a pipe this process holds
             // both ends of, and one byte of a two-byte buffer is readable.
             // A short write and a failed write are the same thing here: the
             // reader is woken by any byte at all.
             unsafe { write(fd, byte.as_ptr().cast(), 1) };
+        } else if SETTLED.load(Ordering::SeqCst) {
+            // A second one, after the drain settled: what somebody pressing
+            // Ctrl-C twice means. One before is ended by [`settle`] instead.
+            end_by(sig);
         }
         // SAFETY: as above. Restored last, so that nothing between the two
         // reads a value this handler produced.
@@ -2410,15 +2518,35 @@ mod shutdown {
     /// The thread the handler wakes: drain every open listener, then wait for
     /// the next signal.
     ///
-    /// It loops rather than returning after one, because the handler restores
-    /// the default disposition **per signal**: a `SIGINT` leaves `SIGTERM`
+    /// It loops rather than returning after one, because the default
+    /// disposition comes back **per signal**: a `SIGINT` leaves `SIGTERM`
     /// caught, and a supervisor that sends both should get one drain apiece
     /// rather than one drain and one unnoticed signal.
     fn watching(mut pipe: UnixStream) {
         use std::io::Read;
         let mut byte = [0u8; 1];
         while matches!(pipe.read(&mut byte), Ok(1)) {
-            super::drain_all();
+            super::drain_all(settle);
+        }
+    }
+
+    /// The drain has settled: give back the default disposition of every
+    /// signal that has arrived, and end the process by any that arrived twice.
+    ///
+    /// `SETTLED` is stored before the counts are read, and the handler counts
+    /// before it reads `SETTLED`, so a second signal racing this one is ended
+    /// by at least one of the two.
+    fn settle() {
+        SETTLED.store(true, Ordering::SeqCst);
+        for sig in CAUGHT {
+            let arrived = seen(sig).load(Ordering::SeqCst);
+            if arrived > 0 {
+                // SAFETY: an ordinary `signal` call.
+                unsafe { signal(sig, SIG_DFL) };
+            }
+            if arrived > 1 {
+                end_by(sig);
+            }
         }
     }
 
@@ -2431,6 +2559,10 @@ mod shutdown {
         if HELD.swap(true, Ordering::Relaxed) {
             return;
         }
+        for sig in CAUGHT {
+            seen(sig).store(0, Ordering::SeqCst);
+        }
+        SETTLED.store(false, Ordering::SeqCst);
         start();
         for sig in CAUGHT {
             // SAFETY: an ordinary `signal` call with a function this module
@@ -2449,9 +2581,9 @@ mod shutdown {
             return;
         }
         for sig in CAUGHT {
-            // SAFETY: as above. The handler may already have restored one of
-            // the two, and setting a disposition that is already the default
-            // is what it looks like when it has.
+            // SAFETY: as above. A drain may already have restored one of the
+            // two, and setting a disposition that is already the default is
+            // what it looks like when it has.
             unsafe { signal(sig, SIG_DFL) };
         }
     }
@@ -3902,7 +4034,6 @@ mod sockets {
 mod client {
     use std::io::{Read, Write};
     use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
-    use std::sync::mpsc::RecvTimeoutError;
     use std::time::{Duration, Instant};
 
     use super::{Connected, ServeErr, ServeFail, Wire, find, sockets};
@@ -4068,39 +4199,19 @@ mod client {
         }
     }
 
-    /// Run `work` on a thread of its own and wait [`DEADLINE`] for its answer.
-    ///
-    /// The deadline is on the wait and not on the work: nothing here can cancel
-    /// a `getaddrinfo` that is already in the kernel. What it can do is stop
-    /// the caller waiting on it, which is the difference between a dial that
-    /// fails and a process that has to be killed.
+    /// Run `work` on a thread of its own and wait [`DEADLINE`] for its answer:
+    /// `http.rs`'s `within`, with this file's error.
     fn within<T: Send + 'static>(
         what: &str,
         work: impl FnOnce() -> T + Send + 'static,
     ) -> Result<T, ServeErr> {
-        let (answer, wait) = std::sync::mpsc::channel();
-        std::thread::Builder::new()
-            .name(String::from("buri-rt-ws"))
-            .spawn(move || {
-                let _sent = answer.send(work());
-            })
-            .map_err(|e| {
-                ServeErr::new(
-                    ServeFail::Transport,
-                    format!("{what} needs a thread, and one could not be started: {e}"),
-                )
-            })?;
-        match wait.recv_timeout(deadline()) {
-            Ok(value) => Ok(value),
-            Err(RecvTimeoutError::Timeout) => Err(ServeErr::new(
+        crate::http::within(deadline(), what, work).map_err(|e| match e {
+            crate::http::NetFail::Timeout => ServeErr::new(
                 ServeFail::Timeout,
                 format!("{what} did not answer within {}s", deadline().as_secs()),
-            )),
-            Err(RecvTimeoutError::Disconnected) => Err(ServeErr::new(
-                ServeFail::Transport,
-                format!("{what} ended without an answer"),
-            )),
-        }
+            ),
+            other => ServeErr::new(ServeFail::Transport, other.message().to_string()),
+        })
     }
 
     /// A connected socket with a deadline on every step of getting one.
@@ -5735,6 +5846,85 @@ mod tests {
             "SIGINT is not this runtime's"
         );
         close(handle);
+    }
+
+    /// **A drain's first step ends with the acceptor thread gone**, and not
+    /// only told to go: its last hold on the listener is let go by the time
+    /// [`Listening::stop_acceptor`] answers.
+    ///
+    /// Joined is the thread past the standard library's own epilogue, which
+    /// is the part a returned closure doesn't prove. What is left holding the
+    /// listener is the table and this test. Before #346 the step ended at the
+    /// dial, with the thread on its way out of `accept(2)` beside it.
+    #[test]
+    fn a_drains_first_step_ends_with_the_acceptor_thread_gone() {
+        let (handle, _port, _handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, -1).expect("a bound port");
+        let open = listening(handle).expect("the listener");
+        open.begin_drain();
+        assert!(
+            open.stop_acceptor(Instant::now() + Duration::from_secs(60)),
+            "the acceptor thread did not end"
+        );
+        assert!(
+            open.acceptor().is_none(),
+            "the acceptor thread was not joined"
+        );
+        assert_eq!(
+            Arc::strong_count(&open),
+            2,
+            "the acceptor thread still holds the listener after its drain began"
+        );
+        open.finish();
+        close(handle);
+    }
+
+    /// **Closing a listener ends its acceptor thread before it returns**, for
+    /// [`Listening::stop_acceptor`]'s reason: a program whose last port closes
+    /// may end the moment `close` answers.
+    #[test]
+    fn closing_a_listener_ends_its_acceptor_thread() {
+        let (handle, _port, _handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, -1).expect("a bound port");
+        let open = listening(handle).expect("the listener");
+        close(handle);
+        assert!(
+            open.acceptor().is_none(),
+            "the acceptor thread was not joined"
+        );
+        assert_eq!(
+            Arc::strong_count(&open),
+            1,
+            "the acceptor thread still holds the listener after `close` returned"
+        );
+    }
+
+    /// **A signal's drain settles once no acceptor thread is running**, and
+    /// not before: settling is what lets a second signal end the process, and
+    /// a process ended beside a thread on its way out is #346's leak.
+    #[test]
+    fn a_signals_drain_settles_once_every_acceptor_thread_has_ended() {
+        let listeners: Vec<(i64, Arc<Listening>)> = (0..2)
+            .map(|_| {
+                let (handle, _port, _handlers) =
+                    bind("127.0.0.1", 0, &ServePlan::default(), -1, -1).expect("a bound port");
+                (handle, listening(handle).expect("the listener"))
+            })
+            .collect();
+        let mut settled = false;
+        drain_these(&listeners, || {
+            for (_, open) in &listeners {
+                assert!(
+                    open.acceptor().is_none(),
+                    "a drain settled beside a running acceptor thread"
+                );
+            }
+            settled = true;
+        });
+        assert!(settled, "the drain never settled");
+        for (handle, _) in listeners {
+            close(handle);
+        }
     }
 
     /// A signal's current handler, read without changing it.

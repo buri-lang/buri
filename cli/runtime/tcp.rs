@@ -44,7 +44,6 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 /// How long a dial may take, all of it: the name lookup and the connect.
@@ -113,35 +112,20 @@ fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, (i32, String)> {
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
     let name = host.to_string();
-    let (answer, wait) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name(String::from("buri-rt-tcp"))
-        .spawn(move || {
-            let found = (name.as_str(), port)
-                .to_socket_addrs()
-                .map(|addrs| addrs.collect::<Vec<_>>())
-                .map_err(|e| e.to_string());
-            let _ = answer.send(found);
-        })
-        .map_err(|e| {
-            (
-                6,
-                format!("a name lookup needs a thread, and one could not start: {e}"),
-            )
-        })?;
-    match wait.recv_timeout(DIAL) {
+    let found = crate::http::within(DIAL, "the name lookup", move || {
+        (name.as_str(), port)
+            .to_socket_addrs()
+            .map(|addrs| addrs.collect::<Vec<_>>())
+            .map_err(|e| e.to_string())
+    });
+    match found {
         Ok(Ok(addrs)) => Ok(addrs),
         Ok(Err(e)) => Err((0, format!("could not resolve {host}: {e}"))),
-        Err(RecvTimeoutError::Timeout) => Err((
+        Err(crate::http::NetFail::Timeout) => Err((
             6,
             format!("the name lookup for {host} did not answer in {DIAL:?}"),
         )),
-        // The thread ended without sending, which for a closure that cannot
-        // return early means it panicked; its own message is already printed.
-        Err(RecvTimeoutError::Disconnected) => Err((
-            6,
-            format!("the name lookup for {host} ended without an answer"),
-        )),
+        Err(other) => Err((6, other.message().to_string())),
     }
 }
 
