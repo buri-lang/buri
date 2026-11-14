@@ -1030,7 +1030,7 @@ export fn title<C>(text: Str): Node<C> {
 needs are the platform's and nothing in `ui/style` says any of them: the page
 behind it has to stop scrolling, what is behind has to go inert, and the focus
 has to stay inside. A `<dialog>` opened with `showModal()` has all three, and
-the `::backdrop` and Escape with them.
+Escape with them.
 
 ```buri
 from "platform/effect" import { Ui };
@@ -1069,10 +1069,34 @@ thing inside it that takes the focus. However the dialog shuts, the focus goes
 back to the element that had it before the dialog opened.
 
 The `styles` land on the panel, so a dialog is a card you drew. The scrim behind
-it is the widget's own drawing, the way a toggle's mark is — `::backdrop` in a
-browser, and the same black at half strength in a picture — and `scrimStyles`
-land on that scrim, so a `BackdropBlur` or a tint reaches the backdrop the way
-`field`'s `around` reaches its label. A shut dialog draws nothing at all; an open
+it is a box over the whole viewport that holds the panel, black at half
+strength and centring the panel. `scrimStyles` land on that box, after its own
+look:
+
+```buri
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+export fn tinted<C: Ui>(open: Signal<Bool>): Node<C> {
+    ui.dialog({
+        isOpen: open,
+        label: .Const("Settings"),
+        children: [],
+        styles: [],
+        scrimStyles: .Some([
+            .Background(.Rgba(0, 0, 160, 0.25)),
+            .BackdropBlur(.Px(6)),
+        ]),
+    })
+}
+```
+
+A tint, a blur, an `Opacity` that fades the panel with the scrim, and an
+`AlignCross` or `Padding` that moves the panel all draw the same in a browser
+and in a picture. A dialog opened inside an open one sits on top of it, its
+scrim over the outer panel. A shut dialog draws nothing at all; an open
 one is pinned to the viewport, so like every other pin it never decides how tall
 a page is.
 

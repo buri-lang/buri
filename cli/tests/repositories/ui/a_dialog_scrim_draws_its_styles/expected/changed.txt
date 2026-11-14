@@ -1,0 +1,14 @@
+FAIL //lib/scrims  test/scrims.buri  "a scrim's background tints the page behind the dialog"
+  the snapshot "tint" changed: see test/__snapshots__/tint.diff.png
+  --> lib/scrims/test/scrims.buri:24:1
+FAIL //lib/scrims  test/scrims.buri  "a scrim style a signal picks draws the one it picks"
+  the snapshot "chosen" changed: see test/__snapshots__/chosen.diff.png
+  --> lib/scrims/test/scrims.buri:56:1
+FAIL //lib/scrims  test/scrims.buri  "a dialog inside an open dialog draws its own scrim over the outer panel"
+  the snapshot "nested" changed: see test/__snapshots__/nested.diff.png
+  --> lib/scrims/test/scrims.buri:74:1
+FAIL //lib/scrims  test/scrims.buri  "a dialog shut and opened again draws its scrim again"
+  the snapshot "reopened" changed: see test/__snapshots__/reopened.diff.png
+  --> lib/scrims/test/scrims.buri:93:1
+
+7 passed, 4 failed, 0 skipped (0.0s)

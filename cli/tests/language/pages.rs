@@ -469,6 +469,7 @@ const said = () => body.firstChild.lastChild.textContent;
 const control = (name) => [...document.querySelectorAll("label")].find((l) => l.textContent === name).querySelector("input");
 labelled("Done").focus();
 press("Escape");
+await new Promise((done) => setTimeout(done, 0));
 console.log(`${said()} dialog:${document.querySelector("dialog[open]") === null ? "shut" : "open"}`);
 labelled("Save").focus();
 press("Enter");
@@ -620,6 +621,7 @@ labelled("Delete").focus();
 press("Enter");
 labelled("Done").focus();
 press("Escape");
+await new Promise((done) => setTimeout(done, 0));
 shown();
 // So does the dialog's own button shutting it.
 press("Enter");
@@ -631,6 +633,7 @@ press("Enter");
 labelled("Lock").focus();
 press("Enter");
 press("Escape");
+await new Promise((done) => setTimeout(done, 0));
 shown();
 // A disabled picker refuses a click on its options.
 document.querySelectorAll("input[type=radio]")[1].click();
@@ -708,9 +711,9 @@ export fn main(host: WebHost): Result<(), Str> {
 "#;
 
 /// The page behind an open dialog is under one scrim of black at half
-/// strength, the one the painter draws. A browser paints the dialog's
-/// `::backdrop` itself, so a box of the page's own that also painted black
-/// would make the page about three quarters dark.
+/// strength, the one the painter draws. The dialog's box is the scrim, so a
+/// `::backdrop` that also painted, or a box of the page's own that did, would
+/// make the page about three quarters dark.
 #[test]
 fn a_browser_draws_one_scrim_behind_an_open_dialog() {
     let printed = drive(
@@ -719,25 +722,115 @@ fn a_browser_draws_one_scrim_behind_an_open_dialog() {
         r#"
 const dialog = document.querySelector("dialog[open]");
 const layers = [];
-// The `::backdrop` rules that reach the open dialog.
+const clear = (colour) =>
+  colour === "" || colour === "none" || colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
+// The `::backdrop` rules that reach the open dialog and paint a colour.
 for (const sheet of document.styleSheets) {
   for (const rule of sheet.cssRules) {
     const [on, pseudo] = (rule.selectorText ?? "").split("::");
-    if (pseudo === "backdrop" && dialog.matches(on)) layers.push(`backdrop ${rule.style.backgroundColor}`);
+    const colour = rule.style.backgroundColor;
+    if (pseudo === "backdrop" && dialog.matches(on) && !clear(colour)) layers.push(`backdrop ${colour}`);
   }
 }
-// Every box outside the dialog that paints a background.
+// Every box that paints a background behind the dialog's panel: the page's,
+// and the dialog's own.
 for (const element of body.querySelectorAll("*")) {
-  if (dialog.contains(element)) continue;
+  if (element !== dialog && dialog.contains(element)) continue;
   const colour = getComputedStyle(element).backgroundColor;
-  if (colour !== "" && colour !== "transparent" && colour !== "rgba(0, 0, 0, 0)") {
-    layers.push(`${element.localName} ${colour}`);
-  }
+  if (!clear(colour)) layers.push(`${element.localName} ${colour}`);
 }
 console.log(layers.join("\n"));
 "#,
     );
-    assert_eq!(printed, "backdrop rgba(0, 0, 0, 0.5)\n");
+    assert_eq!(printed, "dialog rgba(0, 0, 0, 0.5)\n");
+}
+
+/// A dialog open inside a dialog open from the start: a browser puts the inner
+/// one on top, so Escape shuts it first and the outer one stays open, and each
+/// shuts and opens again on its signal with its own scrim.
+const NESTED_DIALOGS_PAGE: &str = r#"from "core/str" import * as str;
+from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let outer = signal(ctx, true);
+    let inner = signal(ctx, true);
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Both"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = outer.set(c, true);
+                        inner.set(c, true)
+                    }),
+                }),
+                ui.dialog({
+                    isOpen: outer,
+                    label: .Const("Outer"),
+                    children: [
+                        ui.dialog({
+                            isOpen: inner,
+                            label: .Const("Inner"),
+                            children: [ui.text({ content: .Const("Deep") })],
+                            styles: [],
+                            scrimStyles: .Some([.Background(.Rgba(0, 0, 160, 0.25))]),
+                        }),
+                    ],
+                    styles: [],
+                }),
+                ui.text({
+                    content: .Computed(fn(s) => str.format(s, "outer:${outer.get(s)} inner:${inner.get(s)}")),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+#[test]
+fn a_browser_stacks_a_dialog_open_inside_an_open_dialog_on_top() {
+    let printed = drive(
+        "nested-dialogs-page",
+        NESTED_DIALOGS_PAGE,
+        r#"
+const said = () => body.firstChild.lastChild.textContent;
+// The open dialogs from the bottom of the top layer up, each with its scrim.
+const stacked = () =>
+  modals
+    .filter((d) => d.open)
+    .map((d) => `${d.getAttribute("aria-label")} ${getComputedStyle(d).backgroundColor}`)
+    .join(" / ");
+const shown = () => console.log(`${said()} | ${stacked()}`);
+shown();
+press("Escape");
+await new Promise((done) => setTimeout(done, 0));
+shown();
+press("Escape");
+await new Promise((done) => setTimeout(done, 0));
+shown();
+labelled("Both").click();
+await new Promise((done) => setTimeout(done, 0));
+shown();
+"#,
+    );
+    assert_eq!(
+        printed,
+        "outer:true inner:true | Outer rgba(0, 0, 0, 0.5) / Inner rgba(0, 0, 160, 0.25)\n\
+         outer:true inner:false | Outer rgba(0, 0, 0, 0.5)\n\
+         outer:false inner:false | \n\
+         outer:true inner:true | Outer rgba(0, 0, 0, 0.5) / Inner rgba(0, 0, 160, 0.25)\n"
+    );
 }
 
 /// Dialogs a browser moves the focus into as they open: one holding a field

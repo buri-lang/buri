@@ -1,0 +1,7 @@
+library {
+    sources: ["scrims.buri"]
+
+    test {
+        sources: ["test/scrims.buri"]
+    }
+}

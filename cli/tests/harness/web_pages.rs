@@ -101,13 +101,32 @@ fn render_case(case: &Path) -> Rendered {
 /// last. A box is named by its colour — `red`, `blue` or `green` — and a box
 /// painted any other colour, or none, is left out.
 pub fn paint_orders(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, ORDERS, "order ")
+}
+
+/// What a browser draws for each open dialog's scrim in each of `case`'s
+/// snapshots, as `(name, scrims)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`paint_orders`] mounts it. A snapshot's
+/// scrims are its open dialogs', from the bottom of the top layer to the top,
+/// joined by ` / `, or `none`. A scrim is what the dialog's box computes to,
+/// then `panel` and what the box inside it computes to, then any `::backdrop`
+/// that reaches the dialog and paints a colour, a layer between the page and
+/// the scrim.
+pub fn scrims(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, SCRIMS, "scrims ")
+}
+
+/// Mounts each of `case`'s pages and runs `script` after, answering each line
+/// it prints that starts with `prefix` as a `(name, rest)` pair split at `: `.
+fn read_snapshots(case: &Path, script: &str, prefix: &str) -> Vec<(String, String)> {
     let pages = match build_pages(case) {
         Ok(pages) => pages,
         Err(rendered) => panic!("{}", rendered.problems.join("\n\n")),
     };
-    let mut orders = Vec::new();
+    let mut read = Vec::new();
     for page in &pages.imports {
-        let out = pages.drive(std::slice::from_ref(page), ORDERS);
+        let out = pages.drive(std::slice::from_ref(page), script);
         let stdout = String::from_utf8_lossy(&out.stdout);
         assert!(
             out.status.code() == Some(0) && stdout.contains(ALL_RENDERED),
@@ -116,15 +135,15 @@ pub fn paint_orders(case: &Path) -> Vec<(String, String)> {
             super::indent(&stdout),
             super::indent(&String::from_utf8_lossy(&out.stderr))
         );
-        orders.extend(
+        read.extend(
             stdout
                 .lines()
-                .filter_map(|line| line.strip_prefix("order "))
+                .filter_map(|line| line.strip_prefix(prefix))
                 .filter_map(|line| line.split_once(": "))
-                .map(|(name, colours)| (name.to_string(), colours.to_string())),
+                .map(|(name, rest)| (name.to_string(), rest.to_string())),
         );
     }
-    orders
+    read
 }
 
 /// A case's test sources that call `snapshot`, built as pages for `web` in a
@@ -866,8 +885,49 @@ for (const { root, name, state, tree } of snapshots) {
   }
   const out = [];
   context(root, out);
-  for (const dialog of root.querySelectorAll("dialog")) if (topLayer(dialog)) context(dialog, out);
+  for (const dialog of modals) if (topLayer(dialog) && root.contains(dialog)) context(dialog, out);
   console.log(`order ${name}: ${out.join(" ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints what each mounted snapshot's open dialogs draw for their scrims, one
+/// `scrims <name>: <scrims>` line each ([`scrims`]).
+const SCRIMS: &str = r#"
+const DRAWN = [
+  "display", "position", "inset-block-start", "inset-block-end", "inset-inline-start", "inset-inline-end",
+  "margin", "width", "height",
+  "background-color", "backdrop-filter", "opacity", "align-items", "justify-content", "padding",
+];
+const PANEL = ["background-color", "width", "height"];
+const clear = (colour) =>
+  colour === "" || colour === "none" || colour === "transparent" || colour === "rgba(0, 0, 0, 0)";
+const drawn = (element, fields) => {
+  const s = getComputedStyle(element);
+  return fields
+    .map((field) => `${field}=${s.getPropertyValue(field) || "-"}`)
+    .join(" ");
+};
+function scrim(dialog) {
+  const panel = dialog.firstElementChild;
+  let text = drawn(dialog, DRAWN);
+  if (panel !== null) text += ` panel ${drawn(panel, PANEL)}`;
+  for (const sheet of document.styleSheets) {
+    for (const rule of sheet.cssRules) {
+      const [on, pseudo] = (rule.selectorText ?? "").split("::");
+      const colour = rule.style?.backgroundColor ?? "";
+      if (pseudo === "backdrop" && dialog.matches(on) && !clear(colour)) text += ` backdrop=${colour}`;
+    }
+  }
+  return text;
+}
+for (const { root, name } of snapshots) {
+  const open = modals.filter((dialog) => dialog.open && root.contains(dialog));
+  // A shut dialog draws nothing, so all that is said of one is how it is laid out.
+  const shut = [...root.querySelectorAll("dialog:not([open])")].map(
+    (dialog) => ` | shut display=${getComputedStyle(dialog).display}`,
+  );
+  console.log(`scrims ${name}: ${open.length === 0 ? "none" : open.map(scrim).join(" / ")}${shut.join("")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

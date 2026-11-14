@@ -1,0 +1,113 @@
+// A dialog's scrim drawn with each kind of style `scrimStyles` can give it.
+// `repositories::a_browser_draws_each_dialog_scrim_as_its_snapshot` reads the
+// same scenes off happy-dom's computed styles.
+//
+// A test that writes its signals after the snapshot does so for the page the
+// browser check mounts: the dialog opens and shuts under the reader after it
+// is drawn, and ends where the snapshot shows it.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/signal" import { signal };
+from "//lib/scrims" import {
+    blur, chosen, computed, faded, nested, over, plain, sheet, tint,
+};
+
+test "a dialog with no scrim styles draws the widget's own black at half strength" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "plain", plain(signal(ctx, true)), .Checked, []);
+}
+
+test "a scrim's background tints the page behind the dialog" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "tint", over(signal(ctx, true), tint()), .Checked, []);
+}
+
+test "a scrim's backdrop blur softens the page behind the dialog" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "blur", over(signal(ctx, true), blur()), .Checked, []);
+}
+
+test "a scrim's opacity fades the scrim and the panel on it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "faded", over(signal(ctx, true), faded()), .Checked, []);
+}
+
+test "a scrim's arrangement and padding place the panel on it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sheet", over(signal(ctx, true), sheet()), .Checked, []);
+}
+
+test "a scrim style a signal picks draws the one it picks" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    snapshot(ctx, "chosen", over(signal(ctx, true), chosen(on)), .Checked, []);
+}
+
+test "a scrim style computed from a signal draws what it computes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    snapshot(ctx, "computed", over(signal(ctx, true), computed(on)), .Checked, []);
+}
+
+test "a dialog inside an open dialog draws its own scrim over the outer panel" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "nested", nested(signal(ctx, true), signal(ctx, true)), .Checked, []);
+}
+
+test "a dialog shut inside an open dialog leaves the outer scrim alone" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let inner = signal(ctx, false);
+    snapshot(ctx, "inner-shut", nested(signal(ctx, true), inner), .Checked, []);
+    inner.set(ctx, true);
+    inner.set(ctx, false);
+}
+
+test "a dialog shut and opened again draws its scrim again" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let open = signal(ctx, true);
+    snapshot(ctx, "reopened", over(open, tint()), .Checked, []);
+    open.set(ctx, false);
+    open.set(ctx, true);
+}
+
+test "a dialog opened and shut again draws no scrim" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let open = signal(ctx, false);
+    snapshot(ctx, "shut", over(open, tint()), .Checked, []);
+    open.set(ctx, true);
+    open.set(ctx, false);
+}

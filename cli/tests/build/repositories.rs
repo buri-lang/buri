@@ -712,6 +712,68 @@ fn positioned_boxes_follow_the_browser_order() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// What a browser draws for each scrim in `a_dialog_scrim_draws_its_styles`,
+/// read off happy-dom's computed styles: each snapshot's open dialogs, from
+/// the bottom of the top layer up, draw the scrim its golden shows, with no
+/// other layer between the page and the scrim.
+#[test]
+fn a_browser_draws_each_dialog_scrim_as_its_snapshot() {
+    const CARD: &str = "panel background-color=rgb(255, 255, 255) width=160px height=80px";
+    let scrim = |background: &str, blur: &str, opacity: &str, align: &str, padding: &str| {
+        format!(
+            "display=flex position=fixed inset-block-start=0px inset-block-end=0px \
+             inset-inline-start=0px inset-inline-end=0px margin=0px \
+             width=auto height=auto background-color={background} backdrop-filter={blur} \
+             opacity={opacity} align-items={align} justify-content=center padding={padding}"
+        )
+    };
+    let black = scrim("rgba(0, 0, 0, 0.5)", "-", "-", "center", "0px");
+    let tint = scrim("rgba(0, 0, 160, 0.25)", "-", "-", "center", "0px");
+    let expected = [
+        ("plain", format!("{black} {CARD}")),
+        ("tint", format!("{tint} {CARD}")),
+        (
+            "blur",
+            format!(
+                "{} {CARD}",
+                scrim("rgba(0, 0, 0, 0.1)", "blur(6px)", "-", "center", "0px")
+            ),
+        ),
+        (
+            "faded",
+            format!("{} {CARD}", scrim("rgba(0, 0, 0, 0.5)", "-", "0.5", "center", "0px")),
+        ),
+        (
+            "sheet",
+            format!("{} {CARD}", scrim("rgba(0, 0, 0, 0.5)", "-", "-", "flex-end", "16px")),
+        ),
+        ("chosen", format!("{tint} {CARD}")),
+        (
+            "computed",
+            format!(
+                "{} {CARD}",
+                scrim("rgba(0, 120, 0, 0.33)", "-", "-", "center", "0px")
+            ),
+        ),
+        (
+            "nested",
+            format!(
+                "{black} {CARD} / {tint} panel background-color=rgb(0, 160, 0) width=60px height=30px"
+            ),
+        ),
+        ("inner-shut", format!("{black} {CARD} | shut display=none")),
+        ("reopened", format!("{tint} {CARD}")),
+        ("shut", "none | shut display=none".to_string()),
+    ];
+    let case = tests_dir().join("repositories/ui/a_dialog_scrim_draws_its_styles");
+    let drawn = crate::harness::web_pages::scrims(&case);
+    let expected: Vec<(String, String)> = expected
+        .into_iter()
+        .map(|(name, scrims)| (name.to_string(), scrims))
+        .collect();
+    assert_eq!(drawn, expected);
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

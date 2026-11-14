@@ -26,7 +26,10 @@
 ///    text field's caret, and Enter in a form's field submits the form —
 ///    which happy-dom doesn't take itself, then the keyup;
 ///  * a modal dialog that takes the focus as it opens and gives it back when
-///    it shuts, which happy-dom leaves out too;
+///    it shuts, which happy-dom leaves out too, and whose `close` event comes
+///    a task later, as a browser queues it;
+///  * `modals`, the top layer happy-dom leaves out: the open modal dialogs,
+///    from the bottom to the top, the one opened last on top;
 ///  * `moves`, every move the address bar made, in order.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
@@ -102,7 +105,7 @@ function byItself(at, key) {
   if (key === "Escape") {
     // Escape cancels the topmost modal dialog: `cancel`, which a listener can
     // cancel, then `close`.
-    const dialog = [...document.querySelectorAll("dialog[open]")].pop();
+    const dialog = modals.findLast((d) => d.isConnected && d.open);
     if (dialog !== undefined && dialog.dispatchEvent(new Event("cancel", { cancelable: true }))) {
       dialog.close();
     }
@@ -172,6 +175,8 @@ function moveCaret(at, key) {
 
 // The element that had the focus when each open modal dialog opened.
 const openers = new WeakMap();
+// The top layer: each open modal dialog, the one opened last on top.
+const modals = [];
 const showModal = HTMLDialogElement.prototype.showModal;
 // The elements a browser lets take the focus, before the checks below.
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
@@ -181,6 +186,7 @@ const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]
 HTMLDialogElement.prototype.showModal = function () {
   const had = document.activeElement;
   showModal.call(this);
+  modals.push(this);
   openers.set(this, had === body ? null : had);
   const takes = (e) =>
     !e.disabled && e.closest("[hidden], dialog:not([open])") === null && (e.tagName === "SUMMARY" || e.closest("details:not([open])") === null);
@@ -188,18 +194,19 @@ HTMLDialogElement.prototype.showModal = function () {
   if (first !== undefined) first.focus();
   else if (had !== body) had.blur();
 };
-// `close`, with the step happy-dom leaves out: before the `close` event, the
-// focus goes back to the element that had it when the dialog opened, while that
-// element can still take it, and otherwise leaves the shut dialog.
+// `close`, with the steps happy-dom leaves out: the focus goes back to the
+// element that had it when the dialog opened, while that element can still
+// take it, and otherwise leaves the shut dialog; and `close` fires as a task.
 HTMLDialogElement.prototype.close = function (returnValue) {
   if (!this.open) return;
   this.removeAttribute("open");
+  if (modals.includes(this)) modals.splice(modals.indexOf(this), 1);
   this.returnValue = returnValue === undefined ? "" : String(returnValue);
   const back = openers.get(this) ?? null;
   openers.delete(this);
   if (back !== null && back.isConnected && !back.disabled) back.focus();
   else if (this.contains(document.activeElement)) document.activeElement.blur();
-  this.dispatchEvent(new Event("close"));
+  setTimeout(() => this.dispatchEvent(new Event("close")), 0);
 };
 
 // Implicit submission: the form's first submit button is clicked unless it is

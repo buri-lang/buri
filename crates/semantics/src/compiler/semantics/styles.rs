@@ -3368,26 +3368,28 @@ impl Reset {
             out.push_str(":where(hr){border:0;margin:0}\n");
         }
         if self.dialog {
-            // A browser's own `<dialog>` is a bordered, padded, `canvas`-white
-            // card with a width and a height nobody asked for. What it keeps
-            // is the half no style can say: `position:fixed`, the automatic
-            // margins that centre it, and the top layer `showModal` puts it
-            // in. The panel's own look is the styles'.
+            // A `<dialog>` is the scrim, a box over the whole viewport with the
+            // panel inside it, drawn from `ui/node`'s `scrim` and the caller's
+            // `scrimStyles`. A browser's own is a bordered, padded,
+            // `canvas`-white card, centred by automatic margins at a width
+            // and a height nobody asked for; what it keeps is the half no
+            // style can say, the top layer `showModal` puts it in.
             // `overflow:visible` undoes the UA's `dialog:modal{overflow:auto}`,
             // which clips focus rings and pinned panels the painter draws whole.
             out.push_str(
-                ":where(dialog){border:0;padding:0;background:none;color:inherit;\
-                 max-width:none;max-height:none;overflow:visible}\n",
+                ":where(dialog){border:0;padding:0;margin:0;width:auto;height:auto;\
+                 background:none;color:inherit;max-width:none;max-height:none;\
+                 overflow:visible}\n",
             );
             // Open, it is a container like every other one. Shut, it keeps a
             // browser's `display:none`, which is why this hangs off `[open]`
-            // rather than joining the reset's own list of containers.
+            // rather than joining the reset's own list of containers, and why
+            // the shut one's rule outweighs the class a scrim's layout is.
             out.push_str(":where(dialog[open]){display:flex;flex-direction:column}\n");
-            // The scrim, which is the widget's own drawing rather than
-            // anything a program wrote. `ui/node`'s `scrim` says the same
-            // black at half strength to the painter, so the two renderers draw
-            // one backdrop.
-            out.push_str(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}\n");
+            out.push_str("dialog:not([open]){display:none}\n");
+            // The scrim is the dialog's own box, so a browser's `::backdrop`
+            // would be a second layer under it.
+            out.push_str(":where(dialog)::backdrop{background:none}\n");
         }
         if self.disclosure {
             // A `<details>` is a block and a `<summary>` is a `list-item` with

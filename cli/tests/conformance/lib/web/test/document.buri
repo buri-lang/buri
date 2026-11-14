@@ -712,9 +712,9 @@ test "a dialog crosses the worker open, and shut" {
     let open = signal(ctx, true);
     let shut = signal(ctx, false);
     // The panel the worker writes is the panel the page resumes on: one
-    // `<dialog>` either way, and the flag says which. So a reader whose
-    // JavaScript has not arrived is looking at the panel the program opened,
-    // and the resume promotes it into the top layer rather than building it.
+    // `<dialog>`, the scrim with the panel inside it, either way, and the flag
+    // says which. So a reader whose JavaScript has not arrived is looking at
+    // the panel the program opened, and the resume promotes it into the top layer.
     assert.equal(
         web.render<()>(
             ui.dialog({
@@ -724,7 +724,7 @@ test "a dialog crosses the worker open, and shut" {
                 styles: [],
             }),
         ),
-        "<dialog aria-label=\"Confirm\" open>sure?</dialog>",
+        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\" open><div>sure?</div></dialog>",
     );
     assert.equal(
         web.render<()>(
@@ -735,7 +735,7 @@ test "a dialog crosses the worker open, and shut" {
                 styles: [],
             }),
         ),
-        "<dialog aria-label=\"Confirm\">sure?</dialog>",
+        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\"><div>sure?</div></dialog>",
     );
     // The panel the worker writes carries its styles as classes — one answer,
     // rendered on the server the way the page would render it.
@@ -748,7 +748,7 @@ test "a dialog crosses the worker open, and shut" {
                 styles: [.Padding(.Px(8))],
             }),
         ),
-        "<dialog aria-label=\"Confirm\" class=\"p-8\" open></dialog>",
+        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\" open><div class=\"p-8\"></div></dialog>",
     );
 }
 

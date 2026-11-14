@@ -318,8 +318,8 @@ enum NodeKind<C> {
     // type=submit disabled>` does — an ordinary button's `isDisabled` reaches a
     // submit too.
     Submit(Prop<Str>, [Style], Prop<Bool>, Focus, Events<C>),
-    // A modal. `scrimStyles` land on the scrim behind the panel, so a backdrop
-    // blur or tint can reach it; `styles` land on the panel.
+    // A modal. The first `[Style]` is the panel's; the second is the scrim's,
+    // the widget's own look and then `scrimStyles`.
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>], [Style], Events<C>),
     Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>], Events<C>),
     // How far a task has come. `value` set → determinate; `.None` → a spinner.
@@ -1361,7 +1361,7 @@ fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
 /// from the platform that no style can say: the page behind it must stop
 /// scrolling, what is behind must go inert, and the focus must stay inside. A
 /// browser gives all three to a `<dialog>` opened with `showModal`, along with
-/// the backdrop and the Escape key, and gives a `<div>` none of them.
+/// the top layer and the Escape key, and gives a `<div>` none of them.
 ///
 /// **`isOpen` is writable because the platform writes it.** Escape shuts the
 /// dialog without asking, so a `Prop` would leave the program holding a panel
@@ -1370,10 +1370,11 @@ fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
 /// press outside the panel, set `onPressOutside` and write it shut there.
 ///
 /// The label is the accessible name, the rule `button`'s label follows. `styles`
-/// land on the panel; **`scrimStyles` land on the scrim behind it**, so a
-/// `BackdropBlur` or a tint can reach the backdrop the way `field`'s `around`
-/// reaches its label. The scrim is the widget's own drawing — a black at half
-/// strength by default — and `scrimStyles` compose on top of it.
+/// land on the panel; **`scrimStyles` land on the scrim**, a box over the whole
+/// viewport that holds the panel, black at half strength and centring it by
+/// default. A tint, a `BackdropBlur`, an `Opacity` that fades the panel too,
+/// and an arrangement that moves the panel all draw the same in a browser and
+/// in a picture.
 ///
 /// Shut, it draws nothing and what is inside it is out of reach. Open, it is
 /// pinned to the viewport, so like every pin it never decides how tall a page
@@ -1389,8 +1390,8 @@ struct Dialog<C> {
     export children: [Node<C>],
     /// Applied to the panel.
     export styles: [Style],
-    /// Applied to the scrim behind the panel — a `BackdropBlur` or a tint,
-    /// composed on top of the default half-strength black.
+    /// Applied to the scrim that holds the panel, after its own black at half
+    /// strength and the arrangement that centres the panel.
     export scrimStyles: Option<[Style]>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
@@ -1428,7 +1429,7 @@ export fn dialog<C>(config: Dialog<C>): Node<C> {
             config.label,
             config.styles,
             config.children,
-            orNoStyles(config.scrimStyles),
+            scrimWith(orNoStyles(config.scrimStyles)),
             events,
         ),
     )
@@ -2106,8 +2107,7 @@ fn rootScope(): Scope;
 /// A shut `dialog` writes no lines at all, because a browser draws none of
 /// one. An open one writes two boxes: the scrim it sits on, pinned to the
 /// viewport and centring what it holds, and the panel inside that. The scrim
-/// is the widget's own drawing too — the `::backdrop` a browser paints, said
-/// in the vocabulary the painter reads.
+/// is the `<dialog>` a browser draws, and the panel the box inside it.
 export fn describe<C: Allocator>(ctx: C, root: Node<C>, state: State): Str {
     describeWide(ctx, root, state, 800)
 }
@@ -3601,7 +3601,7 @@ fn dialogScene<C>(
         Node(
             .Raw(
                 "div",
-                scrimWith(scrimStyles),
+                scrimStyles,
                 [Node(.Raw("dialog", styles, children, events, .Some(label)))],
                 noEvents(),
                 .None,
@@ -3627,9 +3627,9 @@ fn disclosureBody<C>(ctx: Scope, open: Signal<Bool>, children: [Node<C>]): Node<
 }
 
 /// A dialog's scrim styles: the widget's own drawing, then the caller's
-/// `scrimStyles` on top — so a `BackdropBlur` or a tint reaches the backdrop and
-/// still wins. An empty list adds a `.Group([])`, which contributes nothing, so
-/// the default scrim is byte-identical when `scrimStyles` is omitted.
+/// `scrimStyles` after them, so a caller's tint or arrangement wins. An empty list
+/// adds a `.Group([])`, which contributes nothing, so the default scrim is
+/// byte-identical when `scrimStyles` is omitted.
 fn scrimWith(extra: [Style]): [Style] {
     let mem = alloc.generalPurpose();
     scrim().push(mem, .Group(extra))
@@ -4313,16 +4313,12 @@ fn dotLines<C: Allocator>(ctx: C, on: Bool, depth: Int): [Str] {
     }
 }
 
-/// The scrim an open dialog sits on: the `::backdrop` a browser paints, and
-/// the arrangement that centres the panel on it.
+/// The scrim an open dialog sits on: a box over the whole viewport, black at
+/// half strength, centring the panel it holds.
 ///
 /// The widget's own drawing rather than anything a program wrote, the way a
-/// toggle's mark is — there is no property that names a backdrop. It is pinned
-/// to the viewport and holds the panel as its one child, which is how the
-/// painter centres what a browser centres with the automatic margins its own
-/// stylesheet gives a `<dialog>`. The black at half strength is the same
-/// colour the sheet writes for `::backdrop`, so the two renderers draw one
-/// scrim.
+/// toggle's mark is. A browser draws it as the `<dialog>` itself, with the
+/// panel as its one child, so both renderers draw one box from one list.
 fn scrim(): [Style] {
     [
         .Position(.PinViewport),

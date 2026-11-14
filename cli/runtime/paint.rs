@@ -3421,11 +3421,17 @@ fn paint_with(
     painter.close(&mut canvas);
     // The top layer, over the whole page: an open dialog's scrim and its
     // panel, and every overlay opened in the panel. A browser paints a
-    // `showModal` dialog there whatever is written after it.
-    for &index in &fixed {
-        if styles.get(index).is_some_and(|style| style.top) {
-            painter.draw(&mut canvas, index, 0.0, 0.0, None);
-        }
+    // `showModal` dialog there whatever is written after it. A dialog inside
+    // an open one opens after it, so it is above it: the boxes paint in tree
+    // order, which `fixed` is not — it holds a box after the boxes inside it.
+    let mut top: Vec<usize> = fixed
+        .iter()
+        .copied()
+        .filter(|&index| styles.get(index).is_some_and(|style| style.top))
+        .collect();
+    top.sort_unstable();
+    for index in top {
+        painter.draw(&mut canvas, index, 0.0, 0.0, None);
     }
     Ok(canvas)
 }

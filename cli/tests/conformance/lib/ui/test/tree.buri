@@ -5787,24 +5787,25 @@ test "a dialog's styles land on the panel" {
         ).markup(),
         "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5;top-layer:true\ne 1 class:p-8 r-4;label:Settings",
     );
-    // The panel's look is the styles', so the reset drops the bordered, padded
-    // white card a browser draws a `<dialog>` as — and keeps the half no style
-    // can say: the fixed position, the automatic margins that centre it, and
-    // the `::backdrop` the widget paints its scrim with.
+    // A browser's `<dialog>` is the scrim, the first box above, so the reset
+    // drops the bordered, padded white card a browser draws one as, and the
+    // automatic margins and the size that would hold it to its content. What
+    // it keeps is the top layer, which no style can say.
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
-            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
+            ":where(dialog){border:0;padding:0;margin:0;width:auto;height:auto;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
         ),
     );
     // Open, it is a container like every other one; shut, it keeps a browser's
-    // own `display:none`, which is why the rule hangs off `[open]`.
+    // own `display:none` over the layout the scrim's styles give it.
     assert.isTrue(
         sheet.contains(":where(dialog[open]){display:flex;flex-direction:column}"),
     );
-    assert.isTrue(
-        sheet.contains(":where(dialog)::backdrop{background-color:rgba(0,0,0,0.5)}"),
-    );
+    assert.isTrue(sheet.contains("dialog:not([open]){display:none}"));
+    // The scrim is the dialog's own box, so a browser's `::backdrop` paints
+    // nothing under it.
+    assert.isTrue(sheet.contains(":where(dialog)::backdrop{background:none}"));
 }
 
 test "a dialog's panel lets what hangs off its edge show, as the painter does" {
@@ -5851,7 +5852,7 @@ test "a dialog's panel lets what hangs off its edge show, as the painter does" {
     let sheet = stylesheet();
     assert.isTrue(
         sheet.contains(
-            ":where(dialog){border:0;padding:0;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
+            ":where(dialog){border:0;padding:0;margin:0;width:auto;height:auto;background:none;color:inherit;max-width:none;max-height:none;overflow:visible}",
         ),
     );
 }

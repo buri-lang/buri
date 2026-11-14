@@ -5207,7 +5207,7 @@ function $dom_optional(element, name, value) {
 
 // Open or shut, in the top layer. `showModal` is the whole of what the widget
 // is for: the browser stops the page behind from scrolling, makes it inert,
-// paints the `::backdrop`, traps the focus and answers Escape — none of which
+// lifts the scrim over it, traps the focus and answers Escape — none of which
 // a style can say and none of which a `<div>` can have.
 //
 // A server wrote `<dialog open>`, which is open and *not* modal, and
@@ -5470,6 +5470,10 @@ const $TREE_FONTS = [
 // counter is the whole of it. It never resets, which is what keeps a group
 // rendered after a reconcile from colliding with one rendered before it.
 let $tree_radio_groups = 0;
+
+// While a dialog renders its panel, the opening of each dialog inside it,
+// held until the dialog itself has opened; otherwise `null`.
+let $tree_modals = null;
 
 // The stylesheet the compiler extracted, assigned by one statement the backend
 // emits ahead of the program and empty in a program that styles nothing.
@@ -7045,30 +7049,42 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // button's label follows: a reader is announced into the dialog by what it
     // is for, and the heading inside it may not be there yet.
     $tree_bind(node[2], (label) => $dom_attribute(element, "aria-label", label));
-    $tree_styles(element, node[3]);
-    for (const child of node[4]) $tree_render(ctx, child, element, null);
-    // `scrimStyles` (node[5]) style the scrim behind the panel. A real
-    // `<dialog>` draws its scrim as `::backdrop`, which no inline class on the
-    // element can reach and for which this renderer mints no element of its own,
-    // so they are left unrendered here for now. The native painter and the
-    // snapshot honour them — there the scrim is the widget's own box, drawn from
-    // these styles (see `ui/node`'s `describe`).
+    // The `<dialog>` is the scrim (node[5]) and holds the panel, as in the
+    // painter, so every scrim style draws the same. The sheet clears `::backdrop`.
+    $tree_styles(element, node[5]);
+    const panel = $tree_element(element, "div", null);
+    $tree_styles(panel, node[3]);
+    // A dialog inside this one opens after it, so the top layer, which stacks
+    // in opening order, puts it on top.
+    const outer = $tree_modals;
+    $tree_modals = [];
+    let inner;
+    try {
+      for (const child of node[4]) $tree_render(ctx, child, panel, null);
+    } finally {
+      inner = $tree_modals;
+      $tree_modals = outer;
+    }
     const cell = node[1][0];
     // Whether the shutting is ours or the reader's. `close()` fires the same
     // event either way, and only the reader's is news to the signal.
     let ours = false;
-    $tree_bind([1, node[1]], (on) => {
-      ours = true;
-      $dom_modal(element, on);
-      ours = false;
-    });
+    const open = () =>
+      $tree_bind([1, node[1]], (on) => {
+        ours = true;
+        $dom_modal(element, on);
+        ours = false;
+      });
+    const opens = [open, ...inner];
+    if (outer !== null) outer.push(...opens);
+    else for (const each of opens) each();
     // Escape, and every other way a browser shuts a dialog by itself. A signal
     // that went on saying `true` would leave the program holding a panel
-    // nobody can see.
+    // nobody can see. `close` fires late, so one for a dialog open again is stale.
     $dom_listen(element, "close", () => {
-      if (!ours) $ui_flush(() => $ui_write(cell, false));
+      if (!ours && !element.open) $ui_flush(() => $ui_write(cell, false));
     });
-    $tree_events(ctx, element, node[6]);
+    $tree_events(ctx, panel, node[6]);
     return;
   }
   if (tag === 16) {

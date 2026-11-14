@@ -1,0 +1,35 @@
+# A dialog's scrim draws the styles `scrimStyles` gives it, in the snapshot
+# and in a browser alike.
+#
+# The painter drew a scrim's styles, and a browser drew the widget's own black
+# behind every dialog whatever they asked for. Each scene here is a dialog over
+# a page: with no scrim styles, then with a tint, a backdrop blur, an opacity
+# that fades the panel too, an arrangement and padding that move the panel, a
+# style a signal picks and one computed from a signal. Then a dialog inside an
+# open dialog, open and shut, and a dialog shut and opened again, and opened
+# and shut again. `repositories::a_browser_draws_each_dialog_scrim_as_its_snapshot`
+# reads the same scenes in a browser.
+#
+# The last step takes the tint off, and the snapshots that show it fail.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a dialog's scrim draws each kind of style scrimStyles gives it, nested and as it opens and shuts, and a changed scrim fails the golden"
+
+run {
+  args: ["test", "//lib/scrims", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/scrims/scrims.buri"
+  replace: "[.Background(.Rgba(0, 0, 160, 0.25))]"
+  with: "[.Background(.Rgba(0, 0, 160, 0.75))]"
+}
+
+run {
+  args: ["test", "//lib/scrims", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

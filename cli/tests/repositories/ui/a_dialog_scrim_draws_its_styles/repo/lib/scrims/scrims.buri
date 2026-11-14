@@ -1,0 +1,123 @@
+// A dialog over a page, its scrim drawn with the styles `scrimStyles` gives it.
+//
+// The page is a red half and a blue half meeting at a hard edge, so a tint, a
+// blur and a fade each read differently over it. The panel is a white card,
+// centred unless the scrim's own arrangement moves it.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+from "ui/style" import { Style };
+
+/// One half of the page.
+fn half<C>(red: Int, blue: Int): Node<C> {
+    ui.stack({
+        styles: [.Background(.Rgb(red, 40, blue)), .Width(.Px(400)), .Height(.Full)],
+        children: [],
+    })
+}
+
+/// The page, with `dialog` after its two halves.
+fn page<C>(dialog: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Height(.Px(240))],
+        children: [half(200, 40), half(40, 200), dialog],
+    })
+}
+
+/// The panel's look: a white card.
+fn card(): [Style] {
+    [
+        .Width(.Px(160)),
+        .Height(.Px(80)),
+        .Radius(.Px(8)),
+        .Background(.Rgb(255, 255, 255)),
+    ]
+}
+
+/// The page under a dialog with no scrim styles: the widget's own black at
+/// half strength.
+export fn plain<C>(open: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+        }),
+    )
+}
+
+/// The page under a dialog whose scrim is drawn with `scrim`.
+export fn over<C>(open: Signal<Bool>, scrim: [Style]): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(scrim),
+        }),
+    )
+}
+
+/// A quarter of blue in place of the black.
+export fn tint(): [Style] {
+    [.Background(.Rgba(0, 0, 160, 0.25))]
+}
+
+/// A tenth of black over a page blurred behind it.
+export fn blur(): [Style] {
+    [.Background(.Rgba(0, 0, 0, 0.1)), .BackdropBlur(.Px(6))]
+}
+
+/// The scrim and the panel on it faded to half, as one picture.
+export fn faded(): [Style] {
+    [.Opacity(0.5)]
+}
+
+/// The panel held to the bottom of the viewport, a padding above its edge, the
+/// way a sheet sits.
+export fn sheet(): [Style] {
+    [.AlignCross(.End), .Padding(.Px(16))]
+}
+
+/// A tint the signal picks: the quarter of blue while it holds `true`, the
+/// widget's own black while it holds `false`.
+export fn chosen(on: Signal<Bool>): [Style] {
+    [.When(.Cell(on), tint(), [])]
+}
+
+/// A tint computed from the signal: a third of green while it holds `true`.
+export fn computed(on: Signal<Bool>): [Style] {
+    [
+        .Computed(fn(scope) => {
+            if (on.get(scope)) { [.Background(.Rgba(0, 120, 0, 0.33))] } else { [] }
+        }),
+    ]
+}
+
+/// A dialog inside an open dialog: the outer one's scrim is the widget's own,
+/// and the inner one's, over the outer panel too, is the quarter of blue.
+export fn nested<C>(outer: Signal<Bool>, inner: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: outer,
+            label: .Const("Outer"),
+            children: [
+                ui.dialog({
+                    isOpen: inner,
+                    label: .Const("Inner"),
+                    children: [],
+                    styles: [
+                        .Width(.Px(60)),
+                        .Height(.Px(30)),
+                        .Background(.Rgb(0, 160, 0)),
+                    ],
+                    scrimStyles: .Some(tint()),
+                }),
+            ],
+            styles: card(),
+        }),
+    )
+}
