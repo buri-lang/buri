@@ -5427,12 +5427,16 @@ fn a_task_that_wakes_on_another_thread_still_finishes() {
     );
 }
 
-/// Rounds of a scope whose tasks each sleep and then fan out, three times over:
-/// 180 rounds of 24 tasks.
+/// Rounds of a scope whose tasks each sleep and then fan out over four steps:
+/// 240 rounds of 24 tasks.
 ///
 /// A task that fans out waits for its steps, and carries on on whichever
 /// thread is free when they finish. Each fan-out builds strings in its steps
 /// and in the task, so the task allocates on a thread it did not start on.
+///
+/// Before the fix every run of this size failed, on macOS. Under memcheck it
+/// takes about a fifth of the minute the row allows. Three fan-outs a task
+/// over eight steps took nearly all of it.
 fn fanning_out_on_another_thread() -> String {
     String::from(
         r#"
@@ -5449,11 +5453,11 @@ fn fanning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, left: Int, total: Int)
         true => total,
         false => {
             let _ = time.sleep(ctx, time.milliseconds(1));
-            let lengths = tasks.parallel(ctx, [1, 2, 3, 4, 5, 6, 7, 8], fn(c, i, n) => {
+            let lengths = tasks.parallel(ctx, [1, 2, 3, 4], fn(c, i, n) => {
                 str.format(c, "step ${i} of ${n}").length()
             });
             let words = str.format(ctx, "fanned ${lengths.length()}");
-            fanning(ctx, left - 1, total + lengths.length() + words.length() - 8)
+            fanning(ctx, left - 1, total + lengths.length() + words.length() - 4)
         },
     }
 }
@@ -5463,7 +5467,7 @@ fn spawning<C: Allocator + Clock + Stdout + Tasks>(ctx: C, here: Scope, left: In
         true => 0,
         false => {
             let _ = tasks.spawn(ctx, here, fn(c2) => {
-                let _ = fanning(c2, 3, 0);
+                let _ = fanning(c2, 1, 0);
             });
             1 + spawning(ctx, here, left - 1)
         },
@@ -5487,7 +5491,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let spawned = rounds(ctx, 180, 0);
+    let spawned = rounds(ctx, 240, 0);
     let _ = io.println(ctx, "every scope waited for ${spawned} tasks").ignore();
     .Ok(())
 }
@@ -5516,7 +5520,7 @@ fn a_task_that_fans_out_and_wakes_on_another_thread_still_finishes() {
     );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["every scope waited for 4320 tasks"],
+        vec!["every scope waited for 5760 tasks"],
         "stderr:\n{}",
         out.stderr
     );
