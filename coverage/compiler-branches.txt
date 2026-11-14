@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16047 16130 99.49%
+total 16051 16134 99.49%
 area cli/build 1696 1698 99.88%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1091 1112 98.11%
 area crates/llvm 580 580 100.00%
-area crates/middle 2492 2518 98.97%
+area crates/middle 2494 2520 98.97%
 area crates/project 1334 1336 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -155,7 +155,7 @@ area crates/syntax 1268 1268 100.00%
 142 142 crates/middle/src/compiler/middle/lower.rs
 56 56 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
-170 178 crates/middle/src/compiler/middle/monomorphize.rs
+172 180 crates/middle/src/compiler/middle/monomorphize.rs
 102 102 crates/middle/src/compiler/middle/monomorphize/erase.rs
 105 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 116 116 crates/middle/src/compiler/middle/monomorphize/upsert.rs
@@ -196,7 +196,7 @@ area crates/syntax 1268 1268 100.00%
 24 24 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 150 150 crates/semantics/src/compiler/semantics/resolve/platforms.rs
-424 424 crates/semantics/src/compiler/semantics/styles.rs
+426 426 crates/semantics/src/compiler/semantics/styles.rs
 22 22 crates/semantics/src/compiler/semantics/typed.rs
 116 116 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
