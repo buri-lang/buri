@@ -189,6 +189,7 @@ test "a caret key on a slider still moves the slider, not a caret" {
             min: 0.0,
             max: 10.0,
             styles: [],
+            step: .Some(1.0),
         }),
     );
     let _ = page.focus("Level");

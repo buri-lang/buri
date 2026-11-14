@@ -146,11 +146,14 @@ function byItself(at, key) {
 
 // A slider's keys: an arrow moves one step, Page Up and Page Down a tenth of
 // the track or a step when that is more, Home and End to either end. The value
-// stays on the track and on a step from its start.
+// stays on the track and on a step from its start. With `step="any"` an arrow
+// moves a hundredth of the track and nothing snaps, as Chromium's range input
+// does; a step that is missing or not above nought is the default of one.
 function slide(at, key) {
   const min = Number(at.min || 0);
   const max = Number(at.max || 100);
-  const step = at.step === "" || at.step === "any" ? 1 : Number(at.step);
+  const any = at.step.toLowerCase() === "any";
+  const step = any ? (max - min) / 100 : Number(at.step) > 0 ? Number(at.step) : 1;
   const now = Number(at.value);
   const page = Math.max(step, (max - min) / 10);
   const moves = {
@@ -166,7 +169,11 @@ function slide(at, key) {
   const to = moves[key];
   if (to === undefined) return;
   const top = min + Math.floor((max - min) / step) * step;
-  at.value = String(Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top));
+  at.value = String(
+    any
+      ? Math.max(Math.min(to, max), min)
+      : Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top),
+  );
   at.dispatchEvent(new InputEvent("input", { bubbles: true }));
   at.dispatchEvent(new Event("change", { bubbles: true }));
 }

@@ -250,6 +250,32 @@ test "every kind of node renders" {
         ),
         "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
     );
+    // A slider with no step is a continuous track. A browser's default step
+    // is one, which would snap 0.5 to an end, so the markup says `any`.
+    assert.equal(
+        web.render<()>(
+            ui.slider({
+                label: .Const("Mix"),
+                value: signal(ctx, 0.5),
+                min: 0.0,
+                max: 1.0,
+                styles: [],
+            }),
+        ),
+        "<label><span>Mix</span><input type=\"range\" min=\"0.0\" max=\"1.0\" step=\"any\" value=\"0.5\" /></label>",
+    );
+    // A number field holds any number, so a fraction is no step mismatch.
+    assert.equal(
+        web.render<()>(
+            ui.field({
+                label: .Const("Amount"),
+                kind: .Number,
+                value: signal(ctx, "1.5"),
+                styles: [],
+            }),
+        ),
+        "<label><span>Amount</span><input type=\"number\" step=\"any\" value=\"1.5\" /></label>",
+    );
     // A hint crosses as the attribute, so the search line a reader lands on
     // already says what goes in it before a byte of script has run — and the
     // label is still beside it, because a placeholder is not a name.

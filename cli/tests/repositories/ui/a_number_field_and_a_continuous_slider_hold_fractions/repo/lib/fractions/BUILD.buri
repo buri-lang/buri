@@ -1,0 +1,7 @@
+library {
+    sources: ["fractions.buri"]
+
+    test {
+        sources: ["test/fractions.buri"]
+    }
+}

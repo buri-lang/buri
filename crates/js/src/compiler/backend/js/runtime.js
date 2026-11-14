@@ -6958,6 +6958,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const kind = node[2];
     const element = $tree_element(wrapper, kind === 1 ? "textarea" : "input", null);
     if (kind !== 1) $dom_attribute(element, "type", $TREE_FIELD_KINDS[kind]);
+    // A number field holds any number. A browser's default step is one, which
+    // makes `1.5` a step mismatch, so the field is `:invalid` and its form
+    // refuses to submit. `any` leaves the value unconstrained. The keyboard
+    // `type="number"` brings already has a sign and a decimal point, so there
+    // is no `inputmode`: `decimal` would drop the minus on a phone.
+    if (kind === 4) $dom_attribute(element, "step", "any");
     // The hint inside the empty box. `placeholder` is announced after the
     // accessible name rather than instead of it, which is why the label beside
     // it is still required.
@@ -7028,10 +7034,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The track's bounds, which a reader is told it is dragging inside.
     $dom_attribute(element, "min", $f64(node[3]));
     $dom_attribute(element, "max", $f64(node[4]));
-    // `step` is an `Option<Float>`: `undefined` leaves the browser's default of
-    // one, and a number sets the size of a move.
+    // `step` is an `Option<Float>`, and a slider with none is a continuous
+    // track. A browser's default step is one, which would snap `0.5` on a track
+    // from 0 to 1 to an end, so a missing step is `any`. So is one that is not
+    // above nought, which a browser would read as its default too.
     const step = node[5];
-    if (step !== undefined) $dom_attribute(element, "step", $f64(step));
+    $dom_attribute(element, "step", step !== undefined && step > 0 ? $f64(step) : "any");
     $tree_styles(element, node[6]);
     $tree_disabled(element, node[8]);
     // The signal holds a `Float`, and the control's `value` is a string, so this
@@ -9186,12 +9194,15 @@ function $scene_stepRadio(doc, at, forward) {
 
 // The keys that move a slider: an arrow by one step, Page Up and Page Down by
 // a tenth of the track or a step when that is more, Home and End to either end.
-// The value stays on the track and on a step from its start.
+// The value stays on the track and on a step from its start. A continuous
+// track, a step of nought or less, moves a hundredth of the track and stays on
+// it — the native `slide`, and a browser's `step="any"`.
 function $scene_slide(record, name) {
   const range = $scene_declValue(record.body, "range");
   if (range === undefined || record.valueSignal < 0) return;
   const [min, max, now] = range.split(" ").map(Number);
-  const step = record.step;
+  const continuous = !(record.step > 0);
+  const step = continuous ? (max - min) / 100 : record.step;
   const page = Math.max(step, (max - min) / 10);
   const moves = {
     ArrowRight: now + step,
@@ -9206,7 +9217,9 @@ function $scene_slide(record, name) {
   const to = moves[name];
   if (to === undefined) return;
   const top = min + Math.floor((max - min) / step) * step;
-  const snapped = Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top);
+  const snapped = continuous
+    ? Math.max(Math.min(to, max), min)
+    : Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top);
   const signal = record.valueSignal;
   $ui_flush(() => $ui_write(signal, snapped));
 }

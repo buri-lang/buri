@@ -3386,13 +3386,21 @@ fn step_radio(handle: i64, at: usize, forward: bool) {
 /// The keys that move the slider `at`: an arrow by one step, Page Up and Page
 /// Down by a tenth of the track or a step when that is more, Home and End to
 /// either end. The value stays on the track and on a step from its start.
+///
+/// A continuous track, a step of nought or less, moves a hundredth of the
+/// track and stays on it, which is what a browser does with `step="any"`.
 fn slide(handle: i64, at: usize, name: &str) {
     let moved = with_doc(handle, |doc| {
         let r = &doc.records[at];
         let range = decl_value(&r.body, "range")?;
         let mut bounds = range.split(' ').map(|v| v.parse::<f64>().ok());
         let (min, max, now) = (bounds.next()??, bounds.next()??, bounds.next()??);
-        let step = r.step;
+        let continuous = r.step <= 0.0;
+        let step = if continuous {
+            (max - min) / 100.0
+        } else {
+            r.step
+        };
         let page = step.max((max - min) / 10.0);
         let to = match name {
             "ArrowRight" | "ArrowUp" => now + step,
@@ -3403,6 +3411,9 @@ fn slide(handle: i64, at: usize, name: &str) {
             "End" => max,
             _ => return None,
         };
+        if continuous {
+            return Some((r.value_signal, to.min(max).max(min)));
+        }
         let top = min + ((max - min) / step).floor() * step;
         let snapped = (min + ((to - min) / step).round() * step).clamp(min, top);
         Some((r.value_signal, snapped))

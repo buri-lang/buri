@@ -131,7 +131,8 @@ fn narrow<C: Ui>(ctx: C, name: Str, min: Float, max: Float, value: Float): Node<
 /// One value: a slider carrying the property under test.
 ///
 /// `styles` are the track's, which is where every property under test goes. The
-/// name is the slider's accessible label.
+/// name is the slider's accessible label. It has no step, so a browser draws a
+/// value between whole numbers where it is rather than snapped to one.
 fn cell<C: Ui>(
     ctx: C,
     name: Str,
@@ -146,7 +147,6 @@ fn cell<C: Ui>(
         min: min,
         max: max,
         styles: [.Foreground(.Rgb(40, 50, 90)), .Group(styles)],
-        step: .Some(1.0),
     })
 }
 

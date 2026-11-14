@@ -4624,3 +4624,117 @@ for (const group of document.querySelectorAll("[role=group]")) {
          less than none: color-mix(in srgb,var(--kit-ink) 0%,transparent)\n"
     );
 }
+
+/// A form holding two number fields with fractions in them and three sliders:
+/// one with no step, one whose step is nought, and one with a step of a half.
+/// A line under them counts the form's submissions and says what the sliders
+/// hold. `main` resumes the page a server sent and mounts it otherwise.
+/// `conformance/lib/ui/test/keys.buri` presses the same keys headlessly.
+const FRACTIONS_PAGE: &str = r#"from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/server" import { ServerHost };
+
+fn page<C: Ui>(ctx: C): Node<C> {
+    let sent = signal(ctx, 0);
+    let mix = signal(ctx, 0.5);
+    let pan = signal(ctx, 25.0);
+    let gain = signal(ctx, 1.0);
+    ui.stack({
+        styles: [],
+        children: [
+            ui.form({
+                onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+                styles: [],
+                children: [
+                    ui.field({ label: .Const("Amount"), kind: .Number, value: signal(ctx, "1.5"), styles: [] }),
+                    ui.field({ label: .Const("Change"), kind: .Number, value: signal(ctx, "-0.25"), styles: [] }),
+                    ui.slider({ label: .Const("Mix"), value: mix, min: 0.0, max: 2.0, styles: [] }),
+                    ui.slider({ label: .Const("Pan"), value: pan, min: 0.0, max: 50.0, styles: [], step: .Some(0.0) }),
+                    ui.slider({ label: .Const("Gain"), value: gain, min: 0.0, max: 4.0, styles: [], step: .Some(0.5) }),
+                    ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+                ],
+            }),
+            ui.text({
+                content: .Computed(fn(s) => {
+                    str.format(s, "sent:${sent.get(s)} mix:${mix.get(s)} pan:${pan.get(s)} gain:${gain.get(s)}")
+                }),
+            }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx);
+    match (web.state(ctx)) {
+        .Some(_sent) => web.resume(ctx, tree),
+        .None => ui.mount(ctx, tree, []),
+    }
+}
+
+export fn fetch(host: ServerHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+}
+"#;
+
+/// A number field holds any number and a slider with no step, or a step that
+/// is not above nought, is a continuous track (#353). A browser's default step
+/// is one, which made `1.5` a step mismatch: the field was `:invalid` and its
+/// form refused to submit. So each such control's markup says `step="any"`,
+/// on the page a server sends and on the one a page mounts, and an arrow key
+/// moves a continuous slider a hundredth of its track.
+#[test]
+fn a_number_field_and_a_continuous_slider_hold_a_fraction() {
+    let scratch = served("fractions-page", FRACTIONS_PAGE);
+    let driver = r#"
+const said = () => body.firstChild.lastChild.textContent;
+// The control a `<label>` holds beside its words.
+const control = (name) =>
+  [...document.querySelectorAll("label")].find((l) => l.firstChild.textContent === name).querySelector("input");
+// Each control's value, and whether a browser takes it.
+const fields = () =>
+  console.log(
+    ["Amount", "Change", "Mix", "Pan", "Gain"]
+      .map((name) => {
+        const at = control(name);
+        const bad = ["stepMismatch", "rangeUnderflow", "rangeOverflow", "patternMismatch", "badInput"].filter((k) => at.validity[k]);
+        return `${name} ${at.value} ${at.checkValidity() ? "valid" : `invalid (${bad.join(", ")})`}`;
+      })
+      .join(" | "),
+  );
+fields();
+if (served) await page();
+await tick();
+fields();
+control("Amount").focus();
+press("Enter");
+await tick();
+for (const name of ["Mix", "Pan", "Gain"]) {
+  control(name).focus();
+  press("ArrowRight");
+}
+await tick();
+console.log(said());
+"#;
+    let script = format!("{}\n{SERVED_DRIVER}\n{driver}", browser());
+    let path = scratch.write("drive.mjs", &script);
+    let valid =
+        "Amount 1.5 valid | Change -0.25 valid | Mix 0.5 valid | Pan 25 valid | Gain 1 valid\n";
+    let expected = format!("{valid}{valid}sent:1 mix:0.52 pan:25.5 gain:1.5\n");
+    for mode in ["mounted", "served"] {
+        assert_eq!(run_served(&path, mode), expected, "{mode}");
+    }
+}

@@ -1,0 +1,5 @@
+FAIL //lib/fractions  test/fractions.buri  "number fields and sliders with no step hold fractions"
+  the snapshot "fractions" changed: see test/__snapshots__/fractions.diff.png
+  --> lib/fractions/test/fractions.buri:13:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

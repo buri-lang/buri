@@ -1069,7 +1069,9 @@ style lists, because a labelled control is two boxes: `styles` is the input's,
 place `Grow`, `Shrink`, `AlignSelf` and `Span` do anything. A toggle binds its
 `isOn` to a `Signal<Bool>`, and its `ToggleKind` picks the mark it draws inside
 itself: `Checkbox` has a tick when it is on, `Switch` has a thumb that travels.
-Both take the box's `Foreground`.
+Both take the box's `Foreground`. A `.Number` field holds any number, `1.5` and
+`-0.25` included: it writes `step="any"`, because a browser's default step of one
+would mark a fraction invalid and refuse to submit its form.
 
 A field's `hint` is the sample value inside its own empty box, and it is a
 parameter rather than a `Style` because it is content: what a field is for, not
@@ -1092,7 +1094,9 @@ control split out of the old `FieldKind.Range` — a number picked off a track, 
 a run of text, so it binds a `Signal<Float>` rather than dressing a field up as
 something it is not. `min` and `max` are required because a reader is told what
 one runs between; `step` is what an arrow key moves by, and a continuous track is
-the default. It lowers to `<input type="range">`, so the thumb, the drag, the
+the default. With no step, or one not above nought, an arrow moves a hundredth of
+the track and the markup writes `step="any"`, so a browser never snaps the value
+to a whole number. It lowers to `<input type="range">`, so the thumb, the drag, the
 arrow and Home/End keys, `role="slider"` and the three `aria-value*` all come
 from the one attribute. The sheet paints the track, the bar and the thumb in
 `currentColor`, and the painter draws the same two shapes at the same sizes. A

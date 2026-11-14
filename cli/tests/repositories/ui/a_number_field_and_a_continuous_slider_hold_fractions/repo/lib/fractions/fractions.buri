@@ -1,0 +1,54 @@
+// A form of fractions: two number fields and three sliders with no step, each
+// holding a value a step of one would refuse or snap to an end.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+/// A slider with no step, 130 pixels across.
+fn track<C: Ui>(ctx: C, label: Str, min: Float, max: Float, value: Float): Node<C> {
+    ui.slider({
+        label: .Const(label),
+        value: signal(ctx, value),
+        min: min,
+        max: max,
+        styles: [
+            .Width(.Px(130)),
+            .Foreground(.Rgb(40, 50, 90)),
+            .Background(.Rgb(210, 214, 224)),
+        ],
+        around: .Some([.Gap(.Px(8))]),
+    })
+}
+
+/// A number field holding `value`, its box outlined.
+fn amount<C: Ui>(ctx: C, label: Str, value: Str): Node<C> {
+    ui.field({
+        label: .Const(label),
+        kind: .Number,
+        value: signal(ctx, value),
+        styles: [
+            .Width(.Px(130)),
+            .BorderWidth(.Px(1)),
+            .BorderStyle(.Solid),
+            .BorderColor(.Rgb(40, 50, 90)),
+            .Padding(.Px(2)),
+        ],
+        around: .Some([.Gap(.Px(8))]),
+    })
+}
+
+/// The form: the fields, then the sliders, one under another.
+export fn form<C: Ui>(ctx: C): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .Gap(.Px(8)), .Padding(.Px(8)), .Width(.Px(320))],
+        children: [
+            amount(ctx, "Price", "1.5"),
+            amount(ctx, "Change", "-0.25"),
+            track(ctx, "A quarter of 0 to 2", 0.0, 2.0, 0.5),
+            track(ctx, "A third of 0 to 1", 0.0, 1.0, 0.33),
+            track(ctx, "Most of 10 to 11", 10.0, 11.0, 10.8),
+        ],
+    })
+}

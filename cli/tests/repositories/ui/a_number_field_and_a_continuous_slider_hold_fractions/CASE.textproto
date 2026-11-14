@@ -1,0 +1,33 @@
+# A number field holds any number and a slider with no step is a continuous
+# track (#353), so each holds a fraction where the snapshot draws it.
+#
+# The form has two number fields, holding 1.5 and -0.25, and three sliders
+# with no step: a quarter of 0 to 2, a third of 0 to 1, and most of 10 to 11.
+# A browser's default step is one, so before the fix a browser refused both
+# fields and snapped every thumb to an end, while the painter drew the
+# fractions. `repositories::snapshots_render_as_pages` mounts this page in a
+# browser and fails on a control off its step.
+#
+# The last step moves one thumb, and the snapshot fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "number fields and sliders with no step hold fractions in the snapshot as in a browser, and a moved thumb fails the golden"
+
+run {
+  args: ["test", "//lib/fractions", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/fractions/fractions.buri"
+  replace: "0.0, 1.0, 0.33"
+  with: "0.0, 1.0, 0.9"
+}
+
+run {
+  args: ["test", "//lib/fractions", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

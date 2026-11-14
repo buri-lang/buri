@@ -27,7 +27,9 @@
 //!
 //! The driver then fails the case when importing a page throws, when a promise
 //! is rejected with nobody listening, when the page writes `console.error`, when
-//! a snapshot never mounted, or when a text the scene holds is not on the page.
+//! a snapshot never mounted, when a text the scene holds is not on the page, or
+//! when an input holds a value off its step, which a browser snaps or refuses
+//! where the snapshot draws it as it is.
 //! It also drives every element the way the snapshot's state describes, and
 //! clicks everything with a click listener, failing on anything that throws.
 
@@ -744,6 +746,13 @@ function check(end) {
     if (!line.startsWith("t ")) continue;
     const text = unescape(line.slice(line.indexOf(" ", 2) + 1));
     if (!page.includes(text)) problems.push(`"${name}": "${text}" is in the snapshot and not on the page`);
+  }
+  // A browser snaps a slider's value to its step and refuses a field's, where
+  // the snapshot draws the value as it is, so no control may be off its step.
+  for (const input of tree.flatMap((n) => (n.nodeType === 1 ? [...n.querySelectorAll("input")] : []))) {
+    if (input.validity.stepMismatch) {
+      problems.push(`"${name}": the ${input.type} input holding ${input.value} is off its step of ${input.step || "one"}`);
+    }
   }
   snapshots.push({ root, name, state, tree });
 }

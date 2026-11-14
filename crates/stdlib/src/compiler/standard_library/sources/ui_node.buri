@@ -116,7 +116,7 @@ export enum FieldKind {
     Password,
     /// An address.
     Email,
-    /// A number.
+    /// A number, whole or not: `1.5` and `-0.25` are as valid as `2`.
     Number,
     /// A query.
     Search,
@@ -3144,8 +3144,9 @@ fn emitSliderControl(
     );
     let _ = attachFocus(builder, key, true);
     let _ = registerValue(builder, signal);
-    // A browser's step is one when the slider names none.
-    let _ = registerStep(builder, step.withDefault(1.0));
+    // A slider with no step is a continuous track, which its markup writes as
+    // `step="any"`: nought here, and an arrow key moves a hundredth of it.
+    let _ = registerStep(builder, step.withDefault(0.0));
     exitElement(builder)
 }
 
@@ -3837,7 +3838,8 @@ fn markSubmit(builder: Builder): ();
 /// the way a browser's radio writes its `value` back.
 fn registerChoice(builder: Builder, signal: Int, key: Str): ();
 
-/// Keeps how far one arrow key moves the open slider — the native `step`.
+/// Keeps how far one arrow key moves the open slider — the native `step`. Nought
+/// or less is a continuous track.
 fn registerStep(builder: Builder, step: Float): ();
 
 /// Keeps a dialog's `isOpen` signal with the region the dialog is drawn in,

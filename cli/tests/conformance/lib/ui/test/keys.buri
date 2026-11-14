@@ -301,25 +301,82 @@ test "the arrow keys, Page Up, Page Down, Home and End move a slider" {
     assert.equal(level.get(ctx), 0.0);
 }
 
-test "a slider with no step moves by one" {
+test "a slider with no step is continuous and an arrow moves a hundredth of it" {
     let ctx = context {
         Ui: headless(),
         Watch: observer(),
     };
-    let level = signal(ctx, 3.0);
+    let level = signal(ctx, 0.5);
     let page = render(
         ctx,
         ui.slider({
             label: .Const("Level"),
             value: level,
             min: 0.0,
-            max: 10.0,
+            max: 2.0,
             styles: [],
         }),
     );
     let _ = page.focus("Level");
+    // A step of one would land on an end: 1.5 snaps to 2.
     let _ = page.key("ArrowRight");
-    assert.equal(level.get(ctx), 4.0);
+    assert.equal(level.get(ctx), 0.52);
+    let _ = page.key("ArrowLeft");
+    assert.equal(level.get(ctx), 0.5);
+    // A page is a tenth of the track, and nothing snaps to a step.
+    let _ = page.key("PageUp");
+    assert.equal(level.get(ctx), 0.7);
+    let _ = page.key("End");
+    let _ = page.key("ArrowRight");
+    assert.equal(level.get(ctx), 2.0);
+    let _ = page.key("Home");
+    let _ = page.key("PageDown");
+    assert.equal(level.get(ctx), 0.0);
+}
+
+test "a slider whose step is not above nought is continuous too" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let level = signal(ctx, 25.0);
+    let page = render(
+        ctx,
+        ui.slider({
+            label: .Const("Level"),
+            value: level,
+            min: 0.0,
+            max: 50.0,
+            styles: [],
+            step: .Some(0.0),
+        }),
+    );
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowRight");
+    assert.equal(level.get(ctx), 25.5);
+}
+
+test "Enter in a form's one number field holding a fraction submits the form" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let submitted = signal(ctx, 0);
+    let amount = signal(ctx, "1.5");
+    let page = render(
+        ctx,
+        counting(submitted, [
+            ui.field({
+                label: .Const("Amount"),
+                kind: .Number,
+                value: amount,
+                styles: [],
+            }),
+        ]),
+    );
+    let _ = page.focus("Amount");
+    let _ = page.key("Enter");
+    assert.equal(submitted.get(ctx), 1);
 }
 
 /// A form counting its submissions into `submitted`, holding `children`.
