@@ -7,18 +7,18 @@ toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; val
 aarch64 ci check cost                                        7557.6
 aarch64 ci check instructions                                4576.3
 aarch64 ci dev-codegen cost                                 92097.9
-aarch64 ci dev-codegen instructions                         57400.2
-aarch64 ci parse cost                                        2136.6
-aarch64 ci parse instructions                                1549.6
+aarch64 ci dev-codegen instructions                         57321.1
+aarch64 ci parse cost                                        2136.3
+aarch64 ci parse instructions                                1548.1
 aarch64 monorepo-ci check cost                              11502.7
 aarch64 monorepo-ci check instructions                       7030.4
 aarch64 monorepo-ci dev-codegen cost                        35297.0
-aarch64 monorepo-ci dev-codegen instructions                22837.7
+aarch64 monorepo-ci dev-codegen instructions                22822.8
 aarch64 monorepo-ci parse cost                               2724.0
-aarch64 monorepo-ci parse instructions                       1983.3
+aarch64 monorepo-ci parse instructions                       1982.9
 aarch64 monorepo-ci test-build check cost                   12922.3
 aarch64 monorepo-ci test-build check instructions            7947.1
 aarch64 monorepo-ci test-build dev-codegen cost             35323.0
-aarch64 monorepo-ci test-build dev-codegen instructions     23807.1
+aarch64 monorepo-ci test-build dev-codegen instructions     23783.6
 aarch64 monorepo-ci test-build parse cost                    2728.2
-aarch64 monorepo-ci test-build parse instructions            1983.5
+aarch64 monorepo-ci test-build parse instructions            1983.1
