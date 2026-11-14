@@ -1,0 +1,32 @@
+# Each control shows its value the way a browser holds it, not as the program
+# wrote it. A line field drops its break, an email field its surrounding
+# spaces, and a number field text that isn't a number. A slider's thumb sits on
+# its track and its step: 3.4 with a step of 2 is at 4, 150 on a track to 100
+# is at its end, and a track whose largest is below its smallest is all
+# smallest. Before the fix the painter drew 3.4 and drew no thumb at all for
+# the last track. `repositories::snapshots_render_as_pages` mounts this page in
+# a browser and fails on a thumb drawn anywhere else.
+#
+# The last step moves one value to the next step, and the snapshot fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "fields and sliders show their values as a browser holds them, and a value on another step fails the golden"
+
+run {
+  args: ["test", "//lib/values", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/values/values.buri"
+  replace: "0.0, 10.0, 3.4"
+  with: "0.0, 10.0, 5.4"
+}
+
+run {
+  args: ["test", "//lib/values", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

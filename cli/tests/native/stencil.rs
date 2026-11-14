@@ -2267,6 +2267,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/json.buri",
     "text/path.buri",
     "ui/caret.buri",
+    "ui/constraints.buri",
     "ui/dialogs.buri",
     "ui/disabled.buri",
     "ui/drawings.buri",

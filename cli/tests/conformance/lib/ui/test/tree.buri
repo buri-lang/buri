@@ -4887,9 +4887,8 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
             "buri-scene 1\nviewport 800 fit\ne 0 ${inline}\nt 1 Volume\ne 1 ${track};field:range;range:0.0 100.0 40.0",
         ),
     );
-    // The bounds are the ones the program wrote, whatever they are, and a
-    // value outside them is carried as written — clamping is the painter's and
-    // the browser's, not the scene's.
+    // The bounds are the ones the program wrote, and the value is the one a
+    // browser holds: a value past the largest is the largest.
     assert.containsText(
         ui.describe(
             ctx,
@@ -4903,7 +4902,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
             }),
             .Hover,
         ),
-        "field:range;range:-1.5 1.5 9.0",
+        "field:range;range:-1.5 1.5 1.5",
     );
     // And the sheet carries the same size, weightless, so a `Width` class beats
     // it in a browser exactly as it beats it in the scene.
@@ -4942,7 +4941,7 @@ test "a range field's styles land on the input, and compose the way a control's 
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 40.0",
+        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 10.0",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
     // The caller's `Width` is last in the scene too, so the track's own twelve
@@ -4950,7 +4949,7 @@ test "a range field's styles land on the input, and compose the way a control's 
     // height and the shrink it did not name are still the track's.
     assert.containsText(
         ui.describe(ctx, tree, .Hover),
-        "class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 40.0",
+        "class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 10.0",
     );
 }
 

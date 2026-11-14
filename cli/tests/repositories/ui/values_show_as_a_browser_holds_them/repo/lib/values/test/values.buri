@@ -1,0 +1,19 @@
+// Fields and sliders show their values as a browser holds them, painted.
+// `repositories::snapshots_render_as_pages` mounts this in a browser and fails
+// on a thumb drawn anywhere other than where the page holds it.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/values" import { form };
+
+test "fields and sliders show their values as a browser holds them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let scene = ui.describe(ctx, form(ctx), .Checked);
+    assert.containsText(scene, "t 3 AdaLovelace");
+    snapshot(ctx, "values", form(ctx), .Checked, []);
+}

@@ -2116,11 +2116,33 @@ fn activate(handle: i64, button: usize) {
     if submit {
         let form = with_doc(handle, |doc| doc.enclosing(button, "form")).flatten();
         if let Some(form) = form {
-            let node = with_doc(handle, |doc| doc.records[form].press).unwrap_or(-1);
-            if node >= 0 {
-                crate::ui::fire(node, handle);
-            }
+            submit_form(handle, form);
         }
+    }
+}
+
+/// A form's submission, once something has asked for it: unless one of its
+/// enabled fields is invalid, its handler runs. When one is, a browser refuses
+/// and moves the focus to the first such field, and so does this.
+fn submit_form(handle: i64, form: usize) {
+    let (node, invalid) = with_doc(handle, |doc| {
+        let invalid = doc
+            .descendants(form, "input")
+            .into_iter()
+            .find(|&i| !is_disabled(&doc.records[i].body) && type_mismatch(doc, i));
+        (doc.records[form].press, invalid)
+    })
+    .unwrap_or((-1, None));
+    if let Some(field) = invalid {
+        let key = with_doc(handle, |doc| {
+            doc.stop_of(field).filter(|&k| doc.focusable(k))
+        })
+        .flatten();
+        if key.is_some() {
+            set_focus(handle, key);
+        }
+    } else if node >= 0 {
+        crate::ui::fire(node, handle);
     }
 }
 
@@ -2217,16 +2239,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_fill(
     let Some(field) = field else {
         crate::abort::die(&[b"the label \"", label.as_bytes(), b"\" is not a field"])
     };
-    let (disabled, inert, signal, range) = with_doc(handle, |doc| {
-        let body = &doc.records[field].body;
+    let (disabled, inert, signal, kind, range, step) = with_doc(handle, |doc| {
+        let r = &doc.records[field];
         (
-            is_disabled(body),
+            is_disabled(&r.body),
             doc.inert(field),
-            doc.records[field].value_signal,
-            decl_value(body, "field").as_deref() == Some("range"),
+            r.value_signal,
+            decl_value(&r.body, "field").unwrap_or_default(),
+            decl_value(&r.body, "range").unwrap_or_default(),
+            r.step,
         )
     })
-    .unwrap_or((true, true, -1, false));
+    .unwrap_or((true, true, -1, String::new(), String::new(), 0.0));
     if disabled || inert {
         return;
     }
@@ -2234,18 +2258,86 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_fill(
         // One update transaction, as the JavaScript `input` listener's
         // `$ui_flush` is: a write and the cascade it wakes are one pass.
         crate::ui::buri_rt_ui_flush_begin();
-        if range {
-            // A slider binds a `Signal<Float>`, so what a reader types crosses
-            // back as a `Float` — the same coercion the browser's `input`
-            // listener makes — rather than as the `Str` a text field's signal
-            // holds. A value that is not a number reads as `0.0`, the way an
-            // empty range control does.
-            crate::ui::set_f64_signal(signal, value.trim().parse::<f64>().unwrap_or(0.0));
+        // What crosses back is what the browser's `input` listener reads:
+        // the control's `value`, sanitized the way setting it sanitizes it.
+        if kind == "range" {
+            // A slider binds a `Signal<Float>`, so it crosses as a `Float`. A
+            // value that isn't a number is the middle of the track.
+            let mut bounds = range.split(' ').filter_map(|v| v.parse::<f64>().ok());
+            let (min, max) = (bounds.next().unwrap_or(0.0), bounds.next().unwrap_or(0.0));
+            let given = if is_number_text(&value) {
+                value.parse::<f64>().unwrap_or(min)
+            } else {
+                min + (max - min) / 2.0
+            };
+            crate::ui::set_f64_signal(signal, snap(min, max, step.max(0.0), given));
         } else {
-            crate::ui::set_str_signal(signal, &value);
+            crate::ui::set_str_signal(signal, &shown_value(&kind, &value));
         }
         crate::ui::buri_rt_ui_flush_end();
     }
+}
+
+/// What a browser's field of `kind` holds once `value` is set: HTML's value
+/// sanitization. A line drops its line breaks, an address its surrounding
+/// spaces too, and a number field anything that isn't a number. The stdlib's
+/// `shownValue`, which the scene's text already went through.
+fn shown_value(kind: &str, value: &str) -> String {
+    let line = || value.replace(['\n', '\r'], "");
+    match kind {
+        "multiline" => value.to_string(),
+        "email" => line().trim().to_string(),
+        "number" if !is_number_text(value) => String::new(),
+        "number" => value.to_string(),
+        _ => line(),
+    }
+}
+
+/// Whether `input` holds a value a browser refuses to submit: an email field
+/// holding something that isn't an address. An empty field is no mismatch.
+fn type_mismatch(doc: &Document, input: usize) -> bool {
+    let r = &doc.records[input];
+    let value = r
+        .children
+        .iter()
+        .find(|&&c| doc.records[c].kind == Kind::Text)
+        .map_or("", |&c| doc.records[c].text.as_str());
+    decl_value(&r.body, "field").as_deref() == Some("email")
+        && !value.is_empty()
+        && !is_email(value)
+}
+
+/// HTML's valid email address: letters, digits and ``.!#$%&'*+/=?^_`{|}~-``
+/// before the `@`, and labels joined by points after it, each one to
+/// sixty-three letters, digits and hyphens with no hyphen at either end. A
+/// browser writes a domain outside ASCII in punycode before it checks it, so a
+/// letter of any script counts there.
+fn is_email(text: &str) -> bool {
+    let Some((local, domain)) = text.split_once('@') else {
+        return false;
+    };
+    let label = |l: &str| {
+        (1..64).contains(&l.chars().count())
+            && l.chars().all(|c| c.is_alphanumeric() || c == '-')
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+    };
+    !local.is_empty()
+        && local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(c))
+        && domain.split('.').all(label)
+}
+
+/// HTML's valid floating-point number: a minus sign at most, digits with a
+/// point between or before them, and an exponent, inside a double. The
+/// stdlib's `isNumberText`.
+fn is_number_text(text: &str) -> bool {
+    let first = text.chars().next();
+    let last = text.chars().next_back();
+    matches!(first, Some('-' | '.' | '0'..='9'))
+        && matches!(last, Some('0'..='9'))
+        && text.parse::<f64>().is_ok_and(f64::is_finite)
 }
 
 /// `Rendered.select(label, start, end)` — move the caret and selection of the
@@ -3411,12 +3503,7 @@ fn slide(handle: i64, at: usize, name: &str) {
             "End" => max,
             _ => return None,
         };
-        if continuous {
-            return Some((r.value_signal, to.min(max).max(min)));
-        }
-        let top = min + ((max - min) / step).floor() * step;
-        let snapped = (min + ((to - min) / step).round() * step).clamp(min, top);
-        Some((r.value_signal, snapped))
+        Some((r.value_signal, snap(min, max, r.step.max(0.0), to)))
     })
     .flatten();
     if let Some((signal, value)) = moved
@@ -3425,6 +3512,46 @@ fn slide(handle: i64, at: usize, name: &str) {
         crate::ui::buri_rt_ui_flush_begin();
         crate::ui::set_f64_signal(signal, value);
         crate::ui::buri_rt_ui_flush_end();
+    }
+}
+
+/// `value` on the track from `min` to `max`, snapped to `step` unless that is
+/// nought: the nearest step from `min`, the higher on a tie and never past
+/// `max`, as a browser's range input holds it. The stdlib's `sanitizedSlide`.
+fn snap(min: f64, max: f64, step: f64, value: f64) -> f64 {
+    let on = value.clamp(min, max);
+    if step == 0.0 {
+        return on;
+    }
+    let snapped = exact(min, step, min + ((on - min) / step).round() * step);
+    if snapped > max {
+        exact(min, step, snapped - step)
+    } else {
+        snapped
+    }
+}
+
+/// `value` rounded to as many places as `min` or `step` has, which takes off
+/// the float noise a browser's decimal arithmetic never has: three steps of
+/// 0.1 are 0.3. The stdlib's `exact`.
+fn exact(min: f64, step: f64, value: f64) -> f64 {
+    round_to(value, places(min).max(places(step)))
+}
+
+/// The places after the point `x` is written with, up to seventeen.
+fn places(x: f64) -> i32 {
+    (0..17).find(|&at| round_to(x, at) == x).unwrap_or(17)
+}
+
+/// `core/math`'s `roundTo`: ties to even, and `x` itself when scaling it isn't
+/// finite.
+fn round_to(x: f64, places: i32) -> f64 {
+    let scale = (0..places).fold(1.0, |acc, _| acc * 10.0);
+    let scaled = x * scale;
+    if scaled.is_finite() {
+        scaled.round_ties_even() / scale
+    } else {
+        x
     }
 }
 
@@ -3495,15 +3622,15 @@ pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) 
 /// only while it is the one such field. A form a dialog has taken out of
 /// reach submits nothing.
 fn submit_implicitly(handle: i64, form: usize, line: bool) {
-    let node = with_doc(handle, |doc| {
+    let submits = with_doc(handle, |doc| {
         if doc.inert(form) {
-            return -1;
+            return false;
         }
         let default = doc
             .descendants(form, "button")
             .into_iter()
             .find(|&b| doc.records[b].submit);
-        let submits = match default {
+        match default {
             Some(b) => !is_disabled(&doc.records[b].body),
             None => {
                 line && doc
@@ -3513,12 +3640,11 @@ fn submit_implicitly(handle: i64, form: usize, line: bool) {
                     .count()
                     == 1
             }
-        };
-        if submits { doc.records[form].press } else { -1 }
+        }
     })
-    .unwrap_or(-1);
-    if node >= 0 {
-        crate::ui::fire(node, handle);
+    .unwrap_or(false);
+    if submits {
+        submit_form(handle, form);
     }
 }
 

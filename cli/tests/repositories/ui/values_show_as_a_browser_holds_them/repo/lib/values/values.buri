@@ -1,0 +1,65 @@
+// A form whose values a browser can't hold as written: a line with a break in
+// it, an address with spaces round it, a number field holding a word, and
+// three sliders off their step, past their end, and on a track that runs
+// backwards.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { signal };
+
+/// A slider in steps of `step`, 130 pixels across.
+fn track<C: Ui>(
+    ctx: C,
+    label: Str,
+    min: Float,
+    max: Float,
+    value: Float,
+    step: Float,
+): Node<C> {
+    ui.slider({
+        label: .Const(label),
+        value: signal(ctx, value),
+        min: min,
+        max: max,
+        styles: [
+            .Width(.Px(130)),
+            .Foreground(.Rgb(40, 50, 90)),
+            .Background(.Rgb(210, 214, 224)),
+        ],
+        around: .Some([.Gap(.Px(8))]),
+        step: .Some(step),
+    })
+}
+
+/// A field of `kind` holding `value`, its box outlined.
+fn holding<C: Ui>(ctx: C, label: Str, kind: FieldKind, value: Str): Node<C> {
+    ui.field({
+        label: .Const(label),
+        kind: kind,
+        value: signal(ctx, value),
+        styles: [
+            .Width(.Px(160)),
+            .BorderWidth(.Px(1)),
+            .BorderStyle(.Solid),
+            .BorderColor(.Rgb(40, 50, 90)),
+            .Padding(.Px(2)),
+        ],
+        around: .Some([.Gap(.Px(8))]),
+    })
+}
+
+/// The form: the fields, then the sliders, one under another.
+export fn form<C: Ui>(ctx: C): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .Gap(.Px(8)), .Padding(.Px(8)), .Width(.Px(320))],
+        children: [
+            holding(ctx, "Name", .Text, "Ada\nLovelace"),
+            holding(ctx, "Email", .Email, "   ada@example.com"),
+            holding(ctx, "Amount", .Number, "lots"),
+            track(ctx, "Off its step", 0.0, 10.0, 3.4, 2.0),
+            track(ctx, "Past its end", 0.0, 100.0, 150.0, 1.0),
+            track(ctx, "Backwards", 5.0, 1.0, 3.0, 1.0),
+        ],
+    })
+}

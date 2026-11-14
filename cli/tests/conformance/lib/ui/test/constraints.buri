@@ -1,0 +1,362 @@
+// What a browser does with a value a field or a slider can't hold, and what
+// the headless document does the same: a slider's value sits on its track and
+// its step, a field shows its value sanitized, and a form with an address
+// that isn't one refuses to submit. The signal keeps what the program wrote.
+// `language::pages` mounts the same controls in a browser.
+
+from "core/math" import * as math;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { Signal, signal };
+
+/// A slider named `Level` holding `level`, from `min` to `max` in `step`s.
+fn level<C>(
+    level: Signal<Float>,
+    min: Float,
+    max: Float,
+    step: Option<Float>,
+): Node<C> {
+    ui.slider({
+        label: .Const("Level"),
+        value: level,
+        min: min,
+        max: max,
+        styles: [],
+        step: step,
+    })
+}
+
+test "a slider off its step holds the nearest step from its smallest" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, 3.4);
+    let page = render(ctx, level(at, 0.0, 10.0, .Some(2.0)));
+    assert.containsText(page.markup(), "range:0.0 10.0 4.0");
+    // The signal keeps what the program wrote; the thumb is what a key moves.
+    assert.equal(at.get(ctx), 3.4);
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowRight");
+    assert.equal(at.get(ctx), 6.0);
+    // Halfway between two steps is the higher, and steps count from the smallest.
+    let tie = signal(ctx, 2.0);
+    let odd = render(ctx, level(tie, 1.0, 9.0, .Some(2.0)));
+    assert.containsText(odd.markup(), "range:1.0 9.0 3.0");
+}
+
+test "a slider's step is never past its largest" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(ctx, level(signal(ctx, 9.8), 0.0, 10.0, .Some(3.0)));
+    assert.containsText(page.markup(), "range:0.0 10.0 9.0");
+    // The nearest step to 10 in fours is 12, past the largest, so it is 8.
+    let over = render(ctx, level(signal(ctx, 10.0), 0.0, 10.0, .Some(4.0)));
+    assert.containsText(over.markup(), "range:0.0 10.0 8.0");
+}
+
+test "a slider past an end holds that end" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, 150.0);
+    let page = render(ctx, level(at, 0.0, 100.0, .Some(1.0)));
+    assert.containsText(page.markup(), "range:0.0 100.0 100.0");
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowLeft");
+    assert.equal(at.get(ctx), 99.0);
+    let below = render(ctx, level(signal(ctx, -3.0), 0.0, 10.0, .None));
+    assert.containsText(below.markup(), "range:0.0 10.0 0.0");
+}
+
+test "a slider holding no number sits in the middle" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(ctx, level(signal(ctx, math.NAN), 0.0, 10.0, .None));
+    assert.containsText(page.markup(), "range:0.0 10.0 5.0");
+    let stepped = render(ctx, level(signal(ctx, math.INFINITY), 0.0, 10.0, .Some(4.0)));
+    assert.containsText(stepped.markup(), "range:0.0 10.0 4.0");
+}
+
+test "a slider whose largest is below its smallest is all smallest" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(ctx, level(signal(ctx, 3.0), 5.0, 1.0, .Some(1.0)));
+    assert.containsText(page.markup(), "range:5.0 5.0 5.0");
+    let described = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.containsText(
+        ui.describe(
+            described,
+            level(signal(described, 3.0), 5.0, 1.0, .Some(1.0)),
+            .Hover,
+        ),
+        "range:5.0 5.0 5.0",
+    );
+}
+
+test "a slider's step of an infinity is a continuous track" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, 0.5);
+    let page = render(ctx, level(at, 0.0, 2.0, .Some(math.INFINITY)));
+    assert.containsText(page.markup(), "range:0.0 2.0 0.5");
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowRight");
+    assert.equal(at.get(ctx), 0.52);
+}
+
+test "steps of a tenth land on tenths" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, 0.29);
+    let page = render(ctx, level(at, 0.0, 1.0, .Some(0.1)));
+    assert.containsText(page.markup(), "range:0.0 1.0 0.3");
+    let _ = page.focus("Level");
+    let _ = page.key("ArrowLeft");
+    assert.equal(at.get(ctx), 0.2);
+    let _ = page.key("ArrowRight");
+    assert.equal(at.get(ctx), 0.3);
+    // The largest is a step, so noise doesn't push the last step past it.
+    let _ = page.key("End");
+    assert.equal(at.get(ctx), 1.0);
+    // A smallest written with more places than a double keeps is left as it is.
+    let fine = render(ctx, level(signal(ctx, 0.5), 0.1 + 0.2, 1.0, .Some(0.5)));
+    assert.containsText(
+        fine.markup(),
+        "range:0.30000000000000004 1.0 0.30000000000000004",
+    );
+}
+
+test "filling a slider puts the value on its track and its step" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let at = signal(ctx, 0.0);
+    let page = render(ctx, level(at, 0.0, 10.0, .Some(2.0)));
+    let _ = page.fill("Level", "3.4");
+    assert.equal(at.get(ctx), 4.0);
+    let _ = page.fill("Level", "40");
+    assert.equal(at.get(ctx), 10.0);
+    // Text that isn't a number is the middle, then its nearest step.
+    let _ = page.fill("Level", "loud");
+    assert.equal(at.get(ctx), 6.0);
+}
+
+/// A field named `Value` of `kind` holding `text`.
+fn holding<C>(kind: FieldKind, text: Signal<Str>): Node<C> {
+    ui.field({ label: .Const("Value"), kind: kind, value: text, styles: [] })
+}
+
+/// Whether a field of `kind` shows `one\ntwo\r` as `onetwo`, keeps the signal
+/// as written, and takes `three\nfour` typed into it as `threefour`.
+fn dropsBreaks(kind: FieldKind): Bool {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let text = signal(ctx, "one\ntwo\r");
+    let page = render(ctx, holding(kind, text));
+    let shown = page.markup().contains("t 2 onetwo") && text.get(ctx) == "one\ntwo\r";
+    let _ = page.fill("Value", "three\nfour");
+    shown && text.get(ctx) == "threefour"
+}
+
+test "a line field shows its value without line breaks" {
+    assert.isTrue(dropsBreaks(.Text));
+    assert.isTrue(dropsBreaks(.Password));
+    assert.isTrue(dropsBreaks(.Search));
+    // Several lines are a multiline field's to hold.
+    assert.isFalse(dropsBreaks(.Multiline));
+}
+
+test "an email field shows its value without surrounding spaces" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let text = signal(ctx, "  me@example.com\n ");
+    let page = render(ctx, holding(.Email, text));
+    assert.containsText(page.markup(), "t 2 me@example.com");
+    let _ = page.fill("Value", " you@example.com ");
+    assert.equal(text.get(ctx), "you@example.com");
+}
+
+/// The scene a field of `kind` holding `text` is painted from.
+fn described(kind: FieldKind, text: Str): Str {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    ui.describe(ctx, holding(kind, signal(ctx, text)), .Hover)
+}
+
+/// Whether a number field holding `text` shows it, in the document and in the
+/// scene it is painted from.
+fn showsNumber(text: Str): Bool {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(ctx, holding(.Number, signal(ctx, text)));
+    let shown = str.format(alloc(), "t 2 ${text}");
+    page.markup().contains(shown) && described(.Number, text).contains(shown)
+}
+
+test "a number field shows nothing for text that isn't a number" {
+    assert.isTrue(["-1", ".5", "-0.25", "1e3", "12"].all(showsNumber));
+    assert.isFalse(["+1", "1.", " 1", "1-2", "1e400", "abc", "-"].any(showsNumber));
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let amount = signal(ctx, "");
+    let page = render(ctx, holding(.Number, amount));
+    let _ = page.fill("Value", "lots");
+    assert.equal(amount.get(ctx), "");
+}
+
+/// Whether a form holding one email field with `text` in it submits.
+fn submits(text: Str): Bool {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let sent = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+            children: [holding(.Email, signal(ctx, text))],
+            styles: [],
+        }),
+    );
+    let _ = page.submit(0);
+    sent.get(ctx) == 1
+}
+
+test "a form submits an email field holding an address or nothing" {
+    let valid = [
+        "me@example.com",
+        "a.b+c@x-y.example",
+        "me@localhost",
+        "me@bücher.example",
+        "",
+    ];
+    assert.isTrue(valid.all(submits));
+}
+
+test "a form refuses an email field holding something that isn't an address" {
+    let refused = [
+        "me",
+        "@example.com",
+        "me @example.com",
+        "mé@example.com",
+        "me@",
+        "me@example..com",
+        "me@-example.com",
+        "me@example-.com",
+        "me@exa_mple.com",
+        str.format(alloc(), "me@${"a".repeat(alloc(), 64)}.com"),
+    ];
+    assert.isFalse(refused.any(submits));
+    // A label is at most sixty-three long.
+    let longest = str.format(alloc(), "me@${"a".repeat(alloc(), 63)}.com");
+    assert.isTrue(submits(longest));
+}
+
+test "a refused form moves the focus to its first invalid field" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let sent = signal(ctx, 0);
+    let email = signal(ctx, "not an address");
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({
+                    label: .Const("Name"),
+                    kind: .Text,
+                    value: signal(ctx, ""),
+                    styles: [],
+                }),
+                ui.field({
+                    label: .Const("Email"),
+                    kind: .Email,
+                    value: email,
+                    styles: [],
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
+    );
+    let _ = page.press("Send");
+    assert.equal(sent.get(ctx), 0);
+    assert.equal(page.focused(), "Email");
+    let _ = page.focus("Name");
+    let _ = page.key("Enter");
+    assert.equal(sent.get(ctx), 0);
+    assert.equal(page.focused(), "Email");
+    let _ = page.fill("Email", "me@example.com");
+    let _ = page.focus("Send");
+    let _ = page.key("Enter");
+    assert.equal(sent.get(ctx), 1);
+}
+
+test "a disabled email field or a program's own invalid mark refuses nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let sent = signal(ctx, 0);
+    let page = render(
+        ctx,
+        ui.form({
+            onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+            children: [
+                ui.field({
+                    label: .Const("Old"),
+                    kind: .Email,
+                    value: signal(ctx, "not an address"),
+                    styles: [],
+                    isDisabled: .Some(.Const(true)),
+                }),
+                ui.field({
+                    label: .Const("New"),
+                    kind: .Email,
+                    value: signal(ctx, "me@example.com"),
+                    styles: [],
+                    isInvalid: .Some(.Const(true)),
+                }),
+                ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+            ],
+            styles: [],
+        }),
+    );
+    let _ = page.press("Send");
+    assert.equal(sent.get(ctx), 1);
+}

@@ -28,8 +28,7 @@
 //! The driver then fails the case when importing a page throws, when a promise
 //! is rejected with nobody listening, when the page writes `console.error`, when
 //! a snapshot never mounted, when a text the scene holds is not on the page, or
-//! when an input holds a value off its step, which a browser snaps or refuses
-//! where the snapshot draws it as it is.
+//! when a slider's thumb sits somewhere other than where the snapshot drew it.
 //! It also drives every element the way the snapshot's state describes, and
 //! clicks everything with a click listener, failing on anything that throws.
 
@@ -759,13 +758,15 @@ function check(end) {
     const text = unescape(line.slice(line.indexOf(" ", 2) + 1));
     if (!page.includes(text)) problems.push(`"${name}": "${text}" is in the snapshot and not on the page`);
   }
-  // A browser snaps a slider's value to its step and refuses a field's, where
-  // the snapshot draws the value as it is, so no control may be off its step.
-  for (const input of tree.flatMap((n) => (n.nodeType === 1 ? [...n.querySelectorAll("input")] : []))) {
-    if (input.validity.stepMismatch) {
-      problems.push(`"${name}": the ${input.type} input holding ${input.value} is off its step of ${input.step || "one"}`);
+  // A browser clamps and snaps a slider's value, so the thumb the snapshot
+  // drew must sit where the page's does.
+  const drawn = scene.flatMap((line) => [...line.matchAll(/range:\S+ \S+ (\S+)/g)].map((m) => Number(m[1])));
+  const sliders = tree.flatMap((n) => (n.nodeType === 1 ? [...n.querySelectorAll("input[type=range]")] : []));
+  sliders.forEach((input, i) => {
+    if (Number(input.value) !== drawn[i]) {
+      problems.push(`"${name}": the snapshot drew a slider at ${drawn[i]} and the page holds ${input.value}`);
     }
-  }
+  });
   snapshots.push({ root, name, state, tree });
 }
 // A text is made empty and given its words after, so the end text is caught as

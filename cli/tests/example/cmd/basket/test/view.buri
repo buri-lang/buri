@@ -162,11 +162,13 @@ test "an amount nobody can read is quoted back, and nothing is added" {
     };
     let seen = render(ctx, page(ctx, newState(ctx)));
     let _ = seen.fill("Item", "coffee");
-    let _ = seen.fill("Amount in dollars", "free");
+    // A number field holds only a number, so "free" is never typed into one,
+    // but a number in a form this basket can't read is.
+    let _ = seen.fill("Amount in dollars", "1e3");
     let _ = seen.press("Add");
 
     assert.equal(seen.count("li"), 0);
-    assert.isTrue(seen.text().contains("\"free\" is not an amount"));
+    assert.isTrue(seen.text().contains("\"1e3\" is not an amount"));
     // An alert interrupts; a status waits. That it is announced at all is the
     // `role` on the HTML the worker sends, which the scene does not carry — so
     // here the claim is that the wrong amount is quoted back and nothing is added.

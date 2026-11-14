@@ -7107,7 +7107,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // from 0 to 1 to an end, so a missing step is `any`. So is one that is not
     // above nought, which a browser would read as its default too.
     const step = node[5];
-    $dom_attribute(element, "step", step !== undefined && step > 0 ? $f64(step) : "any");
+    $dom_attribute(element, "step", step > 0 && Number.isFinite(step) ? $f64(step) : "any");
     $tree_styles(element, node[6]);
     $tree_disabled(element, node[8]);
     // The signal holds a `Float`, and the control's `value` is a string, so this
@@ -9285,12 +9285,58 @@ function $scene_slide(record, name) {
   };
   const to = moves[name];
   if (to === undefined) return;
-  const top = min + Math.floor((max - min) / step) * step;
-  const snapped = continuous
-    ? Math.max(Math.min(to, max), min)
-    : Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top);
   const signal = record.valueSignal;
-  $ui_flush(() => $ui_write(signal, snapped));
+  $ui_flush(() => $ui_write(signal, $scene_snap(min, max, continuous ? 0 : step, to)));
+}
+
+// `value` on the track from `min` to `max`, snapped to `step` unless that is
+// nought: the nearest step from `min`, the higher on a tie and never past
+// `max`, as a browser's range input holds it. The native `snap`.
+function $scene_snap(min, max, step, value) {
+  const on = Math.min(Math.max(value, min), max);
+  if (step === 0) return on;
+  const snapped = $scene_exact(min, step, min + Math.round((on - min) / step) * step);
+  return snapped > max ? $scene_exact(min, step, snapped - step) : snapped;
+}
+
+// `value` rounded to as many places as `min` or `step` has, so three steps of
+// 0.1 are 0.3, as a browser's decimal arithmetic has them. The native `exact`.
+function $scene_exact(min, step, value) {
+  return $scene_roundTo(value, Math.max($scene_places(min), $scene_places(step)));
+}
+
+function $scene_places(x) {
+  let at = 0;
+  while (at < 17 && $scene_roundTo(x, at) !== x) at++;
+  return at;
+}
+
+// `core/math`'s `roundTo`: ties to even, and `x` itself when scaling it isn't
+// finite.
+function $scene_roundTo(x, places) {
+  let scale = 1;
+  for (let i = 0; i < places; i++) scale *= 10;
+  const scaled = x * scale;
+  if (!Number.isFinite(scaled)) return x;
+  const whole = Math.trunc(scaled);
+  const part = Math.abs(scaled - whole);
+  const even = part === 0.5 ? whole % 2 === 0 : part < 0.5;
+  return (even ? whole : whole + Math.sign(scaled)) / scale;
+}
+
+// HTML's value sanitization of a field of `kind`, what a browser's `value`
+// reads back once it is set. The native `shown_value`.
+function $scene_shownValue(kind, value) {
+  if (kind === "multiline") return value;
+  const line = value.replace(/[\r\n]/g, "");
+  if (kind === "email") return line.trim();
+  if (kind === "number") return $scene_isNumberText(value) ? value : "";
+  return line;
+}
+
+// HTML's valid floating-point number. The native `is_number_text`.
+function $scene_isNumberText(text) {
+  return /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/.test(text) && Number.isFinite(Number(text));
 }
 
 // Escape shuts the topmost open dialog: its `isOpen`, kept on the marker that
@@ -9358,8 +9404,46 @@ function $scene_activate(doc, button) {
   // browser's default action for the press.
   if (record.submit) {
     const form = $scene_enclosing(doc, button, "form");
-    if (form >= 0 && doc.records[form].press !== null) doc.records[form].press();
+    if (form >= 0) $scene_submitForm(doc, form);
   }
+}
+
+// A form's submission, once something has asked for it: unless one of its
+// enabled fields is invalid, its handler runs. When one is, a browser refuses
+// and moves the focus to the first such field. The native `submit_form`.
+function $scene_submitForm(doc, form) {
+  const invalid = $scene_descendants(doc, form, "input").find(
+    (i) => !$scene_isDisabled(doc.records[i].body) && $scene_typeMismatch(doc, i),
+  );
+  if (invalid !== undefined) {
+    const key = doc.records[invalid].focusKey;
+    if (key >= 0 && $scene_focusable(doc, key)) $scene_setFocus(doc, key);
+  } else if (doc.records[form].press !== null) doc.records[form].press();
+}
+
+// Whether `input` holds a value a browser refuses to submit: an email field
+// holding something that isn't an address. The native `type_mismatch`.
+function $scene_typeMismatch(doc, input) {
+  const r = doc.records[input];
+  const run = r.children.find((c) => doc.records[c].kind === 1);
+  const value = run === undefined ? "" : doc.records[run].text;
+  return $scene_declValue(r.body, "field") === "email" && value !== "" && !$scene_isEmail(value);
+}
+
+// HTML's valid email address, with a letter of any script in the domain, as
+// punycode allows. The native `is_email`.
+function $scene_isEmail(text) {
+  const at = text.indexOf("@");
+  if (at < 0) return false;
+  const label = (l) =>
+    [...l].length < 64 && /^[\p{Alphabetic}\p{N}-]+$/u.test(l) && !l.startsWith("-") && !l.endsWith("-");
+  const local = [...text.slice(0, at)];
+  const special = ".!#$%&'*+/=?^_{|}~-\u0060";
+  return (
+    local.length > 0 &&
+    local.every((c) => /^[A-Za-z0-9]$/.test(c) || special.includes(c)) &&
+    text.slice(at + 1).split(".").every(label)
+  );
 }
 
 // A route link's follow handler is not in the scene document — the scene drops
@@ -9411,7 +9495,16 @@ function $host_testing_Rendered_fill(self, label, value) {
     // where a `Float` belongs, and `==` and `Show` then dispatch on the wrong
     // tag (`80` compares unequal to `80.0`, and to itself). A text field's
     // signal is a `Str`, so it takes the value as typed.
-    const typed = $scene_declValue(record.body, "field") === "range" ? Number(value) : value;
+    // What crosses back is the control's `value`, sanitized the way setting
+    // it sanitizes it: a slider's on its track and step, and a value that
+    // isn't a number the middle of it. The native `fill`.
+    const kind = $scene_declValue(record.body, "field");
+    let typed = $scene_shownValue(kind, value);
+    if (kind === "range") {
+      const [min, max] = $scene_declValue(record.body, "range").split(" ").map(Number);
+      const given = $scene_isNumberText(value) ? Number(value) : min + (max - min) / 2;
+      typed = $scene_snap(min, max, record.step > 0 ? record.step : 0, given);
+    }
     $ui_flush(() => $ui_write(signal, typed));
   }
   return 0;
@@ -9498,7 +9591,7 @@ function $scene_submitImplicitly(doc, form, line) {
     }
     submits = line && blocking === 1;
   }
-  if (submits && doc.records[form].press !== null) doc.records[form].press();
+  if (submits) $scene_submitForm(doc, form);
 }
 
 // The innermost element whose name — its label, or else its text — is `label`,

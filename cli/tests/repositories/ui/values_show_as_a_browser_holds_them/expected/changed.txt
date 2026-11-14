@@ -1,0 +1,5 @@
+FAIL //lib/values  test/values.buri  "fields and sliders show their values as a browser holds them"
+  the snapshot "values" changed: see test/__snapshots__/values.diff.png
+  --> lib/values/test/values.buri:11:1
+
+0 passed, 1 failed, 0 skipped (0.0s)

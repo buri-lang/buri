@@ -34,6 +34,7 @@
 from "core/alloc" import * as alloc;
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/math" import * as math;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator, Event, Scope, Ui };
 from "ui/prop" import { Prop };
@@ -108,17 +109,19 @@ export enum Role {
 /// `slider`, which binds a `Signal<Float>` rather than dressing a text field up
 /// as something it is not.
 export enum FieldKind {
-    /// A line of text.
+    /// A line of text. Line breaks in the value aren't shown.
     Text,
     /// Several lines.
     Multiline,
-    /// A secret: never shown, never spoken.
+    /// A secret: never shown, never spoken. Line breaks aren't kept.
     Password,
-    /// An address.
+    /// An address, shown without line breaks or the spaces around it. A form
+    /// won't submit while one holds something that isn't an address.
     Email,
-    /// A number, whole or not: `1.5` and `-0.25` are as valid as `2`.
+    /// A number, whole or not: `1.5` and `-0.25` are as valid as `2`. Text
+    /// that isn't a number shows as nothing.
     Number,
-    /// A query.
+    /// A query. Line breaks in the value aren't shown.
     Search,
 }
 
@@ -1139,6 +1142,10 @@ export fn field<C>(config: Field<C>): Node<C> {
 /// told the range it is dragging inside; `step` is what an arrow key moves by,
 /// and defaults to a continuous track when left out. The label is required for a
 /// `field`'s reason.
+///
+/// The thumb sits where a browser puts it: on the track and on the nearest step
+/// from `min`, and in the middle for a value that isn't a number. The signal
+/// keeps the number the program wrote.
 struct Slider<C> {
     /// The accessible name, required for a `field`'s reason.
     export label: Prop<Str>,
@@ -3135,10 +3142,10 @@ fn emitSliderControl(
     key: Int,
 ): () {
     let mem = alloc.generalPurpose();
-    let leading = [decl(mem, "field", "range")].concat(
-        mem,
-        sliderBounds(mem, min, max, value),
-    );
+    let leading = [
+        decl(mem, "field", "range"),
+        decl(mem, "range", sliderBounds(min, max, step, value)),
+    ];
     let _ = emitElement(
         builder,
         "input",
@@ -3148,7 +3155,7 @@ fn emitSliderControl(
     let _ = registerValue(builder, signal);
     // A slider with no step is a continuous track, which its markup writes as
     // `step="any"`: nought here, and an arrow key moves a hundredth of it.
-    let _ = registerStep(builder, step.withDefault(0.0));
+    let _ = registerStep(builder, stepOf(step));
     exitElement(builder)
 }
 
@@ -3512,6 +3519,7 @@ fn emitFieldControl(
     key: Int,
 ): () {
     let mem = alloc.generalPurpose();
+    let shown = shownValue(kind, value);
     let leading = [decl(mem, "field", kindName(kind))].concat(
         mem,
         placeholder(mem, hint),
@@ -3530,7 +3538,7 @@ fn emitFieldControl(
         .Some(sel) => registerSelection(builder, sel.index()),
         .None => {},
     };
-    let _ = emitText(builder, value);
+    let _ = emitText(builder, shown);
     exitElement(builder)
 }
 
@@ -3570,15 +3578,59 @@ fn emitDot(builder: Builder, on: Bool): () {
     } else {}
 }
 
-/// The `range:<min> <max> <value>` declaration a slider carries, escaped the way
-/// a declaration needs. The painter reads the three and puts the thumb where the
-/// value is. Its shape is the old `FieldKind.Range`'s, so the painter is
-/// unchanged.
-fn sliderBounds<C: Allocator>(ctx: C, min: Float, max: Float, value: Float): [Str] {
-    let lo = str.fromFloat(ctx, min);
-    let hi = str.fromFloat(ctx, max);
-    let at = str.fromFloat(ctx, value);
-    [decl(ctx, "range", str.format(ctx, "${lo} ${hi} ${at}"))]
+/// The `<min> <max> <value>` of the `range:` declaration a slider carries. It
+/// allocates for itself, so it is made once rather than for every context. The
+/// painter reads the three and puts the thumb where the
+/// value is, and the headless document moves it from there.
+///
+/// The value is the one a browser's range input holds: HTML's value
+/// sanitization, which Chromium's `StepRange::ClampValue` does. A largest below
+/// the smallest is the smallest. A value that isn't a number is the middle, one
+/// past an end is that end, and one off its step is the nearest step from the
+/// smallest, the higher on a tie and never past the largest. The signal keeps
+/// what the program wrote.
+fn sliderBounds(min: Float, max: Float, step: Option<Float>, value: Float): Str {
+    let mem = alloc.generalPurpose();
+    let top = if (max < min) { min } else { max };
+    let lo = str.fromFloat(mem, min);
+    let hi = str.fromFloat(mem, top);
+    let at = str.fromFloat(mem, sanitizedSlide(min, top, stepOf(step), value));
+    str.format(mem, "${lo} ${hi} ${at}")
+}
+
+/// A slider's step, or nought for a continuous track: a step left out, not
+/// above nought, or not finite, all of which a browser's markup writes `any`.
+fn stepOf(step: Option<Float>): Float {
+    let s = step.withDefault(0.0);
+    if (s > 0.0 && math.isFinite(s)) { s } else { 0.0 }
+}
+
+/// `value` on the track from `min` to `max` (`max` not below `min`), snapped to
+/// `step` unless that is nought. The native `slide`'s and `$scene_slide`'s
+/// `snap`.
+fn sanitizedSlide(min: Float, max: Float, step: Float, value: Float): Float {
+    let given = if (math.isFinite(value)) { value } else { min + (max - min) / 2.0 };
+    let on = if (given < min) { min } else if (given > max) { max } else { given };
+    if (step == 0.0) {
+        on
+    } else {
+        let snapped = exact(min, step, min + math.round((on - min) / step) * step);
+        if (snapped > max) { exact(min, step, snapped - step) } else { snapped }
+    }
+}
+
+/// `value` with the float noise of `min + n * step` rounded off: to as many
+/// places as `min` or `step` has, the way a browser's decimal arithmetic
+/// lands, so three steps of 0.1 are 0.3 and not 0.30000000000000004.
+fn exact(min: Float, step: Float, value: Float): Float {
+    let a = places(min, 0);
+    let b = places(step, 0);
+    math.roundTo(value, if (a > b) { a } else { b })
+}
+
+/// The places after the point `x` is written with, up to seventeen.
+fn places(x: Float, at: Int): Int {
+    if (at >= 17 || math.roundTo(x, at) == x) { at } else { places(x, at + 1) }
 }
 
 /// A slider's track: the size a browser gives one, and then the caller's own.
@@ -4047,12 +4099,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // carries `field:range` and `range:<min> <max> <value>` — the old
         // `FieldKind.Range`'s scene, so the painter draws the thumb unchanged —
         // and no run of text, because a browser draws a thumb and never a number.
-        .Slider(label, value, min, max, _step, styles, around, disabled, focus, _events) => {
+        .Slider(label, value, min, max, step, styles, around, disabled, focus, _events) => {
             let painted = answering(scope, state, disabled, focus);
-            let leading = [decl(ctx, "field", "range")].concat(
-                ctx,
-                sliderBounds(ctx, min, max, value.get(scope)),
-            );
+            let leading = [
+                decl(ctx, "field", "range"),
+                decl(ctx, "range", sliderBounds(min, max, step, value.get(scope))),
+            ];
             [
                 styledLine(ctx, plain(state), wrapper(around), depth),
                 textLine(ctx, depth + 1, label.read(scope)),
@@ -4423,9 +4475,10 @@ fn fieldLines<C: Allocator>(
     value: Str,
     depth: Int,
 ): [Str] {
+    let shown = shownValue(kind, value);
     [
-        fieldLine(ctx, painted, kind, hint, styles, depth),
-        textLine(ctx, depth + 1, value),
+        fieldLine(ctx, painted, kind, hint, shown, styles, depth),
+        textLine(ctx, depth + 1, shown),
     ]
 }
 
@@ -4442,12 +4495,49 @@ fn fieldLine<C: Allocator>(
     painted: Painted,
     kind: FieldKind,
     hint: Str,
+    shown: Str,
     styles: [Style],
     depth: Int,
 ): Str {
     let accepts = decl(ctx, "field", kindName(kind));
     let leading = [accepts].concat(ctx, placeholder(ctx, hint));
     widgetLine(ctx, painted, leading, styles, depth)
+}
+
+/// What a browser shows of `value` in a field of `kind`, which is what its
+/// `value` reads back: HTML's value sanitization. A line drops its line breaks,
+/// an address its surrounding spaces too, and a number field anything that isn't
+/// a number. The signal keeps what the program wrote.
+fn shownValue(kind: FieldKind, value: Str): Str {
+    match (kind) {
+        .Multiline => value,
+        .Email => oneLine(value).trim(),
+        .Number => if (isNumberText(value)) { value } else { "" },
+        _ => oneLine(value),
+    }
+}
+
+/// `value` without its line breaks.
+fn oneLine(value: Str): Str {
+    let mem = alloc.generalPurpose();
+    value.replace(mem, "\n", "").replace(mem, "\r", "")
+}
+
+/// HTML's valid floating-point number, the only text a number field holds: a
+/// minus sign at most, digits with a point between them or before them, and an
+/// exponent. No plus sign, no point at the end, and nothing past a double.
+fn isNumberText(text: Str): Bool {
+    match ((text.charAt(0), text.charAt(text.length() - 1))) {
+        (.Some(first), .Some(last)) => {
+            (first == '-' || first == '.' || first.isDigit())
+                && last.isDigit()
+                && match (text.toFloat()) {
+                    .Some(x) => math.isFinite(x),
+                    .None => false,
+                }
+        },
+        _ => false,
+    }
 }
 
 /// The `placeholder:` declaration a hint carries, and nothing for a field that

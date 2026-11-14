@@ -1073,6 +1073,14 @@ Both take the box's `Foreground`. A `.Number` field holds any number, `1.5` and
 `-0.25` included: it writes `step="any"`, because a browser's default step of one
 would mark a fraction invalid and refuse to submit its form.
 
+A field shows its value the way a browser holds it, while the signal keeps what
+the program wrote. A line field (`.Text`, `.Password`, `.Search`) drops line
+breaks, an `.Email` field also drops the spaces around its value, and a
+`.Number` field holding text that isn't a number shows nothing. A form won't
+submit while an enabled `.Email` field holds something that isn't an address:
+the focus moves to that field instead, as a browser's does, and the headless
+document does the same.
+
 A field's `hint` is the sample value inside its own empty box, and it is a
 parameter rather than a `Style` because it is content: what a field is for, not
 what it looks like. It is `aria-placeholder`-shaped — a screen reader announces
@@ -1099,8 +1107,13 @@ the track and the markup writes `step="any"`, so a browser never snaps the value
 to a whole number. It lowers to `<input type="range">`, so the thumb, the drag, the
 arrow and Home/End keys, `role="slider"` and the three `aria-value*` all come
 from the one attribute. The sheet paints the track, the bar and the thumb in
-`currentColor`, and the painter draws the same two shapes at the same sizes. A
-value outside the bounds reads as the nearer one.
+`currentColor`, and the painter draws the same two shapes at the same sizes.
+
+The thumb sits where a browser puts it: a value outside the bounds at the nearer
+one, a value off the step at the nearest step counted from `min` (halfway goes
+up), and a value that isn't a number in the middle. A `max` below `min` is
+`min`. The signal keeps the number the program wrote, as a browser's does, and
+an arrow key moves from where the thumb is.
 
 `Shadow` is one shadow and `Shadows` is a list of them, painted first over last,
 because every elevation is two layers and a focus ring is a third beside them.

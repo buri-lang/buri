@@ -92,7 +92,7 @@ fn styled<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
     ui.field({
         label: .Const(name),
         kind: kind,
-        value: signal.signal(ctx, "typed"),
+        value: signal.signal(ctx, typed(kind)),
         styles: [
             .Padding(.Px(8)),
             .Background(.Rgb(150, 170, 200)),
@@ -106,12 +106,21 @@ fn styled<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
     })
 }
 
+/// What a control of `kind` holds: a number field a number, because a browser
+/// shows a word in one as nothing, and every other kind a word.
+fn typed(kind: FieldKind): Str {
+    match (kind) {
+        .Number => "42",
+        _ => "typed",
+    }
+}
+
 /// The same control with nothing under `extra`: what the sheet's reset left.
 fn bare<C: Ui>(ctx: C, name: Str, kind: FieldKind, extra: [Style]): Node<C> {
     ui.field({
         label: .Const(name),
         kind: kind,
-        value: signal.signal(ctx, "typed"),
+        value: signal.signal(ctx, typed(kind)),
         styles: [.Group(extra)],
     })
 }

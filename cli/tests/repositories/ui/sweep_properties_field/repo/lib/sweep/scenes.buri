@@ -600,12 +600,16 @@ export fn kindsPage<C: Ui>(ctx: C): Node<C> {
     ])
 }
 
-/// One field of a given kind, over the base every subject carries.
+/// One field of a given kind, over the base every subject carries. A number
+/// field holds a number, because a browser shows a word in one as nothing.
 fn kind<C: Ui>(ctx: C, of: FieldKind): Node<C> {
     ui.field({
         label: .Const("Name"),
         kind: of,
-        value: signal(ctx, "Ada"),
+        value: signal(ctx, match (of) {
+            .Number => "42",
+            _ => "Ada",
+        }),
         styles: base([]),
     })
 }

@@ -835,6 +835,9 @@ const PACKAGES: &[Case] = &[
     // What the caret keys do in a text field: the arrows, Home and End.
     // `BUILD.buri` lists it too.
     included("ui/caret.buri"),
+    // What a browser does with a value a field or a slider can't hold, and a
+    // form holding an address that isn't one. `BUILD.buri` lists it too.
+    included("ui/constraints.buri"),
     // Where the focus goes when a dialog shuts: back to the element that had
     // it before the dialog opened. `BUILD.buri` lists it too.
     included("ui/dialogs.buri"),

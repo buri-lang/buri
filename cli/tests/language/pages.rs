@@ -4863,3 +4863,119 @@ console.log(said());
         assert_eq!(run_served(&path, mode), expected, "{mode}");
     }
 }
+
+/// A form holding a name, an address that isn't one, a number field holding
+/// text, and three sliders whose values a browser can't hold as written: one
+/// off its step, one between tenths and one past its end. A line under them
+/// counts the form's submissions and says what the signals hold.
+/// `conformance/lib/ui/test/constraints.buri` drives the same controls
+/// headlessly.
+const CONSTRAINTS_PAGE: &str = r#"from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/server" import { ServerHost };
+
+fn page<C: Ui>(ctx: C): Node<C> {
+    let sent = signal(ctx, 0);
+    let email = signal(ctx, "not an address");
+    let level = signal(ctx, 3.4);
+    let fine = signal(ctx, 0.29);
+    let over = signal(ctx, 150.0);
+    ui.stack({
+        styles: [],
+        children: [
+            ui.form({
+                onSubmit: fn(c) => { sent.update(c, fn(n) => n + 1) },
+                styles: [],
+                children: [
+                    ui.field({ label: .Const("Name"), kind: .Text, value: signal(ctx, "Ada\nLovelace"), styles: [] }),
+                    ui.field({ label: .Const("Email"), kind: .Email, value: email, styles: [] }),
+                    ui.field({ label: .Const("Amount"), kind: .Number, value: signal(ctx, "lots"), styles: [] }),
+                    ui.slider({ label: .Const("Level"), value: level, min: 0.0, max: 10.0, styles: [], step: .Some(2.0) }),
+                    ui.slider({ label: .Const("Fine"), value: fine, min: 0.0, max: 1.0, styles: [], step: .Some(0.1) }),
+                    ui.slider({ label: .Const("Over"), value: over, min: 0.0, max: 100.0, styles: [], step: .Some(1.0) }),
+                    ui.button({ label: .Const("Send"), styles: [], kind: .Some(.Submit) }),
+                ],
+            }),
+            ui.text({
+                content: .Computed(fn(s) => {
+                    str.format(s, "sent:${sent.get(s)} email:${email.get(s)} level:${level.get(s)} fine:${fine.get(s)} over:${over.get(s)}")
+                }),
+            }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx);
+    match (web.state(ctx)) {
+        .Some(_sent) => web.resume(ctx, tree),
+        .None => ui.mount(ctx, tree, []),
+    }
+}
+
+export fn fetch(host: ServerHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+}
+"#;
+
+/// A browser shows each control's value sanitized: a line without its break,
+/// a number field nothing for text that isn't a number, and a slider on its
+/// track and its step, the nearest from its smallest. It refuses to submit a
+/// form whose address isn't one and moves the focus there. The headless
+/// document and the painter now do the same; they used to keep each value as
+/// written and submit the form.
+#[test]
+fn a_browser_sanitizes_values_and_refuses_an_invalid_form() {
+    let scratch = served("constraints-page", CONSTRAINTS_PAGE);
+    let driver = r#"
+const said = () => body.firstChild.lastChild.textContent;
+const label = (name) => [...document.querySelectorAll("label")].find((l) => l.firstChild.textContent === name);
+const control = (name) => label(name).querySelector("input");
+const where = () => document.activeElement.closest("label")?.firstChild.textContent ?? "nothing";
+const fields = () =>
+  console.log(
+    ["Name", "Email", "Amount", "Level", "Fine", "Over"]
+      .map((name) => `${name} ${JSON.stringify(control(name).value)} ${control(name).checkValidity() ? "valid" : "invalid"}`)
+      .join(" | "),
+  );
+if (served) await page();
+await tick();
+fields();
+document.querySelector("button").click();
+await tick();
+console.log(`refused, focus on ${where()}: ${said()}`);
+control("Email").value = " me@example.com ";
+fire(control("Email"), "input");
+for (const [name, key] of [["Level", "ArrowRight"], ["Fine", "ArrowLeft"], ["Fine", "ArrowRight"], ["Over", "ArrowLeft"]]) {
+  control(name).focus();
+  press(key);
+}
+document.querySelector("button").click();
+await tick();
+console.log(said());
+"#;
+    let script = format!("{}\n{SERVED_DRIVER}\n{driver}", browser());
+    let path = scratch.write("drive.mjs", &script);
+    let expected =
+        "Name \"AdaLovelace\" valid | Email \"not an address\" invalid | Amount \"\" valid | \
+         Level \"4\" valid | Fine \"0.3\" valid | Over \"100\" valid\n\
+         refused, focus on Email: sent:0 email:not an address level:3.4 fine:0.29 over:150.0\n\
+         sent:1 email:me@example.com level:6.0 fine:0.3 over:99.0\n";
+    for mode in ["mounted", "served"] {
+        assert_eq!(run_served(&path, mode), expected, "{mode}");
+    }
+}

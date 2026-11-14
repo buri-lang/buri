@@ -195,7 +195,7 @@ impl Rendered {
     ///
     /// Pressing a `.Submit` button submits the form around it, which is the
     /// browser's own default action for the press rather than a handler the
-    /// button carries.
+    /// button carries. A form `submit` refuses is refused here too.
     ///
     /// The press focuses the button before its handler runs, the way a
     /// browser's does, so a handler that hands the focus elsewhere is the one
@@ -329,7 +329,10 @@ impl Rendered {
     /// of two fields ending in an ordinary `button` is left alone, because that
     /// is what a browser does with the keypress. A double that submitted it
     /// anyway would pass a suite whose form nobody can send. A form a `dialog`
-    /// has taken out of reach submits nothing.
+    /// has taken out of reach submits nothing. A form holding an enabled field
+    /// whose value a browser refuses, such as an email field holding something
+    /// that isn't an address, isn't submitted either: the focus moves to that
+    /// field instead.
     export fn submit(self, index: Int): ();
 
     /// How many elements of this kind the tree holds. The name is the one

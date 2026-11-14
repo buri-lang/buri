@@ -48,7 +48,14 @@
 ///    listeners run;
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
-///  * `moves`, every move the address bar made, in order.
+///  * `moves`, every move the address bar made, in order;
+///  * an input's value sanitized as Chromium does it, where happy-dom
+///    sanitizes in part: a slider on its track and its step, a number field
+///    empty unless it holds a number, a line field without line breaks and an
+///    email field without surrounding spaces, whether the value came from the
+///    attribute or a script;
+///  * a form that `requestSubmit` refuses because a field is invalid moving
+///    the focus to that field, which happy-dom leaves out.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
 /// browser does, and also makes the script exit with 1.
@@ -152,15 +159,12 @@ function byItself(at, key) {
 }
 
 // A slider's keys: an arrow moves one step, Page Up and Page Down a tenth of
-// the track or a step when that is more, Home and End to either end. The value
-// stays on the track and on a step from its start. With `step="any"` an arrow
-// moves a hundredth of the track and nothing snaps, as Chromium's range input
-// does; a step that is missing or not above nought is the default of one.
+// the track or a step when that is more, Home and End to either end. Setting
+// the value keeps it on the track and its step, below. With `step="any"` an
+// arrow moves a hundredth of the track, as Chromium's range input does.
 function slide(at, key) {
-  const min = Number(at.min || 0);
-  const max = Number(at.max || 100);
-  const any = at.step.toLowerCase() === "any";
-  const step = any ? (max - min) / 100 : Number(at.step) > 0 ? Number(at.step) : 1;
+  const { min, max, step: snap } = track(at);
+  const step = snap === 0 ? (max - min) / 100 : snap;
   const now = Number(at.value);
   const page = Math.max(step, (max - min) / 10);
   const moves = {
@@ -175,15 +179,87 @@ function slide(at, key) {
   };
   const to = moves[key];
   if (to === undefined) return;
-  const top = min + Math.floor((max - min) / step) * step;
-  at.value = String(
-    any
-      ? Math.max(Math.min(to, max), min)
-      : Math.min(Math.max(min + Math.round((to - min) / step) * step, min), top),
-  );
+  at.value = String(to);
   at.dispatchEvent(new InputEvent("input", { bubbles: true }));
   at.dispatchEvent(new Event("change", { bubbles: true }));
 }
+
+// A range input's track as Chromium reads its attributes: a bound that isn't a
+// number is the default, a largest below the smallest is the smallest, and a
+// step that is missing, not a number or not above nought is one. `any` is a
+// step of nought, a continuous track.
+function track(at) {
+  const number = (text, otherwise) => (FLOAT.test(text) && Number.isFinite(Number(text)) ? Number(text) : otherwise);
+  const min = number(at.getAttribute("min") ?? "", 0);
+  const max = Math.max(min, number(at.getAttribute("max") ?? "", 100));
+  const given = at.getAttribute("step") ?? "";
+  const step = given.toLowerCase() === "any" ? 0 : number(given, 1) > 0 ? number(given, 1) : 1;
+  return { min, max, step };
+}
+
+// HTML's valid floating-point number.
+const FLOAT = /^-?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
+
+// The places after the point `x` is written with, and `x` rounded to them:
+// Chromium steps in decimal, so three steps of 0.1 are 0.3.
+const places = (x) => (String(x).split(/e/i)[0].split(".")[1] ?? "").length - Number(String(x).split(/e/i)[1] ?? 0);
+const exact = (x, min, step) => Number(x.toFixed(Math.min(100, Math.max(0, places(min), places(step)))));
+
+// Chromium's value sanitization, which happy-dom has only in part: a range's
+// value is clamped and snapped to its step (`StepRange::ClampValue`), the
+// middle when it isn't a number, a number's is empty unless it is a valid
+// floating-point number, a line field's loses its line breaks and an email
+// field's its surrounding spaces too. The value an attribute gives is
+// sanitized as well as the one a script sets.
+const inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+function sanitized(at, text) {
+  if (at.type === "number") return FLOAT.test(text) && Number.isFinite(Number(text)) ? text : "";
+  if (["text", "search", "password"].includes(at.type)) return text.replace(/[\r\n]/g, "");
+  if (at.type === "email") return text.replace(/[\r\n]/g, "").replace(/^[\t\n\f\r ]+|[\t\n\f\r ]+$/g, "");
+  if (at.type !== "range") return text;
+  const { min, max, step } = track(at);
+  const given = FLOAT.test(text) && Number.isFinite(Number(text)) ? Number(text) : min + (max - min) / 2;
+  const on = Math.min(Math.max(given, min), max);
+  if (step === 0) return String(on);
+  const snapped = exact(min + Math.round((on - min) / step) * step, min, step);
+  return String(snapped > max ? exact(snapped - step, min, step) : snapped);
+}
+Object.defineProperty(HTMLInputElement.prototype, "value", {
+  configurable: true,
+  get() {
+    return sanitized(this, inputValue.get.call(this));
+  },
+  set(text) {
+    inputValue.set.call(this, text);
+  },
+});
+// With every value sanitized, a range or a number input is never bad input or
+// off its step, which happy-dom's checks get wrong: `0.3 % 0.1` isn't nought,
+// and `1e3` isn't a number to them.
+const validity = Object.getPrototypeOf(document.createElement("input").validity);
+for (const check of ["badInput", "stepMismatch"]) {
+  const was = Object.getOwnPropertyDescriptor(validity, check).get;
+  Object.defineProperty(validity, check, {
+    configurable: true,
+    get() {
+      return ["number", "range"].includes(this.element.type) ? false : was.call(this);
+    },
+  });
+}
+
+// A refused submission moves the focus to the first invalid control, as
+// Chromium's interactive validation does and happy-dom's doesn't.
+const requestSubmit = HTMLFormElement.prototype.requestSubmit;
+HTMLFormElement.prototype.requestSubmit = function (submitter) {
+  if (!(submitter?.formNoValidate || this.noValidate)) {
+    const invalid = [...this.elements].find((e) => !e.disabled && e.validity !== undefined && !e.validity.valid);
+    if (invalid !== undefined) {
+      invalid.focus();
+      return;
+    }
+  }
+  requestSubmit.call(this, submitter);
+};
 
 // A text field's caret keys: the left and right arrows move the caret one
 // grapheme, or collapse a selection to the edge they point at; Home and End
