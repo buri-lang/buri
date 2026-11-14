@@ -677,6 +677,69 @@ shown();
     );
 }
 
+/// A line of the page behind an open dialog.
+const SCRIM_PAGE: &str = r#"from "platform/effect" import { Allocator, Ui };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.text({ content: .Const("Behind") }),
+                ui.dialog({
+                    isOpen: signal(ctx, true),
+                    label: .Const("Settings"),
+                    children: [ui.text({ content: .Const("Inside") })],
+                    styles: [],
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+/// The page behind an open dialog is under one scrim of black at half
+/// strength, the one the painter draws. A browser paints the dialog's
+/// `::backdrop` itself, so a box of the page's own that also painted black
+/// would make the page about three quarters dark.
+#[test]
+fn a_browser_draws_one_scrim_behind_an_open_dialog() {
+    let printed = drive(
+        "scrim-page",
+        SCRIM_PAGE,
+        r#"
+const dialog = document.querySelector("dialog[open]");
+const layers = [];
+// The `::backdrop` rules that reach the open dialog.
+for (const sheet of document.styleSheets) {
+  for (const rule of sheet.cssRules) {
+    const [on, pseudo] = (rule.selectorText ?? "").split("::");
+    if (pseudo === "backdrop" && dialog.matches(on)) layers.push(`backdrop ${rule.style.backgroundColor}`);
+  }
+}
+// Every box outside the dialog that paints a background.
+for (const element of body.querySelectorAll("*")) {
+  if (dialog.contains(element)) continue;
+  const colour = getComputedStyle(element).backgroundColor;
+  if (colour !== "" && colour !== "transparent" && colour !== "rgba(0, 0, 0, 0)") {
+    layers.push(`${element.localName} ${colour}`);
+  }
+}
+console.log(layers.join("\n"));
+"#,
+    );
+    assert_eq!(printed, "backdrop rgba(0, 0, 0, 0.5)\n");
+}
+
 /// Dialogs a browser moves the focus into as they open: one holding a field
 /// after some text, one inside it, one with nothing to focus, one whose first
 /// control is disabled and whose next takes the focus out of the tab order, and
