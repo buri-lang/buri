@@ -7,8 +7,11 @@ FAIL //lib/scrims  test/scrims.buri  "a scrim style a signal picks draws the one
 FAIL //lib/scrims  test/scrims.buri  "a dialog inside an open dialog draws its own scrim over the outer panel"
   the snapshot "nested" changed: see test/__snapshots__/nested.diff.png
   --> lib/scrims/test/scrims.buri:74:1
+FAIL //lib/scrims  test/scrims.buri  "dialogs open one after another stack in the order they come"
+  the snapshot "stacked" changed: see test/__snapshots__/stacked.diff.png
+  --> lib/scrims/test/scrims.buri:82:1
 FAIL //lib/scrims  test/scrims.buri  "a dialog shut and opened again draws its scrim again"
   the snapshot "reopened" changed: see test/__snapshots__/reopened.diff.png
-  --> lib/scrims/test/scrims.buri:93:1
+  --> lib/scrims/test/scrims.buri:107:1
 
-7 passed, 4 failed, 0 skipped (0.0s)
+7 passed, 5 failed, 0 skipped (0.0s)

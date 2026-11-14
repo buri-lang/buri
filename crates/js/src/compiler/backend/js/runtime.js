@@ -5210,14 +5210,16 @@ function $dom_optional(element, name, value) {
 // lifts the scrim over it, traps the focus and answers Escape — none of which
 // a style can say and none of which a `<div>` can have.
 //
-// A server wrote `<dialog open>`, which is open and *not* modal, and
-// `showModal` on an open dialog throws. So a resume shuts it first: that is
-// what promotes the panel the reader is already looking at into the top layer.
+// One already modal is left alone, so the focus stays where the reader put it:
+// `shell`'s script makes a server's open dialog modal before the page resumes.
+// One open and *not* modal is markup that script didn't reach (a policy refused
+// it), and `showModal` on it throws, so it is shut first.
 function $dom_modal(element, on) {
   if (element.$shim) {
     element.open = on;
     return;
   }
+  if (on && element.matches(":modal")) return;
   if (element.open) element.close();
   if (on) element.showModal();
 }
@@ -5860,7 +5862,9 @@ function $tree_disabled(element, prop) {
 // is named in `$ui_web_resume` and nowhere else, so a program that mounts drops
 // all of it and keeps the comparisons.
 
-const $adopt = { ops: null, at: new Map() };
+// `shut`: the `isOpen` of each dialog the reader shut before the resume, which
+// it writes `false` once the walk is done.
+const $adopt = { ops: null, at: new Map(), shut: [] };
 
 // One renderer. A resume runs `$tree_render`, the walk a mount runs, and what
 // changes is where a node comes from: the two constructors answer with the node
@@ -7071,6 +7075,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     let ours = false;
     const open = () =>
       $tree_bind([1, node[1]], (on) => {
+        // Made modal by `shell`'s script and shut by now: the reader shut it
+        // before the page took over, so the signal follows, as for Escape.
+        if (on && element.$served && !element.open && $adopt.ops !== null) {
+          $adopt.shut.push(cell);
+          return;
+        }
         ours = true;
         $dom_modal(element, on);
         ours = false;
@@ -11073,6 +11083,12 @@ function $ui_web_resume(ctx, root) {
     $tree_render(ctx, root, body, null);
     const over = $adopt_leftovers(body);
     if (over !== null) return $err(over);
+    const shut = $adopt.shut;
+    if (shut.length > 0) {
+      $ui_flush(() => {
+        for (const cell of shut) $ui_write(cell, false);
+      });
+    }
   } catch (e) {
     // A tree that does not match the markup, and nothing else: anything this
     // did not throw itself belongs to the program.
@@ -11081,6 +11097,7 @@ function $ui_web_resume(ctx, root) {
   } finally {
     $adopt.ops = null;
     $adopt.at = new Map();
+    $adopt.shut = [];
   }
   return $ok(0);
 }

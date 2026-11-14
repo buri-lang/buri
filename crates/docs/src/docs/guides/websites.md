@@ -235,6 +235,14 @@ was rendered for rides on the same script as `data-path`, and the stylesheet the
 compiler extracted goes in the head, so the page the reader sees first is already
 styled.
 
+Markup can write a `dialog` open but not modal, so a body holding one also gets
+a one-line inline script that calls `showModal` on each open dialog as the
+browser parses the page. The reader gets a real modal before the page's script
+arrives: the page behind it is inert, and Escape shuts it. `resume` keeps it
+as it is, and a dialog the reader already shut stays shut, its `isOpen` written
+`false`. A Content-Security-Policy that refuses inline scripts leaves the dialog
+open but not modal until `resume` runs.
+
 ## The head is a value
 
 `web.Document` is what the head says: `title` names the tab and `lang` names the

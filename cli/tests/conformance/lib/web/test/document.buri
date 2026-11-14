@@ -714,7 +714,7 @@ test "a dialog crosses the worker open, and shut" {
     // The panel the worker writes is the panel the page resumes on: one
     // `<dialog>`, the scrim with the panel inside it, either way, and the flag
     // says which. So a reader whose JavaScript has not arrived is looking at
-    // the panel the program opened, and the resume promotes it into the top layer.
+    // the panel the program opened, and `shell`'s script makes it modal.
     assert.equal(
         web.render<()>(
             ui.dialog({
@@ -1009,6 +1009,34 @@ test "an empty body is still a whole document" {
     assert.isTrue(document.startsWith("<!doctype html>"));
     assert.equal(body(document), "");
     assert.isTrue(document.endsWith("</body>\n</html>\n"));
+}
+
+test "only a document holding a dialog carries a script to run" {
+    // The script makes each dialog the tree wrote open modal as the browser
+    // parses it; `language::a_dialog_a_server_sent_open_is_modal_as_one_the_page_opened`
+    // runs it. Every document carries the state's script, which never runs.
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let dialog = web.render<()>(
+        ui.dialog({
+            isOpen: signal(ctx, true),
+            label: .Const("Confirm"),
+            children: [],
+            styles: [],
+        }),
+    );
+    assert.equal(
+        web.shell(ctx, "/", named("Titles"), dialog, .Null).count("<script"),
+        2,
+    );
+    assert.equal(
+        web
+            .shell(ctx, "/", named("Titles"), web.render<()>(tree()), .Null)
+            .count("<script"),
+        1,
+    );
 }
 
 test "the document says which address it was rendered for" {

@@ -100,24 +100,57 @@ export fn computed(on: Signal<Bool>): [Style] {
 /// A dialog inside an open dialog: the outer one's scrim is the widget's own,
 /// and the inner one's, over the outer panel too, is the quarter of blue.
 export fn nested<C>(outer: Signal<Bool>, inner: Signal<Bool>): Node<C> {
+    page(outerDialog(outer, inner))
+}
+
+/// The outer dialog of `nested`, with the inner one inside it.
+fn outerDialog<C>(outer: Signal<Bool>, inner: Signal<Bool>): Node<C> {
+    ui.dialog({
+        isOpen: outer,
+        label: .Const("Outer"),
+        children: [
+            ui.dialog({
+                isOpen: inner,
+                label: .Const("Inner"),
+                children: [],
+                styles: [
+                    .Width(.Px(60)),
+                    .Height(.Px(30)),
+                    .Background(.Rgb(0, 160, 0)),
+                ],
+                scrimStyles: .Some(tint()),
+            }),
+        ],
+        styles: card(),
+    })
+}
+
+/// A wide yellow card under its own dialog, then the dialogs of `nested` after
+/// it, all open: the top layer stacks them in the order they come, the yellow
+/// card at the bottom under both scrims. A server that sends them open leaves
+/// them the same, which `pages::a_dialog_a_server_sent_open_is_modal_as_one_the_page_opened`
+/// reads in a browser.
+export fn stacked<C>(
+    first: Signal<Bool>,
+    outer: Signal<Bool>,
+    inner: Signal<Bool>,
+): Node<C> {
     page(
-        ui.dialog({
-            isOpen: outer,
-            label: .Const("Outer"),
+        ui.stack({
+            styles: [],
             children: [
                 ui.dialog({
-                    isOpen: inner,
-                    label: .Const("Inner"),
+                    isOpen: first,
+                    label: .Const("Before"),
                     children: [],
                     styles: [
-                        .Width(.Px(60)),
-                        .Height(.Px(30)),
-                        .Background(.Rgb(0, 160, 0)),
+                        .Width(.Px(320)),
+                        .Height(.Px(160)),
+                        .Background(.Rgb(255, 220, 0)),
                     ],
-                    scrimStyles: .Some(tint()),
                 }),
+                outerDialog(outer, inner),
             ],
-            styles: card(),
         }),
     )
 }

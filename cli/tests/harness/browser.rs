@@ -27,9 +27,13 @@
 ///    which happy-dom doesn't take itself, then the keyup;
 ///  * a modal dialog that takes the focus as it opens and gives it back when
 ///    it shuts, which happy-dom leaves out too, and whose `close` event comes
-///    a task later, as a browser queues it;
+///    a task later, as a browser queues it; `showModal` on a dialog already
+///    open throws unless it is modal, as a browser's does;
 ///  * `modals`, the top layer happy-dom leaves out: the open modal dialogs,
-///    from the bottom to the top, the one opened last on top;
+///    from the bottom to the top, the one opened last on top, which `:modal`
+///    matches and outside the topmost of which nothing takes the focus;
+///  * `parse(html)`, which lays out a document a server sent as a browser
+///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order.
 ///
 /// An error a listener or a timer throws is written to `console.error`, as a
@@ -184,6 +188,8 @@ const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]
 // element inside that can take it, in document order and whether or not Tab
 // reaches it, and otherwise off the element that had it.
 HTMLDialogElement.prototype.showModal = function () {
+  if (modals.includes(this)) return;
+  if (this.open) throw new DOMException("the dialog is already open and not modal", "InvalidStateError");
   const had = document.activeElement;
   showModal.call(this);
   modals.push(this);
@@ -208,6 +214,35 @@ HTMLDialogElement.prototype.close = function (returnValue) {
   else if (this.contains(document.activeElement)) document.activeElement.blur();
   setTimeout(() => this.dispatchEvent(new Event("close")), 0);
 };
+
+// `:modal`, which happy-dom's selectors leave out: an open dialog in the top
+// layer.
+const matches = Element.prototype.matches;
+Element.prototype.matches = function (selector) {
+  if (selector === ":modal") return modals.includes(this);
+  return matches.call(this, selector);
+};
+
+// The inertness a modal dialog gives the rest of the page, which happy-dom
+// leaves out: nothing outside the topmost one takes the focus.
+for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
+  const focus = prototype.focus;
+  prototype.focus = function (options) {
+    const top = modals.findLast((d) => d.isConnected && d.open);
+    if (top === undefined || top.contains(this)) focus.call(this, options);
+  };
+}
+
+// A document a server sent, `html`, as a browser parses it: the head and the
+// body, and each inline classic script in the body run in order, as the parser
+// reaches it. happy-dom runs no script markup brings.
+function parse(html) {
+  document.head.innerHTML = html.split("<head>")[1].split("</head>")[0];
+  body.innerHTML = html.split("<body>")[1].split("</body>")[0];
+  for (const script of body.querySelectorAll("script:not([type]):not([src])")) {
+    (0, eval)(script.textContent);
+  }
+}
 
 // Implicit submission: the form's first submit button is clicked unless it is
 // disabled; a form with none is submitted from its one line field.

@@ -6,8 +6,9 @@
 # a page: with no scrim styles, then with a tint, a backdrop blur, an opacity
 # that fades the panel too, an arrangement and padding that move the panel, a
 # style a signal picks and one computed from a signal. Then a dialog inside an
-# open dialog, open and shut, and a dialog shut and opened again, and opened
-# and shut again. `repositories::a_browser_draws_each_dialog_scrim_as_its_snapshot`
+# open dialog, open and shut, dialogs open one after another, a dialog shut and
+# opened again, and opened and shut again.
+# `repositories::a_browser_draws_each_dialog_scrim_as_its_snapshot`
 # reads the same scenes in a browser.
 #
 # The last step takes the tint off, and the snapshots that show it fail.

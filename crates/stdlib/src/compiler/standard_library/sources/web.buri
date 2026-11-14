@@ -142,6 +142,14 @@ export fn defaultDocument(): Document {
 ///
 /// The stylesheet the compiler extracted goes in the head. A resumed page keeps
 /// the styles the server sent it.
+///
+/// A body holding a `<dialog>` also gets a one-line inline script after it,
+/// which calls `showModal` on each dialog the tree wrote open, in document
+/// order. Markup can only write a dialog open and *not* modal, so without it
+/// the dialog sits outside the top layer until the page resumes: the page
+/// behind takes the focus and Escape does nothing. A page whose
+/// Content-Security-Policy refuses inline scripts gets that until `resume`
+/// makes the dialog modal.
 export fn shell<C: Allocator>(
     ctx: C,
     path: Str,
@@ -156,6 +164,13 @@ export fn shell<C: Allocator>(
     } else {
         ["<style>", sheet, "</style>"].join(ctx, "")
     };
+    // `$served` tells `resume` this script made the dialog modal, so one shut
+    // by then was shut by the reader.
+    let modal = if (body.contains("<dialog")) {
+        "<script>for(const d of document.querySelectorAll(\"dialog[open]\")){d.close();d.showModal();d.$served=true}</script>"
+    } else {
+        ""
+    };
     [
         "<!doctype html>\n<html lang=\"",
         attribute(ctx, document.lang),
@@ -165,6 +180,7 @@ export fn shell<C: Allocator>(
         styles,
         "</head>\n<body>",
         body,
+        modal,
         "<script id=\"buri-state\" type=\"application/json\" data-path=\"",
         attribute(ctx, path),
         "\">",
@@ -207,6 +223,10 @@ fn stylesheet(): Str;
 /// is not the same element, or one the tree never accounted for. A run of text
 /// or an attribute that differs is written rather than refused, because a page
 /// renders from a state that is allowed to have moved on.
+///
+/// A dialog `shell`'s script made modal stays as the reader left it: the
+/// focus stays where it is, and one the reader shut has its `isOpen` written
+/// `false`.
 ///
 /// Resume once. A second call walks markup the first one has already taken
 /// over, and answers the same `.Err`.

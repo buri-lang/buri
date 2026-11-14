@@ -978,6 +978,257 @@ console.log(`open:${document.querySelector("details").open} focus:${focused()}`)
     );
 }
 
+/// Two dialogs open from the start, the second with one open inside it, and a
+/// button behind them that opens the second and the one inside it. `main`
+/// resumes the page a server sent and mounts it otherwise; `fetch` is the
+/// server, on a platform with `Ui`, which is what makes a signal for `isOpen`.
+const SERVED_DIALOGS_PAGE: &str = r#"from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/server" import { ServerHost };
+
+fn idle<C: Ui>(label: Str): Node<C> {
+    ui.button({ label: .Const(label), styles: [], onPress: .Some(fn(_c) => ()) })
+}
+
+// `ctx` makes the first dialog's signal and names the tree's context.
+fn page<C: Ui>(ctx: C, outer: Signal<Bool>, inner: Signal<Bool>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Behind"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    let _ = outer.set(c, true);
+                    inner.set(c, true)
+                }),
+            }),
+            ui.dialog({
+                isOpen: signal(ctx, true),
+                label: .Const("Before"),
+                children: [idle("Note")],
+                styles: [],
+            }),
+            ui.dialog({
+                isOpen: outer,
+                label: .Const("Outer"),
+                children: [
+                    idle("First"),
+                    idle("Second"),
+                    ui.dialog({
+                        isOpen: inner,
+                        label: .Const("Inner"),
+                        children: [idle("Deep")],
+                        styles: [],
+                    }),
+                ],
+                styles: [],
+            }),
+            ui.text({
+                content: .Computed(fn(s) => str.format(s, "outer:${outer.get(s)} inner:${inner.get(s)}")),
+            }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx, signal(ctx, true), signal(ctx, true));
+    match (web.state(ctx)) {
+        .Some(_sent) => web.resume(ctx, tree),
+        .None => ui.mount(ctx, tree, []),
+    }
+}
+
+export fn fetch(host: ServerHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx, signal(ctx, true), signal(ctx, true));
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(tree), .Null))
+}
+"#;
+
+/// A dialog a server sent open does what one the page opened does, before the
+/// page takes over and after: it is in the top layer, in tree order, with one
+/// scrim; the page behind it takes no focus; Escape shuts the one on top and
+/// the page's signal follows once it takes over; and the takeover leaves the
+/// focus where the reader put it, opening nothing a second time. The snapshot
+/// `stacked` in `a_dialog_scrim_draws_its_styles` draws the same stack.
+///
+/// The driver runs with the page mounted, then served, and says the same lines
+/// both times. Before the takeover the served page shows only what the server
+/// wrote, so those lines leave the signals out.
+#[test]
+fn a_dialog_a_server_sent_open_is_modal_as_one_the_page_opened() {
+    let scratch = Scratch::repo("served-dialogs");
+    scratch.write(
+        "platform/server/BUILD.buri",
+        "platform {\n    entry {\n        name: \"fetch\"\n        backend: JS\n        js: \"fetch.mjs\"\n    }\n}\n",
+    );
+    scratch.write(
+        "platform/server/platform.buri",
+        r#"from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostUi };
+
+export struct ServerHost {
+    export alloc: HostAllocator,
+    export ui: HostUi,
+}
+
+export fn fetch(host: ServerHost, request: Request): Response;
+"#,
+    );
+    scratch.write(
+        "platform/server/fetch.mjs",
+        "import { fetch } from \"buri:program\";\n\nexport default { fetch: (request) => fetch(request) };\n",
+    );
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n        { platform: \"//platform/server\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/page/main.buri", SERVED_DIALOGS_PAGE);
+    scratch.run(&["build", "//cmd/page"]).ok();
+    let script = format!(
+        "{}\n{}",
+        browser(),
+        r#"
+const mode = process.argv[2];
+let calls = 0;
+const showModalCounted = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function () {
+  calls++;
+  return showModalCounted.call(this);
+};
+const tick = () => new Promise((done) => setTimeout(done, 0));
+const focused = () => {
+  const at = document.activeElement;
+  return at === null || at === body ? "nothing" : at.getAttribute("aria-label");
+};
+// Whether the button behind the dialogs takes the focus.
+const behind = () => {
+  const button = labelled("Behind");
+  button.focus();
+  return document.activeElement === button ? "takes the focus" : "inert";
+};
+// A `::backdrop` that paints, a second scrim under the dialog's own box.
+const backdrop = (dialog) =>
+  [...document.styleSheets].some((sheet) =>
+    [...sheet.cssRules].some((rule) => {
+      const [on, pseudo] = (rule.selectorText ?? "").split("::");
+      const colour = rule.style?.backgroundColor ?? "";
+      return pseudo === "backdrop" && dialog.matches(on) && !["", "none", "transparent"].includes(colour);
+    }),
+  );
+// The open dialogs from the bottom of the top layer up, each with its scrim.
+const stacked = () =>
+  modals
+    .filter((d) => d.open)
+    .map((d) => `${d.getAttribute("aria-label")} ${getComputedStyle(d).backgroundColor}${backdrop(d) ? " and a backdrop" : ""}`)
+    .join(" / ");
+const report = (signals) => {
+  const said = signals ? `${body.firstChild.lastChild.textContent} | ` : "";
+  console.log(`${said}${stacked() || "none"} | focus ${focused()} | behind ${behind()} | showModal ${calls}`);
+};
+const page = () => import("./.buri/out/web/cmd/page/main.mjs");
+const served = mode !== "mounted";
+if (served) {
+  const { default: server } = await import("./.buri/out/platform/server/cmd/page/fetch.mjs");
+  const sent = await (await server.fetch(new Request("http://localhost/"))).text();
+  // A Content-Security-Policy that refuses inline scripts.
+  parse(mode === "refused" ? sent.replace(/<script>.*?<\/script>/s, "") : sent);
+} else {
+  await page();
+  await tick();
+}
+report(!served);
+press("Escape");
+await tick();
+report(!served);
+labelled("Second").focus();
+report(!served);
+if (served) await page();
+await tick();
+report(true);
+press("Escape");
+await tick();
+report(true);
+labelled("Behind").click();
+await tick();
+report(true);
+"#
+    );
+    let path = scratch.write("drive.mjs", &script);
+    let run = |mode: &str| {
+        let out = Command::new(js_runtime())
+            .arg(&path)
+            .arg(mode)
+            .capped_output()
+            .expect("the javascript runtime runs");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "the {mode} page did not run:\n{stdout}{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        stdout
+    };
+    let black = "rgba(0, 0, 0, 0.5)";
+    let mounted = run("mounted");
+    assert_eq!(
+        mounted,
+        format!(
+            "outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 3\n\
+             outer:true inner:false | Before {black} / Outer {black} | focus First | behind inert | showModal 3\n\
+             outer:true inner:false | Before {black} / Outer {black} | focus Second | behind inert | showModal 3\n\
+             outer:true inner:false | Before {black} / Outer {black} | focus Second | behind inert | showModal 3\n\
+             outer:false inner:false | Before {black} | focus Note | behind inert | showModal 3\n\
+             outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 5\n"
+        )
+    );
+    let before = |line: &str| {
+        line.split_once(" | ")
+            .map_or(String::new(), |(_, rest)| rest.to_string())
+    };
+    let expected: String = mounted
+        .lines()
+        .enumerate()
+        .map(|(i, line)| {
+            if i < 3 {
+                before(line)
+            } else {
+                line.to_string()
+            }
+        })
+        .map(|line| line + "\n")
+        .collect();
+    assert_eq!(run("served"), expected);
+    // A policy that refuses the script leaves the dialogs open and not modal
+    // until the page takes over, and the takeover makes them modal.
+    assert_eq!(
+        run("refused"),
+        format!(
+            "none | focus nothing | behind takes the focus | showModal 0\n\
+             none | focus Behind | behind takes the focus | showModal 0\n\
+             none | focus Second | behind takes the focus | showModal 0\n\
+             outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 3\n\
+             outer:true inner:false | Before {black} / Outer {black} | focus First | behind inert | showModal 3\n\
+             outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 4\n"
+        )
+    );
+}
+
 /// One of each element that has an accessible name, beside a decorative
 /// picture and a decorative drawing. `conformance/lib/ui/test/names.buri`
 /// reads the same names through `spoken()`.

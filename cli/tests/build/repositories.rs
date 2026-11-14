@@ -761,6 +761,13 @@ fn a_browser_draws_each_dialog_scrim_as_its_snapshot() {
                 "{black} {CARD} / {tint} panel background-color=rgb(0, 160, 0) width=60px height=30px"
             ),
         ),
+        (
+            "stacked",
+            format!(
+                "{black} panel background-color=rgb(255, 220, 0) width=320px height=160px \
+                 / {black} {CARD} / {tint} panel background-color=rgb(0, 160, 0) width=60px height=30px"
+            ),
+        ),
         ("inner-shut", format!("{black} {CARD} | shut display=none")),
         ("reopened", format!("{tint} {CARD}")),
         ("shut", "none | shut display=none".to_string()),

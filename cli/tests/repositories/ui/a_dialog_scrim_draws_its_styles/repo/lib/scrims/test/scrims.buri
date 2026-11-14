@@ -10,7 +10,7 @@ from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/signal" import { signal };
 from "//lib/scrims" import {
-    blur, chosen, computed, faded, nested, over, plain, sheet, tint,
+    blur, chosen, computed, faded, nested, over, plain, sheet, stacked, tint,
 };
 
 test "a dialog with no scrim styles draws the widget's own black at half strength" {
@@ -77,6 +77,20 @@ test "a dialog inside an open dialog draws its own scrim over the outer panel" {
         Ui: headless(),
     };
     snapshot(ctx, "nested", nested(signal(ctx, true), signal(ctx, true)), .Checked, []);
+}
+
+test "dialogs open one after another stack in the order they come" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "stacked",
+        stacked(signal(ctx, true), signal(ctx, true), signal(ctx, true)),
+        .Checked,
+        [],
+    );
 }
 
 test "a dialog shut inside an open dialog leaves the outer scrim alone" {
