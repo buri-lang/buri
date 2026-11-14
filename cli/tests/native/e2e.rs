@@ -5427,17 +5427,13 @@ fn a_task_that_wakes_on_another_thread_still_finishes() {
     );
 }
 
-/// Rounds of a scope whose tasks each sleep and then fan out over four steps:
-/// 240 rounds of 24 tasks.
+/// `rounds` rounds of a scope whose 24 tasks each sleep and then fan out over
+/// four steps.
 ///
 /// A task that fans out waits for its steps, and carries on on whichever
 /// thread is free when they finish. Each fan-out builds strings in its steps
 /// and in the task, so the task allocates on a thread it did not start on.
-///
-/// Before the fix every run of this size failed, on macOS. Under memcheck it
-/// takes about a fifth of the minute the row allows. Three fan-outs a task
-/// over eight steps took nearly all of it.
-fn fanning_out_on_another_thread() -> String {
+fn fanning_out_on_another_thread(rounds: u32) -> String {
     String::from(
         r#"
 from "platform/effect" import { Allocator, Clock, Stdout, Tasks };
@@ -5491,12 +5487,13 @@ export fn main(host: NativeHost): Result<(), Str> {
         Stdout: host.stdout,
         Tasks: host.tasks,
     };
-    let spawned = rounds(ctx, 240, 0);
+    let spawned = rounds(ctx, ROUNDS, 0);
     let _ = io.println(ctx, "every scope waited for ${spawned} tasks").ignore();
     .Ok(())
 }
 "#,
     )
+    .replace("ROUNDS", &rounds.to_string())
 }
 
 /// **A task that fans out and carries on on another thread still finishes.**
@@ -5504,13 +5501,19 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// The task allocates once its steps are done, on the thread it carries on on.
 /// Before this row, the runtime could take that block from the free list of
 /// the thread the task had waited on, while that thread used the list itself.
-/// The program aborted inside tokio, crashed, or hung, in most runs.
+/// The program aborted inside tokio, crashed, or hung, in every run of 240
+/// rounds on macOS.
+///
+/// Under memcheck the row runs 20 rounds. Memcheck's `--track-origins` costs a
+/// fan-out step milliseconds, so 240 rounds took 74 s on one CPU, past the
+/// minute the row allows.
 #[test]
 fn a_task_that_fans_out_and_wakes_on_another_thread_still_finishes() {
     unless_ready!();
+    let rounds = if crate::valgrind::asked() { 20 } else { 240 };
     let binary = built(
         "e2e-fanning-out-on-another-thread",
-        &fanning_out_on_another_thread(),
+        &fanning_out_on_another_thread(rounds),
     );
     let out = ran_within(&binary, std::time::Duration::from_secs(60));
     assert_eq!(
@@ -5520,7 +5523,7 @@ fn a_task_that_fans_out_and_wakes_on_another_thread_still_finishes() {
     );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["every scope waited for 5760 tasks"],
+        vec![format!("every scope waited for {} tasks", rounds * 24)],
         "stderr:\n{}",
         out.stderr
     );
