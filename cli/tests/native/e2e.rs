@@ -5639,6 +5639,239 @@ fn a_task_that_sends_to_an_actor_and_wakes_on_another_thread_still_finishes() {
     );
 }
 
+/// A program that serves its own requests: one listener on loopback, and 24
+/// fetchers that send it `each` requests apiece.
+///
+/// `server.run`'s workers wait in `listenAccept`, which gives the thread back,
+/// and carry on on whichever thread is free when a request arrives. The
+/// fetchers hold their threads while they wait for an answer, so that is often
+/// another one. A fetch does not give its thread back, so the accept is where
+/// the waiting is. Each answer names the path it was asked for, and each
+/// fetcher checks the body it got.
+fn accepting_on_another_thread(each: u32) -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Listen, Network, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+
+fn fetching<C: Allocator + Network>(ctx: C, port: Int, who: Int, left: Int, right: Int): Int {
+    match (left <= 0) {
+        true => right,
+        false => {
+            let path = str.format(ctx, "/${who}/${left}");
+            let url = str.format(ctx, "http://127.0.0.1:${port}${path}");
+            let got = match (http.get(ctx, url)) {
+                .Ok(response) => http.bodyText(ctx, response.body).withDefault(""),
+                .Err(_failed) => "",
+            };
+            let ok = got == str.format(ctx, "answer to ${path}");
+            fetching(ctx, port, who, left - 1, right + if (ok) { 1 } else { 0 })
+        },
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Network: host.net,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let plan = server.Server {
+        port: 0,
+        requestLimit: .Some(24 * EACH),
+        onRequest: fn(c, request) => http.text(c, str.format(c, "answer to ${request.path()}")),
+    };
+    let listener = server.bind(ctx, plan).mapErr(server.errorText)?;
+    let counts = tasks.parallel(ctx, list.range(ctx, 0, 25), fn(c, _i, n) => {
+        if (n == 0) {
+            match (server.run(c, listener, plan)) {
+                .Ok(_last) => 0,
+                .Err(_failed) => -1,
+            }
+        } else {
+            fetching(c, listener.port, n, EACH, 0)
+        }
+    });
+    let served = match (counts.first()) {
+        .Some(0) => "served",
+        _otherwise => "failed",
+    };
+    let _ = io.println(ctx, "${served}; fetched ${counts.sum()} right answers").ignore();
+    .Ok(())
+}
+"#,
+    )
+    .replace("EACH", &each.to_string())
+}
+
+/// **A server worker that waits for a request and carries on on another thread
+/// still answers it.**
+///
+/// No row failed with 578b17ec8's allocator change reverted: the accept's
+/// thread-local read comes before its wait, and nothing it read is used after
+/// it. The runtime test `no_frame_that_can_switch_threads_reads_a_thread_local`
+/// keeps it that way; this row checks what a program sees.
+#[test]
+fn a_server_worker_that_wakes_on_another_thread_still_answers() {
+    unless_ready!();
+    let each = 40;
+    let binary = built(
+        "e2e-accepting-on-another-thread",
+        &accepting_on_another_thread(each),
+    );
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let total = 24 * each;
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![format!("served; fetched {total} right answers")],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
+/// A program that talks to itself over WebSockets: one server on loopback,
+/// and 24 clients that each send it `each` messages, one at a time, and wait
+/// for each echo.
+///
+/// Both ends wait between messages: a server socket in `listenReceive` and a
+/// client in `connectReceive`. Each gives its thread back and carries on on
+/// whichever thread is free when the next frame arrives. Each echo names the
+/// client and the message it answers, and each client checks it.
+fn talking_on_another_thread(each: u32) -> String {
+    String::from(
+        r#"
+from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks, WebSocketClient };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+
+fn talking<C: Allocator + Sockets + WebSocketClient>(ctx: C, port: Int, who: Int): Int {
+    let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
+    let ended = websocket.connect(ctx, Client {
+        url: url,
+        onOpen: fn(c, socket, _response) => {
+            let _ = socket.send(c, .Text(str.format(c, "${who} 1")));
+            (1, 0)
+        },
+        onMessage: fn(c, socket, sofar, message) => {
+            let (sent, right) = sofar;
+            let heard = match (message) {
+                .Text(text) => text == str.format(c, "echo ${who} ${sent}"),
+                .Binary(_data) => false,
+            };
+            let _ = if (sent < EACH) {
+                socket.send(c, .Text(str.format(c, "${who} ${sent + 1}")))
+            } else {
+                socket.close(c, .Normal)
+            };
+            (sent + 1, right + if (heard) { 1 } else { 0 })
+        },
+        onClose: fn(_c, _socket, sofar, _reason) => sofar,
+    });
+    match (ended) {
+        .Ok((_reason, (_sent, right))) => right,
+        .Err(_refused) => 0,
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+        WebSocketClient: host.websocketClient,
+    };
+    let plan = server.Server {
+        port: 0,
+        requestLimit: .Some(24),
+        onRequest: fn(_c, _request) => http.status(404),
+        websocket: .Some(server.WebSocket {
+            path: "/socket",
+            onOpen: fn(_c, _socket, _request) => 0,
+            onMessage: fn(c, socket, seen, message) => {
+                let _ = match (message) {
+                    .Text(text) => socket.send(c, .Text(str.format(c, "echo ${text}"))),
+                    .Binary(_data) => (),
+                };
+                seen + 1
+            },
+            onClose: fn(_c, _socket, seen, _reason) => seen,
+        }),
+    };
+    let listener = server.bind(ctx, plan).mapErr(server.errorText)?;
+    let counts = tasks.parallel(ctx, list.range(ctx, 0, 25), fn(c, _i, n) => {
+        if (n == 0) {
+            match (server.run(c, listener, plan)) {
+                .Ok(_last) => 0,
+                .Err(_failed) => -1,
+            }
+        } else {
+            talking(c, listener.port, n)
+        }
+    });
+    let served = match (counts.first()) {
+        .Some(0) => "served",
+        _otherwise => "failed",
+    };
+    let _ = io.println(ctx, "${served}; heard ${counts.sum()} right echoes").ignore();
+    .Ok(())
+}
+"#,
+    )
+    .replace("EACH", &each.to_string())
+}
+
+/// **WebSockets whose ends wait for each message and carry on on other threads
+/// still carry every message.**
+///
+/// No row failed with 578b17ec8's allocator change reverted: each wait's
+/// thread-local read comes before it, and nothing it read is used after it.
+/// The runtime test `no_frame_that_can_switch_threads_reads_a_thread_local`
+/// keeps them that way; this row checks what a program sees.
+#[test]
+fn websockets_whose_ends_wake_on_other_threads_still_carry_every_message() {
+    unless_ready!();
+    let each = 40;
+    let binary = built(
+        "e2e-talking-on-another-thread",
+        &talking_on_another_thread(each),
+    );
+    let out = ran_within(&binary, std::time::Duration::from_secs(60));
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let total = 24 * each;
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        vec![format!("served; heard {total} right echoes")],
+        "stderr:\n{}",
+        out.stderr
+    );
+}
+
 /// Fanned-out steps inside a scope post strings the scope built, and the actor
 /// keeps them past the scope.
 ///
