@@ -5473,9 +5473,45 @@ const $TREE_FONTS = [
 // rendered after a reconcile from colliding with one rendered before it.
 let $tree_radio_groups = 0;
 
-// While a dialog renders its panel, the opening of each dialog inside it,
-// held until the dialog itself has opened; otherwise `null`.
-let $tree_modals = null;
+// A dialog or a disclosure is a host: what it holds shows while it is open and
+// its own host shows, as a browser draws nothing of a shut `<dialog>` and only
+// the summary of a shut `<details>`. A dialog opens only while its host shows,
+// so a server writes it shut and a page never leaves it modal out of sight.
+//
+// `shown` is `undefined` until the host first applies its state; `inner` holds
+// the `sync` of each host directly inside, in document order, for as long as
+// the computation rendering it lasts. Every node renders into its live parent,
+// so walking up from there finds the host it is in.
+function $tree_host(element, parent, sync) {
+  const host = { shown: undefined, inner: [], outer: null };
+  element.$host = host;
+  for (let at = parent; at !== null && at !== undefined; at = at.$shim ? at.parent : at.parentNode) {
+    const outer = at.$host;
+    if (outer === undefined) continue;
+    host.outer = outer;
+    outer.inner.push(sync);
+    $ui_dispose_with(() => {
+      const i = outer.inner.indexOf(sync);
+      if (i >= 0) outer.inner.splice(i, 1);
+    });
+    break;
+  }
+  return host;
+}
+
+// Applies whether a host shows, given whether it is `open`, with `self`, which
+// opens or shuts its own element. It opens before the dialogs inside it, so the
+// top layer stacks them in document order, and shuts after them, so the focus
+// each gives back lands where it was. Waits for the outer host's first state.
+function $tree_host_sync(host, open, self) {
+  const outer = host.outer;
+  const shown = outer === null ? open : outer.shown === undefined ? undefined : open && outer.shown;
+  if (shown === undefined || shown === host.shown) return;
+  host.shown = shown;
+  if (shown) self(true);
+  for (const sync of shown ? host.inner.slice() : host.inner.slice().reverse()) sync();
+  if (!shown) self(false);
+}
 
 // The stylesheet the compiler extracted, assigned by one statement the backend
 // emits ahead of the program and empty in a program that styles nothing.
@@ -7058,41 +7094,35 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_styles(element, node[5]);
     const panel = $tree_element(element, "div", null);
     $tree_styles(panel, node[3]);
-    // A dialog inside this one opens after it, so the top layer, which stacks
-    // in opening order, puts it on top.
-    const outer = $tree_modals;
-    $tree_modals = [];
-    let inner;
-    try {
-      for (const child of node[4]) $tree_render(ctx, child, panel, null);
-    } finally {
-      inner = $tree_modals;
-      $tree_modals = outer;
-    }
     const cell = node[1][0];
     // Whether the shutting is ours or the reader's. `close()` fires the same
     // event either way, and only the reader's is news to the signal.
     let ours = false;
-    const open = () =>
-      $tree_bind([1, node[1]], (on) => {
-        // Made modal by `shell`'s script and shut by now: the reader shut it
-        // before the page took over, so the signal follows, as for Escape.
-        if (on && element.$served && !element.open && $adopt.ops !== null) {
-          $adopt.shut.push(cell);
-          return;
-        }
+    let on = false;
+    const sync = () =>
+      $tree_host_sync(host, on, (shown) => {
         ours = true;
-        $dom_modal(element, on);
+        $dom_modal(element, shown);
         ours = false;
       });
-    const opens = [open, ...inner];
-    if (outer !== null) outer.push(...opens);
-    else for (const each of opens) each();
+    const host = $tree_host(element, parent, sync);
+    // A dialog inside this one binds first and opens once this one has applied
+    // its state, after it, so the top layer puts it on top.
+    for (const child of node[4]) $tree_render(ctx, child, panel, null);
+    $tree_bind([1, node[1]], (value) => {
+      // Made modal by `shell`'s script and shut by now: the reader shut it
+      // before the page took over, so the signal follows, as for Escape.
+      const shut = value && element.$served && !element.open && $adopt.ops !== null;
+      if (shut) $adopt.shut.push(cell);
+      on = value && !shut;
+      sync();
+    });
     // Escape, and every other way a browser shuts a dialog by itself. A signal
     // that went on saying `true` would leave the program holding a panel
-    // nobody can see. `close` fires late, so one for a dialog open again is stale.
+    // nobody can see. `close` fires late, so one for a dialog open again is
+    // stale, and one shut because what holds it stopped showing is ours.
     $dom_listen(element, "close", () => {
-      if (!ours && !element.open) $ui_flush(() => $ui_write(cell, false));
+      if (!ours && !element.open && host.shown) $ui_flush(() => $ui_write(cell, false));
     });
     $tree_events(ctx, panel, node[6]);
     return;
@@ -7105,6 +7135,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_styles(element, node[3]);
     const summary = $tree_element(element, "summary", null);
     $tree_text(node[1], summary, null);
+    const sync = () => $tree_host_sync(host, element.open, () => {});
+    const host = $tree_host(element, parent, sync);
     for (const child of node[4]) $tree_render(ctx, child, element, null);
     const cell = node[2][0];
     // Whether the opening is ours or the reader's, the way a dialog's close is:
@@ -7114,12 +7146,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       ours = true;
       element.open = on;
       ours = false;
+      sync();
     });
     // A reader opens and shuts a `<details>` without asking, so the signal
     // follows what the reader chose rather than staying where the program left
-    // it.
+    // it, and a dialog inside opens and shuts with what the reader sees.
     $dom_listen(element, "toggle", () => {
       if (!ours) $ui_flush(() => $ui_write(cell, element.open));
+      sync();
     });
     $tree_events(ctx, element, node[5]);
     return;

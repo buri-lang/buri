@@ -1378,7 +1378,8 @@ fn submitHandler<C>(onSubmit: fn(C) => ()): fn(C, Event) => () {
 ///
 /// Shut, it draws nothing and what is inside it is out of reach. Open, it is
 /// pinned to the viewport, so like every pin it never decides how tall a page
-/// is.
+/// is. One inside a shut dialog or a shut `disclosure` stays shut whatever
+/// `isOpen` holds, and opens when what holds it does.
 struct Dialog<C> {
     /// The two-way binding that opens and shuts it: Open while it holds `true`.
     /// Writable because the platform writes it — the browser writes `false`

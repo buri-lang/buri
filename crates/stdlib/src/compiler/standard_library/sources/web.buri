@@ -145,7 +145,8 @@ export fn defaultDocument(): Document {
 ///
 /// A body holding a `<dialog>` also gets a one-line inline script after it,
 /// which calls `showModal` on each dialog the tree wrote open, in document
-/// order. Markup can only write a dialog open and *not* modal, so without it
+/// order. A dialog inside a shut dialog or disclosure is written shut, so it
+/// stays shut. Markup can only write a dialog open and *not* modal, so without it
 /// the dialog sits outside the top layer until the page resumes: the page
 /// behind takes the focus and Escape does nothing. A page whose
 /// Content-Security-Policy refuses inline scripts gets that until `resume`

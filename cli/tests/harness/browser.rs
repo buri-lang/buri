@@ -32,6 +32,9 @@
 ///  * `modals`, the top layer happy-dom leaves out: the open modal dialogs,
 ///    from the bottom to the top, the one opened last on top, which `:modal`
 ///    matches and outside the topmost of which nothing takes the focus;
+///  * nothing a browser draws none of taking the focus: what is inside a shut
+///    dialog, a shut disclosure's body or a `hidden` element, and the focus
+///    leaving a shut dialog that gives it back to such an element;
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order.
@@ -184,6 +187,15 @@ const modals = [];
 const showModal = HTMLDialogElement.prototype.showModal;
 // The elements a browser lets take the focus, before the checks below.
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
+// Whether a browser draws `e`: it is inside no shut dialog, no `hidden`
+// element and no shut disclosure's body. A disclosure's summary is drawn while
+// the disclosure is.
+const rendered = (e) => {
+  if (e.closest("[hidden], dialog:not([open])") !== null) return false;
+  const shut = e.closest("details:not([open])");
+  if (shut === null) return true;
+  return e.tagName === "SUMMARY" && e.parentElement === shut && (shut.parentElement === null || rendered(shut.parentElement));
+};
 // `showModal`, with the step happy-dom leaves out: the focus moves to the first
 // element inside that can take it, in document order and whether or not Tab
 // reaches it, and otherwise off the element that had it.
@@ -194,9 +206,7 @@ HTMLDialogElement.prototype.showModal = function () {
   showModal.call(this);
   modals.push(this);
   openers.set(this, had === body ? null : had);
-  const takes = (e) =>
-    !e.disabled && e.closest("[hidden], dialog:not([open])") === null && (e.tagName === "SUMMARY" || e.closest("details:not([open])") === null);
-  const first = [...this.querySelectorAll(FOCUSABLE)].find(takes);
+  const first = [...this.querySelectorAll(FOCUSABLE)].find((e) => !e.disabled && rendered(e));
   if (first !== undefined) first.focus();
   else if (had !== body) had.blur();
 };
@@ -211,7 +221,8 @@ HTMLDialogElement.prototype.close = function (returnValue) {
   const back = openers.get(this) ?? null;
   openers.delete(this);
   if (back !== null && back.isConnected && !back.disabled) back.focus();
-  else if (this.contains(document.activeElement)) document.activeElement.blur();
+  const at = document.activeElement;
+  if (at !== null && at !== body && !rendered(at)) at.blur();
   setTimeout(() => this.dispatchEvent(new Event("close")), 0);
 };
 
@@ -224,12 +235,13 @@ Element.prototype.matches = function (selector) {
 };
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom
-// leaves out: nothing outside the topmost one takes the focus.
+// leaves out: nothing outside the topmost one takes the focus. Nor does an
+// element a browser draws none of.
 for (const prototype of [HTMLElement.prototype, SVGElement.prototype]) {
   const focus = prototype.focus;
   prototype.focus = function (options) {
     const top = modals.findLast((d) => d.isConnected && d.open);
-    if (top === undefined || top.contains(this)) focus.call(this, options);
+    if ((top === undefined || top.contains(this)) && rendered(this)) focus.call(this, options);
   };
 }
 

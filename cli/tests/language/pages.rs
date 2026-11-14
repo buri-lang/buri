@@ -978,6 +978,115 @@ console.log(`open:${document.querySelector("details").open} focus:${focused()}`)
     );
 }
 
+/// A repository whose `//cmd/page` is `page`, built for the web and for a
+/// server platform whose `fetch` answers the document `page` sends.
+fn served(name: &str, page: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write(
+        "platform/server/BUILD.buri",
+        "platform {\n    entry {\n        name: \"fetch\"\n        backend: JS\n        js: \"fetch.mjs\"\n    }\n}\n",
+    );
+    scratch.write(
+        "platform/server/platform.buri",
+        r#"from "platform/effect" import { Request, Response };
+from "platform/host" import { HostAllocator, HostUi };
+
+export struct ServerHost {
+    export alloc: HostAllocator,
+    export ui: HostUi,
+}
+
+export fn fetch(host: ServerHost, request: Request): Response;
+"#,
+    );
+    scratch.write(
+        "platform/server/fetch.mjs",
+        "import { fetch } from \"buri:program\";\n\nexport default { fetch: (request) => fetch(request) };\n",
+    );
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: \"web\" },\n        { platform: \"//platform/server\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/page/main.buri", page);
+    scratch.run(&["build", "//cmd/page"]).ok();
+    scratch
+}
+
+/// Runs the driver at `path` in `mode`, answering what it printed.
+fn run_served(path: &std::path::Path, mode: &str) -> String {
+    let out = Command::new(js_runtime())
+        .arg(path)
+        .arg(mode)
+        .capped_output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the {mode} page did not run:\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    stdout
+}
+
+/// The start of a driver for a page [`served`] builds. In `mode` "mounted" it
+/// mounts the page; otherwise it parses the document the server sent, without
+/// its inline script in "refused", the way a Content-Security-Policy that
+/// refuses inline scripts leaves it, and `page()` takes it over. `report`
+/// prints the top layer, the focus, whether the button labelled "Behind"
+/// takes the focus, and how many times `showModal` ran, after the page's last
+/// text when `signals` is set.
+const SERVED_DRIVER: &str = r#"
+const mode = process.argv[2];
+let calls = 0;
+const showModalCounted = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function () {
+  calls++;
+  return showModalCounted.call(this);
+};
+const tick = () => new Promise((done) => setTimeout(done, 0));
+const focused = () => {
+  const at = document.activeElement;
+  return at === null || at === body ? "nothing" : (at.getAttribute("aria-label") ?? at.textContent);
+};
+// Whether the button behind the dialogs takes the focus.
+const behind = () => {
+  const button = labelled("Behind");
+  button.focus();
+  return document.activeElement === button ? "takes the focus" : "inert";
+};
+// A `::backdrop` that paints, a second scrim under the dialog's own box.
+const backdrop = (dialog) =>
+  [...document.styleSheets].some((sheet) =>
+    [...sheet.cssRules].some((rule) => {
+      const [on, pseudo] = (rule.selectorText ?? "").split("::");
+      const colour = rule.style?.backgroundColor ?? "";
+      return pseudo === "backdrop" && dialog.matches(on) && !["", "none", "transparent"].includes(colour);
+    }),
+  );
+// The open dialogs from the bottom of the top layer up, each with its scrim.
+const stacked = () =>
+  modals
+    .filter((d) => d.open)
+    .map((d) => `${d.getAttribute("aria-label")} ${getComputedStyle(d).backgroundColor}${backdrop(d) ? " and a backdrop" : ""}`)
+    .join(" / ");
+const report = (signals) => {
+  const said = signals ? `${body.firstChild.lastChild.textContent} | ` : "";
+  console.log(`${said}${stacked() || "none"} | focus ${focused()} | behind ${behind()} | showModal ${calls}`);
+};
+const page = () => import("./.buri/out/web/cmd/page/main.mjs");
+const served = mode !== "mounted";
+if (served) {
+  const { default: server } = await import("./.buri/out/platform/server/cmd/page/fetch.mjs");
+  const sent = await (await server.fetch(new Request("http://localhost/"))).text();
+  // A Content-Security-Policy that refuses inline scripts.
+  parse(mode === "refused" ? sent.replace(/<script>.*?<\/script>/s, "") : sent);
+} else {
+  await page();
+  await tick();
+}
+"#;
+
 /// Two dialogs open from the start, the second with one open inside it, and a
 /// button behind them that opens the second and the one inside it. `main`
 /// resumes the page a server sent and mounts it otherwise; `fetch` is the
@@ -1071,86 +1180,11 @@ export fn fetch(host: ServerHost, request: Request): Response {
 /// wrote, so those lines leave the signals out.
 #[test]
 fn a_dialog_a_server_sent_open_is_modal_as_one_the_page_opened() {
-    let scratch = Scratch::repo("served-dialogs");
-    scratch.write(
-        "platform/server/BUILD.buri",
-        "platform {\n    entry {\n        name: \"fetch\"\n        backend: JS\n        js: \"fetch.mjs\"\n    }\n}\n",
-    );
-    scratch.write(
-        "platform/server/platform.buri",
-        r#"from "platform/effect" import { Request, Response };
-from "platform/host" import { HostAllocator, HostUi };
-
-export struct ServerHost {
-    export alloc: HostAllocator,
-    export ui: HostUi,
-}
-
-export fn fetch(host: ServerHost, request: Request): Response;
-"#,
-    );
-    scratch.write(
-        "platform/server/fetch.mjs",
-        "import { fetch } from \"buri:program\";\n\nexport default { fetch: (request) => fetch(request) };\n",
-    );
-    scratch.write(
-        "cmd/page/BUILD.buri",
-        "binary {\n    outputs: [\n        { platform: \"web\" },\n        { platform: \"//platform/server\" },\n    ]\n}\n",
-    );
-    scratch.write("cmd/page/main.buri", SERVED_DIALOGS_PAGE);
-    scratch.run(&["build", "//cmd/page"]).ok();
+    let scratch = served("served-dialogs", SERVED_DIALOGS_PAGE);
     let script = format!(
-        "{}\n{}",
+        "{}\n{SERVED_DRIVER}\n{}",
         browser(),
         r#"
-const mode = process.argv[2];
-let calls = 0;
-const showModalCounted = HTMLDialogElement.prototype.showModal;
-HTMLDialogElement.prototype.showModal = function () {
-  calls++;
-  return showModalCounted.call(this);
-};
-const tick = () => new Promise((done) => setTimeout(done, 0));
-const focused = () => {
-  const at = document.activeElement;
-  return at === null || at === body ? "nothing" : at.getAttribute("aria-label");
-};
-// Whether the button behind the dialogs takes the focus.
-const behind = () => {
-  const button = labelled("Behind");
-  button.focus();
-  return document.activeElement === button ? "takes the focus" : "inert";
-};
-// A `::backdrop` that paints, a second scrim under the dialog's own box.
-const backdrop = (dialog) =>
-  [...document.styleSheets].some((sheet) =>
-    [...sheet.cssRules].some((rule) => {
-      const [on, pseudo] = (rule.selectorText ?? "").split("::");
-      const colour = rule.style?.backgroundColor ?? "";
-      return pseudo === "backdrop" && dialog.matches(on) && !["", "none", "transparent"].includes(colour);
-    }),
-  );
-// The open dialogs from the bottom of the top layer up, each with its scrim.
-const stacked = () =>
-  modals
-    .filter((d) => d.open)
-    .map((d) => `${d.getAttribute("aria-label")} ${getComputedStyle(d).backgroundColor}${backdrop(d) ? " and a backdrop" : ""}`)
-    .join(" / ");
-const report = (signals) => {
-  const said = signals ? `${body.firstChild.lastChild.textContent} | ` : "";
-  console.log(`${said}${stacked() || "none"} | focus ${focused()} | behind ${behind()} | showModal ${calls}`);
-};
-const page = () => import("./.buri/out/web/cmd/page/main.mjs");
-const served = mode !== "mounted";
-if (served) {
-  const { default: server } = await import("./.buri/out/platform/server/cmd/page/fetch.mjs");
-  const sent = await (await server.fetch(new Request("http://localhost/"))).text();
-  // A Content-Security-Policy that refuses inline scripts.
-  parse(mode === "refused" ? sent.replace(/<script>.*?<\/script>/s, "") : sent);
-} else {
-  await page();
-  await tick();
-}
 report(!served);
 press("Escape");
 await tick();
@@ -1169,21 +1203,7 @@ report(true);
 "#
     );
     let path = scratch.write("drive.mjs", &script);
-    let run = |mode: &str| {
-        let out = Command::new(js_runtime())
-            .arg(&path)
-            .arg(mode)
-            .capped_output()
-            .expect("the javascript runtime runs");
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-        assert_eq!(
-            out.status.code(),
-            Some(0),
-            "the {mode} page did not run:\n{stdout}{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        stdout
-    };
+    let run = |mode: &str| run_served(&path, mode);
     let black = "rgba(0, 0, 0, 0.5)";
     let mounted = run("mounted");
     assert_eq!(
@@ -1225,6 +1245,260 @@ report(true);
              outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 3\n\
              outer:true inner:false | Before {black} / Outer {black} | focus First | behind inert | showModal 3\n\
              outer:true inner:true | Before {black} / Outer {black} / Inner {black} | focus Deep | behind inert | showModal 4\n"
+        )
+    );
+}
+
+/// A page holding `children`, with `signals` made in `page` before it and a
+/// text after it saying `said`, for [`hidden_dialog`]. `main` resumes the page
+/// a server sent and mounts it otherwise; `fetch` is the server.
+const HIDDEN_DIALOG_PAGE: &str = r#"from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/server" import { ServerHost };
+
+fn idle<C: Ui>(label: Str): Node<C> {
+    ui.button({ label: .Const(label), styles: [], onPress: .Some(fn(_c) => ()) })
+}
+
+fn dialog<C: Ui>(open: Signal<Bool>, label: Str, children: [Node<C>]): Node<C> {
+    ui.dialog({ isOpen: open, label: .Const(label), children: children, styles: [] })
+}
+
+fn box<C: Ui>(child: Node<C>): Node<C> {
+    ui.stack({ styles: [], children: [child] })
+}
+
+fn page<C: Ui>(ctx: C): Node<C> {
+    SIGNALS
+    ui.stack({
+        styles: [],
+        children: [
+            CHILDREN,
+            ui.text({ content: .Computed(fn(s) => str.format(s, "SAID")) }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx);
+    match (web.state(ctx)) {
+        .Some(_sent) => web.resume(ctx, tree),
+        .None => ui.mount(ctx, tree, []),
+    }
+}
+
+export fn fetch(host: ServerHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+}
+"#;
+
+/// Builds the page [`HIDDEN_DIALOG_PAGE`] makes of `signals`, `children` and
+/// `said`, and runs `steps` against it mounted, served, and served under a
+/// policy that refuses inline scripts. Each run reports once before the page
+/// takes over, then again after each step. Asserts the three runs read the
+/// same, the first line leaving out the page's text before the takeover, and
+/// answers the mounted run's lines.
+fn hidden_dialog(name: &str, signals: &str, children: &str, said: &str, steps: &str) -> String {
+    let page = HIDDEN_DIALOG_PAGE
+        .replace("SIGNALS", signals)
+        .replace("CHILDREN", children)
+        .replace("SAID", said);
+    let scratch = served(name, &page);
+    let script = format!(
+        "{}\n{SERVED_DRIVER}\nreport(!served);\nif (served) await page();\nawait tick();\nreport(true);\n{steps}",
+        browser(),
+    );
+    let path = scratch.write("drive.mjs", &script);
+    let mounted = run_served(&path, "mounted");
+    let expected: String = mounted
+        .lines()
+        .enumerate()
+        .map(|(i, line)| match (i, line.split_once(" | ")) {
+            (0, Some((_, rest))) => rest.to_string(),
+            _ => line.to_string(),
+        })
+        .map(|line| line + "\n")
+        .collect();
+    assert_eq!(run_served(&path, "served"), expected);
+    assert_eq!(run_served(&path, "refused"), expected);
+    mounted
+}
+
+/// A dialog written open inside a shut dialog stays shut, before the page
+/// takes over and after, and so does one a `choose` in the shut dialog builds
+/// later. A browser draws none of a shut dialog, so a modal one inside would
+/// leave the page inert behind nothing. Opening the outer dialog opens the
+/// inner ones on top of it; shutting it shuts them too, and they keep their
+/// signals and open again with it.
+#[test]
+fn a_dialog_inside_a_shut_dialog_stays_shut_until_that_opens() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let lines = hidden_dialog(
+        "dialog-in-a-shut-dialog",
+        "let outer = signal(ctx, false);\n    let inner = signal(ctx, true);\n    let late = signal(ctx, false);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(c) => outer.set(c, true)) }),
+            ui.button({ label: .Const("Build"), styles: [], onPress: .Some(fn(c) => late.set(c, true)) }),
+            dialog(
+                outer,
+                "Outer",
+                [
+                    idle("Rim"),
+                    dialog(inner, "Inner", [idle("Core")]),
+                    ui.choose(
+                        .Cell(late),
+                        dialog(
+                            signal(ctx, true),
+                            "Late",
+                            [ui.button({ label: .Const("Hide"), styles: [], onPress: .Some(fn(c) => outer.set(c, false)) })],
+                        ),
+                        ui.empty(),
+                    ),
+                ],
+            )"#,
+        "outer:${outer.get(s)} inner:${inner.get(s)} late:${late.get(s)}",
+        r#"labelled("Build").click();
+await tick();
+report(true);
+labelled("Behind").click();
+await tick();
+report(true);
+labelled("Hide").click();
+await tick();
+report(true);
+labelled("Behind").click();
+await tick();
+report(true);
+"#,
+    );
+    let open = format!("Outer {black} / Inner {black} / Late {black}");
+    assert_eq!(
+        lines,
+        format!(
+            "outer:false inner:true late:false | none | focus nothing | behind takes the focus | showModal 0\n\
+             outer:false inner:true late:false | none | focus Behind | behind takes the focus | showModal 0\n\
+             outer:false inner:true late:true | none | focus Behind | behind takes the focus | showModal 0\n\
+             outer:true inner:true late:true | {open} | focus Hide | behind inert | showModal 3\n\
+             outer:false inner:true late:true | none | focus Behind | behind takes the focus | showModal 3\n\
+             outer:true inner:true late:true | {open} | focus Hide | behind inert | showModal 6\n"
+        )
+    );
+}
+
+/// A dialog written open two stacks down in an open dialog, inside a shut
+/// dialog, stays shut, and so does the open one between them: what is shut
+/// any number of levels up hides it. Opening the outermost opens all three in
+/// order, and shutting it shuts all three.
+#[test]
+fn a_dialog_inside_a_dialog_shut_levels_up_stays_shut_until_that_opens() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let lines = hidden_dialog(
+        "dialog-shut-levels-up",
+        "let far = signal(ctx, false);\n    let mid = signal(ctx, true);\n    let deep = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(c) => far.set(c, true)) }),
+            dialog(
+                far,
+                "Far",
+                [
+                    box(
+                        box(
+                            dialog(
+                                mid,
+                                "Mid",
+                                [
+                                    dialog(
+                                        deep,
+                                        "Deep",
+                                        [ui.button({ label: .Const("Hide"), styles: [], onPress: .Some(fn(c) => far.set(c, false)) })],
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ),
+                ],
+            )"#,
+        "far:${far.get(s)} mid:${mid.get(s)} deep:${deep.get(s)}",
+        r#"labelled("Behind").click();
+await tick();
+report(true);
+labelled("Hide").click();
+await tick();
+report(true);
+labelled("Behind").click();
+await tick();
+report(true);
+"#,
+    );
+    assert_eq!(
+        lines,
+        format!(
+            "far:false mid:true deep:true | none | focus nothing | behind takes the focus | showModal 0\n\
+             far:false mid:true deep:true | none | focus Behind | behind takes the focus | showModal 0\n\
+             far:true mid:true deep:true | Far {black} / Mid {black} / Deep {black} | focus Hide | behind inert | showModal 3\n\
+             far:false mid:true deep:true | none | focus Behind | behind takes the focus | showModal 3\n\
+             far:true mid:true deep:true | Far {black} / Mid {black} / Deep {black} | focus Hide | behind inert | showModal 6\n"
+        )
+    );
+}
+
+/// A dialog written open inside a shut disclosure stays shut, before the page
+/// takes over and after. A browser draws a shut `<details>` as its summary
+/// alone. The reader opening the disclosure opens the dialog; shutting the
+/// disclosure shuts it, and it keeps its signal.
+#[test]
+fn a_dialog_inside_a_shut_disclosure_stays_shut_until_that_opens() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let lines = hidden_dialog(
+        "dialog-in-a-shut-disclosure",
+        "let more = signal(ctx, false);\n    let tucked = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ui.disclosure({
+                summary: .Const("More"),
+                isOpen: more,
+                children: [
+                    dialog(
+                        tucked,
+                        "Tucked",
+                        [ui.button({ label: .Const("Fold"), styles: [], onPress: .Some(fn(c) => more.set(c, false)) })],
+                    ),
+                ],
+                styles: [],
+            })"#,
+        "more:${more.get(s)} tucked:${tucked.get(s)}",
+        r#"document.querySelector("summary").focus();
+press("Enter");
+await tick();
+report(true);
+labelled("Fold").click();
+await tick();
+report(true);
+document.querySelector("summary").focus();
+press("Enter");
+await tick();
+report(true);
+"#,
+    );
+    assert_eq!(
+        lines,
+        format!(
+            "more:false tucked:true | none | focus nothing | behind takes the focus | showModal 0\n\
+             more:false tucked:true | none | focus Behind | behind takes the focus | showModal 0\n\
+             more:true tucked:true | Tucked {black} | focus Fold | behind inert | showModal 1\n\
+             more:false tucked:true | none | focus More | behind takes the focus | showModal 1\n\
+             more:true tucked:true | Tucked {black} | focus Fold | behind inert | showModal 2\n"
         )
     );
 }

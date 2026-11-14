@@ -240,8 +240,13 @@ a one-line inline script that calls `showModal` on each open dialog as the
 browser parses the page. The reader gets a real modal before the page's script
 arrives: the page behind it is inert, and Escape shuts it. `resume` keeps it
 as it is, and a dialog the reader already shut stays shut, its `isOpen` written
-`false`. A Content-Security-Policy that refuses inline scripts leaves the dialog
-open but not modal until `resume` runs.
+`false`. A dialog inside a shut dialog or a shut `disclosure` is written shut,
+so the script leaves it alone.
+
+A Content-Security-Policy that refuses inline scripts leaves the dialog open
+but not modal until `resume` runs. HTML has no markup for a modal dialog, so
+nothing but a script fixes that. The script is the same on every page, so a
+policy can allow just it with a `'sha256-…'` source of its text.
 
 ## The head is a value
 

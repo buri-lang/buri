@@ -752,6 +752,40 @@ test "a dialog crosses the worker open, and shut" {
     );
 }
 
+test "a dialog inside a shut dialog or disclosure crosses the worker shut" {
+    // A browser draws nothing of what a shut dialog or disclosure holds, so a
+    // dialog the worker wrote open there would be made modal out of sight.
+    let ctx = context {
+        Ui: headless(),
+    };
+    let inner: Node<()> = ui.dialog({
+        isOpen: signal(ctx, true),
+        label: .Const("Inner"),
+        children: [],
+        styles: [],
+    });
+    let inDialog = web.render<()>(
+        ui.dialog({
+            isOpen: signal(ctx, false),
+            label: .Const("Outer"),
+            children: [ui.stack({ styles: [], children: [inner] })],
+            styles: [],
+        }),
+    );
+    assert.isTrue(inDialog.contains("aria-label=\"Inner\""));
+    assert.isFalse(inDialog.contains(" open"));
+    let inDisclosure = web.render<()>(
+        ui.disclosure({
+            summary: .Const("More"),
+            isOpen: signal(ctx, false),
+            children: [inner],
+            styles: [],
+        }),
+    );
+    assert.isTrue(inDisclosure.contains("aria-label=\"Inner\""));
+    assert.isFalse(inDisclosure.contains(" open"));
+}
+
 test "a heading's level clamps to the range a document has" {
     assert.equal(
         web.render<()>(ui.text({ content: .Const("low"), headingLevel: .Some(0) })),
