@@ -5236,6 +5236,12 @@ static TASK_STACKS_LIVE: AtomicUsize = AtomicUsize::new(0);
 /// The most [`TASK_STACKS_LIVE`] has been, over the run.
 static TASK_STACKS_PEAK: AtomicUsize = AtomicUsize::new(0);
 
+/// Whether the pool could take back `n` more task stacks, out beside those out
+/// now, so mapping them ahead of their first turn unmaps none later.
+pub(crate) fn task_pool_takes_back(n: usize) -> bool {
+    TASK_STACKS_LIVE.load(Ordering::Relaxed) + n <= STACK_POOL_MAX
+}
+
 /// The most task machine stacks this run has had out at once.
 ///
 /// A probe: `cli/tests/native/fan_out.rs` links a destructor that prints it,

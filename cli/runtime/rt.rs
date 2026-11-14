@@ -1226,11 +1226,13 @@ unsafe fn give_stack(task: &Arc<Task>) {
 /// A task the caller queues. `mapped` maps its machine stack now; otherwise
 /// its first turn does, so it holds none while it waits.
 ///
-/// Mapping now is cheaper for a fan-out the stack pool holds whole: the work
-/// is done before the batch wakes anybody, and the dispatcher, which runs most
-/// of a fan-out of trivial steps itself, then runs each one sooner. Mapping
-/// later is what a wider one needs, or its queued steps hold every pooled
-/// stack and the running ones map and unmap fresh ones.
+/// Mapping now is cheaper for a fan-out from a thread that isn't a task, when
+/// the pool can take back these stacks and every other one out: the work is
+/// done before the batch wakes anybody, and the dispatcher, which runs most of
+/// a fan-out of trivial steps itself, then runs each one sooner. A task that
+/// fans out runs none of its steps. Otherwise queued steps hold stacks the
+/// pool can't take back, and each one given back is unmapped for the next step
+/// to map again.
 fn new_task(
     body: Box<dyn FnOnce() + Send>,
     latch: Option<Arc<Latch>>,
@@ -1616,6 +1618,7 @@ unsafe fn fan_out(steps: Steps, n: usize) {
         let in_flight = latch.left.load(Ordering::Acquire) - (n - started);
         let end = n.min(started + (IN_FLIGHT - in_flight));
         if end > started {
+            let mapped = running().is_null() && crate::memory::task_pool_takes_back(n);
             // Made before the queue's lock is taken, not under it.
             let batch: Vec<Arc<Task>> = (started..end)
                 .map(|j| {
@@ -1626,7 +1629,7 @@ unsafe fn fan_out(steps: Steps, n: usize) {
                         Box::new(move || unsafe { steps.run(j) }),
                         Some(Arc::clone(&latch)),
                         Arc::clone(&lineage),
-                        n <= crate::memory::STACK_POOL_MAX,
+                        mapped,
                     )
                 })
                 .collect();

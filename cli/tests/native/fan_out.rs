@@ -142,6 +142,74 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// 60 rounds of a scope whose 24 tasks each sleep and then fan out over 64
+/// trivial steps. A task holds its stack while it waits for its steps, and a
+/// running step holds one, so at most 24 + 256 stacks are out at once.
+///
+/// Each fan-out used to map all 64 stacks before queueing its steps, without
+/// counting the fan-outs beside it: about 1,300 out at once. Past the pool's
+/// 64, each stack given back was unmapped, and the next round mapped it again.
+#[test]
+fn fan_outs_side_by_side_map_stacks_for_running_steps() {
+    let source = r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Clock, Tasks };
+
+fn spawning<C: Allocator + Clock + Tasks>(ctx: C, here: Scope, left: Int): Int {
+  if (left == 0) {
+    0
+  } else {
+    let _ = tasks.spawn(ctx, here, fn(c) => {
+      let _ = time.sleep(c, time.milliseconds(1));
+      let _ = tasks.parallel(c, list.range(c, 0, 64), fn(c2, i, x) => x * 2 + i);
+    });
+    1 + spawning(ctx, here, left - 1)
+  }
+}
+
+fn rounds<C: Allocator + Clock + Tasks>(ctx: C, k: Int, acc: Int): Int {
+  if (k == 0) {
+    acc
+  } else {
+    rounds(ctx, k - 1, acc + tasks.scope(ctx, fn(c, s) => spawning(c, s, 24)))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Clock: host.clock, Tasks: host.tasks };
+  let _ = io.println(host.stdout, "${rounds(ctx, 60, 0)}").ignore();
+  .Ok(())
+}
+"#;
+    let Some(binary) = crate::e2e::built_probed("fan-outs-side-by-side", source, &window_probe())
+    else {
+        return;
+    };
+    let r = ran_checked(&binary);
+    assert_eq!(r.status, 0, "stderr: {}", r.stderr);
+    assert_eq!(r.stdout, "1440\n", "stderr: {}", r.stderr);
+    let (_, live) = probed(&r.stderr);
+    assert_eq!(live, 0, "blocks still live at exit");
+    let peak: u64 = r
+        .stderr
+        .lines()
+        .find_map(|l| l.split_once(" peak="))
+        .unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr))
+        .1
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(
+        peak <= 24 + 256,
+        "24 tasks that each fan out over 64 steps had {peak} task stacks out at once"
+    );
+}
+
 /// [`ALLOC_PROBE`], plus a line with the bytes the runtime gave back to the
 /// kernel over the run.
 fn decommit_probe() -> String {

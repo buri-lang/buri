@@ -7072,7 +7072,12 @@ Three changes in `cli/runtime/rt.rs`:
 
 - **A step maps its stack on its first turn** (`turn`, `give_stack`) when its
   fan-out is wider than the 64 stacks the pool keeps. A narrower one still
-  maps up front. Mapping later in `a_tiny` moved the work past the wake-up,
+  maps up front, but only from a thread that isn't a task, and only while the
+  pool could take back every stack out. A task that fans out runs none of its
+  steps, so it gains nothing from mapping early. Before these two checks, 24
+  tasks that each fanned out over 64 steps had 1,300 stacks out at once, and
+  memcheck took 172 s on one CPU to run
+  `a_task_that_fans_out_and_wakes_on_another_thread_still_finishes`. Mapping later in `a_tiny` moved the work past the wake-up,
   and the dispatcher ran its steps late enough that more workers joined:
   160 ms to 225.
 - **One latch for every step.** The window refills 64 steps at a time

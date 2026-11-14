@@ -5504,13 +5504,13 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// The program aborted inside tokio, crashed, or hung, in every run of 240
 /// rounds on macOS.
 ///
-/// Under memcheck the row runs 20 rounds. Memcheck's `--track-origins` costs a
-/// fan-out step milliseconds, so 240 rounds took 74 s on one CPU, past the
-/// minute the row allows.
+/// Memcheck once took 172 s on one CPU, past the minute the row allows. Queued
+/// steps held stacks past the pool's 64, so stacks were unmapped and mapped
+/// again, and memcheck clears its record of all 65 MiB at each.
 #[test]
 fn a_task_that_fans_out_and_wakes_on_another_thread_still_finishes() {
     unless_ready!();
-    let rounds = if crate::valgrind::asked() { 20 } else { 240 };
+    let rounds = 240;
     let binary = built(
         "e2e-fanning-out-on-another-thread",
         &fanning_out_on_another_thread(rounds),
