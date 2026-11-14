@@ -859,6 +859,49 @@ fn the_pgo_training_has_the_test_jobs_tools() {
     );
 }
 
+/// The nightly's PGO training names its pooled profile, and every test that
+/// runs a copy of `buri` gives the copy files of its own beside that pool.
+///
+/// Each run of the instrumented `buri` merges into one pooled file. A copy
+/// without a build id lays its profile out otherwise, and its first merge left
+/// the pool unreadable: run 43611982203 failed with `no profile can be merged`.
+/// The tests that copy `buri` move the copy to files of its own only when
+/// `LLVM_PROFILE_FILE` names the pool, so the training must name it.
+#[test]
+fn the_pgo_training_keeps_copies_of_buri_out_of_its_pool() {
+    let script = std::fs::read_to_string(repo_root().join(".github/pgo.sh")).unwrap();
+    let training = script
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.starts_with('#') && l.contains("xargs"))
+        .expect("pgo.sh starts its suites in one `xargs`");
+    assert!(
+        training.contains("LLVM_PROFILE_FILE=\"$work/raw/default_%m.profraw\""),
+        "pgo.sh's suites don't name the pool their `buri` merges into: {training}"
+    );
+    let copying: Vec<PathBuf> = walked(&repo_root().join("cli/tests"))
+        .into_iter()
+        .filter(|path| {
+            let source = std::fs::read_to_string(path).unwrap_or_default();
+            let copies = [
+                "fs::read(buri())",
+                "fs::read(&buri())",
+                "fs::copy(buri()",
+                "fs::copy(&buri()",
+            ]
+            .iter()
+            .any(|copy| source.contains(copy));
+            copies && !source.contains("LLVM_PROFILE_FILE")
+        })
+        .collect();
+    assert!(
+        copying.is_empty(),
+        "these tests run a copy of `buri` that writes into the pooled profile; give it \
+         `%m_no_build_id_%p.profraw` beside `LLVM_PROFILE_FILE`, as build_driver.rs does: \
+         {copying:?}"
+    );
+}
+
 /// The local runner's config only schedules tests: it never kills, retries or
 /// filters one.
 ///

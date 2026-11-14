@@ -1467,8 +1467,10 @@ fn a_buri_without_a_build_id_still_caches() {
     bytes[note + 14] = b'X';
     let copy = scratch.path("bin/buri");
     write_executable(&copy, bytes);
-    // Under the coverage gate, the copy's profiles lack the build id the
-    // pooled ones carry, so the two can't share a pooled file.
+    // Under the coverage gate and the nightly's PGO training, the copy's
+    // profiles lack the build id the pooled ones carry, so the two can't share
+    // a pooled file: the first of the copy's merges into it leaves it
+    // unreadable.
     let profile = std::env::var_os("LLVM_PROFILE_FILE")
         .map(|pool| std::path::Path::new(&pool).with_file_name("%m_no_build_id_%p.profraw"));
     // `None` is no home at all, so nowhere to remember the hash.

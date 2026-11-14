@@ -22,7 +22,7 @@ fn repository() -> Scratch {
 /// Builds twice with `exe` and asserts the second build was served from the
 /// cache, so `exe` knew itself both times.
 fn caches(scratch: &Scratch, exe: &Path) {
-    // Under the coverage gate, a copy's profiles can't share the pooled file of
+    // Under the coverage gate and the nightly's PGO training, a copy's profiles can't share the pooled file of
     // the `buri` it was copied from (`build_driver.rs` says why).
     let profile = std::env::var_os("LLVM_PROFILE_FILE")
         .map(|pool| Path::new(&pool).with_file_name("%m_no_build_id_%p.profraw"));

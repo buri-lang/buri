@@ -75,9 +75,15 @@ if [ "$step" != use ]; then
   # profile then covers less. So each suite's output is dropped but its result
   # line is kept, and one line sums them; a suite that ends without one counts
   # as a crash.
+  #
+  # Every run of buri merges its counts into one pooled file, and a run whose
+  # profile is laid out otherwise destroys that file for good: a copy of buri
+  # without a build id, which a test makes, did so in run 43611982203. Such a
+  # test gives its copy files of its own beside `LLVM_PROFILE_FILE`, so the
+  # pool is named here, by the name the build already gave it.
   cores=$(getconf _NPROCESSORS_ONLN)
   : > "$work/results.txt"
-  NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c \
+  LLVM_PROFILE_FILE="$work/raw/default_%m.profraw" NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c \
     '{} --test-threads=2 2>/dev/null | grep "^test result:" || echo "test result: crashed"' \
     < "$work/units.txt" >> "$work/results.txt"
   awk '/crashed/ { crashed++ }
