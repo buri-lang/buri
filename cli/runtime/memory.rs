@@ -5127,7 +5127,7 @@ fn map_task_stack() -> *mut u8 {
         mmap(
             core::ptr::null_mut(),
             BURI_RT_STACK_RESERVE,
-            PROT_READ | PROT_WRITE,
+            task_stack_access(),
             MAP_PRIVATE | MAP_ANON,
             -1,
             0,
@@ -5165,6 +5165,7 @@ fn map_task_stack() -> *mut u8 {
     // and the guard is the bottom `BURI_RT_STACK_GUARD` of it.
     let rc = unsafe { mprotect(p.cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
     assert!(rc == 0, "a task stack could not be given its guard");
+    task_stack_open(p.wrapping_add(BURI_RT_STACK_GUARD), BURI_RT_STACK_USABLE);
     // SAFETY: the mapping just made, and the word is in its usable range.
     unsafe { task_watermark(p).write(BURI_RT_STACK_WATERMARK) };
     register_task_stack(p);
@@ -5379,7 +5380,7 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
         mmap(
             low.cast(),
             len,
-            PROT_READ | PROT_WRITE,
+            task_stack_access(),
             MAP_PRIVATE | MAP_ANON | MAP_FIXED,
             -1,
             0,
@@ -5396,10 +5397,45 @@ pub(crate) unsafe fn buri_rt_task_stack_release(base: *mut u8) {
         }
         return;
     }
+    task_stack_open(low, len);
     DECOMMITTED_BYTES.fetch_add(len as u64, Ordering::Relaxed);
     // SAFETY: the range was just re-mapped, so the word is zero and writable.
     unsafe { task_watermark(base).write(BURI_RT_STACK_WATERMARK) };
     task_pool_keep(base);
+}
+
+/// The access a task stack is mapped with: read and write, or none under
+/// helgrind until [`task_stack_open`] gives it them.
+///
+/// Helgrind paints a readable or writable mapping as new memory, byte by byte
+/// (`evh__new_mem_w_perms`), and keeps about 7 KB of shadow for each 8 KiB it
+/// paints. So each 65 MiB stack cost 53 MB whether a frame touched it or not,
+/// and a server's 256 parked workers ran a 14 GiB machine out of memory. An
+/// `mprotect` that gives access paints nothing (`evh__set_perms`), and
+/// helgrind paints each frame as the stack pointer moves down onto it, so a
+/// frame is checked as before. Only the words written from outside the stack,
+/// `switch::prepare`'s first frame and the watermark, go unchecked.
+///
+/// The machine stack only: the data stack grows up, so no frame on it is
+/// painted that way, and it keeps a mapping helgrind paints.
+fn task_stack_access() -> i32 {
+    if valgrind::helgrind() {
+        PROT_NONE
+    } else {
+        PROT_READ | PROT_WRITE
+    }
+}
+
+/// Gives `[low, low + len)` of a task stack [`task_stack_access`] mapped
+/// without access read and write.
+fn task_stack_open(low: *mut u8, len: usize) {
+    if !valgrind::helgrind() {
+        return;
+    }
+    // SAFETY: the caller names a whole number of pages of a task stack's own
+    // mapping, at a page boundary, that nothing runs on yet.
+    let rc = unsafe { mprotect(low.cast(), len, PROT_READ | PROT_WRITE) };
+    assert!(rc == 0, "a task stack could not be opened");
 }
 
 /// Put a released task stack in [`TASK_POOL`], or give it back where the pool
