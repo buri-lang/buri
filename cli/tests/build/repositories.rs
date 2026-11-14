@@ -649,6 +649,13 @@ fn serving_a_page() {
 /// viewport, an open dialog, a tooltip and a marked list item.
 /// `positioned_boxes_follow_the_browser_order` checks each pair against
 /// happy-dom's computed styles, so the browser's order backs the twin.
+///
+/// `pinned_panels_paint_over_the_page` is a `PinAnchor` menu and a tooltip's
+/// bubble over the whole page, hanging from their trigger (#351, #352), each
+/// scene beside a twin in tree order: over the box after the trigger, from
+/// inside a stacking context, far down the page and inside an open dialog.
+/// `pinned_panels_are_in_the_top_layer_against_their_trigger` checks each in
+/// happy-dom.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 68);
@@ -673,7 +680,7 @@ fn positioned_boxes_follow_the_browser_order() {
     let expected: &[(&str, &str)] = &[
         ("nested", "red blue"),
         ("deep", "red blue"),
-        ("anchored", "red blue"),
+        ("anchored", "blue red"),
         ("scrolled", "red blue"),
         ("layers", "red blue"),
         ("siblings", "green red blue"),
@@ -710,6 +717,44 @@ fn positioned_boxes_follow_the_browser_order() {
     }
     assert_eq!(orders.len(), expected.len() * 2, "{orders:?}");
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Where a browser puts `pinned_panels_paint_over_the_page`'s panels, read
+/// off happy-dom: each menu and bubble is in the top layer, placed against its
+/// trigger, and paints over every box on the page in the order the shared
+/// golden shows.
+#[test]
+fn pinned_panels_are_in_the_top_layer_against_their_trigger() {
+    let case = tests_dir().join("repositories/ui/pinned_panels_paint_over_the_page");
+    let menu = "red on top against its parent";
+    let bubble = "blue on top against its parent";
+    let placed: Vec<(String, String)> = [
+        ("menu", menu),
+        ("menu", "none"),
+        ("translated", menu),
+        ("translated", "none"),
+        ("hanging", menu),
+        ("hanging", "none"),
+        ("dialog", menu),
+        ("dialog", "none"),
+        ("tooltip", bubble),
+        ("tooltip", bubble),
+    ]
+    .iter()
+    .map(|(name, panels)| (name.to_string(), panels.to_string()))
+    .collect();
+    assert_eq!(crate::harness::web_pages::placements(&case), placed);
+    let orders: Vec<(String, String)> = [
+        ("menu", "blue red"),
+        ("translated", "blue red"),
+        ("hanging", "red"),
+        ("dialog", "blue green red"),
+        ("tooltip", "red blue"),
+    ]
+    .iter()
+    .flat_map(|(name, order)| vec![(name.to_string(), order.to_string()); 2])
+    .collect();
+    assert_eq!(crate::harness::web_pages::paint_orders(&case), orders);
 }
 
 /// What a browser draws for each scrim in `a_dialog_scrim_draws_its_styles`,

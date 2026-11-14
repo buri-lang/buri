@@ -5238,6 +5238,10 @@ function $dom_drawn(element) {
   return parent !== null && parent.checkVisibility();
 }
 
+// The panels `$dom_settle` has shown in the top layer, so it can take down one
+// that is no longer a panel at all.
+const $dom_panels = new Set();
+
 // Makes modal the dialogs the program holds open that a browser would draw,
 // and shuts every other. A modal dialog nothing draws leaves the page inert
 // behind nothing. Runs whenever one is opened or shut, after every update of
@@ -5252,6 +5256,14 @@ function $dom_drawn(element) {
 // `shell`'s script makes a server's open dialog modal before the page resumes.
 // One open and *not* modal is markup that script didn't reach (a policy
 // refused it), and `showModal` on it throws, so it is shut first.
+//
+// It also shows in the top layer every panel placed against an anchor — a
+// `PinAnchor` box or a tooltip's bubble — that a browser would draw, so it
+// covers the whole page rather than only what came before it (#351). A
+// `popover="manual"` is the way there: nothing dismisses it but the program.
+// Dialogs and panels share the top layer, in tree order: once one is newly
+// put there, every panel after it that was already there goes back on top.
+// A dialog is never put back, which would move the focus.
 let $dom_settling = false;
 function $dom_settle() {
   // Opening one moves the focus, and a listener may update the page.
@@ -5269,26 +5281,76 @@ function $dom_settle() {
       d.$modal = false;
       if (d.open) d.close();
     }
-    for (const d of held) {
-      if (d.$modal || !wanted(d)) continue;
-      d.$modal = true;
-      if (d.matches(":modal")) continue;
-      if (d.open) d.close();
-      d.showModal();
+    const panels = new Set($dom_panels);
+    for (const p of document.querySelectorAll('[class*="pos-anchor"],[role=tooltip]')) panels.add(p);
+    const layers = held.concat(Array.from(panels));
+    layers.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    let raised = false;
+    for (const d of layers) {
+      if (!panels.has(d)) {
+        if (d.$modal || !wanted(d)) continue;
+        d.$modal = true;
+        if (d.matches(":modal")) continue;
+        if (d.open) d.close();
+        d.showModal();
+        raised = true;
+        continue;
+      }
+      const open = d.isConnected && d.hasAttribute("popover") && d.matches(":popover-open");
+      if (!$dom_placed(d)) {
+        if (!$dom_panels.delete(d)) continue;
+        if (open) d.hidePopover();
+        d.removeAttribute("popover");
+        continue;
+      }
+      if (open && !raised) continue;
+      if (open) d.hidePopover();
+      else d.setAttribute("popover", "manual");
+      d.showPopover();
+      $dom_panels.add(d);
+      raised = true;
     }
   } finally {
     $dom_settling = false;
   }
 }
 
-// Counts dialog `element` in `$dom_settle` while the computation rendering it
-// lasts. The first one on a page settles them after every update, and on
-// every resize, since a breakpoint is a width.
-function $dom_dialog(element) {
-  if ($ui.settle === null) {
-    $ui.settle = $dom_settle;
-    window.addEventListener("resize", $dom_settle);
+// Whether panel `element` is one a browser draws placed against its anchor:
+// on the page, written as `PinAnchor` under the styles that hold right now — a
+// breakpoint or a state may say otherwise — and neither it nor anything
+// holding it `display: none`. A panel has a `popover` attribute only while it
+// is open, so the browser's own `display: none` for a shut popover never
+// answers here.
+function $dom_placed(element) {
+  return (
+    element.isConnected &&
+    getComputedStyle(element).positionAnchor === "--buri-flow" &&
+    element.checkVisibility()
+  );
+}
+
+// Has `$dom_settle` run after every update of the page and on every resize,
+// since a breakpoint is a width. The first dialog or panel on a page asks.
+function $dom_settle_on() {
+  if ($ui.settle !== null) return;
+  $ui.settle = $dom_settle;
+  window.addEventListener("resize", $dom_settle);
+}
+
+// Settles a page just rendered or resumed, which no update has settled yet: a
+// panel the server sent goes into the top layer as the page resumes.
+function $dom_settle_page() {
+  if (typeof document === "undefined") return;
+  if ($ui.settle === null && document.querySelector('[class*="pos-anchor"],[role=tooltip]') !== null) {
+    $dom_settle_on();
   }
+  if ($ui.settle !== null) $ui.settle();
+}
+
+// Counts dialog `element` in `$dom_settle` while the computation rendering it
+// lasts.
+function $dom_dialog(element) {
+  $dom_settle_on();
   $dom_dialogs.add(element);
   $ui_dispose_with(() => $dom_dialogs.delete(element));
 }
@@ -5314,6 +5376,9 @@ function $dom_classes(element, value) {
   }
   if (value === "" && element.className === "") return;
   element.className = value;
+  // A `PinAnchor` panel, under any breakpoint or state, is one
+  // `$dom_settle` shows in the top layer.
+  if (/(^|[\s_])pos-anchor(\s|$)/.test(value)) $dom_settle_on();
 }
 
 // The inline declarations an element has, all of them at once, for the same
@@ -6575,6 +6640,7 @@ function $tree_tooltip(ctx, node, parent, anchor) {
   $tree_styles(bubble, node[2]);
   $tree_text(node[1], bubble, null);
   $dom_attribute($tree_trigger(wrapper, bubble), "aria-describedby", id);
+  if (!bubble.$shim) $dom_settle_on();
   $tree_bubble(wrapper, bubble);
   $tree_events(ctx, wrapper, node[4]);
 }
@@ -6662,6 +6728,8 @@ function $tree_bubble(wrapper, bubble) {
   const sync = () => {
     if (!over && !within) dismissed = false;
     $dom_hidden(bubble, !((over || within) && !dismissed));
+    // Shown in the top layer, over the page, or taken out of it.
+    $dom_settle();
   };
   $dom_listen(wrapper, "pointerenter", () => {
     over = true;
@@ -7643,6 +7711,7 @@ function $ui_node_mount(ctx, root, themes) {
   // install, because the only list `themes` can be is an empty one.
   if ($ui_theme_hook !== null) $ui_theme_hook(themes);
   $tree_render(ctx, root, body, null);
+  $dom_settle_page();
   // The page stays live. The entry wrapper exits only on an `.Err`, and the
   // listeners this registered go on running.
   return $ok(0);
@@ -11203,6 +11272,7 @@ function $ui_web_resume(ctx, root) {
     $tree_render(ctx, root, body, null);
     const over = $adopt_leftovers(body);
     if (over !== null) return $err(over);
+    $dom_settle_page();
     const shut = $adopt.shut;
     if (shut.length > 0) {
       $ui_flush(() => {

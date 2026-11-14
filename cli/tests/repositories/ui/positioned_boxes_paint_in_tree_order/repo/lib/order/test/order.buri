@@ -4,8 +4,8 @@
 from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "//lib/order" import {
-    anchored, deep, drawing, drawingTwin, faded, fadedTwin, flat, layers, nested,
-    onViewport, onViewportTwin, scrolled, siblings, siblingsTwin,
+    anchored, anchoredTwin, deep, drawing, drawingTwin, faded, fadedTwin, flat, layers,
+    nested, onViewport, onViewportTwin, scrolled, siblings, siblingsTwin,
 };
 
 test "a pinned field inside a pinned wrapper paints under the square pinned after the wrapper" {
@@ -40,7 +40,7 @@ test "the same field and square with no wrapper, for the deep scene" {
     snapshot(ctx, "deep", flat(), .Checked, []);
 }
 
-test "a pinned field inside an anchored wrapper paints under the square pinned after it" {
+test "a pinned field inside an anchored wrapper paints over the square pinned after it" {
     let ctx = context {
         Allocator: alloc(),
         Ui: headless(),
@@ -48,12 +48,12 @@ test "a pinned field inside an anchored wrapper paints under the square pinned a
     snapshot(ctx, "anchored", anchored(), .Checked, []);
 }
 
-test "the same field and square with no wrapper, for the anchored scene" {
+test "the square and then the field with no wrapper, for the anchored scene" {
     let ctx = context {
         Allocator: alloc(),
         Ui: headless(),
     };
-    snapshot(ctx, "anchored", flat(), .Checked, []);
+    snapshot(ctx, "anchored", anchoredTwin(), .Checked, []);
 }
 
 test "a pinned field inside a scroll box paints under the square pinned after it" {

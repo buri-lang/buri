@@ -1,0 +1,5 @@
+FAIL //lib/panels  test/panels.buri  "the bar and then the menu, pinned in tree order"
+  the snapshot "menu" changed: see test/__snapshots__/menu.diff.png
+  --> lib/panels/test/panels.buri:20:1
+
+9 passed, 1 failed, 0 skipped (0.0s)

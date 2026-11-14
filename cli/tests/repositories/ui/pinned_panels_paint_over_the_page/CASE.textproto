@@ -1,0 +1,35 @@
+# Panels placed against their trigger paint over the whole page (#351, #352).
+#
+# A `PinAnchor` panel is a menu, a listbox or a popover pinned to its trigger,
+# and a tooltip's bubble is one too: a browser shows both in the top layer,
+# placed against the nearest `Flow` box. The page used to paint a box
+# positioned after the trigger over the open menu, and a browser placed the
+# menu against the viewport. Each scene shares a golden with a twin that
+# paints the same picture in plain tree order: a menu over the row after its
+# trigger, the same from inside a stacking context, a menu under a trigger far
+# down the page, a menu inside an open dialog and a tooltip inside a stacking
+# context.
+#
+# The last step puts the twin's menu under its bar, and that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a pinned panel and a tooltip's bubble paint over the whole page from their trigger, each scene beside a twin in tree order, and a reordered twin fails the golden"
+
+run {
+  args: ["test", "//lib/panels", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/panels/panels.buri"
+  replace: "frame([bar(false, at(20)), redMenu([])])"
+  with: "frame([redMenu([]), bar(false, at(20))])"
+}
+
+run {
+  args: ["test", "//lib/panels", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

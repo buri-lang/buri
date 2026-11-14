@@ -1,0 +1,154 @@
+//! Panels placed against their trigger, each scene beside a twin.
+//!
+//! A `PinAnchor` panel and a tooltip's bubble are in the top layer: they
+//! paint over every box on the page, whatever comes after them and whatever
+//! stacking context holds them, while hanging from their trigger. Each scene
+//! has a twin that paints the same picture in plain tree order, so a panel
+//! painted under what follows it, or away from its trigger, fails its scene.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+fn box<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: styles, children: children })
+}
+
+/// Pinned `top` down from the start edge of what it is placed against.
+fn at(top: Int): [Style] {
+    [.Pin(.Start, .Px(0)), .Pin(.Top, .Px(top))]
+}
+
+/// A red menu 60 by 50, hanging under a trigger 20 tall, with `extra`.
+fn redMenu<C>(extra: [Style]): Node<C> {
+    box(
+        [
+            .Group(at(20)),
+            .Width(.Px(60)),
+            .Height(.Px(50)),
+            .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
+        ],
+        [],
+    )
+}
+
+/// The 100 by 20 trigger the menu is placed against, holding it.
+fn trigger<C>(extra: [Style]): Node<C> {
+    box([.Position(.Flow), .Width(.Px(100)), .Height(.Px(20)), .Group(extra)], [
+        redMenu([.Position(.PinAnchor)]),
+    ])
+}
+
+/// A 100 by 40 bar, green or else blue, with `extra`.
+fn bar<C>(green: Bool, extra: [Style]): Node<C> {
+    let colour: Style = if (green) {
+        .Background(.Rgb(0, 160, 0))
+    } else {
+        .Background(.Rgb(0, 0, 255))
+    };
+    box([.Width(.Px(100)), .Height(.Px(40)), colour, .Group(extra)], [])
+}
+
+/// The 100 by 80 box the twins pin everything in.
+fn frame<C>(children: [Node<C>]): Node<C> {
+    box([.Position(.Flow), .Width(.Px(100)), .Height(.Px(80))], children)
+}
+
+/// A menu in the first row and a blue bar positioned in the flow in the
+/// second: the menu hangs over the bar (#351).
+export fn menu<C>(): Node<C> {
+    box([.Width(.Px(100)), .Height(.Px(80))], [
+        trigger([]),
+        bar(false, [.Position(.Flow)]),
+    ])
+}
+
+/// The bar and then the menu, both pinned, so tree order paints the menu last.
+export fn menuTwin<C>(): Node<C> {
+    frame([bar(false, at(20)), redMenu([])])
+}
+
+/// The menu's row is a stacking context of its own, which a `z-index` could
+/// not lift the menu out of.
+export fn translated<C>(): Node<C> {
+    box([.Width(.Px(100)), .Height(.Px(80))], [
+        trigger([.Translate(.Px(0), .Px(0))]),
+        bar(false, [.Position(.Flow)]),
+    ])
+}
+
+export fn translatedTwin<C>(): Node<C> {
+    frame([bar(false, at(20)), redMenu([.Translate(.Px(0), .Px(0))])])
+}
+
+/// The menu's trigger 100 down the page: the menu hangs under the trigger,
+/// not from the top of the viewport (#352).
+export fn hanging<C>(): Node<C> {
+    box([.Width(.Px(100)), .Height(.Px(180))], [
+        box([.Height(.Px(100))], []),
+        trigger([]),
+    ])
+}
+
+/// The same menu, pinned the plain way under the same trigger.
+export fn hangingTwin<C>(): Node<C> {
+    box([.Width(.Px(100)), .Height(.Px(180))], [
+        box([.Height(.Px(100))], []),
+        box([.Position(.Flow), .Width(.Px(100)), .Height(.Px(20))], [redMenu([])]),
+    ])
+}
+
+/// An open dialog whose blue panel holds `children`, on a page 200 square.
+fn opened<C: Ui>(ctx: C, children: [Node<C>]): Node<C> {
+    let open = signal(ctx, true);
+    box([.Width(.Px(200)), .Height(.Px(200))], [
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Blue"),
+            children: children,
+            styles: [.Width(.Px(100)), .Height(.Px(80)), .Background(.Rgb(0, 0, 255))],
+        }),
+    ])
+}
+
+/// The menu's trigger and then a green bar positioned in the flow, inside an
+/// open dialog: the menu hangs over the bar there too.
+export fn inDialog<C: Ui>(ctx: C): Node<C> {
+    opened(ctx, [trigger([]), bar(true, [.Position(.Flow)])])
+}
+
+export fn inDialogTwin<C: Ui>(ctx: C): Node<C> {
+    opened(ctx, [frame([bar(true, at(20)), redMenu([])])])
+}
+
+/// A tooltip whose trigger sits in a stacking context, then a red bar
+/// positioned in the flow, or in the flow when `positioned` is false: the
+/// blue bubble hangs over the bar either way.
+export fn tipInside<C>(positioned: Bool): Node<C> {
+    let lift: [Style] = if (positioned) { [.Position(.Flow)] } else { [] };
+    box([.Width(.Px(100))], [
+        box([.Translate(.Px(0), .Px(0))], [
+            ui.tooltip({
+                text: .Const(""),
+                styles: [
+                    .Width(.Px(60)),
+                    .Height(.Px(30)),
+                    .Background(.Rgb(0, 0, 255)),
+                ],
+                children: [box([.Width(.Px(40)), .Height(.Px(20))], [])],
+            }),
+        ]),
+        box(
+            [
+                .Width(.Px(100)),
+                .Height(.Px(40)),
+                .Background(.Rgb(255, 0, 0)),
+                .Group(lift),
+            ],
+            [],
+        ),
+    ])
+}

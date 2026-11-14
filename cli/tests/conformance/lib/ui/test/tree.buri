@@ -6445,7 +6445,7 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         }),
     );
     let shown =
-        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:absolute;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap;z-index:1\nt 2 Copy to clipboard";
+        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:fixed;position-anchor:--buri-flow;position-area:center;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
     // A snapshot in a state that hovers or focuses the trigger draws the
     // bubble, and one in any other state draws the trigger alone.
     assert.equal(

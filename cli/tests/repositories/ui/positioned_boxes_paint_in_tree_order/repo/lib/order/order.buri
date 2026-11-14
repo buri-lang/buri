@@ -88,8 +88,9 @@ export fn deep<C>(): Node<C> {
     frame([pinned(pinned(pinned(red()))), blue()])
 }
 
-/// The field inside a wrapper held to its anchor out of every clip, which a
-/// browser writes as `position: fixed`.
+/// The field inside a wrapper held to its anchor, which is in the top layer:
+/// it paints over the square written after it, as it would over the rest of
+/// the page (#351).
 export fn anchored<C>(): Node<C> {
     frame([
         box([.Group(corner()), .Position(.PinAnchor), .Width(.Full), .Height(.Full)], [
@@ -97,6 +98,11 @@ export fn anchored<C>(): Node<C> {
         ]),
         blue(),
     ])
+}
+
+/// The square and then the field, so tree order paints the field last too.
+export fn anchoredTwin<C>(): Node<C> {
+    frame([blue(), red()])
 }
 
 /// The field's wrapper inside a scroll box in the flow, which a browser does
@@ -285,8 +291,8 @@ export fn modal<C: Ui>(ctx: C, first: Bool): Node<C> {
 }
 
 /// A trigger with a blue tooltip, and then a red bar positioned in the flow,
-/// or in the flow when `positioned` is false. The bubble hangs over the bar,
-/// and a browser raises it over every positioned box (`z-index: 1`).
+/// or in the flow when `positioned` is false. The bubble hangs over the bar:
+/// it is in the top layer, over every box on the page.
 export fn tipOver<C>(positioned: Bool): Node<C> {
     let lift: [Style] = if (positioned) { [.Position(.Flow)] } else { [] };
     box([.Width(.Px(100))], [

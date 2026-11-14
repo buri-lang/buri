@@ -2679,16 +2679,18 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
 
 /// Where a tooltip's bubble sits: below its trigger at the start edge, out of
 /// the flow so it covers what follows rather than moving it, on one line, and
-/// raised (`z-index: 1`) over every positioned box around it. The widget's own
-/// drawing, the way a dialog's scrim is. The sheet's reset says the same to a
-/// browser, and the caller's styles come after, so a `Pin` moves it.
+/// in the top layer, over every box around it, the way a `PinAnchor` panel is.
+/// The widget's own drawing, the way a dialog's scrim is. The sheet's reset
+/// says the same to a browser, and the caller's styles come after, so a `Pin`
+/// moves it.
 fn bubbleScene(): [Str] {
     [
-        "position:absolute",
+        "position:fixed",
+        "position-anchor:--buri-flow",
+        "position-area:center",
         "inset-block-start:100%",
         "inset-inline-start:0",
         "text-wrap:nowrap",
-        "z-index:1",
     ]
 }
 

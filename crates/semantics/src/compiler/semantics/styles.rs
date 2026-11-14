@@ -98,6 +98,8 @@ const STYLE_COMPUTED: usize = 4;
 const STYLE_EXTRACTED: usize = 5;
 /// `Pin(Edge, Length)`.
 const STYLE_PIN: usize = 15;
+/// `Position(Position)`.
+const STYLE_POSITION: usize = 16;
 /// `PaddingEdge(Edge, Length)`.
 const STYLE_PADDING_EDGE: usize = 23;
 /// `BorderWidth(Length)`.
@@ -267,6 +269,19 @@ const SUB_KEYS: u32 = 5;
 
 /// The sub-key a `Pin`'s `position` sits in, past the four edges.
 const PIN_FLOW: u32 = 4;
+
+/// What `Position(.Flow)` writes after `position:`: in the flow, and the
+/// anchor a `PinAnchor` panel inside it is placed against, scoped to its own
+/// subtree so that a panel finds its nearest `Flow` ancestor.
+const FLOW_ANCHOR: &str = "relative;anchor-name:--buri-flow;anchor-scope:--buri-flow";
+
+/// What `Position(.PinAnchor)` writes after `position:`: fixed, which the
+/// runtime lifts into the top layer, placed against the nearest `Flow`
+/// ancestor. `position-area: center` makes the anchor's box the containing
+/// block, so a pin is measured from it and a percentage is of its size. The
+/// painter reads `position-anchor` as the same box: placed against its parent,
+/// out of every clip, and painted in the top layer.
+const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center";
 
 /// The conflict slot: the property, the sub-key where the property has one,
 /// and the condition, packed into one number the runtime compares for equality.
@@ -2974,6 +2989,7 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
     });
 
     let mut out = reset.rules();
+    out.push_str(&popover_reset(&unique, reset));
     out.push_str(&focus_ring(&unique));
     out.push_str(&marker_anchor(&unique));
     out.push_str(&keyframes(&unique));
@@ -3062,6 +3078,24 @@ fn removals(rules: &[&StyleRule]) -> String {
         }
     }
     out
+}
+
+/// Takes a browser's own look away from a popover, where the page has one: a
+/// `PinAnchor` panel or a tooltip's bubble, which the runtime shows in the top
+/// layer as a `popover="manual"`. A browser's is a bordered, padded,
+/// `Canvas`-white box held to every edge of the viewport and centred by
+/// automatic margins; the panel is drawn by its own styles and placed by its
+/// pins. `:where()` keeps it weightless, so every class wins over it.
+fn popover_reset(rules: &[&StyleRule], reset: Reset) -> String {
+    let anchored = rules
+        .iter()
+        .any(|r| r.property as usize == STYLE_POSITION && r.class.ends_with("pos-anchor"));
+    if !anchored && !reset.tooltip {
+        return String::new();
+    }
+    ":where([popover]){inset:auto;margin:0;border:0;padding:0;width:auto;height:auto;\
+     overflow:visible;color:inherit;background:none}\n"
+        .to_owned()
 }
 
 /// Takes the platform's focus ring away from the elements that draw one of
@@ -3450,12 +3484,16 @@ impl Reset {
             // The bubble sits below its trigger at the start edge, out of the
             // flow so it covers what follows rather than moving it, on one
             // line — `ui/node`'s `bubbleScene` says the same to the painter.
-            // The wrapper is what it is placed against.
-            out.push_str(":where(:has(>[role=tooltip])){position:relative}\n");
-            out.push_str(
-                ":where([role=tooltip]){position:absolute;inset-block-start:100%;\
-                 inset-inline-start:0;text-wrap:nowrap;z-index:1}\n",
-            );
+            // The wrapper is what it is placed against, the way a `PinAnchor`
+            // panel is placed against its `Flow` box, and the runtime shows the
+            // bubble in the top layer, over every box around it (#351).
+            out.push_str(&format!(
+                ":where(:has(>[role=tooltip])){{position:{FLOW_ANCHOR}}}\n"
+            ));
+            out.push_str(&format!(
+                ":where([role=tooltip]){{position:{PIN_ANCHOR};inset-block-start:100%;\
+                 inset-inline-start:0;text-wrap:nowrap}}\n"
+            ));
             // Hidden is hidden whatever a class says its `display` is.
             out.push_str("[role=tooltip][hidden]{display:none!important}\n");
         }
@@ -3664,20 +3702,19 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         16 => {
             let (which, _) = first?.as_variant()?;
             match which {
-                0 => Some(("pos", "flow".into(), one("position", "relative"))),
+                // A `Flow` box is the anchor a `PinAnchor` panel inside it is
+                // placed against. The scope keeps the name to the box's own
+                // subtree, so a panel finds its nearest `Flow` ancestor and
+                // never another row's.
+                0 => Some(("pos", "flow".into(), one("position", FLOW_ANCHOR))),
                 1 => Some(("pos", "sticky".into(), one("position", "sticky"))),
                 2 => Some(("pos", "viewport".into(), one("position", "fixed"))),
-                // `PinAnchor`: out of every ancestor's clip. `position: fixed`
-                // is the browser's own way to lift a positioned box out of every
-                // scroll container, and the `--buri-pin-anchor` marker — a
-                // custom property a browser ignores — tells the snapshot painter
-                // to keep the box against its `Flow` ancestor rather than the
-                // page, so the golden shows it hanging below its trigger (#168).
-                _ => Some((
-                    "pos",
-                    "anchor".into(),
-                    one("position", "fixed;--buri-pin-anchor:1"),
-                )),
+                // `PinAnchor`: `position: fixed`, which the runtime puts in
+                // the top layer (#351), placed against the nearest `Flow`
+                // ancestor (#352). `position-area: center` makes that
+                // anchor's box the containing block, so the panel's pins are
+                // measured from it the way a `Pin`'s are from its `Flow` box.
+                _ => Some(("pos", "anchor".into(), one("position", PIN_ANCHOR))),
             }
         }
 

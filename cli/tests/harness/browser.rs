@@ -32,6 +32,13 @@
 ///  * `modals`, the top layer happy-dom leaves out: the open modal dialogs,
 ///    from the bottom to the top, the one opened last on top, which `:modal`
 ///    matches and outside the topmost of which nothing takes the focus;
+///  * `showPopover` and `hidePopover`, which happy-dom leaves out, and
+///    `topLayers`, the whole top layer from the bottom to the top: the modal
+///    dialogs and the popovers shown, each put on top as it opens and taken
+///    out as it shuts or leaves the page, which `:popover-open` matches;
+///  * `placedAgainst(element)`, the box a browser places `element` against:
+///    the nearest ancestor whose anchor name its `position-anchor` names, when
+///    its `position-area` makes that the containing block, or `null`;
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
@@ -225,6 +232,7 @@ HTMLDialogElement.prototype.showModal = function () {
   const had = document.activeElement;
   showModal.call(this);
   modals.push(this);
+  topLayers.push(this);
   openers.set(this, had === body ? null : had);
   const first = [...this.querySelectorAll(FOCUSABLE)].find((e) => !e.disabled && rendered(e));
   if (first !== undefined) first.focus();
@@ -237,6 +245,7 @@ HTMLDialogElement.prototype.close = function (returnValue) {
   if (!this.open) return;
   this.removeAttribute("open");
   if (modals.includes(this)) modals.splice(modals.indexOf(this), 1);
+  if (topLayers.includes(this)) topLayers.splice(topLayers.indexOf(this), 1);
   this.returnValue = returnValue === undefined ? "" : String(returnValue);
   const back = openers.get(this) ?? null;
   openers.delete(this);
@@ -246,13 +255,53 @@ HTMLDialogElement.prototype.close = function (returnValue) {
   setTimeout(() => this.dispatchEvent(new Event("close")), 0);
 };
 
-// `:modal`, which happy-dom's selectors leave out: an open dialog in the top
-// layer.
+// The top layer, from the bottom to the top: the modal dialogs and the shown
+// popovers. One that left the page left it too, as a browser takes it out.
+const topLayers = [];
+const drop = () => {
+  for (let at = topLayers.length - 1; at >= 0; at--) if (!topLayers[at].isConnected) topLayers.splice(at, 1);
+};
+// `showPopover` and `hidePopover`, which happy-dom leaves out: a popover goes
+// on top of the top layer as it opens and comes out as it shuts. Each throws
+// where a browser's does, on an element that is not a popover or not on the
+// page; opening an open one or shutting a shut one does nothing.
+HTMLElement.prototype.showPopover = function () {
+  drop();
+  if (!this.hasAttribute("popover")) throw new DOMException("the element is not a popover", "NotSupportedError");
+  if (topLayers.includes(this)) return;
+  if (!this.isConnected) throw new DOMException("the popover is not on the page", "InvalidStateError");
+  topLayers.push(this);
+};
+HTMLElement.prototype.hidePopover = function () {
+  drop();
+  if (!this.hasAttribute("popover")) throw new DOMException("the element is not a popover", "NotSupportedError");
+  if (topLayers.includes(this)) topLayers.splice(topLayers.indexOf(this), 1);
+};
+
+// `:modal` and `:popover-open`, which happy-dom's selectors leave out: an open
+// dialog in the top layer, and a popover shown there.
 const matches = Element.prototype.matches;
 Element.prototype.matches = function (selector) {
   if (selector === ":modal") return modals.includes(this);
+  if (selector === ":popover-open") {
+    drop();
+    return topLayers.includes(this) && this.hasAttribute("popover");
+  }
   return matches.call(this, selector);
 };
+
+// The box a browser places `element` against, which happy-dom lays out none
+// of: with `position-area` set, the nearest ancestor whose `anchor-name` is
+// the one its `position-anchor` names; otherwise `null`.
+function placedAgainst(element) {
+  const s = getComputedStyle(element);
+  if (unsetStyle(s.positionArea) || unsetStyle(s.positionAnchor)) return null;
+  for (let at = element.parentElement; at !== null; at = at.parentElement) {
+    if (getComputedStyle(at).anchorName === s.positionAnchor) return at;
+  }
+  return null;
+}
+const unsetStyle = (value) => value === undefined || value === "" || value === "none" || value === "auto";
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom
 // leaves out: nothing outside the topmost one takes the focus. Nor does an

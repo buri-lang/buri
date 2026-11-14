@@ -729,12 +729,12 @@ export enum Position {
     Sticky,
     /// Out of the flow and fixed to the viewport, so scrolling does not move it.
     PinViewport,
-    /// Out of every ancestor's clip, but placed against the nearest `Flow`
-    /// ancestor the way a `Pin` is — so a panel pinned to a trigger inside a
-    /// `Scroll` box or a dialog hangs below the trigger rather than being cut
-    /// off at the scroller's edge. This is the escape hatch a `select`,
-    /// combobox or menu wants: `PinViewport` leaves the clip too, but sticks to
-    /// the viewport and cannot come back against its trigger.
+    /// Placed against the nearest `Flow` ancestor the way a `Pin` is, but
+    /// over the whole page and out of every ancestor's clip. A menu, listbox
+    /// or popover pinned to its trigger hangs below it, over every box after
+    /// it, even inside a `Scroll` box or a dialog. `PinViewport` leaves the
+    /// clip too, but sticks to the viewport. With no `Pin`, the panel sits
+    /// centred on the anchor.
     PinAnchor,
 }
 

@@ -234,7 +234,9 @@
 //! these, so a box pinned after it covers it. A box pinned inside a pinned box
 //! belongs to the same context as its wrapper and paints right after it, before
 //! the wrapper's later siblings (#347). An open dialog's scrim says it is in
-//! the top layer, and it and its panel paint after the whole page.
+//! the top layer, and so does a box placed against an anchor
+//! (`position-anchor`, which `Position(.PinAnchor)` and a tooltip's bubble
+//! write): they paint after the whole page, in tree order (#351).
 //!
 //! A run of text answers all three intrinsic-width questions a layout engine
 //! asks it, so `grid-template-columns: 1fr 2fr` divides the room the other
@@ -1493,13 +1495,12 @@ struct Computed {
     /// still positioned, so it paints with the pinned boxes rather than with
     /// the flow ([`Computed::lifted`]).
     relative: bool,
-    /// `Position(.PinAnchor)`: a positioned box that leaves every ancestor's
-    /// clip while staying placed against its nearest `Flow` ancestor, so a
-    /// panel pinned to a trigger inside a `Scroll` box hangs below the trigger
-    /// rather than being cut off at the scroller's edge (#168). Absolute rather
-    /// than fixed — it keeps the flow-relative origin a pin has — and the
-    /// stylesheet writes it as `position: fixed` (a browser's own clip escape)
-    /// plus the `--buri-pin-anchor` marker this reads.
+    /// `Position(.PinAnchor)` or a tooltip's bubble: a box in the top layer,
+    /// placed against its nearest `Flow` ancestor, so a panel pinned to a
+    /// trigger hangs below the trigger, over the rest of the page and out of
+    /// every ancestor's clip (#168, #351, #352). Absolute rather than fixed —
+    /// it keeps the origin a pin has — and the stylesheet writes it as
+    /// `position: fixed` plus the `position-anchor` this reads.
     escape: bool,
     /// `VisuallyHidden`: paint nothing, but stay in the scene so the text
     /// counts towards the accessible name. The stylesheet writes the sr-only
@@ -1720,8 +1721,8 @@ impl Computed {
 
     /// Whether the element is a stacking context of its own, which paints
     /// whole: what is positioned inside it paints inside it, rather than with
-    /// the context it sits in. A fixed or sticky box is one, and so is the
-    /// `position: fixed` a `PinAnchor` is to a browser, and a positioned box
+    /// the context it sits in. A fixed or sticky box is one, and so is a box
+    /// in the top layer, and a positioned box
     /// with a `z-index`; so is a box with an opacity under one, a transform or
     /// a backdrop filter. A box that is only pinned, or only positioned in the
     /// flow, is not one: what is pinned inside it paints in tree order with it
@@ -1983,16 +1984,20 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.absolute = style.fixed || value == "absolute";
             style.sticky = value == "sticky";
             style.relative = value == "relative";
+            // A box in the flow is placed against no anchor.
+            style.escape = false;
         }
-        // `Position(.PinAnchor)`: the stylesheet writes it as `position: fixed`
-        // (a browser's clip escape) followed by this marker, which the painter
-        // reads to keep the box against its `Flow` ancestor — absolute, not
-        // fixed — while still leaving every ancestor's clip. Declared after
-        // `position`, so it wins over the `fixed` that line set (#168).
-        "--buri-pin-anchor" => {
-            style.fixed = false;
-            style.absolute = true;
-            style.escape = true;
+        // `Position(.PinAnchor)` and a tooltip's bubble: the stylesheet writes
+        // `position: fixed` and then the anchor the box is placed against,
+        // its `Flow` box, which is the box it was written in here — absolute,
+        // not fixed — out of every ancestor's clip and in the top layer
+        // (#168, #351, #352). Declared after `position`, so it wins over the
+        // `fixed` that line set.
+        "position-anchor" => {
+            if value != "auto" && style.absolute {
+                style.fixed = false;
+                style.escape = true;
+            }
         }
         // `Position(.PinAnchor)`'s sibling from the other side: `VisuallyHidden`
         // paints nothing. The stylesheet's sr-only clip would leave one pixel;
@@ -3400,12 +3405,17 @@ fn paint_with(
         fonts,
         deferred: Vec::new(),
         raised: Vec::new(),
+        anchored: Vec::new(),
     };
     for &index in &scene.roots {
         let Some(style) = styles.get(index) else {
             continue;
         };
         if style.top {
+            continue;
+        }
+        if style.escape {
+            painter.anchored.push((index, 0.0, 0.0));
             continue;
         }
         // A positioned root paints after the page's in-flow content, the same
@@ -3424,15 +3434,12 @@ fn paint_with(
     // `showModal` dialog there whatever is written after it. A dialog inside
     // an open one opens after it, so it is above it: the boxes paint in tree
     // order, which `fixed` is not — it holds a box after the boxes inside it.
-    let mut top: Vec<usize> = fixed
+    let dialogs: Vec<usize> = fixed
         .iter()
         .copied()
         .filter(|&index| styles.get(index).is_some_and(|style| style.top))
         .collect();
-    top.sort_unstable();
-    for index in top {
-        painter.draw(&mut canvas, index, 0.0, 0.0, None);
-    }
+    painter.top_layer(&mut canvas, dialogs);
     Ok(canvas)
 }
 
@@ -4007,6 +4014,11 @@ struct Painter<'a> {
     /// level: they paint after every box in `deferred`, lowest level first and
     /// in tree order within one (step 9).
     raised: Vec<(i32, Held)>,
+    /// The boxes placed against an anchor met so far (`escape`), each with
+    /// the origin it is placed from: they are in the top layer, so they paint
+    /// after the whole page, out of every clip, with the open dialogs
+    /// ([`Painter::top_layer`]).
+    anchored: Vec<(usize, f32, f32)>,
 }
 
 impl Painter<'_> {
@@ -4059,6 +4071,24 @@ impl Painter<'_> {
         for (_, held) in raised {
             let at = (held.x, held.y);
             self.draw_item(canvas, held.index, at, held.clip.as_ref(), held.marker);
+        }
+    }
+
+    /// Paints the top layer, over the whole page: the open dialogs' scrims in
+    /// `dialogs` and every box placed against an anchor, in tree order, the
+    /// order the runtime shows them in on a page that opens them at once
+    /// (#351). Painting one may meet more of them inside it, which come
+    /// after it in tree order, so the next is always the first left.
+    fn top_layer(&mut self, canvas: &mut Pixmap, dialogs: Vec<usize>) {
+        let mut waiting: Vec<(usize, f32, f32)> =
+            dialogs.into_iter().map(|index| (index, 0.0, 0.0)).collect();
+        loop {
+            waiting.append(&mut self.anchored);
+            let Some((first, _)) = waiting.iter().enumerate().min_by_key(|(_, w)| w.0) else {
+                return;
+            };
+            let (index, x, y) = waiting.swap_remove(first);
+            self.draw(canvas, index, x, y, None);
         }
     }
 
@@ -4302,18 +4332,20 @@ impl Painter<'_> {
             // hangs from.
             //
             // A fixed child hangs off the viewport, so it is neither placed
-            // here nor clipped by anything here. A `PinAnchor` child
-            // (`escape`) is held back at the same flow origin but with **no
-            // clip**: it keeps its placement against this anchor while leaving
-            // every ancestor's clip, so a panel pinned to a trigger inside a
-            // `Scroll` box hangs below the trigger rather than being cut off
-            // at the scroller's edge (#168).
+            // here nor clipped by anything here. A child placed against an
+            // anchor (`escape`) is in the top layer: it paints after the whole
+            // page, from the origin it has here but with no clip, so a panel
+            // pinned to a trigger inside a `Scroll` box hangs below the
+            // trigger rather than being cut off at the scroller's edge (#168).
+            if kid.escape {
+                self.anchored.push((child, from.0, from.1));
+                continue;
+            }
             if kid.lifted() || mark.is_some() {
                 if kid.fixed {
                     self.hold(child, (0.0, 0.0), None, None);
                 } else {
-                    let clip = if kid.escape { None } else { inner.cloned() };
-                    self.hold(child, from, clip, mark);
+                    self.hold(child, from, inner.cloned(), mark);
                 }
                 continue;
             }
@@ -6566,7 +6598,7 @@ mod tests {
     /// than being cut off at the scroller's edge. The escape leaves every
     /// ancestor's clip while keeping the panel placed against its `Flow`
     /// anchor. The stylesheet writes `PinAnchor` as `position: fixed` plus the
-    /// `--buri-pin-anchor` marker, which is the pair this scene states by hand.
+    /// anchor it is placed against, which is what this scene states by hand.
     #[test]
     fn a_pin_anchor_panel_escapes_a_scroll_ancestors_clip() {
         // A scroll box 80 tall, a flow anchor inside it, and a panel pinned
@@ -6584,7 +6616,11 @@ mod tests {
         let white = [255, 255, 255, 255];
         // A `PinAnchor` panel paints past the scroller's edge: red at y=90,
         // ten pixels below the 80-tall scroll box.
-        let anchored = render_ok(&scene("position:fixed;--buri-pin-anchor:1"), "", "rest");
+        let anchored = render_ok(
+            &scene("position:fixed;position-anchor:--buri-flow;position-area:center"),
+            "",
+            "rest",
+        );
         assert_eq!(
             at(&anchored, 10 * S, 90 * S),
             red,
@@ -6672,7 +6708,11 @@ mod tests {
         );
         // And it composes with the #168 escape hatch: a `PinAnchor` inside the
         // dialog paints too.
-        let anchor = render_ok(&scene("position:fixed;--buri-pin-anchor:1"), "", "rest");
+        let anchor = render_ok(
+            &scene("position:fixed;position-anchor:--buri-flow;position-area:center"),
+            "",
+            "rest",
+        );
         assert_eq!(
             at(&anchor, 10 * S, 10 * S),
             red,

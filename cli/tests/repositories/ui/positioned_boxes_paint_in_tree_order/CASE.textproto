@@ -8,11 +8,12 @@
 # translated or blurred boxes with the flow, paint a box held to the viewport
 # after the whole page, and miss a list item's position and a tooltip's
 # z-index. Each scene here shares a golden with a twin that paints the same
-# picture in plain tree order: pinned boxes at every depth, inside a box held
-# to its anchor, a scroll box, a layer stack, a faded group and a box held to
-# the viewport, beside earlier siblings and in a drawing; every kind of lifted
+# picture in plain tree order: pinned boxes at every depth, inside a scroll
+# box, a layer stack, a faded group and a box held to the viewport, beside
+# earlier siblings and in a drawing; every kind of lifted
 # box before a box in the flow and after a pinned one; and a box held to the
-# viewport, an open dialog, a tooltip and a marked list item.
+# viewport, an open dialog, a tooltip, a box held to its anchor (in the top
+# layer, so over what follows it) and a marked list item.
 #
 # The last step puts the square before the wrapped field, and that test fails.
 #

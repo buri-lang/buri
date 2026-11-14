@@ -1,0 +1,90 @@
+// Each panel scene beside its twin: both tests of a pair compare against one
+// golden, so a panel painted under what follows it, or away from its trigger,
+// fails its scene.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/panels" import {
+    hanging, hangingTwin, inDialog, inDialogTwin, menu, menuTwin, tipInside, translated,
+    translatedTwin,
+};
+
+test "a pinned menu paints over the box positioned after its trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "menu", menu(), .Checked, []);
+}
+
+test "the bar and then the menu, pinned in tree order" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "menu", menuTwin(), .Checked, []);
+}
+
+test "a pinned menu in a stacking context paints over the box positioned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated", translated(), .Checked, []);
+}
+
+test "the bar and then the menu, pinned in tree order, for the stacking context" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "translated", translatedTwin(), .Checked, []);
+}
+
+test "a pinned menu hangs under its trigger far down the page" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "hanging", hanging(), .Checked, []);
+}
+
+test "the menu pinned the plain way under the same trigger" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "hanging", hangingTwin(), .Checked, []);
+}
+
+test "a pinned menu in an open dialog paints over the box positioned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dialog", inDialog(ctx), .Checked, []);
+}
+
+test "the bar and then the menu, pinned in tree order, in the dialog" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "dialog", inDialogTwin(ctx), .Checked, []);
+}
+
+test "a tooltip in a stacking context paints over the box positioned after it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "tooltip", tipInside(true), .Hover, []);
+}
+
+test "a tooltip in a stacking context over a box in the flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "tooltip", tipInside(false), .Hover, []);
+}

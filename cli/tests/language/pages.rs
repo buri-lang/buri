@@ -1249,6 +1249,131 @@ report(true);
     );
 }
 
+/// A menu pinned to its trigger with `PinAnchor`, shown while a signal says
+/// so, then a row positioned in the flow, a tooltip, a button that shows and
+/// hides the menu, and a text saying the signal. `main` resumes the page a
+/// server sent and mounts it otherwise; `fetch` is the server.
+const PANELS_PAGE: &str = r#"from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator, Request, Response, Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal, signal };
+from "ui/web" import * as web;
+from "web" import { WebHost };
+from "//platform/server" import { ServerHost };
+
+fn page<C: Ui>(ctx: C): Node<C> {
+    let open = signal(ctx, true);
+    ui.stack({
+        styles: [],
+        children: [
+            ui.stack({
+                styles: [.Position(.Flow), .Height(.Px(20))],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Position(.PinAnchor),
+                            .Pin(.Top, .Px(20)),
+                            .Pin(.Start, .Px(0)),
+                            .When(.Cell(open), [], [.Removed(true)]),
+                        ],
+                        children: [ui.text({ content: .Const("Menu") })],
+                    }),
+                ],
+            }),
+            ui.stack({ styles: [.Position(.Flow), .Height(.Px(40))], children: [] }),
+            ui.tooltip({
+                text: .Const("Copy it"),
+                styles: [],
+                children: [ui.button({ label: .Const("Copy"), styles: [], onPress: .Some(fn(_c) => ()) })],
+            }),
+            ui.button({
+                label: .Const("Behind"),
+                styles: [],
+                onPress: .Some(fn(c) => open.update(c, fn(was) => !was)),
+            }),
+            ui.text({ content: .Computed(fn(s) => str.format(s, "open:${open.get(s)}")) }),
+        ],
+    })
+}
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    let tree = page(ctx);
+    match (web.state(ctx)) {
+        .Some(_sent) => web.resume(ctx, tree),
+        .None => ui.mount(ctx, tree, []),
+    }
+}
+
+export fn fetch(host: ServerHost, request: Request): Response {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+    };
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+}
+"#;
+
+/// A `PinAnchor` menu and a tooltip's bubble are in the top layer while they
+/// show, in tree order, each placed against the box it hangs from, so neither
+/// is covered by the row positioned after it (#351, #352). Hiding the menu
+/// takes it out, and showing it again puts the bubble shown after it back on
+/// top. A server sends no popover: a served page puts the menu on top as it
+/// takes over. `pinned_panels_paint_over_the_page` paints the same.
+#[test]
+fn a_pinned_menu_and_a_tooltip_are_in_the_top_layer_while_they_show() {
+    let scratch = served("pinned-panels", PANELS_PAGE);
+    let script = format!(
+        "{}\n{SERVED_DRIVER}\n{}",
+        browser(),
+        r#"
+const tip = labelled("Copy").parentNode;
+// The top layer from the bottom up, each panel by its text and what it is
+// placed against, then the popovers the page has and the page's text.
+const layered = () => {
+  const top = topLayers.map((e) => {
+    const against = placedAgainst(e);
+    const where = against === null ? "the viewport" : against === e.parentElement ? "its trigger" : "another box";
+    return `${e.textContent} against ${where}`;
+  });
+  const popovers = document.querySelectorAll("[popover]").length;
+  console.log(`${body.firstChild.lastChild.textContent} | ${top.join(" / ") || "none"} | popovers ${popovers}`);
+};
+layered();
+if (served) await page();
+await tick();
+layered();
+labelled("Behind").click();
+await tick();
+layered();
+labelled("Behind").click();
+await tick();
+layered();
+fire(tip, "pointerenter");
+layered();
+labelled("Behind").click();
+await tick();
+labelled("Behind").click();
+await tick();
+layered();
+fire(tip, "pointerleave");
+layered();
+"#
+    );
+    let path = scratch.write("drive.mjs", &script);
+    let both = "open:true | Menu against its trigger / Copy it against its trigger | popovers 2\n";
+    let menu = "open:true | Menu against its trigger | popovers 1\n";
+    let after = format!("{menu}open:false | none | popovers 0\n{menu}{both}{both}{menu}");
+    assert_eq!(run_served(&path, "mounted"), format!("{menu}{after}"));
+    let sent = "open:true | none | popovers 0\n";
+    assert_eq!(run_served(&path, "served"), format!("{sent}{after}"));
+}
+
 /// A page holding `children`, with `signals` made in `page` before it and a
 /// text after it saying `said`, for [`hidden_dialog`]. `main` resumes the page
 /// a server sent and mounts it otherwise; `fetch` is the server.

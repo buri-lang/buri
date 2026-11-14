@@ -1165,9 +1165,9 @@ export fn copy<C>(onPress: fn(C) => ()): Node<C> {
 
 It shows while the trigger is hovered or focused, and Escape hides it until
 the pointer and the focus have both left. An `onKey` that claims the Escape
-keeps it showing. The bubble sits under the trigger at its start edge, covering
-what follows rather than pushing it down; `styles` land on it, so a `Pin`
-moves it. It holds text and nothing else, so nothing in it can be pressed or
+keeps it showing. The bubble sits under the trigger at its start edge, over
+the rest of the page rather than pushing it down; `styles` land on it, so a
+`Pin` moves it. It holds text and nothing else, so nothing in it can be pressed or
 focused. Interactive content belongs in a `dialog`.
 
 On the web the bubble is a `role="tooltip"` the trigger names with
@@ -1756,6 +1756,9 @@ The rest is short:
   the tree settles how tall the picture is, and the pin is placed on it — so a
   bottom-pinned dock sits on the last row of the tree rather than a screenful
   below it.
+- `.Position(.PinAnchor)` hangs from its `Flow` box and paints over the whole
+  page, out of every clip, the way a browser's top layer does. So does a
+  tooltip's bubble.
 - A `.Clip` or a `.Scroll` is measured at its own box. It cuts what is under
   it, so what a reader would have to scroll to see is not what the picture is
   tall enough to show.

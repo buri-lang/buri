@@ -99,11 +99,23 @@ fn render_case(case: &Path) -> Rendered {
 /// the order is then read off the computed styles by the
 /// rules of CSS 2.1 Appendix E: a stacking context's own background, its
 /// lifted boxes below zero, its flow, then its lifted boxes at zero in tree
-/// order and those above zero by level, and an open dialog in the top layer
-/// last. A box is named by its colour — `red`, `blue` or `green` — and a box
+/// order and those above zero by level, and the top layer last: each open
+/// dialog and each popover shown, from the bottom to the top. A box is named by its colour — `red`, `blue` or `green` — and a box
 /// painted any other colour, or none, is left out.
 pub fn paint_orders(case: &Path) -> Vec<(String, String)> {
-    read_snapshots(case, ORDERS, "order ")
+    read_snapshots(case, &format!("{COLOURS}{ORDERS}"), "order ")
+}
+
+/// Where a browser puts each of `case`'s snapshots' panels, as `(name,
+/// panels)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`paint_orders`] mounts it. A panel is a box
+/// with `position: fixed` painted red, blue or green, named by its colour,
+/// whether it is in the top layer (`on top`) or not (`in place`), and what it
+/// is placed against: `its parent`, `the viewport` or `another box`. A
+/// snapshot with none says `none`.
+pub fn placements(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, &format!("{COLOURS}{PLACEMENTS}"), "placed ")
 }
 
 /// What a browser draws for each open dialog's scrim in each of `case`'s
@@ -824,10 +836,10 @@ await settle();
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;
 
-/// Prints the order a browser paints each mounted snapshot's boxes in, one
-/// `order <name>: <colours>` line each, after driving the hover a hovered
-/// snapshot names ([`paint_orders`]).
-const ORDERS: &str = r#"
+/// What [`ORDERS`] and [`PLACEMENTS`] name a box by: `named(text)`, the name
+/// of an opaque colour, and `own(element, out)`, which pushes the name of what
+/// a box paints of its own.
+const COLOURS: &str = r#"
 const NAMED = { "255,0,0": "red", "0,0,255": "blue", "0,160,0": "green" };
 // The name of an opaque colour written as `#rrggbb`, `rgb()` or `rgba()`.
 function named(text) {
@@ -850,6 +862,41 @@ function own(element, out) {
       : named(getComputedStyle(element).backgroundColor);
   if (colour !== null) out.push(colour);
 }
+"#;
+
+/// Prints where each mounted snapshot's panels are, one `placed <name>:
+/// <panels>` line each ([`placements`]).
+const PLACEMENTS: &str = r#"
+for (const { root, name, state, tree } of snapshots) {
+  if (state === "hover") {
+    for (const node of tree) {
+      for (const element of [node, ...(node.querySelectorAll?.("*") ?? [])]) {
+        fire(element, "pointerenter");
+        fire(element, "mouseenter");
+      }
+    }
+    await settle();
+  }
+  const panels = [];
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    if (getComputedStyle(element).position !== "fixed") continue;
+    const colour = [];
+    own(element, colour);
+    if (colour.length === 0) continue;
+    const against = placedAgainst(element);
+    const where = against === null ? "the viewport" : against === element.parentElement ? "its parent" : "another box";
+    const layer = element.matches(":modal") || element.matches(":popover-open") ? "on top" : "in place";
+    panels.push(`${colour[0]} ${layer} against ${where}`);
+  }
+  console.log(`placed ${name}: ${panels.length === 0 ? "none" : panels.join(", ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints the order a browser paints each mounted snapshot's boxes in, one
+/// `order <name>: <colours>` line each, after driving the hover a hovered
+/// snapshot names ([`paint_orders`]).
+const ORDERS: &str = r#"
 const unset = (value) => value === "" || value === "none" || value === "auto";
 const positioned = (s) => ["relative", "absolute", "fixed", "sticky"].includes(s.position);
 const isolates = (s) =>
@@ -860,7 +907,8 @@ const isolates = (s) =>
   !unset(s.transform) ||
   !unset(s.backdropFilter);
 const level = (s) => (positioned(s) && !unset(s.zIndex) ? Number(s.zIndex) : 0);
-const topLayer = (element) => element.localName === "dialog" && element.open;
+// An open dialog or a shown popover: it paints over the page, not where it is.
+const topLayer = (element) => element.matches(":modal") || element.matches(":popover-open");
 // The flow under `element` into `out`, in tree order, and its stacking
 // context's lifted boxes under it into `lifted`, in tree order.
 function walk(element, out, lifted) {
@@ -906,7 +954,7 @@ for (const { root, name, state, tree } of snapshots) {
   }
   const out = [];
   context(root, out);
-  for (const dialog of modals) if (topLayer(dialog) && root.contains(dialog)) context(dialog, out);
+  for (const layer of [...topLayers]) if (topLayer(layer) && root.contains(layer)) context(layer, out);
   console.log(`order ${name}: ${out.join(" ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
