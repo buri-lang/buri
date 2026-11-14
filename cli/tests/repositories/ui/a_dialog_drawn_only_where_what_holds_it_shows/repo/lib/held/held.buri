@@ -1,0 +1,59 @@
+//! A page under an open dialog, the dialog inside a stack styled to hide.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+from "ui/style" import { Style };
+
+/// One half of the page.
+fn half<C>(red: Int, blue: Int): Node<C> {
+    ui.stack({
+        styles: [.Background(.Rgb(red, 40, blue)), .Width(.Px(180)), .Height(.Full)],
+        children: [],
+    })
+}
+
+/// The page, with an open dialog inside a stack styled `styles` after its two
+/// halves.
+fn page<C>(open: Signal<Bool>, styles: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Height(.Px(160))],
+        children: [
+            half(200, 40),
+            half(40, 200),
+            ui.stack({
+                styles: styles,
+                children: [
+                    ui.dialog({
+                        isOpen: open,
+                        label: .Const("Panel"),
+                        children: [],
+                        styles: [
+                            .Width(.Px(120)),
+                            .Height(.Px(60)),
+                            .Radius(.Px(8)),
+                            .Background(.Rgb(255, 255, 255)),
+                        ],
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+/// The dialog inside a stack removed from `.Medium` up.
+export fn narrowOnly<C>(open: Signal<Bool>): Node<C> {
+    page(open, [.At(.Medium, [.Removed(true)])])
+}
+
+/// The dialog inside a stack visually hidden, see-through, clipped and of no
+/// size.
+export fn hidden<C>(open: Signal<Bool>): Node<C> {
+    page(open, [
+        .VisuallyHidden,
+        .Opacity(0.0),
+        .Clip(true),
+        .Width(.Px(0)),
+        .Height(.Px(0)),
+    ])
+}

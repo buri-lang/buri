@@ -4707,6 +4707,9 @@ const $ui = {
   // take it, rather than starting a nested drain that re-enters the reconciler
   // mid-pass and recurses until the stack overflows.
   draining: false,
+  // What runs after every drain, or null: `$dom_settle` once a page has a
+  // dialog, so a program without one carries none of it.
+  settle: null,
 };
 
 // A runaway is a program whose watchers write what they read. The limit is not
@@ -4922,6 +4925,8 @@ function $ui_drain() {
     $ui.queue = [];
     $ui.draining = false;
   }
+  // An update may have taken what holds a dialog out of sight, or put it back.
+  if ($ui.settle !== null) $ui.settle();
 }
 
 // `eq` is the comparison a cell's type reaches a hand-written `Equal` with, and
@@ -5210,18 +5215,82 @@ function $dom_optional(element, name, value) {
 // lifts the scrim over it, traps the focus and answers Escape — none of which
 // a style can say and none of which a `<div>` can have.
 //
-// One already modal is left alone, so the focus stays where the reader put it:
-// `shell`'s script makes a server's open dialog modal before the page resumes.
-// One open and *not* modal is markup that script didn't reach (a policy refused
-// it), and `showModal` on it throws, so it is shut first.
+// `on` is whether the program holds it open. It is modal only while a browser
+// would draw it as well, which `$dom_settle` decides.
 function $dom_modal(element, on) {
   if (element.$shim) {
     element.open = on;
     return;
   }
-  if (on && element.matches(":modal")) return;
-  if (element.open) element.close();
-  if (on) element.showModal();
+  element.$open = on;
+  $dom_settle();
+}
+
+// Each dialog on the page, while it is there, for `$dom_settle`.
+const $dom_dialogs = new Set();
+
+// Whether a browser draws what holds dialog `element`: nothing above it has
+// `display: none`, which is what `Removed` writes, under a breakpoint, a
+// condition or a computed style alike. The browser's own styles answer, so no
+// media query is worked out here.
+function $dom_drawn(element) {
+  const parent = element.parentElement;
+  return parent !== null && parent.checkVisibility();
+}
+
+// Makes modal the dialogs the program holds open that a browser would draw,
+// and shuts every other. A modal dialog nothing draws leaves the page inert
+// behind nothing. Runs whenever one is opened or shut, after every update of
+// the page and on every resize, so a dialog shuts as what holds it goes out of
+// sight and opens as it comes back, keeping its signal.
+//
+// It shuts the last ones first and opens the first ones first, in document
+// order, so the top layer stacks them in tree order and the focus each gives
+// back lands where it was. `$modal` is whether it last made one modal, so one
+// the reader shut, whose `close` the program hasn't heard yet, stays shut. One
+// already modal is left alone, so the focus stays where the reader put it:
+// `shell`'s script makes a server's open dialog modal before the page resumes.
+// One open and *not* modal is markup that script didn't reach (a policy
+// refused it), and `showModal` on it throws, so it is shut first.
+let $dom_settling = false;
+function $dom_settle() {
+  // Opening one moves the focus, and a listener may update the page.
+  if ($dom_settling) return;
+  $dom_settling = true;
+  try {
+    const held = [];
+    for (const d of $dom_dialogs) if (d.$open || d.$modal || d.open) held.push(d);
+    held.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    // Asked as it goes: a dialog inside one is drawn only once that one is.
+    const wanted = (d) => d.$open && $dom_drawn(d);
+    for (let i = held.length - 1; i >= 0; i--) {
+      const d = held[i];
+      if (wanted(d)) continue;
+      d.$modal = false;
+      if (d.open) d.close();
+    }
+    for (const d of held) {
+      if (d.$modal || !wanted(d)) continue;
+      d.$modal = true;
+      if (d.matches(":modal")) continue;
+      if (d.open) d.close();
+      d.showModal();
+    }
+  } finally {
+    $dom_settling = false;
+  }
+}
+
+// Counts dialog `element` in `$dom_settle` while the computation rendering it
+// lasts. The first one on a page settles them after every update, and on
+// every resize, since a breakpoint is a width.
+function $dom_dialog(element) {
+  if ($ui.settle === null) {
+    $ui.settle = $dom_settle;
+    window.addEventListener("resize", $dom_settle);
+  }
+  $dom_dialogs.add(element);
+  $ui_dispose_with(() => $dom_dialogs.delete(element));
 }
 
 // The classes an element has, all of them at once. Replacing rather than
@@ -7106,6 +7175,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
         ours = false;
       });
     const host = $tree_host(element, parent, sync);
+    if (!element.$shim) $dom_dialog(element);
     // A dialog inside this one binds first and opens once this one has applied
     // its state, after it, so the top layer puts it on top.
     for (const child of node[4]) $tree_render(ctx, child, panel, null);
@@ -7120,9 +7190,10 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // Escape, and every other way a browser shuts a dialog by itself. A signal
     // that went on saying `true` would leave the program holding a panel
     // nobody can see. `close` fires late, so one for a dialog open again is
-    // stale, and one shut because what holds it stopped showing is ours.
+    // stale, and one shut because what holds it stopped showing, or went out
+    // of sight, is ours.
     $dom_listen(element, "close", () => {
-      if (!ours && !element.open && host.shown) $ui_flush(() => $ui_write(cell, false));
+      if (!ours && !element.open && host.shown && $dom_drawn(element)) $ui_flush(() => $ui_write(cell, false));
     });
     $tree_events(ctx, panel, node[6]);
     return;
@@ -7975,13 +8046,15 @@ function $ui_node_rebuildRegion(builder, region, node, walk) {
   if (was !== null) $scene_dialogFocus(doc, at, was, focus);
 }
 
-// Whether `region` is a dialog's, and then whether the dialog is open (a shut
-// one draws nothing between the markers), or null for any other region — the
-// native `Document::dialog_open`.
+// Whether `region` is a dialog's, and then whether the dialog is open and drawn
+// (a shut one draws nothing between the markers, and one inside what `Removed`
+// takes out is never modal), or null for any other region — the native
+// `Document::dialog_open`.
 function $scene_dialogOpen(doc, region) {
   const gap = $scene_regionGap(doc, region);
   if (gap === null) return null;
-  return gap[0][gap[1] + 1] !== doc.regions[region].end;
+  const reg = doc.regions[region];
+  return gap[0][gap[1] + 1] !== reg.end && !$scene_removed(doc, reg.start);
 }
 
 // The children of a dialog region's parent and where its first marker sits
@@ -8552,7 +8625,7 @@ function $scene_removed(doc, node) {
 // Whether `Removed` or a dialog has taken `node` out of the page — the native
 // `inert`. A dialog is rendered only while open, so a `dialog` in the tree is
 // an open one: what is inside it is reached, and what is outside every one is
-// inert while any is present.
+// inert while any is drawn. One inside what `Removed` takes out is not modal.
 function $scene_inert(doc, node) {
   if ($scene_removed(doc, node)) return true;
   let at = node;
@@ -8561,7 +8634,7 @@ function $scene_inert(doc, node) {
     if (r.kind === 0 && r.name === "dialog") return false;
     at = r.parent;
   }
-  return $scene_elements(doc, "dialog").length > 0;
+  return $scene_elements(doc, "dialog").some((d) => !$scene_removed(doc, d));
 }
 
 // A run's content escaped for a `t` line — the native `escape_run` /

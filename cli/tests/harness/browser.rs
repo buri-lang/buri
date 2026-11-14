@@ -35,6 +35,10 @@
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
+///  * nothing a style gives `display: none` taking the focus either;
+///  * `resize(width)`, which makes the window that wide and restyles the page
+///    for it, which happy-dom leaves out, before any of the page's `resize`
+///    listeners run;
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order.
@@ -54,6 +58,15 @@ GlobalRegistrator.register({ url: "http://localhost/" });
 window.addEventListener("error", () => {
   process.exitCode = 1;
 });
+// happy-dom matches a media query against the viewport, but keeps each
+// element's computed style from before the viewport changed; a browser
+// restyles the page first. Setting the adopted sheets drops what it kept. This
+// listener is the page's first, so every later one sees the new styles.
+window.addEventListener("resize", () => {
+  document.adoptedStyleSheets = document.adoptedStyleSheets;
+});
+// The window `width` CSS pixels across, as a reader resizing it leaves it.
+const resize = (width) => happyDOM.setViewport({ width });
 
 const body = document.body;
 const showing = () => body.innerHTML.replace(/<!--.*?-->/gs, "");
@@ -188,10 +201,10 @@ const showModal = HTMLDialogElement.prototype.showModal;
 // The elements a browser lets take the focus, before the checks below.
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
 // Whether a browser draws `e`: it is inside no shut dialog, no `hidden`
-// element and no shut disclosure's body. A disclosure's summary is drawn while
-// the disclosure is.
+// element, no element a style gives `display: none`, and no shut disclosure's
+// body. A disclosure's summary is drawn while the disclosure is.
 const rendered = (e) => {
-  if (e.closest("[hidden], dialog:not([open])") !== null) return false;
+  if (e.closest("[hidden], dialog:not([open])") !== null || !e.checkVisibility()) return false;
   const shut = e.closest("details:not([open])");
   if (shut === null) return true;
   return e.tagName === "SUMMARY" && e.parentElement === shut && (shut.parentElement === null || rendered(shut.parentElement));

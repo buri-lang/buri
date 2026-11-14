@@ -241,7 +241,8 @@ browser parses the page. The reader gets a real modal before the page's script
 arrives: the page behind it is inert, and Escape shuts it. `resume` keeps it
 as it is, and a dialog the reader already shut stays shut, its `isOpen` written
 `false`. A dialog inside a shut dialog or a shut `disclosure` is written shut,
-so the script leaves it alone.
+so the script leaves it alone. One inside a stack `Removed` takes out at the
+reader's width stays shut until `resume` decides.
 
 A Content-Security-Policy that refuses inline scripts leaves the dialog open
 but not modal until `resume` runs. HTML has no markup for a modal dialog, so

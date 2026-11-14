@@ -908,11 +908,14 @@ pub unsafe extern "C" fn buri_rt_ui_node_rebuild_region(
 }
 
 impl Document {
-    /// Whether `region` is a dialog's, and if so whether the dialog is open: a
-    /// shut one draws nothing between the region's markers.
+    /// Whether `region` is a dialog's, and if so whether the dialog is open
+    /// and drawn: a shut one draws nothing between the region's markers, and
+    /// one inside what `Removed` takes out of the page is never modal, so it
+    /// moves no focus.
     fn dialog_open(&self, region: usize) -> Option<bool> {
         let (children, at) = self.region_gap(region)?;
-        Some(children.get(at + 1) != Some(&self.regions[region].end))
+        let start = self.regions[region].start;
+        Some(children.get(at + 1) != Some(&self.regions[region].end) && !self.removed(start))
     }
 
     /// The children of a dialog region's parent and where its first marker
@@ -1955,7 +1958,8 @@ impl Document {
     /// Whether `Removed` or a dialog has taken `node` out of the page — the
     /// native `$dom_inert`. A dialog is rendered only while open here, so a
     /// `dialog` in the tree is an open one: what is inside one is reached, and
-    /// what is outside every one is inert while any is present.
+    /// what is outside every one is inert while any is drawn. One inside what
+    /// `Removed` takes out is not modal, so it leaves the page alone.
     fn inert(&self, node: usize) -> bool {
         if self.removed(node) {
             return true;
@@ -1968,7 +1972,7 @@ impl Document {
             }
             at = r.parent;
         }
-        !self.elements("dialog").is_empty()
+        self.elements("dialog").iter().any(|&d| !self.removed(d))
     }
 }
 

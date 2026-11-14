@@ -1100,6 +1100,12 @@ scrim over the outer panel. A shut dialog draws nothing at all; an open
 one is pinned to the viewport, so like every other pin it never decides how tall
 a page is.
 
+An open dialog is modal only while what holds it is drawn. Inside a stack that
+`Removed` takes out, directly, under `At` or through a signal, it stays shut and
+leaves the page alone, and it opens again when the stack comes back. Its
+`isOpen` stays `true` the whole time. Nothing else hides a dialog: it sits above
+every box, so a `VisuallyHidden`, see-through or clipped stack still shows it.
+
 **An overlay that is not modal dismisses itself with `onPressOutside`.** A
 dialog gets Escape and a backdrop press from the platform, but a menu, a popover
 or a select does not — nothing watches for a press that lands elsewhere.

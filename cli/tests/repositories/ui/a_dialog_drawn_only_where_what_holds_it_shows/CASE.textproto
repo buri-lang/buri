@@ -1,0 +1,31 @@
+# A dialog open inside a stack is drawn only where the stack shows.
+#
+# Three pictures of one page, a red half and a blue half under an open dialog:
+#
+#   * **Narrow.** The dialog is in a stack removed from `.Medium` up, so at 390
+#     it is drawn: the scrim over the page and the white card on it.
+#   * **Wide.** At 800 the stack is removed, and the dialog with it: the page
+#     alone, with no scrim.
+#   * **Hidden another way.** The stack is visually hidden, see-through,
+#     clipped and of no size. None of those hide a dialog, which a browser
+#     draws in the top layer outside every box that holds it, so the scrim
+#     and the card are drawn.
+#
+# `language::pages::a_dialog_inside_a_stack_removed_at_a_breakpoint_is_modal_only_where_it_shows`
+# and `a_dialog_inside_a_stack_hidden_any_other_way_is_still_modal` check a
+# browser does the same.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a dialog inside a removed stack is drawn only where the stack shows, and one inside a stack hidden any other way is drawn"
+
+run {
+  args: ["test", "//lib/held", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/held/test/__snapshots__/held-narrow.diff.png"  exists: false }
+path { path: "lib/held/test/__snapshots__/held-wide.diff.png"  exists: false }
+path { path: "lib/held/test/__snapshots__/held-hidden.diff.png"  exists: false }

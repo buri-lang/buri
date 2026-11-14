@@ -651,7 +651,7 @@ fn serving_a_page() {
 /// happy-dom's computed styles, so the browser's order backs the twin.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 67);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 68);
 }
 
 /// Every case above that calls `snapshot`, mounted again as a page built for

@@ -10,6 +10,7 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
 from "ui/signal" import { Signal, signal };
+from "ui/style" import { Style };
 
 /// A button named `Delete` that opens a dialog holding a button named `Done`,
 /// which shuts it, and a button named `Other` beside them.
@@ -355,4 +356,69 @@ test "opening a disclosure leaves the focus on its summary" {
     let _ = page.key("Enter");
     assert.isTrue(open.get(ctx));
     assert.equal(page.focused(), "More");
+}
+
+/// A button named `Open` that opens a dialog inside a stack styled `styles`,
+/// and a button named `Other` that counts its presses in `presses`.
+fn tucked<C: Ui + Watch>(
+    open: Signal<Bool>,
+    presses: Signal<Int>,
+    styles: [Style],
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+            }),
+            ui.button({
+                label: .Const("Other"),
+                styles: [],
+                onPress: .Some(fn(c) => presses.set(c, presses.get(c) + 1)),
+            }),
+            ui.stack({
+                styles: styles,
+                children: [
+                    ui.dialog({
+                        isOpen: open,
+                        label: .Const("Away"),
+                        children: [idle("Lost", false)],
+                        styles: [],
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+test "a dialog inside a removed stack leaves the focus and the page behind it alone" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let presses = signal(ctx, 0);
+    let page = render(ctx, tucked(open, presses, [.Removed(true)]));
+    let _ = page.press("Open");
+    assert.isTrue(open.get(ctx));
+    assert.equal(page.focused(), "Open");
+    let _ = page.press("Other");
+    assert.equal(presses.get(ctx), 1);
+    assert.equal(page.focused(), "Other");
+}
+
+test "a dialog inside a stack removed from a breakpoint up is modal on the narrowest page" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let presses = signal(ctx, 0);
+    let page = render(ctx, tucked(open, presses, [.At(.Medium, [.Removed(true)])]));
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Lost");
+    let _ = page.press("Other");
+    assert.equal(presses.get(ctx), 0);
 }

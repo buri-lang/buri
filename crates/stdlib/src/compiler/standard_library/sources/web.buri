@@ -146,7 +146,9 @@ export fn defaultDocument(): Document {
 /// A body holding a `<dialog>` also gets a one-line inline script after it,
 /// which calls `showModal` on each dialog the tree wrote open, in document
 /// order. A dialog inside a shut dialog or disclosure is written shut, so it
-/// stays shut. Markup can only write a dialog open and *not* modal, so without it
+/// stays shut, and one inside what a style removes at the reader's width is
+/// shut until `resume` opens it where it shows. Markup can only write a dialog
+/// open and *not* modal, so without it
 /// the dialog sits outside the top layer until the page resumes: the page
 /// behind takes the focus and Escape does nothing. A page whose
 /// Content-Security-Policy refuses inline scripts gets that until `resume`
@@ -166,9 +168,10 @@ export fn shell<C: Allocator>(
         ["<style>", sheet, "</style>"].join(ctx, "")
     };
     // `$served` tells `resume` this script made the dialog modal, so one shut
-    // by then was shut by the reader.
+    // by then was shut by the reader. One whose holder isn't drawn, a
+    // `Removed` at this width, is shut and left to `resume`.
     let modal = if (body.contains("<dialog")) {
-        "<script>for(const d of document.querySelectorAll(\"dialog[open]\")){d.close();d.showModal();d.$served=true}</script>"
+        "<script>for(const d of document.querySelectorAll(\"dialog[open]\")){d.close();if(d.parentElement.checkVisibility()){d.showModal();d.$served=true}}</script>"
     } else {
         ""
     };

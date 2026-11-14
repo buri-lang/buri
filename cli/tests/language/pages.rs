@@ -1313,6 +1313,16 @@ export fn fetch(host: ServerHost, request: Request): Response {
 /// same, the first line leaving out the page's text before the takeover, and
 /// answers the mounted run's lines.
 fn hidden_dialog(name: &str, signals: &str, children: &str, said: &str, steps: &str) -> String {
+    let [mounted, served, refused] = served_runs(name, signals, children, said, steps);
+    let expected = before_takeover(&mounted);
+    assert_eq!(served, expected);
+    assert_eq!(refused, expected);
+    mounted
+}
+
+/// What [`hidden_dialog`] runs, without its asserts: the lines of the mounted,
+/// the served and the refused run.
+fn served_runs(name: &str, signals: &str, children: &str, said: &str, steps: &str) -> [String; 3] {
     let page = HIDDEN_DIALOG_PAGE
         .replace("SIGNALS", signals)
         .replace("CHILDREN", children)
@@ -1323,8 +1333,13 @@ fn hidden_dialog(name: &str, signals: &str, children: &str, said: &str, steps: &
         browser(),
     );
     let path = scratch.write("drive.mjs", &script);
-    let mounted = run_served(&path, "mounted");
-    let expected: String = mounted
+    ["mounted", "served", "refused"].map(|mode| run_served(&path, mode))
+}
+
+/// `mounted`'s lines with the page's text left out of the first, which a
+/// served page reports before the page takes over.
+fn before_takeover(mounted: &str) -> String {
+    mounted
         .lines()
         .enumerate()
         .map(|(i, line)| match (i, line.split_once(" | ")) {
@@ -1332,10 +1347,7 @@ fn hidden_dialog(name: &str, signals: &str, children: &str, said: &str, steps: &
             _ => line.to_string(),
         })
         .map(|line| line + "\n")
-        .collect();
-    assert_eq!(run_served(&path, "served"), expected);
-    assert_eq!(run_served(&path, "refused"), expected);
-    mounted
+        .collect()
 }
 
 /// A dialog written open inside a shut dialog stays shut, before the page
@@ -1499,6 +1511,185 @@ report(true);
              more:true tucked:true | Tucked {black} | focus Fold | behind inert | showModal 1\n\
              more:false tucked:true | none | focus More | behind takes the focus | showModal 1\n\
              more:true tucked:true | Tucked {black} | focus Fold | behind inert | showModal 2\n"
+        )
+    );
+}
+
+/// A dialog written open inside a stack styled `Removed(true)` stays shut,
+/// before the page takes over and after, and so does one open inside it. A
+/// browser draws nothing of what is removed, so a modal dialog there would
+/// leave the page inert behind nothing.
+#[test]
+fn a_dialog_inside_a_removed_stack_stays_shut() {
+    let lines = hidden_dialog(
+        "dialog-in-a-removed-stack",
+        "let gone = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ui.stack({
+                styles: [.Removed(true)],
+                children: [dialog(gone, "Gone", [dialog(signal(ctx, true), "Deeper", [idle("Lost")])])],
+            })"#,
+        "gone:${gone.get(s)}",
+        "",
+    );
+    assert_eq!(
+        lines,
+        "gone:true | none | focus nothing | behind takes the focus | showModal 0\n\
+         gone:true | none | focus Behind | behind takes the focus | showModal 0\n"
+    );
+}
+
+/// A dialog inside a stack removed from `.Medium` up is modal only below it,
+/// and one inside a stack removed below it only from it up. Resizing the
+/// window across the breakpoint shuts the one that went out of sight, keeping
+/// its signal, and opens the one that came into it. Escape still shuts the one
+/// on top, and its signal follows.
+///
+/// A policy that refuses the script leaves the wide one open and not modal
+/// until the page takes over, as for any dialog a server sent open.
+#[test]
+fn a_dialog_inside_a_stack_removed_at_a_breakpoint_is_modal_only_where_it_shows() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let [mounted, served, refused] = served_runs(
+        "dialog-removed-at-a-breakpoint",
+        "let narrow = signal(ctx, true);\n    let wide = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ui.stack({
+                styles: [.At(.Medium, [.Removed(true)])],
+                children: [dialog(narrow, "Narrow", [idle("Narrowed")])],
+            }),
+            ui.stack({
+                styles: [.Removed(true), .At(.Medium, [.Removed(false)])],
+                children: [dialog(wide, "Wide", [idle("Widened")])],
+            })"#,
+        "narrow:${narrow.get(s)} wide:${wide.get(s)}",
+        r#"resize(500);
+await tick();
+report(true);
+resize(1024);
+await tick();
+report(true);
+resize(500);
+await tick();
+press("Escape");
+await tick();
+report(true);
+resize(1024);
+await tick();
+report(true);
+"#,
+    );
+    assert_eq!(
+        mounted,
+        format!(
+            "narrow:true wide:true | Wide {black} | focus Widened | behind inert | showModal 1\n\
+             narrow:true wide:true | Wide {black} | focus Widened | behind inert | showModal 1\n\
+             narrow:true wide:true | Narrow {black} | focus Narrowed | behind inert | showModal 2\n\
+             narrow:true wide:true | Wide {black} | focus Widened | behind inert | showModal 3\n\
+             narrow:false wide:true | none | focus nothing | behind takes the focus | showModal 4\n\
+             narrow:false wide:true | Wide {black} | focus Widened | behind inert | showModal 5\n"
+        )
+    );
+    assert_eq!(served, before_takeover(&mounted));
+    // Without the script, Escape on the narrow one gives the focus back to
+    // the page's button rather than to nothing.
+    assert_eq!(
+        refused,
+        format!(
+            "none | focus nothing | behind takes the focus | showModal 0\n\
+             narrow:true wide:true | Wide {black} | focus Widened | behind inert | showModal 1\n\
+             narrow:true wide:true | Narrow {black} | focus Narrowed | behind inert | showModal 2\n\
+             narrow:true wide:true | Wide {black} | focus Widened | behind inert | showModal 3\n\
+             narrow:false wide:true | none | focus Behind | behind takes the focus | showModal 4\n\
+             narrow:false wide:true | Wide {black} | focus Widened | behind inert | showModal 5\n"
+        )
+    );
+}
+
+/// A dialog inside a stack a signal removes, through a `When` or a `Computed`
+/// style, shuts as the stack goes and opens again as it comes back, keeping
+/// its signal; the focus goes back to where it was before it opened.
+#[test]
+fn a_dialog_inside_a_stack_a_signal_removes_shuts_and_opens_with_it() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let lines = hidden_dialog(
+        "dialog-in-a-stack-a-signal-removes",
+        "let gone = signal(ctx, true);\n    let held = signal(ctx, true);\n    let worked = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(c) => gone.set(c, false)) }),
+            ui.stack({
+                styles: [.When(.Cell(gone), [.Removed(true)], [])],
+                children: [dialog(held, "Held", [idle("Kept")])],
+            }),
+            ui.stack({
+                styles: [.Computed(fn(s) => if (gone.get(s)) { [.Removed(true)] } else { [] })],
+                children: [
+                    dialog(
+                        worked,
+                        "Worked",
+                        [ui.button({ label: .Const("Hide"), styles: [], onPress: .Some(fn(c) => gone.set(c, true)) })],
+                    ),
+                ],
+            })"#,
+        "gone:${gone.get(s)} held:${held.get(s)} worked:${worked.get(s)}",
+        r#"labelled("Behind").click();
+await tick();
+report(true);
+labelled("Hide").click();
+await tick();
+report(true);
+labelled("Behind").click();
+await tick();
+report(true);
+"#,
+    );
+    let open = format!("Held {black} / Worked {black}");
+    assert_eq!(
+        lines,
+        format!(
+            "gone:true held:true worked:true | none | focus nothing | behind takes the focus | showModal 0\n\
+             gone:true held:true worked:true | none | focus Behind | behind takes the focus | showModal 0\n\
+             gone:false held:true worked:true | {open} | focus Hide | behind inert | showModal 2\n\
+             gone:true held:true worked:true | none | focus Behind | behind takes the focus | showModal 2\n\
+             gone:false held:true worked:true | {open} | focus Hide | behind inert | showModal 4\n"
+        )
+    );
+}
+
+/// A dialog inside a stack that is visually hidden, see-through, clipped or
+/// of no size is modal as any other: a browser draws a modal dialog in the
+/// top layer, outside every box that holds it, so none of those hide it.
+/// `a_dialog_drawn_only_where_what_holds_it_shows` paints the same.
+#[test]
+fn a_dialog_inside_a_stack_hidden_any_other_way_is_still_modal() {
+    let black = "rgba(0, 0, 0, 0.5)";
+    let [mounted, served, refused] = served_runs(
+        "dialog-in-a-stack-hidden-another-way",
+        "let open = signal(ctx, true);",
+        r#"ui.button({ label: .Const("Behind"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ui.stack({
+                styles: [.VisuallyHidden],
+                children: [
+                    ui.stack({
+                        styles: [.Opacity(0.0)],
+                        children: [
+                            ui.stack({
+                                styles: [.Clip(true), .Width(.Px(0)), .Height(.Px(0))],
+                                children: [dialog(open, "Still", [idle("Seen")])],
+                            }),
+                        ],
+                    }),
+                ],
+            })"#,
+        "open:${open.get(s)}",
+        "",
+    );
+    let open = format!("Still {black} | focus Seen | behind inert | showModal 1");
+    assert_eq!(mounted, format!("open:true | {open}\nopen:true | {open}\n"));
+    assert_eq!(served, format!("{open}\nopen:true | {open}\n"));
+    assert_eq!(
+        refused,
+        format!(
+            "none | focus nothing | behind takes the focus | showModal 0\nopen:true | {open}\n"
         )
     );
 }
