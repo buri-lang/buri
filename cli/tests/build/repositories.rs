@@ -774,6 +774,62 @@ fn a_browser_draws_each_dialog_scrim_as_its_snapshot() {
     assert_eq!(drawn, expected);
 }
 
+/// What a browser makes of each scene in `a_style_list_classifies_in_any_shape`,
+/// read off happy-dom's computed styles: a list of styles handed to a node as
+/// a parameter, a local, a field, a call, a `match`, an `if` or a list built at
+/// run time, as a whole `Option` or as the list inside one, or a whole
+/// `Option` holding none, arranges every box the way its twin, which writes
+/// the list in place, does. And the twin arranges them the way its list asks.
+#[test]
+fn a_browser_draws_each_style_shape_as_its_twin() {
+    let twins: &[(&str, &str)] = &[
+        ("scrim", "align-items=flex-end"),
+        ("plain", "align-items=center"),
+        ("around", "align-self=flex-end"),
+        ("heading", "text-align=center"),
+    ];
+    let scenes: &[(&str, &str)] = &[
+        ("option-none", "plain"),
+        ("option-parameter", "scrim"),
+        ("option-local", "scrim"),
+        ("option-field", "scrim"),
+        ("option-call", "scrim"),
+        ("option-match", "scrim"),
+        ("option-if", "scrim"),
+        ("option-built", "scrim"),
+        ("list-parameter", "scrim"),
+        ("list-local", "scrim"),
+        ("list-field", "scrim"),
+        ("list-call", "scrim"),
+        ("list-match", "scrim"),
+        ("list-if", "scrim"),
+        ("list-built", "scrim"),
+        ("around-parameter", "around"),
+        ("heading-parameter", "heading"),
+    ];
+    let case = tests_dir().join("repositories/ui/a_style_list_classifies_in_any_shape");
+    let drawn: std::collections::BTreeMap<String, String> =
+        crate::harness::web_pages::arrangements(&case)
+            .into_iter()
+            .collect();
+    assert_eq!(drawn.len(), twins.len() + scenes.len(), "{drawn:#?}");
+    let mut wrong = Vec::new();
+    for (twin, asks) in twins {
+        if !drawn[*twin].contains(asks) {
+            wrong.push(format!("{twin}: expected {asks}, drew {}", drawn[*twin]));
+        }
+    }
+    for (scene, twin) in scenes {
+        if drawn[*scene] != drawn[*twin] {
+            wrong.push(format!(
+                "{scene}: expected {twin}'s {}, drew {}",
+                drawn[*twin], drawn[*scene]
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

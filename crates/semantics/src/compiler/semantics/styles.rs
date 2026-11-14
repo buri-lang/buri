@@ -32,8 +32,11 @@
 //! A node given a parameter, a field or a result instead has it wrapped in
 //! `ui/style/classify`'s `classify`, which names each class the way this pass does and
 //! looks it up among the `(name, class)` pairs this pass found for the values
-//! that can reach it. Those values stay what the source wrote, and the sheet
-//! holds their classes because [`survey`] counts each one where it's written.
+//! that can reach it. Which values are wrapped is decided by type, not by how
+//! the value is written: a `Style`, a `[Style]`, and an `Option<[Style]>`
+//! (through `classifyOption`) all are. Those values stay what the source
+//! wrote, and the sheet holds their classes because [`survey`] counts each
+//! one where it's written.
 //! When the pass saw every value that can reach a `classify`, a test build
 //! stops on a name it found no class for: that is a compiler bug.
 //!
@@ -534,8 +537,8 @@ pub fn run(
     // one still loads `ui/style` through the test platform, but no style can
     // reach a node there.
     // So does one program among the several a compilation holds.
-    let Some((classify, classify_style)) = classifiers(loaded, scopes)
-        .filter(|(classify, _)| walked.holds(tables.fn_info(*classify).module))
+    let Some([classify, classify_style, classify_option]) = classifiers(loaded, scopes)
+        .filter(|[classify, ..]| walked.holds(tables.fn_info(*classify).module))
     else {
         also_alone(also, walked, tables, (bodies, consts));
         return (Styled::default(), Some(style_con));
@@ -576,6 +579,7 @@ pub fn run(
         classes_con,
         classify,
         classify_style,
+        classify_option,
         extracted,
         tables,
         original_bodies: bodies,
@@ -795,15 +799,17 @@ fn once(asked: Asked) -> Asked {
     asked.into_iter().filter(|(q, _)| seen.insert(*q)).collect()
 }
 
-/// `ui/style/classify`'s `classify` and `classifyStyle`: what a style a node is
-/// given goes through where the compiler can't say which value it is. Not
-/// there in a program none of whose own modules imports from `ui/`.
-pub fn classifiers(loaded: &Loaded, scopes: &Scopes) -> Option<(FnId, FnId)> {
+/// `ui/style/classify`'s `classify`, `classifyStyle` and `classifyOption`:
+/// what a style a node is given goes through where the compiler can't say
+/// which value it is. Not there in a program none of whose own modules
+/// imports from `ui/`.
+pub fn classifiers(loaded: &Loaded, scopes: &Scopes) -> Option<[FnId; 3]> {
     let module = "ui/style/classify";
-    Some((
+    Some([
         own_fn(loaded, scopes, module, "classify")?,
         own_fn(loaded, scopes, module, "classifyStyle")?,
-    ))
+        own_fn(loaded, scopes, module, "classifyOption")?,
+    ])
 }
 
 struct Extractor<'a> {
@@ -811,10 +817,12 @@ struct Extractor<'a> {
     /// `ui/style`'s `Classes`, the private-field wrapper an `Extracted`
     /// payload is: only this pass and `ui/style` can build one.
     classes_con: TyConId,
-    /// `ui/style/classify`'s `classify`, for a list of styles, and
-    /// `classifyStyle`, for one.
+    /// `ui/style/classify`'s `classify`, for a list of styles,
+    /// `classifyStyle`, for one, and `classifyOption`, for a list a node may
+    /// be given or not.
     classify: FnId,
     classify_style: FnId,
+    classify_option: FnId,
     /// `ui/style`'s `extracted`, which `classify` is handed to build the
     /// `Classes` it can't.
     extracted: FnId,
@@ -947,7 +955,7 @@ impl<'a> Extractor<'a> {
     /// that wrote it, so a module-level colour is reported where it is written rather than
     /// once more at every use.
     fn alphas(&mut self, e: &typed::Expr, mut report: bool) -> bool {
-        let mut mentions = self.is_style(&e.ty) || self.is_style_list(&e.ty);
+        let mut mentions = self.flow.holds_style(&e.ty);
         if report && self.flow.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_)) {
             if let Some(value) = self.folder().eval(e, &Env::default()) {
                 if let Some(a) = alpha_of(&value) {
@@ -967,6 +975,11 @@ impl<'a> Extractor<'a> {
     }
 
     /// One expression, given to `sink` when it goes where a node reads.
+    ///
+    /// What it does is decided by the expression's type, never by its shape:
+    /// a style, a list of them and a list a node may be given or not each go
+    /// through `classify` wherever a node is given a value the walk can't
+    /// take apart, be it a parameter, a local, a field or a result.
     fn visit(&mut self, e: &mut typed::Expr, sink: Option<Sink>, cond: Cond) {
         if let Some(s) = sink {
             if self.is_style_list(&e.ty) {
@@ -975,6 +988,10 @@ impl<'a> Extractor<'a> {
             }
             if self.is_style(&e.ty) {
                 self.style(e, s, cond);
+                return;
+            }
+            if self.flow.is_style_option(&e.ty) {
+                self.style_option(e, s, cond);
                 return;
             }
         }
@@ -1203,6 +1220,17 @@ impl<'a> Extractor<'a> {
         self.leaf_or_descend(e, s, cond, self.classify);
     }
 
+    /// An `Option<[Style]>`, a list a node may be given or not. `.Some` of a
+    /// list is taken apart, so the list is extracted or wrapped on its own;
+    /// any other value goes through `classifyOption` whole.
+    fn style_option(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond) {
+        if matches!(e.kind, ExprKind::EnumLit { .. }) {
+            self.descend(e, Some(s), cond);
+            return;
+        }
+        self.leaf_or_descend(e, s, cond, self.classify_option);
+    }
+
     /// One `Style`.
     fn style(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond) {
         if !self.is_style(&e.ty) {
@@ -1381,6 +1409,12 @@ impl<'a> Extractor<'a> {
         self.leafy.insert(self.owner);
     }
 
+    /// Whether `f` is one of `ui/style/classify`'s, which [`Extractor::fill`]
+    /// writes the names into.
+    fn classifies(&self, f: FnId) -> bool {
+        [self.classify, self.classify_style, self.classify_option].contains(&f)
+    }
+
     /// Whether a style a node is given where `s` says, and that is not a
     /// literal, goes through `classify`.
     fn leaf_site(&self, s: Sink) -> bool {
@@ -1431,9 +1465,7 @@ impl<'a> Extractor<'a> {
         out: &mut Vec<(&'e mut typed::Expr, &'e mut typed::Expr)>,
     ) {
         let classify = match &e.kind {
-            ExprKind::CallFn { func, .. } => {
-                [self.classify, self.classify_style].contains(&func.id)
-            }
+            ExprKind::CallFn { func, .. } => self.classifies(func.id),
             _ => false,
         };
         let mut children: Vec<&'e mut typed::Expr> = Vec::new();
@@ -1458,24 +1490,23 @@ impl<'a> Extractor<'a> {
         typed::children_mut(e, &mut |child| self.unwrap_unknown(child));
         let (span, ty) = (e.span, e.ty);
         let value = match &mut e.kind {
-            ExprKind::CallFn { func, args } => match (
-                [self.classify, self.classify_style].contains(&func.id),
-                args.as_mut_slice(),
-            ) {
-                (
-                    true,
-                    [value, typed::Expr {
-                        kind: ExprKind::Array { elems: known, .. },
-                        ..
-                    }, typed::Expr {
-                        kind: ExprKind::Bool(false),
-                        ..
-                    }, _],
-                ) => known
-                    .is_empty()
-                    .then(|| std::mem::replace(value, typed::Expr::new(ExprKind::Error, ty, span))),
-                _ => None,
-            },
+            ExprKind::CallFn { func, args } => {
+                match (self.classifies(func.id), args.as_mut_slice()) {
+                    (
+                        true,
+                        [value, typed::Expr {
+                            kind: ExprKind::Array { elems: known, .. },
+                            ..
+                        }, typed::Expr {
+                            kind: ExprKind::Bool(false),
+                            ..
+                        }, _],
+                    ) => known.is_empty().then(|| {
+                        std::mem::replace(value, typed::Expr::new(ExprKind::Error, ty, span))
+                    }),
+                    _ => None,
+                }
+            }
             _ => None,
         };
         if let Some(value) = value {
@@ -2260,11 +2291,12 @@ type Let<'a> = (&'a typed::Pattern, &'a typed::Expr);
 /// an ordinary value for the rest of the program to match on.
 struct Flow<'a> {
     tables: &'a Tables,
-    /// `Style`, and a list of them. `Style` takes no type arguments, so each
-    /// is one interned type, and asking whether a type is one is a compare
-    /// that reads nothing.
+    /// `Style`, a list of them, and such a list a node may be given or not.
+    /// `Style` takes no type arguments, so each is one interned type, and
+    /// asking whether a type is one is a compare that reads nothing.
     style: Ty,
     style_list: Ty,
+    style_option: Ty,
     /// `ui/style`'s `Color`, which takes no type arguments either.
     color: Option<Ty>,
     ui_node: Option<ModuleId>,
@@ -2324,6 +2356,7 @@ impl<'a> Flow<'a> {
             tables,
             style,
             style_list: Ty::array(style),
+            style_option: Ty::con(TyConId::OPTION, [Ty::array(style)]),
             color: color_con.map(|con| Ty::con(con, [])),
             ui_node,
             bodies,
@@ -2645,6 +2678,16 @@ impl<'a> Flow<'a> {
         *ty == self.style_list
     }
 
+    fn is_style_option(&self, ty: &Ty) -> bool {
+        *ty == self.style_option
+    }
+
+    /// Whether a value of `ty` is a style, a list of them, or such a list
+    /// a node may be given or not: what a node's field can hold.
+    fn holds_style(&self, ty: &Ty) -> bool {
+        self.is_style(ty) || self.is_style_list(ty) || self.is_style_option(ty)
+    }
+
     fn is_color(&self, ty: &Ty) -> bool {
         Some(*ty) == self.color
     }
@@ -2711,7 +2754,7 @@ impl<'a> Flow<'a> {
         let stopped = stopped || stops;
         let seen = self.seen.get();
         self.seen.set(Seen {
-            style: seen.style || self.is_style(&e.ty) || self.is_style_list(&e.ty),
+            style: seen.style || self.holds_style(&e.ty),
             colour: seen.colour || (self.is_color(&e.ty) && !matches!(e.kind, ExprKind::Const(_))),
         });
         match &e.kind {

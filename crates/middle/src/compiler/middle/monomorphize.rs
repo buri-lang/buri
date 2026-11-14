@@ -865,7 +865,7 @@ fn run_on(
         // time, and name none themselves.
         let style_module = checked
             .classify_fns
-            .map(|(classify, _)| checked.tables.fn_info(classify).module);
+            .map(|[classify, ..]| checked.tables.fn_info(classify).module);
         let mut skipped: crate::hash::Set<FuncIdx> = crate::hash::Set::default();
         let mut classifiers = Vec::new();
         for (key, slot) in &m.index {
@@ -876,7 +876,7 @@ fn run_on(
                 }
                 if checked
                     .classify_fns
-                    .is_some_and(|(a, b)| *f == a || *f == b)
+                    .is_some_and(|[a, b, c]| *f == a || *f == b || *f == c)
                 {
                     classifiers.push(*slot);
                 }

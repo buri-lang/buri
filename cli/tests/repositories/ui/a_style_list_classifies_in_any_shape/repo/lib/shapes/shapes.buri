@@ -1,0 +1,347 @@
+// A list of styles handed to a node in each shape a value can take, beside a
+// twin that writes the same list in place.
+//
+// Every scrim scene holds its panel to the bottom of the viewport with
+// `AlignCross(.End)`, a property of a few values that a node draws only once
+// the compiler has named its class, and pads it with `Padding`, which any
+// value can carry inline. `scrimTwin` writes that list where the dialog is
+// given it; each other scene hands it on as a parameter, a local, a field, a
+// call's result, a `match`'s or an `if`'s, a list built at run time, and as a
+// whole `Option` or as the list inside one. The field and heading scenes do
+// the same for a field's `around` and a heading's `styles`.
+
+from "core/alloc" import * as alloc;
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+from "ui/style" import { Style };
+
+/// One half of the page.
+fn half<C>(red: Int, blue: Int): Node<C> {
+    ui.stack({
+        styles: [.Background(.Rgb(red, 40, blue)), .Width(.Px(400)), .Height(.Full)],
+        children: [],
+    })
+}
+
+/// The page, with `dialog` after its two halves.
+fn page<C>(dialog: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Height(.Px(240))],
+        children: [half(200, 40), half(40, 200), dialog],
+    })
+}
+
+/// The panel's look: a white card.
+fn card(): [Style] {
+    [
+        .Width(.Px(160)),
+        .Height(.Px(80)),
+        .Radius(.Px(8)),
+        .Background(.Rgb(255, 255, 255)),
+    ]
+}
+
+/// The panel held to the bottom of the viewport, a padding above its edge.
+export fn sheet(): [Style] {
+    [.AlignCross(.End), .Padding(.Px(16))]
+}
+
+/// `sheet` inside an `Option`.
+fn sheetScrim(): Option<[Style]> {
+    .Some(sheet())
+}
+
+/// The scrim's look, as a field.
+export struct Look {
+    export scrim: Option<[Style]>,
+    export list: [Style],
+}
+
+/// The scrim's look with `sheet` in both fields.
+export fn look(): Look {
+    { scrim: .Some(sheet()), list: sheet() }
+}
+
+/// The page under a dialog whose scrim is drawn with `scrim`.
+fn over<C>(open: Signal<Bool>, scrim: Option<[Style]>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: scrim,
+        }),
+    )
+}
+
+/// The twin: `sheet`'s list written where the dialog is given it.
+export fn scrimTwin<C>(open: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some([.AlignCross(.End), .Padding(.Px(16))]),
+        }),
+    )
+}
+
+/// The twin of a dialog given no scrim styles: the widget's own black.
+export fn plainTwin<C>(open: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+        }),
+    )
+}
+
+/// A whole `Option` a parameter holds.
+export fn optionParameter<C>(open: Signal<Bool>, scrim: Option<[Style]>): Node<C> {
+    over(open, scrim)
+}
+
+/// A whole `Option` a local holds.
+export fn optionLocal<C>(open: Signal<Bool>): Node<C> {
+    let scrim: Option<[Style]> = .Some([.AlignCross(.End), .Padding(.Px(16))]);
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: scrim,
+        }),
+    )
+}
+
+/// A whole `Option` a field holds.
+export fn optionField<C>(open: Signal<Bool>, look: Look): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: look.scrim,
+        }),
+    )
+}
+
+/// A whole `Option` a call answers.
+export fn optionCall<C>(open: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: sheetScrim(),
+        }),
+    )
+}
+
+/// A whole `Option` a `match` answers.
+export fn optionMatch<C>(
+    open: Signal<Bool>,
+    low: Bool,
+    scrim: Option<[Style]>,
+): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: match (low) {
+                true => scrim,
+                false => .None,
+            },
+        }),
+    )
+}
+
+/// A whole `Option` an `if` answers.
+export fn optionIf<C>(open: Signal<Bool>, low: Bool, scrim: Option<[Style]>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: if (low) { scrim } else { .None },
+        }),
+    )
+}
+
+/// A whole `Option` holding a list built at run time.
+export fn optionBuilt<C>(open: Signal<Bool>, rest: [Style]): Node<C> {
+    let scrim: Option<[Style]> = .Some(
+        [Style.AlignCross(.End)].concat(alloc.generalPurpose(), rest),
+    );
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: scrim,
+        }),
+    )
+}
+
+/// The page under a dialog whose scrim is `.Some(scrim)`.
+fn overSome<C>(open: Signal<Bool>, scrim: [Style]): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(scrim),
+        }),
+    )
+}
+
+/// A list a parameter holds.
+export fn listParameter<C>(open: Signal<Bool>, scrim: [Style]): Node<C> {
+    overSome(open, scrim)
+}
+
+/// A list a local holds.
+export fn listLocal<C>(open: Signal<Bool>): Node<C> {
+    let scrim: [Style] = [.AlignCross(.End), .Padding(.Px(16))];
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(scrim),
+        }),
+    )
+}
+
+/// A list a field holds.
+export fn listField<C>(open: Signal<Bool>, look: Look): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(look.list),
+        }),
+    )
+}
+
+/// A list a call answers.
+export fn listCall<C>(open: Signal<Bool>): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(sheet()),
+        }),
+    )
+}
+
+/// A list a `match` answers.
+export fn listMatch<C>(open: Signal<Bool>, low: Bool, scrim: [Style]): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(match (low) {
+                true => scrim,
+                false => [],
+            }),
+        }),
+    )
+}
+
+/// A list an `if` answers.
+export fn listIf<C>(open: Signal<Bool>, low: Bool, scrim: [Style]): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(if (low) { scrim } else { [] }),
+        }),
+    )
+}
+
+/// A list built at run time.
+export fn listBuilt<C>(open: Signal<Bool>, rest: [Style]): Node<C> {
+    page(
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Panel"),
+            children: [],
+            styles: card(),
+            scrimStyles: .Some(
+                [Style.AlignCross(.End)].concat(alloc.generalPurpose(), rest),
+            ),
+        }),
+    )
+}
+
+/// A column a field sits in, held to its end by `around`.
+fn column<C>(field: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(300)), .Height(.Px(80)), .Background(.Rgb(255, 255, 255))],
+        children: [field],
+    })
+}
+
+/// The twin: the field's `around` written where it is given it.
+export fn aroundTwin<C>(value: Signal<Str>): Node<C> {
+    column(
+        ui.field({
+            label: .Const("Name"),
+            kind: .Text,
+            value: value,
+            styles: [],
+            around: .Some([.AlignSelf(.End)]),
+        }),
+    )
+}
+
+/// A field's `around`, a whole `Option` a parameter holds.
+export fn aroundParameter<C>(value: Signal<Str>, around: Option<[Style]>): Node<C> {
+    column(
+        ui.field({
+            label: .Const("Name"),
+            kind: .Text,
+            value: value,
+            styles: [],
+            around: around,
+        }),
+    )
+}
+
+/// The twin: the heading's styles written where it is given them.
+export fn headingTwin<C>(): Node<C> {
+    ui.text({
+        content: .Const("Ada"),
+        headingLevel: .Some(2),
+        styles: .Some([.TextAlign(.Center), .Width(.Px(300))]),
+    })
+}
+
+/// A heading's styles, a whole `Option` a parameter holds, in a function
+/// where nothing else is a style.
+export fn headingParameter<C>(styles: Option<[Style]>): Node<C> {
+    ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: styles })
+}

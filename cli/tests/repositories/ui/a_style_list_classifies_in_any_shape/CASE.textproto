@@ -1,0 +1,40 @@
+# A list of styles reaches a node the same whatever shape its value takes.
+#
+# The compiler names a style's classes where a node is given it. Where it
+# can't tell which value that is, it wraps the value so each property finds
+# its class when the program runs. It wrapped a `[Style]` in any shape, and
+# never a whole `Option<[Style]>`: `scrimStyles: o`, with `o` a parameter,
+# lost its `AlignCross` in the painter and in a browser, while
+# `.Some(list)` kept it. Each scene here hands a dialog's scrim, a field's
+# `around` or a heading's styles on in one shape (a parameter, a local, a
+# field, a call, a `match`, an `if`, a list built at run time) as a whole
+# `Option` or as the list inside one, beside a twin that writes the list in
+# place, and shares the twin's golden. A whole `Option` holding no list draws
+# as a dialog given none.
+# `repositories::a_browser_draws_each_style_shape_as_its_twin` reads the same
+# scenes in a browser.
+#
+# The last step holds `sheet` to the start, and every scene that reads it
+# fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a list of styles handed to a node as a parameter, a local, a field, a call, a match, an if or a list built at run time, whole Option or not, draws as the same list written in place"
+
+run {
+  args: ["test", "//lib/shapes", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/shapes/shapes.buri"
+  replace: "[.AlignCross(.End), .Padding(.Px(16))]\n}"
+  with: "[.AlignCross(.Start), .Padding(.Px(16))]\n}"
+}
+
+run {
+  args: ["test", "//lib/shapes", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

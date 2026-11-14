@@ -1,0 +1,243 @@
+// Each scene beside its twin, which writes the same list of styles where the
+// node is given it: every golden of a scene is a copy of its twin's, so a
+// shape the compiler leaves unclassified draws differently and fails.
+// `repositories::a_browser_draws_each_style_shape_as_its_twin` reads the same
+// scenes in a browser.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/signal" import { signal };
+from "//lib/shapes" import {
+    aroundParameter, aroundTwin, headingParameter, headingTwin, listBuilt, listCall,
+    listField, listIf, listLocal, listMatch, listParameter, look, optionBuilt,
+    optionCall, optionField, optionIf, optionLocal, optionMatch, optionParameter,
+    plainTwin, scrimTwin, sheet,
+};
+
+test "a scrim's styles written where the dialog is given them hold the panel low" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "scrim", scrimTwin(signal(ctx, true)), .Checked, []);
+}
+
+test "a dialog given no scrim styles draws the widget's own black" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "plain", plainTwin(signal(ctx, true)), .Checked, []);
+}
+
+test "a whole Option a parameter holds that holds no list draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "option-none",
+        optionParameter(signal(ctx, true), .None),
+        .Checked,
+        [],
+    );
+}
+
+test "a whole Option of scrim styles a parameter holds draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "option-parameter",
+        optionParameter(signal(ctx, true), .Some(sheet())),
+        .Checked,
+        [],
+    );
+}
+
+test "a whole Option of scrim styles a local holds draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "option-local", optionLocal(signal(ctx, true)), .Checked, []);
+}
+
+test "a whole Option of scrim styles a field holds draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "option-field", optionField(signal(ctx, true), look()), .Checked, []);
+}
+
+test "a whole Option of scrim styles a call answers draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "option-call", optionCall(signal(ctx, true)), .Checked, []);
+}
+
+test "a whole Option of scrim styles a match answers draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "option-match",
+        optionMatch(signal(ctx, true), true, .Some(sheet())),
+        .Checked,
+        [],
+    );
+}
+
+test "a whole Option of scrim styles an if answers draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "option-if",
+        optionIf(signal(ctx, true), true, .Some(sheet())),
+        .Checked,
+        [],
+    );
+}
+
+test "a whole Option holding scrim styles built at run time draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "option-built",
+        optionBuilt(signal(ctx, true), [.Padding(.Px(16))]),
+        .Checked,
+        [],
+    );
+}
+
+test "scrim styles a parameter holds draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "list-parameter",
+        listParameter(signal(ctx, true), sheet()),
+        .Checked,
+        [],
+    );
+}
+
+test "scrim styles a local holds draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-local", listLocal(signal(ctx, true)), .Checked, []);
+}
+
+test "scrim styles a field holds draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-field", listField(signal(ctx, true), look()), .Checked, []);
+}
+
+test "scrim styles a call answers draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-call", listCall(signal(ctx, true)), .Checked, []);
+}
+
+test "scrim styles a match answers draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "list-match",
+        listMatch(signal(ctx, true), true, sheet()),
+        .Checked,
+        [],
+    );
+}
+
+test "scrim styles an if answers draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "list-if", listIf(signal(ctx, true), true, sheet()), .Checked, []);
+}
+
+test "scrim styles built at run time draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "list-built",
+        listBuilt(signal(ctx, true), [.Padding(.Px(16))]),
+        .Checked,
+        [],
+    );
+}
+
+test "a field's around written where the field is given it holds the field to the end" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "around", aroundTwin(signal(ctx, "Ada")), .Checked, []);
+}
+
+test "a field's around, a whole Option a parameter holds, draws as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "around-parameter",
+        aroundParameter(signal(ctx, "Ada"), .Some([.AlignSelf(.End)])),
+        .Checked,
+        [],
+    );
+}
+
+test "a heading's styles written where it is given them centre it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "heading", headingTwin(), .Checked, []);
+}
+
+test "a heading's styles, a whole Option a parameter holds, draw as the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "heading-parameter",
+        headingParameter(.Some([.TextAlign(.Center), .Width(.Px(300))])),
+        .Checked,
+        [],
+    );
+}

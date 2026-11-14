@@ -62,6 +62,21 @@ fn classifyStyle(
     classifyOne(alloc.generalPurpose(), style, known, strict, make, -1, -1)
 }
 
+/// `classify` for a list a node may be given or not: a field such as a
+/// dialog's `scrimStyles`, handed a whole `Option` rather than `.Some` of a
+/// list.
+fn classifyOption(
+    styles: Option<[Style]>,
+    known: [(Str, Str)],
+    strict: Bool,
+    make: fn([(Int, Str)]) => Style,
+): Option<[Style]> {
+    match (styles) {
+        .Some(list) => .Some(classify(list, known, strict, make)),
+        .None => .None,
+    }
+}
+
 /// Stops a test build whose compiler left a style it saw out of the sheet.
 fn unextracted(strict: Bool, name: Str): ();
 

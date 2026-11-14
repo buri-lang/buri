@@ -1,0 +1,32 @@
+FAIL //lib/shapes  test/shapes.buri  "a whole Option of scrim styles a parameter holds draws as the twin"
+  the snapshot "option-parameter" changed: see test/__snapshots__/option-parameter.diff.png
+  --> lib/shapes/test/shapes.buri:47:1
+FAIL //lib/shapes  test/shapes.buri  "a whole Option of scrim styles a field holds draws as the twin"
+  the snapshot "option-field" changed: see test/__snapshots__/option-field.diff.png
+  --> lib/shapes/test/shapes.buri:69:1
+FAIL //lib/shapes  test/shapes.buri  "a whole Option of scrim styles a call answers draws as the twin"
+  the snapshot "option-call" changed: see test/__snapshots__/option-call.diff.png
+  --> lib/shapes/test/shapes.buri:77:1
+FAIL //lib/shapes  test/shapes.buri  "a whole Option of scrim styles a match answers draws as the twin"
+  the snapshot "option-match" changed: see test/__snapshots__/option-match.diff.png
+  --> lib/shapes/test/shapes.buri:85:1
+FAIL //lib/shapes  test/shapes.buri  "a whole Option of scrim styles an if answers draws as the twin"
+  the snapshot "option-if" changed: see test/__snapshots__/option-if.diff.png
+  --> lib/shapes/test/shapes.buri:99:1
+FAIL //lib/shapes  test/shapes.buri  "scrim styles a parameter holds draw as the twin"
+  the snapshot "list-parameter" changed: see test/__snapshots__/list-parameter.diff.png
+  --> lib/shapes/test/shapes.buri:127:1
+FAIL //lib/shapes  test/shapes.buri  "scrim styles a field holds draw as the twin"
+  the snapshot "list-field" changed: see test/__snapshots__/list-field.diff.png
+  --> lib/shapes/test/shapes.buri:149:1
+FAIL //lib/shapes  test/shapes.buri  "scrim styles a call answers draw as the twin"
+  the snapshot "list-call" changed: see test/__snapshots__/list-call.diff.png
+  --> lib/shapes/test/shapes.buri:157:1
+FAIL //lib/shapes  test/shapes.buri  "scrim styles a match answers draw as the twin"
+  the snapshot "list-match" changed: see test/__snapshots__/list-match.diff.png
+  --> lib/shapes/test/shapes.buri:165:1
+FAIL //lib/shapes  test/shapes.buri  "scrim styles an if answers draw as the twin"
+  the snapshot "list-if" changed: see test/__snapshots__/list-if.diff.png
+  --> lib/shapes/test/shapes.buri:179:1
+
+11 passed, 10 failed, 0 skipped (0.0s)

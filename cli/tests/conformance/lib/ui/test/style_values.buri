@@ -421,6 +421,22 @@ test "styles a parameter hands a node are their classes, the last per property w
     assert.isTrue(stylesheet().contains(".p-11{padding:11px}"));
 }
 
+/// A heading given the styles it is handed, if any.
+fn titled<C>(styles: Option<[Style]>): Node<C> {
+    ui.text({ content: .Const("Ada"), headingLevel: .Some(2), styles: styles })
+}
+
+test "styles a parameter may hand a node or not are their classes" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, titled(.Some([.TextAlign(.Center)]))).markup(),
+        "e 0 class:ta-center\nt 1 Ada",
+    );
+    assert.equal(render(ctx, titled(.None)).markup(), "e 0 \nt 1 Ada");
+}
+
 test "a condition a parameter hands a node scopes its classes" {
     let ctx = context {
         Ui: headless(),

@@ -117,6 +117,18 @@ pub fn scrims(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, SCRIMS, "scrims ")
 }
 
+/// The arrangement a browser gives the boxes of each of `case`'s snapshots,
+/// as `(name, boxes)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`paint_orders`] mounts it. A snapshot's
+/// boxes are its root and every element under it, in tree order, each named
+/// by its tag and the alignment and padding it computes to that differ from
+/// the property's initial value; a box with none is left out. So two scenes
+/// that should look alike read the same.
+pub fn arrangements(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, ARRANGEMENTS, "boxes ")
+}
+
 /// Mounts each of `case`'s pages and runs `script` after, answering each line
 /// it prints that starts with `prefix` as a `(name, rest)` pair split at `: `.
 fn read_snapshots(case: &Path, script: &str, prefix: &str) -> Vec<(String, String)> {
@@ -928,6 +940,25 @@ for (const { root, name } of snapshots) {
     (dialog) => ` | shut display=${getComputedStyle(dialog).display}`,
   );
   console.log(`scrims ${name}: ${open.length === 0 ? "none" : open.map(scrim).join(" / ")}${shut.join("")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints each snapshot's boxes for [`arrangements`].
+const ARRANGEMENTS: &str = r#"
+const INITIAL = {
+  "align-items": "normal", "align-self": "auto", "text-align": "start", "padding": "0px",
+};
+for (const { root, name } of snapshots) {
+  const boxes = [root, ...root.querySelectorAll("*")].flatMap((element) => {
+    const s = getComputedStyle(element);
+    const set = Object.entries(INITIAL)
+      .map(([field, initial]) => [field, s.getPropertyValue(field)])
+      .filter(([field, value]) => value !== "" && value !== INITIAL[field])
+      .map(([field, value]) => `${field}=${value}`);
+    return set.length === 0 ? [] : [`${element.tagName.toLowerCase()} ${set.join(" ")}`];
+  });
+  console.log(`boxes ${name}: ${boxes.join(" | ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;
