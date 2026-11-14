@@ -636,7 +636,7 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
   channels, or musl's `malloc` and threads is ordered by code helgrind can't
   see, and `report` drops it. `valgrind.rs`'s `UNSEEN` lists each with its
   reason. So does a race on a static in `CACHES`, where a crate caches a
-  value with relaxed atomics, matched by the address's data symbol.
+  value in an atomic, matched by the address's data symbol.
 - The runtime's unit tests run with `BURI_B9_PARKED=1000`: ten thousand
   parked tasks' stacks are more address space than Valgrind gives a program.
 - arm64 runs the runtime's `paint::` tests at opt-level 0. At the tests'

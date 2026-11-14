@@ -544,29 +544,42 @@ const UNSEEN: &[(&str, &str)] = &[
 /// How deep in a stack [`UNSEEN`] looks.
 const NEAR: usize = 6;
 
-/// Statics in which a crate caches a value it worked out once, with relaxed
-/// atomics. Helgrind reads those as plain accesses. A race is theirs only when
-/// its address is inside one of these data symbols, so no other memory is
-/// discounted. Each is the symbol's mangled path after its crate's hash.
+/// Statics in which a crate caches a value it worked out once, in an atomic.
+/// Helgrind reads an atomic's loads and stores as plain accesses. A race is
+/// theirs only when its address is inside one of these data symbols, so no
+/// other memory is discounted. Each is the symbol's mangled path after its
+/// crate's hash.
 const CACHES: &[(&str, &str)] = &[
-    // An `AtomicPtr` to the `getrandom` function, loaded and stored relaxed
-    // (getrandom 0.4, `backends/linux_android_with_fallback.rs`). Each thread
-    // that finds it null works out the same pointer and stores it: a pointer
-    // to code, so nothing else needs to be published with it.
+    // An `AtomicPtr` to the `getrandom` function (`backends/
+    // linux_android_with_fallback.rs`). Each thread that finds it null works
+    // out the same pointer and stores it: a pointer to code, so nothing else
+    // needs to be published with it. getrandom 0.3 stores it with `Release`
+    // and loads it with `Acquire`, at module level; graviola uses it.
     (
         "9getrandom8backends27linux_android_with_fallback12GETRANDOM_FN",
+        "getrandom's cached function",
+    ),
+    // getrandom 0.4 keeps it in `fill_inner`, relaxed; rand uses it.
+    (
+        "9getrandom8backends27linux_android_with_fallback10fill_inner12GETRANDOM_FN",
         "getrandom's cached function",
     ),
     // `cpufeatures::new!`'s `AtomicU8`, loaded and stored relaxed (cpufeatures
     // 0.3, `lib.rs`): each thread that finds it unset detects the same
     // features and stores the same byte. `sha1`'s `compress` makes one per
-    // architecture, `sha2_hwcap` on arm64 and `shani_cpuid` on x86_64.
+    // architecture, `sha2_hwcap` on arm64 and `shani_cpuid` on x86_64, and
+    // `chacha20` makes `avx2_cpuid` on x86_64. Its `sse2_cpuid` never touches
+    // its byte: x86_64 always has SSE2.
     (
         "4sha18compress10sha2_hwcap7STORAGE",
         "cpufeatures' cached detection",
     ),
     (
         "4sha18compress11shani_cpuid7STORAGE",
+        "cpufeatures' cached detection",
+    ),
+    (
+        "8chacha2010avx2_cpuid7STORAGE",
         "cpufeatures' cached detection",
     ),
 ];
@@ -988,7 +1001,7 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
 }
 
 #[test]
-fn a_race_on_a_crates_relaxed_cache_is_theirs_and_one_beside_it_is_ours() {
+fn a_race_on_a_crates_cached_static_is_theirs_and_one_beside_it_is_ours() {
     let race = |symbol: &str| {
         errors(&format!(
             "<error><kind>Race</kind><xwhat><text>Possible data race</text></xwhat>\
@@ -1010,11 +1023,21 @@ fn a_race_on_a_crates_relaxed_cache_is_theirs_and_one_beside_it_is_ours() {
         Some("getrandom's cached function")
     );
     assert_eq!(
+        race(
+            "_RNvNvNtNtCsggf0CudehDp_9getrandom8backends27linux_android_with_fallback10fill_inner12GETRANDOM_FN"
+        ),
+        Some("getrandom's cached function")
+    );
+    assert_eq!(
         race("_RNvNtNtCsjeBsmaqaAjw_4sha18compress10sha2_hwcap7STORAGE.0"),
         Some("cpufeatures' cached detection")
     );
     assert_eq!(
         race("_RNvNtNtCsjeBsmaqaAjw_4sha18compress11shani_cpuid7STORAGE"),
+        Some("cpufeatures' cached detection")
+    );
+    assert_eq!(
+        race("_RNvNtCscyqm7moH52T_8chacha2010avx2_cpuid7STORAGE"),
         Some("cpufeatures' cached detection")
     );
     // The same frames on a static of ours, or one a name merely ends like.
