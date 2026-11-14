@@ -44,13 +44,18 @@ jobs:
       matrix:
         # The fan-outs, and the scopes, actors and shared values agreement
         # asks about, an actor driven from inside a scope, headless timers,
-        # `process.start`, and the check that `buri test`'s test processes run
-        # under helgrind. Not the servers: their rows hold
+        # `process.start`, the check that `buri test`'s test processes run
+        # under helgrind, and the two server rows whose workers and websocket
+        # ends wake on another thread. Not the other servers: their rows hold
         # them to deadlines a server twenty times slower misses, and nearly all
         # they share between threads is tokio's. Not `at_scale`'s trees: at
         # that size helgrind takes past the hour.
         include:
-          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started:: actor_scoped:: headless_timers:: test_processes::" }
+          - shard: tasks
+            filters: >-
+              fan_out:: at_scale::fan_outs_of_every_width started:: actor_scoped:: headless_timers:: test_processes::
+              e2e::a_server_worker_that_wakes_on_another_thread_still_answers
+              e2e::websockets_whose_ends_wake_on_other_threads_still_carry_every_message
           - { shard: agreement, filters: "agreement::" }
           - { shard: runtime }
     runs-on: ubuntu-24.04
@@ -89,9 +94,9 @@ jobs:
           mkdir -p "$BURI_HELGRIND"
           nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- \
             ${{ matrix.filters }} --test-threads=4 2>&1 | tee -a "$BURI_HELGRIND/tests.log"
-      # Less the two rows that park a thousand tasks or more: helgrind shadows
-      # each task's 64 MiB stack mapping and runs out of memory. memcheck.yml
-      # runs them.
+      # Ten thousand parked tasks' stacks are more address space than
+      # Valgrind gives a program; a thousand still asks the same question
+      # (memcheck.yml's `runtime`).
       - name: The scheduler's unit tests
         if: matrix.shard == 'runtime'
         run: |
@@ -99,9 +104,8 @@ jobs:
           mkdir -p "$BURI_HELGRIND"
           tests="$(nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri-rt-tests --features valgrind --no-run --message-format=json-render-diagnostics \
             | jq -r 'select(.profile.test == true) | .executable | select(. != null)')"
-          nix develop .#perf -c target/debug/examples/valgrind tests helgrind "$BURI_HELGRIND" 'runtime unit tests' "$tests" rt:: \
-            --skip a_thousand_parked_tasks --skip the_resident_set_of_ten_thousand_parked_tasks --test-threads=1 \
-            2>&1 | tee -a "$BURI_HELGRIND/tests.log"
+          nix develop .#perf -c env BURI_B9_PARKED=1000 target/debug/examples/valgrind tests helgrind "$BURI_HELGRIND" 'runtime unit tests' "$tests" rt:: \
+            --test-threads=1 2>&1 | tee -a "$BURI_HELGRIND/tests.log"
       # memcheck.yml's step of the same name.
       - name: Tests that failed on their own
         if: always()

@@ -3275,6 +3275,7 @@ mod sockets {
     use std::collections::{HashMap, VecDeque};
     use std::future::Future;
     use std::io::Write;
+    use std::mem::ManuallyDrop;
     use std::os::unix::io::{AsRawFd, RawFd};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
@@ -3372,12 +3373,29 @@ mod sockets {
 
     /// The framing, and the reactor's view of its descriptor.
     ///
-    /// **`ready` is declared first so it is dropped first**: the descriptor
-    /// leaves the reactor before the framing closes it, so a number the kernel
-    /// hands out again is never deregistered on somebody else's behalf.
+    /// **`ready` is dropped first**, by [`Open`]'s `Drop`, before the fields:
+    /// the descriptor leaves the reactor before the framing closes it, so a
+    /// number the kernel hands out again is never deregistered on somebody
+    /// else's behalf.
     struct Open {
-        ready: AsyncFd<RawFd>,
+        ready: ManuallyDrop<AsyncFd<RawFd>>,
         framing: WebSocket<Wire>,
+    }
+
+    impl Drop for Open {
+        /// Drops `ready` through a call the optimizer can't inline, so its
+        /// drop glue runs in a frame named for tokio's type.
+        ///
+        /// Deregistering touches tokio's registration set under a `std` `Mutex`
+        /// helgrind can't see. Inlined here, two sockets closing on two threads
+        /// read as a race in the runtime. In tokio's frame, `UNSEEN`
+        /// (`cli/tests/native/valgrind.rs`) knows it, and the rest of this drop
+        /// is still checked as ours.
+        fn drop(&mut self) {
+            let release: unsafe fn(*mut AsyncFd<RawFd>) = std::ptr::drop_in_place;
+            // SAFETY: `ready` is dropped here once, and nothing uses it after.
+            unsafe { std::hint::black_box(release)(&raw mut *self.ready) };
+        }
     }
 
     impl Open {
@@ -3387,7 +3405,7 @@ mod sockets {
             let fd = framing.get_ref().stream().as_raw_fd();
             let _reactor = crate::rt::handle().enter();
             Ok(Open {
-                ready: AsyncFd::new(fd)?,
+                ready: ManuallyDrop::new(AsyncFd::new(fd)?),
                 framing,
             })
         }

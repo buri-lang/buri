@@ -599,7 +599,7 @@ and file each distinct error as an issue labelled `planned` and `urgent`.
 | Workflow | Tool | Shards |
 |---|---|---|
 | `memcheck.yml`, every commit to main and every pull request | memcheck | `native::conformance`'s native set built as `stencil-debug`, `llvm-debug` and `llvm-release`; `agreement::` and `at_scale::`; `e2e::`; `llvm::` and `stencil::`; every other module but `float_parity` and `differential`; `buri-rt-tests`, with `paint::` at opt-level 0 on arm64 |
-| `races.yml`, every commit to main and every pull request | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width`, `started::`, `actor_scoped::`, `headless_timers::` and `test_processes::`; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
+| `races.yml`, every commit to main and every pull request | helgrind | `fan_out::`, `at_scale::fan_outs_of_every_width`, `started::`, `actor_scoped::`, `headless_timers::`, `test_processes::` and the two `e2e::` rows whose server workers and websockets wake on another thread; `agreement::`; `buri-rt-tests`'s `rt::`. On stencil and LLVM, x86_64 only |
 
 ```
 nix develop .#perf -c env BURI_MEMCHECK=/tmp/memcheck BURI_CONFORMANCE_BUILD=llvm-release \
@@ -635,8 +635,10 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
 - Helgrind: a race with an access in tokio, `std`'s threads, locks and
   channels, or musl's `malloc` and threads is ordered by code helgrind can't
   see, and `report` drops it. `valgrind.rs`'s `UNSEEN` lists each with its
-  reason. The two `rt::` rows that park a thousand tasks don't run: helgrind
-  shadows each task's 64 MiB stack and runs out of memory.
+  reason. So does a race on a static in `CACHES`, where a crate caches a
+  value with relaxed atomics, matched by the address's data symbol.
+- The runtime's unit tests run with `BURI_B9_PARKED=1000`: ten thousand
+  parked tasks' stacks are more address space than Valgrind gives a program.
 - arm64 runs the runtime's `paint::` tests at opt-level 0. At the tests'
   usual opt-level 1, LLVM selects with `csel` on a field that is unset, such
   as an empty `Option`'s payload, where the other operand already fixes the

@@ -544,6 +544,33 @@ const UNSEEN: &[(&str, &str)] = &[
 /// How deep in a stack [`UNSEEN`] looks.
 const NEAR: usize = 6;
 
+/// Statics in which a crate caches a value it worked out once, with relaxed
+/// atomics. Helgrind reads those as plain accesses. A race is theirs only when
+/// its address is inside one of these data symbols, so no other memory is
+/// discounted. Each is the symbol's mangled path after its crate's hash.
+const CACHES: &[(&str, &str)] = &[
+    // An `AtomicPtr` to the `getrandom` function, loaded and stored relaxed
+    // (getrandom 0.4, `backends/linux_android_with_fallback.rs`). Each thread
+    // that finds it null works out the same pointer and stores it: a pointer
+    // to code, so nothing else needs to be published with it.
+    (
+        "9getrandom8backends27linux_android_with_fallback12GETRANDOM_FN",
+        "getrandom's cached function",
+    ),
+    // `cpufeatures::new!`'s `AtomicU8`, loaded and stored relaxed (cpufeatures
+    // 0.3, `lib.rs`): each thread that finds it unset detects the same
+    // features and stores the same byte. `sha1`'s `compress` makes one per
+    // architecture, `sha2_hwcap` on arm64 and `shani_cpuid` on x86_64.
+    (
+        "4sha18compress10sha2_hwcap7STORAGE",
+        "cpufeatures' cached detection",
+    ),
+    (
+        "4sha18compress11shani_cpuid7STORAGE",
+        "cpufeatures' cached detection",
+    ),
+];
+
 impl Error {
     /// Whether a race's own access is one frame of Rust source: a function
     /// with a caller, whose caller helgrind lost, so it can't be told who made
@@ -558,10 +585,33 @@ impl Error {
                 .is_some_and(|s| s.len() == 1 && s[0].contains(".rs:"))
     }
 
+    /// The data symbol a race's address is inside, as helgrind names it:
+    /// mangled, less the `.<n>` LLVM can add to a private one.
+    fn data_symbol(&self) -> Option<&str> {
+        let (_, rest) = self.text.split_once("inside data symbol \"")?;
+        let (name, _) = rest.split_once('"')?;
+        Some(match name.rsplit_once('.') {
+            Some((head, n)) if n.bytes().all(|b| b.is_ascii_digit()) => head,
+            _ => name,
+        })
+    }
+
     /// Why helgrind can't order this race, when it is ordered by code it
-    /// can't see: [`UNSEEN`], or an `Arc`'s last owner dropping what it holds,
-    /// after a decrement whose ordering helgrind doesn't model.
+    /// can't see: a race on one of the [`CACHES`], [`UNSEEN`], or an `Arc`'s
+    /// last owner dropping what it holds, after a decrement whose ordering
+    /// helgrind doesn't model.
     pub fn unseen_order(&self) -> Option<&'static str> {
+        if let Some(symbol) = self.data_symbol().filter(|_| self.kind == "Race") {
+            // The path follows the crate's hash, `Cs<hash>_`.
+            let cache = CACHES.iter().find(|(path, _)| {
+                symbol
+                    .strip_suffix(path)
+                    .is_some_and(|head| head.ends_with('_'))
+            });
+            if let Some((_, why)) = cache {
+                return Some(why);
+            }
+        }
         for stack in &self.stacks {
             for frame in stack.iter().take(NEAR) {
                 if let Some((_, why)) = UNSEEN.iter().find(|(p, _)| frame.contains(p)) {
@@ -935,6 +985,44 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
          <frame><fn>{closure#0}</fn><file>rt.rs</file><line>3493</line></frame></stack></error>",
     );
     assert_eq!(notify[0].unseen_order(), Some("std's Condvar"));
+}
+
+#[test]
+fn a_race_on_a_crates_relaxed_cache_is_theirs_and_one_beside_it_is_ours() {
+    let race = |symbol: &str| {
+        errors(&format!(
+            "<error><kind>Race</kind><xwhat><text>Possible data race</text></xwhat>\
+             <stack><frame><fn>graviola::random::fill</fn></frame>\
+             <frame><fn>buri_rt::net::park</fn></frame></stack>\
+             <auxwhat>This conflicts with a previous write</auxwhat>\
+             <stack><frame><fn>graviola::random::fill</fn></frame>\
+             <frame><fn>buri_rt::net::park</fn></frame></stack>\
+             <auxwhat>Address 0x4867400 is 0 bytes inside data symbol \"{symbol}\"</auxwhat>\
+             </error>"
+        ))
+        .remove(0)
+        .unseen_order()
+    };
+    assert_eq!(
+        race(
+            "_RNvNtNtCs7KpMq7MW6nX_9getrandom8backends27linux_android_with_fallback12GETRANDOM_FN"
+        ),
+        Some("getrandom's cached function")
+    );
+    assert_eq!(
+        race("_RNvNtNtCsjeBsmaqaAjw_4sha18compress10sha2_hwcap7STORAGE.0"),
+        Some("cpufeatures' cached detection")
+    );
+    assert_eq!(
+        race("_RNvNtNtCsjeBsmaqaAjw_4sha18compress11shani_cpuid7STORAGE"),
+        Some("cpufeatures' cached detection")
+    );
+    // The same frames on a static of ours, or one a name merely ends like.
+    assert_eq!(race("_RNvNtCs1a2b3c_7buri_rt3net7PENDING"), None);
+    assert_eq!(
+        race("_RNvNtNtNtNtCs1a2b3c_7buri_rt3net9getrandom8backends27linux_android_with_fallback12GETRANDOM_FN"),
+        None
+    );
 }
 
 #[test]
