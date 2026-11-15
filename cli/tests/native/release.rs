@@ -501,7 +501,8 @@ fn spreading_functions_over_modules_compiles_their_release_code_once() {
 }
 
 /// A library of functions generic over the caller's allocator. `tally` and
-/// `count` only hand it on, to each other and to `push`; `grow` calls it.
+/// `count` only hand it on, to each other and to `push`; `grow` calls it, and
+/// calls itself so it is never inlined away.
 const CONTEXT_LIBRARY: &str = r#"
 from "core/alloc" import * as alloc;
 from "platform/effect" import { Allocator };
@@ -515,8 +516,10 @@ fn count<C: Allocator>(ctx: C, n: Int, acc: [Int]): Int {
 }
 
 export fn grow<C: Allocator>(ctx: C, n: Int): Int {
-    let _ = alloc.allocate(ctx, n);
-    n
+    if (n == 0) { 0 } else {
+        let _ = alloc.allocate(ctx, n);
+        grow(ctx, n - 1) + 1
+    }
 }
 
 export fn folded<C: Allocator>(ctx: C, n: Int): Int {
@@ -541,7 +544,8 @@ fn upTo<C: Allocator>(ctx: C, n: Int, acc: [Int]): [Int] {
 "#;
 
 /// A program printing `CALL` of `//lib/store` at the host's allocator, plus
-/// `SECOND`.
+/// `SECOND`. Each allocator's call is made twice, so no call is inlined at a
+/// call site of its own.
 const CONTEXT_PROGRAM: &str = r#"
 from "native" import { NativeHost };
 from "core/io" import * as io;
@@ -559,7 +563,7 @@ impl<C: Allocator> Allocator for Quiet<C> {
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
-    let total = store.CALL(host.alloc, 5)SECOND;
+    let total = store.CALL(host.alloc, 2) + store.CALL(host.alloc, 3)SECOND;
     let _ = io.println(host.stdout, "${total}").ignore();
     .Ok(())
 }
@@ -586,7 +590,9 @@ fn context_program(name: &str, call: &str, wrapped: bool) -> crate::sweep::Owned
     )
     .unwrap();
     let second = if wrapped {
-        format!(" + store.{call}(Quiet {{ inner: host.alloc }}, 7)")
+        format!(
+            " + store.{call}(Quiet {{ inner: host.alloc }}, 3) + store.{call}(Quiet {{ inner: host.alloc }}, 4)"
+        )
     } else {
         String::new()
     };

@@ -47,21 +47,22 @@ export fn main(host: HOST): Result<(), Str> {
 
 /// Answers request `n` with a module `text` reaching `n` generated modules,
 /// each calling the one before it, the first returning `"n"`. So each round
-/// asks for, and compiles, more modules than the round before.
+/// asks for, and compiles, more modules than the round before. Each function
+/// calls itself, so none is inlined away.
 const GROWING_TOOL: &str = r#"#!/bin/sh
 while read -r line; do
   n=0
   [ -f COUNT ] && read -r n < COUNT
   n=$((n + 1))
   echo $n > COUNT
-  modules="{\"name\":\"m1\",\"text\":\"export fn m1(): Str { \\\"$n\\\" }\\n\",\"anchors\":[]}"
+  modules="{\"name\":\"m1\",\"text\":\"export fn m1(k: Int): Str { if (k > 0) { m1(k - 1) } else { \\\"$n\\\" } }\\n\",\"anchors\":[]}"
   i=2
   while [ $i -le $n ]; do
     j=$((i - 1))
-    modules="${modules},{\"name\":\"m$i\",\"text\":\"from \\\"//lib/text/m$j\\\" import { m$j };\\nexport fn m$i(): Str { m$j() }\\n\",\"anchors\":[]}"
+    modules="${modules},{\"name\":\"m$i\",\"text\":\"from \\\"//lib/text/m$j\\\" import { m$j };\\nexport fn m$i(k: Int): Str { if (k > 0) { m$i(k - 1) } else { m$j(1) } }\\n\",\"anchors\":[]}"
     i=$((i + 1))
   done
-  printf '%s\n' "{\"modules\":[{\"name\":\"text\",\"text\":\"from \\\"//lib/text/m$n\\\" import { m$n };\\nexport fn text(): Str { m$n() }\\n\",\"anchors\":[]},${modules}],\"diagnostics\":[],\"needs\":[]}"
+  printf '%s\n' "{\"modules\":[{\"name\":\"text\",\"text\":\"from \\\"//lib/text/m$n\\\" import { m$n };\\nexport fn text(): Str { m$n(1) }\\n\",\"anchors\":[]},${modules}],\"diagnostics\":[],\"needs\":[]}"
 done
 "#;
 

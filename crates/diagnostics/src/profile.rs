@@ -201,9 +201,11 @@ pub enum Work {
     FindingsKeyed,
     /// Functions monomorphization walked for the styles their values may hold.
     FunctionsSurveyedForStyles,
+    /// Functions a JavaScript artifact declares (`generate.rs`).
+    JsFunctionsDeclared,
 }
 
-const WORKS: usize = Work::FunctionsSurveyedForStyles as usize + 1;
+const WORKS: usize = Work::JsFunctionsDeclared as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -225,6 +227,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "bytes walked to a position",
     "findings keyed",
     "functions surveyed for styles",
+    "javascript functions declared",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

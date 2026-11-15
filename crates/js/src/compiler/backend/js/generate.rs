@@ -602,8 +602,9 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     }
 }
 
-/// The slots of the functions the artifact declares: every one, except an
-/// intrinsic whose symbol an earlier intrinsic already took.
+/// The slots of the functions the artifact declares: every one, except a
+/// dropped function and an intrinsic whose symbol an earlier intrinsic already
+/// took.
 ///
 /// Two intrinsics may share a symbol (`middle::monomorphize`'s
 /// `one_symbol_per_function` says why): they are two names for one runtime
@@ -627,14 +628,17 @@ fn defined_functions<'p>(
     let mut out = Vec::with_capacity(program.funcs.len());
     // `rc::analyze` plans each function in `program.funcs` order.
     for ((fi, f), plan) in program.funcs.entries().zip(&sharing.funcs) {
-        if matches!(f.kind, FuncKind::Intrinsic(_)) && !intrinsics.insert(&f.symbol) {
-            continue;
+        match f.kind {
+            FuncKind::Dropped => continue,
+            FuncKind::Intrinsic(_) if !intrinsics.insert(&f.symbol) => continue,
+            _ => {}
         }
         out.push((fi, f, plan, false));
         if !twins.is_empty() && twins.contains(f.symbol.as_str()) {
             out.push((fi, f, plan, true));
         }
     }
+    crate::profile::work(crate::profile::Work::JsFunctionsDeclared, out.len());
     out
 }
 
@@ -761,7 +765,8 @@ impl<'a> Gen<'a> {
             // Requested and never built. Calling one is a compiler bug; it
             // used to `return 0`, which is a value of whatever type the
             // caller expected.
-            FuncKind::Unbuilt => vec![Stmt::Throw(Expr::call(
+            // A dropped function is never declared (`defined_functions`).
+            FuncKind::Unbuilt | FuncKind::Dropped => vec![Stmt::Throw(Expr::call(
                 Expr::ident("$abort"),
                 vec![Expr::Str(format!("{} was never built", f.debug_name))],
             ))],

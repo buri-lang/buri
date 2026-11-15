@@ -3595,9 +3595,10 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
 /// suite in the batch), which `one_symbol_per_function` excludes because an
 /// intrinsic defines nothing; dead-code elimination then turned the copies the
 /// filter left unreached into `Unbuilt` abort bodies, and two of those under
-/// one symbol tripped the check. `dce::run` now renames a dropped copy that
-/// shared a symbol, and `dce`'s `two_dropped_copies_of_one_intrinsic_do_not_share_a_symbol`
-/// is the unit-level guard on the same fix.
+/// one symbol tripped the check. A dropped function now has no body at all,
+/// so the check leaves it out, and `dce`'s
+/// `two_dropped_copies_of_one_intrinsic_do_not_share_a_symbol` is the
+/// unit-level guard on the same fix.
 ///
 /// The assertion is user-visible: every filtered shape reports a test summary
 /// and none prints "internal compiler error". Both batch shapes the report

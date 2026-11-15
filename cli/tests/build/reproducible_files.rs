@@ -86,7 +86,7 @@ while read -r line; do
   [ -f COUNT ] && read -r n < COUNT
   n=$((n + 1))
   echo $n > COUNT
-  printf '%s\n' "{\"modules\":[{\"name\":\"text\",\"text\":\"from \\\"//lib/text/m$n\\\" export { run };\\n\",\"anchors\":[]},{\"name\":\"m$n\",\"text\":\"from \\\"core/io\\\" import * as io;\\nfrom \\\"platform/effect\\\" import { Allocator, Stdout };\\nexport fn run<C: Allocator + Stdout>(ctx: C): () { io.println(ctx, \\\"a\\\").ignore() }\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}"
+  printf '%s\n' "{\"modules\":[{\"name\":\"text\",\"text\":\"from \\\"//lib/text/m$n\\\" export { run };\\n\",\"anchors\":[]},{\"name\":\"m$n\",\"text\":\"from \\\"core/io\\\" import * as io;\\nfrom \\\"platform/effect\\\" import { Allocator, Stdout };\\nexport fn run<C: Allocator + Stdout>(ctx: C): () { say(ctx, 1) }\\nfn say<C: Allocator + Stdout>(ctx: C, k: Int): () { if (k > 0) { say(ctx, k - 1) } else { io.println(ctx, \\\"a\\\").ignore() } }\\n\",\"anchors\":[]}],\"diagnostics\":[],\"needs\":[]}"
 done
 "#;
 

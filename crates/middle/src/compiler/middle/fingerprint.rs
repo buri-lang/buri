@@ -142,6 +142,7 @@ fn summary(answers: &rc::Answers, i: FuncIdx, f: &Func) -> u128 {
     h.str(&f.symbol);
     match &f.kind {
         FuncKind::Unbuilt => h.word(0),
+        FuncKind::Dropped => h.word(3),
         FuncKind::Body(_) => h.word(1),
         FuncKind::Intrinsic(key) => {
             h.word(2);
@@ -195,7 +196,7 @@ fn func(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, i: FuncIdx, f: &Func) 
         }
         // Lowered from its parameters alone. Two programs can leave a
         // function they don't build with different locals.
-        FuncKind::Unbuilt | FuncKind::Intrinsic(_) => {
+        FuncKind::Unbuilt | FuncKind::Dropped | FuncKind::Intrinsic(_) => {
             params.iter().for_each(|p| local(h, locals.get(*p)));
         }
     }

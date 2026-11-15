@@ -1948,3 +1948,58 @@ fn a_program_with_no_styles_pays_nothing_for_a_page_beside_it() {
          against {page} and {program} apart"
     );
 }
+
+/// `n` helpers, each called once by `total` and so inlined there, which leaves
+/// every one of them reached by nothing. `main` calls `total` twice, so
+/// `total` is not inlined, and `main`'s size does not depend on `n`.
+fn inlined_helpers(n: usize) -> (String, String) {
+    let mut items: String = (0..n)
+        .map(|i| format!("fn helper{i}(x: Int): Int {{\n    x * 3 + {i}\n}}\n\n"))
+        .collect();
+    let sum: Vec<String> = (0..n).map(|i| format!("helper{i}(x + {i})")).collect();
+    items.push_str(&format!(
+        "fn total(x: Int): Int {{\n    {}\n}}\n",
+        sum.join(" + ")
+    ));
+    let body = "    let _ = io.println(ctx, \"${total(1) - total(2)}\").ignore();\n".to_string();
+    (items, body)
+}
+
+/// `work` in `buri build` of [`inlined_helpers`], at `n` and at twice `n`.
+fn with_helpers(platform: &str, work: &str, n: usize) -> (f64, f64) {
+    let count = |n| {
+        let (items, body) = inlined_helpers(n);
+        counted_work(platform, &items, &body, work).unwrap()
+    };
+    (count(n), count(2 * n))
+}
+
+/// **A native build compiles nothing for a function nothing reaches.**
+/// Inlining a helper at its one call site leaves the helper reached by
+/// nothing, and each one was still compiled to an abort and linked. A count
+/// of the functions compiled, which no load can move.
+#[test]
+fn a_native_build_compiles_nothing_for_an_inlined_helper() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let (few, many) = with_helpers("native", "functions compiled", 20);
+    assert_eq!(
+        few, many,
+        "{few} functions compiled with 20 inlined helpers, {many} with 40"
+    );
+}
+
+/// **A JavaScript build declares nothing for a function nothing reaches.**
+/// The minifier dropped such a function, but only after every one had been
+/// generated and folded. A count of the functions declared, which no load can
+/// move.
+#[test]
+fn a_javascript_build_declares_nothing_for_an_inlined_helper() {
+    let (few, many) = with_helpers("node", "javascript functions declared", 20);
+    assert_eq!(
+        few, many,
+        "{few} functions declared with 20 inlined helpers, {many} with 40"
+    );
+}

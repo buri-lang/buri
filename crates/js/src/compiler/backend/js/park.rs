@@ -489,7 +489,7 @@ pub fn parkability(program: &Program, tree: impl Fn(TyConId) -> bool) -> Parking
                 suspends(key)
                     || (hosted.js_implemented.contains(key) && !hosted.synchronous.contains(key))
             }
-            FuncKind::Unbuilt | FuncKind::Body(_) => false,
+            FuncKind::Unbuilt | FuncKind::Dropped | FuncKind::Body(_) => false,
         }),
         parks_sync: Dense::new(),
         parking: program.funcs.map(|_| LocalSet::default()),
@@ -718,7 +718,7 @@ fn parks_here(w: &Parking, i: FuncIdx, f: &monomorphize::Func) -> bool {
                 && f.params.iter().any(|p| w.parking.get(i).contains(*p))
         }
         FuncKind::Body(body) => w.body_parks(full(i), body),
-        FuncKind::Unbuilt => false,
+        FuncKind::Unbuilt | FuncKind::Dropped => false,
     }
 }
 

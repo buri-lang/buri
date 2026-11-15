@@ -49,6 +49,10 @@ pub enum FuncKind {
     /// stopped after a diagnostic. Reaching one at run time is a compiler bug,
     /// so it compiles to an abort rather than to a value.
     Unbuilt,
+    /// Reached by no root (`dce::run`): nothing calls it or names it, so a
+    /// backend compiles nothing under it. Its slot stays, because indices
+    /// must not move.
+    Dropped,
     Body(typed::Expr),
     /// An operation the runtime supplies, by key.
     Intrinsic(String),
@@ -1020,7 +1024,7 @@ fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
         HashMap::with_capacity_and_hasher(funcs.len(), std::hash::BuildHasherDefault::default());
     funcs
         .iter()
-        .filter(|func| !matches!(func.kind, FuncKind::Intrinsic(_)))
+        .filter(|func| !matches!(func.kind, FuncKind::Intrinsic(_) | FuncKind::Dropped))
         .find_map(|func| {
             let first = seen.insert(&func.symbol, &func.debug_name)?;
             Some(SymbolClash {

@@ -9997,6 +9997,41 @@ program of 24 libraries in two checkouts, runs it, and compares the bytes.
 `a_failed_links_command_runs_the_linker_on_four_threads` holds the flag: a
 failed link's command to rerun must carry it.
 
+### 6.139 A function nothing reaches is compiled to nothing, 2026-11-14
+
+```rust
+// dce::run
+if !*seen {
+    func.kind = FuncKind::Dropped;
+}
+```
+
+- `dce::run` used to turn an unreached function into `Unbuilt`, which both
+  backends compile to an abort. So every dropped function still got lowered,
+  placed in a unit, emitted, hashed and linked. JavaScript generated and
+  folded each one before the minifier threw it away.
+- The bench's `full` drops 131k of the 335k functions its 12 programs
+  monomorphize, mostly helpers inlined at their one call site.
+- `FuncKind::Dropped` keeps the slot, since indices must not move, but puts the
+  function in no unit and declares nothing for it in JavaScript.
+- A dropped function now has no body, so two of them can share a symbol.
+  `one_symbol_per_function` leaves them out, and the rename `dce` did for
+  buri-lang/buri#186 is gone.
+
+A cold profiled build of `full`, on one build thread, three runs each:
+
+| | Before | After |
+| --- | --- | --- |
+| emit | 0.963–0.967 s | 0.902–0.908 s |
+| link children | 0.912–0.918 s | 0.863–0.874 s |
+| process CPU | 3.59–3.60 s | 3.49–3.52 s |
+| process instructions | 39.8–39.9B | 38.7–38.9B |
+
+`a_native_build_compiles_nothing_for_an_inlined_helper` and
+`a_javascript_build_declares_nothing_for_an_inlined_helper` build a program
+with 20 inlined helpers and with 40. The functions compiled, and the
+`javascript functions declared` count, must not change.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

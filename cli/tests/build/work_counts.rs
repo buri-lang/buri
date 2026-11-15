@@ -266,15 +266,15 @@ const LOADED: bool = cfg!(all(target_os = "macos", target_arch = "aarch64"));
 /// A loaded run links every suite it builds into one image, and starts no new
 /// executable after the host.
 const LOADED_NATIVE: [&str; 8] = [
-    "suites built 3, objects compiled 10, links 1, images linked 1, new executables launched 1, test processes 3",
+    "suites built 3, objects compiled 6, links 1, images linked 1, new executables launched 1, test processes 3",
     "suites reused 3, files written 0",
-    "suites built 1, suites reused 2, objects compiled 2, objects restored 4, images linked 1, test processes 1, \
+    "suites built 1, suites reused 2, objects compiled 2, objects restored 2, images linked 1, test processes 1, \
      files written 6",
-    "suites built 2, suites reused 1, objects compiled 3, objects restored 5, images linked 1, test processes 2, \
+    "suites built 2, suites reused 1, objects compiled 3, objects restored 2, images linked 1, test processes 2, \
      files written 9",
-    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 4",
+    "suites built 1, objects compiled 1, objects restored 3, images linked 1, test processes 1, files written 4",
     "suites restored 1, test processes 1, files written 1",
-    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1, files written 5",
+    "suites built 1, objects compiled 1, objects restored 3, images linked 1, test processes 1, files written 5",
     "suites reused 1, files written 0",
 ];
 
@@ -289,26 +289,26 @@ fn native(release: bool, linked: bool) -> [String; 8] {
     // earlier step linked, so on macOS the store already holds it.
     let filtered = u64::from(!(release && KEPT_BY_BYTES));
     let counts: [String; 8] = [
-        "suites built 3, objects compiled 10, links 1, new executables launched 1, test processes 3".into(),
+        "suites built 3, objects compiled 6, links 1, new executables launched 1, test processes 3".into(),
         "suites reused 3, files written 0".into(),
         format!(
-            "suites built 1, suites reused 2, objects compiled 2, objects restored 4, links 1, \
+            "suites built 1, suites reused 2, objects compiled 2, objects restored 2, links 1, \
              new executables launched 1, test processes 1, files written {}",
             7 + runner
         ),
         format!(
-            "suites built 2, suites reused 1, objects compiled 3, objects restored 5, links 1, \
+            "suites built 2, suites reused 1, objects compiled 3, objects restored 2, links 1, \
              new executables launched 1, test processes 2, files written {}",
             10 + runner
         ),
         format!(
-            "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched {filtered}, \
+            "suites built 1, objects compiled 1, objects restored 3, links 1, new executables launched {filtered}, \
              test processes 1, files written {}",
             5 + runner
         ),
         "suites restored 1, test processes 1, files written 1".into(),
         // The runner's bytes match the filtered run's, so it isn't a new file.
-        "suites built 1, objects compiled 1, objects restored 4, links 1, test processes 1, files written 6".into(),
+        "suites built 1, objects compiled 1, objects restored 3, links 1, test processes 1, files written 6".into(),
         "suites reused 1, files written 0".into(),
     ];
     if release {
@@ -450,7 +450,7 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
         &args,
         &env,
         1,
-        "suites built 2, objects compiled 7, objects restored 3, links 2, new executables launched 2, \
+        "suites built 2, objects compiled 5, objects restored 3, links 2, new executables launched 2, \
          test processes 2",
     );
     for k in 1..=3 {
@@ -461,7 +461,7 @@ fn a_failing_suites_runner_stays_put_while_another_suite_is_edited() {
             &args,
             &env,
             1,
-            "suites built 1, suites restored 1, objects compiled 1, objects restored 4, links 1, \
+            "suites built 1, suites restored 1, objects compiled 1, objects restored 3, links 1, \
              new executables launched 1, test processes 2",
         );
     }
@@ -477,7 +477,7 @@ fn a_runner_an_earlier_run_started_is_not_a_new_executable() {
     let home = home_of(&first);
     let env = [("BURI_HOME", home.as_str()), LINKED];
     let args = ["test", "//..."];
-    let cold = "suites built 3, objects compiled 10, links 1, test processes 3";
+    let cold = "suites built 3, objects compiled 6, links 1, test processes 3";
     let first_start = format!("{cold}, new executables launched 1");
     let again = if KEPT_BY_BYTES {
         cold
@@ -590,21 +590,21 @@ fn failing_groups(scratch: &Scratch, extra: &[&str], env: &[(&str, &str)], want:
 /// three, which changes `core_testing_assert`'s object (PERFORMANCE.md §6.80).
 const NATIVE_FAILING: [&str; 11] = [
     // The two runners share three units, which a run emits once.
-    "suites built 5, objects compiled 13, objects restored 3, links 2, new executables launched 2, \
+    "suites built 5, objects compiled 8, objects restored 3, links 2, new executables launched 2, \
      test processes 5",
     "suites reused 3, suites restored 2, test processes 2, files written 1",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, links 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 2, links 1, \
      new executables launched 1, test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, links 1, \
      new executables launched 1, test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, links 1, \
      new executables launched 1, test processes 3",
     "suites reused 2, suites restored 3, test processes 3, files written 1",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, links 1, \
      new executables launched 1, test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, links 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, links 1, \
      new executables launched 1, test processes 3",
-    "suites built 1, objects compiled 1, objects restored 4, links 1, new executables launched 1, test processes 1",
+    "suites built 1, objects compiled 1, objects restored 3, links 1, new executables launched 1, test processes 1",
     "suites restored 1, test processes 1, files written 1",
     "suites reused 3, suites restored 2, test processes 2, files written 1",
 ];
@@ -627,21 +627,21 @@ const JAVASCRIPT_FAILING: [&str; 11] = [
 /// [`NATIVE_FAILING`], loaded: each link is an image, and only the cold run's
 /// host is a new executable.
 const LOADED_FAILING: [&str; 11] = [
-    "suites built 5, objects compiled 13, objects restored 3, links 1, images linked 2, \
+    "suites built 5, objects compiled 8, objects restored 3, links 1, images linked 2, \
      new executables launched 1, test processes 5",
     "suites reused 3, suites restored 2, test processes 2, files written 1",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 3, images linked 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 2, objects restored 2, images linked 1, \
      test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, images linked 1, \
      test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, images linked 1, \
      test processes 3",
     "suites reused 2, suites restored 3, test processes 3, files written 1",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, images linked 1, \
      test processes 3",
-    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 4, images linked 1, \
+    "suites built 1, suites reused 2, suites restored 2, objects compiled 1, objects restored 3, images linked 1, \
      test processes 3",
-    "suites built 1, objects compiled 1, objects restored 4, images linked 1, test processes 1",
+    "suites built 1, objects compiled 1, objects restored 3, images linked 1, test processes 1",
     "suites restored 1, test processes 1, files written 1",
     "suites reused 3, suites restored 2, test processes 2, files written 1",
 ];

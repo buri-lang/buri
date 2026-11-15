@@ -2045,7 +2045,7 @@ fn infer_effects(
     let mut purity: Dense<FuncIdx, ir::Purity> = program.funcs.map(|f| match &f.kind {
         // A body that has not been built aborts when reached, and an
         // intrinsic is whatever the runtime does.
-        FuncKind::Unbuilt => ir::Purity::Pure,
+        FuncKind::Unbuilt | FuncKind::Dropped => ir::Purity::Pure,
         FuncKind::Intrinsic(key) => intrinsic_purity(key),
         FuncKind::Body(_) => ir::Purity::Pure,
     });

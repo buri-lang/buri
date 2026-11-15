@@ -300,7 +300,9 @@ fn lower_one(
                 // the function through a function value and so cannot have the
                 // loop at its call site.
                 FuncKind::Intrinsic(key) => lower.list_body(key, &f.params),
-                FuncKind::Unbuilt | FuncKind::Body(_) => lower.func(&f.params, body, dispatch),
+                FuncKind::Unbuilt | FuncKind::Dropped | FuncKind::Body(_) => {
+                    lower.func(&f.params, body, dispatch)
+                }
             })
         }
     };
@@ -405,10 +407,14 @@ impl Units {
     /// Assigns a number to every unit the program names, in function order —
     /// which is source order (`monomorphize.rs:247-248`), so the partition is
     /// the same on two builds of one commit.
+    ///
+    /// A dropped function is in no unit, so no backend compiles it.
     fn assign(program: &Program) -> Units {
         let mut units = Units::default();
         for (i, f) in program.funcs.entries() {
-            units.add(i, &f.debug_name);
+            if !matches!(f.kind, FuncKind::Dropped) {
+                units.add(i, &f.debug_name);
+            }
         }
         units
     }

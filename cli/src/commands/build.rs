@@ -1152,25 +1152,20 @@ fn check_native(
     }
     // The objects are this toolchain's own; the link may not be.
     let units_differed = differed;
-    match actions::first_difference(a_exe, b_exe) {
-        Some(at) => {
-            differed = true;
-            not_reproducible(
-                label,
-                &format!("{path} differs between two builds of the same tree, first at byte {at}"),
-            );
-            eprintln!(
-                "  = the objects above say whether this is a codegen difference or a link one"
-            );
-        }
-        None if !differed && args.flags.verbose => {
-            println!(
-                "{label} is reproducible ({} bytes, {} objects)",
-                a_exe.len(),
-                a_units.len()
-            );
-        }
-        None => {}
+    if let Some(at) = actions::first_difference(a_exe, b_exe) {
+        differed = true;
+        not_reproducible(
+            label,
+            &format!("{path} differs between two builds of the same tree, first at byte {at}"),
+        );
+        eprintln!("  = the objects above say whether this is a codegen difference or a link one");
+    }
+    if !differed && args.flags.verbose {
+        println!(
+            "{label} is reproducible ({} bytes, {} objects)",
+            a_exe.len(),
+            a_units.len()
+        );
     }
     match chosen.filter(|_| !units_differed) {
         Some(linker) if differed => eprintln!(
