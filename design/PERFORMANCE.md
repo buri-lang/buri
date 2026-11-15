@@ -9989,17 +9989,8 @@ A cold profiled build of the bench's `full`, on one build thread, three runs
 each: the link children's CPU fell from 1.19–1.21 s to 0.94–0.96 s, and dev
 codegen from 64.0–64.5k to 67.9–68.5k lines per CPU second.
 
-On the arm64 VM, from 0978ad19b to this section:
-
-| Row | Before | After |
-| --- | --- | --- |
-| `ci` dev-codegen cost | 92097.9 | 90955.8 (-1.2%) |
-| `ci` dev-codegen instructions | 57321.1 | 56667.1 (-1.1%) |
-| `monorepo-ci` dev-codegen cost | 35297.0 | 35207.2 (-0.3%) |
-| `monorepo-ci` dev-codegen instructions | 22822.8 | 22770.8 (-0.2%) |
-
-The baseline's dev-codegen rows take CI's figures from the first run on
-main, since the VM reads them 0.2–0.7% low.
+The counted goals don't move. They run on four CPUs, as on CI's runner, where
+mold already started four threads. The saving is on machines with more cores.
 
 `two_checkouts_link_a_program_of_many_libraries_into_identical_bytes` links a
 program of 24 libraries in two checkouts, runs it, and compares the bytes.
