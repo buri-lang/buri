@@ -496,12 +496,11 @@ impl Width {
     /// aside. So which worker takes the next job doesn't depend on which
     /// thread wakes first. One worker runs the jobs one after another, as one
     /// thread would, and a spare gives way once the job it stood in for runs
-    /// again.
-    fn keep(&self, place: &Place, spare: bool) -> bool {
+    /// again. A job's place is counted again by the time it ends: its
+    /// [`Aside`] has dropped.
+    fn keep(&self, spare: bool) -> bool {
         let state = self.lock();
-        place.counted.load(Ordering::Relaxed)
-            && state.counted <= self.limit
-            && (!spare || state.aside > 0)
+        state.counted <= self.limit && (!spare || state.aside > 0)
     }
 
     fn close(&self) {
@@ -541,12 +540,10 @@ impl Place {
 
 impl Drop for Place {
     fn drop(&mut self) {
+        // Counted again first, so it leaves the count rather than the aside.
+        self.count(true);
         let mut state = self.width.lock();
-        if self.counted.load(Ordering::Relaxed) {
-            state.counted = state.counted.saturating_sub(1);
-        } else {
-            state.aside = state.aside.saturating_sub(1);
-        }
+        state.counted = state.counted.saturating_sub(1);
         self.width.freed.notify_all();
     }
 }
@@ -855,7 +852,7 @@ where
                                 || work(job, held, queue, &tell),
                             )));
                             PLACE.with(|p| p.borrow_mut().take());
-                            kept = queue.width.keep(&place, spare).then_some(place);
+                            kept = queue.width.keep(spare).then_some(place);
                         }
                     });
                 })
