@@ -457,6 +457,8 @@ struct Width {
 
 struct WidthState {
     counted: usize,
+    /// The places [`aside_while_idle`] has set aside.
+    aside: usize,
     closed: bool,
 }
 
@@ -468,10 +470,11 @@ impl Width {
     }
 
     /// A place among the counted jobs, once there's room for one; `None`
-    /// once the pool is closed.
-    fn enter(self: &std::sync::Arc<Self>) -> Option<std::sync::Arc<Place>> {
+    /// once the pool is closed. A `spare` worker gets one only while a place
+    /// is set aside: it's there to run jobs in the place of one that waits.
+    fn enter(self: &std::sync::Arc<Self>, spare: bool) -> Option<std::sync::Arc<Place>> {
         let mut state = self.lock();
-        while !state.closed && state.counted >= self.limit {
+        while !state.closed && !(state.counted < self.limit && (!spare || state.aside > 0)) {
             state = self
                 .freed
                 .wait(state)
@@ -485,6 +488,20 @@ impl Width {
             width: std::sync::Arc::clone(self),
             counted: std::sync::atomic::AtomicBool::new(true),
         }))
+    }
+
+    /// Whether the worker whose job just ended keeps `place` for its next job
+    /// rather than handing it back and waiting for one again: while the count
+    /// is within the width, and for a spare only while a place is still set
+    /// aside. So which worker takes the next job doesn't depend on which
+    /// thread wakes first. One worker runs the jobs one after another, as one
+    /// thread would, and a spare gives way once the job it stood in for runs
+    /// again.
+    fn keep(&self, place: &Place, spare: bool) -> bool {
+        let state = self.lock();
+        place.counted.load(Ordering::Relaxed)
+            && state.counted <= self.limit
+            && (!spare || state.aside > 0)
     }
 
     fn close(&self) {
@@ -512,16 +529,25 @@ impl Place {
         }
         if counted {
             state.counted = state.counted.saturating_add(1);
+            state.aside = state.aside.saturating_sub(1);
         } else {
             state.counted = state.counted.saturating_sub(1);
-            self.width.freed.notify_one();
+            state.aside = state.aside.saturating_add(1);
+            // A spare waits for this as well as for room.
+            self.width.freed.notify_all();
         }
     }
 }
 
 impl Drop for Place {
     fn drop(&mut self) {
-        self.count(false);
+        let mut state = self.width.lock();
+        if self.counted.load(Ordering::Relaxed) {
+            state.counted = state.counted.saturating_sub(1);
+        } else {
+            state.aside = state.aside.saturating_sub(1);
+        }
+        self.width.freed.notify_all();
     }
 }
 
@@ -781,6 +807,7 @@ where
             limit: width.max(1),
             state: std::sync::Mutex::new(WidthState {
                 counted: 0,
+                aside: 0,
                 closed: false,
             }),
             freed: std::sync::Condvar::new(),
@@ -795,35 +822,46 @@ where
     std::thread::scope(|scope| {
         // A worker the machine has no thread for leaves its jobs to the ones
         // that started. Twice the width, so each job set aside while it waits
-        // ([`aside_while_idle`]) has a worker to take the next job in its place.
-        let started = (0..width.max(1).saturating_mul(2))
-            .filter(|_| {
-                let (queue, work, results) = (&queue, &work, &results);
-                let tally = tally.clone();
-                std::thread::Builder::new()
-                    .name("buri-job".into())
-                    .stack_size(STACK)
-                    .spawn_scoped(scope, move || {
-                        let _phase = crate::profile::adopt(phase);
-                        crate::profile::tallied(tally, || {
-                            let tell = Tell { results };
-                            while let Some(place) = queue.width.enter() {
-                                let Some((job, held)) = queue.take() else {
-                                    break;
-                                };
-                                PLACE.with(|p| *p.borrow_mut() = Some(place));
-                                // A job that panics drops its `Held` as it
-                                // unwinds.
-                                results.send(std::panic::catch_unwind(
-                                    std::panic::AssertUnwindSafe(|| work(job, held, queue, &tell)),
-                                ));
-                                PLACE.with(|p| p.borrow_mut().take());
-                            }
-                        });
-                    })
-                    .is_ok()
-            })
-            .count();
+        // ([`aside_while_idle`]) has a spare worker to take the next job in
+        // its place. The first `width` to start aren't spares.
+        let mut started = 0;
+        for _ in 0..width.max(1).saturating_mul(2) {
+            let spare = started >= width.max(1);
+            let (queue, work, results) = (&queue, &work, &results);
+            let tally = tally.clone();
+            let spawned = std::thread::Builder::new()
+                .name("buri-job".into())
+                .stack_size(STACK)
+                .spawn_scoped(scope, move || {
+                    let _phase = crate::profile::adopt(phase);
+                    crate::profile::tallied(tally, || {
+                        let tell = Tell { results };
+                        let mut kept = None;
+                        loop {
+                            let place = match kept.take() {
+                                Some(place) => place,
+                                None => match queue.width.enter(spare) {
+                                    Some(place) => place,
+                                    None => break,
+                                },
+                            };
+                            let Some((job, held)) = queue.take() else {
+                                break;
+                            };
+                            PLACE.with(|p| *p.borrow_mut() = Some(std::sync::Arc::clone(&place)));
+                            // A job that panics drops its `Held` as it
+                            // unwinds.
+                            results.send(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                || work(job, held, queue, &tell),
+                            )));
+                            PLACE.with(|p| p.borrow_mut().take());
+                            kept = queue.width.keep(&place, spare).then_some(place);
+                        }
+                    });
+                })
+                .is_ok();
+            started += usize::from(spawned);
+        }
         // Closed on the way out however `drive` leaves. If it panicked, the
         // workers would otherwise wait on the queue and the scope on them.
         let _closing = Closing(&queue);
@@ -949,6 +987,32 @@ mod tests {
         // A safety net only: a pool that never closes never answers.
         let panicked = finished.recv_timeout(std::time::Duration::from_secs(60));
         assert_eq!(panicked, Ok(true));
+    }
+
+    /// With no job set aside, one worker runs every job of a pool one wide,
+    /// whichever thread wakes first. Each thread keeps its own free blocks
+    /// (`buri::allocator`), so jobs passed between two workers lay memory out
+    /// differently from run to run, and the counted goals' cache misses with
+    /// it.
+    #[test]
+    fn one_worker_runs_every_job_of_a_pool_one_wide() {
+        const JOBS: usize = 2000;
+        let threads = pool(
+            1,
+            0,
+            |_: u8, _, _, _| std::thread::current().id(),
+            |queue: &Queue<u8>, results| {
+                (0..JOBS)
+                    .map(|_| {
+                        queue.push(0, 0);
+                        results.recv()
+                    })
+                    .collect::<Vec<_>>()
+            },
+        )
+        .unwrap();
+        assert_eq!(threads.len(), JOBS);
+        assert!(threads.iter().all(|t| *t == threads[0]), "{threads:?}");
     }
 
     /// A job that panics raises its panic in `drive`, which would otherwise
