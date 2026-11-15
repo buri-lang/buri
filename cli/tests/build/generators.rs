@@ -988,3 +988,62 @@ fn the_well_known_modules_are_what_the_generator_writes() {
         run.all()
     );
 }
+
+/// Answers each request with no modules, and notes in `LOG` when it started
+/// and when it ended, with a busy wait between. Shell builtins alone, as a
+/// tool's process has no `PATH`.
+const NOTING_TOOL: &str = r#"#!/bin/sh
+while read -r line; do
+  echo start >> LOG
+  i=0
+  while [ $i -lt 100000 ]; do i=$((i + 1)); done
+  echo end >> LOG
+  printf '%s\n' '{"modules":[],"diagnostics":[],"needs":[]}'
+done
+"#;
+
+/// **On one thread, a build runs its generator rules one at a time.**
+/// `BURI_THREADS=1` keeps the build's work on one thread, so a profile's
+/// counts hold still under load. Two rules ready together ran side by side
+/// even so, and which thread ran which moved from one build to the next.
+#[cfg(unix)]
+#[test]
+fn on_one_thread_generator_rules_run_one_at_a_time() {
+    let scratch = Scratch::repo("generators-one-thread");
+    scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
+    scratch.write(
+        "tools/gen/tool.buri",
+        "from \"core/tool\" import { Generated, GenerateRequest };\n\
+         from \"platform/effect\" import { Allocator };\n\n\
+         export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {\n    \
+         Generated { modules: [], diagnostics: [], needs: [] }\n}\n",
+    );
+    for name in ["a", "b"] {
+        scratch.write(
+            &format!("lib/{name}/BUILD.buri"),
+            &format!(
+                "library {{\n    generators: [\n        {{ tool: \"//tools/gen\", inputs: [\"{name}.txt\"] }},\n    ]\n}}\n"
+            ),
+        );
+        scratch.write(&format!("lib/{name}/{name}.txt"), "1\n");
+        scratch.write(
+            &format!("lib/{name}/lib.buri"),
+            "export fn one(): Int { 1 }\n",
+        );
+    }
+    let log = scratch.path("log").display().to_string();
+    scratch.replace_the_tool("//lib/a", &NOTING_TOOL.replace("LOG", &log));
+    let _ = std::fs::remove_file(&log);
+    // New inputs, so neither rule's answer is the one kept from before.
+    for name in ["a", "b"] {
+        scratch.write(&format!("lib/{name}/{name}.txt"), "2\n");
+    }
+    scratch
+        .run_with_env(&["build", "//..."], &[("BURI_THREADS", "1")])
+        .ok();
+    assert_eq!(
+        scratch.read("log"),
+        "start\nend\nstart\nend\n",
+        "the two rules' requests overlapped"
+    );
+}

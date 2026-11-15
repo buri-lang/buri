@@ -944,15 +944,19 @@ fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, target
         }
         build_tools(session, &ready);
         // Each worker takes the next rule until none is left, this thread too,
-        // so a helper that does not start leaves its rules to the others.
+        // so a helper that does not start leaves its rules to the others. No
+        // more workers than `BURI_THREADS` allows, and each in this thread's
+        // phase, so a profile's counts don't move with which worker ran what.
         let next = AtomicUsize::new(0);
+        let phase = crate::profile::current();
         let work = || {
+            let _phase = crate::profile::adopt(phase);
             while let Some(&target) = ready.get(next.fetch_add(1, Ordering::Relaxed)) {
                 run(session, target, flags, overlay);
             }
         };
         std::thread::scope(|scope| {
-            for _ in 1..ready.len() {
+            for _ in 1..ready.len().min(crate::parallel::cores()) {
                 let _ = std::thread::Builder::new()
                     .name("buri-generate".into())
                     .stack_size(crate::parallel::STACK)
@@ -1014,21 +1018,26 @@ fn build_tools(session: &Session, rules: &[TargetId]) {
             }
         }
     }
+    // As [`prepare_rules`] runs its rules: each worker takes the next tool, no
+    // more workers than `BURI_THREADS` allows. A worker that does not start
+    // leaves its tools to the others.
+    let next = AtomicUsize::new(0);
+    let phase = crate::profile::current();
+    let work = || {
+        let _phase = crate::profile::adopt(phase);
+        while let Some(&tool) = wanted.get(next.fetch_add(1, Ordering::Relaxed)) {
+            let _work = crate::progress::begin(crate::progress::Kind::Build, &tool.name(workspace));
+            let _ = tools::artifact(session, tool);
+        }
+    };
     std::thread::scope(|scope| {
-        for &tool in &wanted {
-            // A thread that does not start leaves its tool to be built when a
-            // rule first needs it.
+        for _ in 1..wanted.len().min(crate::parallel::cores()) {
             let _ = std::thread::Builder::new()
                 .name("buri-tool".into())
                 .stack_size(crate::parallel::STACK)
-                .spawn_scoped(scope, move || {
-                    let _work = crate::progress::begin(
-                        crate::progress::Kind::Build,
-                        &tool.name(&session.workspace),
-                    );
-                    tools::artifact(session, tool)
-                });
+                .spawn_scoped(scope, work);
         }
+        work();
     });
 }
 
