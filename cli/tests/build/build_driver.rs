@@ -378,6 +378,48 @@ fn a_failing_link_reports_the_linker_s_output() {
     }
 }
 
+/// A failed link's command to rerun starts lld or mold on four threads, not
+/// one per core: past four, the threads mostly contend (PERFORMANCE.md §6.138).
+#[test]
+fn a_failed_links_command_runs_the_linker_on_four_threads() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    let cc = scratch.write_executable(
+        "fake/cc",
+        "#!/bin/sh\ncase \"$*\" in\n  *--version*) echo \"fake cc 1.0\"; exit 0 ;;\n  \
+         *\" -c \"*) cat >/dev/null; exit 0 ;;\nesac\n\
+         echo \"fake-ld: error: this linker links nothing\" >&2\nexit 1\n",
+    );
+    let cc = cc.display().to_string();
+    let linkers: &[(&str, &str)] = if cfg!(target_os = "macos") {
+        &[("lld", "ld64.lld")]
+    } else {
+        &[("lld", "ld.lld"), ("mold", "mold")]
+    };
+    for (linker, program) in linkers {
+        let on_path = std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {program}")])
+            .capped_output()
+            .unwrap()
+            .status
+            .success();
+        if !on_path {
+            ci::missing(
+                "build::build_driver",
+                &format!("`{program}` is not on PATH"),
+            );
+            continue;
+        }
+        scratch
+            .run_with_env(
+                &["build", "//cmd/app"],
+                &[("CC", &cc), ("BURI_LINKER", linker)],
+            )
+            .exits(1)
+            .says(&format!(" -fuse-ld={linker} "))
+            .says(" -Wl,--threads=4 ");
+    }
+}
+
 /// `BURI_LINKER` picks the linker the driver runs, `cc` being the driver's own
 /// default, and each links a program that runs. A linker the machine doesn't
 /// have fails the link by name, with the way back to the driver's own.

@@ -9994,6 +9994,8 @@ mold already started four threads. The saving is on machines with more cores.
 
 `two_checkouts_link_a_program_of_many_libraries_into_identical_bytes` links a
 program of 24 libraries in two checkouts, runs it, and compares the bytes.
+`a_failed_links_command_runs_the_linker_on_four_threads` holds the flag: a
+failed link's command to rerun must carry it.
 
 ## 7. Profiling, on this platform
 
