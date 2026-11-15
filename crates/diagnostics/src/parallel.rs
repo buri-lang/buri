@@ -860,7 +860,7 @@ where
                     });
                 })
                 .is_ok();
-            started += usize::from(spawned);
+            started = started.saturating_add(usize::from(spawned));
         }
         // Closed on the way out however `drive` leaves. If it panicked, the
         // workers would otherwise wait on the queue and the scope on them.
