@@ -2004,3 +2004,63 @@ fn a_javascript_build_declares_nothing_for_an_inlined_helper() {
         "{few} functions declared with 20 inlined helpers, {many} with 40"
     );
 }
+
+/// `n` helpers with one body, each called twice by `total` so that none is
+/// inlined. Every one is its own function to the middle end, and the same
+/// JavaScript.
+fn twin_helpers(n: usize) -> (String, String) {
+    let mut items: String = (0..n)
+        .map(|i| {
+            format!(
+                "fn helper{i}(x: Int): Int {{\n    let a = x * 3 + 1;\n    \
+                 let b = a * a % 1009;\n    let c = b + a * 7;\n    \
+                 let d = c % 101 + b;\n    d * 2 + c\n}}\n\n"
+            )
+        })
+        .collect();
+    let sum: Vec<String> = (0..n)
+        .map(|i| format!("helper{i}(x) + helper{i}(x + 1)"))
+        .collect();
+    items.push_str(&format!(
+        "fn total(x: Int): Int {{\n    {}\n}}\n",
+        sum.join(" + ")
+    ));
+    let body =
+        "    let _ = io.println(ctx, \"total ${total(1) + total(2)}\").ignore();\n".to_string();
+    (items, body)
+}
+
+/// What [`twin_helpers`]'s program prints, worked out here.
+fn twin_total(n: i64) -> i64 {
+    let helper = |x: i64| {
+        let a = x * 3 + 1;
+        let b = a * a % 1009;
+        let c = b + a * 7;
+        let d = c % 101 + b;
+        d * 2 + c
+    };
+    let total = |x| n * (helper(x) + helper(x + 1));
+    total(1) + total(2)
+}
+
+/// **A JavaScript build folds one body once.** Functions that print the same
+/// are merged into one, and the minifier did that only after folding every
+/// one of them. A count of the functions folded, which no load can move, and
+/// the program still prints what its source says.
+#[test]
+fn a_javascript_build_folds_one_body_once() {
+    let folded = |n| {
+        let (items, body) = twin_helpers(n);
+        counted_work("node", &items, &body, "javascript functions folded").unwrap()
+    };
+    let (few, many) = (folded(20), folded(40));
+    assert_eq!(
+        few, many,
+        "{few} functions folded with 20 helpers of one body, {many} with 40"
+    );
+    let (items, body) = twin_helpers(40);
+    large_shape("node", &items, &body)
+        .run(&["run", "//app"])
+        .ok()
+        .says(&format!("total {}", twin_total(40)));
+}

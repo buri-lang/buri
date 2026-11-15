@@ -203,9 +203,11 @@ pub enum Work {
     FunctionsSurveyedForStyles,
     /// Functions a JavaScript artifact declares (`generate.rs`).
     JsFunctionsDeclared,
+    /// Functions the JavaScript minifier folds (`javascript.rs`).
+    JsFunctionsFolded,
 }
 
-const WORKS: usize = Work::JsFunctionsDeclared as usize + 1;
+const WORKS: usize = Work::JsFunctionsFolded as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -228,6 +230,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "findings keyed",
     "functions surveyed for styles",
     "javascript functions declared",
+    "javascript functions folded",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

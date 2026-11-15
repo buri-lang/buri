@@ -1553,7 +1553,20 @@ pub fn quote(s: &str) -> String {
 /// dead-code elimination are not optional — a program that ran them only
 /// sometimes would be two programs.
 pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
-    let mut stmts = stmts;
+    // Folding is most of the work here, and most of the functions a program
+    // declares never need it: about six in ten in a large web build are
+    // unreachable, or the same body as one declared before them. Two bodies
+    // that are the same before folding are the same after it, and folding
+    // removes references rather than adding them, so dropping those first
+    // leaves the same program for the passes below.
+    let mut stmts = merge_identical(eliminate_dead(stmts, roots), roots);
+    crate::profile::work(
+        crate::profile::Work::JsFunctionsFolded,
+        stmts
+            .iter()
+            .filter(|s| matches!(s, Stmt::Func { .. }))
+            .count(),
+    );
     {
         // Sharing a constant aggregate hides its contents from the folder:
         // `[3, 'x'][0]` is `3`, but `$k0[0]` is an array read. The table lets
@@ -3392,10 +3405,10 @@ fn clean_function(
 /// once the types are gone. In one conformance artifact 123 of 546 functions
 /// had a byte-identical twin.
 ///
-/// Nothing is removed here — the references move, and `eliminate_dead` drops
-/// whatever that leaves unreachable. A name is only ever the *target* of a
-/// merge if it is safe to keep, and only ever the *source* if it is safe to
-/// lose: a root or a name mentioned in verbatim source (the entry epilogue
+/// The references move to the first function, and the others are dropped,
+/// because nothing can name them any more. A name is only ever the *target*
+/// of a merge if it is safe to keep, and only ever the *source* if it is safe
+/// to lose: a root or a name mentioned in verbatim source (the entry epilogue
 /// names its function as text) is neither dropped nor rewritten.
 fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut pinned: HashSet<&str> = roots.iter().map(String::as_str).collect();
@@ -3428,14 +3441,18 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     // First by emission order wins, so the result does not depend on hash
     // order — build output is compared byte for byte.
     let mut first: HashMap<FuncKey<'_>, &String> = HashMap::default();
-    let mut alias: HashMap<String, Expr> = HashMap::default();
-    for (s, key) in stmts.iter().zip(keys) {
+    let mut alias: HashMap<String, String> = HashMap::default();
+    // The declarations a merge drops, by position: a name declared twice with
+    // one body is one function, so its first declaration stays.
+    let mut merged = vec![false; stmts.len()];
+    for ((s, key), merged) in stmts.iter().zip(keys).zip(&mut merged) {
         let (Stmt::Func { name, .. }, Some(key)) = (s, key) else {
             continue;
         };
         match first.get(&key) {
             Some(winner) => {
-                alias.insert(name.clone(), Expr::ident((*winner).clone()));
+                alias.insert(name.clone(), (*winner).clone());
+                *merged = true;
             }
             None => {
                 first.insert(key, name);
@@ -3446,7 +3463,17 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     if alias.is_empty() {
         return stmts;
     }
-    each_statement(stmts, |s| subst_stmt(s, &alias))
+    let mut stmts: Vec<Stmt> = stmts
+        .into_iter()
+        .zip(merged)
+        .filter_map(|(s, merged)| (!merged).then_some(s))
+        .collect();
+    rename_idents(&mut stmts, &mut |name| {
+        if let Some(winner) = alias.get(name.as_str()) {
+            name.clone_from(winner);
+        }
+    });
+    stmts
 }
 
 /// A function, minus its name, as a table key.
