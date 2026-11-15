@@ -9962,6 +9962,48 @@ The check rows hold the VM's figure where it's lower than the baseline. The
 three dev-codegen cost rows hold the higher of CI's from 93ed232e6 and the
 VM's.
 
+### 6.138 The linker runs on four threads, 2026-11-14
+
+```text
+mold  cc -fuse-ld=mold -Wl,--no-fork -Wl,--threads=4 ...
+lld   cc -fuse-ld=lld -Wl,--threads=4 ...
+```
+
+- mold and lld start a thread per core. Past four, the extra threads mostly
+  contend, and the system time shows it.
+- Four is the count that cut CPU without costing wall time. One saves a
+  little more CPU but makes a lone link up to twice as slow.
+
+One link run ten times by hand, CPU and wall per link:
+
+| Linker | Threads | CPU | Wall |
+| --- | --- | --- | --- |
+| mold, 64 objects, arm64 VM, 8 CPUs | 8 | 65–76 ms | 18–19 ms |
+| | 4 | 33–35 ms | 16 ms |
+| | 1 | 22–25 ms | 35 ms |
+| ld64.lld, 382 objects, M-series, 12 cores | 12 | 116–119 ms | 124–137 ms |
+| | 4 | 95 ms | 108 ms |
+| | 1 | 91–92 ms | 137–144 ms |
+
+A cold profiled build of the bench's `full`, on one build thread, three runs
+each: the link children's CPU fell from 1.19–1.21 s to 0.94–0.96 s, and dev
+codegen from 64.0–64.5k to 67.9–68.5k lines per CPU second.
+
+On the arm64 VM, from 0978ad19b to this section:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` dev-codegen cost | 92097.9 | 90955.8 (-1.2%) |
+| `ci` dev-codegen instructions | 57321.1 | 56667.1 (-1.1%) |
+| `monorepo-ci` dev-codegen cost | 35297.0 | 35207.2 (-0.3%) |
+| `monorepo-ci` dev-codegen instructions | 22822.8 | 22770.8 (-0.2%) |
+
+The baseline's dev-codegen rows take CI's figures from the first run on
+main, since the VM reads them 0.2–0.7% low.
+
+`two_checkouts_link_a_program_of_many_libraries_into_identical_bytes` links a
+program of 24 libraries in two checkouts, runs it, and compares the bytes.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
