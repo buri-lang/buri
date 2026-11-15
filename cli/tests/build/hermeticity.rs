@@ -517,6 +517,73 @@ fn concurrent_native_builds_each_link_from_the_cache_and_run() {
     assert_eq!(answer(), "answer=54\n", "the relink read a stale object");
 }
 
+/// **Two checkouts link a native program of many libraries into the same
+/// bytes, and it runs** (PERFORMANCE.md §6.138). The linker splits a link this
+/// size across its threads, and how it splits must not reach the binary.
+#[test]
+fn two_checkouts_link_a_program_of_many_libraries_into_identical_bytes() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::hermeticity", &why);
+        return;
+    }
+    let host = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let n = 24;
+    let write = |scratch: &Scratch| {
+        let mut imports = String::new();
+        let mut sum = String::from("0");
+        for i in 0..n {
+            scratch.write(&format!("lib/l{i}/BUILD.buri"), "library {}\n");
+            scratch.write(
+                &format!("lib/l{i}/lib.buri"),
+                &format!("export fn part{i}(x: Int): Int {{\n  x * {i} + {i}\n}}\n"),
+            );
+            imports.push_str(&format!("from \"//lib/l{i}\" import {{ part{i} }};\n"));
+            sum.push_str(&format!(" + part{i}(2)"));
+        }
+        scratch.write(
+            "cmd/c/BUILD.buri",
+            &format!(
+                "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"
+            ),
+        );
+        scratch.write(
+            "cmd/c/main.buri",
+            &format!(
+                "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+                 from \"native\" import {{ NativeHost }};\n\
+                 from \"core/io\" import * as io;\n{imports}\n\
+                 export fn main(host: NativeHost): Result<(), Str> {{\n  \
+                 let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n  \
+                 let _ = io.println(ctx, \"sum=${{{sum}}}\").ignore();\n  .Ok(())\n}}\n"
+            ),
+        );
+    };
+    let one = Scratch::repo("many-libraries-one");
+    let two = Scratch::repo("many-libraries-two");
+    write(&one);
+    write(&two);
+    let exe = format!(".buri/out/native/{host}-{arch}/cmd/c/c");
+    // Each part is 3i, so the sum is 3 * (0 + 1 + ... + 23).
+    one.run(&["run", "//cmd/c"]).ok().says("sum=828");
+    two.run(&["build", "//cmd/c"]).ok();
+    let a = std::fs::read(one.path(&exe)).expect("the first binary");
+    let b = std::fs::read(two.path(&exe)).expect("the second binary");
+    assert_eq!(
+        buri::build::actions::first_difference(&a, &b),
+        None,
+        "two checkouts linked different binaries"
+    );
+}
+
 /// The toolchain in every key is the id the linker wrote into the `buri`
 /// binary, and it has to be one: a rebuilt `buri` with different code must
 /// name itself differently, and the same binary must name itself the same way

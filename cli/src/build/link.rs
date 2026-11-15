@@ -386,10 +386,14 @@ impl Flavour {
     /// while the child frees its memory. That is a second process per link
     /// for a wall-clock saving no build waits on: 49 M of the 275 M
     /// instructions one link retired. So `--no-fork` goes with it.
+    ///
+    /// Both linkers start a thread per core by default. Past four, the extra
+    /// threads mostly contend: four cut a link's CPU by half under mold and a
+    /// fifth under lld, and its wall time too (PERFORMANCE.md §6.138).
     fn driver_flags(self) -> &'static [&'static str] {
         match self {
-            Flavour::Mold => &["-fuse-ld=mold", "-Wl,--no-fork"],
-            Flavour::Lld => &["-fuse-ld=lld"],
+            Flavour::Mold => &["-fuse-ld=mold", "-Wl,--no-fork", "-Wl,--threads=4"],
+            Flavour::Lld => &["-fuse-ld=lld", "-Wl,--threads=4"],
             Flavour::System => &[],
         }
     }
