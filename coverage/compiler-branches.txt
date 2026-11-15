@@ -3,13 +3,13 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16065 16148 99.49%
+total 16062 16144 99.49%
 area cli/build 1698 1700 99.88%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
 area cli/language_server 1239 1246 99.44%
 area cli/lint 570 570 100.00%
-area cli/other 609 614 99.19%
+area cli/other 611 616 99.19%
 area cli/run 58 58 100.00%
 area cli/serve+watch 68 68 100.00%
 area cli/test 472 482 97.93%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1091 1112 98.11%
 area crates/llvm 580 580 100.00%
-area crates/middle 2494 2520 98.97%
+area crates/middle 2489 2514 99.01%
 area crates/project 1334 1336 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -49,7 +49,7 @@ area crates/syntax 1268 1268 100.00%
 0 0 cli/src/commands/add/mod.rs
 8 8 cli/src/commands/add/skills.rs
 43 44 cli/src/commands/arguments.rs
-126 126 cli/src/commands/build.rs
+128 128 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
 98 98 cli/src/commands/format.rs
 30 30 cli/src/commands/generate.rs
@@ -141,7 +141,7 @@ area crates/syntax 1268 1268 100.00%
 16 16 crates/middle/src/compiler/middle/closures.rs
 45 48 crates/middle/src/compiler/middle/coverage/derived.rs
 138 138 crates/middle/src/compiler/middle/coverage/mod.rs
-25 26 crates/middle/src/compiler/middle/dce.rs
+18 18 crates/middle/src/compiler/middle/dce.rs
 36 36 crates/middle/src/compiler/middle/decision.rs
 203 208 crates/middle/src/compiler/middle/derives.rs
 0 0 crates/middle/src/compiler/middle/fingerprint.rs
@@ -152,7 +152,7 @@ area crates/syntax 1268 1268 100.00%
 74 74 crates/middle/src/compiler/middle/ir.rs
 28 28 crates/middle/src/compiler/middle/known_calls.rs
 48 48 crates/middle/src/compiler/middle/layout.rs
-142 142 crates/middle/src/compiler/middle/lower.rs
+144 144 crates/middle/src/compiler/middle/lower.rs
 56 56 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 172 180 crates/middle/src/compiler/middle/monomorphize.rs
