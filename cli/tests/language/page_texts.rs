@@ -493,3 +493,26 @@ fn texts_in_a_table_a_server_sends_are_one_box_each() {
     let shown = resumed("served-texts-in-a-table", SIGNALS, WRITES, &table);
     assert_eq!(shown, SERVED_ONE_BY_ONE);
 }
+
+// A program can write a table row and its table entries with no table, and a
+// table entry stacks its texts there too.
+
+#[test]
+fn texts_in_a_table_entry_of_a_row_outside_a_table_are_one_box_each() {
+    let row = format!(
+        r#"ui.stack({{ role: .Some(.TableRow), styles: [], children: [{}] }})"#,
+        here("Cell", "", TEXTS)
+    );
+    let shown = mounted("texts-in-a-lone-row-entry", SIGNALS, WRITES, &row);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_entry_of_a_row_outside_a_table_a_server_sends_are_one_box_each() {
+    let row = format!(
+        r#"ui.stack({{ role: .Some(.TableRow), styles: [], children: [{}] }})"#,
+        here("Cell", "", TEXTS)
+    );
+    let shown = resumed("served-texts-in-a-lone-row-entry", SIGNALS, WRITES, &row);
+    assert_eq!(shown, SERVED_ONE_BY_ONE);
+}

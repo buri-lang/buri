@@ -1,0 +1,23 @@
+# Children that aren't texts, straight in a table row or a table: a stack, a
+# button, a heading, a link and a checkbox each take a column of their own in a
+# row and a row of their own in a table. A table entry straight in a table is a
+# row of its own, a table row in a table row is a table of one row in a column
+# of its own, and a shut dialog takes no column. The pages built from these
+# snapshots check that a browser lays each child out on its own too: a browser
+# runs a row's children that aren't table entries into one anonymous entry,
+# and a table's children that aren't rows into one anonymous row.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "children of a table row and of a table are laid out one by one, as table entries and rows"
+
+run {
+  args: ["test", "//lib/figures", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/figures/test/__snapshots__/table-row.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/table.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/row-in-row.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/dialog.diff.png"  exists: false }

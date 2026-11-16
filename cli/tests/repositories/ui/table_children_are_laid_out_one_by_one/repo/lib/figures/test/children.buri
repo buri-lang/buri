@@ -1,0 +1,163 @@
+// Children that aren't texts, straight in a table row and in a table: each
+// child of a row is a column of its own, and each child of a table a row of
+// its own.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+fn boxed<C>(name: Str): Node<C> {
+    ui.stack({ styles: [], children: [ui.text({ content: .Const(name) })] })
+}
+
+fn entry<C>(name: Str): Node<C> {
+    ui.stack({
+        role: .Some(.Cell),
+        styles: [],
+        children: [ui.text({ content: .Const(name) })],
+    })
+}
+
+// A stack, a button, a heading, a link and a checkbox, then a second row of
+// table entries under them.
+fn kinds<C: Ui>(ctx: C): [Node<C>] {
+    [
+        boxed("Jan"),
+        ui.button({ label: .Const("Feb"), styles: [], onPress: .None }),
+        ui.text({ content: .Const("Mar"), headingLevel: .Some(3) }),
+        ui.link({
+            dest: .Const("/apr"),
+            children: [ui.text({ content: .Const("Apr") })],
+            styles: [],
+        }),
+        ui.toggle({
+            label: .Const("May"),
+            kind: .Checkbox,
+            isOn: signal(ctx, true),
+            styles: [],
+        }),
+    ]
+}
+
+test "children of a table row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-row",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.stack({ role: .Some(.TableRow), styles: [], children: kinds(ctx) }),
+                ui.stack({
+                    role: .Some(.TableRow),
+                    styles: [],
+                    children: [
+                        entry("1"),
+                        entry("2"),
+                        entry("3"),
+                        entry("4"),
+                        entry("5"),
+                    ],
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "children of a table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: kinds(ctx).push(ctx, entry("Jun")),
+        }),
+        .Hover,
+        [],
+    );
+}
+
+// A row in a row is a table of one row in a column of its own.
+test "a table row in a table row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-in-row",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.stack({
+                    role: .Some(.TableRow),
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            role: .Some(.TableRow),
+                            styles: [],
+                            children: [entry("Jan"), entry("Feb")],
+                        }),
+                        boxed("Mar"),
+                    ],
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+// A shut dialog takes no column, so the stack after it lines up with the
+// second table entry under it.
+test "a shut dialog in a table row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.stack({
+                    role: .Some(.TableRow),
+                    styles: [],
+                    children: [
+                        boxed("Jan"),
+                        ui.dialog({
+                            isOpen: signal(ctx, false),
+                            label: .Const("Shut"),
+                            children: [],
+                            styles: [],
+                        }),
+                        boxed("Feb"),
+                    ],
+                }),
+                ui.stack({
+                    role: .Some(.TableRow),
+                    styles: [],
+                    children: [entry("1"), entry("2")],
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}

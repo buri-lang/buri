@@ -1,0 +1,17 @@
+# A table row with no table is a table of one row: each child is a column of
+# its own, and a table entry stacks its texts. Nothing in the case names
+# `.Table`, so the page built from the snapshot checks that a browser gets the
+# table's style rules without it: with none, a table entry runs its texts
+# together on one line.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a table row outside a table is a table of one row, its table entry stacking its texts"
+
+run {
+  args: ["test", "//lib/figures", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/figures/test/__snapshots__/lone-row.diff.png"  exists: false }

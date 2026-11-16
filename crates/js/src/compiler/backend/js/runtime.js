@@ -6853,6 +6853,46 @@ function $tree_unmounted(cell) {
   });
 }
 
+// The tags that render no element of their own and put what they hold
+// straight into their parent: `Empty`, `When`, `Computed`, `Each` and
+// `Fragment`.
+const $TREE_THROUGH = { 0: true, 18: true, 19: true, 20: true, 22: true };
+
+// Where a node goes in `parent`: `parent` itself, or a table part made to hold
+// it. The painter gives each child of a table row a column of its own and each
+// child of a table a row of its own, and lays out a table row outside a table
+// as a table of one row. A browser runs a table row's children that are no
+// table entry into one anonymous entry, and a table's children that are no row
+// into one anonymous row, and a parser moves each out of a table a server
+// sends. So such a child is held in a `<td>`, in a `<tr>` too in a table, and
+// a row outside a table in a `<table>` of its own.
+function $tree_table_part(parent, node, anchor) {
+  const tag = node[0];
+  if ($TREE_THROUGH[tag] === true) return parent;
+  const name = tag === 4 ? $TREE_ROLES[node[1]][0] : "";
+  const entry = name === "td" || name === "th";
+  let into;
+  if (parent.$table) {
+    if (name === "tr") return parent;
+    const row = $tree_element(parent, "tr", anchor);
+    into = entry ? row : $tree_element(row, "td", null);
+    // A dialog is drawn over the page or not at all, so it takes no row.
+    if (tag === 15) $dom_styles(row, $TREE_NO_BOX);
+  } else if (parent.$row) {
+    if (entry) return parent;
+    into = $tree_element(parent, "td", anchor);
+  } else if (name === "tr") {
+    // A parser puts a `<tbody>` in a served `<table>`, so the runtime does.
+    const rows = $tree_element($tree_element(parent, "table", anchor), "tbody", null);
+    rows.$table = true;
+    return rows;
+  } else return parent;
+  // Nor does it take a table entry.
+  if (tag === 15) $dom_styles(into, $TREE_NO_BOX);
+  return into;
+}
+const $TREE_NO_BOX = new Map([["display", "contents"]]);
+
 // Renders one node into `parent`, before `anchor` — or at the end of `parent`
 // when there is none.
 //
@@ -6861,6 +6901,11 @@ function $tree_unmounted(cell) {
 function $tree_render(ctx, wrapper, parent, anchor) {
   const node = wrapper[0];
   const tag = node[0];
+  const into = $tree_table_part(parent, node, anchor);
+  if (into !== parent) {
+    $tree_render(ctx, wrapper, into, null);
+    return;
+  }
   if (tag === 0) {
     // Empty: no element, no text, no place held. A `when` that answers this is
     // a `when` whose region is empty, and its own markers hold the place.
@@ -6868,14 +6913,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 1) {
     // A `<span>` of its own: a browser runs bare sibling texts together into
-    // one box, where the painter lays out each text on its own (#357). In a
-    // table row the painter gives a text a column of its own, and in a table a
-    // row of its own, so there it is a `<td>`, in a `<tr>` of its own in a
-    // table: a parser moves a `<span>` out of either.
-    if (parent.$table) {
-      const row = $tree_element(parent, "tr", anchor);
-      $tree_text(node[1], $tree_element(row, "td", null), null);
-    } else $tree_text(node[1], $tree_element(parent, parent.$row ? "td" : "span", anchor), null);
+    // one box, where the painter lays out each text on its own (#357).
+    $tree_text(node[1], $tree_element(parent, "span", anchor), null);
     return;
   }
   if (tag === 2) {

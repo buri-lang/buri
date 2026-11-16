@@ -189,7 +189,12 @@ const ROLE_SEPARATOR: usize = 10;
 /// design system draws across a row comes out broken. The reset collapses the
 /// borders, which is the continuous line the headless painter already draws and
 /// what every design system's base layer does.
+///
+/// Every table role from `Table` to `Cell` asks for the reset: a program can
+/// write a `.TableRow` or a `.Cell` with no `.Table`, and the runtime holds a
+/// row outside a table in a `<table>` of its own.
 const ROLE_TABLE: usize = 13;
+const ROLE_CELL: usize = 17;
 
 /// One rule in the emitted stylesheet.
 ///
@@ -3616,7 +3621,7 @@ fn reset_in(
         match variant {
             ROLE_LIST => out.list = true,
             ROLE_SEPARATOR => out.separator = true,
-            ROLE_TABLE => out.table = true,
+            ROLE_TABLE..=ROLE_CELL => out.table = true,
             _ => {}
         }
     }
