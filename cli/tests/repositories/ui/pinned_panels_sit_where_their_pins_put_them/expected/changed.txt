@@ -1,0 +1,5 @@
+FAIL //lib/pins  test/pins.buri  "the box pinned the plain way where the panel pinless goes"
+  the snapshot "pinless" changed: see test/__snapshots__/pinless.diff.png
+  --> lib/pins/test/pins.buri:455:1
+
+31 passed, 1 failed, 0 skipped (0.0s)

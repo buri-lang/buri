@@ -1,0 +1,606 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden, so a panel the pins place anywhere else fails its scene.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
+from "//lib/pins" import { anchored, computed, late, pinned, tip, tipTwin };
+
+test "a pinned panel hangs below its anchor from the start edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "below",
+        anchored([
+            .Pin(.Top, .Px(32)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel below goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "below",
+        pinned([
+            .Pin(.Top, .Px(32)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel hangs below its anchor from the end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "below-end",
+        anchored([
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel below-end goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "below-end",
+        pinned([
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel sits above its anchor from the start edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "above",
+        anchored([
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel above goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "above",
+        pinned([
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel sits above its anchor in from the end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "above-end",
+        anchored([
+            .Pin(.Bottom, .Px(40)),
+            .Pin(.End, .Px(16)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel above-end goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "above-end",
+        pinned([
+            .Pin(.Bottom, .Px(40)),
+            .Pin(.End, .Px(16)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel sits before its anchor's start edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "start",
+        anchored([
+            .Pin(.End, .Percent(100.0)),
+            .Pin(.Top, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel start goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "start",
+        pinned([
+            .Pin(.End, .Percent(100.0)),
+            .Pin(.Top, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel sits past its anchor's end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "end",
+        anchored([
+            .Pin(.Start, .Percent(100.0)),
+            .Pin(.Top, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel end goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "end",
+        pinned([
+            .Pin(.Start, .Percent(100.0)),
+            .Pin(.Top, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned at both side edges stretches across its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "across",
+        anchored([
+            .Pin(.Start, .Px(0)),
+            .Pin(.End, .Px(0)),
+            .Pin(.Top, .Percent(100.0)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel across goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "across",
+        pinned([
+            .Pin(.Start, .Px(0)),
+            .Pin(.End, .Px(0)),
+            .Pin(.Top, .Percent(100.0)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned at both side edges with a width of its own starts at the start pin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "across-sized",
+        anchored([
+            .Pin(.Start, .Px(8)),
+            .Pin(.End, .Px(8)),
+            .Pin(.Top, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel across-sized goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "across-sized",
+        pinned([
+            .Pin(.Start, .Px(8)),
+            .Pin(.End, .Px(8)),
+            .Pin(.Top, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned at the top and the bottom stretches down its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "down",
+        anchored([
+            .Pin(.Top, .Px(0)),
+            .Pin(.Bottom, .Px(0)),
+            .Pin(.Start, .Percent(100.0)),
+            .Width(.Px(160)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel down goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "down",
+        pinned([
+            .Pin(.Top, .Px(0)),
+            .Pin(.Bottom, .Px(0)),
+            .Pin(.Start, .Percent(100.0)),
+            .Width(.Px(160)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned at no side edge is centred across its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "centred-across",
+        anchored([.Pin(.Top, .Percent(100.0)), .Width(.Px(160)), .Height(.Px(80))]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel centred-across goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "centred-across",
+        pinned([
+            .Pin(.Top, .Px(32)),
+            .Pin(.Start, .Px(120)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned at neither the top nor the bottom is centred down its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "centred-down",
+        anchored([.Pin(.Start, .Percent(100.0)), .Width(.Px(160)), .Height(.Px(16))]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel centred-down goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "centred-down",
+        pinned([
+            .Pin(.Start, .Px(400)),
+            .Pin(.Top, .Px(8)),
+            .Width(.Px(160)),
+            .Height(.Px(16)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel pinned nowhere is centred on its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "pinless",
+        anchored([.Width(.Px(160)), .Height(.Px(16))]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel pinless goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "pinless",
+        pinned([
+            .Pin(.Start, .Px(120)),
+            .Pin(.Top, .Px(8)),
+            .Width(.Px(160)),
+            .Height(.Px(16)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel whose pins a style computes sits above its anchor from the end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        computed([
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the computed panel goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        pinned([
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a pinned panel whose pin lengths are read from signals sits above its anchor from the end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "late", late(ctx, .Percent(100.0), .Px(0)), .Checked, []);
+}
+
+test "the box pinned the plain way where the late panel goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "late",
+        pinned([
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a tooltip's bubble hangs below its trigger from the start edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(ctx, "tooltip", tip([.Width(.Px(160)), .Height(.Px(80))]), .Hover, []);
+}
+
+test "the box pinned the plain way where the bubble goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "tooltip",
+        tipTwin([
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "a tooltip's bubble a pin moves hangs where the pin puts it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "tooltip-moved",
+        tip([.Pin(.Top, .Px(40)), .Width(.Px(160)), .Height(.Px(80))]),
+        .Hover,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the moved bubble goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "tooltip-moved",
+        tipTwin([
+            .Pin(.Top, .Px(40)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Hover,
+        [],
+    );
+}

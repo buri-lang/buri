@@ -1776,6 +1776,17 @@ impl Computed {
     }
 }
 
+/// Where a tooltip's bubble sits until a class says otherwise, as the sheet's
+/// `[role=tooltip]` reset places it in a browser: below its trigger at the
+/// start edge, against the trigger's `Flow` box, on one line.
+const TOOLTIP: [(&str, &str); 5] = [
+    ("position", "fixed"),
+    ("position-anchor", "--buri-flow"),
+    ("inset-block-start", "100%"),
+    ("inset-inline-start", "0"),
+    ("text-wrap", "nowrap"),
+];
+
 /// Resolves every node's style: matching class rules in sheet order, then the
 /// element's own declarations, over what the parent passed down.
 fn resolve(
@@ -1832,13 +1843,19 @@ fn resolve(
                 Vec::new()
             };
             let vars: &[(String, String)] = if has_local { &local } else { variables };
-            // A table role stands in for a browser's own sheet, so it comes
-            // before every rule: a `display` from a class or inline beats it.
+            // A role stands in for a browser's own sheet, so it comes before
+            // every rule: a `display` from a class or inline beats a table's,
+            // and a `Pin` beats where a tooltip's bubble sits by default.
             for (name, value) in &node.declarations {
                 if name == "role" {
                     match value.as_str() {
                         "table" => style.flow = Flow::Table,
                         "table-row" => style.flow = Flow::TableRow,
+                        "tooltip" => {
+                            for (name, value) in TOOLTIP {
+                                apply(&mut style, name, value, &parent);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -4379,8 +4396,25 @@ impl Painter<'_> {
             // page, from the origin it has here but with no clip, so a panel
             // pinned to a trigger inside a `Scroll` box hangs below the
             // trigger rather than being cut off at the scroller's edge (#168).
+            //
+            // In an axis with no pin it is centred on the anchor, the way the
+            // sheet's `position-area: center` places it in a browser (#360).
             if kid.escape {
-                self.anchored.push((child, from.0, from.1));
+                let size = self
+                    .ids
+                    .get(child)
+                    .and_then(|id| id.and_then(|id| self.tree.layout(id).ok()))
+                    .map(|l| (l.location, l.size));
+                let (mut ax, mut ay) = from;
+                if let Some((at, size)) = size {
+                    if kid.inset[0] == Len::Auto && kid.inset[1] == Len::Auto {
+                        ax = left + (layout.size.width - size.width) / 2.0 - at.x;
+                    }
+                    if kid.inset[2] == Len::Auto && kid.inset[3] == Len::Auto {
+                        ay = top + (layout.size.height - size.height) / 2.0 - at.y;
+                    }
+                }
+                self.anchored.push((child, ax, ay));
                 continue;
             }
             if kid.lifted() || mark.is_some() {

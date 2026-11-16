@@ -1,0 +1,8 @@
+# One library and its test: each scene beside its twin.
+library {
+    sources: ["pins.buri"]
+
+    test {
+        sources: ["test/pins.buri"]
+    }
+}

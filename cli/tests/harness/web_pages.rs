@@ -114,7 +114,18 @@ pub fn paint_orders(case: &Path) -> Vec<(String, String)> {
 /// is placed against: `its parent`, `the viewport` or `another box`. A
 /// snapshot with none says `none`.
 pub fn placements(case: &Path) -> Vec<(String, String)> {
-    read_snapshots(case, &format!("{COLOURS}{PLACEMENTS}"), "placed ")
+    read_snapshots(case, &format!("{COLOURS}{HOVERED}{PLACEMENTS}"), "placed ")
+}
+
+/// Where a browser lays out each of `case`'s snapshots' red boxes out of the
+/// flow, as `(name, boxes)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`placements`] mounts it. A box is one with
+/// `position: absolute` or `fixed` painted red, read as `red at <x>,<y>
+/// <width>x<height>` from the top left of the box it is placed against, by
+/// `placedAt`. A snapshot with none says `none`.
+pub fn places(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, &format!("{COLOURS}{HOVERED}{PLACES}"), "place ")
 }
 
 /// What a browser draws for each open dialog's scrim in each of `case`'s
@@ -875,19 +886,45 @@ function own(element, out) {
 }
 "#;
 
+/// Drives the hover a hovered snapshot names: the pointer enters every
+/// element of its tree.
+const HOVERED: &str = r#"
+async function hovered(state, tree) {
+  if (state !== "hover") return;
+  for (const node of tree) {
+    for (const element of [node, ...(node.querySelectorAll?.("*") ?? [])]) {
+      fire(element, "pointerenter");
+      fire(element, "mouseenter");
+    }
+  }
+  await settle();
+}
+"#;
+
+/// Prints where a browser lays out each mounted snapshot's red boxes out of
+/// the flow, one `place <name>: <boxes>` line each ([`places`]).
+const PLACES: &str = r#"
+for (const { root, name, state, tree } of snapshots) {
+  await hovered(state, tree);
+  const boxes = [];
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    if (!["absolute", "fixed"].includes(getComputedStyle(element).position)) continue;
+    const colour = [];
+    own(element, colour);
+    if (colour[0] !== "red") continue;
+    const { x, y, width, height } = placedAt(element);
+    boxes.push(`red at ${x},${y} ${width}x${height}`);
+  }
+  console.log(`place ${name}: ${boxes.length === 0 ? "none" : boxes.join(", ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
 /// Prints where each mounted snapshot's panels are, one `placed <name>:
 /// <panels>` line each ([`placements`]).
 const PLACEMENTS: &str = r#"
 for (const { root, name, state, tree } of snapshots) {
-  if (state === "hover") {
-    for (const node of tree) {
-      for (const element of [node, ...(node.querySelectorAll?.("*") ?? [])]) {
-        fire(element, "pointerenter");
-        fire(element, "mouseenter");
-      }
-    }
-    await settle();
-  }
+  await hovered(state, tree);
   const panels = [];
   for (const element of [root, ...root.querySelectorAll("*")]) {
     if (getComputedStyle(element).position !== "fixed") continue;

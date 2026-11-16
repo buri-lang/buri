@@ -1758,7 +1758,8 @@ The rest is short:
   below it.
 - `.Position(.PinAnchor)` hangs from its `Flow` box and paints over the whole
   page, out of every clip, the way a browser's top layer does. So does a
-  tooltip's bubble.
+  tooltip's bubble. Its pins place it the way a plain `Pin` would, and an axis
+  with no pin is centred on the anchor.
 - A `.Clip` or a `.Scroll` is measured at its own box. It cuts what is under
   it, so what a reader would have to scroll to see is not what the picture is
   tall enough to show.

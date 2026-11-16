@@ -733,8 +733,8 @@ export enum Position {
     /// over the whole page and out of every ancestor's clip. A menu, listbox
     /// or popover pinned to its trigger hangs below it, over every box after
     /// it, even inside a `Scroll` box or a dialog. `PinViewport` leaves the
-    /// clip too, but sticks to the viewport. With no `Pin`, the panel sits
-    /// centred on the anchor.
+    /// clip too, but sticks to the viewport. In an axis with no `Pin`, the
+    /// panel sits centred on the anchor.
     PinAnchor,
 }
 

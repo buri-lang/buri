@@ -1,0 +1,102 @@
+//! A red panel placed against a blue anchor by its pins, each scene beside a
+//! twin.
+//!
+//! A `PinAnchor` panel is placed against its `Flow` box the way a `Pin` is:
+//! each pinned edge measured from the anchor's edge, an axis pinned at both
+//! edges stretched between them, and an axis with no pin centred on the
+//! anchor. Each scene's twin pins a plain box inside the same anchor where the
+//! panel should land, so a panel placed any other way fails its scene.
+
+from "platform/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Length, Style };
+
+fn box<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: styles, children: children })
+}
+
+/// The blue anchor, 400 by 32, holding `panel`, 100 down a page 800 by 240
+/// and 200 in from its start edge, so a panel on any side of it is on the
+/// page.
+fn page<C>(panel: Node<C>): Node<C> {
+    box([.Width(.Px(800)), .Height(.Px(240))], [
+        box([.Height(.Px(100))], []),
+        box([.Layout(.Row)], [
+            box([.Width(.Px(200)), .Height(.Px(32))], []),
+            box(
+                [
+                    .Position(.Flow),
+                    .Width(.Px(400)),
+                    .Height(.Px(32)),
+                    .Background(.Rgb(0, 0, 255)),
+                ],
+                [panel],
+            ),
+        ]),
+    ])
+}
+
+fn red(): Style {
+    .Background(.Rgb(255, 0, 0))
+}
+
+/// A red `PinAnchor` panel styled `styles`, against the anchor.
+export fn anchored<C>(styles: [Style]): Node<C> {
+    page(box([.Position(.PinAnchor), red(), .Group(styles)], []))
+}
+
+/// A red box pinned the plain way, styled `styles`, inside the anchor.
+export fn pinned<C>(styles: [Style]): Node<C> {
+    page(box([red(), .Group(styles)], []))
+}
+
+/// A red `PinAnchor` panel whose pins a style computes as the page runs.
+export fn computed<C>(styles: [Style]): Node<C> {
+    page(box([.Position(.PinAnchor), red(), .Computed(fn(_scope) => styles)], []))
+}
+
+/// A red `PinAnchor` panel pinned to the anchor's bottom edge and end edge
+/// by lengths read from signals, which no stylesheet class holds.
+export fn late<C: Ui + Watch>(ctx: C, bottom: Length, end: Length): Node<C> {
+    let up = signal(ctx, bottom).get(ctx);
+    let across = signal(ctx, end).get(ctx);
+    page(
+        box(
+            [
+                .Position(.PinAnchor),
+                red(),
+                .Pin(.Bottom, up),
+                .Pin(.End, across),
+                .Width(.Px(160)),
+                .Height(.Px(80)),
+            ],
+            [],
+        ),
+    )
+}
+
+/// A tooltip on a blue trigger 400 by 32, 100 down a page 400 by 240, with a
+/// red bubble styled `styles`.
+export fn tip<C>(styles: [Style]): Node<C> {
+    box([.Width(.Px(400)), .Height(.Px(240))], [
+        box([.Height(.Px(100))], []),
+        ui.tooltip({
+            text: .Const(""),
+            styles: [red(), .Group(styles)],
+            children: [box([.Height(.Px(32)), .Background(.Rgb(0, 0, 255))], [])],
+        }),
+    ])
+}
+
+/// The red box a tooltip's bubble styled `styles` should be, pinned the plain
+/// way inside the same trigger.
+export fn tipTwin<C>(styles: [Style]): Node<C> {
+    box([.Width(.Px(400)), .Height(.Px(240))], [
+        box([.Height(.Px(100))], []),
+        box([.Position(.Flow), .Height(.Px(32)), .Background(.Rgb(0, 0, 255))], [
+            box([red(), .Group(styles)], []),
+        ]),
+    ])
+}

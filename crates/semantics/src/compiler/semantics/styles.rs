@@ -281,7 +281,36 @@ const FLOW_ANCHOR: &str = "relative;anchor-name:--buri-flow;anchor-scope:--buri-
 /// block, so a pin is measured from it and a percentage is of its size. The
 /// painter reads `position-anchor` as the same box: placed against its parent,
 /// out of every clip, and painted in the top layer.
-const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center";
+///
+/// That area also centres the panel in each axis, pinned or not, so the
+/// alignment in each axis comes from the pins the panel has (#360): see
+/// [`PIN_ALIGNMENT`].
+const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center;\
+                          align-self:var(--buri-pin-y);justify-self:var(--buri-pin-x)";
+
+/// What each `Pin` edge adds beside its inset, in `Edge`'s order, so that a
+/// `PinAnchor` panel aligns the way a pinned box does: to the edge pinned in
+/// an axis, stretched between two, and centred with none.
+///
+/// The alignment in an axis is `--buri-pin-y` (or `-x`). With the start edge
+/// unpinned it reads `--buri-pin-y-end`, `center` unless the end edge is
+/// pinned. The start edge points it at `--buri-pin-y-both` instead, `start`
+/// unless the end edge is pinned too. [`ANCHOR_RESET`] sets the unpinned
+/// values, under every class. A stretch of a box with a size is placed at the
+/// start, as a box pinned at both edges is.
+const PIN_ALIGNMENT: [&str; 4] = [
+    "--buri-pin-y:var(--buri-pin-y-both)",
+    "--buri-pin-y-end:end;--buri-pin-y-both:stretch",
+    "--buri-pin-x:var(--buri-pin-x-both)",
+    "--buri-pin-x-end:end;--buri-pin-x-both:stretch",
+];
+
+/// The alignment a `PinAnchor` panel with no pin has, which its pins'
+/// [`PIN_ALIGNMENT`] overrides. A custom property is inherited, so a panel
+/// inside a pinned box starts from these rather than from the box's.
+const ANCHOR_RESET: &str = "--buri-pin-y:var(--buri-pin-y-end);--buri-pin-y-end:center;\
+                            --buri-pin-y-both:start;--buri-pin-x:var(--buri-pin-x-end);\
+                            --buri-pin-x-end:center;--buri-pin-x-both:start";
 
 /// The conflict slot: the property, the sub-key where the property has one,
 /// and the condition, packed into one number the runtime compares for equality.
@@ -395,7 +424,14 @@ fn variable_rules(variant: usize) -> Vec<StyleRule> {
         vec![rule(name.to_owned(), declarations.to_owned())]
     } else {
         keys.iter()
-            .map(|key| rule(format!("{name}-{key}"), declarations.replace('@', key)))
+            .zip(PIN_ALIGNMENT)
+            .map(|(key, aligned)| {
+                let mut declared = declarations.replace('@', key);
+                if variant == STYLE_PIN {
+                    declared = format!("{declared};{aligned}");
+                }
+                rule(format!("{name}-{key}"), declared)
+            })
             .collect()
     };
     if variant == STYLE_TRUNCATE {
@@ -3093,9 +3129,17 @@ fn popover_reset(rules: &[&StyleRule], reset: Reset) -> String {
     if !anchored && !reset.tooltip {
         return String::new();
     }
-    ":where([popover]){inset:auto;margin:0;border:0;padding:0;width:auto;height:auto;\
-     overflow:visible;color:inherit;background:none}\n"
-        .to_owned()
+    let mut out = ":where([popover]){inset:auto;margin:0;border:0;padding:0;width:auto;\
+                   height:auto;overflow:visible;color:inherit;background:none}\n"
+        .to_owned();
+    // A tooltip's bubble starts pinned below its trigger, which the tooltip
+    // reset says, even when a class makes it a `PinAnchor` panel too.
+    if anchored {
+        out.push_str(&format!(
+            ":where([class*=pos-anchor]:not([role=tooltip])){{{ANCHOR_RESET}}}\n"
+        ));
+    }
+    out
 }
 
 /// Takes the platform's focus ring away from the elements that draw one of
@@ -3490,9 +3534,12 @@ impl Reset {
             out.push_str(&format!(
                 ":where(:has(>[role=tooltip])){{position:{FLOW_ANCHOR}}}\n"
             ));
+            // Its two pins align it the way a `Pin` class's would, and a
+            // caller's `Pin` class overrides either.
+            let [top, _, start, _] = PIN_ALIGNMENT;
             out.push_str(&format!(
                 ":where([role=tooltip]){{position:{PIN_ANCHOR};inset-block-start:100%;\
-                 inset-inline-start:0;text-wrap:nowrap}}\n"
+                 inset-inline-start:0;text-wrap:nowrap;{ANCHOR_RESET};{top};{start}}}\n"
             ));
             // Hidden is hidden whatever a class says its `display` is.
             out.push_str("[role=tooltip][hidden]{display:none!important}\n");
@@ -3703,7 +3750,9 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         15 => {
             let (property, edge) = edge_property("inset", first?)?;
             let (length, key) = length(args.get(1)?, AS_WRITTEN)?;
-            Some(("pin", format!("{edge}-{key}"), one(&property, &length)))
+            let (which, _) = first?.as_variant()?;
+            let aligned = format!("{length};{}", PIN_ALIGNMENT.get(which)?);
+            Some(("pin", format!("{edge}-{key}"), one(&property, &aligned)))
         }
         16 => {
             let (which, _) = first?.as_variant()?;

@@ -477,7 +477,7 @@ test "the rest of the vocabulary lowers to the declarations it names" {
         "e 0 class:as-end wrap-wrap scroll-y shrink-0 span-2 pin-out pin-top-0 pos-sticky gapx-4 gapy-6 pe-start-r1 minw-100 maxw-r40 minh-20 maxh-pc50 ar-1_5 bs-dashed op-0_5 it-italic lh-1_5 ls-1 ta-center tc-upper tl-underline tw-balance trunc-2",
     );
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px;"));
     assert.isTrue(sheet.contains(".pe-start-r1{padding-inline-start:1rem}"));
     assert.isTrue(sheet.contains(".ar-1_5{aspect-ratio:1.5}"));
     assert.isTrue(
@@ -523,10 +523,10 @@ test "pins naming different edges compose, and `Position` owns `position`" {
         "e 0 class:pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0",
     );
     let sheet = stylesheet();
-    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px}"));
-    assert.isTrue(sheet.contains(".pin-bottom-0{inset-block-end:0px}"));
-    assert.isTrue(sheet.contains(".pin-start-0{inset-inline-start:0px}"));
-    assert.isTrue(sheet.contains(".pin-end-0{inset-inline-end:0px}"));
+    assert.isTrue(sheet.contains(".pin-top-0{inset-block-start:0px;"));
+    assert.isTrue(sheet.contains(".pin-bottom-0{inset-block-end:0px;"));
+    assert.isTrue(sheet.contains(".pin-start-0{inset-inline-start:0px;"));
+    assert.isTrue(sheet.contains(".pin-end-0{inset-inline-end:0px;"));
     // Out of the flow is one fact about the element rather than one per edge,
     // and the `Position` beside it wins because the sheet writes it later.
     let pinned = sheet.indexOf(".pin-out{position:absolute}").withDefault(-1);
@@ -935,7 +935,7 @@ test "a bleed shares an edge with a pin and a padding and fights neither" {
     let sheet = stylesheet();
     assert.isTrue(sheet.contains(".bleed-start-8{margin-inline-start:-8px}"));
     assert.isTrue(sheet.contains(".pe-start-2{padding-inline-start:2px}"));
-    assert.isTrue(sheet.contains(".pin-start-4{inset-inline-start:4px}"));
+    assert.isTrue(sheet.contains(".pin-start-4{inset-inline-start:4px;"));
     // A state is a slot of its own, so the hover rule does not replace the
     // resting one — it applies over it.
     assert.isTrue(
@@ -6447,7 +6447,7 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         }),
     );
     let shown =
-        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;position:fixed;position-anchor:--buri-flow;position-area:center;inset-block-start:100%;inset-inline-start:0;text-wrap:nowrap\nt 2 Copy to clipboard";
+        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;role:tooltip\nt 2 Copy to clipboard";
     // A snapshot in a state that hovers or focuses the trigger draws the
     // bubble, and one in any other state draws the trigger alone.
     assert.equal(

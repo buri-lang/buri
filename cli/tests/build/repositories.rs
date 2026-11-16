@@ -656,6 +656,11 @@ fn serving_a_page() {
 /// inside a stacking context, far down the page and inside an open dialog.
 /// `pinned_panels_are_in_the_top_layer_against_their_trigger` checks each in
 /// happy-dom.
+///
+/// `pinned_panels_sit_where_their_pins_put_them` is a `PinAnchor` panel placed
+/// by every combination of pins, and a tooltip's bubble (#360), each scene
+/// beside a twin pinned the plain way. The test of the same name checks where
+/// happy-dom's computed styles put each.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 68);
@@ -755,6 +760,40 @@ fn pinned_panels_are_in_the_top_layer_against_their_trigger() {
     .flat_map(|(name, order)| vec![(name.to_string(), order.to_string()); 2])
     .collect();
     assert_eq!(crate::harness::web_pages::paint_orders(&case), orders);
+}
+
+/// Where a browser lays out `pinned_panels_sit_where_their_pins_put_them`'s
+/// red panels, read off happy-dom by CSS's rules for placing a box out of the
+/// flow (#360). Each scene and its twin come out at the same place against
+/// their blue anchor, the place the shared golden shows: a pinned edge
+/// measured from the anchor's edge, an axis pinned at both edges stretched
+/// between them, and an axis pinned at neither centred on the anchor.
+#[test]
+fn pinned_panels_sit_where_their_pins_put_them() {
+    let case = tests_dir().join("repositories/ui/pinned_panels_sit_where_their_pins_put_them");
+    let expected: &[(&str, &str)] = &[
+        ("below", "0,32 160x80"),
+        ("below-end", "240,32 160x80"),
+        ("above", "0,-80 160x80"),
+        ("above-end", "224,-88 160x80"),
+        ("start", "-160,0 160x80"),
+        ("end", "400,0 160x80"),
+        ("across", "0,32 400x80"),
+        ("across-sized", "8,32 160x80"),
+        ("down", "400,0 160x32"),
+        ("centred-across", "120,32 160x80"),
+        ("centred-down", "400,8 160x16"),
+        ("pinless", "120,8 160x16"),
+        ("computed", "240,-80 160x80"),
+        ("late", "240,-80 160x80"),
+        ("tooltip", "0,32 160x80"),
+        ("tooltip-moved", "0,40 160x80"),
+    ];
+    let placed: Vec<(String, String)> = expected
+        .iter()
+        .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
+        .collect();
+    assert_eq!(crate::harness::web_pages::places(&case), placed);
 }
 
 /// What a browser draws for each scrim in `a_dialog_scrim_draws_its_styles`,

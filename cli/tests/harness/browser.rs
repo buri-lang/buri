@@ -39,6 +39,9 @@
 ///  * `placedAgainst(element)`, the box a browser places `element` against:
 ///    the nearest ancestor whose anchor name its `position-anchor` names, when
 ///    its `position-area` makes that the containing block, or `null`;
+///  * `placedAt(element)`, where a browser lays out an out-of-flow box,
+///    which happy-dom leaves out: its offset and size within the box it is
+///    placed against, by the inset, size and self-alignment it computes to;
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
@@ -532,6 +535,84 @@ function boxes(container) {
     run.push(node);
   }
   return out;
+}
+
+// Where a browser lays out the out-of-flow box `element`, which happy-dom lays
+// out none of: `{ x, y, width, height }` from the top left of the box it is
+// placed against, by CSS Positioned Layout 3 and Anchor Positioning 1.
+//
+// That box is `placedAgainst(element)` under a `position-area`, and the
+// parent otherwise. A `position-area` turns every auto inset into 0, and its
+// `center` area makes `normal` self-alignment centre the box: Chromium 143
+// did so even with one inset auto (#360). The current draft aligns towards
+// that inset instead, which no browser this was checked against does yet.
+// Without one, `normal` is `start`, an auto inset leaves the box against
+// its other one, and a box with both insets auto in an axis has a static
+// position this doesn't lay out, so it throws. Lengths are pixels or
+// percentages of the box placed against. A box with no width of its own
+// fills a column's width, or the inset room when it stretches; one with no
+// height is as tall as its children in the flow, or the inset room when it
+// stretches. Left to right and top to bottom only.
+function placedAt(element) {
+  const s = getComputedStyle(element);
+  const area = !unsetStyle(s.positionArea) && !unsetStyle(s.positionAnchor);
+  const against = area ? placedAgainst(element) : element.parentElement;
+  if (against === null) throw new Error("placedAt: the box is placed against nothing");
+  const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, s.justifySelf, sizeOf(against, "width"), area);
+  const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, s.alignSelf, sizeOf(against, "height"), area);
+  return { x, y, width, height };
+}
+// The start and the size of `element` along one axis, inside `room` pixels.
+function placedAlong(element, dimension, start, end, align, room, area) {
+  const from = lengthIn(start, () => room);
+  const to = lengthIn(end, () => room);
+  let size = lengthIn(getComputedStyle(element)[dimension], () => room);
+  let self = (align ?? "").replace(/^(safe|unsafe) /, "");
+  if (self === "" || self === "auto") self = "normal";
+  if (["self-start", "flex-start"].includes(self)) self = "start";
+  if (["self-end", "flex-end"].includes(self)) self = "end";
+  if (!area && from === null && to === null) throw new Error(`placedAt: a static ${dimension} position`);
+  let s = from ?? 0;
+  let e = to ?? 0;
+  // Never below zero: the weaker inset gives way, the auto one if only one
+  // is auto and the end one otherwise.
+  const over = s + e - room;
+  if (over > 0 && from === null) s -= over;
+  else if (over > 0) e -= over;
+  const inside = room - s - e;
+  const stretches = self === "stretch" || (self === "normal" && !area && from !== null && to !== null);
+  if (size === null) size = stretches ? inside : sizeOf(element, dimension);
+  if (self === "stretch") self = "start";
+  if (self === "normal") self = area ? "center" : "start";
+  if (!area && from === null) return [room - e - size, size];
+  if (!area && to === null) return [s, size];
+  if (self === "start") return [s, size];
+  if (self === "end") return [s + inside - size, size];
+  if (self === "center") return [s + (inside - size) / 2, size];
+  throw new Error(`placedAt: self-alignment ${align}`);
+}
+// A computed length in pixels: a percentage of `room()`, or `null` for auto.
+function lengthIn(value, room) {
+  if (unsetStyle(value)) return null;
+  if (value.endsWith("%")) return (room() * Number(value.slice(0, -1))) / 100;
+  if (value === "0" || value.endsWith("px")) return Number.parseFloat(value);
+  throw new Error(`placedAt: the length ${value}`);
+}
+// The `dimension` of `element`'s box: its own, or else a column's width, or
+// the heights of its children in the flow added up.
+function sizeOf(element, dimension) {
+  if (element.parentElement === null) return dimension === "width" ? window.innerWidth : window.innerHeight;
+  const s = getComputedStyle(element);
+  const own = lengthIn(s[dimension], () => sizeOf(element.parentElement, dimension));
+  if (own !== null) return own;
+  if (dimension === "width") return sizeOf(element.parentElement, "width");
+  let total = 0;
+  for (const child of element.children) {
+    const c = getComputedStyle(child);
+    if (["absolute", "fixed"].includes(c.position) || c.display === "none") continue;
+    total += sizeOf(child, "height");
+  }
+  return total;
 }
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom

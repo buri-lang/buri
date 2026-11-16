@@ -1,0 +1,33 @@
+# A pinned panel sits where its pins put it against its anchor (#360).
+#
+# A `PinAnchor` panel is placed against its `Flow` box the way a `Pin` is.
+# A browser used to centre it on the anchor whatever its pins said. Each
+# scene shares a golden with a twin that pins a plain box where the panel
+# should land: below, above, before and past the anchor, from either edge,
+# stretched between two pins, centred in an axis with no pin, from a computed
+# style, from lengths read from signals, and a tooltip's bubble.
+#
+# The last step moves the pinless panel's twin to the anchor's start edge,
+# and that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a pinned panel sits where its pins put it against its anchor, each scene beside a twin pinned the plain way, and a moved twin fails the golden"
+
+run {
+  args: ["test", "//lib/pins", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/pins/test/pins.buri"
+  replace: ".Pin(.Start, .Px(120)),\n            .Pin(.Top, .Px(8)),"
+  with: ".Pin(.Start, .Px(0)),\n            .Pin(.Top, .Px(8)),"
+}
+
+run {
+  args: ["test", "//lib/pins", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
