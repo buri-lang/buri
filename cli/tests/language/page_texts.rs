@@ -7,37 +7,21 @@
 //! drew three.
 //!
 //! Each test builds a page, imports it into happy-dom's document and prints
-//! what a browser makes of a column's children: one box per element and one
-//! per run of text, with the column's `textContent`. Every page has a "Change"
+//! what a browser makes of a container's children, with its `textContent`: in
+//! a column, one box per element and one per run of text. Every page has a "Change"
 //! button that writes its signals, so each test reads the first render and the
 //! update after it.
 
 use super::pages::{drive, run_served, served};
 use crate::harness::browser::browser;
 
-/// Prints the boxes a browser lays out in the column beside "Change".
+/// Prints the boxes a browser lays out in the element labelled "Here", or in
+/// the column beside "Change" when there is none.
 const SHOW: &str = r#"
 const tick = () => new Promise((done) => setTimeout(done, 0));
-// One box per element, and one per run of text between elements: a browser
-// skips comments and empty text when it gathers a run.
-function boxes(column) {
-  const out = [];
-  let run = null;
-  for (const node of column.childNodes) {
-    if (node.nodeType === 1) {
-      run = null;
-      out.push(node.textContent);
-    } else if (node.nodeType === 3 && node.data !== "") {
-      if (run === null) out.push("");
-      run = (run ?? "") + node.data;
-      out[out.length - 1] = run;
-    }
-  }
-  return out;
-}
 const show = () => {
-  const column = labelled("Change").nextElementSibling;
-  const shown = boxes(column);
+  const column = labelled("Here") ?? labelled("Change").nextElementSibling;
+  const shown = boxes(column).map((box) => box.map((node) => node.textContent).join(""));
   console.log(`${shown.join(" | ")} (${shown.length} box${shown.length === 1 ? "" : "es"}, "${column.textContent}")`);
 };
 const change = async () => {
@@ -351,4 +335,161 @@ fn a_text_a_condition_a_server_sends_shows_is_a_box_of_its_own() {
          x | z | w (3 boxes, \"xzw\")\n\
          x | y | w (3 boxes, \"xyw\")\n"
     );
+}
+
+/// What the container tests below read: `first`, then a row per item, then a
+/// text that never changes. "Change" renames `first` and adds a row.
+const SIGNALS: &str = r#"let first = signal(ctx, "one");
+    let items = signal(ctx, ["a"]);"#;
+const WRITES: &str = r#"let _ = first.set(c, "uno");
+                        let _ = items.set(c, ["a", "b"]);"#;
+const TEXTS: &str = r#"ui.text({ content: .Cell(first) }),
+    ui.each(.Cell(items), fn(s) => s, fn(_c, s, _i) => ui.text({ content: .Const(s) })),
+    ui.text({ content: .Const("End") })"#;
+/// Each of [`TEXTS`] a box of its own, before "Change" and after it.
+const ONE_BY_ONE: &str = "one | a | End (3 boxes, \"oneaEnd\")\n\
+                          uno | a | b | End (4 boxes, \"unoabEnd\")\n";
+
+/// A stack with `role` and `styles`, labelled "Here", holding `children`.
+fn here(role: &str, styles: &str, children: &str) -> String {
+    format!(
+        r#"ui.stack({{ role: .Some(.{role}), label: .Some(.Const("Here")), styles: [{styles}], children: [{children}] }})"#
+    )
+}
+
+/// A table of one row whose one table entry is `entry`.
+fn table_of(entry: &str) -> String {
+    format!(
+        r#"ui.stack({{ role: .Some(.Table), styles: [], children: [
+           ui.stack({{ role: .Some(.TableRow), styles: [], children: [{entry}] }}),
+        ] }})"#
+    )
+}
+
+// A table entry names no `Layout`, so it stacks its children downwards, as the
+// painter lays one out. A browser's own table entry is a block, where texts sit
+// side by side on one line.
+
+#[test]
+fn texts_in_a_table_entry_are_one_box_each() {
+    let entry = table_of(&here("Cell", "", TEXTS));
+    let shown = mounted("texts-in-a-table-entry", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_column_header_are_one_box_each() {
+    let entry = table_of(&here("ColumnHeader", "", TEXTS));
+    let shown = mounted("texts-in-a-column-header", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_row_header_are_one_box_each() {
+    let entry = table_of(&here("RowHeader", "", TEXTS));
+    let shown = mounted("texts-in-a-row-header", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_entry_laid_out_as_a_row_are_one_box_each() {
+    let entry = table_of(&here("Cell", ".Layout(.Row)", TEXTS));
+    let shown = mounted("texts-in-a-table-entry-row", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_row_are_one_box_each() {
+    let table = format!(
+        r#"ui.stack({{ role: .Some(.Table), styles: [], children: [{}] }})"#,
+        here("TableRow", "", TEXTS)
+    );
+    let shown = mounted("texts-in-a-table-row", SIGNALS, WRITES, &table);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_are_one_box_each() {
+    let table = here("Table", "", TEXTS);
+    let shown = mounted("texts-in-a-table", SIGNALS, WRITES, &table);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_laid_out_as_a_row_are_one_box_each() {
+    let table = here("Table", ".Layout(.Row)", TEXTS);
+    let shown = mounted("texts-in-a-table-row-layout", SIGNALS, WRITES, &table);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_list_item_are_one_box_each() {
+    let list = format!(
+        r#"ui.stack({{ role: .Some(.List), styles: [], children: [{}] }})"#,
+        here("ListItem", "", TEXTS)
+    );
+    let shown = mounted("texts-in-a-list-item", SIGNALS, WRITES, &list);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_row_are_one_box_each() {
+    let row = here("Group", ".Layout(.Row)", TEXTS);
+    let shown = mounted("texts-in-a-row", SIGNALS, WRITES, &row);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_grid_are_one_box_each() {
+    let grid = here(
+        "Group",
+        ".Layout(.Grid([.Fraction(1), .Fraction(1)]))",
+        TEXTS,
+    );
+    let shown = mounted("texts-in-a-grid", SIGNALS, WRITES, &grid);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_truncated_column_are_one_box_each() {
+    let column = here("Group", ".Truncate(2)", TEXTS);
+    let shown = mounted("texts-in-a-truncated-column", SIGNALS, WRITES, &column);
+    assert_eq!(shown, ONE_BY_ONE);
+}
+
+/// [`ONE_BY_ONE`] as a server sends it, as the page takes it over, then after
+/// "Change".
+const SERVED_ONE_BY_ONE: &str = "one | a | End (3 boxes, \"oneaEnd\")\n\
+                                 one | a | End (3 boxes, \"oneaEnd\")\n\
+                                 uno | a | b | End (4 boxes, \"unoabEnd\")\n";
+
+#[test]
+fn texts_in_a_table_entry_a_server_sends_are_one_box_each() {
+    let entry = table_of(&here("Cell", "", TEXTS));
+    let shown = resumed("served-texts-in-a-table-entry", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, SERVED_ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_column_header_a_server_sends_are_one_box_each() {
+    let entry = table_of(&here("ColumnHeader", "", TEXTS));
+    let shown = resumed("served-texts-in-a-column-header", SIGNALS, WRITES, &entry);
+    assert_eq!(shown, SERVED_ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_row_a_server_sends_are_one_box_each() {
+    let table = format!(
+        r#"ui.stack({{ role: .Some(.Table), styles: [], children: [{}] }})"#,
+        here("TableRow", "", TEXTS)
+    );
+    let shown = resumed("served-texts-in-a-table-row", SIGNALS, WRITES, &table);
+    assert_eq!(shown, SERVED_ONE_BY_ONE);
+}
+
+#[test]
+fn texts_in_a_table_a_server_sends_are_one_box_each() {
+    let table = here("Table", "", TEXTS);
+    let shown = resumed("served-texts-in-a-table", SIGNALS, WRITES, &table);
+    assert_eq!(shown, SERVED_ONE_BY_ONE);
 }

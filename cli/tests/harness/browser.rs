@@ -46,6 +46,10 @@
 ///  * `resize(width)`, which makes the window that wide and restyles the page
 ///    for it, which happy-dom leaves out, before any of the page's `resize`
 ///    listeners run;
+///  * `display(element)`, the `display` a browser gives `element`, from the
+///    page's sheets, where happy-dom drops the values it can't parse;
+///  * `boxes(container)`, the boxes a browser lays out for `container`'s
+///    children, each the nodes it holds, which happy-dom lays out none of;
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order;
@@ -378,6 +382,157 @@ function placedAgainst(element) {
   return null;
 }
 const unsetStyle = (value) => value === undefined || value === "" || value === "none" || value === "auto";
+
+// The `display` a browser gives `element`. happy-dom drops every value it
+// can't parse, `table-cell` and `-webkit-box` among them, so this reads the
+// page's `<style>` text itself: the weightiest matching rule that says
+// `display`, the later of two that weigh the same, else a browser's own.
+function display(element) {
+  const inline = /(?:^|;)\s*display\s*:\s*([^;]+)/.exec(element.getAttribute("style") ?? "");
+  if (inline !== null) return inline[1].trim();
+  let best = null;
+  for (const rule of displayRules()) {
+    if (rule.media !== null && !matchMedia(rule.media).matches) continue;
+    for (const selector of rule.selectors) {
+      if (!element.matches(selector)) continue;
+      const weight = [rule.important ? 1 : 0, ...specificity(selector)];
+      if (best === null || weight.reduce((d, w, i) => d || w - best.weight[i], 0) >= 0) {
+        best = { weight, value: rule.value };
+      }
+    }
+  }
+  if (best !== null) return best.value;
+  if (element.hidden) return "none";
+  const name = element.localName;
+  if (name === "dialog") return element.open ? "block" : "none";
+  return UA_DISPLAY[name] ?? (BLOCKS.includes(name) ? "block" : "inline");
+}
+const UA_DISPLAY = {
+  table: "table",
+  tbody: "table-row-group",
+  thead: "table-header-group",
+  tfoot: "table-footer-group",
+  tr: "table-row",
+  td: "table-cell",
+  th: "table-cell",
+  li: "list-item",
+  input: "inline-block",
+  button: "inline-block",
+  select: "inline-block",
+  textarea: "inline-block",
+  head: "none",
+  script: "none",
+  style: "none",
+  template: "none",
+};
+const BLOCKS = ["html", "body", "div", "p", "nav", "main", "header", "footer", "aside", "article", "section",
+  "search", "ul", "ol", "hr", "form", "h1", "h2", "h3", "h4", "h5", "h6", "details", "summary", "fieldset"];
+// Each rule in the page's sheets that says `display`, in the order they apply.
+function displayRules() {
+  const rules = [];
+  for (const style of document.querySelectorAll("style")) {
+    gather(style.textContent.replace(/\/\*[\s\S]*?\*\//g, ""), null, rules);
+  }
+  return rules;
+}
+function gather(text, media, rules) {
+  let at = 0;
+  while (true) {
+    const open = text.indexOf("{", at);
+    if (open < 0) return;
+    let end = open + 1;
+    for (let depth = 1; depth > 0 && end < text.length; end++) {
+      if (text[end] === "{") depth++;
+      else if (text[end] === "}") depth--;
+    }
+    const head = text.slice(at, open).trim();
+    const inner = text.slice(open + 1, end - 1);
+    if (head.startsWith("@media")) gather(inner, head.slice(6).trim(), rules);
+    else if (!head.startsWith("@")) {
+      const said = [...inner.matchAll(/(?:^|;)\s*display\s*:\s*([^;!]+)(!important)?/g)].at(-1);
+      if (said !== undefined) {
+        // A pseudo-element is no element `matches` can answer for.
+        const selectors = topLevel(head).filter((selector) => !selector.includes("::"));
+        rules.push({ selectors, media, value: said[1].trim(), important: said[2] !== undefined });
+      }
+    }
+    at = end;
+  }
+}
+// A selector list split at the commas outside any parentheses.
+function topLevel(list) {
+  const out = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "(") depth++;
+    else if (list[i] === ")") depth--;
+    else if (list[i] === "," && depth === 0) {
+      out.push(list.slice(from, i).trim());
+      from = i + 1;
+    }
+  }
+  out.push(list.slice(from).trim());
+  return out;
+}
+// What a selector weighs: identifiers, then classes, attributes and
+// pseudo-classes, then elements and pseudo-elements. `:where()` weighs nothing,
+// and `:not()`, `:is()` and `:has()` weigh what they hold.
+function specificity(selector) {
+  let s = selector;
+  for (let at = s.indexOf(":where("); at >= 0; at = s.indexOf(":where(")) {
+    let end = at + 7;
+    for (let depth = 1; depth > 0; end++) {
+      if (s[end] === "(") depth++;
+      else if (s[end] === ")") depth--;
+    }
+    s = s.slice(0, at) + " " + s.slice(end);
+  }
+  s = s.replace(/:(?:not|is|has)\(/g, " ").replace(/\)/g, " ");
+  const count = (pattern) => (s.match(pattern) ?? []).length;
+  const ids = count(/#[\w-]+/g);
+  const classes = count(/\.[\w-]+|\[[^\]]*\]|(?<!:):[\w-]+/g);
+  const elements = count(/(?:^|[\s>+~])[a-z][\w-]*|::[\w-]+/gi);
+  return [ids, classes, elements];
+}
+
+// The boxes a browser lays out for `container`'s children, each the nodes it
+// holds, in order. A child is a box of its own where the container's layout
+// makes it one: always in a flex or a grid container, where it is a table
+// entry in a table row, where it is a row in a table, and where it isn't
+// inline in a block. A run of the other children shares one box, which is a
+// run of text in a flex container, a line in a block, an anonymous entry in a
+// table row and an anonymous row in a table. Comments, empty text and what
+// shows nothing are no box, and the children of a `display: contents` element
+// are laid out as its parent's.
+function boxes(container) {
+  const outer = display(container);
+  const children = (n) =>
+    [...n.childNodes].flatMap((c) => (c.nodeType === 1 && display(c) === "contents" ? children(c) : [c]));
+  const own = /flex|grid|box/.test(outer)
+    ? () => true
+    : outer === "table-row"
+      ? (d) => d === "table-cell"
+      : /^(inline-)?table$|^table-.*group$/.test(outer)
+        ? (d) => /^table-(row|.*group|caption)$/.test(d)
+        : (d) => !d.startsWith("inline");
+  const out = [];
+  let run = null;
+  for (const node of children(container)) {
+    if (node.nodeType === 1) {
+      const d = display(node);
+      if (d === "none") continue;
+      if (own(d)) {
+        run = null;
+        out.push([node]);
+        continue;
+      }
+    } else if (node.nodeType !== 3 || node.data === "") continue;
+    if (run === null) out.push((run = []));
+    run.push(node);
+  }
+  return out;
+}
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom
 // leaves out: nothing outside the topmost one takes the focus. Nor does an

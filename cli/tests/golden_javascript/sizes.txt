@@ -33,16 +33,16 @@ tail_rebound_tuple: 2946 bytes artifact, 1281 generated
 tail_self: 3106 bytes artifact, 1608 generated
 tail_short_circuit: 3410 bytes artifact, 2060 generated
 traits: 2698 bytes artifact, 629 generated
-ui_animation: 43699 bytes artifact, 8318 generated
-ui_animation_dynamic: 46475 bytes artifact, 7191 generated
-ui_counter: 44501 bytes artifact, 10816 generated
+ui_animation: 44029 bytes artifact, 8318 generated
+ui_animation_dynamic: 46805 bytes artifact, 7191 generated
+ui_counter: 44831 bytes artifact, 10816 generated
 ui_signals: 10893 bytes artifact, 6445 generated
-ui_styles: 47690 bytes artifact, 9365 generated
-ui_styles_dynamic: 46759 bytes artifact, 7831 generated
-ui_styles_handed: 56053 bytes artifact, 41097 generated
-ui_theme: 47819 bytes artifact, 13072 generated
-ui_theme_and_computed: 48312 bytes artifact, 7302 generated
+ui_styles: 48020 bytes artifact, 9365 generated
+ui_styles_dynamic: 47089 bytes artifact, 7831 generated
+ui_styles_handed: 56383 bytes artifact, 41097 generated
+ui_theme: 48149 bytes artifact, 13072 generated
+ui_theme_and_computed: 48642 bytes artifact, 7302 generated
 unused_closure: 2659 bytes artifact, 517 generated
 
-total: 525080 bytes artifact, 169941 generated
-largest function: 11567 bytes, ui_animation/$tree_render
+total: 527720 bytes artifact, 169941 generated
+largest function: 11897 bytes, ui_animation/$tree_render

@@ -732,19 +732,16 @@ const unescape = (t) => t.replace(/\\(.)/g, (_, c) => (c === "n" ? "\n" : c === 
 
 // A snapshot root: its mark, then the tree.
 const marked = (root) => root.firstChild?.textContent.startsWith("buri-snapshot\n") ?? false;
-// Each element holding two runs of text with only comments between them: a
-// browser lays the two out as one box, where the snapshot drew two.
+// Every two nodes a browser lays out in one box, where the snapshot drew a box
+// for each: two runs of text in a flex container, two texts on one line of a
+// block, two children of a table row in one anonymous entry.
 function runTogether(n, out) {
-  let text = null;
-  for (const child of n.childNodes) {
-    if (child.nodeType === 3 && child.data !== "") {
-      if (text !== null) out.push(`"${text.data}" and "${child.data}"`);
-      text = child;
-    } else if (child.nodeType === 1) {
-      text = null;
-      runTogether(child, out);
-    }
+  // A `display: contents` element's children are its parent's boxes.
+  for (const box of display(n) === "contents" ? [] : boxes(n)) {
+    for (let i = 1; i < box.length; i++) out.push(`"${box[i - 1].textContent}" and "${box[i].textContent}"`);
   }
+  // A drawing's shapes are no boxes.
+  for (const child of n.children) if (child.localName !== "svg") runTogether(child, out);
   return out;
 }
 const snapshots = [];

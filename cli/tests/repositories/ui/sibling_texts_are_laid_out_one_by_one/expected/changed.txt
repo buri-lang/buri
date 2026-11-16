@@ -1,5 +1,5 @@
 FAIL //lib/figures  test/texts.buri  "three sibling texts in a column"
   the snapshot "column" changed: see test/__snapshots__/column.diff.png
-  --> lib/figures/test/texts.buri:8:1
+  --> lib/figures/test/texts.buri:10:1
 
-1 passed, 1 failed, 0 skipped (0.0s)
+7 passed, 1 failed, 0 skipped (0.0s)

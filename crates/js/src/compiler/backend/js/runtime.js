@@ -6868,8 +6868,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 1) {
     // A `<span>` of its own: a browser runs bare sibling texts together into
-    // one box, where the painter lays out each text on its own (#357).
-    $tree_text(node[1], $tree_element(parent, "span", anchor), null);
+    // one box, where the painter lays out each text on its own (#357). In a
+    // table row the painter gives a text a column of its own, and in a table a
+    // row of its own, so there it is a `<td>`, in a `<tr>` of its own in a
+    // table: a parser moves a `<span>` out of either.
+    if (parent.$table) {
+      const row = $tree_element(parent, "tr", anchor);
+      $tree_text(node[1], $tree_element(row, "td", null), null);
+    } else $tree_text(node[1], $tree_element(parent, parent.$row ? "td" : "span", anchor), null);
     return;
   }
   if (tag === 2) {
@@ -6903,7 +6909,13 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // The name a reader hears for the region: a group's summary, or which of
     // two landmarks this one is.
     if (node[5] !== undefined) $tree_bind(node[5], (label) => $dom_attribute(element, "aria-label", label));
-    $tree_children(ctx, element, node[2], node[3]);
+    $tree_styles(element, node[2]);
+    // A table's rows go in a `<tbody>`, which a parser puts in a served
+    // `<table>` whether it was written or not.
+    const rows = role[0] === "table" ? $tree_element(element, "tbody", null) : element;
+    if (role[0] === "table") rows.$table = true;
+    if (role[0] === "tr") rows.$row = true;
+    for (const child of node[3]) $tree_render(ctx, child, rows, null);
     $tree_focus(element, node[6], false);
     $tree_events(ctx, element, node[7]);
     return;

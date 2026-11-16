@@ -1,9 +1,11 @@
 // Sibling texts, each laid out on its own: three lines in a column, three
-// words side by side in a row (buri#357).
+// words side by side in a row (buri#357), and the same in a table entry, a
+// table row, a table and a list item.
 
 from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
+from "ui/node" import { Node, Role };
 
 test "three sibling texts in a column" {
     let ctx = context {
@@ -40,6 +42,141 @@ test "three sibling texts in a row" {
                 ui.text({ content: .Const("Jan") }),
                 ui.text({ content: .Const("Feb") }),
                 ui.text({ content: .Const("Mar") }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+// A table entry names no `Layout`, so its texts stack downwards like a
+// column's. The entry beside it holds one text.
+fn entryOf<C>(role: Role, first: Str): Node<C> {
+    ui.stack({
+        role: .Some(.Table),
+        styles: [.TextWrap(.NoWrap)],
+        children: [
+            ui.stack({
+                role: .Some(.TableRow),
+                styles: [],
+                children: [
+                    ui.stack({
+                        role: .Some(role),
+                        styles: [],
+                        children: [
+                            ui.text({ content: .Const(first) }),
+                            ui.text({ content: .Const("$600k") }),
+                            ui.text({ content: .Const("$650k") }),
+                        ],
+                    }),
+                    ui.stack({
+                        role: .Some(.Cell),
+                        styles: [],
+                        children: [ui.text({ content: .Const("Total") })],
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+test "three sibling texts in a table entry" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "table-entry", entryOf(.Cell, "$550k"), .Hover, []);
+}
+
+test "three sibling texts in a column header" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "column-header", entryOf(.ColumnHeader, "Q1"), .Hover, []);
+}
+
+test "three sibling texts in a row header" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "row-header", entryOf(.RowHeader, "Q2"), .Hover, []);
+}
+
+// A text in a table row is a column of its own, and in a table a row of its
+// own.
+test "three sibling texts in a table row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-row",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.stack({
+                    role: .Some(.TableRow),
+                    styles: [],
+                    children: [
+                        ui.text({ content: .Const("Jan") }),
+                        ui.text({ content: .Const("Feb") }),
+                        ui.text({ content: .Const("Mar") }),
+                    ],
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "three sibling texts in a table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table",
+        ui.stack({
+            role: .Some(.Table),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.text({ content: .Const("Jan") }),
+                ui.text({ content: .Const("Feb") }),
+                ui.text({ content: .Const("Mar") }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "three sibling texts in a list item" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "list-item",
+        ui.stack({
+            role: .Some(.List),
+            styles: [.TextWrap(.NoWrap)],
+            children: [
+                ui.stack({
+                    role: .Some(.ListItem),
+                    styles: [],
+                    children: [
+                        ui.text({ content: .Const("$550k") }),
+                        ui.text({ content: .Const("$600k") }),
+                        ui.text({ content: .Const("$650k") }),
+                    ],
+                }),
             ],
         }),
         .Hover,

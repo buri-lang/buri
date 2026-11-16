@@ -1,7 +1,10 @@
 # Three sibling texts in a column are three lines, and in a row three words
-# side by side, each text laid out on its own. The pages built from these
-# snapshots check that a browser lays each text out on its own too: written
-# bare, a browser runs sibling texts into one box (buri#357).
+# side by side, each text laid out on its own. A table entry, a header and a
+# list item stack theirs like a column; a table row gives each text a column
+# and a table gives each a row. The pages built from these snapshots check
+# that a browser lays each text out on its own too: written bare, a browser
+# runs sibling texts into one box (buri#357), and a table entry's block puts
+# them on one line.
 #
 # The last step changes one text. A painter that drew no text would pass it;
 # this one fails and leaves the diff.

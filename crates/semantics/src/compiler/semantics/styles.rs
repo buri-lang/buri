@@ -3509,6 +3509,12 @@ impl Reset {
             // A browser pads each `<td>` and `<th>` by a pixel and centres or
             // baseline-aligns what is in it. The painter does neither.
             out.push_str(":where(td,th){padding:0;vertical-align:top}\n");
+            // The scene has no `<tbody>`, so a table with its own `Layout` lays
+            // its rows out by that, as the painter does.
+            out.push_str(":where(tbody){display:contents}\n");
+            // A table entry stacks its children, as the painter does. Every
+            // child but a text's `<span>` is a block already.
+            out.push_str(":where(td,th)>:where(span){display:block}\n");
         }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser

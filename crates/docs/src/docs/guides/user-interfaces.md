@@ -1765,6 +1765,9 @@ The rest is short:
 - `.Table` stacks its rows and a `.TableRow` divides into one equal column per
   child, so a column lines up down the table. `.ColumnHeader` and `.RowHeader`
   are bold and centred, which is what a browser does to a `<th>`.
+- A table entry stacks its children like a column, in a browser too. A text
+  written straight into a `.TableRow` gets a column of its own, and one in a
+  `.Table` gets a row.
 - **A `.Password` field's value is never painted.** It is one • per
   character, the way a browser draws `<input type="password">`, so a recorded
   golden holds the width of the secret and none of it. `.Multiline` is the one
