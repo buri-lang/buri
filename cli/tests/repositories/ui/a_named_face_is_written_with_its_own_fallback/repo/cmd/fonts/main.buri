@@ -1,0 +1,59 @@
+// Every kind of named face, rendered to markup: one line per face, with the
+// family handed through a parameter so the page writes it out itself.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { FontFamily };
+from "ui/web" import * as web;
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = show(ctx, .Named("Inter", .Sans));
+    let _ = show(ctx, .Named("Source Serif 4", .Serif));
+    let _ = show(ctx, .Named("Fira Code", .Mono));
+    let _ = show(ctx, .Named("Font \"Display\"", .Sans));
+    let _ = show(ctx, .Named("Back\\slash", .Sans));
+    let _ = show(ctx, .Named("Comic, Sans", .Sans));
+    let _ = show(ctx, .Named("Comic; Sans", .Sans));
+    let _ = show(ctx, .Named("Two\nLines", .Sans));
+    let _ = show(ctx, .Named("serif", .Mono));
+    let _ = io.println(ctx, web.render(literals())).ignore();
+    .Ok(())
+}
+
+/// One line: the markup of a face handed in from outside.
+fn show<C: Allocator + Stdout>(ctx: C, family: FontFamily): () {
+    let _ = io.println(ctx, web.render(typeset(family))).ignore();
+}
+
+/// A face handed in from outside.
+fn typeset<C>(family: FontFamily): Node<C> {
+    ui.stack({
+        styles: [.FontFamily(family)],
+        children: [ui.text({ content: .Const("Face") })],
+    })
+}
+
+/// Each generic fallback written in place, which the stylesheet holds.
+fn literals<C>(): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.stack({ styles: [.FontFamily(.Named("Inter", .Sans))], children: [] }),
+            ui.stack({
+                styles: [.FontFamily(.Named("Source Serif 4", .Serif))],
+                children: [],
+            }),
+            ui.stack({
+                styles: [.FontFamily(.Named("Fira Code", .Mono))],
+                children: [],
+            }),
+        ],
+    })
+}

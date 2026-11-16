@@ -3837,8 +3837,9 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                 _ => {
                     let name = inner.first()?.as_str()?;
                     // A name that would need escaping is refused rather than
-                    // escaped: it degrades to an inline style, and the
-                    // stylesheet never contains text this did not construct.
+                    // escaped: it degrades to an inline style, which the
+                    // program escapes as it writes it, and the stylesheet
+                    // never contains text this did not construct.
                     if name.is_empty()
                         || !name
                             .chars()
@@ -3846,7 +3847,12 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                     {
                         return None;
                     }
-                    format!("\"{name}\",ui-sans-serif,sans-serif")
+                    let behind = match inner.get(1)?.as_variant()?.0 {
+                        0 => "ui-sans-serif,sans-serif",
+                        1 => "ui-serif,serif",
+                        _ => "ui-monospace,monospace",
+                    };
+                    format!("\"{name}\",{behind}")
                 }
             };
             Some(("ff", digest(&stack), one("font-family", &stack)))

@@ -1,0 +1,125 @@
+// Each family a named face can fall back to, painted (buri#356). The painter
+// carries no named face, so a named face paints in the generic family behind
+// it: each one shares the golden of its fallback, whatever its name holds.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "//lib/faces" import { sample };
+
+test "the sans family is the proportional face" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "sans", sample(.Sans), .Hover, [], 390);
+}
+
+test "a named face with a sans fallback paints as the sans" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "sans", sample(.Named("Inter", .Sans)), .Hover, [], 390);
+}
+
+test "a face named monospace with a sans fallback paints as the sans" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "sans", sample(.Named("monospace", .Sans)), .Hover, [], 390);
+}
+
+test "the serif family is the proportional face" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "serif", sample(.Serif), .Hover, [], 390);
+}
+
+test "a named face with a serif fallback paints as the serif" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "serif",
+        sample(.Named("Source Serif 4", .Serif)),
+        .Hover,
+        [],
+        390,
+    );
+}
+
+test "the mono family is the fixed-pitch face" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Mono), .Hover, [], 390);
+}
+
+test "a named face with a mono fallback paints as the mono" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("Fira Code", .Mono)), .Hover, [], 390);
+}
+
+test "a quote in a face name keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "mono",
+        sample(.Named("Font \"Display\"", .Mono)),
+        .Hover,
+        [],
+        390,
+    );
+}
+
+test "a backslash in a face name keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("Back\\slash", .Mono)), .Hover, [], 390);
+}
+
+test "a comma in a face name keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("Comic, Sans", .Mono)), .Hover, [], 390);
+}
+
+test "a semicolon in a face name keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("Comic; Sans", .Mono)), .Hover, [], 390);
+}
+
+test "a line break in a face name keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("Two\nLines", .Mono)), .Hover, [], 390);
+}
+
+test "a face named like a generic keeps its mono fallback" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "mono", sample(.Named("sans-serif", .Mono)), .Hover, [], 390);
+}

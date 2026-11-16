@@ -5144,7 +5144,10 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         .Shadows(shadows) => {
             readBy(ctx, 8000, "sh", shadowList(ctx, shadows, 0, []).join(ctx, ","))
         },
-        .FontFamily(family) => readBy(ctx, 8400, "ff", fontStack(ctx, family)),
+        // A name may hold the two characters a declaration reserves.
+        .FontFamily(family) => {
+            readBy(ctx, 8400, "ff", escapeValue(ctx, fontStack(ctx, family)))
+        },
         .FontSize(length) => readBy(ctx, 8600, "fs", textSizeCss(ctx, length)),
         .LineHeight(amount) => readBy(ctx, 9200, "lh", heightCss(ctx, amount)),
         .LetterSpacing(length) => readBy(ctx, 9400, "ls", shiftCss(ctx, length)),
@@ -5432,13 +5435,36 @@ fn shadowCss<C: Allocator>(ctx: C, shadow: Shadow): Str {
     str.format(ctx, "${x} ${y} ${blur} ${spread} ${color}")
 }
 
+/// The `font-family` each `FontFamily` lowers to: `semantics::styles`,
+/// `ui_style_classify.buri`'s `fontStack` and `runtime.js`'s `$tree_font`,
+/// word for word.
 fn fontStack<C: Allocator>(ctx: C, family: FontFamily): Str {
     match (family) {
         .Sans => "ui-sans-serif,system-ui,sans-serif",
         .Serif => "ui-serif,Georgia,serif",
         .Mono => "ui-monospace,SFMono-Regular,monospace",
-        .Named(name) => str.format(ctx, "\"${name}\",ui-sans-serif,sans-serif"),
+        .Named(name, generic) => {
+            let behind = match (generic) {
+                .Sans => "ui-sans-serif,sans-serif",
+                .Serif => "ui-serif,serif",
+                .Mono => "ui-monospace,monospace",
+            };
+            str.format(ctx, "${cssString(ctx, name)},${behind}")
+        },
     }
+}
+
+/// `text` as a quoted CSS string a browser reads back as `text`: a backslash
+/// and a double quote escaped, and each line break, which a string can't hold,
+/// as its hex escape.
+fn cssString<C: Allocator>(ctx: C, text: Str): Str {
+    let body = text
+        .replace(ctx, "\\", "\\\\")
+        .replace(ctx, "\"", "\\\"")
+        .replace(ctx, "\n", "\\a ")
+        .replace(ctx, "\r", "\\d ")
+        .replace(ctx, "\u{c}", "\\c ");
+    str.format(ctx, "\"${body}\"")
 }
 
 /// The `animation` each `Animation` lowers to: `semantics::styles`'s

@@ -1,0 +1,1 @@
+from "//lib/faces/faces.buri" export { sample };

@@ -2168,8 +2168,50 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // everything else, `ui-serif` included, since the archive carries no
         // serif face (#173). `cursor` paints nothing. Both parse so a scene
         // keeps them.
-        "font-family" => style.mono = value.contains("monospace"),
+        "font-family" => style.mono = monospace(value),
         _ => {}
+    }
+}
+
+/// Whether a browser would set a `font-family` list in a monospace face, given
+/// only the generic families: the first generic family the list names decides.
+///
+/// A quoted family is a name, whatever it says, and the painter carries no
+/// named face, so it falls through to the next family, the way a browser
+/// without the face does (buri#356). A name may hold a comma or an escaped
+/// quote, so the list is read the way CSS reads it rather than split.
+fn monospace(value: &str) -> bool {
+    let mut chars = value.chars();
+    loop {
+        // A quoted name stands in the family as its opening quote, which no
+        // generic family matches.
+        let mut family = String::new();
+        while let Some(c) = chars.next() {
+            match c {
+                ',' => break,
+                '"' | '\'' => {
+                    family.push(c);
+                    while let Some(inner) = chars.next() {
+                        match inner {
+                            '\\' => {
+                                chars.next();
+                            }
+                            _ if inner == c => break,
+                            _ => {}
+                        }
+                    }
+                }
+                _ => family.push(c),
+            }
+        }
+        if family.is_empty() {
+            return false;
+        }
+        match family.trim() {
+            "monospace" | "ui-monospace" => return true,
+            "serif" | "sans-serif" | "ui-serif" | "ui-sans-serif" | "system-ui" => return false,
+            _ => {}
+        }
     }
 }
 

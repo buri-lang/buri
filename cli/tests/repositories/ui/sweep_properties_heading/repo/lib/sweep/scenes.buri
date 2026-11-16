@@ -149,7 +149,7 @@ export fn typePage<C>(): Node<C> {
             cell("sans", subject([.FontFamily(.Sans)], "Ada")),
             cell("serif", subject([.FontFamily(.Serif)], "Ada")),
             cell("mono", subject([.FontFamily(.Mono)], "Ada")),
-            cell("named", subject([.FontFamily(.Named("Inter"))], "Ada")),
+            cell("named", subject([.FontFamily(.Named("Inter", .Sans))], "Ada")),
         ]),
         band("FontSize", 195, [
             cell("8px", subject([.FontSize(.Px(8))], "Ada")),

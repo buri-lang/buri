@@ -429,8 +429,16 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                     .Sans => "ui-sans-serif,system-ui,sans-serif",
                     .Serif => "ui-serif,Georgia,serif",
                     .Mono => "ui-monospace,SFMono-Regular,monospace",
-                    .Named(name) => {
-                        str.format(ctx, "\"${name}\",ui-sans-serif,sans-serif")
+                    .Named(name, generic) => {
+                        let behind = match (generic) {
+                            .Sans => "ui-sans-serif,sans-serif",
+                            .Serif => "ui-serif,serif",
+                            .Mono => "ui-monospace,monospace",
+                        };
+                        // Unescaped: the compiler makes a class only of a name
+                        // that needs no escaping, so any other name is missing
+                        // either way.
+                        str.format(ctx, "\"${name}\",${behind}")
                     },
                 }),
             )

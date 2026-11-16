@@ -1,0 +1,28 @@
+# A named face, painted (buri#356). The painter carries no named face, so a
+# named face paints in the generic family it was given:
+#
+#   * **Its own fallback.** A face with a monospace fallback paints in the
+#     fixed-pitch face, and one with a sans or serif fallback in the
+#     proportional one. A face *named* `monospace` is a name, not the generic,
+#     so with a sans fallback it paints proportional.
+#   * **Whatever its name holds.** A quote, a backslash, a comma, a semicolon,
+#     a line break or a generic keyword in the name leaves the fallback where
+#     it was.
+#
+# Each named face shares the golden of the family it falls back to, so one
+# that paints in the wrong face fails against it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a named face paints in the generic family it was given, whatever its name holds"
+
+run {
+  args: ["test", "//lib/faces", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/faces/test/__snapshots__/sans.diff.png"  exists: false }
+path { path: "lib/faces/test/__snapshots__/serif.diff.png"  exists: false }
+path { path: "lib/faces/test/__snapshots__/mono.diff.png"  exists: false }

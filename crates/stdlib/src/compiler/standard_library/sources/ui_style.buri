@@ -764,8 +764,20 @@ export enum FontFamily {
     Serif,
     /// A fixed-pitch face, for code and figures that must line up.
     Mono,
-    /// A face by name, with the matching generic family behind it.
-    Named(Str),
+    /// A face by name, with the generic family it was given behind it for a
+    /// reader who doesn't have the face: `.Named("Source Serif 4", .Serif)`.
+    Named(Str, GenericFamily),
+}
+
+/// The generic family behind a named face, which a reader without that face
+/// sees instead.
+export enum GenericFamily {
+    /// The platform's interface face.
+    Sans,
+    /// A face with serifs.
+    Serif,
+    /// A fixed-pitch face.
+    Mono,
 }
 
 /// What a border is drawn like.

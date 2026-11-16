@@ -503,7 +503,7 @@ test "a style whose class ends in a digest is its class through a parameter" {
             }),
         ),
     ).markup();
-    let family = render(ctx, boxed(.FontFamily(.Named("Inter")))).markup();
+    let family = render(ctx, boxed(.FontFamily(.Named("Inter", .Sans)))).markup();
     let sheet = stylesheet();
     assert.isTrue(grid.startsWith("e 0 class:lay-grid-"));
     assert.isTrue(sheet.contains("{display:grid;grid-template-columns:1fr 20px}"));
@@ -511,6 +511,19 @@ test "a style whose class ends in a digest is its class through a parameter" {
     assert.isTrue(sheet.contains("{box-shadow:0px 1px 2px 0px rgb(0,0,0)}"));
     assert.isTrue(family.startsWith("e 0 class:ff-"));
     assert.isTrue(sheet.contains("{font-family:\"Inter\",ui-sans-serif,sans-serif}"));
+}
+
+test "a named face a parameter hands a node is the class of its own fallback" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let serif = render(ctx, boxed(.FontFamily(.Named("Literata", .Serif)))).markup();
+    let mono = render(ctx, boxed(.FontFamily(.Named("Iosevka", .Mono)))).markup();
+    let sheet = stylesheet();
+    assert.isTrue(serif.startsWith("e 0 class:ff-"));
+    assert.isTrue(sheet.contains("{font-family:\"Literata\",ui-serif,serif}"));
+    assert.isTrue(mono.startsWith("e 0 class:ff-"));
+    assert.isTrue(sheet.contains("{font-family:\"Iosevka\",ui-monospace,monospace}"));
 }
 
 test "a token a parameter hands a node is its class" {
@@ -1295,8 +1308,16 @@ test "a font known only at run time writes itself out" {
         "e 0 class:ff-var;--buri-ff:ui-monospace,SFMono-Regular,monospace",
     );
     assert.equal(
-        painted(ctx, [.FontFamily(late(ctx, .Named("Inter")))]),
+        painted(ctx, [.FontFamily(late(ctx, .Named("Inter", .Sans)))]),
         "e 0 class:ff-var;--buri-ff:\"Inter\",ui-sans-serif,sans-serif",
+    );
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Named("Literata", .Serif)))]),
+        "e 0 class:ff-var;--buri-ff:\"Literata\",ui-serif,serif",
+    );
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Named("Iosevka", .Mono)))]),
+        "e 0 class:ff-var;--buri-ff:\"Iosevka\",ui-monospace,monospace",
     );
     assert.equal(
         painted(ctx, [.FontWeight(late(ctx, .Regular))]),
@@ -1313,6 +1334,25 @@ test "a font known only at run time writes itself out" {
     assert.equal(painted(ctx, [.FontWeight(late(ctx, .Bold))]), "e 0 class:fw-bold");
     assert.equal(painted(ctx, [.Italic(late(ctx, true))]), "e 0 class:it-italic");
     assert.equal(painted(ctx, [.Italic(late(ctx, false))]), "e 0 class:it-normal");
+}
+
+test "a face name known only at run time is written as one CSS string" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    // A backslash and a quote are escaped, then a backslash and a semicolon
+    // again for the scene, which reserves both.
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Named("A\\B \"C\"; D", .Sans)))]),
+        "e 0 class:ff-var;--buri-ff:\"A\\\\\\\\B \\\\\"C\\\\\"\\; D\",ui-sans-serif,sans-serif",
+    );
+    // A line break, a carriage return and a form feed are hex escapes.
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Named("A\nB\rC\u{c}D", .Sans)))]),
+        "e 0 class:ff-var;--buri-ff:\"A\\\\a B\\\\d C\\\\c D\",ui-sans-serif,sans-serif",
+    );
 }
 
 test "a text style known only at run time writes itself out" {

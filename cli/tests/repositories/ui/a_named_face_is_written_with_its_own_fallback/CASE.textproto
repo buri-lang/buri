@@ -1,0 +1,27 @@
+# A face by name, rendered to markup and written into the stylesheet
+# (buri#356):
+#
+#   * **Its own fallback.** A named face has the generic family it was given
+#     behind it: `ui-serif,serif` for a serif face and
+#     `ui-monospace,monospace` for a monospace one, not always the sans.
+#   * **Its name stays one name.** The name is a CSS string, escaped the way
+#     a browser reads one: a double quote and a backslash are escaped, a line
+#     break is a `\a ` escape, and a comma, a semicolon or a generic keyword
+#     stays inside the quotes.
+#   * **The stylesheet holds the plain ones.** Each face written in place with
+#     a plain name is a rule in the `.css` beside the module.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a named face is written as one escaped CSS string with the generic family it was given behind it"
+
+run {
+  args: ["run", "//cmd/fonts"]
+  exit: 0
+  golden: "run.txt"
+}
+
+file { path: ".buri/out/node/cmd/fonts/fonts.css"  contains: "{font-family:\"Inter\",ui-sans-serif,sans-serif}" }
+file { path: ".buri/out/node/cmd/fonts/fonts.css"  contains: "{font-family:\"Source Serif 4\",ui-serif,serif}" }
+file { path: ".buri/out/node/cmd/fonts/fonts.css"  contains: "{font-family:\"Fira Code\",ui-monospace,monospace}" }

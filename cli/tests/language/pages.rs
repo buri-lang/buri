@@ -4619,6 +4619,180 @@ fn a_negative_grow_or_shrink_is_zero_however_it_arrives() {
     );
 }
 
+/// `family`, a `FontFamily` written in Buri, is the list of families
+/// `expected` on the page, however it arrives (buri#356).
+///
+/// happy-dom's computed `font-family` is no help here: it drops the quotes
+/// from a name and cuts one at a `;`, so it can't tell an escaped name from a
+/// broken one. So the driver reads the declaration the box gets, from the
+/// stylesheet rule its class names or the custom property written on it, and
+/// reads that as a browser does: each family a quoted name, shown here as a
+/// JSON string of what the browser decodes, or a bare keyword. A value a
+/// browser would drop reads `invalid`.
+fn a_font_family_reads(name: &str, family: &str, expected: &str) {
+    let driver = r#"
+import { readFileSync } from "node:fs";
+const css = readFileSync(new URL("./.buri/out/web/cmd/page/main.css", import.meta.url), "utf8");
+function declared(box) {
+  const own = box.style.getPropertyValue("--buri-ff");
+  if (own) return own;
+  for (const name of box.classList) {
+    const at = css.indexOf("." + name + "{font-family:");
+    if (at >= 0) {
+      const start = at + name.length + 14;
+      return css.slice(start, css.indexOf("}", start));
+    }
+  }
+  return "";
+}
+function families(value) {
+  const out = [];
+  let i = 0;
+  const space = () => { while (value[i] === " ") i++; };
+  while (i < value.length) {
+    space();
+    const quote = value[i];
+    if (quote === '"' || quote === "'") {
+      i++;
+      let text = "";
+      while (i < value.length && value[i] !== quote) {
+        if (value[i] === "\n" || value[i] === "\r" || value[i] === "\f") return "invalid";
+        if (value[i] !== "\\") { text += value[i++]; continue; }
+        const hex = /^[0-9a-fA-F]{1,6}/.exec(value.slice(i + 1));
+        if (hex === null) { text += value[i + 1]; i += 2; continue; }
+        text += String.fromCodePoint(parseInt(hex[0], 16));
+        i += 1 + hex[0].length;
+        if (value[i] === " ") i++;
+      }
+      if (value[i] !== quote) return "invalid";
+      i++;
+      out.push(JSON.stringify(text));
+    } else {
+      let word = "";
+      while (i < value.length && value[i] !== ",") word += value[i++];
+      if (!/^[a-zA-Z-]+$/.test(word.trim())) return "invalid";
+      out.push(word.trim());
+    }
+    space();
+    if (i < value.length && value[i++] !== ",") return "invalid";
+  }
+  return out.join(", ");
+}
+const box = document.querySelector("[role=group]").firstElementChild;
+console.log(families(declared(box)));
+"#;
+    let boxes = [("font-family", ".FontFamily({})", family, "")];
+    let written = drive(
+        &format!("{name}-written-page"),
+        &values_page(false, &boxes),
+        driver,
+    );
+    let late = drive(
+        &format!("{name}-late-page"),
+        &values_page(true, &boxes),
+        driver,
+    );
+    let expected = format!("{expected}\n");
+    assert_eq!(written, expected, "written in place");
+    assert_eq!(late, expected, "read back from a signal");
+}
+
+/// A named face with a sans fallback has the sans generic behind it.
+#[test]
+fn a_named_face_falls_back_to_sans_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-sans",
+        r#".Named("Inter", .Sans)"#,
+        r#""Inter", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A named face with a serif fallback has the serif generic behind it, not the
+/// sans one.
+#[test]
+fn a_named_face_falls_back_to_serif_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-serif",
+        r#".Named("Source Serif 4", .Serif)"#,
+        r#""Source Serif 4", ui-serif, serif"#,
+    );
+}
+
+/// A named face with a monospace fallback has the monospace generic behind it.
+#[test]
+fn a_named_face_falls_back_to_mono_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-mono",
+        r#".Named("Fira Code", .Mono)"#,
+        r#""Fira Code", ui-monospace, monospace"#,
+    );
+}
+
+/// A double quote in a face's name is escaped, so the name stays one string.
+#[test]
+fn a_quote_in_a_face_name_is_escaped_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-quote",
+        r#".Named("Font \"Display\"", .Sans)"#,
+        r#""Font \"Display\"", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A backslash in a face's name is escaped, so it names itself rather than
+/// starting an escape.
+#[test]
+fn a_backslash_in_a_face_name_is_escaped_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-backslash",
+        r#".Named("Back\\slash", .Sans)"#,
+        r#""Back\\slash", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A comma in a face's name stays inside the name rather than starting the
+/// next family.
+#[test]
+fn a_comma_in_a_face_name_stays_in_the_name_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-comma",
+        r#".Named("Comic, Sans", .Sans)"#,
+        r#""Comic, Sans", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A semicolon in a face's name stays inside the name rather than ending the
+/// declaration.
+#[test]
+fn a_semicolon_in_a_face_name_stays_in_the_name_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-semicolon",
+        r#".Named("Comic; Sans", .Sans)"#,
+        r#""Comic; Sans", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A line break in a face's name is escaped, since a CSS string can't hold
+/// one.
+#[test]
+fn a_line_break_in_a_face_name_is_escaped_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-newline",
+        r#".Named("Two\nLines", .Sans)"#,
+        r#""Two\nLines", ui-sans-serif, sans-serif"#,
+    );
+}
+
+/// A face named like a generic family is still a name: it stays quoted, and
+/// the fallback behind it is the one it was given.
+#[test]
+fn a_face_named_like_a_generic_is_a_name_however_it_arrives() {
+    a_font_family_reads(
+        "font-named-generic",
+        r#".Named("serif", .Mono)"#,
+        r#""serif", ui-monospace, monospace"#,
+    );
+}
+
 /// A negative text size is zero, and an `Auto` one is the size the text
 /// inherits, however it arrives.
 #[test]

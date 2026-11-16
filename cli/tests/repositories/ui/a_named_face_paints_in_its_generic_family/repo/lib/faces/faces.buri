@@ -1,0 +1,14 @@
+//! A line of text set in the family it is handed, large enough that a
+//! fixed-pitch face and a proportional one look nothing alike.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { FontFamily };
+
+/// Narrow and wide letters side by side, which a fixed pitch sets at one width.
+export fn sample<C>(family: FontFamily): Node<C> {
+    ui.stack({
+        styles: [.FontFamily(family), .FontSize(.Px(32)), .Padding(.Px(16))],
+        children: [ui.text({ content: .Const("iiii MMMM") })],
+    })
+}

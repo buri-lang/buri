@@ -671,7 +671,7 @@ repositories land, `ui/...` can migrate out wholesale.
 | `ui/signal` | library | `Signal<T>` (`get`/`set`/`update`), `signal`, `watch` |
 | `ui/prop` | library | `Prop<T>` (`read`), `memo` |
 | `ui/node` | library | `Node<C>`, `Role`, `FieldKind`, `nothing`, `stack`, `region`, `row`, `column`, `spacer`, `text`, `heading`, `button`, `link`, `image`, `field`, `toggle`, `form`, `submit`, `onPressOutside`, `routeLink`, `radioGroup`, `progress`, `disclosure`, `choose`, `computed`, `each`, `icon`, `mount` |
-| `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
+| `ui/style` | library | `Style`, `Layout`, `Track`, `Screen`, `State`, `Position`, `Length`, `Color`, `Align`, `Axis`, `Edge`, `Weight`, `FontFamily`, `GenericFamily`, `BorderStyle`, `TextCase`, `TextLine`, `TextWrap`, `Cursor`, `Shadow`, `TokenReference`, `token` |
 | `ui/theme` | library | `Theme`, `Scheme`, `themed`, `switching`, `scheme`, `page` |
 | `platform/effect/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
 

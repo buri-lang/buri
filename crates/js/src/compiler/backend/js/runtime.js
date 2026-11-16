@@ -5746,9 +5746,24 @@ function $tree_track(track) {
   return "auto";
 }
 
+// The generic family behind a named face, in `GenericFamily`'s order.
+const $TREE_FONT_FALLBACKS = [
+  "ui-sans-serif,sans-serif",
+  "ui-serif,serif",
+  "ui-monospace,monospace",
+];
+
+// A `FontFamily`'s `font-family`: `ui_node.buri`'s `fontStack`, word for word.
+// A name is a quoted CSS string a browser reads back as the name: a backslash
+// and a double quote escaped, and each line break, which a string can't hold,
+// as its hex escape.
 function $tree_font(family) {
-  if (family[0] === 3) return '"' + family[1] + '",ui-sans-serif,sans-serif';
-  return $TREE_FONTS[family[0]];
+  if (family[0] !== 3) return $TREE_FONTS[family[0]];
+  // `\x22` is the double quote.
+  const name = family[1]
+    .replace(/[\\\x22]/g, "\\$&")
+    .replace(/[\n\r\f]/g, (c) => "\\" + c.charCodeAt(0).toString(16) + " ");
+  return '"' + name + '",' + $TREE_FONT_FALLBACKS[family[2]];
 }
 
 // Applies a style list to an element.

@@ -1,0 +1,10 @@
+<div class="ff-var" style="--buri-ff: &quot;Inter&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Source Serif 4&quot;,ui-serif,serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Fira Code&quot;,ui-monospace,monospace"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Font \&quot;Display\&quot;&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Back\\slash&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Comic, Sans&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Comic; Sans&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;Two\a Lines&quot;,ui-sans-serif,sans-serif"><span>Face</span></div>
+<div class="ff-var" style="--buri-ff: &quot;serif&quot;,ui-monospace,monospace"><span>Face</span></div>
+<div><div class="ff-08d4bd86"></div><div class="ff-3b94c66f"></div><div class="ff-ebb9b803"></div></div>

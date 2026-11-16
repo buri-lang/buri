@@ -22,9 +22,9 @@ export fn main(host: WebHost): Result<(), Str> {
     };
     let styles: [Style] = [
         padded,
-        .FontFamily(.Named("Inter Tight")),
-        .FontFamily(.Named("")),
-        .FontFamily(.Named("Comic; Sans")),
+        .FontFamily(.Named("Inter Tight", .Sans)),
+        .FontFamily(.Named("", .Sans)),
+        .FontFamily(.Named("Comic; Sans", .Sans)),
         .Bleed(Edge.Top, .Rem(-1.0)),
         .Bleed(Edge.Bottom, .Rem(2.0)),
         .Foreground(style.token("card-lib", "surface")),
