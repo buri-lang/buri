@@ -42,7 +42,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
             ctx,
             request.path(),
             web.Document { ..web.defaultDocument(), title: "both" },
-            web.render(page()),
+            web.render(ctx, page()),
             .Null,
         ),
     )

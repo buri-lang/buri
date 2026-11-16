@@ -1272,13 +1272,13 @@ fn answer<C: Allocator>(ctx: C, path: Str, state: Json): Response {
     let document = web.Document { ..web.defaultDocument(), title: "Buri" };
     http.html(
         ctx,
-        web.shell(ctx, path, document, web.render(page(.Const(path))), state),
+        web.shell(ctx, path, document, web.render(ctx, page(.Const(path))), state),
     )
 }
 ```
 
-`render` takes no context and cannot need one: every constructor in `ui/node` is
-unbounded in `C`, so nothing in a tree can act while it is being written out.
+`render` takes the context its rows are built with, so a row that makes a
+signal works on the server too. It never calls a handler.
 `shell` puts the state in an inert `<script id="buri-state">`, the path it
 rendered for on that script as `data-path`, and the compiler's stylesheet in the
 head. `web.Document` is the rest of that head: `title` names the tab and `lang`

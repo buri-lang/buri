@@ -224,7 +224,7 @@ export fn fetch(host: ServerHost, request: Request): Response {{
         Allocator: host.alloc,
         Ui: host.ui,
     }};
-    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(ctx, page(ctx)), .Null))
 }}
 "#
     )

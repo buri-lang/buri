@@ -46,8 +46,7 @@ const KIDS: &str = r#"kid(ctx, "one", shared),
     kid(ctx, "End", shared)"#;
 
 /// The imports, and `kid`, whose body is `kid`: a node called `name`. The
-/// controls share the signals in `shared`: a server renders a row with no
-/// context to make one with.
+/// controls share the signals in `shared`.
 fn head(kid: &str) -> String {
     format!(
         r#"from "platform/effect" import {{ Allocator, Ui }};
@@ -151,7 +150,7 @@ export fn fetch(host: ServerHost, request: Request): Response {{
         Allocator: host.alloc,
         Ui: host.ui,
     }};
-    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(page(ctx)), .Null))
+    http.html(ctx, web.shell(ctx, request.path(), web.defaultDocument(), web.render(ctx, page(ctx)), .Null))
 }}
 "#,
         head(kid),

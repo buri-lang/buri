@@ -30,7 +30,7 @@
 //!     let document = web.Document { ..web.defaultDocument(), title: "Buri" };
 //!     http.html(
 //!         ctx,
-//!         web.shell(ctx, path, document, web.render(page(.Const(path))), state),
+//!         web.shell(ctx, path, document, web.render(ctx, page(.Const(path))), state),
 //!     )
 //! }
 //! ```
@@ -85,11 +85,14 @@ from "ui/prop" import { Prop };
 /// renders the rows the list has. Handlers are never called, because what this
 /// answers is text.
 ///
+/// `ctx` is what a row builder gets, as `mount` and `resume` hand theirs, so a
+/// row that makes a signal makes it on the server too.
+///
 /// An element that holds nothing still writes its closing tag — `<main></main>`
 /// — except for the ones HTML says hold nothing, which close themselves:
 /// `<img />`, `<input />`, `<hr />`. A parser reads `<main />` as an opening tag
 /// and puts the rest of the page inside it.
-export fn render<C>(root: Node<C>): Str;
+export fn render<C>(ctx: C, root: Node<C>): Str;
 
 /// What a document says about itself: the name of the tab and the language the
 /// page is written in.

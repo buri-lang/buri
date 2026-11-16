@@ -194,6 +194,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
             request.path(),
             web.Document { ..web.defaultDocument(), title: state.title },
             web.render(
+                ctx,
                 page(
                     .Const(request.path()),
                     state.title,
@@ -223,10 +224,9 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
 
 `render` is the renderer `mount` uses, pointed at a document the runtime
 supplies rather than at a browser's. There is no second renderer, so what the
-worker writes is what the page would have built. It takes no context and cannot
-need one: every constructor in `ui/node` is unbounded in `C`, so nothing in a
-tree can act while it is being written out, and a handler is never called —
-what comes back is text.
+worker writes is what the page would have built. It takes the context the
+tree's rows are built with, so a row that makes a signal makes it here too. A
+handler is never called: what comes back is text.
 
 `shell` writes the document around it. The state goes in a
 `<script id="buri-state">`, which a browser neither runs nor renders, and every

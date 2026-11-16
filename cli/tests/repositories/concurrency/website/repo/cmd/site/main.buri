@@ -166,6 +166,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
             request.path(),
             web.Document { ..web.defaultDocument(), title: tab(request.path()) },
             web.render(
+                ctx,
                 page(
                     .Const(request.path()),
                     state.title,

@@ -11349,7 +11349,7 @@ function $ui_web_stylesheet() {
   return $ui_sheet;
 }
 
-function $ui_web_render(root) {
+function $ui_web_render(ctx, root) {
   // What a render registers is per-request bookkeeping: the tree is thrown away
   // with the answer, and a worker's module state outlives the request. So the
   // cells this made go with it.
@@ -11359,10 +11359,9 @@ function $ui_web_render(root) {
   // names them the same.
   $tree_radio_groups = 0;
   const host = $dom_make(0, "root");
-  // No context. A handler is never called here — what this answers is text —
-  // and every constructor that receives one is unbounded in it, so nothing on
-  // this path can do anything with a context at all.
-  $tree_render(null, root, host, null);
+  // The caller's context, which a row builder makes its signals with. A
+  // handler is never called here: what this answers is text.
+  $tree_render(ctx, root, host, null);
   let out = "";
   for (const child of host.children) out += $dom_markup(child);
   $ui.nodes.length = before;

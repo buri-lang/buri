@@ -23,13 +23,13 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = show(ctx, .Named("Comic; Sans", .Sans));
     let _ = show(ctx, .Named("Two\nLines", .Sans));
     let _ = show(ctx, .Named("serif", .Mono));
-    let _ = io.println(ctx, web.render(literals())).ignore();
+    let _ = io.println(ctx, web.render(ctx, literals())).ignore();
     .Ok(())
 }
 
 /// One line: the markup of a face handed in from outside.
 fn show<C: Allocator + Stdout>(ctx: C, family: FontFamily): () {
-    let _ = io.println(ctx, web.render(typeset(family))).ignore();
+    let _ = io.println(ctx, web.render(ctx, typeset(family))).ignore();
 }
 
 /// A face handed in from outside.

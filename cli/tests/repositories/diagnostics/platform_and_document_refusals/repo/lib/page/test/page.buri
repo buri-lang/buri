@@ -11,7 +11,7 @@ test "a page needs a document" {
     };
     let root = ui.text({ content: .Const("hi") });
     web.title(ctx, .Const("Home"));
-    assert.equal(web.render(root), "hi");
+    assert.equal(web.render(ctx, root), "hi");
     assert.isTrue(web.state(ctx).isNone());
     assert.isTrue(web.resume(ctx, root).isOk());
     assert.isTrue(ui.mount(ctx, root, []).isOk());

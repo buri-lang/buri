@@ -3686,10 +3686,9 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // dropped exactly as a walk's is, occurring only inside the handler the
     // runtime fires, never in a value that crosses.
     "ui_node.registerPress",
-    // `ui/web`, and all three are generic in the *context* alone. `render`'s
-    // `C` is unbounded and occurs only inside the `Node<C>` it is handed, so
-    // what crosses is a tree of tags and strings; `resume` and `state` take the
-    // page's `Ui` and nothing of it reaches the runtime.
+    // `ui/web`, and all three are generic in the *context* alone. Each takes
+    // the page's context, which the runtime hands to the tree's row builders
+    // as `mount` does, and nothing else of `C` reaches the runtime.
     "ui_web.render",
     "ui_web.resume",
     "ui_web.state",

@@ -2592,6 +2592,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
             request.path(),
             web.Document { ..web.defaultDocument(), title: "Edges" },
             web.render(
+                ctx,
                 page(.Const(request.path()), state, .Const("press me"), fn(_c) => ()),
             ),
             state.toJson(ctx),
