@@ -14,7 +14,7 @@ use std::process::Command;
 
 /// Builds `source` as a page and runs `driver` against it in [`browser`],
 /// answering what the driver printed.
-fn drive(name: &str, source: &str, driver: &str) -> String {
+pub(super) fn drive(name: &str, source: &str, driver: &str) -> String {
     let scratch = Scratch::repo(name);
     scratch.write(
         "cmd/page/BUILD.buri",
@@ -153,7 +153,7 @@ fn a_menu_takes_the_focus_and_escape_hands_it_back_to_its_trigger() {
         "focus-page",
         MENU_PAGE,
         r#"
-const said = () => body.firstChild.lastChild.data;
+const said = () => body.firstChild.lastChild.textContent;
 const name = () => document.activeElement.getAttribute("aria-label") ?? "nothing";
 const actions = labelled("Actions");
 console.log(said());
@@ -980,7 +980,7 @@ console.log(`open:${document.querySelector("details").open} focus:${focused()}`)
 
 /// A repository whose `//cmd/page` is `page`, built for the web and for a
 /// server platform whose `fetch` answers the document `page` sends.
-fn served(name: &str, page: &str) -> Scratch {
+pub(super) fn served(name: &str, page: &str) -> Scratch {
     let scratch = Scratch::repo(name);
     scratch.write(
         "platform/server/BUILD.buri",
@@ -1013,7 +1013,7 @@ export fn fetch(host: ServerHost, request: Request): Response;
 }
 
 /// Runs the driver at `path` in `mode`, answering what it printed.
-fn run_served(path: &std::path::Path, mode: &str) -> String {
+pub(super) fn run_served(path: &std::path::Path, mode: &str) -> String {
     let out = Command::new(js_runtime())
         .arg(path)
         .arg(mode)
@@ -2073,7 +2073,7 @@ fn rows_that_read_the_route_while_they_are_built_render() {
     let printed = drive(
         "rows-route",
         &page,
-        "console.log([...body.childNodes].filter((n) => n.nodeType === 3).map((n) => n.data).join(\" \"));\n",
+        "console.log([...body.querySelectorAll(\":scope > span\")].map((n) => n.textContent).join(\" \"));\n",
     );
     assert_eq!(printed, "/ /\n");
 }
@@ -2285,7 +2285,7 @@ fn named_before_mount(scratch: &Scratch) -> String {
     let out = run_page(
         scratch,
         PAGE_ARTIFACT,
-        "console.log(body.firstChild.firstChild.data);\n",
+        "console.log(body.firstChild.firstChild.textContent);\n",
     );
     assert!(
         out.status.success(),
@@ -2326,7 +2326,10 @@ export fn main(host: WebHost): Result<(), Str> {
 #[test]
 fn rows_worked_out_from_their_index_render() {
     let printed = drive("numbered-page", NUMBERED_PAGE, "console.log(showing());\n");
-    assert_eq!(printed, "<div>a:0b:1c:0</div>\n");
+    assert_eq!(
+        printed,
+        "<div><span>a:0</span><span>b:1</span><span>c:0</span></div>\n"
+    );
 }
 
 /// Rows built by functions that call a helper which a press handler also

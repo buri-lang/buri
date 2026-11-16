@@ -6087,18 +6087,14 @@ function $adopt_claim(parent, kind, name) {
   throw { $resume: "this page is not the markup the server sent: wanted " + wanted + ", found " + found };
 }
 
-// A browser parses two runs of text into one node, so a tree with two beside
-// each other has to take its own back. What is left over becomes the node this
-// parent offers next, which is exactly what the run after this one asks for.
-function $adopt_split(parent, node, value) {
-  if (node.data.length <= value.length || node.data.slice(0, value.length) !== value) return;
-  if (!node.$shim) {
-    $adopt.at.set(parent, node.splitText(value.length));
-    return;
-  }
-  const rest = $dom_data($dom_make(1, ""), node.data.slice(value.length));
-  $dom_insert(parent, rest, $adopt_at(parent));
-  $adopt.at.set(parent, rest);
+// The run of text the server wrote here, or a new one where it wrote an empty
+// run: a parser makes no node of nothing.
+function $adopt_text(parent) {
+  const node = $adopt_at(parent);
+  if (node !== null && $adopt_kind(node) === 1) return $adopt_claim(parent, 1, "");
+  const made = $dom_text(parent, "");
+  $dom_insert(parent, made, node);
+  return made;
 }
 
 // What the tree did not account for. Everything a server wrote came out of the
@@ -6135,21 +6131,12 @@ function $tree_element(parent, name, anchor, svg) {
   return element;
 }
 
+// A run of text is always the only child of its element, so the run a server
+// wrote is the whole of what the element holds.
 function $tree_text(prop, parent, anchor) {
   if ($adopt.ops !== null) {
-    // The run of text the server wrote may be several of these — a browser
-    // parses one node however many the tree has — so the first value says how
-    // much of it belongs here and `split` leaves the rest for the next run.
-    const ops = $adopt.ops;
-    const adopted = ops.claim(parent, 1, "");
-    let first = true;
-    $tree_bind(prop, (value) => {
-      if (first) {
-        first = false;
-        ops.split(parent, adopted, value);
-      }
-      $dom_data(adopted, value);
-    });
+    const node = $adopt.ops.text(parent);
+    $tree_bind(prop, (value) => $dom_data(node, value));
     return;
   }
   const node = $dom_text(parent, "");
@@ -6865,7 +6852,9 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 1) {
-    $tree_text(node[1], parent, anchor);
+    // A `<span>` of its own: a browser runs bare sibling texts together into
+    // one box, where the painter lays out each text on its own (#357).
+    $tree_text(node[1], $tree_element(parent, "span", anchor), null);
     return;
   }
   if (tag === 2) {
@@ -11359,7 +11348,7 @@ function $ui_web_resume(ctx, root) {
   // and every run of text is the one already there, and what the walk adds is
   // the listeners and the computations. Nothing is created and nothing is
   // removed, so the reader keeps looking at the markup that arrived.
-  $adopt.ops = { claim: $adopt_claim, at: $adopt_at, split: $adopt_split };
+  $adopt.ops = { claim: $adopt_claim, at: $adopt_at, text: $adopt_text };
   $adopt.at = new Map();
   try {
     $tree_render(ctx, root, body, null);

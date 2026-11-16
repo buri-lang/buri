@@ -605,8 +605,9 @@ export fn spacer<C>(config: Spacer): Node<C> {
     }
 }
 
-/// Text. A run of characters with no element of its own; give it a
-/// `headingLevel` and it becomes a heading in the document's outline, an
+/// Text. A run of characters, which a browser holds in a `<span>` of its own so
+/// that sibling texts are laid out one by one rather than run together. Give it
+/// a `headingLevel` and it becomes a heading in the document's outline, an
 /// `<h1>`–`<h6>` a reader navigates by.
 ///
 /// The level is not a size: an unstyled heading is the size and weight of the

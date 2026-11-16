@@ -112,7 +112,10 @@ fn afterTheScriptTag(document: Str): Str {
 }
 
 test "a tree renders to HTML" {
-    assert.equal(web.render<()>(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(
+        web.render<()>(tree()),
+        "<main><h1>Titles</h1><span>and text</span></main>",
+    );
 }
 
 test "what a worker renders is what the page would have built" {
@@ -123,7 +126,10 @@ test "what a worker renders is what the page would have built" {
     // test renderer writes the headerless scene. They agree on the tree — its
     // text and its shape — while each writes its own format.
     let page = render(ctx, tree());
-    assert.equal(web.render<()>(tree()), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(
+        web.render<()>(tree()),
+        "<main><h1>Titles</h1><span>and text</span></main>",
+    );
     assert.equal(page.text(), "Titles and text");
     assert.equal(page.count("h1"), 1);
     assert.equal(page.count("main"), 1);
@@ -190,12 +196,15 @@ test "every kind of node renders" {
     };
     let typed = signal(ctx, "ada");
     let ticked = signal(ctx, true);
-    assert.equal(web.render<()>(ui.text({ content: .Const("plain") })), "plain");
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("plain") })),
+        "<span>plain</span>",
+    );
     assert.equal(
         web.render<()>(
             ui.stack({ styles: [], children: [ui.text({ content: .Const("in") })] }),
         ),
-        "<div>in</div>",
+        "<div><span>in</span></div>",
     );
     assert.equal(
         web.render<()>(ui.stack({ styles: [.Layout(.Row), .Group([])], children: [] })),
@@ -213,7 +222,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<a href=\"/there\">go</a>",
+        "<a href=\"/there\"><span>go</span></a>",
     );
     assert.equal(
         web.render<()>(
@@ -373,7 +382,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" />Free</label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked />Pro</label></div>",
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
     );
     // Another shape keeps the accessible model: the same radios, the same
     // group.
@@ -390,7 +399,7 @@ test "every kind of node renders" {
                 style: .Some(.Dropdown),
             }),
         ),
-        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" />Free</label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked />Pro</label></div>",
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
     );
     // A button holding a mark and a word is one element, and the label the
     // markup carries is what a reader is announced rather than the glyphs.
@@ -402,7 +411,7 @@ test "every kind of node renders" {
                 children: .Some([ui.text({ content: .Const("* Overview") })]),
             }),
         ),
-        "<button type=\"button\" aria-label=\"Overview\">* Overview</button>",
+        "<button type=\"button\" aria-label=\"Overview\"><span>* Overview</span></button>",
     );
     // A form's action, and the one button in this vocabulary that carries
     // `type="submit"`. The markup is what makes Enter in a field submit the
@@ -441,7 +450,7 @@ test "every kind of node renders" {
                 ui.text({ content: .Const("no") }),
             ),
         ),
-        "yes",
+        "<span>yes</span>",
     );
     assert.equal(
         web.render<()>(
@@ -451,13 +460,13 @@ test "every kind of node renders" {
                 ui.text({ content: .Const("no") }),
             ),
         ),
-        "no",
+        "<span>no</span>",
     );
     assert.equal(
         web.render<()>(
             ui.computed(fn(_scope) => ui.text({ content: .Const("built") })),
         ),
-        "built",
+        "<span>built</span>",
     );
     assert.equal(
         web.render<()>(
@@ -465,7 +474,7 @@ test "every kind of node renders" {
                 ui.text({ content: .Const(item) })
             }),
         ),
-        "ab",
+        "<span>a</span><span>b</span>",
     );
     // A list with no rows renders nothing, and the markers that hold its place
     // are the runtime's own bookkeeping rather than something a reader sees.
@@ -491,7 +500,7 @@ test "every kind of node renders" {
                 onPressOutside: .Some(fn(_c) => ()),
             }),
         ),
-        "<div class=\"p-8\">panel</div>",
+        "<div class=\"p-8\"><span>panel</span></div>",
     );
 }
 
@@ -533,7 +542,7 @@ test "a route link the worker sends says which page it is" {
                 onFollow: .Some(fn(_c, _to) => ()),
             }),
         ),
-        "<a href=\"/reports\" aria-current=\"true\">Reports</a>",
+        "<a href=\"/reports\" aria-current=\"true\"><span>Reports</span></a>",
     );
     // Not current is no attribute at all, the way `aria-expanded` is.
     assert.equal(
@@ -545,7 +554,7 @@ test "a route link the worker sends says which page it is" {
                 isCurrent: .Some(.Const(false)),
             }),
         ),
-        "<a href=\"/\">Home</a>",
+        "<a href=\"/\"><span>Home</span></a>",
     );
 }
 
@@ -602,7 +611,7 @@ test "a tooltip the worker sends is hidden, and named by its trigger" {
     assert.isFalse(other == id);
     assert.startsWith(
         plain,
-        str.format(ctx, "<div aria-describedby=\"${other}\">Trial"),
+        str.format(ctx, "<div aria-describedby=\"${other}\"><span>Trial</span>"),
     );
 }
 
@@ -619,7 +628,7 @@ test "a worker sends the focus order as tabindex" {
                 hasFocus: .Some(signal(ctx, false)),
             }),
         ),
-        "<div tabindex=\"-1\">Panel</div>",
+        "<div tabindex=\"-1\"><span>Panel</span></div>",
     );
     // One that says it is in the order is in it.
     assert.equal(
@@ -631,7 +640,7 @@ test "a worker sends the focus order as tabindex" {
                 isInFocusOrder: .Some(.Const(true)),
             }),
         ),
-        "<li tabindex=\"0\">Row</li>",
+        "<li tabindex=\"0\"><span>Row</span></li>",
     );
     // A control is in it until it says it isn't.
     assert.equal(
@@ -695,7 +704,7 @@ test "a breadcrumb the worker sends marks its last step and hides its separators
                 role: .Some(.Navigation),
             }),
         ),
-        "<nav><a href=\"/\">Home</a><div aria-hidden=\"true\">/</div><div aria-current=\"true\">Reports</div></nav>",
+        "<nav><a href=\"/\"><span>Home</span></a><div aria-hidden=\"true\"><span>/</span></div><div aria-current=\"true\"><span>Reports</span></div></nav>",
     );
     // A stack with a role takes `isCurrent` too: a step in a list of steps.
     assert.equal(
@@ -707,7 +716,7 @@ test "a breadcrumb the worker sends marks its last step and hides its separators
                 isCurrent: .Some(.Const(true)),
             }),
         ),
-        "<li aria-current=\"true\">Reports</li>",
+        "<li aria-current=\"true\"><span>Reports</span></li>",
     );
 }
 
@@ -750,7 +759,7 @@ test "a dialog crosses the worker open, and shut" {
                 styles: [],
             }),
         ),
-        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\" open><div>sure?</div></dialog>",
+        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\" open><div><span>sure?</span></div></dialog>",
     );
     assert.equal(
         web.render<()>(
@@ -761,7 +770,7 @@ test "a dialog crosses the worker open, and shut" {
                 styles: [],
             }),
         ),
-        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\"><div>sure?</div></dialog>",
+        "<dialog aria-label=\"Confirm\" class=\"pos-viewport pin-out pin-top-0 pin-bottom-0 pin-start-0 pin-end-0 lay-row am-center ac-center bg-000000a0_5\"><div><span>sure?</span></div></dialog>",
     );
     // The panel the worker writes carries its styles as classes — one answer,
     // rendered on the server the way the page would render it.
@@ -929,17 +938,20 @@ test "a failing control crosses the worker already saying so" {
 test "text is escaped, so a title cannot write markup" {
     assert.equal(
         web.render<()>(ui.text({ content: .Const("<b>& later</b>") })),
-        "&lt;b&gt;&amp; later&lt;/b&gt;",
+        "<span>&lt;b&gt;&amp; later&lt;/b&gt;</span>",
     );
     // The three that end a run of text, and the two that do not: a quote and an
     // apostrophe mean nothing between tags, so they are written as they were.
     assert.equal(
         web.render<()>(ui.text({ content: .Const("a & b < c > d \" e ' f") })),
-        "a &amp; b &lt; c &gt; d \" e ' f",
+        "<span>a &amp; b &lt; c &gt; d \" e ' f</span>",
     );
     // An ampersand already spelled as an entity is escaped again, because what
     // a page shows is the characters the state holds.
-    assert.equal(web.render<()>(ui.text({ content: .Const("&amp;") })), "&amp;amp;");
+    assert.equal(
+        web.render<()>(ui.text({ content: .Const("&amp;") })),
+        "<span>&amp;amp;</span>",
+    );
 }
 
 test "an attribute is escaped too, quotes included" {
@@ -974,7 +986,7 @@ test "the document carries the body and the state beside it" {
         state.toJson(ctx),
     );
     assert.isTrue(document.startsWith("<!doctype html>"));
-    assert.equal(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(body(document), "<main><h1>Titles</h1><span>and text</span></main>");
     assert.equal(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
 }
 
@@ -1114,7 +1126,7 @@ test "the document says which address it was rendered for" {
     assert.equal(renderedAt(document), "/guide/routing");
     // The body and the state are where they were: the path rides on the script
     // rather than displacing anything.
-    assert.equal(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.equal(body(document), "<main><h1>Titles</h1><span>and text</span></main>");
     assert.equal(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
 }
 

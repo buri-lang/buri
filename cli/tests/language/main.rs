@@ -71,6 +71,7 @@ mod js_wrapping;
 mod lexing;
 mod named_types;
 mod page_output;
+mod page_texts;
 mod pages;
 mod parsing;
 mod round_trip;

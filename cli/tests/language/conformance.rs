@@ -1922,10 +1922,10 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let sent = "<main><h1>Buri</h1>\
                 <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\">\
                 <path d=\"M20 6 9 17l-5-5\"></path></svg>\
-                visitors: 3\
+                <span>visitors: 3</span>\
                 <button type=\"button\" aria-label=\"say thanks\">say thanks</button>\
                 <button type=\"button\" aria-label=\"about\">about</button>\
-                <article>home</article></main>\
+                <article><span>home</span></article></main>\
                 <script id=\"buri-state\" type=\"application/json\" data-path=\"/\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
     // The label is the accessible name as well as the glyphs, so a press moves
@@ -1934,7 +1934,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     // Only the region that read the path is rebuilt, so the button above it is
     // the very node the server wrote and still holds the signal a press wrote.
     let about = pressed.replace(
-        "<article>home</article>",
+        "<article><span>home</span></article>",
         "<article><h2>About</h2></article>",
     );
     assert_eq!(
@@ -1973,7 +1973,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
         "a redirect must move the address bar and add no entry:\n{stdout}{stderr}"
     );
     assert!(
-        stdout.contains("<article>home</article>"),
+        stdout.contains("<article><span>home</span></article>"),
         "and the region that read the path must show the page it went to:\n{stdout}{stderr}"
     );
 
@@ -2148,9 +2148,9 @@ console.log(showing());
 /// Three groups.
 ///
 /// **Markup a browser would have normalised.** The document that reaches a page
-/// is never the bytes the worker wrote: runs of text beside each other are one
-/// node, an attribute may stand on its own, an empty element may be spelled
-/// either way, and an entity may be numeric. A resume that only worked on the
+/// is never the bytes the worker wrote: an attribute may stand on its own, an
+/// empty element may be spelled either way, and an entity may be numeric. A
+/// resume that only worked on the
 /// server's own spelling would work in a test and fail in a browser.
 ///
 /// **A tree the markup does not match.** One node too many, one too few, and an
@@ -2198,11 +2198,12 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     };
 
     // What the worker writes, and therefore what every scenario starts from.
-    let sent = "<main><h1>Tom &amp; Jerry &lt;br&gt; ✓</h1>onetwo \
+    let sent =
+        "<main><h1>Tom &amp; Jerry &lt;br&gt; ✓</h1><span>one</span><span>two</span><span> </span>\
                 <img src=\"/cat.png\" alt=\"a cat\" />\
-                <aside><ul><li>alpha</li><li>beta</li></ul>\
+                <aside><ul><li><span>alpha</span></li><li><span>beta</span></li></ul>\
                 <button type=\"button\" aria-label=\"press me\">press me</button></aside>\
-                <article>home</article></main>";
+                <article><span>home</span></article></main>";
     // Every `<` in the state is written `<`, which is how a string holding
     // `</script>` closes nothing — and it is a JSON escape, so what the page
     // reads back is the character.
@@ -2223,8 +2224,8 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     assert_eq!(code, 0, "the page did not resume:\n{stdout}{stderr}");
     let pressed = showing.replace("press me", "pressed once");
     let about = pressed.replace(
-        "<article>home</article>",
-        "<article><h2>About</h2>about</article>",
+        "<article><span>home</span></article>",
+        "<article><h2>About</h2><span>about</span></article>",
     );
     let again = about.replace("pressed once", "pressed twice");
     assert_eq!(
@@ -2238,7 +2239,7 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
              made 0 elements and 0 runs of text\n\
              showing {showing}\n\
              pressed {pressed}\n\
-             navigated 2 elements and 2 runs of text\n\
+             navigated 3 elements and 2 runs of text\n\
              showing {about}\n\
              the title is the node the server wrote: true\n\
              pressed {again}\n"
@@ -2635,13 +2636,13 @@ const change = (from, to) => {
 if (how === "boolean") change("<main>", "<main hidden>");
 if (how === "open-void") change('alt="a cat" />', 'alt="a cat">');
 if (how === "numeric-entity") change("&amp;", "&#38;");
-if (how === "upper-case") change("<article>home</article>", "<ARTICLE>home</ARTICLE>");
+if (how === "upper-case") change("<article><span>home</span></article>", "<ARTICLE><span>home</span></ARTICLE>");
 
 // Markup the tree does not match.
 if (how === "missing") change('<img src="/cat.png" alt="a cat" />', "");
 if (how === "renamed") change("<h1>", "<h2>"), change("</h1>", "</h2>");
-if (how === "extra") change("<li>beta</li>", "<li>beta</li><li>gamma</li>");
-if (how === "changed-text") change("<li>alpha</li>", "<li>ALPHA</li>");
+if (how === "extra") change("<li><span>beta</span></li>", "<li><span>beta</span></li><li><span>gamma</span></li>");
+if (how === "changed-text") change("<li><span>alpha</span></li>", "<li><span>ALPHA</span></li>");
 if (how === "changed-attribute") change('src="/cat.png"', 'src="/dog.png"');
 
 // A page the state asks to resume twice.

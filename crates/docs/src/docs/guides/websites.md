@@ -217,7 +217,7 @@ export fn fetch(host: CloudflareHost, request: Request): Response {
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Buri</title></head>
-<body><main><h1>Buri</h1>visitors: 3<button type="button" aria-label="say thanks">say thanks</button><button type="button" aria-label="about">about</button><article>home</article></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
+<body><main><h1>Buri</h1><span>visitors: 3</span><button type="button" aria-label="say thanks">say thanks</button><button type="button" aria-label="about">about</button><article><span>home</span></article></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
 </html>
 ```
 

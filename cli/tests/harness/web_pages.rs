@@ -731,16 +731,28 @@ function seen(n) {
 const unescape = (t) => t.replace(/\\(.)/g, (_, c) => (c === "n" ? "\n" : c === "r" ? "\r" : c));
 
 // A snapshot root: its mark, then the tree.
-const marked = (root) => {
-  const mark = root.firstChild;
-  return mark !== null && mark.nodeType === 3 && mark.data.startsWith("buri-snapshot\n");
-};
+const marked = (root) => root.firstChild?.textContent.startsWith("buri-snapshot\n") ?? false;
+// Each element holding two runs of text with only comments between them: a
+// browser lays the two out as one box, where the snapshot drew two.
+function runTogether(n, out) {
+  let text = null;
+  for (const child of n.childNodes) {
+    if (child.nodeType === 3 && child.data !== "") {
+      if (text !== null) out.push(`"${text.data}" and "${child.data}"`);
+      text = child;
+    } else if (child.nodeType === 1) {
+      text = null;
+      runTogether(child, out);
+    }
+  }
+  return out;
+}
 const snapshots = [];
 // The tree the last mount put on the page, read as the snapshot saw it: every
-// text the scene holds is on the page.
+// text the scene holds is on the page, and each is a box of its own.
 function check(end) {
   const mounted = [...body.childNodes];
-  const at = mounted.indexOf(end);
+  const at = mounted.indexOf(end.parentNode);
   const root = mounted.at(at < 0 ? -1 : at - 1);
   if (root === undefined || !marked(root)) {
     problems.push(`something other than a snapshot was mounted: ${showing()}`);
@@ -750,7 +762,7 @@ function check(end) {
     problems.push(`a snapshot did not mount: ${showing()}`);
     return;
   }
-  const [, state, name, ...scene] = root.firstChild.data.split("\n");
+  const [, state, name, ...scene] = root.firstChild.textContent.split("\n");
   const tree = [...root.childNodes].slice(1);
   const page = tree.map(seen).join("\n");
   for (const line of scene) {
@@ -758,6 +770,7 @@ function check(end) {
     const text = unescape(line.slice(line.indexOf(" ", 2) + 1));
     if (!page.includes(text)) problems.push(`"${name}": "${text}" is in the snapshot and not on the page`);
   }
+  for (const pair of runTogether(root, [])) problems.push(`"${name}": a browser runs ${pair} together`);
   // A browser clamps and snaps a slider's value, so the thumb the snapshot
   // drew must sit where the page's does.
   const drawn = scene.flatMap((line) => [...line.matchAll(/range:\S+ \S+ (\S+)/g)].map((m) => Number(m[1])));

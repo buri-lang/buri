@@ -1,0 +1,48 @@
+// Sibling texts, each laid out on its own: three lines in a column, three
+// words side by side in a row (buri#357).
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+
+test "three sibling texts in a column" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column",
+        ui.stack({
+            styles: [.Layout(.Column), .TextWrap(.NoWrap)],
+            children: [
+                ui.text({ content: .Const("$550k") }),
+                ui.text({ content: .Const("$600k") }),
+                ui.text({ content: .Const("$650k") }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "three sibling texts in a row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row",
+        ui.stack({
+            styles: [.Layout(.Row), .Gap(.Px(8))],
+            children: [
+                ui.text({ content: .Const("Jan") }),
+                ui.text({ content: .Const("Feb") }),
+                ui.text({ content: .Const("Mar") }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
