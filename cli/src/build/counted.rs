@@ -42,6 +42,10 @@ pub enum Count {
     /// hands over only the members the program needs
     /// (`build/members.rs`).
     ArchiveMembers,
+    /// A byte of the host toolchain's `libgcc.a` read to work out which of
+    /// those members a link needs. Read once per toolchain, then kept under
+    /// `~/.buri/libgcc-needs/`.
+    ToolchainArchiveBytes,
     /// The first start of an executable this run wrote as a new file, which
     /// macOS checks before it runs.
     NewExecutables,
@@ -67,6 +71,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "links",
     "images linked",
     "archive members linked",
+    "toolchain archive bytes read",
     "new executables launched",
     "test processes",
     "tool processes",

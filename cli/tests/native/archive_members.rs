@@ -64,8 +64,15 @@ fn write(root: &Path, rel: &str, text: &str) {
 }
 
 /// `source` as `//cmd/app` in a repository of its own, built on `backend`
-/// with `mode`: its binary, and the members its link was handed.
-fn built(name: &str, source: &str, backend: &str, mode: &[&str]) -> (PathBuf, u64) {
+/// with `mode`, with `~/.buri` at `home` if one is given: its binary, and the
+/// `BURI_PROFILE=1` counts the build printed.
+fn built(
+    name: &str,
+    source: &str,
+    backend: &str,
+    mode: &[&str],
+    home: Option<&Path>,
+) -> (PathBuf, String) {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("archive-members-{}", std::process::id()))
         .join(format!("{name}-{backend}"));
@@ -87,13 +94,16 @@ fn built(name: &str, source: &str, backend: &str, mode: &[&str]) -> (PathBuf, u6
         ),
     );
     write(&root, "cmd/app/main.buri", source);
-    let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_buri"));
+    command
         .current_dir(&root)
         .args(["build", "//cmd/app"])
         .args(mode)
-        .env("BURI_PROFILE", "1")
-        .capped_output()
-        .unwrap();
+        .env("BURI_PROFILE", "1");
+    if let Some(home) = home {
+        command.env("BURI_HOME", home);
+    }
+    let out = command.capped_output().unwrap();
     let all = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -102,15 +112,24 @@ fn built(name: &str, source: &str, backend: &str, mode: &[&str]) -> (PathBuf, u6
     if !out.status.success() {
         crate::ci::native_program_failed("archive_members", "the build failed", &all);
     }
-    let members = all
-        .lines()
-        .find_map(|l| l.strip_prefix("archive members linked "))
-        .and_then(|n| n.trim().parse().ok())
-        .unwrap_or_else(|| panic!("{backend}: no count of archive members linked:\n{all}"));
     (
         root.join(format!(".buri/out/native/{variant}/cmd/app/app")),
-        members,
+        all,
     )
+}
+
+/// The count `counts`, a build's `BURI_PROFILE=1` output, gives for `name`.
+fn count(counts: &str, name: &str) -> u64 {
+    counts
+        .lines()
+        .find_map(|l| l.strip_prefix(name)?.strip_prefix(' '))
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no count of {name}:\n{counts}"))
+}
+
+/// The archive members a build's link was handed.
+fn members(counts: &str) -> u64 {
+    count(counts, "archive members linked")
 }
 
 /// What `binary` printed, after it exited cleanly.
@@ -136,7 +155,8 @@ fn a_program_that_only_prints_is_handed_a_fraction_of_the_archives() {
         return;
     }
     for (backend, mode) in crate::e2e::build_modes() {
-        let (binary, members) = built("hello", HELLO, backend, mode);
+        let (binary, counts) = built("hello", HELLO, backend, mode, None);
+        let members = members(&counts);
         assert_eq!(printed(&binary), "hello\n", "{backend}");
         assert!(
             members > 0 && members <= HELLO_MOST,
@@ -155,13 +175,50 @@ fn a_program_that_serves_is_handed_what_serving_needs() {
         return;
     }
     for (backend, mode) in crate::e2e::build_modes() {
-        let (_, hello) = built("hello-beside", HELLO, backend, mode);
-        let (binary, serves) = built("serves", SERVES, backend, mode);
+        let hello = members(&built("hello-beside", HELLO, backend, mode, None).1);
+        let (binary, counts) = built("serves", SERVES, backend, mode, None);
+        let serves = members(&counts);
         assert_eq!(printed(&binary), "bound true\n", "{backend}");
         assert!(
             serves > hello,
             "on {backend}, a program that serves was handed {serves} archive members and one \
              that only prints {hello}"
         );
+    }
+}
+
+/// **The toolchain's `libgcc.a` is read for the first link and not again.**
+/// What it needs is kept under `~/.buri`, so the next link, in a process of
+/// its own, is handed the same members without reading the file.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
+fn the_toolchains_libgcc_is_read_once() {
+    if !mold_or_missing() {
+        return;
+    }
+    let read = "toolchain archive bytes read";
+    for (backend, mode) in crate::e2e::build_modes() {
+        let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("archive-members-{}", std::process::id()))
+            .join(format!("home-{backend}"));
+        let _ = std::fs::remove_dir_all(&home);
+        let (_, first) = built("libgcc-first", HELLO, backend, mode, Some(&home));
+        let (binary, second) = built("libgcc-second", HELLO, backend, mode, Some(&home));
+        assert_eq!(printed(&binary), "hello\n", "{backend}");
+        assert!(
+            count(&first, read) > 0,
+            "on {backend}, the first link read none of libgcc.a:\n{first}"
+        );
+        assert_eq!(
+            count(&second, read),
+            0,
+            "on {backend}, the second link read libgcc.a"
+        );
+        assert_eq!(
+            members(&second),
+            members(&first),
+            "on {backend}, the second link was handed other members"
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

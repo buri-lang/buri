@@ -576,7 +576,7 @@ fn record_for(dir: &str, header: &str, programs: &[PathBuf]) -> Option<PathBuf> 
             file_identity(&meta)
         ));
     }
-    text.push_str(&shaping_environment());
+    text.push_str(shaping_environment());
     if let Ok(chosen) = std::fs::read_link("/var/db/xcode_select_link") {
         text.push_str(&format!("xcode-select={}\0", chosen.display()));
     }
@@ -617,7 +617,7 @@ fn file_identity(meta: &std::fs::Metadata) -> String {
 /// Writes `text` to `record` through a rename, so a process reading it at the
 /// same moment sees all of it or none. Failing to write is not failing: the
 /// next process asks again.
-fn remember(record: &Path, text: &str) {
+fn remember(record: &Path, text: impl AsRef<[u8]>) {
     crate::build::create_parent(record);
     let partial = record.with_file_name(format!(
         ".partial-{}-{:?}",
@@ -1455,18 +1455,36 @@ const ARCHIVE_MEMBERS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/archive
 /// Every member's, not only the ones a link loads: the builtins it needs
 /// from libc are a handful (`abort`, `memcpy`, `getauxval`), and keeping
 /// their definers always costs less than working out which builtins the
-/// program reaches. Read once per driver per process.
+/// program reaches. Kept under `~/.buri/libgcc-needs/`, named by the file's
+/// identity ([`record_for`]), so a toolchain's few megabytes are read once.
 fn libgcc_needs(driver: &Path) -> Option<Vec<u64>> {
     static READ: std::sync::Mutex<Vec<(String, Option<Vec<u64>>)>> =
         std::sync::Mutex::new(Vec::new());
     remembered(&READ, driver.display().to_string(), || {
-        let bytes = std::fs::read(builtins_dir(driver)?.join("libgcc.a")).ok()?;
+        let file = builtins_dir(driver)?.join("libgcc.a");
+        let record = record_for(
+            "libgcc-needs",
+            "libgcc needs v1",
+            std::slice::from_ref(&file),
+        );
+        let kept = record.as_ref().and_then(|r| std::fs::read(r).ok());
+        if let Some(bytes) = kept {
+            let words = bytes.as_chunks::<8>().0;
+            return Some(words.iter().map(|w| u64::from_le_bytes(*w)).collect());
+        }
+        let bytes = std::fs::read(&file).ok()?;
+        crate::build::counted::add_n(
+            crate::build::counted::Count::ToolchainArchiveBytes,
+            bytes.len() as u64,
+        );
         let mut needs = Vec::new();
         for (_, member) in members::members(&bytes)? {
             members::undefined(member, &mut needs)?;
         }
         needs.sort_unstable();
         needs.dedup();
+        let text: Vec<u8> = needs.iter().flat_map(|n| n.to_le_bytes()).collect();
+        record.iter().for_each(|r| remember(r, &text));
         Some(needs)
     })
 }
@@ -1487,6 +1505,7 @@ fn member_files(index: &members::Index<'_>, kept: &[bool]) -> Option<Vec<(usize,
         .ok()?
         .join("archive-members")
         .join(format!("{}-{}", runtime.get(..16)?, sysroot.get(..16)?));
+    let dir = dir.to_str()?;
     let mut checked = CHECKED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1494,18 +1513,19 @@ fn member_files(index: &members::Index<'_>, kept: &[bool]) -> Option<Vec<(usize,
     let mut files = Vec::new();
     for (m, _) in kept.iter().enumerate().filter(|(_, &keep)| keep) {
         let (archive, at, len) = index.member(m)?;
-        let path = dir.join(format!("{m}.o"));
+        let path = format!("{dir}/{m}.o");
         let slot = checked.get_mut(m)?;
         if !*slot {
-            let there = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == len as u64);
+            let file = Path::new(&path);
+            let there = std::fs::metadata(file).is_ok_and(|meta| meta.len() == len as u64);
             if !there {
                 let bytes = archives.get(archive)?.get(at..at.checked_add(len)?)?;
-                crate::build::create_parent(&path);
-                replace_with(&path, bytes).ok()?;
+                crate::build::create_parent(file);
+                replace_with(file, bytes).ok()?;
             }
             *slot = true;
         }
-        files.push((archive, path.to_str()?.to_string(), len));
+        files.push((archive, path, len));
     }
     Some(files)
 }
@@ -1525,21 +1545,30 @@ fn thin_archive<'a>(members: impl Iterator<Item = (&'a str, usize)> + Clone) -> 
         paths.push_str("/\n");
     }
     let mut out = b"!<thin>\n".to_vec();
-    ar_header(&mut out, "//", paths.len());
+    ar_header(&mut out, format_args!("//"), paths.len());
     out.extend_from_slice(paths.as_bytes());
     // Members start on an even offset, so an odd table is padded by a byte.
     out.extend(std::iter::repeat_n(b'\n', paths.len() % 2));
     for ((_, len), at) in members.zip(at) {
-        ar_header(&mut out, &format!("/{at}"), len);
+        ar_header(&mut out, format_args!("/{at}"), len);
     }
     out
 }
 
-/// One 60-byte archive member header.
-fn ar_header(out: &mut Vec<u8>, name: &str, size: usize) {
-    out.extend_from_slice(
-        format!("{name:<16}{:<12}{:<6}{:<6}{:<8}{size:<10}`\n", 0, 0, 0, 644).as_bytes(),
-    );
+/// An archive member header with the name and size left blank: time, owner
+/// and group 0, mode 644.
+const AR_HEADER: &[u8; 60] = b"                0           0     0     644               `\n";
+
+/// One 60-byte archive member header, filled into [`AR_HEADER`]: padded
+/// formatting cost about 2,000 instructions a header.
+fn ar_header(out: &mut Vec<u8>, name: std::fmt::Arguments<'_>, size: usize) {
+    use std::io::Write as _;
+    let mut header = *AR_HEADER;
+    let _ = header.get_mut(..16).map(|mut field| field.write_fmt(name));
+    let _ = header
+        .get_mut(48..58)
+        .map(|mut field| write!(field, "{size}"));
+    out.extend_from_slice(&header);
 }
 
 // ---------------------------------------------------------------------------
@@ -2636,14 +2665,19 @@ fn shapes_the_link(name: &str) -> bool {
         )
 }
 
-/// Every variable [`shapes_the_link`] names, with its value, sorted.
-fn shaping_environment() -> String {
-    let mut env: Vec<(String, String)> = std::env::vars_os()
-        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.to_string_lossy().into_owned())))
-        .filter(|(k, _)| shapes_the_link(k))
-        .collect();
-    env.sort();
-    env.iter().map(|(k, v)| format!("{k}={v}\0")).collect()
+/// Every variable [`shapes_the_link`] names, with its value, sorted. Read once
+/// per process, since nothing in `buri` changes its own environment.
+fn shaping_environment() -> &'static str {
+    static TEXT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TEXT.get_or_init(|| {
+        let mut env: Vec<(String, String)> = std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v)))
+            .filter(|(k, _)| shapes_the_link(k))
+            .map(|(k, v)| (k, v.to_string_lossy().into_owned()))
+            .collect();
+        env.sort();
+        env.iter().map(|(k, v)| format!("{k}={v}\0")).collect()
+    })
 }
 
 /// The replays this process has captured or read, `None` where the driver's
@@ -2666,7 +2700,7 @@ impl CDriver {
                 .map(|d| d.to_string())
                 .unwrap_or_default(),
         );
-        text.push_str(&shaping_environment());
+        text.push_str(shaping_environment());
         ActionKey::of(text.as_bytes())
     }
 
@@ -2700,7 +2734,7 @@ impl CDriver {
                 if let Some(record) = &record {
                     remember(
                         record,
-                        &captured.as_ref().map(Replay::to_text).unwrap_or_default(),
+                        captured.as_ref().map(Replay::to_text).unwrap_or_default(),
                     );
                 }
                 captured

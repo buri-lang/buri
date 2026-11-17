@@ -7490,6 +7490,8 @@ test processes 1
 - **test processes**: native runners and JavaScript runtimes started for tests.
 - **bytes keyed**: bytes of sources read to key actions. A source too big to
   compile is refused unread, so it adds none.
+- **toolchain archive bytes read**: bytes of the host's `libgcc.a` read to
+  work out a Linux link's archive members, once per toolchain (§6.147).
 
 Load and thread scheduling can't move any of them. `build::work_counts` pins
 them, plus the files a run wrote (new inodes or changed ones under the
@@ -10266,6 +10268,27 @@ One ci link went from 113.7 M instructions in mold to 82.6 M.
 every native backend, runs both, and holds the `archive members linked`
 count `BURI_PROFILE=1` prints: above zero, at most 600 for the one that
 prints, and more for the one that serves.
+
+### 6.147 Working out a link's members costs `buri` nothing, 2026-11-17
+
+```text
+test/one-edit, aarch64 Linux, buri alone   cut off     §6.146      now
+instructions                               25.40 M     27.92 M     25.38 M
+```
+
+§6.146 took 2.5 M instructions in `buri` per edit-and-rerun, which the x86_64
+instruction gate counts and the mold savings it bought don't show in. Most of
+it was padded formatting, not the members:
+
+- `ar_header` fills a fixed template instead of formatting six padded
+  fields. The objects' thin archive gains too.
+- `shaping_environment` is read once per process and converts only the
+  variables it keeps. A `buri test` ran it three times over every variable of the
+  development shell.
+- The host `libgcc.a`'s needs are kept under `~/.buri/libgcc-needs/`, so a
+  toolchain's few megabytes are read once. `BURI_PROFILE=1` counts the bytes
+  as `toolchain archive bytes read`, and `archive_members.rs` holds a second
+  link to none.
 
 ## 7. Profiling, on this platform
 
