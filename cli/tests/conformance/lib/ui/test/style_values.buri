@@ -1718,3 +1718,29 @@ test "a figures style known only at run time writes itself out" {
         "e 0 class:fig-proportional",
     );
 }
+
+test "a pretty wrap is a class in the stylesheet, under a breakpoint too" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            boxed(.Group([.TextWrap(.Pretty), .At(.Medium, [.TextWrap(.Balance)])])),
+        ).markup(),
+        "e 0 class:tw-pretty md_tw-balance",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".tw-pretty{text-wrap:pretty}"));
+    assert.isTrue(sheet.contains(".md_tw-balance{text-wrap:balance}"));
+}
+
+test "a pretty wrap known only at run time is its class" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(painted(ctx, [.TextWrap(late(ctx, .Pretty))]), "e 0 class:tw-pretty");
+}

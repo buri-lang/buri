@@ -1585,6 +1585,9 @@ struct Computed {
     /// `text-wrap: balance`: break the run into the lines it would take
     /// anyway, evened out.
     balance: bool,
+    /// `text-wrap: pretty`: break the run where `wrap` would, except that the
+    /// last line is never one word alone.
+    pretty: bool,
     /// `-webkit-line-clamp`: show at most this many lines and end the last one
     /// in an ellipsis. `None` is no limit.
     clamp: Option<usize>,
@@ -1665,6 +1668,7 @@ impl Computed {
             decoration: Decoration::None,
             nowrap: false,
             balance: false,
+            pretty: false,
             clamp: None,
             masked: false,
             field: false,
@@ -1768,6 +1772,7 @@ impl Computed {
         child.decoration = self.decoration;
         child.nowrap = self.nowrap;
         child.balance = self.balance;
+        child.pretty = self.pretty;
         // CSS puts the clamp on the block and counts the lines of the inline
         // content inside it. The painter's inline content is a `t` node one
         // level down, so the clamp has to reach it the way an inherited
@@ -2184,6 +2189,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "text-wrap" => {
             style.nowrap = value == "nowrap";
             style.balance = value == "balance";
+            style.pretty = value == "pretty";
         }
         // `none` is the value `Truncate(0)` writes, and it parses to no limit.
         "-webkit-line-clamp" => style.clamp = value.parse().ok().filter(|&n| n > 0),
@@ -3067,6 +3073,9 @@ fn shape(
         if style.balance {
             balance(fonts, &mut buffer, &content, &attrs, style.align_text, room);
         }
+        if style.pretty {
+            pretty(fonts, &mut buffer, &content, &attrs, style.align_text);
+        }
     }
     buffer
 }
@@ -3211,6 +3220,43 @@ fn balance(
     let broken = broken(buffer, text);
     buffer.set_size(Some(room), None);
     lay(fonts, buffer, &broken, attrs, align);
+}
+
+/// Keeps the last line from being one word alone — `text-wrap: pretty`, the
+/// way a browser treats a short paragraph.
+///
+/// A run of two lines or more whose last line is one word takes the last word
+/// of the line before it down too. That is kept only if the run still takes as
+/// many lines: the two words have to fit on one.
+fn pretty(
+    fonts: &mut FontSystem,
+    buffer: &mut Buffer,
+    text: &str,
+    attrs: &Attrs,
+    align: cosmic_text::Align,
+) {
+    let target = line_count(buffer);
+    let broken = broken(buffer, text);
+    let mut lines: Vec<&str> = broken.split('\n').collect();
+    let (Some(last), Some(before)) = (lines.pop(), lines.pop()) else {
+        return;
+    };
+    if last.contains(char::is_whitespace) {
+        return;
+    }
+    let Some((kept, word)) = before
+        .rsplit_once(char::is_whitespace)
+        .filter(|(kept, _)| !kept.trim().is_empty())
+    else {
+        return;
+    };
+    let moved = format!("{word} {last}");
+    lines.push(kept.trim_end());
+    lines.push(&moved);
+    lay(fonts, buffer, &lines.join("\n"), attrs, align);
+    if line_count(buffer) != target {
+        lay(fonts, buffer, text, attrs, align);
+    }
 }
 
 /// The run with a newline wherever the shaper broke it, so the same breaks
@@ -8269,6 +8315,30 @@ mod tests {
             "balanced lines are closer in length: {} against {}",
             spread(&balanced),
             spread(&wrapped)
+        );
+    }
+
+    /// **`text-wrap: pretty` leaves no word alone on the last line.** The line
+    /// before it gives its last word up, and the run takes no more lines for it.
+    #[test]
+    fn a_pretty_run_ends_on_two_words_where_wrap_ends_on_one() {
+        let lines = |mode: &str| {
+            let scene = format!(
+                "buri-scene 1\nviewport 200 120\n\
+                 e 0 width:160px;font-size:13px;text-wrap:{mode}\n\
+                 t 1 A card description that wraps onto lines of its own here.\n"
+            );
+            inked_lines(&render_ok(&scene, "", "rest"))
+        };
+        let width = |(from, to): (u32, u32)| to.saturating_sub(from);
+        let (wrapped, pretty) = (lines("wrap"), lines("pretty"));
+        assert_eq!(wrapped.len(), 3, "wrap breaks the run into three lines");
+        assert_eq!(pretty.len(), wrapped.len(), "pretty may not cost a line");
+        // "here." alone, against "own here.".
+        let (alone, paired) = (width(wrapped[2]), width(pretty[2]));
+        assert!(
+            paired > alone * 3 / 2,
+            "the last line holds two words: {paired} against {alone}"
         );
     }
 

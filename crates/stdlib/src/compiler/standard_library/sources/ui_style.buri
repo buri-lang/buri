@@ -835,6 +835,9 @@ export enum TextWrap {
     NoWrap,
     /// Wherever it has to, with the line lengths evened out. For headings.
     Balance,
+    /// Wherever it has to, except that the last line is never one word alone.
+    /// For body text.
+    Pretty,
 }
 
 /// What the pointer looks like.

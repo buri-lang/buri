@@ -1,0 +1,25 @@
+# `TextWrap(.Pretty)` against `.Wrap`, over one short card description:
+#
+#   * **Wrap.** The lines fill and the last one is "here." alone.
+#   * **Pretty.** The line before gives up "own", so the last line is "own
+#     here." and the paragraph takes no more lines.
+#   * **Pretty on a phone, balanced from `.Medium` up.** The same description
+#     painted at both widths.
+#
+# `page_text_wrap.rs` checks that a browser gives the same description the
+# same `text-wrap` at each width.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a pretty paragraph ends on two words where a wrapped one ends on one, and balances from Medium up"
+
+run {
+  args: ["test", "//lib/description", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/description/test/__snapshots__/description-wrap.diff.png"  exists: false }
+path { path: "lib/description/test/__snapshots__/description-pretty.diff.png"  exists: false }
+path { path: "lib/description/test/__snapshots__/description-phone.diff.png"  exists: false }
+path { path: "lib/description/test/__snapshots__/description-laptop.diff.png"  exists: false }

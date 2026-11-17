@@ -1,0 +1,20 @@
+//! A short card description, broken the way it is handed.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// The description in a box narrow enough that `.Wrap` leaves "here." alone on
+/// its last line. The text inherits `wrap` from the box.
+export fn description<C>(wrap: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(160)), .FontSize(.Px(13)), .Group(wrap)],
+        children: [
+            ui.text({
+                content: .Const(
+                    "A card description that wraps onto lines of its own here.",
+                ),
+            }),
+        ],
+    })
+}

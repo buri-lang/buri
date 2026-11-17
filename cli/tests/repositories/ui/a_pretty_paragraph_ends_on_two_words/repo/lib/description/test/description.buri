@@ -1,0 +1,47 @@
+// One description wrapped, pretty, and pretty on a phone but balanced from
+// `.Medium` up.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "ui/style" import { Style };
+from "//lib/description" import { description };
+
+test "a wrapped description can end on one word" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "description-wrap",
+        description([.TextWrap(.Wrap)]),
+        .Hover,
+        [],
+        390,
+    );
+}
+
+test "a pretty description ends on two words" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "description-pretty",
+        description([.TextWrap(.Pretty)]),
+        .Hover,
+        [],
+        390,
+    );
+}
+
+test "a description pretty on a phone is balanced from Medium up" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let wrap: [Style] = [.TextWrap(.Pretty), .At(.Medium, [.TextWrap(.Balance)])];
+    snapshotWide(ctx, "description-phone", description(wrap), .Hover, [], 390);
+    snapshotWide(ctx, "description-laptop", description(wrap), .Hover, [], 800);
+}

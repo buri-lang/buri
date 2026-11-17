@@ -1979,8 +1979,8 @@ fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
         7 | 8 | 9 | 48 => enumerated(7),
         // `Wrap`, `Italic`, `Clip`, `Passthrough` and `Removed`.
         10 | 45 | 57 | 58 | STYLE_REMOVED => vec![Value::Bool(false), Value::Bool(true)],
-        11 | 50 | 51 | 54 | 36 => enumerated(3),
-        16 | 44 | 49 | 53 => enumerated(4),
+        11 | 50 | 54 | 36 => enumerated(3),
+        16 | 44 | 49 | 51 | 53 => enumerated(4),
         64 => enumerated(2),
         _ => Vec::new(),
     };
@@ -3980,7 +3980,7 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         }
         51 => {
             let (which, _) = first?.as_variant()?;
-            let css = ["wrap", "nowrap", "balance"].get(which)?;
+            let css = ["wrap", "nowrap", "balance", "pretty"].get(which)?;
             Some(("tw", (*css).into(), one("text-wrap", css)))
         }
         52 => {

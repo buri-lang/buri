@@ -673,6 +673,10 @@ fn serving_a_page() {
 /// `pinned_boxes_place_as_a_browser_does` holds the pinned boxes the painter
 /// once placed or cut where a browser doesn't, each scene beside a twin. The
 /// test of the same name checks each in happy-dom.
+///
+/// `a_pretty_paragraph_ends_on_two_words` is one description wrapped, pretty,
+/// and pretty on a phone but balanced from `.Medium` up (#359). The test of
+/// the same name checks the `text-wrap` happy-dom computes for each.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 69);
@@ -1034,6 +1038,27 @@ fn a_browser_draws_each_style_shape_as_its_twin() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The `text-wrap` a browser gives `a_pretty_paragraph_ends_on_two_words`'s
+/// description at each snapshot's width: what the painter drew.
+#[test]
+fn a_pretty_paragraph_ends_on_two_words() {
+    let case = tests_dir().join("repositories/ui/a_pretty_paragraph_ends_on_two_words");
+    let wraps = crate::harness::web_pages::computed(&case, "text-wrap", "");
+    let shown: Vec<String> = wraps
+        .iter()
+        .map(|(name, values)| format!("{name}: {values}"))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            "description-wrap: div=wrap",
+            "description-pretty: div=pretty",
+            "description-phone: div=pretty",
+            "description-laptop: div=balance",
+        ]
+    );
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

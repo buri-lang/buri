@@ -163,6 +163,20 @@ pub fn arrangements(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, ARRANGEMENTS, "boxes ")
 }
 
+/// What a browser computes `property` to on each of `case`'s snapshots'
+/// elements, as `(name, values)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`paint_orders`] mounts it, and the window is
+/// made as wide as each snapshot's page before it is read. A snapshot's values
+/// are every element of its tree, in tree order, each as its tag and what
+/// `property` computes to there, leaving out an element where that is
+/// `initial`. A snapshot with none says nothing after its name.
+pub fn computed(case: &Path, property: &str, initial: &str) -> Vec<(String, String)> {
+    let script =
+        format!("const PROPERTY = {property:?};\nconst INITIAL = {initial:?};\n{COMPUTED}");
+    read_snapshots(case, &script, "computed ")
+}
+
 /// Mounts each of `case`'s pages and runs `script` after, answering each line
 /// it prints that starts with `prefix` as a `(name, rest)` pair split at `: `.
 fn read_snapshots(case: &Path, script: &str, prefix: &str) -> Vec<(String, String)> {
@@ -1094,6 +1108,25 @@ for (const { root, name } of snapshots) {
     return set.length === 0 ? [] : [`${element.tagName.toLowerCase()} ${set.join(" ")}`];
   });
   console.log(`boxes ${name}: ${boxes.join(" | ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints what each snapshot's elements compute `PROPERTY` to, at the
+/// snapshot's width.
+const COMPUTED: &str = r#"
+function* elements(n) {
+  if (n.nodeType === 1) yield n;
+  for (const child of n.childNodes) yield* elements(child);
+}
+for (const { root, name, tree } of snapshots) {
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]));
+  const values = tree
+    .flatMap((n) => [...elements(n)])
+    .map((element) => [element, getComputedStyle(element).getPropertyValue(PROPERTY)])
+    .filter(([, value]) => value !== "" && value !== INITIAL)
+    .map(([element, value]) => `${element.localName}=${value}`);
+  console.log(`computed ${name}: ${values.join(" ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

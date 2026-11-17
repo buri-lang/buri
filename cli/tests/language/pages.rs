@@ -4895,6 +4895,16 @@ fn a_negative_grid_track_is_zero_however_it_arrives() {
     );
 }
 
+/// A pretty wrap is `text-wrap: pretty` whether it is written in place or
+/// only known when the page runs (#359).
+#[test]
+fn a_pretty_wrap_is_pretty_however_it_arrives() {
+    arrives_the_same(
+        "text-wrap-values",
+        &[("text-wrap", ".TextWrap({})", ".Pretty", "pretty")],
+    );
+}
+
 /// A token faded past whole, by an alpha only known when the page runs, is the
 /// whole token, and one faded below nothing is none of it. An alpha known when
 /// the program is built is refused instead, so there is no page that writes one.

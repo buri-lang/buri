@@ -476,6 +476,7 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Wrap => "wrap",
                 .NoWrap => "nowrap",
                 .Balance => "balance",
+                .Pretty => "pretty",
             })
         },
         .Truncate(lines) => {

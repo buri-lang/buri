@@ -979,6 +979,11 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
               $t39='balance';
             }
             break;
+          case 3:
+            {
+              $t39='pretty';
+            }
+            break;
           default:
             {
               $abort('no arm matched');
