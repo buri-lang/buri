@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const X86: &str = "x86_64-unknown-linux-gnu";
+const ARM: &str = "aarch64-unknown-linux-gnu";
 const MAC: &str = "aarch64-apple-darwin";
 const LINK: &str = "cli/src/build/link.rs";
 
@@ -36,7 +37,7 @@ impl Repo {
         // macOS; line 5's took both on Linux alone.
         std::fs::write(
             root.join("coverage/compiler-branches.txt"),
-            format!("hosts {MAC} {X86}\ntotal 4 4\narea cli/build 4 4\n4 4 {LINK}\n"),
+            format!("hosts {MAC} {ARM} {X86}\ntotal 4 4\narea cli/build 4 4\n4 4 {LINK}\n"),
         )
         .unwrap();
         let repo = Repo { root };
@@ -45,6 +46,7 @@ impl Repo {
         repo.git(&["commit", "-qm", "green"]);
         let commit = String::from_utf8(repo.git(&["rev-parse", "HEAD"]).stdout).unwrap();
         repo.shard("green", X86, &[(3, 1, 0), (5, 1, 1)], 1);
+        repo.shard("green", ARM, &[(3, 1, 0), (5, 1, 1)], 1);
         repo.shard("green", MAC, &[(3, 0, 1), (5, 0, 0)], 1);
         let gh = repo.root.join("bin/gh");
         std::fs::create_dir_all(gh.parent().unwrap()).unwrap();
@@ -110,18 +112,33 @@ impl Repo {
     fn against_ci(&self, ifs: &[(u32, u64, u64)]) -> Output {
         let _ = std::fs::remove_dir_all(self.root.join("here"));
         self.shard("here", MAC, ifs, 3);
+        self.gate("here/coverage-shard-aarch64-apple-darwin-1")
+    }
+
+    /// `--against-ci` with this host's shard and an aarch64 Linux one.
+    fn against_ci_with_linux(&self, mac: &[(u32, u64, u64)], linux: &[(u32, u64, u64)]) -> Output {
+        let _ = std::fs::remove_dir_all(self.root.join("here"));
+        self.shard("here", MAC, mac, 3);
+        self.shard("here", ARM, linux, 3);
+        self.gate("here")
+    }
+
+    /// Rewrites `link.rs`'s line `line <at>` as `text`.
+    fn change_line(&self, at: u32, text: &str) {
+        let path = self.root.join(LINK);
+        let source = std::fs::read_to_string(&path).unwrap();
+        let changed = source.replace(&format!("line {at}\n"), &format!("{text}\n"));
+        std::fs::write(path, changed).unwrap();
+    }
+
+    fn gate(&self, shards: &str) -> Output {
         let path = format!(
             "{}:{}",
             self.root.join("bin").display(),
             std::env::var("PATH").unwrap()
         );
         Command::new(env!("CARGO_BIN_EXE_buri-compiler-coverage"))
-            .arg(format!(
-                "--against-ci={}",
-                self.root
-                    .join("here/coverage-shard-aarch64-apple-darwin-1")
-                    .display()
-            ))
+            .arg(format!("--against-ci={}", self.root.join(shards).display()))
             .env("PATH", path)
             .current_dir(&self.root)
             .output()
@@ -192,4 +209,73 @@ fn the_newest_run_whose_coverage_passed_is_the_one_taken() {
         "{}",
         text(&out)
     );
+}
+
+#[test]
+fn a_changed_side_no_test_here_takes_waits_for_a_linux_shard() {
+    let repo = Repo::new("changed-side");
+    repo.change_line(5, "line 5, changed");
+    let out = repo.against_ci(&[(3, 0, 1), (5, 1, 0)]);
+    assert_eq!(out.status.code(), Some(3), "{}", text(&out));
+    assert!(
+        text(&out).contains(
+            "and gate both with `--against-ci=<dir> --run=7`:\n  \
+             cli/src/build/link.rs:5, column 4: no test here takes the false side\n"
+        ),
+        "{}",
+        text(&out)
+    );
+    // Linux takes it, so it counts; Linux doesn't either, so it's untaken.
+    let out = repo.against_ci_with_linux(&[(3, 0, 1), (5, 1, 0)], &[(3, 1, 0), (5, 0, 1)]);
+    assert!(out.status.success(), "{}", text(&out));
+    let out = repo.against_ci_with_linux(&[(3, 0, 1), (5, 1, 0)], &[(3, 1, 0), (5, 1, 0)]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out));
+    assert!(
+        text(&out).contains("Branch coverage fell"),
+        "{}",
+        text(&out)
+    );
+}
+
+#[test]
+fn a_line_built_on_linux_alone_waits_for_a_linux_shard() {
+    let repo = Repo::new("linux-only");
+    let path = repo.root.join(LINK);
+    let source = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(
+        &path,
+        format!("{source}#[cfg(target_os = \"linux\")]\nfn only_linux() {{}}\n"),
+    )
+    .unwrap();
+    // This host doesn't build lines 11 and 12, so alone it would pass.
+    let out = repo.against_ci(&[(3, 0, 1), (5, 0, 0)]);
+    assert_eq!(out.status.code(), Some(3), "{}", text(&out));
+    assert!(
+        text(&out).contains(
+            ":\n  cli/src/build/link.rs:11, built on no platform here\
+             \n  cli/src/build/link.rs:12, built on no platform here\n"
+        ),
+        "{}",
+        text(&out)
+    );
+    let linux = [(3, 1, 0), (5, 1, 1), (12, 1, 0)];
+    let out = repo.against_ci_with_linux(&[(3, 0, 1), (5, 0, 0)], &linux);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out));
+    assert!(
+        text(&out).contains("(4/4) in the baseline, 83.33% (5/6) now"),
+        "{}",
+        text(&out)
+    );
+    let linux = [(3, 1, 0), (5, 1, 1), (12, 1, 1)];
+    let out = repo.against_ci_with_linux(&[(3, 0, 1), (5, 0, 0)], &linux);
+    assert!(out.status.success(), "{}", text(&out));
+}
+
+#[test]
+fn a_change_this_host_measures_needs_no_linux_shard() {
+    let repo = Repo::new("measured-here");
+    repo.change_line(5, "line 5, changed");
+    let out = repo.against_ci(&[(3, 0, 1), (5, 1, 1)]);
+    assert!(out.status.success(), "{}", text(&out));
+    assert!(!text(&out).contains("Linux alone"), "{}", text(&out));
 }

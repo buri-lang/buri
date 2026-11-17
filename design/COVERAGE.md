@@ -285,6 +285,24 @@ It lists the sides no test takes that the green run took, then the untaken
 sides in changed lines, which the old shards can't vouch for, and says
 whether those alone make coverage fall.
 
+A changed line may run on Linux alone. Then a macOS shard can't judge it, so
+`--against-ci` exits 3 and names it:
+
+- a branch side in a changed line that no test here takes;
+- a changed line of code no shard here built, in a file none built or one
+  with a `target_os`, `target_env` or `target_vendor` cfg.
+
+Measure an aarch64 Linux shard, put both in one directory and gate them
+together. With a Linux shard there, its changed lines count, and its
+unchanged ones are held to CI's arm64 Linux runner as this host's are:
+
+```sh
+cargo run -p buri-compiler-coverage -- --against-ci=<dir> --run=<id>  # <dir>/mac, <dir>/linux
+```
+
+The Linux shard has to run where CI's does, or unchanged lines fall: a fresh
+`~/.buri`, CI's apt tools and `CC=/usr/bin/clang`.
+
 `coverage/compiler` measures the compiler's own branch coverage, counted from
 `buri`'s end-to-end tests only; `cli/tests/README.md` has the rules. Some
 branches only run on one platform, such as the Mach-O writer, arm64 code

@@ -9,22 +9,37 @@
 //! A side this host takes in an unchanged line that CI's runner for this
 //! host didn't take counts as untaken: that's most likely a difference between
 //! the two machines.
+//!
+//! Without a Linux shard among this host's, a changed line that may run on
+//! Linux alone leaves the verdict to one: see [`Changes::unvouched`].
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::{check, compare, merge, output, run, shards, Baseline, Gate, Measured, Record, Side};
+use crate::{
+    check, compare, counted, merge, output, run, shards, Baseline, Gate, Measured, Record, Side,
+};
+
+/// What the gate made of this host's shards.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    Passed,
+    Failed,
+    /// Changed lines may run on Linux alone and no shard here is Linux's, so
+    /// only an aarch64 Linux shard gated beside these can decide.
+    NeedsLinux,
+}
 
 /// Runs the gate, then names the branch sides no test takes any more.
-/// `measured` is this host's shard, if it was already measured, and `run_id`
-/// the CI run to take the others from. Whether it passed.
+/// `measured` is this host's shards, if they were already measured, and
+/// `run_id` the CI run to take the others from.
 pub(crate) fn against_ci(
     root: &Path,
     release: bool,
     measured: Option<&str>,
     run_id: Option<&str>,
-) -> bool {
+) -> Verdict {
     let (id, commit) = green_run(root, run_id);
     println!("against CI run {id}, of {commit}");
     let downloaded = download(root, &id);
@@ -133,7 +148,28 @@ pub(crate) fn against_ci(
             );
         }
     }
-    passed
+    if !here.keys().any(|host| host.contains("-linux")) {
+        let unvouched = changes.unvouched(root, &here);
+        if !unvouched.is_empty() {
+            println!(
+                "\nThese {} changed line(s) may run on Linux alone, and no shard here is Linux's, \
+                 so this verdict can't stand. Measure an aarch64 Linux shard (`--shard=1/1` \
+                 there), put it beside this host's in one directory, and gate both with \
+                 `--against-ci=<dir> --run={id}`:{}",
+                unvouched.len(),
+                unvouched
+                    .iter()
+                    .map(|(path, line, why)| format!("\n  {path}:{line}, {why}"))
+                    .collect::<String>()
+            );
+            return Verdict::NeedsLinux;
+        }
+    }
+    if passed {
+        Verdict::Passed
+    } else {
+        Verdict::Failed
+    }
 }
 
 fn git(root: &Path) -> Command {
@@ -350,6 +386,60 @@ impl Changes {
                 (host.clone(), Measured { files })
             })
             .collect()
+    }
+
+    /// The changed lines `here` can't vouch for and a Linux shard might, with
+    /// why: a branch side no shard here takes, and a line of code no shard
+    /// here built, in a file none built or one with a platform `cfg`. The
+    /// other platforms' shards measured the code before the change, so
+    /// without a Linux shard such a side counts as untaken, and a branch
+    /// built on Linux alone isn't counted at all.
+    fn unvouched(
+        &self,
+        root: &Path,
+        here: &BTreeMap<String, Measured>,
+    ) -> Vec<(String, u32, String)> {
+        let mut unvouched = BTreeSet::new();
+        for (path, hunks) in self.hunks.iter().filter(|(path, _)| counted(path)) {
+            let Ok(source) = std::fs::read_to_string(root.join(path)) else {
+                continue;
+            };
+            let records: Vec<&Record> = here.values().filter_map(|m| m.files.get(path)).collect();
+            let taken = |side: &Side| {
+                records
+                    .iter()
+                    .any(|r| r.branches.get(side).is_some_and(|&t| t > 0))
+            };
+            for side in records.iter().flat_map(|r| r.branches.keys()) {
+                if self.changed(path, side) && !taken(side) {
+                    let which = if side.3 == 0 { "true" } else { "false" };
+                    let why = format!("column {}: no test here takes the {which} side", side.1[1]);
+                    unvouched.insert((path.clone(), side.1[0], why));
+                }
+            }
+            let platform = records.is_empty()
+                || ["target_os", "target_env", "target_vendor"]
+                    .iter()
+                    .any(|key| source.contains(key));
+            if !platform {
+                continue;
+            }
+            let lines: Vec<&str> = source.lines().collect();
+            for &Hunk {
+                new: (new, count), ..
+            } in hunks
+            {
+                for line in new..new + count {
+                    let text = lines.get(line as usize - 1).map_or("", |l| l.trim());
+                    let code = !text.is_empty() && !text.starts_with("//");
+                    if code && !records.iter().any(|r| r.lines.contains_key(&line)) {
+                        let why = "built on no platform here".to_string();
+                        unvouched.insert((path.clone(), line, why));
+                    }
+                }
+            }
+        }
+        unvouched.into_iter().collect()
     }
 
     /// Why CI's shards from the platforms not `here` are stale for this

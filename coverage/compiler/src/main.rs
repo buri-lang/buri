@@ -9,7 +9,7 @@
 //! cargo run -p buri-compiler-coverage -- --merge=<dir>                           # CI: merge every platform's shards, gate
 //! cargo run -p buri-compiler-coverage -- --raise                                 # CI: the ratchet
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --against-ci  # this host's shard, gated with the others from CI's newest passing coverage
-//! cargo run -p buri-compiler-coverage -- --against-ci=<dir> --run=<id>           # of a shard already measured, against run <id>
+//! cargo run -p buri-compiler-coverage -- --against-ci=<dir> --run=<id>           # of shards already measured (with an aarch64 Linux one, if exit 3 asked), against run <id>
 //! ```
 //!
 //! Only `buri` processes count. `buri` is built with coverage on and the test
@@ -70,10 +70,15 @@ fn main() {
         return;
     }
     let against = args.iter().find(|a| a.starts_with("--against-ci"));
-    let passed = if let Some(against) = against {
+    if let Some(against) = against {
         let run = args.iter().find_map(|a| a.strip_prefix("--run="));
-        ci::against_ci(&root, release, against.strip_prefix("--against-ci="), run)
-    } else if let Some(dir) = args.iter().find_map(|a| a.strip_prefix("--merge=")) {
+        match ci::against_ci(&root, release, against.strip_prefix("--against-ci="), run) {
+            ci::Verdict::Passed => return,
+            ci::Verdict::Failed => std::process::exit(1),
+            ci::Verdict::NeedsLinux => std::process::exit(3),
+        }
+    }
+    let passed = if let Some(dir) = args.iter().find_map(|a| a.strip_prefix("--merge=")) {
         check(&root, &shards(Path::new(dir)), true)
     } else {
         let gate = Gate::new(root.clone(), release);
