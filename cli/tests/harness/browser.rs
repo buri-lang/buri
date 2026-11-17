@@ -39,9 +39,13 @@
 ///  * `placedAgainst(element)`, the box a browser places `element` against:
 ///    the nearest ancestor whose anchor name its `position-anchor` names, when
 ///    its `position-area` makes that the containing block, or `null`;
+///  * `containingBlock(element)`, the box a browser measures the out-of-flow
+///    box `element` from: its anchor under a `position-area`, else the
+///    nearest ancestor that is positioned, transformed or backdrop-filtered
+///    (only the last two for a fixed box), or `null` for the viewport;
 ///  * `placedAt(element)`, where a browser lays out an out-of-flow box,
-///    which happy-dom leaves out: its offset and size within the box it is
-///    placed against, by the inset, size and self-alignment it computes to;
+///    which happy-dom leaves out: its offset and size within its
+///    `containingBlock`, by the inset, size and self-alignment it computes to;
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
@@ -548,12 +552,30 @@ function boxes(container) {
   return out;
 }
 
+// The box a browser measures the out-of-flow box `element` from, its
+// containing block, by CSS Positioned Layout 3 and Anchor Positioning 1:
+// `placedAgainst(element)` under a `position-area` that finds an anchor, and
+// otherwise the nearest ancestor with a box that is positioned, transformed or
+// backdrop-filtered. A fixed box skips the positioned ones. `null` is the
+// viewport, which a box with none of these is measured from.
+function containingBlock(element) {
+  const against = placedAgainst(element);
+  if (against !== null) return against;
+  const fixed = getComputedStyle(element).position === "fixed";
+  for (let at = element.parentElement; at !== null && at !== document.documentElement; at = at.parentElement) {
+    if (display(at) === "contents") continue;
+    const s = getComputedStyle(at);
+    if (!unsetStyle(s.transform) || !unsetStyle(s.translate) || !unsetStyle(s.backdropFilter)) return at;
+    if (!fixed && !unsetStyle(s.position) && s.position !== "static") return at;
+  }
+  return null;
+}
+
 // Where a browser lays out the out-of-flow box `element`, which happy-dom lays
-// out none of: `{ x, y, width, height }` from the top left of the box it is
-// placed against, by CSS Positioned Layout 3 and Anchor Positioning 1.
+// out none of: `{ x, y, width, height }` from the top left of its
+// `containingBlock`, by CSS Positioned Layout 3 and Anchor Positioning 1.
 //
-// That box is `placedAgainst(element)` under a `position-area`, and the
-// parent otherwise. A `position-area` turns every auto inset into 0, and its
+// A `position-area` that finds an anchor turns every auto inset into 0, and its
 // `center` area makes `normal` self-alignment centre the box: Chromium 143
 // did so even with one inset auto (#360). The current draft aligns towards
 // that inset instead, which no browser this was checked against does yet.
@@ -566,13 +588,14 @@ function boxes(container) {
 // stretches. Left to right and top to bottom only.
 function placedAt(element) {
   const s = getComputedStyle(element);
-  const area = !unsetStyle(s.positionArea) && !unsetStyle(s.positionAnchor);
-  const against = area ? placedAgainst(element) : element.parentElement;
-  if (against === null) throw new Error("placedAt: the box is placed against nothing");
-  const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, s.justifySelf, sizeOf(against, "width"), area);
-  const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, s.alignSelf, sizeOf(against, "height"), area);
+  const area = placedAgainst(element) !== null;
+  const against = containingBlock(element);
+  const room = (dimension) => (against === null ? viewport(dimension) : sizeOf(against, dimension));
+  const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, s.justifySelf, room("width"), area);
+  const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, s.alignSelf, room("height"), area);
   return { x, y, width, height };
 }
+const viewport = (dimension) => (dimension === "width" ? window.innerWidth : window.innerHeight);
 // The start and the size of `element` along one axis, inside `room` pixels.
 function placedAlong(element, dimension, start, end, align, room, area) {
   const from = lengthIn(start, () => room);
@@ -592,7 +615,7 @@ function placedAlong(element, dimension, start, end, align, room, area) {
   else if (over > 0) e -= over;
   const inside = room - s - e;
   const stretches = self === "stretch" || (self === "normal" && !area && from !== null && to !== null);
-  if (size === null) size = stretches ? inside : sizeOf(element, dimension);
+  if (size === null) size = stretches ? inside : flowSize(element, dimension);
   if (self === "stretch") self = "start";
   if (self === "normal") self = area ? "center" : "start";
   if (!area && from === null) return [room - e - size, size];
@@ -609,19 +632,28 @@ function lengthIn(value, room) {
   if (value === "0" || value.endsWith("px")) return Number.parseFloat(value);
   throw new Error(`placedAt: the length ${value}`);
 }
-// The `dimension` of `element`'s box: its own, or else a column's width, or
-// the heights of its children in the flow added up.
+// The `dimension` of `element`'s box: where `placedAt` lays it out when it
+// is out of the flow, else its own, else what it takes from the flow.
 function sizeOf(element, dimension) {
-  if (element.parentElement === null) return dimension === "width" ? window.innerWidth : window.innerHeight;
+  if (element.parentElement === null) return viewport(dimension);
   const s = getComputedStyle(element);
+  if (["absolute", "fixed"].includes(s.position)) return placedAt(element)[dimension];
   const own = lengthIn(s[dimension], () => sizeOf(element.parentElement, dimension));
   if (own !== null) return own;
+  return flowSize(element, dimension);
+}
+// The `dimension` a box with none of its own takes from the flow: a column's
+// width, or the heights of its children in the flow added up, or the tallest
+// of them in a table row, whose entries sit side by side.
+function flowSize(element, dimension) {
   if (dimension === "width") return sizeOf(element.parentElement, "width");
+  const row = display(element) === "table-row";
   let total = 0;
   for (const child of element.children) {
     const c = getComputedStyle(child);
     if (["absolute", "fixed"].includes(c.position) || c.display === "none") continue;
-    total += sizeOf(child, "height");
+    const height = sizeOf(child, "height");
+    total = row ? Math.max(total, height) : total + height;
   }
   return total;
 }

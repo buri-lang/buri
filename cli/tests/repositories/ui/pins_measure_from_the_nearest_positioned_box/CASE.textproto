@@ -1,0 +1,43 @@
+# A pinned box is measured from the nearest ancestor with a `Position`, or
+# from the page, not from its parent. Each scene pins a red box by an edge in
+# each axis, by both edges in each axis, or by percentage sizes, inside a
+# positioned parent, a positioned grandparent, no positioned ancestor, a
+# table entry, a table row with and without a position, a table and a dialog.
+# Each shares its golden with a twin that pins the box in the box it is
+# measured from, or holds it to the viewport where that is the page. The
+# pages built from these snapshots check where a browser puts each.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a pinned box is measured from the nearest ancestor with a position, or from the page, each scene beside a twin pinned in that box"
+
+run {
+  args: ["test", "//lib/pins", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/pins/test/__snapshots__/parent-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/parent-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/parent-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/grandparent-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/grandparent-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/grandparent-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/none-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/none-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/none-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/entry-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/entry-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/entry-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/row-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/row-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/row-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/flow-row-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/flow-row-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/flow-row-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/table-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/table-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/table-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/dialog-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/dialog-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/dialog-sizes.diff.png"  exists: false }

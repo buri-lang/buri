@@ -661,6 +661,14 @@ fn serving_a_page() {
 /// by every combination of pins, and a tooltip's bubble (#360), each scene
 /// beside a twin pinned the plain way. The test of the same name checks where
 /// happy-dom's computed styles put each.
+///
+/// `pins_measure_from_the_nearest_positioned_box` is a box pinned by an edge
+/// in each axis, both edges, or percentage sizes, inside a positioned parent,
+/// a positioned grandparent, nothing positioned, a table entry, a table row
+/// with and without a `Position`, a table and a dialog. Each scene shares a
+/// golden with a twin pinned in the box it is measured from.
+/// `pins_measure_from_the_nearest_positioned_box_in_a_browser` checks each in
+/// happy-dom.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 68);
@@ -788,6 +796,48 @@ fn pinned_panels_sit_where_their_pins_put_them() {
         ("late", "240,-80 160x80"),
         ("tooltip", "0,32 160x80"),
         ("tooltip-moved", "0,40 160x80"),
+    ];
+    let placed: Vec<(String, String)> = expected
+        .iter()
+        .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
+        .collect();
+    assert_eq!(crate::harness::web_pages::places(&case), placed);
+}
+
+/// Where a browser lays out `pins_measure_from_the_nearest_positioned_box`'s
+/// red boxes, read off happy-dom by CSS's rules for placing a box out of the
+/// flow. Each scene and its twin come out at the same place in the box they
+/// are measured from, the place the shared golden shows: the nearest ancestor
+/// with a `Position`, or the viewport when there is none, and a table row only
+/// when the row has a `Position`.
+#[test]
+fn pins_measure_from_the_nearest_positioned_box_in_a_browser() {
+    let case = tests_dir().join("repositories/ui/pins_measure_from_the_nearest_positioned_box");
+    let expected: &[(&str, &str)] = &[
+        ("parent-edges", "20,10 30x40"),
+        ("parent-both", "30,10 30x20"),
+        ("parent-sizes", "0,0 50x12.5"),
+        ("grandparent-edges", "20,10 30x40"),
+        ("grandparent-both", "30,10 130x70"),
+        ("grandparent-sizes", "0,0 100x25"),
+        ("none-edges", "20,10 30x40"),
+        ("none-both", "30,10 954x738"),
+        ("none-sizes", "0,0 512x192"),
+        ("entry-edges", "20,10 30x40"),
+        ("entry-both", "30,10 130x70"),
+        ("entry-sizes", "0,0 100x25"),
+        ("row-edges", "20,10 30x40"),
+        ("row-both", "30,10 130x70"),
+        ("row-sizes", "0,0 100x25"),
+        ("flow-row-edges", "20,10 30x40"),
+        ("flow-row-both", "30,10 114x30"),
+        ("flow-row-sizes", "0,0 92x15"),
+        ("table-edges", "20,10 30x40"),
+        ("table-both", "30,10 130x70"),
+        ("table-sizes", "0,0 100x25"),
+        ("dialog-edges", "20,10 30x40"),
+        ("dialog-both", "30,10 954x738"),
+        ("dialog-sizes", "0,0 512x192"),
     ];
     let placed: Vec<(String, String)> = expected
         .iter()

@@ -1,0 +1,892 @@
+// A box pinned with no `Position` of its own is measured from the nearest
+// ancestor with a `Position`, or from the page, as the docs say and a browser
+// does: not from its parent. Each scene pins a red box one way inside one
+// ancestor setup, and shares its golden with a twin that pins the same box
+// in the box it is measured from, or holds it to the viewport where that is
+// the page.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+// The outermost box, 200 by 100 with 8 of padding, with a `Position` when
+// `positioned`.
+fn grand<C>(positioned: Bool, children: [Node<C>]): Node<C> {
+    if (positioned) {
+        ui.stack({
+            styles: [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(8)),
+                .Background(.Rgb(230, 230, 230)),
+            ],
+            children: children,
+        })
+    } else {
+        ui.stack({
+            styles: [
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(8)),
+                .Background(.Rgb(230, 230, 230)),
+            ],
+            children: children,
+        })
+    }
+}
+
+// A box 100 by 50 inside the outermost one, with a `Position` when
+// `positioned`.
+fn parent<C>(positioned: Bool, children: [Node<C>]): Node<C> {
+    if (positioned) {
+        ui.stack({
+            styles: [
+                .Position(.Flow),
+                .Width(.Px(100)),
+                .Height(.Px(50)),
+                .Background(.Rgb(200, 200, 200)),
+            ],
+            children: children,
+        })
+    } else {
+        ui.stack({
+            styles: [
+                .Width(.Px(100)),
+                .Height(.Px(50)),
+                .Background(.Rgb(200, 200, 200)),
+            ],
+            children: children,
+        })
+    }
+}
+
+// A transparent box pinned over `width` by `height` at `start`, `top`, for a
+// twin to measure from.
+fn over<C>(
+    start: Int,
+    top: Int,
+    width: Int,
+    height: Int,
+    children: [Node<C>],
+): Node<C> {
+    ui.stack({
+        styles: [
+            .Pin(.Top, .Px(top)),
+            .Pin(.Start, .Px(start)),
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+        ],
+        children: children,
+    })
+}
+
+fn table<C>(styles: [Style], rows: [Node<C>]): Node<C> {
+    ui.stack({ role: .Some(.Table), styles: styles, children: rows })
+}
+
+fn row<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ role: .Some(.TableRow), styles: styles, children: children })
+}
+
+fn entry<C>(children: [Node<C>]): Node<C> {
+    ui.stack({
+        role: .Some(.Cell),
+        styles: [.Width(.Px(60)), .Height(.Px(20)), .Background(.Rgb(200, 200, 255))],
+        children: children,
+    })
+}
+
+// A table entry 60 tall, for a row tall enough to pin a box inside.
+fn tall<C>(): Node<C> {
+    ui.stack({
+        role: .Some(.Cell),
+        styles: [.Width(.Px(60)), .Height(.Px(60)), .Background(.Rgb(200, 200, 255))],
+        children: [],
+    })
+}
+
+fn empty<C>(): Node<C> {
+    ui.stack({ styles: [], children: [] })
+}
+
+// A page whose flow is a box 200 by 100, with `last` after it.
+fn page<C>(last: Node<C>): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.stack({ styles: [.Width(.Px(200)), .Height(.Px(100))], children: [] }),
+            last,
+        ],
+    })
+}
+
+fn dialog<C: Ui>(ctx: C, children: [Node<C>]): Node<C> {
+    ui.dialog({
+        isOpen: signal(ctx, true),
+        label: .Const("Pins"),
+        children: children,
+        styles: [
+            .Width(.Px(200)),
+            .Height(.Px(100)),
+            .Padding(.Px(8)),
+            .Background(.Rgb(255, 255, 255)),
+        ],
+    })
+}
+
+fn edges<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Pin(.Top, .Px(10)),
+            .Pin(.Start, .Px(20)),
+            .Width(.Px(30)),
+            .Height(.Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn edgesHeld<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Position(.PinViewport),
+            .Pin(.Top, .Px(10)),
+            .Pin(.Start, .Px(20)),
+            .Width(.Px(30)),
+            .Height(.Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn both<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Pin(.Top, .Px(10)),
+            .Pin(.Bottom, .Px(20)),
+            .Pin(.Start, .Px(30)),
+            .Pin(.End, .Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn bothHeld<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Position(.PinViewport),
+            .Pin(.Top, .Px(10)),
+            .Pin(.Bottom, .Px(20)),
+            .Pin(.Start, .Px(30)),
+            .Pin(.End, .Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn sizes<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Percent(50.0)),
+            .Height(.Percent(25.0)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn sizesHeld<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Position(.PinViewport),
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Percent(50.0)),
+            .Height(.Percent(25.0)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+test "parent-edges: an edge in each axis measure from its positioned parent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "parent-edges", grand(true, [parent(true, [edges()])]), .Hover, []);
+}
+
+test "parent-edges: an edge in each axis measure from a box pinned over the parent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "parent-edges",
+        grand(true, [parent(true, []), over(8, 8, 100, 50, [edges()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "parent-both: both edges in each axis measure from its positioned parent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "parent-both", grand(true, [parent(true, [both()])]), .Hover, []);
+}
+
+test "parent-both: both edges in each axis measure from a box pinned over the parent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "parent-both",
+        grand(true, [parent(true, []), over(8, 8, 100, 50, [both()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "parent-sizes: sizes that are percentages measure from its positioned parent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "parent-sizes", grand(true, [parent(true, [sizes()])]), .Hover, []);
+}
+
+test "parent-sizes: sizes that are percentages measure from a box pinned over the parent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "parent-sizes",
+        grand(true, [parent(true, []), over(8, 8, 100, 50, [sizes()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-edges: an edge in each axis measure from its positioned grandparent past a parent with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-edges",
+        grand(true, [parent(false, [edges()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-edges: an edge in each axis measure from the grandparent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-edges",
+        grand(true, [parent(false, []), edges()]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-both: both edges in each axis measure from its positioned grandparent past a parent with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-both",
+        grand(true, [parent(false, [both()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-both: both edges in each axis measure from the grandparent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-both",
+        grand(true, [parent(false, []), both()]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-sizes: sizes that are percentages measure from its positioned grandparent past a parent with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-sizes",
+        grand(true, [parent(false, [sizes()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "grandparent-sizes: sizes that are percentages measure from the grandparent, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grandparent-sizes",
+        grand(true, [parent(false, []), sizes()]),
+        .Hover,
+        [],
+    );
+}
+
+test "none-edges: an edge in each axis measure from the page when no ancestor has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "none-edges", grand(false, [parent(false, [edges()])]), .Hover, []);
+}
+
+test "none-edges: an edge in each axis measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "none-edges",
+        grand(false, [parent(false, []), edgesHeld()]),
+        .Hover,
+        [],
+    );
+}
+
+test "none-both: both edges in each axis measure from the page when no ancestor has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "none-both", grand(false, [parent(false, [both()])]), .Hover, []);
+}
+
+test "none-both: both edges in each axis measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "none-both",
+        grand(false, [parent(false, []), bothHeld()]),
+        .Hover,
+        [],
+    );
+}
+
+test "none-sizes: sizes that are percentages measure from the page when no ancestor has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "none-sizes", grand(false, [parent(false, [sizes()])]), .Hover, []);
+}
+
+test "none-sizes: sizes that are percentages measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "none-sizes",
+        grand(false, [parent(false, []), sizesHeld()]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-edges: an edge in each axis measure from the box around the table when its table entry, row and table have no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-edges",
+        grand(true, [table([], [row([], [entry([edges()]), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-edges: an edge in each axis measure from the box around the table, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-edges",
+        grand(true, [table([], [row([], [entry([]), entry([])])]), edges()]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-both: both edges in each axis measure from the box around the table when its table entry, row and table have no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-both",
+        grand(true, [table([], [row([], [entry([both()]), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-both: both edges in each axis measure from the box around the table, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-both",
+        grand(true, [table([], [row([], [entry([]), entry([])])]), both()]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-sizes: sizes that are percentages measure from the box around the table when its table entry, row and table have no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-sizes",
+        grand(true, [table([], [row([], [entry([sizes()]), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "entry-sizes: sizes that are percentages measure from the box around the table, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "entry-sizes",
+        grand(true, [table([], [row([], [entry([]), entry([])])]), sizes()]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-edges: an edge in each axis measure from the box around the table when its row has no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-edges",
+        grand(true, [table([], [row([], [entry([]), edges(), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-edges: an edge in each axis measure from the box around the table, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-edges",
+        grand(true, [table([], [row([], [entry([]), empty(), entry([])])]), edges()]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-both: both edges in each axis measure from the box around the table when its row has no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-both",
+        grand(true, [table([], [row([], [entry([]), both(), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-both: both edges in each axis measure from the box around the table, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-both",
+        grand(true, [table([], [row([], [entry([]), empty(), entry([])])]), both()]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-sizes: sizes that are percentages measure from the box around the table when its row has no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-sizes",
+        grand(true, [table([], [row([], [entry([]), sizes(), entry([])])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "row-sizes: sizes that are percentages measure from the box around the table, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "row-sizes",
+        grand(true, [table([], [row([], [entry([]), empty(), entry([])])]), sizes()]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-edges: an edge in each axis measure from its row when the row has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-edges",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), edges(), tall()]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-edges: an edge in each axis measure from a box pinned over the row, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-edges",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), empty(), tall()]),
+            ]),
+            over(8, 8, 184, 60, [edges()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-both: both edges in each axis measure from its row when the row has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-both",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), both(), tall()]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-both: both edges in each axis measure from a box pinned over the row, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-both",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), empty(), tall()]),
+            ]),
+            over(8, 8, 184, 60, [both()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-sizes: sizes that are percentages measure from its row when the row has a position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-sizes",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), sizes(), tall()]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "flow-row-sizes: sizes that are percentages measure from a box pinned over the row, beside an empty column, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "flow-row-sizes",
+        grand(true, [
+            table([.Width(.Px(184))], [
+                row([.Position(.Flow)], [tall(), empty(), tall()]),
+            ]),
+            over(8, 8, 184, 60, [sizes()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-edges: an edge in each axis measure from the box around the table when it is written straight into a table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-edges",
+        grand(true, [table([], [row([], [entry([]), entry([])]), edges()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-edges: an edge in each axis measure from the box around the table, beside an empty row, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-edges",
+        grand(true, [
+            table([], [row([], [entry([]), entry([])]), row([], [empty()])]),
+            edges(),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-both: both edges in each axis measure from the box around the table when it is written straight into a table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-both",
+        grand(true, [table([], [row([], [entry([]), entry([])]), both()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-both: both edges in each axis measure from the box around the table, beside an empty row, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-both",
+        grand(true, [
+            table([], [row([], [entry([]), entry([])]), row([], [empty()])]),
+            both(),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-sizes: sizes that are percentages measure from the box around the table when it is written straight into a table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-sizes",
+        grand(true, [table([], [row([], [entry([]), entry([])]), sizes()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "table-sizes: sizes that are percentages measure from the box around the table, beside an empty row, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "table-sizes",
+        grand(true, [
+            table([], [row([], [entry([]), entry([])]), row([], [empty()])]),
+            sizes(),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-edges: an edge in each axis measure from the dialog's scrim past a panel and a box with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-edges",
+        page(dialog(ctx, [parent(false, [edges()])])),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-edges: an edge in each axis measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-edges",
+        page(dialog(ctx, [parent(false, []), edgesHeld()])),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-both: both edges in each axis measure from the dialog's scrim past a panel and a box with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-both",
+        page(dialog(ctx, [parent(false, [both()])])),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-both: both edges in each axis measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-both",
+        page(dialog(ctx, [parent(false, []), bothHeld()])),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-sizes: sizes that are percentages measure from the dialog's scrim past a panel and a box with no position" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-sizes",
+        page(dialog(ctx, [parent(false, [sizes()])])),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-sizes: sizes that are percentages measure from the viewport, the twin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-sizes",
+        page(dialog(ctx, [parent(false, []), sizesHeld()])),
+        .Hover,
+        [],
+    );
+}

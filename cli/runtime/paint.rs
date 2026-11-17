@@ -3376,6 +3376,15 @@ fn paint_with(
             break;
         }
     }
+    // Each pinned box measured from a box other than its parent, placed there
+    // before the page's height is read off the flow, so a pin that hangs below
+    // the flow still makes the page taller.
+    let pins = repinned(scene, styles);
+    let open = (across_page, AvailableSpace::MaxContent);
+    if !pins.is_empty() {
+        lay_out(&mut tree, root, scene, styles, fonts, open.0, open.1)?;
+        lay_out_pins(&mut tree, root, scene, styles, fonts, &ids, &pins, open)?;
+    }
 
     // **How tall the page is.** A scene that states a height is painted at
     // exactly that one. One that says `fit` takes the flow's own painted
@@ -3428,6 +3437,10 @@ fn paint_with(
         across_page,
         AvailableSpace::Definite(down),
     )?;
+    // Measured again against the page that settled, and inside the fixed
+    // boxes now laid out on it.
+    let settled = (across_page, AvailableSpace::Definite(down));
+    lay_out_pins(&mut tree, root, scene, styles, fonts, &ids, &pins, settled)?;
 
     // The canvas is the page, plus wherever the paint ran past it: a dock
     // pinned wider than the page, a bleed, a translate off the edge. Nothing a
@@ -3929,6 +3942,194 @@ fn build_table(
         squeezed: None,
     });
     Ok(id)
+}
+
+/// A pinned box measured from a box other than the one it was written in.
+///
+/// A browser measures a `position: absolute` box from its containing block:
+/// the nearest ancestor that is positioned, transformed or backdrop-filtered,
+/// or the page when none is (CSS Positioned Layout 3). `taffy` measures one
+/// from its parent, so [`settle_pins`] restates each such box's insets and
+/// percentage sizes from its parent's box, which leaves it where a browser
+/// puts it. An axis with no inset keeps the place the flow gives it, which is
+/// a browser's static position too.
+struct Repinned {
+    index: usize,
+    /// The scene node it was written in.
+    parent: usize,
+    /// What it is measured from, or `None` for the page.
+    against: Option<usize>,
+}
+
+/// Every pinned box in `scene` whose containing block is not the box it was
+/// written in, in tree order. A box placed against an anchor and a box held to
+/// the viewport are placed elsewhere ([`Painter::paint`], [`build`]), and a
+/// root's parent is the page already.
+fn repinned(scene: &Scene, styles: &[Computed]) -> Vec<Repinned> {
+    let mut out = Vec::new();
+    let mut stack: Vec<(usize, Option<usize>)> =
+        scene.roots.iter().rev().map(|&root| (root, None)).collect();
+    while let Some((index, outer)) = stack.pop() {
+        let (Some(node), Some(style)) = (scene.node(index), styles.get(index)) else {
+            continue;
+        };
+        let contains = style.positioned() || style.translate.is_some() || style.backdrop_blur > 0.0;
+        let inner = if contains { Some(index) } else { outer };
+        for &child in node.children.iter().rev() {
+            let Some(kid) = styles.get(child) else {
+                continue;
+            };
+            if kid.absolute && !kid.fixed && !kid.escape && inner != Some(index) {
+                out.push(Repinned {
+                    index: child,
+                    parent: index,
+                    against: inner,
+                });
+            }
+            // An item of a marked list is positioned too: the sheet makes it
+            // the box its mark hangs from.
+            let item =
+                style.marker != Marker::None && scene.node(child).is_some_and(|c| c.text.is_none());
+            stack.push((child, if item { Some(child) } else { inner }));
+        }
+    }
+    out.sort_by_key(|pin| pin.index);
+    out
+}
+
+/// Where `id`'s border box sits on the page, as `[x, y, width, height]`, or
+/// `None` while it hangs off nothing: a fixed box before the page holds it.
+fn page_box(tree: &TaffyTree<usize>, root: NodeId, id: NodeId) -> Option<[f32; 4]> {
+    let own = tree.layout(id).ok()?;
+    let (mut x, mut y) = (own.location.x, own.location.y);
+    let mut at = id;
+    while at != root {
+        at = tree.parent(at)?;
+        let layout = tree.layout(at).ok()?;
+        x += layout.location.x;
+        y += layout.location.y;
+    }
+    Some([x, y, own.size.width, own.size.height])
+}
+
+/// `id`'s padding box on the page, which is what a pinned box inside it is
+/// measured from.
+fn padding_box(tree: &TaffyTree<usize>, root: NodeId, id: NodeId) -> Option<[f32; 4]> {
+    let [x, y, w, h] = page_box(tree, root, id)?;
+    let b = tree.layout(id).ok()?.border;
+    Some([
+        x + b.left,
+        y + b.top,
+        w - b.left - b.right,
+        h - b.top - b.bottom,
+    ])
+}
+
+/// Restates each of `pins`' insets and percentage sizes from the box `taffy`
+/// measures it from, so that it lands where its containing block puts it.
+/// `page` is the page's width and height. Answers whether any style changed,
+/// so the caller lays the tree out again.
+///
+/// Inside a table row, `taffy` measures a pinned box from the row's grid area,
+/// which is the row's box; anywhere else from its parent's padding box.
+fn settle_pins(
+    tree: &mut TaffyTree<usize>,
+    root: NodeId,
+    ids: &[Option<NodeId>],
+    styles: &[Computed],
+    pins: &[Repinned],
+    page: (f32, f32),
+) -> Result<bool, String> {
+    let fail = |e: taffy::TaffyError| format!("layout: {e}");
+    let mut changed = false;
+    for pin in pins {
+        let (Some(&Some(id)), Some(&Some(parent)), Some(style)) = (
+            ids.get(pin.index),
+            ids.get(pin.parent),
+            styles.get(pin.index),
+        ) else {
+            continue;
+        };
+        let frame = if tree.parent(id) == Some(parent) {
+            padding_box(tree, root, parent)
+        } else {
+            page_box(tree, root, parent)
+        };
+        let against = match pin.against {
+            None => Some([0.0, 0.0, page.0, page.1]),
+            Some(index) => ids
+                .get(index)
+                .copied()
+                .flatten()
+                .and_then(|id| padding_box(tree, root, id)),
+        };
+        let (Some(frame), Some(cb)) = (frame, against) else {
+            continue;
+        };
+        // How far the frame's edges sit inside the containing block's.
+        let before = [frame[0] - cb[0], frame[1] - cb[1]];
+        let after = [
+            cb[0] + cb[2] - frame[0] - frame[2],
+            cb[1] + cb[3] - frame[1] - frame[3],
+        ];
+        let edge = |len: Len, basis: f32, inside: f32| match len {
+            Len::Auto => LengthPercentageAuto::auto(),
+            len => LengthPercentageAuto::length(resolve_length(len, basis) - inside),
+        };
+        let length = |len: Len, basis: f32| match len {
+            Len::Percent(_) => Len::Px(resolve_length(len, basis)),
+            len => len,
+        };
+        let mut own = tree.style(id).map_err(fail)?.clone();
+        own.inset = Rect {
+            left: edge(style.inset[0], cb[2], before[0]),
+            right: edge(style.inset[1], cb[2], after[0]),
+            top: edge(style.inset[2], cb[3], before[1]),
+            bottom: edge(style.inset[3], cb[3], after[1]),
+        };
+        own.size = Size {
+            width: dimension(length(style.size[0], cb[2])),
+            height: dimension(length(style.size[1], cb[3])),
+        };
+        own.min_size = Size {
+            width: dimension_auto(length(style.min[0], cb[2])),
+            height: dimension_auto(length(style.min[1], cb[3])),
+        };
+        own.max_size = Size {
+            width: dimension_auto(length(style.max[0], cb[2])),
+            height: dimension_auto(length(style.max[1], cb[3])),
+        };
+        if *tree.style(id).map_err(fail)? != own {
+            tree.set_style(id, own).map_err(fail)?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+/// Lays `root` out until no pin in `pins` moves, as [`settle_pins`] says.
+/// A pin measured from a box that is itself repinned can move once more after
+/// that box does, so this runs once per pin at most.
+#[expect(clippy::too_many_arguments, reason = "one layout's inputs")]
+fn lay_out_pins(
+    tree: &mut TaffyTree<usize>,
+    root: NodeId,
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut Fonts,
+    ids: &[Option<NodeId>],
+    pins: &[Repinned],
+    room: (AvailableSpace, AvailableSpace),
+) -> Result<(), String> {
+    for _ in 0..pins.len() {
+        let height = tree.layout(root).map_or(0.0, |l| l.size.height);
+        let across = scene.width as f32;
+        if !settle_pins(tree, root, ids, styles, pins, (across, height))? {
+            break;
+        }
+        lay_out(tree, root, scene, styles, fonts, room.0, room.1)?;
+    }
+    Ok(())
 }
 
 fn line_at(index: i16) -> GridPlacement<String> {
