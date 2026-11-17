@@ -400,6 +400,10 @@ mod checksum_costs;
 // long sorts, on JavaScript and every backend built in, under the heap check.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod at_scale;
+// A Linux link hands mold only the archive members its program can need,
+// counted, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod archive_members;
 // A crash's core dump holds what the program used, not the 32 GiB its heap
 // reserved. Linux only: macOS writes no cores unless asked.
 #[cfg(all(

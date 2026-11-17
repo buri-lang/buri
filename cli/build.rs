@@ -248,6 +248,7 @@
               `Session::emit` here to route it through."
 )]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -265,6 +266,14 @@ use std::process::Command;
 // argument; `runtime_native::the_hash_is_of_the_bytes` is the assertion.
 use buri_hash::build::sha256;
 
+// Which members of the baked archives need which, for `build::link` to hand
+// mold only those a program needs (`design/PERFORMANCE.md` §6.146). The file
+// is shared so the writer here and the reader in the toolchain read archives
+// and objects with one code.
+#[allow(dead_code, reason = "the index's reader is the toolchain's")]
+#[path = "src/build/members.rs"]
+mod members;
+
 fn main() {
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR"));
     // The toolchain names itself by the id its linker writes into the header
@@ -275,6 +284,121 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,--build-id=sha1");
     }
     runtime_archive(&manifest);
+    index_members();
+}
+
+/// Writes `$OUT_DIR/archive-members.bin`, [`archive_index`] of the runtime
+/// archive, `libc.a` and `libunwind.a` with the crt objects as roots.
+///
+/// Empty where there is no musl sysroot, which leaves every link handing over
+/// the whole archives. Written on every path, because `build::link`
+/// `include_bytes!`es it unconditionally.
+fn index_members() {
+    let out_dir = PathBuf::from(env("OUT_DIR"));
+    let musl = out_dir.join("musl");
+    let read = |path: &Path| std::fs::read(path).unwrap_or_default();
+    let runtime = read(&out_dir.join("libburi_rt.a"));
+    let libc = read(&musl.join("libc.a"));
+    let unwind = read(&musl.join("libunwind.a"));
+    let roots: Vec<Vec<u8>> = SYSROOT_FILES
+        .iter()
+        .filter(|name| name.ends_with(".o"))
+        .map(|name| read(&musl.join(name)))
+        .collect();
+    let index = if runtime.is_empty() || libc.is_empty() {
+        Vec::new()
+    } else {
+        let roots: Vec<&[u8]> = roots.iter().map(Vec::as_slice).collect();
+        archive_index([&runtime, &libc, &unwind], &roots).unwrap_or_default()
+    };
+    write_if_different(&out_dir.join("archive-members.bin"), &index);
+}
+
+/// The index of `archives` that `members::Index` reads, or `None` when one of
+/// them is not a GNU archive of ELF objects.
+///
+/// `roots` are the objects every link names besides the program's own, the
+/// crt objects: the members their symbols need are always kept. So is a
+/// member whose symbols can't be read.
+fn archive_index(archives: [&[u8]; members::ARCHIVES], roots: &[&[u8]]) -> Option<Vec<u8>> {
+    let mut rows: Vec<[u32; 3]> = Vec::new();
+    let mut needs: Vec<Vec<&[u8]>> = Vec::new();
+    let mut definers: HashMap<&[u8], Vec<u32>> = HashMap::new();
+    let mut kept: Vec<u32> = Vec::new();
+    for (which, archive) in archives.iter().enumerate() {
+        for (at, body) in members::members(archive)? {
+            let member = u32::try_from(rows.len()).ok()?;
+            rows.push([
+                u32::try_from(which).ok()?,
+                u32::try_from(at).ok()?,
+                u32::try_from(body.len()).ok()?,
+            ]);
+            let mut needed = Vec::new();
+            let read = members::symbols(body, |name, defined| {
+                if defined {
+                    definers.entry(name).or_default().push(member);
+                } else {
+                    needed.push(name);
+                }
+            });
+            if read.is_none() {
+                kept.push(member);
+            }
+            needs.push(needed);
+        }
+    }
+    let mut starts = vec![0u32];
+    let mut flat: Vec<u32> = Vec::new();
+    for (member, names) in needs.iter().enumerate() {
+        let mut row: Vec<u32> = names
+            .iter()
+            .flat_map(|name| definers.get(name).into_iter().flatten().copied())
+            .filter(|&m| m as usize != member)
+            .collect();
+        row.sort_unstable();
+        row.dedup();
+        flat.extend(row);
+        starts.push(u32::try_from(flat.len()).ok()?);
+    }
+    for object in roots {
+        let mut needed = Vec::new();
+        members::symbols(object, |name, defined| {
+            if !defined {
+                needed.push(name);
+            }
+        })?;
+        kept.extend(
+            needed
+                .iter()
+                .flat_map(|n| definers.get(n).into_iter().flatten()),
+        );
+    }
+    kept.sort_unstable();
+    kept.dedup();
+    let mut defined: Vec<(u64, u32)> = definers
+        .iter()
+        .flat_map(|(name, members)| members.iter().map(|&m| (members::hash(name), m)))
+        .collect();
+    defined.sort_unstable();
+    defined.dedup();
+
+    let mut words = vec![members::MAGIC];
+    let mut table = |count: usize, rows: &mut dyn Iterator<Item = u32>| -> Option<()> {
+        words.push(u32::try_from(count).ok()?);
+        words.extend(rows);
+        Some(())
+    };
+    table(rows.len(), &mut rows.iter().flatten().copied())?;
+    table(starts.len(), &mut starts.iter().copied())?;
+    table(flat.len(), &mut flat.iter().copied())?;
+    table(kept.len(), &mut kept.iter().copied())?;
+    table(
+        defined.len(),
+        &mut defined
+            .iter()
+            .flat_map(|&(h, m)| [h as u32, (h >> 32) as u32, m]),
+    )?;
+    Some(words.iter().flat_map(|w| w.to_le_bytes()).collect())
 }
 
 /// Writes `bytes` to `path`, **only if what is there differs**.

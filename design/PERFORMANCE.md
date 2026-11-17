@@ -10229,6 +10229,44 @@ valgrind --tool=dhat --num-callers=30 target/release/buri build //...
 
 Then keep the stacks that pass through `objects_named` for codegen's share.
 
+### 6.146 mold is handed only the archive members a program needs, 2026-11-17
+
+```text
+libburi_rt.a  543 members  ->  71
+libc.a       1345 members  -> 273
+libunwind.a     8 members  ->   5
+```
+
+- mold reads every member of every archive it's handed, needed or not. So a
+  Linux link paid for all 1,896 members of the runtime archive, `libc.a` and
+  `libunwind.a`, and the mold child was about 27% of ci's dev codegen.
+- `cli/build.rs` now writes an index of the baked archives: which members
+  each member needs, and which members define each symbol
+  (`build/members.rs`). At link time, `build/link.rs` reads the undefined
+  symbols of the program's objects and of the host's `libgcc.a`, walks the
+  index, and stages thin archives of only the members reached.
+- Every member defining a symbol that something kept needs is kept, so
+  whichever one mold picks is there, and the ci link wrote the same bytes.
+- Each member is a file under `~/.buri/archive-members/`, written the first
+  time a link needs it, so a link writes a few kilobytes of thin archive.
+  Cut archives copied into the link directory took 1.5 M fewer instructions
+  per link, but wrote 10 MB each time.
+- lld follows the archive's symbol index and reads only what it needs, so
+  macOS doesn't move.
+
+| Goals count, aarch64 Linux, per line | §6.145 | Now |
+| --- | --- | --- |
+| ci dev codegen instructions | 48,041.6 | 44,739.9 |
+| ci dev codegen cost | 74,146.4 | 65,433.2 |
+| monorepo-ci dev codegen instructions | 19,655.5 | 18,153.7 |
+| monorepo-ci test-build dev codegen instructions | 20,715.1 | 19,739.4 |
+
+One ci link went from 113.7 M instructions in mold to 82.6 M.
+`archive_members.rs` builds a program that prints and one that serves on
+every native backend, runs both, and holds the `archive members linked`
+count `BURI_PROFILE=1` prints: above zero, at most 600 for the one that
+prints, and more for the one that serves.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -166,6 +166,7 @@
 
 use crate::build::buildfile::Platform;
 use crate::build::cache::{hash_bytes, ActionKey, Cache};
+use crate::build::members;
 use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
@@ -1443,6 +1444,72 @@ fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
         })
 }
 
+/// The [`members::Index`] of the baked archives, which `cli/build.rs` writes.
+/// Empty on a toolchain with no musl sysroot.
+const ARCHIVE_MEMBERS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/archive-members.bin"));
+
+/// The symbols the host's `libgcc.a` needs, hashed, for
+/// [`CDriver::only_needed_members`]. `None` where the driver names no
+/// `libgcc.a` that reads.
+///
+/// Every member's, not only the ones a link loads: the builtins it needs
+/// from libc are a handful (`abort`, `memcpy`, `getauxval`), and keeping
+/// their definers always costs less than working out which builtins the
+/// program reaches. Read once per driver per process.
+fn libgcc_needs(driver: &Path) -> Option<Vec<u64>> {
+    static READ: std::sync::Mutex<Vec<(String, Option<Vec<u64>>)>> =
+        std::sync::Mutex::new(Vec::new());
+    remembered(&READ, driver.display().to_string(), || {
+        let bytes = std::fs::read(builtins_dir(driver)?.join("libgcc.a")).ok()?;
+        let mut needs = Vec::new();
+        for (_, member) in members::members(&bytes)? {
+            members::undefined(member, &mut needs)?;
+        }
+        needs.sort_unstable();
+        needs.dedup();
+        Some(needs)
+    })
+}
+
+/// Each kept member as a file under `~/.buri/archive-members/`, as its
+/// archive, its absolute path and its length, in member order.
+///
+/// The directory is named by the runtime archive's and the sysroot's
+/// digests, so a member file holds the bytes its name says while it has the
+/// length it was written with. A member is written the first time a link
+/// needs it, and checked once per process.
+fn member_files(index: &members::Index<'_>, kept: &[bool]) -> Option<Vec<(usize, String, usize)>> {
+    static CHECKED: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+    let archives = [runtime_native::ARCHIVE, musl::LIBC_A, musl::LIBUNWIND_A];
+    let runtime = crate::build::actions::runtime_archive_hash();
+    let sysroot = musl::sysroot_hash();
+    let dir = std::path::absolute(runtime_cross::buri_home().ok()?)
+        .ok()?
+        .join("archive-members")
+        .join(format!("{}-{}", runtime.get(..16)?, sysroot.get(..16)?));
+    let mut checked = CHECKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    checked.resize(index.members(), false);
+    let mut files = Vec::new();
+    for (m, _) in kept.iter().enumerate().filter(|(_, &keep)| keep) {
+        let (archive, at, len) = index.member(m)?;
+        let path = dir.join(format!("{m}.o"));
+        let slot = checked.get_mut(m)?;
+        if !*slot {
+            let there = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == len as u64);
+            if !there {
+                let bytes = archives.get(archive)?.get(at..at.checked_add(len)?)?;
+                crate::build::create_parent(&path);
+                replace_with(&path, bytes).ok()?;
+            }
+            *slot = true;
+        }
+        files.push((archive, path.to_str()?.to_string(), len));
+    }
+    Some(files)
+}
+
 /// The thin archive [`CDriver::as_one_input`] writes. Every unit's object ends
 /// in `.o`, so no unit can take this name.
 const OBJECTS_ARCHIVE: &str = "objects.a";
@@ -2087,6 +2154,10 @@ impl CDriver {
         let replay = self.replay(&args, &names, keep);
         if let Some(replay) = &replay {
             let inputs = self.as_one_input(&names, units);
+            let cut = self.cuts_archives();
+            if cut {
+                let _ = self.only_needed_members(units);
+            }
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
             direct.args(replay.argv(inputs.as_deref().unwrap_or(&names)));
@@ -2096,6 +2167,13 @@ impl CDriver {
             // replaces it.
             if inputs.is_some() {
                 let _ = std::fs::remove_file(self.dir.join(OBJECTS_ARCHIVE));
+            }
+            // The whole archives go back, as every other link leaves them,
+            // and the driver below is handed them, so a link the cut broke
+            // still links. One that can't be written is the driver's to
+            // report.
+            if cut {
+                let _ = self.stage_whole_archives();
             }
             if linked {
                 return self.claim(out);
@@ -2166,6 +2244,87 @@ impl CDriver {
                 .map(String::from)
                 .to_vec(),
         )
+    }
+
+    /// Where the runtime archive, `libc.a` and `libunwind.a` are staged, in
+    /// [`members::ARCHIVES`]'s order.
+    fn baked_archives(&self) -> [PathBuf; members::ARCHIVES] {
+        let lib = self.dir.join("musl").join("lib");
+        [
+            self.dir.join(runtime_native::ARCHIVE_NAME),
+            lib.join("libc.a"),
+            lib.join("libunwind.a"),
+        ]
+    }
+
+    /// Stages the whole baked archives again, over cut ones.
+    fn stage_whole_archives(&self) -> std::io::Result<()> {
+        stage_baked(
+            &self.dir,
+            self.store.as_ref(),
+            &[("libc.a", musl::LIBC_A), ("libunwind.a", musl::LIBUNWIND_A)],
+        )?;
+        stage_constant(
+            self.store.as_ref(),
+            &format!(
+                "runtime archive {}",
+                crate::build::actions::runtime_archive_hash()
+            ),
+            runtime_native::ARCHIVE,
+            &self.dir.join(runtime_native::ARCHIVE_NAME),
+        )
+    }
+
+    /// Whether this link hands mold cut archives: a mold link against the
+    /// baked sysroot, which a cross link never is. lld reads only the members
+    /// the archive's symbol index leads it to, so there is nothing to gain
+    /// there.
+    fn cuts_archives(&self) -> bool {
+        self.libc == LibcMode::MuslBaked && matches!(self.flavour, Flavour::Mold)
+    }
+
+    /// Replaces the staged runtime archive, `libc.a` and `libunwind.a` with
+    /// thin archives of only the members this program can need, where
+    /// [`CDriver::cuts_archives`].
+    ///
+    /// mold reads every member of every archive it is handed, needed or not,
+    /// so its cost followed the archives' size rather than the program's. A
+    /// small program needs about a fifth of the members, and a link handed
+    /// only those took 29% fewer instructions and wrote the same bytes
+    /// (`design/PERFORMANCE.md` §6.146).
+    ///
+    /// The members are `build/members.rs`'s answer for the symbols the
+    /// program's objects and the host's `libgcc.a` need. Each is a file under
+    /// `~/.buri/archive-members/`, written the first time a link needs it, and
+    /// the thin archives name them there, so a link writes a few kilobytes
+    /// rather than the members' megabytes.
+    ///
+    /// `None` when something can't be read or written. The caller stages the
+    /// whole archives again after the link either way.
+    fn only_needed_members(&self, units: &[Emitted]) -> Option<()> {
+        let index = members::Index::read(ARCHIVE_MEMBERS)?;
+        let mut needs = libgcc_needs(&self.driver)?;
+        for unit in units {
+            members::undefined(&unit.bytes, &mut needs)?;
+        }
+        let kept = index.keep(needs);
+        let files = member_files(&index, &kept)?;
+        self.baked_archives()
+            .iter()
+            .enumerate()
+            .try_for_each(|(which, path)| {
+                let mine = files.iter().filter(|(archive, _, _)| *archive == which);
+                replace_with(
+                    path,
+                    &thin_archive(mine.map(|(_, file, len)| (file.as_str(), *len))),
+                )
+            })
+            .ok()?;
+        crate::build::counted::add_n(
+            crate::build::counted::Count::ArchiveMembers,
+            files.len() as u64,
+        );
+        Some(())
     }
 
     /// Takes the `artifact` a successful link wrote and puts its bytes at `out`.

@@ -38,6 +38,10 @@ pub enum Count {
     /// A suite's objects linked into an image for the test host
     /// (`build/image.rs`).
     ImagesLinked,
+    /// A member of the baked archives handed to the linker, on a link that
+    /// hands over only the members the program needs
+    /// (`build/members.rs`).
+    ArchiveMembers,
     /// The first start of an executable this run wrote as a new file, which
     /// macOS checks before it runs.
     NewExecutables,
@@ -62,6 +66,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "functions compiled",
     "links",
     "images linked",
+    "archive members linked",
     "new executables launched",
     "test processes",
     "tool processes",

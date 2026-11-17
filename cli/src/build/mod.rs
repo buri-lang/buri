@@ -45,6 +45,9 @@ pub mod hosted;
 /// A debug test suite's objects, linked into an image the test host maps.
 pub mod image;
 pub mod link;
+/// Which members of the baked archives a link needs, from their symbols:
+/// written by `cli/build.rs`, read by `link`.
+pub mod members;
 /// The musl sysroot `cli/build.rs` baked in: the `libc.a`, unwinder and crt
 /// objects that finish a hermetic Linux link, and the `Libc` this toolchain's
 /// runtime archive was built against. Bytes and accessors only — the flags and

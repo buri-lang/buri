@@ -2976,6 +2976,14 @@ fn a_toolchain_build_reuses_the_runtime_unless_its_inputs_changed() {
     std::fs::create_dir_all(pkg.join("src")).unwrap();
     std::fs::write(pkg.join("src/lib.rs"), "").unwrap();
     std::fs::copy(root.join("cli/build.rs"), pkg.join("build.rs")).unwrap();
+    // The script reads the archive index's module from where the toolchain
+    // keeps it.
+    std::fs::create_dir_all(pkg.join("src/build")).unwrap();
+    std::fs::copy(
+        root.join("cli/src/build/members.rs"),
+        pkg.join("src/build/members.rs"),
+    )
+    .unwrap();
     std::os::unix::fs::symlink(root.join("cli/runtime"), pkg.join("runtime")).unwrap();
     std::fs::write(
         pkg.join("Cargo.toml"),
