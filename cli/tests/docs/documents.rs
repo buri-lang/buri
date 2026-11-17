@@ -377,7 +377,6 @@ fn a_page_outside_a_repository_has_no_packages() {
 /// `buri format` check the pages they can reach and pass over the rest.
 #[test]
 fn a_directory_that_cannot_be_read_is_passed_over() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = std::env::temp_dir().join(format!("buri-unreadable-{}", std::process::id()));
     let locked = dir.join("locked");
     std::fs::create_dir_all(&locked).expect("a scratch directory");
@@ -392,10 +391,10 @@ fn a_directory_that_cannot_be_read_is_passed_over() {
         "```buri\nexport fn  two(): I64 { \"2\" }\n```\n",
     )
     .expect("a page");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("locked");
+    let closed = crate::restricted::restrict(&locked, 0o000);
     let tested = ran(&dir, &["docs", "test"]);
     let formatted = ran(&dir, &["format", "--check"]);
-    let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755));
+    drop(closed);
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
         (

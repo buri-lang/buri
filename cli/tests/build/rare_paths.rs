@@ -626,15 +626,14 @@ fn a_build_file_that_cannot_be_read_is_named() {
 /// name: the stray file in it draws `unused-source` only once it can be read.
 #[test]
 fn a_directory_lint_cannot_list_holds_no_unused_source() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::repo("rare-unlistable-directory");
     scratch.write("lib/a/BUILD.buri", "library {}\n");
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write("lib/a/private/stray.buri", "export fn two(): Int { 2 }\n");
     let private = scratch.path("lib/a/private");
-    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let closed = restrict(&private, 0o000);
     let run = scratch.run(&["lint", "//lib/a"]);
-    std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o755)).unwrap();
+    drop(closed);
     run.exits(0).silent_about("unused-source");
     scratch
         .run(&["lint", "//lib/a"])

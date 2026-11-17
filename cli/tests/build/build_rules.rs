@@ -320,22 +320,6 @@ fn an_artifact_s_chunks_replace_the_last_build_s() {
     }
 }
 
-/// Gives a path its permissions back when dropped, so the scratch tree can go.
-struct Reopen(std::path::PathBuf, u32);
-
-impl Drop for Reopen {
-    fn drop(&mut self) {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(self.1));
-    }
-}
-
-fn close(path: std::path::PathBuf, reopen: u32) -> Reopen {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-    Reopen(path, reopen)
-}
-
 /// `gen` lists a package's own sources: not a dotfile, not a nested
 /// package's, nothing in a directory it can't read, and not a listed source
 /// that's gone. A source it can't read is still one of the package's.
@@ -353,8 +337,8 @@ fn gen_lists_only_the_sources_a_package_owns() {
     scratch.write("lib/a/nested/lib.buri", ONE);
     scratch.write("lib/a/locked/x.buri", ONE);
     scratch.write("lib/a/sealed.buri", ONE);
-    let _dir = close(scratch.path("lib/a/locked"), 0o755);
-    let _file = close(scratch.path("lib/a/sealed.buri"), 0o644);
+    let _dir = restrict(&scratch.path("lib/a/locked"), 0o000);
+    let _file = restrict(&scratch.path("lib/a/sealed.buri"), 0o000);
     scratch
         .run(&["gen", "//lib/a"])
         .ok()

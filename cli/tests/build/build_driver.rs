@@ -260,7 +260,6 @@ fn a_cached_archive_overwritten_in_place_is_staged_again() {
 /// than linking without it.
 #[test]
 fn an_unwritable_link_directory_is_refused_by_the_object() {
-    use std::os::unix::fs::PermissionsExt as _;
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     scratch.run(&["build", "//cmd/app"]).ok();
     let mut dirs = vec![scratch.path(".buri/cache")];
@@ -271,15 +270,10 @@ fn an_unwritable_link_directory_is_refused_by_the_object() {
             }
         }
     }
-    let mode = |m| {
-        for dir in &dirs {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(m)).unwrap();
-        }
-    };
     scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
-    mode(0o555);
+    let restricted: Vec<Restricted> = dirs.iter().map(|dir| restrict(dir, 0o555)).collect();
     let built = scratch.run(&["build", "//cmd/app"]);
-    mode(0o755);
+    drop(restricted);
     built.exits(1).says("cannot write").says(".o:");
 }
 
@@ -660,17 +654,9 @@ fn a_build_with_no_home_directory() {
     }
 }
 
-/// macOS checks each new executable file once, so a test runner runs as the
-/// file in `$BURI_HOME/programs` that first held its bytes. An entry someone
-/// wrote to isn't handed out, an entry nothing ran for hours is swept and
-/// made again while one in use stays, a store that can't be listed still
-/// works, and a home that can't hold the store leaves the runner as the linker
-/// wrote it. The tests pass every time.
-#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
-#[test]
-fn a_test_runner_runs_from_the_program_store() {
-    use std::os::unix::fs::PermissionsExt;
-    let scratch = Scratch::repo("build-driver-store");
+/// A repository whose one package has one native test, which passes.
+fn one_test_package(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
     scratch.write(
         "lib/one/BUILD.buri",
         "library {\n    test {\n        sources: [\"test/one_test.buri\"]\n        backends: [NATIVE]\n    }\n}\n",
@@ -681,6 +667,47 @@ fn a_test_runner_runs_from_the_program_store() {
         "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/one\" import { one };\n\n\
          test \"one is one\" {\n    assert.equal(one(), 1);\n}\n",
     );
+    scratch
+}
+
+/// Runs `check` with the path of a `BURI_HOME` whose program store can be
+/// written to but not listed.
+fn with_an_unlisted_store(scratch: &Scratch, check: impl FnOnce(&str)) {
+    let unlisted = scratch.path("unlisted-home");
+    std::fs::create_dir_all(unlisted.join("programs")).unwrap();
+    let _store = restrict(&unlisted.join("programs"), 0o300);
+    check(&unlisted.display().to_string());
+}
+
+/// A check that fails while the program store can't be listed still leaves a
+/// scratch tree that can be deleted. A tree left unlistable once kept 21 GB
+/// on disk that a forced worktree removal couldn't free.
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
+#[test]
+fn a_check_that_fails_on_an_unlisted_store_leaves_a_deletable_tree() {
+    let scratch = one_test_package("build-driver-unlisted-failure");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_an_unlisted_store(&scratch, |home| {
+            scratch
+                .run_with_env(&["test", "//lib/one"], &[("BURI_HOME", home), LINKED])
+                .ok();
+            panic!("a check that failed");
+        });
+    }));
+    assert!(failed.is_err(), "the check didn't fail");
+    std::fs::remove_dir_all(&scratch.root).expect("the scratch tree can't be deleted");
+}
+
+/// macOS checks each new executable file once, so a test runner runs as the
+/// file in `$BURI_HOME/programs` that first held its bytes. An entry someone
+/// wrote to isn't handed out, an entry nothing ran for hours is swept and
+/// made again while one in use stays, a store that can't be listed still
+/// works, and a home that can't hold the store leaves the runner as the linker
+/// wrote it. The tests pass every time.
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
+#[test]
+fn a_test_runner_runs_from_the_program_store() {
+    let scratch = one_test_package("build-driver-store");
     let home = scratch.path("home").display().to_string();
     let test = |home: &str| {
         scratch
@@ -791,10 +818,10 @@ fn a_test_runner_runs_from_the_program_store() {
     assert!(building.exists(), "a sweep took an entry being built");
     // One whose time can't be kept is still handed out.
     let entry = program.parent().unwrap();
-    std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o300)).unwrap();
+    let untouchable = restrict(entry, 0o300);
     clean(&home);
     test(&home);
-    std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o755)).unwrap();
+    drop(untouchable);
     assert_eq!(
         kept().as_ref(),
         Some(&program),
@@ -803,25 +830,14 @@ fn a_test_runner_runs_from_the_program_store() {
 
     // A store that can't be listed still hands out entries; one that can't be
     // made leaves the runner as the linker wrote it.
-    let unlisted = scratch.path("unlisted-home");
-    std::fs::create_dir_all(unlisted.join("programs")).unwrap();
-    std::fs::set_permissions(
-        unlisted.join("programs"),
-        std::fs::Permissions::from_mode(0o300),
-    )
-    .unwrap();
-    clean(&unlisted.display().to_string());
-    test(&unlisted.display().to_string());
-    let listed = kept();
-    std::fs::set_permissions(
-        unlisted.join("programs"),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
-    assert!(
-        listed.is_some_and(|p| p.starts_with(&unlisted)),
-        "an unlistable store handed out nothing"
-    );
+    with_an_unlisted_store(&scratch, |unlisted| {
+        clean(unlisted);
+        test(unlisted);
+        assert!(
+            kept().is_some_and(|p| p.starts_with(unlisted)),
+            "an unlistable store handed out nothing"
+        );
+    });
     let blocked = scratch.path("blocked-home");
     std::fs::create_dir_all(&blocked).unwrap();
     std::fs::write(blocked.join("programs"), "").unwrap();
@@ -830,18 +846,10 @@ fn a_test_runner_runs_from_the_program_store() {
     assert_eq!(kept(), None, "a store under a file was used");
     let read_only = scratch.path("read-only-home");
     std::fs::create_dir_all(read_only.join("programs")).unwrap();
-    std::fs::set_permissions(
-        read_only.join("programs"),
-        std::fs::Permissions::from_mode(0o500),
-    )
-    .unwrap();
+    let unwritable = restrict(&read_only.join("programs"), 0o500);
     clean(&read_only.display().to_string());
     test(&read_only.display().to_string());
-    std::fs::set_permissions(
-        read_only.join("programs"),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
+    drop(unwritable);
     assert_eq!(kept(), None, "a read-only store was used");
 
     let file = scratch.write("home-is-a-file", "").display().to_string();
@@ -1211,17 +1219,6 @@ fn a_platform_s_assets_are_copied_and_a_missing_one_is_refused() {
     );
 }
 
-/// Sets the permission bits of `path` and everything under it.
-fn chmod_tree(path: &std::path::Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    if path.is_dir() {
-        for entry in std::fs::read_dir(path).unwrap().flatten() {
-            chmod_tree(&entry.path(), mode);
-        }
-    }
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
-}
-
 /// A cache nothing can be written into: the build after an edit compiles,
 /// links and writes the program anyway, without keeping any of it.
 #[test]
@@ -1230,9 +1227,9 @@ fn a_cache_that_cannot_be_written_still_builds() {
     scratch.run(&["build", "//cmd/app"]).ok();
     scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
     let cache = scratch.path(".buri/cache");
-    chmod_tree(&cache, 0o555);
+    let unwritable = restrict_tree(&cache, 0o555, 0o555);
     let built = scratch.run(&["build", "//cmd/app"]);
-    chmod_tree(&cache, 0o755);
+    drop(unwritable);
     built.ok();
     scratch.run(&["run", "//cmd/app"]).ok().says("edited");
 }
@@ -1259,9 +1256,9 @@ fn another_toolchain_s_cache_is_emptied_without_a_trash_directory() {
 
     scratch.write(".buri/cache/.toolchain", "another toolchain");
     let cache = scratch.path(".buri/cache");
-    std::fs::set_permissions(&cache, std::os::unix::fs::PermissionsExt::from_mode(0o300)).unwrap();
+    let unlisted = restrict(&cache, 0o300);
     let built = scratch.run(&["build", "//cmd/app"]);
-    std::fs::set_permissions(&cache, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    drop(unlisted);
     built.ok().says(".buri/out/node/cmd/app/app.mjs (");
 }
 
@@ -1886,10 +1883,9 @@ fn a_read_only_link_directory_is_an_error() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     scratch.run(&["build", "//cmd/app"]).ok();
     let dir = link_dir(&scratch);
-    let mode = |m| std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(m));
-    mode(0o555).unwrap();
+    let read_only = restrict(&dir, 0o555);
     let forced = scratch.run(&["build", "--force", "//cmd/app"]);
-    mode(0o755).unwrap();
+    drop(read_only);
     forced
         .exits(1)
         .says("error: cannot write ")

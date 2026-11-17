@@ -190,7 +190,6 @@ fn init_reads_a_target_that_climbs_out_of_nothing() {
 /// A build file `gen` can't write is an error, not a run that said nothing.
 #[test]
 fn gen_says_when_it_cannot_write_a_build_file() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::repo("command-line-gen-readonly");
     scratch.write(
         "lib/a/BUILD.buri",
@@ -199,9 +198,9 @@ fn gen_says_when_it_cannot_write_a_build_file() {
     scratch.write("lib/a/lib.buri", "export fn one(): Int {\n    1\n}\n");
     scratch.write("lib/a/extra.buri", "export fn two(): Int {\n    2\n}\n");
     let build = scratch.path("lib/a/BUILD.buri");
-    std::fs::set_permissions(&build, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let read_only = restrict(&build, 0o444);
     let run = scratch.run(&["gen", "//lib/a"]);
-    std::fs::set_permissions(&build, std::fs::Permissions::from_mode(0o644)).unwrap();
+    drop(read_only);
     run.exits(2).says("cannot write ").says("BUILD.buri");
     assert!(!scratch.read("lib/a/BUILD.buri").contains("extra.buri"));
 }

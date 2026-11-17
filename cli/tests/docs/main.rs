@@ -33,6 +33,11 @@ mod sweep;
 #[path = "../harness/pool.rs"]
 mod pool;
 
+// Only `restrict` is used here.
+#[allow(dead_code)]
+#[path = "../harness/restricted.rs"]
+mod restricted;
+
 #[path = "../harness/hang.rs"]
 mod hang;
 

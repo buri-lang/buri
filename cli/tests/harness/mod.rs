@@ -23,6 +23,7 @@ pub mod hang;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inherited;
 pub mod pool;
+pub mod restricted;
 pub mod shape;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod signals;
@@ -38,6 +39,7 @@ pub use case::{
     load_case, no_golden_has_collapsed, run_case, run_corpus, Case, Step,
     A_RUN_THAT_ASSERTED_NOTHING,
 };
+pub use restricted::{restrict, restrict_tree, Restricted};
 
 // ---------------------------------------------------------------------------
 // Where things are

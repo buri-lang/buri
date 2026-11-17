@@ -157,23 +157,18 @@ fn a_remembered_fix_whose_result_would_not_parse_is_refused() {
 /// neither file changes.
 #[test]
 fn a_fix_that_cannot_be_written_is_named_and_the_file_is_left_alone() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::copy_of(
         "fix-refusals-read-only",
         &tests_dir().join("repositories/linting/fix_applies/repo"),
     );
     let files = ["cmd/app/main.buri", "cmd/app/BUILD.buri"];
     let before: Vec<String> = files.iter().map(|f| scratch.read(f)).collect();
-    let mode = |f: &str, m: u32| {
-        std::fs::set_permissions(scratch.path(f), std::fs::Permissions::from_mode(m)).unwrap();
-    };
-    for f in files {
-        mode(f, 0o444);
-    }
+    let read_only: Vec<Restricted> = files
+        .iter()
+        .map(|f| restrict(&scratch.path(f), 0o444))
+        .collect();
     let run = scratch.run(&["lint", "//...", "--fix"]);
-    for f in files {
-        mode(f, 0o644);
-    }
+    drop(read_only);
     run.exits(2)
         .says("error: writing ")
         .says("cmd/app/main.buri: Permission denied")
@@ -191,19 +186,15 @@ fn a_fix_that_cannot_be_written_is_named_and_the_file_is_left_alone() {
 /// exits `2` with the finding that edit was for still reported.
 #[test]
 fn a_fix_that_cannot_be_written_beside_one_that_can_says_which_is_which() {
-    use std::os::unix::fs::PermissionsExt;
     let scratch = Scratch::copy_of(
         "fix-refusals-half-read-only",
         &tests_dir().join("repositories/linting/fix_applies/repo"),
     );
     let main = "cmd/app/main.buri";
     let before = scratch.read(main);
-    let mode = |m: u32| {
-        std::fs::set_permissions(scratch.path(main), std::fs::Permissions::from_mode(m)).unwrap();
-    };
-    mode(0o444);
+    let read_only = restrict(&scratch.path(main), 0o444);
     let run = scratch.run(&["lint", "//...", "--fix"]);
-    mode(0o644);
+    drop(read_only);
     run.exits(2)
         .says("cmd/app/main.buri: Permission denied")
         .says("updated cmd/app/BUILD.buri")
