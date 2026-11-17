@@ -6,27 +6,27 @@
 //! lock-order inversions. Without it these are `std`'s types themselves.
 
 #[cfg(not(feature = "valgrind"))]
-pub(crate) use std::sync::{Condvar, Mutex, MutexGuard};
+pub use std::sync::{Condvar, Mutex, MutexGuard};
 
 #[cfg(feature = "valgrind")]
-pub(crate) use reported::{Condvar, Mutex, MutexGuard, close};
+pub use reported::{Condvar, Mutex, MutexGuard, close};
 
 /// Nothing to wait for: only helgrind minds a lock held at exit.
 #[cfg(not(feature = "valgrind"))]
 #[inline]
-pub(crate) fn close() {}
+pub fn close() {}
 
 /// Keeps `guard`'s lock from every other thread until the process exits.
 /// Called after [`close`], on the way to an exit.
 #[cfg(not(feature = "valgrind"))]
-pub(crate) fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
+pub fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
     std::mem::forget(guard);
 }
 
 /// [`close`] already keeps every other thread from taking a lock, so the
 /// guard goes back: helgrind reports a lock held at the exit.
 #[cfg(feature = "valgrind")]
-pub(crate) fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
+pub fn keep_to_the_exit<T: ?Sized>(guard: MutexGuard<'_, T>) {
     drop(guard);
 }
 
@@ -61,7 +61,7 @@ mod reported {
     /// switch moves between threads, they'd use the old thread's
     /// thread-locals.
     #[inline(never)]
-    pub(crate) fn close() {
+    pub fn close() {
         if CLOSER.get() {
             return;
         }
@@ -77,7 +77,7 @@ mod reported {
     }
 
     #[cfg(test)]
-    pub(crate) fn closing() -> bool {
+    pub fn closing() -> bool {
         CLOSING.load(SeqCst)
     }
 
@@ -117,16 +117,16 @@ mod reported {
     }
 
     /// `std::sync::Mutex`, whose locking helgrind is told about.
-    pub(crate) struct Mutex<T: ?Sized>(std::sync::Mutex<T>);
+    pub struct Mutex<T: ?Sized>(std::sync::Mutex<T>);
 
     /// Its guard, which tells helgrind of the unlock before it happens.
-    pub(crate) struct MutexGuard<'a, T: ?Sized> {
+    pub struct MutexGuard<'a, T: ?Sized> {
         inner: Option<std::sync::MutexGuard<'a, T>>,
         lock: usize,
     }
 
     impl<T> Mutex<T> {
-        pub(crate) const fn new(value: T) -> Mutex<T> {
+        pub const fn new(value: T) -> Mutex<T> {
             Mutex(std::sync::Mutex::new(value))
         }
     }
@@ -136,7 +136,7 @@ mod reported {
             std::ptr::from_ref(self).cast::<u8>().addr()
         }
 
-        pub(crate) fn lock(&self) -> LockResult<MutexGuard<'_, T>> {
+        pub fn lock(&self) -> LockResult<MutexGuard<'_, T>> {
             let lock = self.address();
             let taken = |inner| {
                 let inner = enter(inner);
@@ -154,7 +154,7 @@ mod reported {
             }
         }
 
-        pub(crate) fn try_lock(&self) -> TryLockResult<MutexGuard<'_, T>> {
+        pub fn try_lock(&self) -> TryLockResult<MutexGuard<'_, T>> {
             let lock = self.address();
             let taken = |inner| {
                 let inner = enter(inner);
@@ -228,17 +228,14 @@ mod reported {
 
     /// `std::sync::Condvar`, whose waits release and take the lock as
     /// helgrind sees it.
-    pub(crate) struct Condvar(std::sync::Condvar);
+    pub struct Condvar(std::sync::Condvar);
 
     impl Condvar {
-        pub(crate) const fn new() -> Condvar {
+        pub const fn new() -> Condvar {
             Condvar(std::sync::Condvar::new())
         }
 
-        pub(crate) fn wait<'a, T>(
-            &self,
-            guard: MutexGuard<'a, T>,
-        ) -> LockResult<MutexGuard<'a, T>> {
+        pub fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> LockResult<MutexGuard<'a, T>> {
             let lock = guard.lock;
             let back = |inner| {
                 let inner = enter(inner);
@@ -256,7 +253,7 @@ mod reported {
             }
         }
 
-        pub(crate) fn wait_timeout<'a, T>(
+        pub fn wait_timeout<'a, T>(
             &self,
             guard: MutexGuard<'a, T>,
             timeout: Duration,
@@ -281,11 +278,11 @@ mod reported {
             }
         }
 
-        pub(crate) fn notify_one(&self) {
+        pub fn notify_one(&self) {
             self.0.notify_one();
         }
 
-        pub(crate) fn notify_all(&self) {
+        pub fn notify_all(&self) {
             self.0.notify_all();
         }
     }
@@ -294,22 +291,21 @@ mod reported {
 /// Set as a thread is about to block on I/O that may never end, so a test
 /// knows when to exit under it.
 #[cfg(all(test, feature = "valgrind"))]
-pub(crate) static BLOCKING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub static BLOCKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(test)]
 #[cfg(feature = "valgrind")]
-pub(crate) mod tests {
+pub mod tests {
     use super::Mutex;
     use std::sync::atomic::Ordering::SeqCst;
 
     /// Whether this process is the copy [`exit_of`] started.
-    pub(crate) fn in_the_child() -> bool {
+    pub fn in_the_child() -> bool {
         std::env::var_os("BURI_RT_TEST_ABORT_CHILD").is_some()
     }
 
     /// Waits for another thread to block on I/O, then aborts.
-    pub(crate) fn abort_once_blocked() -> ! {
+    pub fn abort_once_blocked() -> ! {
         while !super::BLOCKING.load(SeqCst) {
             std::thread::yield_now();
         }
@@ -319,7 +315,7 @@ pub(crate) mod tests {
     /// The exit code and standard error of this test binary running the test
     /// `name` alone as [`in_the_child`], whose input never ends and whose
     /// output is never read. A child still running after 30 seconds hung.
-    pub(crate) fn exit_of(name: &str) -> (Option<i32>, String) {
+    pub fn exit_of(name: &str) -> (Option<i32>, String) {
         use std::io::Read as _;
         use std::process::{Command, Stdio};
         let mut child = Command::new(std::env::current_exe().expect("this test binary"))

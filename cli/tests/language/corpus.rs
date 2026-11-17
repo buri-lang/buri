@@ -1130,6 +1130,10 @@ fn dependencies_stay_behind_the_bar() {
     // specifications rather than three algorithms, and a snapshot suite rests
     // on all three agreeing to the byte on two operating systems.
     // `manifest.toml`'s entries argue each one.
+    //
+    // The set is two tables since the runtime became two crates (§6.142 of
+    // `design/PERFORMANCE.md`): `manifest.toml`'s, the archive's own, and
+    // `core.toml`'s, the crate under it that holds everything but the network.
     const RUNTIME_ADMITTED: &[&str] = &[
         "cosmic-text",
         "getrandom",
@@ -1146,11 +1150,36 @@ fn dependencies_stay_behind_the_bar() {
     ];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
-    let mut runtime_deps: Vec<String> = declared(&runtime)
+    let core = std::fs::read_to_string(repo_root().join("cli/runtime/core.toml"))
+        .expect("cli/runtime/core.toml");
+    // Each file's third-party declarations. The archive reaches the core by
+    // `path`, and that one line is the whole of it.
+    let third_party = |manifest: &str| -> Vec<(String, String)> {
+        declared(manifest)
+            .into_iter()
+            .filter(|(name, line)| {
+                let own = line.contains("path = \"core\"");
+                assert!(
+                    !own || name == "buri-rt-core",
+                    "the runtime reaches `{name}` by path; only its own core is declared that way"
+                );
+                !own
+            })
+            .collect()
+    };
+    assert!(
+        declared(&runtime)
+            .iter()
+            .any(|(name, line)| name == "buri-rt-core" && line.contains("path = \"core\"")),
+        "cli/runtime/manifest.toml no longer builds on `core.toml`'s crate"
+    );
+    let mut runtime_deps: Vec<String> = third_party(&runtime)
         .into_iter()
+        .chain(third_party(&core))
         .map(|(n, _)| n)
         .collect::<Vec<_>>();
     runtime_deps.sort();
+    runtime_deps.dedup();
     assert_eq!(
         runtime_deps, RUNTIME_ADMITTED,
         "cli/runtime/manifest.toml's dependency set is not the one this repository decided on. \
@@ -1161,17 +1190,19 @@ fn dependencies_stay_behind_the_bar() {
     // Every one of them optional, and every one behind the one feature. Two
     // separate facts: `optional = true` is what lets the feature turn it off,
     // and `net = [...]` is what says which feature does.
-    for (name, line) in declared(&runtime) {
-        assert!(
-            line.contains("optional = true"),
-            "the runtime dependency `{name}` is not optional, so `net` cannot turn it off and \
-             `cargo build --no-default-features` would still resolve it.\n{BAR}"
-        );
-        assert!(
-            runtime.contains(&format!("\"dep:{name}\"")),
-            "the runtime dependency `{name}` is optional but no feature enables it, so it is \
-             resolved by nothing and shipped by nothing"
-        );
+    for manifest in [&runtime, &core] {
+        for (name, line) in third_party(manifest) {
+            assert!(
+                line.contains("optional = true"),
+                "the runtime dependency `{name}` is not optional, so `net` cannot turn it off and \
+                 `cargo build --no-default-features` would still resolve it.\n{BAR}"
+            );
+            assert!(
+                manifest.contains(&format!("\"dep:{name}\"")),
+                "the runtime dependency `{name}` is optional but no feature enables it, so it is \
+                 resolved by nothing and shipped by nothing"
+            );
+        }
     }
     // Both of the on-by-default features, checked one at a time rather than as
     // a literal line, because the line has grown once and the *property* is
@@ -1213,8 +1244,8 @@ fn dependencies_stay_behind_the_bar() {
     // that `quinn` is behind *nothing else* — the last being the one that would
     // silently break, by a line moving from `net-h3 = [...]` up into
     // `net = [...]` and every user shipping a QUIC stack they never asked for.
-    let feature_line = |name: &str| -> String {
-        runtime
+    let feature_in = |manifest: &str, name: &str| -> String {
+        manifest
             .lines()
             .find(|line| line.trim_start().starts_with(&format!("{name} = [")))
             .unwrap_or_else(|| {
@@ -1225,7 +1256,9 @@ fn dependencies_stay_behind_the_bar() {
             })
             .to_string()
     };
-    let net_feature = feature_line("net");
+    let feature_line = |name: &str| feature_in(&runtime, name);
+    // `net` in both files: the archive's, and the core's that it turns on.
+    let net_feature = feature_line("net") + &feature_in(&core, "net");
     let h3_feature = feature_line("net-h3");
     assert!(
         h3_feature.contains("\"net\""),
@@ -1257,7 +1290,12 @@ fn dependencies_stay_behind_the_bar() {
     // and it matters: `getrandom` behind `net` would make `Entropy` a
     // capability a program has to ask for the network to get, and behind
     // `net-h3` it would be off by default.
-    let crypto_feature = feature_line("crypto");
+    // The archive's `crypto` turns on the core's, which is where `getrandom` is.
+    assert!(
+        feature_line("crypto").contains("\"buri-rt-core/crypto\""),
+        "the archive's `crypto` no longer turns on the core's"
+    );
+    let crypto_feature = feature_in(&core, "crypto");
     assert!(
         crypto_feature.contains("\"dep:getrandom\""),
         "`crypto` does not enable `getrandom`, so the feature turns nothing on: {crypto_feature}"
@@ -1353,17 +1391,64 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         }
         lines
     }
+    // The runtime is two crates, the archive (`manifest.toml`) on the core
+    // (`core.toml`), and the tests build them as one: every third-party
+    // dependency of either, and each feature with what both turn on.
     let shipped = read("cli/runtime/manifest.toml");
+    let core = read("cli/runtime/core.toml");
     let tested = read("runtime-tests/Cargo.toml");
+    let deps = |manifest: &str| -> std::collections::BTreeSet<String> {
+        tables(manifest)
+            .into_iter()
+            .filter(|line| line.contains("version = ") && !line.contains("path = "))
+            .map(String::from)
+            .collect()
+    };
+    let features = |manifest: &str| -> std::collections::BTreeMap<String, Vec<String>> {
+        tables(manifest)
+            .into_iter()
+            .filter_map(|line| {
+                let (name, list) = line.split_once(" = [")?;
+                let entries = list
+                    .trim_end_matches(']')
+                    .split(',')
+                    .map(|e| e.trim().trim_matches('"').to_string())
+                    .filter(|e| !e.is_empty() && !e.starts_with("buri-rt-core/"))
+                    .collect();
+                Some((name.to_string(), entries))
+            })
+            .collect()
+    };
     assert!(
-        !tables(&shipped).is_empty(),
+        !deps(&shipped).is_empty(),
         "manifest.toml has no dependencies to compare"
     );
+    let shipped_deps: std::collections::BTreeSet<String> =
+        deps(&shipped).union(&deps(&core)).cloned().collect();
     assert_eq!(
-        tables(&tested),
-        tables(&shipped),
-        "runtime-tests/Cargo.toml's [dependencies] or [features] drifted from \
-         cli/runtime/manifest.toml's; copy them across"
+        deps(&tested),
+        shipped_deps,
+        "runtime-tests/Cargo.toml's [dependencies] drifted from cli/runtime/manifest.toml's and \
+         core.toml's together; copy them across"
+    );
+    let mut shipped_features = features(&shipped);
+    for (name, entries) in features(&core) {
+        let merged = shipped_features.entry(name).or_default();
+        merged.extend(entries);
+    }
+    let sorted = |map: std::collections::BTreeMap<String, Vec<String>>| {
+        map.into_iter()
+            .map(|(name, entries)| {
+                let set: std::collections::BTreeSet<String> = entries.into_iter().collect();
+                (name, set)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        sorted(features(&tested)),
+        sorted(shipped_features),
+        "runtime-tests/Cargo.toml's [features] drifted from cli/runtime/manifest.toml's and \
+         core.toml's together; copy them across"
     );
 
     // Every `name`/`version` pair `manifest.lock` pins, `Cargo.lock` pins too.
@@ -1384,7 +1469,7 @@ fn the_runtime_tests_build_the_shipped_runtime() {
     let runtime = read("cli/runtime/manifest.lock");
     let missing: Vec<_> = pins(&runtime)
         .into_iter()
-        .filter(|(name, _)| *name != "\"buri-rt\"")
+        .filter(|(name, _)| *name != "\"buri-rt\"" && *name != "\"buri-rt-core\"")
         .filter(|pin| !workspace.contains(pin))
         .collect();
     assert!(

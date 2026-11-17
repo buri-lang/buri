@@ -517,6 +517,7 @@ const UNSEEN: &[(&str, &str)] = &[
     // the runtime's allocator, so a block musl reused isn't fresh, and the
     // new thread reads it before any annotation of ours can order it.
     ("buri_rt::rt::start_thread", "std's threads"),
+    ("buri_rt_core::rt::start_thread", "std's threads"),
     // `std`'s `Mutex`, `Once` and `OnceLock`, each a futex: the races are on
     // their own words, as tokio and the test harness use them.
     ("std/src/sync/poison", "std's Mutex"),
@@ -647,6 +648,7 @@ impl Error {
 /// Frames that are where memory came from or was copied, not who misused it.
 const PLUMBING: &[&str] = &[
     "buri_rt::allocator::",
+    "buri_rt_core::allocator::",
     "__rustc::__rust_",
     "buri_rt_alloc",
     "malloc",

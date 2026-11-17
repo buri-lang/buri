@@ -10093,6 +10093,45 @@ if heap.is_null() { UNSTARTED } else { heap }
 that the key holds the thread's heap, so a key that stops working fails it
 rather than quietly taking the slow path.
 
+### 6.142 A program that never speaks the network links none of it, 2026-11-17
+
+```text
+libburi_rt.a
+  buri_rt.buri_rt.*.o        archive.rs: net, http, tcp, tls
+  buri_rt.buri_rt_core-*.o   lib.rs: everything else, never naming the above
+```
+
+- The linker loads an archive member only for a symbol it needs. The runtime
+  was one crate in one object, so every link loaded the network code to reach
+  the allocator, and with it rustls, graviola, hyper, h2 and tungstenite.
+- Now `lib.rs` is the crate `buri-rt-core` (`core.toml`), and the archive's
+  root `archive.rs` adds the network modules on top. `buri_rt_host_network_fetch`
+  moved from `host.rs` to `http.rs` so the core names nothing there.
+- Runtime tests still build `lib.rs` as one crate, with the network modules
+  under `cfg(test)`.
+- Panic locations in the core read `core/../host.rs`, because `cargo rustc`'s
+  `--remap-path-prefix` reaches only the root crate. They're still relative,
+  so builds stay reproducible.
+
+| Goals count, aarch64 Linux, per line | Before | After |
+| --- | --- | --- |
+| ci dev codegen instructions | 51,757.6 | 50,621.9 |
+| ci dev codegen cost | 85,253.5 | 79,902.4 |
+| monorepo-ci dev codegen instructions | 21,345.6 | 20,843.3 |
+| monorepo-ci test-build dev codegen instructions | 22,374.4 | 22,038.2 |
+
+| bench `full`, macOS, per line | Before | After |
+| --- | --- | --- |
+| dev codegen instructions | 149,052.7 | 147,876.3 |
+| whole build instructions | 180,282.2 | 179,138.6 |
+
+The kvstore run count doesn't move (1,129,308,071 against a baseline of
+1,129,965,872).
+
+`a_program_that_never_speaks_the_network_links_none_of_it` reads the
+archive's symbol table and follows what the core's member needs. It fails if
+that closure reaches the network's crates.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

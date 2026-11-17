@@ -2552,7 +2552,9 @@ fn the_published_crate_ships_the_runtime() {
     // that fails in the build script with "couldn't read".
     for name in [
         "lib.rs",
+        "archive.rs",
         "manifest.toml",
+        "core.toml",
         "manifest.lock",
         "switch_macos_arm64.s",
         "switch_linux_arm64.s",

@@ -1,0 +1,38 @@
+# The runtime's core: every module but the network's, as a crate of its own.
+#
+# `manifest.toml` is the archive, `libburi_rt.a`, and this is the crate under
+# it. `cli/build.rs` assembles this file as `core/Cargo.toml` beside the
+# archive's `Cargo.toml`, for the packaging reason that file gives. The split
+# is for the linker: it loads an archive member only for a symbol it needs, and
+# while the network code shared one object with the rest, every program loaded
+# TLS, HTTP/2 and WebSockets to reach its allocator. This crate never names the
+# network's modules (`design/PERFORMANCE.md` §6.142).
+#
+# The crates below are `manifest.toml`'s, under the same bar, and that file
+# argues each one: `tokio` for `rt.rs`, `ring` and `getrandom` for `crypto.rs`
+# and `entropy.rs`, and the painter's three for `paint.rs`.
+[package]
+name = "buri-rt-core"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "buri_rt_core"
+path = "../lib.rs"
+
+[dependencies]
+tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
+ring = { version = "0.17", optional = true, default-features = false }
+getrandom = { version = "0.4", optional = true, default-features = false }
+taffy = { version = "=0.14.0", optional = true, default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
+cosmic-text = { version = "=0.19.0", optional = true, default-features = false, features = ["std", "swash"] }
+tiny-skia = { version = "=0.12.0", optional = true, default-features = false, features = ["std", "simd"] }
+
+# Chosen by `manifest.toml`'s features of the same names, which turn these on.
+[features]
+net = ["dep:tokio"]
+crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
+paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
+valgrind = []

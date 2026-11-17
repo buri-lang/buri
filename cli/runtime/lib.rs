@@ -618,7 +618,7 @@ mod abort;
 /// Blocks up to 1 KiB from per-thread pages, the rest from the system: the
 /// compiler's own allocator (`design/PERFORMANCE.md` §6.54, §6.67). Not under
 /// `cfg(test)`, where its tests count pages nothing else may take.
-pub(crate) mod allocator;
+pub mod allocator;
 #[cfg(not(test))]
 #[global_allocator]
 static ALLOCATOR: allocator::TaskAllocator = allocator::TaskAllocator;
@@ -647,7 +647,10 @@ mod document;
 mod entropy;
 mod fmt;
 mod hash;
-mod host;
+pub mod host;
+/// The network half lives in `archive.rs`'s crate (§6.142 of
+/// `design/PERFORMANCE.md`); runtime tests build it here, as one crate.
+#[cfg(test)]
 mod http;
 mod list;
 /// The test host's loader: `buri test`'s debug suites, mapped into a host
@@ -655,7 +658,8 @@ mod list;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod loader;
 mod math;
-mod memory;
+pub mod memory;
+#[cfg(test)]
 mod net;
 mod overflow;
 /// The renderer: a scene document and a stylesheet in, PNG bytes out. Behind
@@ -691,17 +695,18 @@ mod splice;
 mod switch;
 /// `Mutex` and `Condvar`, reported to helgrind as locks under the `valgrind`
 /// feature and `std`'s own without it.
-mod sync;
+pub mod sync;
+#[cfg(test)]
 mod tcp;
 mod testing;
 mod text;
 /// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
 /// the feature's only linked user; a runtime without it refuses `https://` by
 /// name (see §8).
-#[cfg(feature = "net")]
+#[cfg(all(test, feature = "net"))]
 mod tls;
 mod ui;
-mod value;
+pub mod value;
 
 pub use abort::*;
 pub use bytes::*;
@@ -716,6 +721,7 @@ pub use host::*;
 pub use list::*;
 pub use math::*;
 pub use memory::*;
+#[cfg(test)]
 pub use net::*;
 pub use scalars::*;
 pub use testing::*;

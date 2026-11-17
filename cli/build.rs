@@ -39,7 +39,8 @@
 //! * **The package is assembled in `OUT_DIR`, not checked in.** `cli/runtime/`
 //!   holds the sources, `manifest.toml` and `manifest.lock`; this script copies
 //!   them to `$OUT_DIR/rt-pkg/` as `Cargo.toml`, `Cargo.lock` and the same
-//!   `.rs` files, and builds there.
+//!   `.rs` files, and builds there. `core.toml` becomes `core/Cargo.toml`, the
+//!   crate under the archive (`design/PERFORMANCE.md` §6.142).
 //!
 //!   The reason is packaging, and it is the regression this repairs. `cargo
 //!   package` **skips any subdirectory containing a `Cargo.toml`**,
@@ -733,6 +734,13 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
     let mut wanted = vec![String::from("Cargo.toml"), String::from("Cargo.lock")];
     copy_if_different(&runtime.join("manifest.toml"), &pkg.join("Cargo.toml"));
     copy_if_different(&runtime.join("manifest.lock"), &pkg.join("Cargo.lock"));
+    // The crate under the archive, whose sources are the `.rs` files below
+    // (`core.toml`'s header).
+    let core = pkg.join("core");
+    if let Err(e) = std::fs::create_dir_all(&core) {
+        fail(&format!("could not create {}: {e}", core.display()));
+    }
+    copy_if_different(&runtime.join("core.toml"), &core.join("Cargo.toml"));
 
     let entries = match std::fs::read_dir(runtime) {
         Ok(e) => e,
@@ -791,6 +799,9 @@ fn pack_runtime_src(runtime: &Path, out_dir: &Path) {
     }
     if let Ok(lock) = std::fs::read(runtime.join("manifest.lock")) {
         members.push((String::from("Cargo.lock"), lock));
+    }
+    if let Ok(core) = std::fs::read(runtime.join("core.toml")) {
+        members.push((String::from("core/Cargo.toml"), core));
     }
     if let Ok(entries) = std::fs::read_dir(runtime) {
         for entry in entries.flatten() {

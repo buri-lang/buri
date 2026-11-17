@@ -45,18 +45,27 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 name = "buri-rt"
 version = "0.3.0"
 dependencies = [
- "cosmic-text",
- "getrandom 0.4.3",
+ "buri-rt-core",
  "graviola",
  "hyper",
  "quinn",
  "ring",
  "rustls",
  "rustls-graviola",
+ "tokio",
+ "tungstenite",
+]
+
+[[package]]
+name = "buri-rt-core"
+version = "0.3.0"
+dependencies = [
+ "cosmic-text",
+ "getrandom 0.4.3",
+ "ring",
  "taffy",
  "tiny-skia",
  "tokio",
- "tungstenite",
 ]
 
 [[package]]

@@ -47,6 +47,9 @@
 //! [`METHODS`] and nowhere else in the runtime, and nowhere at all in Buri —
 //! the same rule `CloseReason`'s wire codes follow.
 
+use crate::BURI_OK;
+use crate::host::headers;
+use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, str_of};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::mpsc::RecvTimeoutError;
@@ -646,6 +649,100 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 // ---------------------------------------------------------------------------
+
+/// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8],
+/// timeoutMillis: Int }`, as `middle::layout` lays it out: fields in
+/// declaration order, and `Method` a bare enum whose tag is one byte.
+#[repr(C)]
+pub struct BuriFetchRequest {
+    method: u8,
+    url: BuriStr,
+    headers: BuriList,
+    body: BuriList,
+    timeout_millis: i64,
+}
+
+/// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
+#[repr(C)]
+pub struct BuriFetchResponse {
+    status: i64,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `Network::fetch` — `Result<Response, NetError>`.
+///
+/// The request arrives by address rather than flattened: its nine words and
+/// the two out-pointers would overflow the stencil backend's ten argument
+/// registers. The error's tag is `NetError`'s variant index, and `out_err`
+/// takes the sentence `BadUrl` and `Transport` carry (`lib.rs` §2.1).
+///
+/// A `timeoutMillis` of zero means the runtime's own bound, [`DEADLINE`],
+/// applied to each step of the exchange rather than to the whole of it.
+///
+/// # Safety
+/// `request` must point at a live `Request`; both out-pointers writable and
+/// aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_network_fetch(
+    request: *const BuriFetchRequest,
+    out_ok: *mut BuriFetchResponse,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: the caller promises a live `Request`.
+    let request = unsafe { &*request };
+    let method = i32::from(request.method);
+    // SAFETY: a live `Request` holds live views.
+    let url = unsafe { request.url.as_str().into_owned() };
+    // SAFETY: as above.
+    let sent = unsafe { headers(request.headers.ptr, request.headers.len) };
+    let body: &[u8] = if request.body.ptr.is_null() || request.body.len == 0 {
+        &[]
+    } else {
+        // SAFETY: a `[U8]`'s stride is one, so the payload is the bytes.
+        unsafe { std::slice::from_raw_parts(request.body.ptr, request.body.len as usize) }
+    };
+    let timeout_millis = request.timeout_millis;
+    // **Not a suspension point, though it is spelled like one.** `http.rs`'s
+    // client is synchronous, so the `async` block runs to completion inside its
+    // first poll and answers `Ready`, and `rt::park_on` only gives a thread
+    // back to a future that answers `Pending`. This thread is held for as long
+    // as the exchange takes — bounded, but by `http.rs`'s own deadlines and not
+    // by anything here. `net.rs`'s `park` is the same two lines with the same
+    // caveat written out at length. What the spelling buys is that the day the
+    // client is asynchronous this becomes the suspension the name promises,
+    // without this line or any caller moving.
+    //
+    // The Buri blocks below are built **after** it answers and on the thread.
+    // That used to be load-bearing: under the run baton the allocator and the
+    // reference counts were single-threaded. G3 deleted the baton and made a
+    // block two threads can reach atomically counted (`rt.rs` §1), so what is
+    // left is the ordinary rule — a runtime call builds no Buri value until it
+    // has an answer to build one from.
+    let bound = bound(timeout_millis);
+    #[cfg(feature = "net")]
+    let outcome = crate::rt::park_on(async { fetch(bound, method, &url, &sent, body) });
+    #[cfg(not(feature = "net"))]
+    let outcome = fetch(bound, method, &url, &sent, body);
+    match outcome {
+        Ok(response) => {
+            let answer = BuriFetchResponse {
+                status: response.status,
+                headers: list_of_headers(&response.headers),
+                body: list_of_bytes(&response.body),
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out_ok.write(answer) };
+            BURI_OK
+        }
+        Err(e) => {
+            let message = str_of(e.message());
+            // SAFETY: as above.
+            unsafe { out_err.write(message) };
+            e.tag()
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

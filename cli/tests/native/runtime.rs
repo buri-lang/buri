@@ -1437,3 +1437,134 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
         offenders.join("\n")
     );
 }
+
+// ---------------------------------------------------------------------------
+// The network in a crate of its own
+// ---------------------------------------------------------------------------
+
+/// **A program that never speaks the network links none of it.**
+///
+/// The linker loads an archive member only for a symbol something it already
+/// loaded needs. Every program loads the runtime's core, `lib.rs`'s crate, so
+/// what that member needs, and what those members need in turn, is what every
+/// link reads. That closure must hold neither the network's own crate,
+/// `archive.rs`'s, nor TLS, HTTP/2, WebSockets or QUIC
+/// (`design/PERFORMANCE.md` §6.142).
+///
+/// The closure is worked out from the archive's symbol table, so it is a count
+/// of what the linker is handed and not a timing.
+#[test]
+fn a_program_that_never_speaks_the_network_links_none_of_it() {
+    use std::collections::{HashMap, HashSet};
+    if skip() {
+        return;
+    }
+    let archive = crate::shared::runtime_archive();
+    // `--no-llvm-bc`: `std`'s members carry bitcode from rustc's LLVM, which
+    // can be newer than the one `llvm-nm` reads, and the symbol table is all
+    // this needs.
+    let Ok(out) = Command::new("llvm-nm")
+        .args(["--no-llvm-bc", "-A"])
+        .arg(archive)
+        .capped_output()
+    else {
+        crate::ci::missing("runtime_native", "`llvm-nm` is not on PATH");
+        return;
+    };
+    assert!(
+        out.status.success(),
+        "llvm-nm failed on {}:\n{}",
+        archive.display(),
+        stderr(&out)
+    );
+    let text = stdout(&out);
+
+    // `<archive>:<member>: <address> <kind> <name>`, the address blank for an
+    // undefined symbol.
+    let mut defines: HashMap<String, String> = HashMap::new();
+    let mut needs: HashMap<String, Vec<String>> = HashMap::new();
+    for line in text.lines() {
+        let Some((place, symbol)) = line.split_once(": ") else {
+            continue;
+        };
+        let Some((_, member)) = place.rsplit_once(':') else {
+            continue;
+        };
+        let mut words = symbol.split_whitespace().rev();
+        let (Some(name), Some(kind)) = (words.next(), words.next()) else {
+            continue;
+        };
+        if kind == "U" {
+            needs
+                .entry(member.to_string())
+                .or_default()
+                .push(name.to_string());
+        } else if kind.chars().all(|c| c.is_ascii_uppercase()) {
+            defines
+                .entry(name.to_string())
+                .or_insert_with(|| member.to_string());
+        }
+    }
+    // A Rust member is `buri_rt.<crate>-<hash>.<crate>...`, and the network's
+    // own crate is the archive's root, `buri_rt.buri_rt.<hash>...`.
+    let crate_of = |member: &str| -> String {
+        let rest = member.strip_prefix("buri_rt.").unwrap_or(member);
+        let name = rest.split(['.', '-']).next().unwrap_or(rest);
+        name.to_string()
+    };
+    let loaded = |root: &str| -> HashSet<String> {
+        let mut seen = HashSet::from([root.to_string()]);
+        let mut queue = vec![root.to_string()];
+        while let Some(member) = queue.pop() {
+            for name in needs.get(&member).into_iter().flatten() {
+                if let Some(definer) = defines.get(name) {
+                    if seen.insert(definer.clone()) {
+                        queue.push(definer.clone());
+                    }
+                }
+            }
+        }
+        seen
+    };
+    let member = |krate: &str| -> String {
+        needs
+            .keys()
+            .find(|m| crate_of(m) == krate)
+            .unwrap_or_else(|| panic!("{} has no member for `{krate}`", archive.display()))
+            .clone()
+    };
+
+    let network = [
+        "buri_rt",
+        "rustls",
+        "rustls_graviola",
+        "graviola",
+        "hyper",
+        "h2",
+        "tungstenite",
+        "quinn",
+    ];
+    let mut reached: Vec<String> = loaded(&member("buri_rt_core"))
+        .into_iter()
+        .map(|m| crate_of(&m))
+        .filter(|krate| network.contains(&krate.as_str()))
+        .collect();
+    reached.sort();
+    reached.dedup();
+    assert!(
+        reached.is_empty(),
+        "every program links the runtime's core, and the core's member reaches the network's \
+         crates {reached:?} in {}. `lib.rs`'s crate must never name `archive.rs`'s modules",
+        archive.display()
+    );
+    // Without this the check could pass on a table it misread.
+    if net() {
+        assert!(
+            loaded(&member("buri_rt"))
+                .iter()
+                .any(|m| crate_of(m) == "rustls"),
+            "the network's own member reaches no `rustls` in {}, so this check reads nothing",
+            archive.display()
+        );
+    }
+}
