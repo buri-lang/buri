@@ -404,6 +404,10 @@ mod at_scale;
 // counted, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod archive_members;
+// A macOS link hands lld only the libSystem symbols its program needs,
+// counted, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod system_library;
 // A crash's core dump holds what the program used, not the 32 GiB its heap
 // reserved. Linux only: macOS writes no cores unless asked.
 #[cfg(all(

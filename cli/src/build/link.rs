@@ -166,6 +166,7 @@
 
 use crate::build::buildfile::Platform;
 use crate::build::cache::{hash_bytes, ActionKey, Cache};
+use crate::build::libsystem;
 use crate::build::members;
 use crate::build::musl::{self, Libc};
 use crate::build::runtime_cross::{self, Cross};
@@ -688,6 +689,49 @@ fn remembered<T: Clone>(
     let answer = fresh();
     table.push((name, answer.clone()));
     answer
+}
+
+/// What a macOS link needs of libSystem before its own objects: libSystem's
+/// exports, and the ones the archives on its command line need.
+struct SystemNeeds {
+    exports: libsystem::Exports,
+    archives: Vec<Vec<u8>>,
+}
+
+/// [`SystemNeeds`] for a link replaying `replay`, whose command line is
+/// `argv`, run in `dir`. Read once per process for each replay.
+fn system_needs(
+    replay: &Replay,
+    argv: &[String],
+    dir: &Path,
+) -> Option<std::sync::Arc<SystemNeeds>> {
+    static READ: std::sync::Mutex<Vec<(String, Option<std::sync::Arc<SystemNeeds>>)>> =
+        std::sync::Mutex::new(Vec::new());
+    let key = format!("{:?} {:?}", replay.before, replay.after);
+    remembered(&READ, key, || {
+        let tbd = libsystem::find(argv)?;
+        (tbd.extension()? == "tbd").then_some(())?;
+        let arch = argv.iter().skip_while(|arg| *arg != "-arch").nth(1)?;
+        let text = std::fs::read_to_string(tbd).ok()?;
+        let exports = libsystem::Exports::read(&text, &format!("{arch}-macos"))?;
+        // lld names `dyld_stub_binder` itself, when libSystem has it.
+        let mut archives: std::collections::HashSet<Vec<u8>> = [b"dyld_stub_binder".to_vec()]
+            .into_iter()
+            .filter(|name| exports.has(name))
+            .collect();
+        for arg in argv.iter().filter(|arg| arg.ends_with(".a")) {
+            let bytes = std::fs::read(dir.join(arg)).ok()?;
+            libsystem::archive_undefined(&bytes, |name| {
+                if exports.has(name) {
+                    archives.insert(name.to_vec());
+                }
+            })?;
+        }
+        Some(std::sync::Arc::new(SystemNeeds {
+            exports,
+            archives: archives.into_iter().collect(),
+        }))
+    })
 }
 
 /// Waits for the identity probes this process started and never needed.
@@ -2319,10 +2363,27 @@ impl CDriver {
             if cut {
                 let _ = self.only_needed_members(units);
             }
+            let whole = replay.argv(inputs.as_deref().unwrap_or(&names));
+            let system = self.cut_libsystem(replay, &whole, units);
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
-            direct.args(replay.argv(inputs.as_deref().unwrap_or(&names)));
+            direct.args(system.as_ref().map_or(&whole, |(argv, _)| argv));
             let mut linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+            // A symbol the cut `libSystem.tbd` left out fails the link, which
+            // runs again with the whole one.
+            if let Some((_, symbols)) = system {
+                if linked {
+                    crate::build::counted::add_n(
+                        crate::build::counted::Count::SystemSymbols,
+                        symbols as u64,
+                    );
+                } else {
+                    direct = Command::new(&replay.program);
+                    self.pin(&mut direct);
+                    direct.args(&whole);
+                    linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+                }
+            }
             // The whole archives go back, as every other link leaves them.
             // A link the cut broke, say because a member file was deleted,
             // runs again with them, so the replay isn't taken for stale, and
@@ -2497,6 +2558,45 @@ impl CDriver {
             toolchain as u64,
         );
         Some(())
+    }
+
+    /// `argv`, a macOS link's, with `-lSystem` swapped for a `libSystem.tbd`
+    /// in the cache naming only what the inputs need
+    /// (`build/libsystem.rs`), and how many symbols it names. `None` when
+    /// there's no cache, nothing to swap, or something can't be read or written.
+    fn cut_libsystem(
+        &self,
+        replay: &Replay,
+        argv: &[String],
+        units: &[Emitted],
+    ) -> Option<(Vec<String>, usize)> {
+        let cache = self.store.as_ref()?;
+        if self.target.platform != Platform::Macos {
+            return None;
+        }
+        let at = argv.iter().position(|arg| arg == "-lSystem")?;
+        let system = system_needs(replay, argv, &self.dir)?;
+        let mut names: Vec<&[u8]> = system.archives.iter().map(Vec::as_slice).collect();
+        for unit in units {
+            libsystem::undefined(&unit.bytes, |name| {
+                if system.exports.has(name) {
+                    names.push(name);
+                }
+            })?;
+        }
+        names.sort_unstable();
+        names.dedup();
+        // Kept in the cache by its bytes, so the links of a program edited
+        // again find it there rather than write it again.
+        let text = system.exports.cut(&names);
+        let key = ActionKey::of(text.as_bytes());
+        let tbd = cache.entry(&key).or_else(|| {
+            cache.put(&key, text.as_bytes());
+            cache.entry(&key)
+        })?;
+        let mut cut = argv.to_vec();
+        *cut.get_mut(at)? = tbd.to_string_lossy().into_owned();
+        Some((cut, names.len()))
     }
 
     /// Takes the `artifact` a successful link wrote and puts its bytes at `out`.

@@ -51,6 +51,9 @@ pub enum Count {
     ArchiveMemberChecks,
     /// A member of the host's `libgcc.a` handed to a Linux link.
     ToolchainArchiveMembers,
+    /// A libSystem symbol a macOS link's cut `libSystem.tbd` named
+    /// (`build/libsystem.rs`).
+    SystemSymbols,
     /// The first start of an executable this run wrote as a new file, which
     /// macOS checks before it runs.
     NewExecutables,
@@ -79,6 +82,7 @@ const NAMES: [&str; COUNTS_LEN] = [
     "toolchain archive bytes read",
     "archive member files checked",
     "toolchain archive members linked",
+    "system library symbols linked",
     "new executables launched",
     "test processes",
     "tool processes",

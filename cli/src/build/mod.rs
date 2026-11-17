@@ -44,6 +44,8 @@ pub mod generators;
 pub mod hosted;
 /// A debug test suite's objects, linked into an image the test host maps.
 pub mod image;
+/// A `libSystem.tbd` of only the symbols a macOS link needs.
+pub mod libsystem;
 pub mod link;
 /// Which members of the baked archives a link needs, from their symbols:
 /// written by `cli/build.rs`, read by `link`.

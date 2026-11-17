@@ -10360,6 +10360,34 @@ lld leaves the trie out. Apple's linker still writes an empty one, a root with
 no children. `a_macos_artifact_exports_no_symbols` links with both and checks
 that no trie names anything and the program still runs.
 
+### 6.151 lld is handed only the libSystem symbols a link needs, 2026-11-17
+
+```text
+ld64.lld, bench full    whole libSystem   cut      change
+a program of 316 units  988 M             774 M    -21.7%
+a program of 173 units  689 M             513 M    -25.5%
+12 links, children      10.35 B           7.82 B   -24.4%   (with §6.150)
+12 links, in buri       about +100 M
+```
+
+The SDK's `libSystem.tbd` is 290 KB of YAML naming every symbol of libSystem
+and the libraries it re-exports, and lld parsed all of it on every link. A
+program imports about eighty of them.
+
+- `build/libsystem.rs` reads the SDK's stub once per process and keeps the
+  symbols that the archives on the command line need. Each link adds the
+  ones its own objects need.
+- The cut stub keeps the SDK's install name and version, and every `$ld$`
+  symbol. lld names `dyld_stub_binder` itself, so that's kept too.
+- It's a cache entry named by its bytes. All 12 of bench `full`'s links share
+  one, and a program edited again writes nothing new.
+- A link the cut breaks runs again with the whole `libSystem`.
+- All 12 links wrote the same bytes as with the whole stub.
+
+`system_library.rs` holds a program that prints to at most 300 symbols, as
+`system library symbols linked`, and checks that a program that serves links
+against the cut too.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
