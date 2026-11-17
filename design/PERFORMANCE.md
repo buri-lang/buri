@@ -10067,6 +10067,32 @@ the VM, and loaded 286 archive members against 75 on macOS. Shared generic
 instances tie the units together, so a link still reaches rustls and
 cosmic-text through them.
 
+### 6.141 The compiler's allocator reads its heap without a call on macOS, 2026-11-17
+
+```rust
+// allocator.rs, heap_inline on macOS arm64
+let heap = HEAP_SLOT.get();   // mrs tpidrro_el0, then one load
+if heap.is_null() { UNSTARTED } else { heap }
+```
+
+- On macOS the allocator's `HEAP` read was a call to `_tlv_get_addr`, so
+  `take` and `give` kept a frame. Now a pthread key mirrors `HEAP`, read the
+  §6.96 way. `allocator::slot` holds the read, and `memory.rs`'s cache key
+  shares it.
+- A null key reads as `UNSTARTED`, so a thread whose key can't be read still
+  works: `start_thread` checks `HEAP` first.
+- Linux reads the thread-local inline already, so the goals rows don't move.
+
+| bench `full`, macOS, per line | Before | After |
+| --- | --- | --- |
+| dev codegen instructions | 150,685.5 | 149,564.4 |
+| check instructions | 6,153.1 | 6,117.6 |
+| whole build instructions | 182,291.7 | 180,876.0 |
+
+`a_new_thread_starts_its_heap_and_a_system_thread_uses_the_system` checks
+that the key holds the thread's heap, so a key that stops working fails it
+rather than quietly taking the slow path.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

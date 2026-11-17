@@ -1445,87 +1445,23 @@ mod heap_offset {
 }
 
 /// This thread's [`ThreadHeap`] address, in a pthread key read straight from
-/// the thread's own data, which `tpidrro_el0` points at.
-///
-/// The read assumes key `k`'s value sits `k` words into that data, as Go's
-/// runtime does. [`set`](heap_slot::set) checks that once, and leaves every
-/// thread on the slow path if it doesn't hold.
+/// the thread's own data (`allocator::slot`).
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod heap_slot {
     use super::ThreadHeap;
-    use std::ffi::c_void;
-    use std::sync::OnceLock;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::allocator::slot::Slot;
 
-    unsafe extern "C" {
-        fn pthread_key_create(
-            key: *mut usize,
-            destructor: Option<unsafe extern "C" fn(*mut c_void)>,
-        ) -> i32;
-        fn pthread_setspecific(key: usize, value: *const c_void) -> i32;
-    }
-
-    /// The key's byte offset into the thread's data, or zero while there is no
-    /// checked key. Key zero is the C library's own, so no key made here is.
-    static OFFSET: AtomicUsize = AtomicUsize::new(0);
-
-    /// The word `offset` bytes into this thread's data.
-    #[inline(always)]
-    fn read(offset: usize) -> *const c_void {
-        let base: usize;
-        // SAFETY: reads a register.
-        unsafe {
-            core::arch::asm!(
-                "mrs {}, tpidrro_el0",
-                out(reg) base,
-                options(nomem, nostack, preserves_flags)
-            );
-        }
-        // SAFETY: the thread's data holds every key's value, and `offset` is a
-        // key's.
-        unsafe {
-            ((base & !7) as *const u8)
-                .add(offset)
-                .cast::<*const c_void>()
-                .read()
-        }
-    }
+    static SLOT: Slot = Slot::new();
 
     /// This thread's heap, or null.
     #[inline(always)]
     pub(super) fn get() -> *const ThreadHeap {
-        let offset = OFFSET.load(Ordering::Relaxed);
-        if offset == 0 {
-            return std::ptr::null();
-        }
-        read(offset).cast()
+        SLOT.get().cast()
     }
 
     /// Point this thread's key at `heap`, or at nothing.
     pub(super) fn set(heap: *const ThreadHeap) {
-        static KEY: OnceLock<Option<usize>> = OnceLock::new();
-        let key = *KEY.get_or_init(|| {
-            let mut key = 0;
-            // SAFETY: `key` is writable, and a key with no destructor needs none.
-            if unsafe { pthread_key_create(&mut key, None) } != 0 || key == 0 {
-                return None;
-            }
-            let probe = (&raw const OFFSET).cast::<c_void>();
-            // SAFETY: `key` was just made.
-            unsafe { pthread_setspecific(key, probe) };
-            let seen = read(key * 8);
-            // SAFETY: as above.
-            unsafe { pthread_setspecific(key, std::ptr::null()) };
-            if seen != probe {
-                return None;
-            }
-            OFFSET.store(key * 8, Ordering::Relaxed);
-            Some(key)
-        });
-        if let Some(key) = key {
-            // SAFETY: `key` is a live key.
-            unsafe { pthread_setspecific(key, heap.cast()) };
-        }
+        SLOT.set(heap.cast());
     }
 }
 

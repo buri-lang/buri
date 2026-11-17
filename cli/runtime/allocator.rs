@@ -194,12 +194,120 @@ thread_local! {
     static EXIT: Exit = const { Exit };
 }
 
+/// [`HEAP`] again, where a thread-local read is a call: in a pthread key read
+/// inline (§6.96). Null until the thread's first small allocation.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+static HEAP_SLOT: slot::Slot = slot::Slot::new();
+
+/// Points the calling thread at `heap`.
+fn set_heap(heap: *mut Heap) {
+    let _ = HEAP.try_with(|h| h.set(heap));
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    HEAP_SLOT.set(heap.cast());
+}
+
+/// A pthread key read straight from the thread's own data, which
+/// `tpidrro_el0` points at, so reading it calls nothing.
+///
+/// The read assumes key `k`'s value sits `k` words into that data, as Go's
+/// runtime does. [`Slot::set`] checks that once, and [`Slot::get`] reads null
+/// on every thread if it doesn't hold.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub(crate) mod slot {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    unsafe extern "C" {
+        fn pthread_key_create(
+            key: *mut usize,
+            destructor: Option<unsafe extern "C" fn(*mut c_void)>,
+        ) -> i32;
+        fn pthread_setspecific(key: usize, value: *const c_void) -> i32;
+    }
+
+    pub(crate) struct Slot {
+        key: std::sync::OnceLock<Option<usize>>,
+        /// The key's byte offset into the thread's data, or zero while there
+        /// is no checked key. Key zero is the C library's own, so no key made
+        /// here is.
+        offset: AtomicUsize,
+    }
+
+    /// The word `offset` bytes into this thread's data.
+    #[inline(always)]
+    fn read(offset: usize) -> *const c_void {
+        let base: usize;
+        // SAFETY: reads a register.
+        unsafe {
+            core::arch::asm!(
+                "mrs {}, tpidrro_el0",
+                out(reg) base,
+                options(nomem, nostack, preserves_flags)
+            );
+        }
+        // SAFETY: the thread's data holds every key's value, and `offset` is a
+        // key's.
+        unsafe {
+            ((base & !7) as *const u8)
+                .add(offset)
+                .cast::<*const c_void>()
+                .read()
+        }
+    }
+
+    impl Slot {
+        pub(crate) const fn new() -> Self {
+            Slot {
+                key: std::sync::OnceLock::new(),
+                offset: AtomicUsize::new(0),
+            }
+        }
+
+        /// This thread's value, or null.
+        #[inline(always)]
+        pub(crate) fn get(&self) -> *const c_void {
+            let offset = self.offset.load(Ordering::Relaxed);
+            if offset == 0 {
+                return std::ptr::null();
+            }
+            read(offset)
+        }
+
+        /// Sets this thread's value, allocating nothing.
+        pub(crate) fn set(&self, value: *const c_void) {
+            let key = *self.key.get_or_init(|| {
+                let mut key = 0;
+                // SAFETY: `key` is writable, and a key with no destructor needs none.
+                if unsafe { pthread_key_create(&mut key, None) } != 0 || key == 0 {
+                    return None;
+                }
+                let probe = (&raw const self.offset).cast::<c_void>();
+                // SAFETY: `key` was just made.
+                unsafe { pthread_setspecific(key, probe) };
+                let seen = read(key * 8);
+                // SAFETY: as above.
+                unsafe { pthread_setspecific(key, std::ptr::null()) };
+                if seen != probe {
+                    return None;
+                }
+                self.offset.store(key * 8, Ordering::Relaxed);
+                Some(key)
+            });
+            if let Some(key) = key {
+                // SAFETY: `key` is a live key.
+                unsafe { pthread_setspecific(key, value) };
+            }
+        }
+    }
+}
+
 /// Hands the thread's heap to the abandoned list when the thread exits.
 struct Exit;
 
 impl Drop for Exit {
     fn drop(&mut self) {
-        let heap = HEAP.try_with(|h| h.replace(SYSTEM)).unwrap_or(SYSTEM);
+        let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
+        set_heap(SYSTEM);
         if heap != SYSTEM && heap != UNSTARTED {
             let _held = lock(&ABANDONED_LOCK);
             // SAFETY: the heap left this thread above, and the lock is held.
@@ -401,13 +509,32 @@ fn this_heap<const FRAMES_MOVE: bool>() -> *mut Heap {
     if FRAMES_MOVE {
         heap_here()
     } else {
-        HEAP.try_with(Cell::get).unwrap_or(SYSTEM)
+        heap_inline()
     }
 }
 
 /// [`this_heap`], out of line.
 #[inline(never)]
 fn heap_here() -> *mut Heap {
+    heap_inline()
+}
+
+/// The calling thread's heap, read where the frame stands.
+///
+/// On macOS arm64 it comes from [`HEAP_SLOT`], whose null reads as
+/// `UNSTARTED`. So does a thread whose key can't be read, which is why
+/// [`start_thread`] looks at [`HEAP`] before it starts anything.
+#[inline(always)]
+fn heap_inline() -> *mut Heap {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let heap = HEAP_SLOT.get().cast_mut().cast::<Heap>();
+        if heap.is_null() {
+            return UNSTARTED;
+        }
+        heap
+    }
+    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
     HEAP.try_with(Cell::get).unwrap_or(SYSTEM)
 }
 
@@ -418,8 +545,12 @@ fn heap_here() -> *mut Heap {
 #[cold]
 #[inline(never)]
 fn start_thread() -> *mut Heap {
+    let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
+    if heap != UNSTARTED {
+        return heap;
+    }
     // Registering the exit hook may allocate, and that allocation comes from the system.
-    let _ = HEAP.try_with(|h| h.set(SYSTEM));
+    set_heap(SYSTEM);
     // For good: a tool sees system blocks one by one, and pages as one mapping.
     if valgrind::reroutes() {
         return SYSTEM;
@@ -454,7 +585,7 @@ fn start_thread() -> *mut Heap {
     } else {
         adopted
     };
-    let _ = HEAP.try_with(|h| h.set(heap));
+    set_heap(heap);
     heap
 }
 
@@ -1235,21 +1366,23 @@ mod tests {
         let _one = serial();
         std::thread::spawn(|| {
             assert_eq!(HEAP.with(Cell::get), UNSTARTED);
+            assert_eq!(heap_inline(), UNSTARTED);
             let p = unsafe { Allocator.alloc(layout(40)) };
             assert!(page_of(p).is_some());
             let heap = HEAP.with(Cell::get);
             assert!(heap != UNSTARTED && heap != SYSTEM);
+            assert_eq!(heap_inline(), heap);
             unsafe { Allocator.dealloc(p, layout(40)) };
 
             // As after the thread's exit hook has run, until the heap goes back
             // for the hook to hand on.
-            HEAP.with(|h| h.set(SYSTEM));
+            set_heap(SYSTEM);
             let q = unsafe { Allocator.alloc(layout(40)) };
             assert!(!q.is_null() && page_of(q).is_none());
             unsafe { fill(q, 40, 7) };
             unsafe { check(q, 40, 7) };
             unsafe { Allocator.dealloc(q, layout(40)) };
-            HEAP.with(|h| h.set(heap));
+            set_heap(heap);
         })
         .join()
         .unwrap();
