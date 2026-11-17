@@ -5,6 +5,7 @@ from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
+from "ui/signal" import { signal };
 from "ui/style" import { Style };
 
 fn frame<C>(styles: [Style], children: [Node<C>]): Node<C> {
@@ -123,6 +124,57 @@ fn grey(): Style {
 
 fn blue(): Style {
     .Background(.Rgb(200, 200, 255))
+}
+
+// Moves a box 40 across and 20 down.
+fn moved(): Style {
+    .Translate(.Px(40), .Px(20))
+}
+
+// A grey box 200 by 100 with `extra`.
+fn card<C>(extra: [Style], children: [Node<C>]): Node<C> {
+    frame([.Width(.Px(200)), .Height(.Px(100)), grey(), .Group(extra)], children)
+}
+
+// A blue box 100 by 50 with `extra`.
+fn trigger<C>(extra: [Style], children: [Node<C>]): Node<C> {
+    frame([.Width(.Px(100)), .Height(.Px(50)), blue(), .Group(extra)], children)
+}
+
+// An open dialog 200 by 100.
+fn dialog<C: Ui>(ctx: C, children: [Node<C>]): Node<C> {
+    ui.dialog({
+        isOpen: signal(ctx, true),
+        label: .Const("Pins"),
+        children: children,
+        styles: [.Width(.Px(200)), .Height(.Px(100)), .Background(.Rgb(255, 255, 255))],
+    })
+}
+
+// A red box 40 tall with no width of its own, holding `children`, with
+// `extra`.
+fn fitAround<C>(extra: [Style], children: [Node<C>]): Node<C> {
+    frame([.Height(.Px(40)), .Background(.Rgb(255, 0, 0)), .Group(extra)], children)
+}
+
+// Lays a box out as a wrapping row.
+fn wrapping(): Style {
+    .Group([.Layout(.Row), .Wrap(true)])
+}
+
+// A blue box 10 tall with `extra`, holding `children`.
+fn part<C>(extra: [Style], children: [Node<C>]): Node<C> {
+    frame([.Height(.Px(10)), blue(), .Group(extra)], children)
+}
+
+// A box 50 by 10.
+fn fifty<C>(): Node<C> {
+    frame([.Width(.Px(50)), .Height(.Px(10))], [])
+}
+
+// A blue box half as wide as its parent, beside two boxes 50 wide.
+fn halves<C>(): [Node<C>] {
+    [part([.Width(.Percent(50.0))], []), fifty(), fifty()]
 }
 
 test "bordered-both: both edges measure from inside the border" {
@@ -866,6 +918,553 @@ test "shrink-anchor: a box on an anchor with no width fits the anchor, the twin:
                 fitted(25, 30, 150),
             ],
         ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-around: a box on an anchor ignores a translate around the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-around",
+        card([moved()], [
+            trigger([.Position(.Flow)], [red(20, [.Position(.PinAnchor)])]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-around: a box on an anchor ignores a translate around the anchor, the twin: a box pinned where the anchor is laid out" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-around",
+        frame([.Position(.Flow)], [card([moved()], [trigger([], [])]), red(20, [])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-itself: a box on an anchor ignores the anchor's translate" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-itself",
+        card([.Position(.Flow), moved()], [red(20, [.Position(.PinAnchor)])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-itself: a box on an anchor ignores the anchor's translate, the twin: a box pinned where the anchor is laid out" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-itself",
+        frame([.Position(.Flow)], [card([moved()], []), red(20, [])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-centred: a box on an anchor with no pin centres where the anchor is laid out" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-centred",
+        card([.Position(.Flow), moved()], [loose([.Position(.PinAnchor)])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-centred: a box on an anchor with no pin centres where the anchor is laid out, the twin: a box pinned there" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-centred",
+        frame([.Position(.Flow)], [
+            card([moved()], []),
+            loose([.Pin(.Top, .Px(30)), .Pin(.Start, .Px(85))]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-inside: a box on an anchor ignores a translate inside the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-inside",
+        card([.Position(.Flow)], [
+            trigger([moved()], [red(20, [.Position(.PinAnchor)])]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-inside: a box on an anchor ignores a translate inside the anchor, the twin: a box pinned in the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-inside",
+        card([.Position(.Flow)], [trigger([moved()], []), red(20, [])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-none: a box on an anchor with no Flow box ignores a translate" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-none",
+        card([moved()], [trigger([], [red(20, [.Position(.PinAnchor)])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-none: a box on an anchor with no Flow box ignores a translate, the twin: a box held to the viewport" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-none",
+        frame([], [
+            card([moved()], [trigger([], [])]),
+            red(20, [.Position(.PinViewport)]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-panel: a box on an anchor ignores a translated panel around it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-panel",
+        card([.Position(.Flow)], [
+            trigger(
+                [
+                    .Position(.PinAnchor),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(0)),
+                    moved(),
+                ],
+                [red(20, [.Position(.PinAnchor)])],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-panel: a box on an anchor ignores a translated panel around it, the twin: both pinned in the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-panel",
+        card([.Position(.Flow)], [
+            trigger([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(0)), moved()], []),
+            red(20, []),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-own: a box on an anchor moves by its own translate" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-own",
+        card([.Position(.Flow)], [red(20, [.Position(.PinAnchor), moved()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-translated-own: a box on an anchor moves by its own translate, the twin: a translated box pinned in the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-translated-own",
+        card([.Position(.Flow)], [red(20, [moved()])]),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-translated: a dialog ignores a translate around it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-translated",
+        card([moved()], [dialog(ctx, [red(20, [])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "dialog-translated: a dialog ignores a translate around it, the twin: the dialog outside the translated box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog-translated",
+        frame([], [card([moved()], []), dialog(ctx, [red(20, [])])]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent: a box with no width counts a percentage width child as empty" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent",
+        stage([
+            fitAround(
+                [wrapping(), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))],
+                halves(),
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent: a box with no width counts a percentage width child as empty, the twin: a box 100 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent",
+        stage([
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(20)),
+                    .Width(.Px(100)),
+                ],
+                halves(),
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-content: a box with no width counts a percentage width child by its content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-content",
+        stage([
+            fitAround([wrapping(), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))], [
+                part([.Width(.Percent(50.0))], [
+                    frame([.Width(.Px(80)), .Height(.Px(5))], []),
+                ]),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-content: a box with no width counts a percentage width child by its content, the twin: a box 130 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-content",
+        stage([
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(20)),
+                    .Width(.Px(130)),
+                ],
+                [
+                    part([.Width(.Percent(50.0))], [
+                        frame([.Width(.Px(80)), .Height(.Px(5))], []),
+                    ]),
+                    fifty(),
+                ],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-column: a column with no width counts a percentage width child as empty" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-column",
+        stage([
+            fitAround([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))], [
+                part([.Width(.Percent(50.0))], []),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-column: a column with no width counts a percentage width child as empty, the twin: a column 50 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-column",
+        stage([
+            fitAround([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(20)), .Width(.Px(50))], [
+                part([.Width(.Percent(50.0))], []),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-min: a box with no width counts a percentage minimum as none" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-min",
+        stage([
+            fitAround([wrapping(), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))], [
+                part([.Width(.Px(30)), .MinWidth(.Percent(50.0))], []),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-min: a box with no width counts a percentage minimum as none, the twin: a box 80 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-min",
+        stage([
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(20)),
+                    .Width(.Px(80)),
+                ],
+                [part([.Width(.Px(30)), .MinWidth(.Percent(50.0))], []), fifty()],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-max: a box with no width counts a percentage maximum as none" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-max",
+        stage([
+            fitAround([wrapping(), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))], [
+                part([.Width(.Px(120)), .MaxWidth(.Percent(50.0))], []),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-max: a box with no width counts a percentage maximum as none, the twin: a box 170 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-max",
+        stage([
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(20)),
+                    .Width(.Px(170)),
+                ],
+                [part([.Width(.Px(120)), .MaxWidth(.Percent(50.0))], []), fifty()],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-min: a box with no width holds a child to its minimum" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-min",
+        stage([
+            fitAround([wrapping(), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))], [
+                part([.Width(.Px(30)), .MinWidth(.Px(70))], []),
+                fifty(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-min: a box with no width holds a child to its minimum, the twin: a box 120 wide" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-min",
+        stage([
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(20)),
+                    .Width(.Px(120)),
+                ],
+                [part([.Width(.Px(30)), .MinWidth(.Px(70))], []), fifty()],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-anchor: a box on an anchor with no width counts a percentage width child as empty" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-anchor",
+        card([.Position(.Flow)], [
+            fitAround([wrapping(), .Position(.PinAnchor)], halves()),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-percent-anchor: a box on an anchor with no width counts a percentage width child as empty, the twin: a box 100 wide at the centre of the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-percent-anchor",
+        card([.Position(.Flow)], [
+            fitAround(
+                [
+                    wrapping(),
+                    .Pin(.Top, .Px(30)),
+                    .Pin(.Start, .Px(50)),
+                    .Width(.Px(100)),
+                ],
+                halves(),
+            ),
+        ]),
         .Hover,
         [],
     );

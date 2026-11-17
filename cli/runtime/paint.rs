@@ -3770,7 +3770,12 @@ impl Reach<'_> {
                 }),
                 Err(_) => inner,
             };
-            self.reach(child, from.0, from.1, clip, out);
+            let (x, y) = if styles.get(child).is_some_and(|s| s.escape) {
+                laid_out_from(tree, ids, child)
+            } else {
+                from
+            };
+            self.reach(child, x, y, clip, out);
         }
     }
 }
@@ -4116,6 +4121,24 @@ fn page_box(tree: &TaffyTree<usize>, root: NodeId, id: NodeId) -> Option<[f32; 4
         y += layout.location.y;
     }
     Some([x, y, own.size.width, own.size.height])
+}
+
+/// Where the layout put the corner scene node `index` is placed from: its
+/// `taffy` parent's border box on the page, before any translate. A box in the
+/// top layer paints from there, because a browser moves it by none of its
+/// ancestors' translates and places it against its anchor's box as laid out.
+fn laid_out_from(tree: &TaffyTree<usize>, ids: &[Option<NodeId>], index: usize) -> (f32, f32) {
+    let (mut x, mut y) = (0.0, 0.0);
+    let mut at = ids.get(index).copied().flatten();
+    while let Some(parent) = at.and_then(|id| tree.parent(id)) {
+        let (across, down) = tree
+            .layout(parent)
+            .map_or((0.0, 0.0), |l| (l.location.x, l.location.y));
+        x += across;
+        y += down;
+        at = Some(parent);
+    }
+    (x, y)
 }
 
 /// `id`'s padding box on the page, which is what a pinned box inside it is
@@ -4844,13 +4867,15 @@ impl Painter<'_> {
             // A fixed child hangs off the viewport, so it is neither placed
             // here nor clipped by anything here. A child placed against an
             // anchor (`escape`) is in the top layer: it paints after the whole
-            // page, from the origin it has here but with no clip, so a panel
-            // pinned to a trigger inside a `Scroll` box hangs below the
-            // trigger rather than being cut off at the scroller's edge (#168).
+            // page, with no clip, so a panel pinned to a trigger inside a
+            // `Scroll` box hangs below the trigger rather than being cut off
+            // at the scroller's edge (#168). It paints from where the layout
+            // put its parent, which no translate around it moves.
             //
             // It is placed against its anchor already ([`settle_pins`]).
             if kid.escape {
-                self.anchored.push((child, from.0, from.1));
+                let (x, y) = laid_out_from(self.tree, self.ids, child);
+                self.anchored.push((child, x, y));
                 continue;
             }
             if kid.lifted() || mark.is_some() {

@@ -123,7 +123,8 @@ pub fn placements(case: &Path) -> Vec<(String, String)> {
 /// Each page is mounted the way [`placements`] mounts it. A box is one with
 /// `position: absolute` or `fixed` painted red, read as `red at <x>,<y>
 /// <width>x<height>` from the top left of the box it is placed against, by
-/// `placedAt`. A snapshot with none says `none`.
+/// `placedAt`, then ` moved <x>,<y>` when a translate draws it elsewhere, by
+/// `movedBy`. A snapshot with none says `none`.
 pub fn places(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, &format!("{COLOURS}{HOVERED}{PLACES}"), "place ")
 }
@@ -922,7 +923,9 @@ for (const { root, name, state, tree } of snapshots) {
     own(element, colour);
     if (colour[0] !== "red") continue;
     const { x, y, width, height } = placedAt(element);
-    boxes.push(`red at ${x},${y} ${width}x${height}`);
+    const moved = movedBy(element);
+    const by = moved.x === 0 && moved.y === 0 ? "" : ` moved ${moved.x},${moved.y}`;
+    boxes.push(`red at ${x},${y} ${width}x${height}${by}`);
   }
   console.log(`place ${name}: ${boxes.length === 0 ? "none" : boxes.join(", ")}`);
 }

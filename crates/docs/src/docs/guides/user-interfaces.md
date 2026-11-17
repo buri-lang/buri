@@ -1761,10 +1761,13 @@ The rest is short:
   page, out of every clip, the way a browser's top layer does. So does a
   tooltip's bubble. Its pins place it the way a plain `Pin` would, and an axis
   with no pin is centred on the anchor. With no `Flow` box around it, it is
-  measured from the page.
+  measured from the page. A `.Translate` around it, or on its `Flow` box,
+  doesn't move it, and neither does one around an open dialog.
 - A pinned box with no `.Width` and one side pinned shrinks to fit its content
   in the room between that pin and the far side of the box it is measured
-  from, as a browser does. It is never narrower than its widest child.
+  from, as a browser does. It is never narrower than its widest child. A
+  child's percentage width counts as no width while it fits, then takes its
+  share of the width that came out.
 - A `.Clip` or a `.Scroll` is measured at its own box. It cuts what is under
   it, so what a reader would have to scroll to see is not what the picture is
   tall enough to show.

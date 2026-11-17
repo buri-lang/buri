@@ -48,6 +48,9 @@
 ///    `containingBlock`, by the inset, size and self-alignment it computes to;
 ///  * `clippedBy(element)`, the ancestors whose `overflow` cuts `element`,
 ///    nearest first, which happy-dom paints none of;
+///  * `movedBy(element)`, how far the translates a browser draws `element`
+///    with move it from where the layout put it, which happy-dom draws none
+///    of;
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
@@ -593,6 +596,28 @@ function clippedBy(element) {
   return out;
 }
 
+// How far a browser draws `element` from where the layout put it, `{ x, y }`,
+// by CSS Transforms 1: its own `transform` and each ancestor's added up, each
+// a `translate`, the one transform a page writes. A box in the top layer is
+// moved by none of its ancestors' translates, and its `placedAt` is measured
+// from its anchor's box as laid out, before any translate, so no translate on
+// the anchor or around it moves it either. Safari 26 draws both that way. A
+// percentage is of the moved box's own size.
+function movedBy(element) {
+  const moved = { x: 0, y: 0 };
+  for (let at = element; at !== null && at !== document.documentElement; at = at.parentElement) {
+    const value = getComputedStyle(at).transform;
+    if (!unsetStyle(value)) {
+      const parts = /^translate\(([^,]+),([^)]+)\)$/.exec(value.replace(/\s+/g, ""));
+      if (parts === null) throw new Error(`movedBy: the transform ${value}`);
+      moved.x += lengthIn(parts[1], () => sizeOf(at, "width"));
+      moved.y += lengthIn(parts[2], () => sizeOf(at, "height"));
+    }
+    if (topLayers.includes(at)) break;
+  }
+  return moved;
+}
+
 // Where a browser lays out the out-of-flow box `element`, which happy-dom lays
 // out none of: `{ x, y, width, height }` from the top left of its
 // `containingBlock`, by CSS Positioned Layout 3 and Anchor Positioning 1.
@@ -721,12 +746,20 @@ const inFlow = (element) =>
 // its children in the flow need, side by side in a flex row and one above
 // another otherwise. A row that wraps needs only its widest child at the
 // narrowest. Text has no width here, so it throws.
-function intrinsicWidths(element) {
+//
+// Each box inside the one being fitted (`inside`) is held between its minimum
+// and maximum width. A percentage there would be of a width that depends on
+// it, so CSS Sizing 3 counts it as none while the box is fitted: a width or a
+// maximum as `auto`, and a minimum or a padding as zero. Safari 26 fits a box
+// that way, and only then resolves each percentage against the width it got.
+function intrinsicWidths(element, inside = false) {
   const s = getComputedStyle(element);
-  const own = lengthIn(s.width, () => {
-    throw new Error("placedAt: a percentage width inside a box that shrinks to fit");
-  });
-  if (own !== null) return [own, own];
+  const length = (value, none) =>
+    inside && value.endsWith("%") ? none : lengthIn(value, () => contentOf(element.parentElement, "width"));
+  const clamp = (width) =>
+    inside ? Math.min(length(s.maxWidth, null) ?? Infinity, Math.max(length(s.minWidth, 0) ?? 0, width)) : width;
+  const own = length(s.width, null);
+  if (own !== null) return [clamp(own), clamp(own)];
   if ([...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "")) {
     throw new Error("placedAt: the width of text");
   }
@@ -736,12 +769,13 @@ function intrinsicWidths(element) {
   const gaps = row ? (lengthIn(s.columnGap === "normal" ? "0" : s.columnGap, () => 0) ?? 0) * Math.max(0, children.length - 1) : 0;
   let [least, most] = [0, 0];
   for (const child of children) {
-    const [l, m] = intrinsicWidths(child);
+    const [l, m] = intrinsicWidths(child, true);
     least = row && !wraps ? least + l : Math.max(least, l);
     most = row ? most + m : Math.max(most, m);
   }
-  const edges = padding(element, "width") + borders(element, "width");
-  return [least + (row && !wraps ? gaps : 0) + edges, most + gaps + edges];
+  const pad = sides("width").reduce((sum, side) => sum + (length(s["padding" + side], 0) ?? 0), 0);
+  const edges = pad + borders(element, "width");
+  return [clamp(least + (row && !wraps ? gaps : 0) + edges), clamp(most + gaps + edges)];
 }
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom

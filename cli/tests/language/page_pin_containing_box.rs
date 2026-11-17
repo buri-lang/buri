@@ -21,8 +21,17 @@
 //! ones give "Pinned" no width and three boxes in a wrapping row, so a browser
 //! shrinks it to fit the room beside its inset.
 //!
+//! More of those give a child of "Pinned" a percentage width, minimum or
+//! maximum, which a browser counts as none while it fits "Pinned" to its
+//! content and only then resolves against the width it fitted.
+//!
 //! The clip tests print the boxes whose overflow cuts "Pinned" instead: only
 //! those on its chain of containing blocks do.
+//!
+//! The move tests print how far a `Translate` moves "Pinned" from where it is
+//! placed, too. A box in the top layer, a `PinAnchor` box or a dialog, is
+//! moved by none of its ancestors' translates, and it is placed against its
+//! anchor where the anchor is laid out, before the anchor's own translate.
 
 use super::pages::drive;
 
@@ -179,9 +188,9 @@ fn placed(name: &str, setup: &str, pins: &str) -> String {
     drive(name, &page(setup, pins), SHOW)
 }
 
-/// The same, with "Pinned" holding [`KIDS`].
-fn fitted(name: &str, setup: &str, pins: &str) -> String {
-    drive(name, &page_holding(setup, pins, KIDS), SHOW)
+/// The same, with "Pinned" holding `kids`.
+fn fitted(name: &str, setup: &str, kids: &str, pins: &str) -> String {
+    drive(name, &page_holding(setup, pins, kids), SHOW)
 }
 
 /// One test per setup and pin kind, each expecting `against <box> at <x>,<y>
@@ -270,16 +279,43 @@ const KIDS: &str = r#"box("A", [.Width(.Px(50)), .Height(.Px(10))], []),
                 box("B", [.Width(.Px(50)), .Height(.Px(10))], []),
                 box("C", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
 
-/// One test per setup and pin kind, with "Pinned" holding [`KIDS`] in a
-/// wrapping row and no width, each expecting `against <box> at <x>,<y>
-/// <width>x<height>`.
+/// A box half as wide as "Pinned", beside two boxes 50 wide.
+const HALF: &str = r#"box("A", [.Width(.Percent(50.0)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], []),
+                box("C", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+/// A box half as wide as "Pinned" holding one 80 wide, then one 50 wide.
+const HALF_HOLDING: &str = r#"box("A", [.Width(.Percent(50.0)), .Height(.Px(10))], [
+                    box("D", [.Width(.Px(80)), .Height(.Px(5))], []),
+                ]),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+/// A box half as wide as "Pinned", then one 50 wide.
+const HALF_FIRST: &str = r#"box("A", [.Width(.Percent(50.0)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+/// A box 30 wide and at least half as wide as "Pinned", then one 50 wide.
+const AT_LEAST_HALF: &str = r#"box("A", [.Width(.Px(30)), .MinWidth(.Percent(50.0)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+/// A box 30 wide and at least 70 wide, then one 50 wide.
+const AT_LEAST_70: &str = r#"box("A", [.Width(.Px(30)), .MinWidth(.Px(70)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+/// A box 120 wide and at most half as wide as "Pinned", then one 50 wide.
+const AT_MOST_HALF: &str = r#"box("A", [.Width(.Px(120)), .MaxWidth(.Percent(50.0)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+
+/// One test per setup, children and pin kind, with "Pinned" 40 tall and no
+/// width, each expecting `against <box> at <x>,<y> <width>x<height>`. A
+/// layout of `wrap` makes "Pinned" a wrapping row, and `column` leaves it
+/// the column a stack is.
 macro_rules! fitted {
-    ($($test:ident: $setup:ident, $pins:literal => $expected:literal;)*) => {
+    ($($test:ident: $setup:ident, $kids:ident, $layout:ident, $pins:literal => $expected:literal;)*) => {
         $(
             #[test]
             fn $test() {
-                let pins = concat!(".Layout(.Row), .Wrap(true), .Height(.Px(40)), ", $pins);
-                let placed = fitted(stringify!($test), $setup, pins);
+                let layout = match stringify!($layout) {
+                    "wrap" => ".Layout(.Row), .Wrap(true), ",
+                    _ => "",
+                };
+                let pins = format!("{layout}.Height(.Px(40)), {}", $pins);
+                let placed = fitted(stringify!($test), $setup, $kids, &pins);
                 assert_eq!(placed, concat!("against ", $expected, "\n"));
             }
         )*
@@ -287,16 +323,31 @@ macro_rules! fitted {
 }
 
 fitted! {
-    no_width_fits_beside_a_start_pin_in_a_grandparent: FLOW_GRANDPARENT,
+    no_width_fits_beside_a_start_pin_in_a_grandparent: FLOW_GRANDPARENT, KIDS, wrap,
         ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Grand at 20,0 150x40";
-    no_width_fits_in_the_room_beside_a_start_pin: PARENT,
+    no_width_fits_in_the_room_beside_a_start_pin: PARENT, KIDS, wrap,
         ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(120))" => "Parent at 120,0 80x40";
-    no_width_fits_beside_an_end_pin: PARENT,
+    no_width_fits_beside_an_end_pin: PARENT, KIDS, wrap,
         ".Pin(.Top, .Px(0)), .Pin(.End, .Px(20))" => "Parent at 30,0 150x40";
-    no_width_is_never_narrower_than_its_widest_child: PARENT,
+    no_width_is_never_narrower_than_its_widest_child: PARENT, KIDS, wrap,
         ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(180))" => "Parent at 180,0 50x40";
-    no_width_on_an_anchor_fits_the_anchor: FLOW_GRANDPARENT,
+    no_width_on_an_anchor_fits_the_anchor: FLOW_GRANDPARENT, KIDS, wrap,
         ".Position(.PinAnchor)" => "Grand at 25,30 150x40";
+
+    no_width_counts_a_percentage_width_child_as_empty: PARENT, HALF, wrap,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 100x40";
+    no_width_counts_a_percentage_width_child_by_its_content: PARENT, HALF_HOLDING, wrap,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 130x40";
+    no_width_in_a_column_counts_a_percentage_width_child_as_empty: PARENT, HALF_FIRST, column,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 50x40";
+    no_width_counts_a_percentage_minimum_as_none: PARENT, AT_LEAST_HALF, wrap,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 80x40";
+    no_width_holds_a_child_to_its_minimum: PARENT, AT_LEAST_70, wrap,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 120x40";
+    no_width_counts_a_percentage_maximum_as_none: PARENT, AT_MOST_HALF, wrap,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Parent at 20,0 170x40";
+    no_width_on_an_anchor_counts_a_percentage_width_child_as_empty: FLOW_GRANDPARENT, HALF, wrap,
+        ".Position(.PinAnchor)" => "Grand at 50,30 100x40";
 }
 
 /// Prints the boxes whose overflow cuts "Pinned", nearest first.
@@ -343,4 +394,92 @@ clipped! {
     a_scroll_between_a_pin_and_its_positioned_box_cuts_nothing: SCROLL_BETWEEN => "nothing";
     a_clip_around_a_pin_measured_from_the_viewport_cuts_nothing: CLIP_UNPOSITIONED => "nothing";
     a_clip_outside_a_pins_positioned_box_cuts_it: CLIP_OUTSIDE => "Outer";
+}
+
+/// Prints what "Pinned" is measured from, where it lands, and how far the
+/// translates a browser draws it with move it from there.
+const MOVED: &str = r#"
+const pinned = labelled("Pinned");
+const against = containingBlock(pinned);
+const name = against === null ? "the viewport" : (against.getAttribute("aria-label") ?? `<${against.localName}>`);
+const { x, y, width, height } = placedAt(pinned);
+const moved = movedBy(pinned);
+console.log(`against ${name} at ${x},${y} ${width}x${height} moved ${moved.x},${moved.y}`);
+"#;
+
+/// A translated box around a `Flow` parent.
+const AROUND_FLOW: &str = r#"box("Grand", [.Translate(.Px(40), .Px(20)), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Position(.Flow), .Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A translated `Flow` parent.
+const TRANSLATED_FLOW: &str = r#"box("Grand", [], [
+                box("Parent", [.Position(.Flow), .Translate(.Px(40), .Px(20)), .Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A translated parent inside a `Flow` grandparent.
+const TRANSLATED_IN_FLOW: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Translate(.Px(40), .Px(20)), .Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A translated box with nothing positioned.
+const TRANSLATED_NONE: &str = r#"box("Grand", [.Translate(.Px(40), .Px(20)), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Padding(.Px(8))], [PINNED]),
+            ])"#;
+/// A translated `PinAnchor` box inside a `Flow` grandparent.
+const IN_A_TRANSLATED_PANEL: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Outer", [
+                    .Position(.PinAnchor),
+                    .Pin(.Top, .Px(0)),
+                    .Pin(.Start, .Px(0)),
+                    .Translate(.Px(40), .Px(20)),
+                    .Width(.Px(100)),
+                    .Height(.Px(50)),
+                ], [PINNED]),
+            ])"#;
+/// A dialog's panel inside a translated box.
+const TRANSLATED_DIALOG: &str = r#"box("Grand", [.Translate(.Px(40), .Px(20))], [
+                ui.dialog({
+                    isOpen: signal(ctx, true),
+                    label: .Const("Dialog"),
+                    styles: [.Width(.Px(200)), .Height(.Px(100))],
+                    children: [box("Panel", [.Padding(.Px(8))], [PINNED])],
+                }),
+            ])"#;
+
+/// Placed against an anchor, pinned by an edge in each axis, and translated.
+const ANCHOR_TRANSLATED: &str =
+    ".Position(.PinAnchor), .Pin(.Top, .Px(10)), .Pin(.Start, .Px(20)), \
+                                 .Width(.Px(30)), .Height(.Px(40)), .Translate(.Px(5), .Px(7))";
+
+/// One test per setup and pin kind, each expecting `against <box> at <x>,<y>
+/// <width>x<height> moved <x>,<y>`.
+macro_rules! moved {
+    ($($test:ident: $setup:ident, $pins:ident => $expected:literal;)*) => {
+        $(
+            #[test]
+            fn $test() {
+                let moved = drive(stringify!($test), &page($setup, $pins), MOVED);
+                assert_eq!(moved, concat!("against ", $expected, "\n"));
+            }
+        )*
+    };
+}
+
+moved! {
+    a_pin_moves_with_a_translate_around_its_positioned_box: AROUND_FLOW, EDGES =>
+        "Parent at 20,10 30x40 moved 40,20";
+    a_pin_on_an_anchor_ignores_a_translate_around_the_anchor: AROUND_FLOW, ANCHOR_EDGES =>
+        "Parent at 20,10 30x40 moved 0,0";
+    a_pin_on_an_anchor_ignores_the_anchors_translate: TRANSLATED_FLOW, ANCHOR_EDGES =>
+        "Parent at 20,10 30x40 moved 0,0";
+    no_pin_on_an_anchor_centres_on_it_and_ignores_its_translate: TRANSLATED_FLOW, ANCHOR_CENTRED =>
+        "Parent at 35,5 30x40 moved 0,0";
+    a_pin_on_an_anchor_ignores_a_translate_inside_the_anchor: TRANSLATED_IN_FLOW, ANCHOR_EDGES =>
+        "Grand at 20,10 30x40 moved 0,0";
+    a_pin_on_an_anchor_with_no_flow_ignores_a_translate: TRANSLATED_NONE, ANCHOR_EDGES =>
+        "the viewport at 20,10 30x40 moved 0,0";
+    a_pin_on_an_anchor_ignores_a_translated_panel_around_it: IN_A_TRANSLATED_PANEL, ANCHOR_EDGES =>
+        "Grand at 20,10 30x40 moved 0,0";
+    a_pin_on_an_anchor_moves_by_its_own_translate: FLOW_GRANDPARENT, ANCHOR_TRANSLATED =>
+        "Grand at 20,10 30x40 moved 5,7";
+    a_pin_in_a_dialog_ignores_a_translate_around_the_dialog: TRANSLATED_DIALOG, EDGES =>
+        "Dialog at 20,10 30x40 moved 0,0";
 }

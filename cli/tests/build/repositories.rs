@@ -857,7 +857,8 @@ fn pins_measure_from_the_nearest_positioned_box_in_a_browser() {
 #[test]
 fn pinned_boxes_place_as_a_browser_does() {
     let case = tests_dir().join("repositories/ui/pinned_boxes_place_as_a_browser_does");
-    // Each snapshot's red box: where it lands, and how many boxes cut it.
+    // Each snapshot's red box: where it lands, how far a translate moves
+    // it when one does, and how many boxes cut it.
     let expected: &[(&str, &str, usize)] = &[
         ("bordered-both", "30,10 120x60", 0),
         ("bordered-sizes", "0,0 95x22.5", 0),
@@ -878,6 +879,21 @@ fn pinned_boxes_place_as_a_browser_does() {
         ("shrink-end", "130,0 150x40", 0),
         ("shrink-floor", "280,0 50x40", 0),
         ("shrink-anchor", "25,30 150x40", 0),
+        ("anchor-translated-around", "20,10 30x40", 0),
+        ("anchor-translated-itself", "20,10 30x40", 0),
+        ("anchor-translated-centred", "85,30 30x40", 0),
+        ("anchor-translated-inside", "20,10 30x40", 0),
+        ("anchor-translated-none", "20,10 30x40", 0),
+        ("anchor-translated-panel", "20,10 30x40", 0),
+        ("anchor-translated-own", "20,10 30x40 moved 40,20", 0),
+        ("dialog-translated", "20,10 30x40", 0),
+        ("shrink-percent", "20,0 100x40", 0),
+        ("shrink-percent-content", "20,0 130x40", 0),
+        ("shrink-percent-column", "20,0 50x40", 0),
+        ("shrink-percent-min", "20,0 80x40", 0),
+        ("shrink-percent-max", "20,0 170x40", 0),
+        ("shrink-min", "20,0 120x40", 0),
+        ("shrink-percent-anchor", "50,30 100x40", 0),
     ];
     let twice = |line: &dyn Fn(&str, usize) -> String| -> Vec<(String, String)> {
         expected

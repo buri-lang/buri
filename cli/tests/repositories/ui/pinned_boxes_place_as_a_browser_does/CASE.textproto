@@ -2,10 +2,12 @@
 # measured from inside a border and from boxes sized by their padding and
 # their parent's content, clips between a pinned box and the box it is
 # measured from, which cut nothing, boxes held to the viewport inside a
-# translated or blurred box, boxes on an anchor, and boxes with no width that
-# shrink to fit beside their pins. Each scene shares its golden with a twin
-# that gets the same picture another way. The pages built from these
-# snapshots check where a browser puts each box and what cuts it.
+# translated or blurred box, boxes on an anchor, boxes with no width that
+# shrink to fit beside their pins, whatever percentage widths their children
+# have, and boxes in the top layer, which no translate around them moves.
+# Each scene shares its golden with a twin that gets the same picture another
+# way. The pages built from these snapshots check where a browser puts each
+# box, what moves it and what cuts it.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
@@ -36,3 +38,18 @@ path { path: "lib/pins/test/__snapshots__/shrink-room.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-end.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-floor.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-anchor.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-around.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-itself.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-centred.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-inside.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-none.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-panel.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-translated-own.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/dialog-translated.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent-content.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent-column.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent-min.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent-max.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-min.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-percent-anchor.diff.png"  exists: false }
