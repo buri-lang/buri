@@ -61,8 +61,8 @@ crate-type = ["staticlib"]
 # The runtime's admitted set, in full, and it is **closed**: these seven and
 # nothing else, each optional, each behind one of the three features below.
 # This table declares the network's crates, `core.toml` the ones `lib.rs`'s
-# crate uses (`getrandom`, and `tokio` and `ring` again), and `paint.toml` the
-# painter's three. The set is the three tables together.
+# crate uses (`getrandom`, and `tokio` again), `paint.toml` the painter's
+# three, and `crypto.toml` `ring` again. The set is the four tables together.
 #
 # Six crates for one capability — an asynchronous networking stack — which is
 # a platform interface in exactly the sense the root manifest's bar means, and
@@ -290,6 +290,7 @@ ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
 buri-rt-paint = { path = "paint", default-features = false, optional = true }
+buri-rt-crypto = { path = "crypto", default-features = false, optional = true }
 
 # Four features. Three of them are on and one is off, and the split is the whole
 # of the argument here: a feature is in `default` when turning it off costs a
@@ -381,7 +382,7 @@ buri-rt-paint = { path = "paint", default-features = false, optional = true }
 default = ["net", "crypto", "paint"]
 net = ["buri-rt-core/net", "dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
-crypto = ["buri-rt-core/crypto"]
+crypto = ["buri-rt-core/crypto", "dep:buri-rt-crypto", "buri-rt-crypto/crypto"]
 paint = ["dep:buri-rt-paint", "buri-rt-paint/paint"]
 # Off: the client requests that show Valgrind's tools each block and lock, which
 # `buri`'s own `valgrind` feature turns on (design/native/MEMORY.md §8).
@@ -454,4 +455,4 @@ strip = "none"
 # `paint` are the crates under the archive, `core.toml` and `paint.toml`
 # assembled.
 [workspace]
-members = ["core", "paint"]
+members = ["core", "paint", "crypto"]

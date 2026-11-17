@@ -2557,6 +2557,8 @@ fn the_published_crate_ships_the_runtime() {
         "core.toml",
         "painter.rs",
         "paint.toml",
+        "sealer.rs",
+        "crypto.toml",
         "manifest.lock",
         "switch_macos_arm64.s",
         "switch_linux_arm64.s",

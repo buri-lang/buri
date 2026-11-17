@@ -1,0 +1,25 @@
+# The runtime's sealing and signature checks: `crypto.rs`, as a crate of its own.
+#
+# `cli/build.rs` assembles this file as `crypto/Cargo.toml` beside the
+# archive's `Cargo.toml`, as it does `core.toml`. Only a program that seals,
+# opens or checks a signature names this crate, so only that program's link
+# loads it and `ring` (`design/PERFORMANCE.md` §6.144). `manifest.toml`
+# argues `ring`.
+[package]
+name = "buri-rt-crypto"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+name = "buri_rt_crypto"
+path = "../sealer.rs"
+
+[dependencies]
+buri-rt-core = { path = "../core", default-features = false }
+ring = { version = "0.17", optional = true, default-features = false }
+
+# Chosen by `manifest.toml`'s `crypto`, which turns this on.
+[features]
+crypto = ["dep:ring", "ring/alloc"]

@@ -10155,6 +10155,37 @@ libburi_rt.a
 The kvstore run count doesn't move (1,129,308,071). The same test as §6.142
 fails if the core's closure reaches the painter's crates.
 
+### 6.144 A program that never seals or checks a signature links no `ring`, 2026-11-17
+
+```text
+libburi_rt.a
+  buri_rt.buri_rt_crypto-*.o  sealer.rs: crypto (ring, and its C and assembly members)
+```
+
+- `crypto.rs` was in the core, so every link loaded `ring`'s Rust member and
+  the C and assembly members it needs: about 700 KB of the core's 5.9 MB
+  closure. Now `crypto.rs` is the crate `buri-rt-crypto` (`crypto.toml`),
+  rooted at `sealer.rs`, and the archive links it under `crypto`.
+  `entropy.rs` stays in the core: it needs only `getrandom`.
+- What the core's member pulls in fell from 28 members to 17, and from 5.86 MB
+  to 5.15 MB on macOS.
+- The core still pulls in `tokio` and `mio` (186 KB) through `rt.rs`, whose
+  task table, semaphores and timers are tokio's. Moving them out means a
+  scheduler without tokio, so they stay.
+
+| Goals count, aarch64 Linux, per line | §6.143 | Now |
+| --- | --- | --- |
+| ci dev codegen instructions | 49,469.9 | 49,321.6 |
+| ci dev codegen cost | 75,811.1 | 75,460.5 |
+| monorepo-ci dev codegen instructions | 20,338.3 | 20,276.0 |
+| monorepo-ci test-build dev codegen instructions | 21,701.4 | 21,656.8 |
+
+The §6.142 test, now
+`a_program_that_never_networks_paints_or_seals_links_none_of_them`, fails if
+the core's closure reaches `buri_rt_crypto` or `ring`. The conformance
+corpus's `crypto/seal.buri` and `crypto/signatures.buri` run natively, so a
+program that does seal still links the crate and gets the RFC answers.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

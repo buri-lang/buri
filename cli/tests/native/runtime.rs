@@ -1439,10 +1439,10 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
 }
 
 // ---------------------------------------------------------------------------
-// The network and the painter in crates of their own
+// The network, the painter and the sealing checks in crates of their own
 // ---------------------------------------------------------------------------
 
-/// **A program that neither speaks the network nor paints links neither.**
+/// **A program that never networks, paints or seals links none of them.**
 ///
 /// The linker loads an archive member only for a symbol something it already
 /// loaded needs. Every program loads the runtime's core, `lib.rs`'s crate, so
@@ -1450,12 +1450,13 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
 /// link reads. That closure must hold neither the network's own crate,
 /// `archive.rs`'s, nor TLS, HTTP/2, WebSockets or QUIC
 /// (`design/PERFORMANCE.md` §6.142). Nor may it hold the painter,
-/// `painter.rs`'s crate, or layout, shaping and rasterizing (§6.143).
+/// `painter.rs`'s crate, or layout, shaping and rasterizing (§6.143), nor the
+/// sealing and signature checks, `sealer.rs`'s crate, or `ring` (§6.144).
 ///
 /// The closure is worked out from the archive's symbol table, so it is a count
 /// of what the linker is handed and not a timing.
 #[test]
-fn a_program_that_neither_speaks_the_network_nor_paints_links_neither() {
+fn a_program_that_never_networks_paints_or_seals_links_none_of_them() {
     use std::collections::{HashMap, HashSet};
     if skip() {
         return;
@@ -1549,6 +1550,8 @@ fn a_program_that_neither_speaks_the_network_nor_paints_links_neither() {
         "cosmic_text",
         "swash",
         "tiny_skia",
+        "buri_rt_crypto",
+        "ring",
     ];
     let mut reached: Vec<String> = loaded(&member("buri_rt_core"))
         .into_iter()
@@ -1560,7 +1563,8 @@ fn a_program_that_neither_speaks_the_network_nor_paints_links_neither() {
     assert!(
         reached.is_empty(),
         "every program links the runtime's core, and the core's member reaches {reached:?} in \
-         {}. `lib.rs`'s crate must never name `archive.rs`'s or `painter.rs`'s modules",
+         {}. `lib.rs`'s crate must never name `archive.rs`'s, `painter.rs`'s or `sealer.rs`'s \
+         modules",
         archive.display()
     );
     // Without this the check could pass on a table it misread.
@@ -1579,6 +1583,15 @@ fn a_program_that_neither_speaks_the_network_nor_paints_links_neither() {
                 .iter()
                 .any(|m| crate_of(m) == "tiny_skia"),
             "the painter's member reaches no `tiny_skia` in {}, so this check reads nothing",
+            archive.display()
+        );
+    }
+    if declares("crypto") {
+        assert!(
+            loaded(&member("buri_rt_crypto"))
+                .iter()
+                .any(|m| crate_of(m) == "ring"),
+            "the sealing checks' member reaches no `ring` in {}, so this check reads nothing",
             archive.display()
         );
     }

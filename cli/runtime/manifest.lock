@@ -46,6 +46,7 @@ name = "buri-rt"
 version = "0.3.0"
 dependencies = [
  "buri-rt-core",
+ "buri-rt-crypto",
  "buri-rt-paint",
  "graviola",
  "hyper",
@@ -62,8 +63,15 @@ name = "buri-rt-core"
 version = "0.3.0"
 dependencies = [
  "getrandom 0.4.3",
- "ring",
  "tokio",
+]
+
+[[package]]
+name = "buri-rt-crypto"
+version = "0.3.0"
+dependencies = [
+ "buri-rt-core",
+ "ring",
 ]
 
 [[package]]

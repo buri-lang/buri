@@ -1131,9 +1131,10 @@ fn dependencies_stay_behind_the_bar() {
     // on all three agreeing to the byte on two operating systems.
     // `manifest.toml`'s entries argue each one.
     //
-    // The set is three tables since the runtime became three crates (§6.142
-    // and §6.143 of `design/PERFORMANCE.md`): `manifest.toml`'s, the archive's
-    // own, `core.toml`'s, the crate under it, and `paint.toml`'s, the painter.
+    // The set is four tables since the runtime became four crates (§6.142 to
+    // §6.144 of `design/PERFORMANCE.md`): `manifest.toml`'s, the archive's
+    // own, `core.toml`'s, the crate under it, `paint.toml`'s, the painter, and
+    // `crypto.toml`'s, the sealing and signature checks.
     const RUNTIME_ADMITTED: &[&str] = &[
         "cosmic-text",
         "getrandom",
@@ -1154,6 +1155,8 @@ fn dependencies_stay_behind_the_bar() {
         .expect("cli/runtime/core.toml");
     let paint = std::fs::read_to_string(repo_root().join("cli/runtime/paint.toml"))
         .expect("cli/runtime/paint.toml");
+    let crypto = std::fs::read_to_string(repo_root().join("cli/runtime/crypto.toml"))
+        .expect("cli/runtime/crypto.toml");
     // Each file's third-party declarations. The runtime's own crates reach
     // each other by `path`, and those lines are the whole of it.
     let third_party = |manifest: &str| -> Vec<(String, String)> {
@@ -1162,7 +1165,7 @@ fn dependencies_stay_behind_the_bar() {
             .filter(|(name, line)| {
                 let own = line.contains("path = ");
                 assert!(
-                    !own || name == "buri-rt-core" || name == "buri-rt-paint",
+                    !own || ["buri-rt-core", "buri-rt-paint", "buri-rt-crypto"].contains(&name.as_str()),
                     "the runtime reaches `{name}` by path; only its own crates are declared that way"
                 );
                 !own
@@ -1179,6 +1182,7 @@ fn dependencies_stay_behind_the_bar() {
         .into_iter()
         .chain(third_party(&core))
         .chain(third_party(&paint))
+        .chain(third_party(&crypto))
         .map(|(n, _)| n)
         .collect::<Vec<_>>();
     runtime_deps.sort();
@@ -1193,7 +1197,7 @@ fn dependencies_stay_behind_the_bar() {
     // Every one of them optional, and every one behind the one feature. Two
     // separate facts: `optional = true` is what lets the feature turn it off,
     // and `net = [...]` is what says which feature does.
-    for manifest in [&runtime, &core, &paint] {
+    for manifest in [&runtime, &core, &paint, &crypto] {
         for (name, line) in third_party(manifest) {
             assert!(
                 line.contains("optional = true"),
@@ -1394,13 +1398,14 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         }
         lines
     }
-    // The runtime is two crates, the archive (`manifest.toml`) on the core
-    // (`core.toml`) and the painter (`paint.toml`), and the tests build them
-    // as one: every third-party
-    // dependency of either, and each feature with what both turn on.
+    // The runtime is four crates, the archive (`manifest.toml`) on the core
+    // (`core.toml`), the painter (`paint.toml`) and the sealing and signature
+    // checks (`crypto.toml`), and the tests build them as one: every
+    // third-party dependency of any, and each feature with what all turn on.
     let shipped = read("cli/runtime/manifest.toml");
     let core = read("cli/runtime/core.toml");
     let paint = read("cli/runtime/paint.toml");
+    let crypto = read("cli/runtime/crypto.toml");
     let tested = read("runtime-tests/Cargo.toml");
     let deps = |manifest: &str| -> std::collections::BTreeSet<String> {
         tables(manifest)
@@ -1433,7 +1438,7 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         !deps(&shipped).is_empty(),
         "manifest.toml has no dependencies to compare"
     );
-    let shipped_deps: std::collections::BTreeSet<String> = [&shipped, &core, &paint]
+    let shipped_deps: std::collections::BTreeSet<String> = [&shipped, &core, &paint, &crypto]
         .iter()
         .flat_map(|m| deps(m))
         .collect();
@@ -1441,10 +1446,14 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         deps(&tested),
         shipped_deps,
         "runtime-tests/Cargo.toml's [dependencies] drifted from cli/runtime/manifest.toml's, \
-         core.toml's and paint.toml's together; copy them across"
+         core.toml's, paint.toml's and crypto.toml's together; copy them across"
     );
     let mut shipped_features = features(&shipped);
-    for (name, entries) in features(&core).into_iter().chain(features(&paint)) {
+    for (name, entries) in features(&core)
+        .into_iter()
+        .chain(features(&paint))
+        .chain(features(&crypto))
+    {
         let merged = shipped_features.entry(name).or_default();
         merged.extend(entries);
     }
@@ -1460,7 +1469,7 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         sorted(features(&tested)),
         sorted(shipped_features),
         "runtime-tests/Cargo.toml's [features] drifted from cli/runtime/manifest.toml's, \
-         core.toml's and paint.toml's together; copy them across"
+         core.toml's, paint.toml's and crypto.toml's together; copy them across"
     );
 
     // Every `name`/`version` pair `manifest.lock` pins, `Cargo.lock` pins too.

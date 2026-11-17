@@ -39,9 +39,10 @@
 //! * **The package is assembled in `OUT_DIR`, not checked in.** `cli/runtime/`
 //!   holds the sources, `manifest.toml` and `manifest.lock`; this script copies
 //!   them to `$OUT_DIR/rt-pkg/` as `Cargo.toml`, `Cargo.lock` and the same
-//!   `.rs` files, and builds there. `core.toml` and `paint.toml` become
-//!   `core/Cargo.toml` and `paint/Cargo.toml`, the crates under the archive
-//!   (`design/PERFORMANCE.md` §6.142, §6.143).
+//!   `.rs` files, and builds there. `core.toml`, `paint.toml` and
+//!   `crypto.toml` become `core/Cargo.toml`, `paint/Cargo.toml` and
+//!   `crypto/Cargo.toml`, the crates under the archive
+//!   (`design/PERFORMANCE.md` §6.142 to §6.144).
 //!
 //!   The reason is packaging, and it is the regression this repairs. `cargo
 //!   package` **skips any subdirectory containing a `Cargo.toml`**,
@@ -742,11 +743,16 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
         fail(&format!("could not create {}: {e}", core.display()));
     }
     copy_if_different(&runtime.join("core.toml"), &core.join("Cargo.toml"));
-    let paint = pkg.join("paint");
-    if let Err(e) = std::fs::create_dir_all(&paint) {
-        fail(&format!("could not create {}: {e}", paint.display()));
+    for name in ["paint", "crypto"] {
+        let dir = pkg.join(name);
+        if let Err(e) = std::fs::create_dir_all(&dir) {
+            fail(&format!("could not create {}: {e}", dir.display()));
+        }
+        copy_if_different(
+            &runtime.join(format!("{name}.toml")),
+            &dir.join("Cargo.toml"),
+        );
     }
-    copy_if_different(&runtime.join("paint.toml"), &paint.join("Cargo.toml"));
 
     let entries = match std::fs::read_dir(runtime) {
         Ok(e) => e,
@@ -809,8 +815,10 @@ fn pack_runtime_src(runtime: &Path, out_dir: &Path) {
     if let Ok(core) = std::fs::read(runtime.join("core.toml")) {
         members.push((String::from("core/Cargo.toml"), core));
     }
-    if let Ok(paint) = std::fs::read(runtime.join("paint.toml")) {
-        members.push((String::from("paint/Cargo.toml"), paint));
+    for name in ["paint", "crypto"] {
+        if let Ok(manifest) = std::fs::read(runtime.join(format!("{name}.toml"))) {
+            members.push((format!("{name}/Cargo.toml"), manifest));
+        }
     }
     if let Ok(entries) = std::fs::read_dir(runtime) {
         for entry in entries.flatten() {

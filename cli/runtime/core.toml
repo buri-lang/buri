@@ -9,8 +9,8 @@
 # network's modules (`design/PERFORMANCE.md` §6.142).
 #
 # The crates below are `manifest.toml`'s, under the same bar, and that file
-# argues each one: `tokio` for `rt.rs`, and `ring` and `getrandom` for
-# `crypto.rs` and `entropy.rs`. The painter is `paint.toml`'s crate.
+# argues each one: `tokio` for `rt.rs`, and `getrandom` for `entropy.rs`. The
+# painter is `paint.toml`'s crate, and `crypto.rs` is `crypto.toml`'s.
 [package]
 name = "buri-rt-core"
 version = "0.3.0"
@@ -24,13 +24,12 @@ path = "../lib.rs"
 
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
-ring = { version = "0.17", optional = true, default-features = false }
 getrandom = { version = "0.4", optional = true, default-features = false }
 
 # Chosen by `manifest.toml`'s features of the same names, which turn these on.
 [features]
 net = ["dep:tokio"]
-crypto = ["dep:getrandom", "dep:ring", "ring/alloc"]
+crypto = ["dep:getrandom"]
 # No crate: runtime tests build the painter into `lib.rs`'s crate under it.
 paint = []
 valgrind = []

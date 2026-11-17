@@ -8,7 +8,9 @@
 //! Wycheproof subset.
 //!
 //! Behind the `crypto` feature, beside `entropy.rs`. `ring` is already in every
-//! `net` archive as `rustls`'s provider, so this adds no crate.
+//! `net` archive as `rustls`'s provider, so this adds no crate. The module is
+//! `sealer.rs`'s crate, so only a program that calls it links `ring`
+//! (`design/PERFORMANCE.md` §6.144).
 
 use ring::aead::{Aad, CHACHA20_POLY1305, LessSafeKey, Nonce, UnboundKey};
 use ring::signature::{

@@ -27,3 +27,8 @@ pub use net::*;
 // The painter, linked only when a program names it (`painter.rs`).
 #[cfg(feature = "paint")]
 use buri_rt_paint as _;
+
+// The sealing and signature checks, linked only when a program names them
+// (`sealer.rs`).
+#[cfg(feature = "crypto")]
+use buri_rt_crypto as _;

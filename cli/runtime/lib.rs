@@ -631,7 +631,9 @@ mod child;
 mod coverage;
 /// `core/crypto`'s sealing and signature checks, through `ring`. Behind
 /// `crypto` beside `entropy`, and refused by name the same way without it.
-#[cfg(feature = "crypto")]
+/// They live in `sealer.rs`'s crate (§6.144 of `design/PERFORMANCE.md`);
+/// runtime tests build them here, as one crate.
+#[cfg(all(test, feature = "crypto"))]
 mod crypto;
 /// `platform/effect/testing`'s element document and the readers a `Rendered` answers from
 /// it (issue #53): the arena `render` builds, its `markup`/`text`/`count`/
@@ -711,7 +713,7 @@ pub mod value;
 pub use abort::*;
 pub use bytes::*;
 pub use character::*;
-#[cfg(feature = "crypto")]
+#[cfg(all(test, feature = "crypto"))]
 pub use crypto::*;
 #[cfg(feature = "crypto")]
 pub use entropy::*;
