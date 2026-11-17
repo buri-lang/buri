@@ -515,6 +515,71 @@ fn a_linux_artifact_carries_no_debug_information() {
     }
 }
 
+/// A macOS artifact exports no symbols, whichever linker links it, and still
+/// runs. Nothing loads an executable, and a trie of every unit's functions
+/// was about 6% of a large program's link.
+#[cfg_attr(not(target_os = "macos"), ignore = "not run here: needs a macOS host")]
+#[test]
+fn a_macos_artifact_exports_no_symbols() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    for (linker, program) in [("cc", "cc"), ("lld", "ld64.lld")] {
+        let on_path = std::process::Command::new("sh")
+            .args(["-c", &format!("command -v {program}")])
+            .capped_output()
+            .unwrap()
+            .status
+            .success();
+        if !on_path {
+            ci::missing(
+                "build::build_driver",
+                &format!("`{program}` is not on PATH"),
+            );
+        }
+        scratch
+            .run_with_env(
+                &["build", "--force", "//cmd/app"],
+                &[("BURI_LINKER", linker)],
+            )
+            .ok();
+        let variant = only_entry(&scratch.path(".buri/out/native"));
+        let app = scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"));
+        assert_eq!(
+            macho_exports(&std::fs::read(&app).unwrap()),
+            0,
+            "BURI_LINKER={linker} exported symbols"
+        );
+        let out = std::process::Command::new(&app).capped_output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "native\n",
+            "BURI_LINKER={linker}"
+        );
+    }
+}
+
+/// How many export tries of a 64-bit Mach-O executable name anything, from
+/// `LC_DYLD_EXPORTS_TRIE` or `LC_DYLD_INFO`'s export range. An empty trie is
+/// a root with no terminal and no children, which Apple's linker still writes
+/// and lld leaves out.
+fn macho_exports(macho: &[u8]) -> u32 {
+    let int = |at: usize| u32::from_le_bytes(macho[at..at + 4].try_into().unwrap());
+    let names = |off: u32, size: u32| {
+        let trie = &macho[off as usize..(off + size) as usize];
+        u32::from(trie.iter().take(2).any(|b| *b != 0))
+    };
+    let mut at = 32;
+    let mut tries = 0;
+    for _ in 0..int(16) {
+        match int(at) {
+            0x8000_0033 => tries += names(int(at + 8), int(at + 12)),
+            0x22 | 0x8000_0022 => tries += names(int(at + 40), int(at + 44)),
+            _ => {}
+        }
+        at += int(at + 4) as usize;
+    }
+    tries
+}
+
 /// The section names of a 64-bit little-endian ELF file.
 fn elf_section_names(elf: &[u8]) -> Vec<String> {
     let int = |at: usize, len: usize| -> usize {

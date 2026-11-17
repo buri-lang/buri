@@ -1792,6 +1792,9 @@ impl CDriver {
                 // LC_UUID, and ld64's UUID is a content digest, so keeping it
                 // costs no reproducibility.
                 flags.push("-Wl,-dead_strip".into());
+                // Nothing loads an executable, so it needs no export trie
+                // (design/PERFORMANCE.md §6.150).
+                flags.push("-Wl,-no_exported_symbols".into());
                 // ARCHITECTURE.md §7's third source of nondeterminism, on the
                 // linker's side of it. `ld64` records an `N_OSO` stab naming
                 // every input that carries debug information, as an absolute

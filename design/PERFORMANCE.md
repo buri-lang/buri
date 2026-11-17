@@ -10341,6 +10341,25 @@ a program that serves   111.25 M         108.36 M -2.6%
 `archive_members.rs` holds a program that prints to at most 100 members of
 `libgcc.a`, as `toolchain archive members linked`.
 
+### 6.150 A macOS executable exports no symbols, 2026-11-17
+
+```text
+ld64.lld, bench full    with trie   without   change
+a program of 316 units  944 M       886 M     -6.1%
+a smaller program       781 M       745 M     -4.6%
+a larger program        1083 M      1004 M    -7.3%
+dev codegen per line    145.6 k     143.1 k   -1.7%
+```
+
+Every unit's functions are global, so lld built an export trie of all of
+them: 23 k names and 485 KB in a large program. Nothing loads an executable,
+so macOS links now pass `-no_exported_symbols`. The symbol table stays, so
+backtraces still name functions. The executable shrinks about 2%.
+
+lld leaves the trie out. Apple's linker still writes an empty one, a root with
+no children. `a_macos_artifact_exports_no_symbols` links with both and checks
+that no trie names anything and the program still runs.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
