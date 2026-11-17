@@ -222,3 +222,83 @@ fn the_toolchains_libgcc_is_read_once() {
         let _ = std::fs::remove_dir_all(&home);
     }
 }
+
+/// The member files a build looked for on disk.
+fn checks(counts: &str) -> u64 {
+    count(counts, "archive member files checked")
+}
+
+/// `~/.buri` for one test and backend, emptied.
+fn fresh_home(test: &str, backend: &str) -> PathBuf {
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("archive-members-{}", std::process::id()))
+        .join(format!("{test}-home-{backend}"));
+    let _ = std::fs::remove_dir_all(&home);
+    home
+}
+
+/// **A link looks for the member files no earlier link wrote, and no others.**
+/// The first link under a `~/.buri` writes the members it needs; the next,
+/// in a process of its own, finds them listed there and looks for none.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
+fn member_files_are_looked_for_once() {
+    if !mold_or_missing() {
+        return;
+    }
+    for (backend, mode) in crate::e2e::build_modes() {
+        let home = fresh_home("once", backend);
+        let (_, first) = built("once-first", HELLO, backend, mode, Some(&home));
+        let (binary, second) = built("once-second", HELLO, backend, mode, Some(&home));
+        assert_eq!(printed(&binary), "hello\n", "{backend}");
+        assert_eq!(
+            checks(&first),
+            members(&first),
+            "on {backend}, the first link didn't look for each member it was handed:\n{first}"
+        );
+        assert_eq!(
+            checks(&second),
+            0,
+            "on {backend}, the second link looked for member files again:\n{second}"
+        );
+        assert_eq!(members(&second), members(&first), "{backend}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+/// **Member files deleted from `~/.buri` don't break a build.** The link
+/// after the deletion still links, with the whole archives, and the one after
+/// that writes the members again and is handed them.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
+fn deleted_member_files_are_written_again() {
+    if !mold_or_missing() {
+        return;
+    }
+    for (backend, mode) in crate::e2e::build_modes() {
+        let home = fresh_home("deleted", backend);
+        let (_, first) = built("deleted-first", HELLO, backend, mode, Some(&home));
+        let mut deleted = 0;
+        for dir in std::fs::read_dir(home.join("archive-members")).unwrap() {
+            for file in std::fs::read_dir(dir.unwrap().path()).unwrap() {
+                let path = file.unwrap().path();
+                if path.extension().is_some_and(|e| e == "o") {
+                    std::fs::remove_file(path).unwrap();
+                    deleted += 1;
+                }
+            }
+        }
+        assert_eq!(deleted, members(&first), "{backend}");
+        let (binary, _) = built("deleted-second", HELLO, backend, mode, Some(&home));
+        assert_eq!(printed(&binary), "hello\n", "{backend}");
+        let (binary, third) = built("deleted-third", HELLO, backend, mode, Some(&home));
+        assert_eq!(printed(&binary), "hello\n", "{backend}");
+        assert_eq!(
+            checks(&third),
+            members(&third),
+            "on {backend}, a link after the failed one didn't look for its members:\n{third}"
+        );
+        assert_eq!(members(&third), members(&first), "{backend}");
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}

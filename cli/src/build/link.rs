@@ -1489,86 +1489,193 @@ fn libgcc_needs(driver: &Path) -> Option<Vec<u64>> {
     })
 }
 
-/// Each kept member as a file under `~/.buri/archive-members/`, as its
-/// archive, its absolute path and its length, in member order.
+/// The baked archives cut to the kept members, each as the bytes of a thin
+/// archive naming the members' files under `~/.buri/archive-members/`, in
+/// [`members::ARCHIVES`]'s order, and how many members they name between
+/// them.
 ///
 /// The directory is named by the runtime archive's and the sysroot's
 /// digests, so a member file holds the bytes its name says while it has the
 /// length it was written with. A member is written the first time a link
-/// needs it, and checked once per process.
-fn member_files(index: &members::Index<'_>, kept: &[bool]) -> Option<Vec<(usize, String, usize)>> {
-    static CHECKED: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+/// needs it. Which members are there is kept in the directory's
+/// [`WRITTEN`] file, so a process checks only the members no earlier one
+/// did, rather than every member a link names (`design/PERFORMANCE.md`
+/// §6.148). A link the cut archives fail forgets that file
+/// ([`forget_member_files`]).
+fn cut_archives(
+    index: &members::Index<'_>,
+    kept: &[bool],
+) -> Option<([Vec<u8>; members::ARCHIVES], usize)> {
     let archives = [runtime_native::ARCHIVE, musl::LIBC_A, musl::LIBUNWIND_A];
-    let runtime = crate::build::actions::runtime_archive_hash();
-    let sysroot = musl::sysroot_hash();
-    let dir = std::path::absolute(runtime_cross::buri_home().ok()?)
-        .ok()?
-        .join("archive-members")
-        .join(format!("{}-{}", runtime.get(..16)?, sysroot.get(..16)?));
-    let dir = dir.to_str()?;
-    let mut checked = CHECKED
+    let dir = member_dir()?;
+    let mut checked = MEMBERS_CHECKED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    checked.resize(index.members(), false);
-    let mut files = Vec::new();
+    if checked.len() != index.members() {
+        *checked = vec![false; index.members()];
+        // Written by an earlier process. One of another length is another
+        // index's, and is read as nothing.
+        let written = std::fs::read(dir.join(WRITTEN)).unwrap_or_default();
+        if written.len() == checked.len() {
+            for (slot, byte) in checked.iter_mut().zip(written) {
+                *slot = byte == 1;
+            }
+        }
+    }
+    let prefix = dir.to_str()?.as_bytes();
+    let mut cut: [Thin; members::ARCHIVES] = Default::default();
+    let mut newly = false;
     for (m, _) in kept.iter().enumerate().filter(|(_, &keep)| keep) {
         let (archive, at, len) = index.member(m)?;
-        let path = format!("{dir}/{m}.o");
+        let mut digits = [0; 20];
+        let number = decimal(m, &mut digits);
         let slot = checked.get_mut(m)?;
         if !*slot {
-            let file = Path::new(&path);
-            let there = std::fs::metadata(file).is_ok_and(|meta| meta.len() == len as u64);
+            crate::build::counted::add(crate::build::counted::Count::ArchiveMemberChecks);
+            let mut name = number.to_vec();
+            name.extend_from_slice(b".o");
+            let file = dir.join(std::str::from_utf8(&name).ok()?);
+            let there = std::fs::metadata(&file).is_ok_and(|meta| meta.len() == len as u64);
             if !there {
                 let bytes = archives.get(archive)?.get(at..at.checked_add(len)?)?;
-                crate::build::create_parent(file);
-                replace_with(file, bytes).ok()?;
+                crate::build::create_parent(&file);
+                replace_with(&file, bytes).ok()?;
             }
             *slot = true;
+            newly = true;
         }
-        files.push((archive, path, len));
+        cut.get_mut(archive)?
+            .push(&[prefix, b"/", number, b".o"], len);
     }
-    Some(files)
+    if newly {
+        let written: Vec<u8> = checked.iter().map(|&c| u8::from(c)).collect();
+        // A file that can't be written only costs the next process its checks.
+        let _ = replace_with(&dir.join(WRITTEN), &written);
+    }
+    let count = cut.iter().map(|thin| thin.members.len()).sum();
+    Some((cut.map(Thin::finish), count))
+}
+
+/// The file in a member directory that says which members are there: a byte
+/// per member of the index, 1 for each one written.
+const WRITTEN: &str = "written";
+
+/// Which members this process knows are in [`member_dir`], one flag per
+/// member of the index.
+static MEMBERS_CHECKED: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
+
+/// `~/.buri/archive-members/<runtime16>-<sysroot16>`, absolute.
+fn member_dir() -> Option<PathBuf> {
+    let runtime = crate::build::actions::runtime_archive_hash();
+    let sysroot = musl::sysroot_hash();
+    Some(
+        std::path::absolute(runtime_cross::buri_home().ok()?)
+            .ok()?
+            .join("archive-members")
+            .join(format!("{}-{}", runtime.get(..16)?, sysroot.get(..16)?)),
+    )
+}
+
+/// Forgets which member files are there, after a link the cut archives
+/// failed: the next one checks each member it names again, and writes the
+/// ones that have gone.
+fn forget_member_files() {
+    MEMBERS_CHECKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+    if let Some(dir) = member_dir() {
+        let _ = std::fs::remove_file(dir.join(WRITTEN));
+    }
 }
 
 /// The thin archive [`CDriver::as_one_input`] writes. Every unit's object ends
 /// in `.o`, so no unit can take this name.
 const OBJECTS_ARCHIVE: &str = "objects.a";
 
-/// A GNU thin archive of `members`, each a path and its length: the table of
-/// paths, then one header per member and no contents.
-fn thin_archive<'a>(members: impl Iterator<Item = (&'a str, usize)> + Clone) -> Vec<u8> {
-    let mut paths = String::new();
-    let mut at = Vec::new();
-    for (path, _) in members.clone() {
-        at.push(paths.len());
-        paths.push_str(path);
-        paths.push_str("/\n");
+/// A GNU thin archive being built: the table of member paths, and each
+/// member's place in it and length.
+#[derive(Default)]
+struct Thin {
+    paths: Vec<u8>,
+    members: Vec<(usize, usize)>,
+}
+
+impl Thin {
+    /// Adds a member of `len` bytes, its path the concatenation of `path`.
+    fn push(&mut self, path: &[&[u8]], len: usize) {
+        self.members.push((self.paths.len(), len));
+        for piece in path {
+            self.paths.extend_from_slice(piece);
+        }
+        self.paths.extend_from_slice(b"/\n");
     }
-    let mut out = b"!<thin>\n".to_vec();
-    ar_header(&mut out, format_args!("//"), paths.len());
-    out.extend_from_slice(paths.as_bytes());
-    // Members start on an even offset, so an odd table is padded by a byte.
-    out.extend(std::iter::repeat_n(b'\n', paths.len() % 2));
-    for ((_, len), at) in members.zip(at) {
-        ar_header(&mut out, format_args!("/{at}"), len);
+
+    /// The archive: the table of paths, then one header per member and no
+    /// contents.
+    fn finish(self) -> Vec<u8> {
+        let mut out = b"!<thin>\n".to_vec();
+        ar_header(&mut out, b"//", None, self.paths.len());
+        out.extend_from_slice(&self.paths);
+        // Members start on an even offset, so an odd table is padded by a byte.
+        out.extend(std::iter::repeat_n(b'\n', self.paths.len() % 2));
+        for (at, len) in self.members {
+            ar_header(&mut out, b"/", Some(at), len);
+        }
+        out
     }
-    out
+}
+
+/// `n` in decimal, written into the end of `digits`.
+fn decimal(mut n: usize, digits: &mut [u8; 20]) -> &[u8] {
+    let mut at = digits.len();
+    while let Some(next) = at.checked_sub(1) {
+        at = next;
+        if let Some(d) = digits.get_mut(at) {
+            *d = b'0' | u8::try_from(n % 10).unwrap_or(0);
+        }
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    digits.get(at..).unwrap_or_default()
 }
 
 /// An archive member header with the name and size left blank: time, owner
 /// and group 0, mode 644.
 const AR_HEADER: &[u8; 60] = b"                0           0     0     644               `\n";
 
-/// One 60-byte archive member header, filled into [`AR_HEADER`]: padded
-/// formatting cost about 2,000 instructions a header.
-fn ar_header(out: &mut Vec<u8>, name: std::fmt::Arguments<'_>, size: usize) {
-    use std::io::Write as _;
-    let mut header = *AR_HEADER;
-    let _ = header.get_mut(..16).map(|mut field| field.write_fmt(name));
-    let _ = header
-        .get_mut(48..58)
-        .map(|mut field| write!(field, "{size}"));
-    out.extend_from_slice(&header);
+/// One 60-byte archive member header, filled into [`AR_HEADER`]: `name`, then
+/// `number` in decimal if there is one, and `size`. Formatting the fields
+/// cost about 2,000 instructions a header, and `fmt` about 400.
+fn ar_header(out: &mut Vec<u8>, name: &[u8], number: Option<usize>, size: usize) {
+    let start = out.len();
+    out.extend_from_slice(AR_HEADER);
+    let mut digits = [0; 20];
+    let number = number.map_or(&[][..], |n| decimal(n, &mut digits));
+    let mut size_digits = [0; 20];
+    let size = decimal(size, &mut size_digits);
+    let header = out.get_mut(start..).unwrap_or_default();
+    fill(header.get_mut(..16), &[name, number]);
+    fill(header.get_mut(48..58), &[size]);
+}
+
+/// Copies `pieces` one after another into the start of `field`, leaving off
+/// any that would run past its end.
+fn fill(field: Option<&mut [u8]>, pieces: &[&[u8]]) {
+    let Some(field) = field else { return };
+    let mut at = 0usize;
+    for piece in pieces {
+        let Some(end) = at.checked_add(piece.len()) else {
+            return;
+        };
+        let Some(slot) = field.get_mut(at..end) else {
+            return;
+        };
+        slot.copy_from_slice(piece);
+        at = end;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2190,19 +2297,24 @@ impl CDriver {
             let mut direct = Command::new(&replay.program);
             self.pin(&mut direct);
             direct.args(replay.argv(inputs.as_deref().unwrap_or(&names)));
-            let linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+            let mut linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+            // The whole archives go back, as every other link leaves them.
+            // A link the cut broke, say because a member file was deleted,
+            // runs again with them, so the replay isn't taken for stale, and
+            // the next link checks each member file again. One that can't be
+            // written is the driver's to report.
+            if cut {
+                let _ = self.stage_whole_archives();
+                if !linked {
+                    forget_member_files();
+                    linked = spawn::output(&mut direct).is_ok_and(|done| done.status.success());
+                }
+            }
             // Only this link reads the archive, so it isn't left in the link
             // directory. One that can't be removed is harmless: the next link
             // replaces it.
             if inputs.is_some() {
                 let _ = std::fs::remove_file(self.dir.join(OBJECTS_ARCHIVE));
-            }
-            // The whole archives go back, as every other link leaves them,
-            // and the driver below is handed them, so a link the cut broke
-            // still links. One that can't be written is the driver's to
-            // report.
-            if cut {
-                let _ = self.stage_whole_archives();
             }
             if linked {
                 return self.claim(out);
@@ -2263,11 +2375,11 @@ impl CDriver {
         if self.target.platform != Platform::Linux {
             return None;
         }
-        let members = names
-            .iter()
-            .zip(units)
-            .map(|(n, u)| (n.as_str(), u.bytes.len()));
-        replace_with(&self.dir.join(OBJECTS_ARCHIVE), &thin_archive(members)).ok()?;
+        let mut thin = Thin::default();
+        for (name, unit) in names.iter().zip(units) {
+            thin.push(&[name.as_bytes()], unit.bytes.len());
+        }
+        replace_with(&self.dir.join(OBJECTS_ARCHIVE), &thin.finish()).ok()?;
         Some(
             ["--whole-archive", OBJECTS_ARCHIVE, "--no-whole-archive"]
                 .map(String::from)
@@ -2337,22 +2449,13 @@ impl CDriver {
             members::undefined(&unit.bytes, &mut needs)?;
         }
         let kept = index.keep(needs);
-        let files = member_files(&index, &kept)?;
+        let (cut, count) = cut_archives(&index, &kept)?;
         self.baked_archives()
             .iter()
-            .enumerate()
-            .try_for_each(|(which, path)| {
-                let mine = files.iter().filter(|(archive, _, _)| *archive == which);
-                replace_with(
-                    path,
-                    &thin_archive(mine.map(|(_, file, len)| (file.as_str(), *len))),
-                )
-            })
+            .zip(cut)
+            .try_for_each(|(path, bytes)| replace_with(path, &bytes))
             .ok()?;
-        crate::build::counted::add_n(
-            crate::build::counted::Count::ArchiveMembers,
-            files.len() as u64,
-        );
+        crate::build::counted::add_n(crate::build::counted::Count::ArchiveMembers, count as u64);
         Some(())
     }
 

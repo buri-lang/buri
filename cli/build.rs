@@ -398,6 +398,10 @@ fn archive_index(archives: [&[u8]; members::ARCHIVES], roots: &[&[u8]]) -> Optio
             .iter()
             .flat_map(|&(h, m)| [h as u32, (h >> 32) as u32, m]),
     )?;
+    let bucket_starts = (0..=1usize << members::BUCKET_BITS)
+        .map(|b| u32::try_from(defined.partition_point(|&(h, _)| members::bucket(h) < b)).ok())
+        .collect::<Option<Vec<u32>>>()?;
+    table(bucket_starts.len(), &mut bucket_starts.iter().copied())?;
     Some(words.iter().flat_map(|w| w.to_le_bytes()).collect())
 }
 

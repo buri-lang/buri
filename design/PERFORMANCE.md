@@ -10290,6 +10290,30 @@ it was padded formatting, not the members:
   as `toolchain archive bytes read`, and `archive_members.rs` holds a second
   link to none.
 
+### 6.148 A link looks for each member file once per `~/.buri`, 2026-11-17
+
+```text
+test/one-edit, aarch64 Linux, cachegrind   before      now
+instructions                               30.48 M     29.98 M
+only_needed_members                        0.93 M      0.41 M
+```
+
+Each link used to stat every member it kept, about 360 for a small program,
+and format each one's path twice. Now:
+
+- `~/.buri/archive-members/<key>/written` holds a byte per member, so a link
+  stats only the members no earlier link wrote. `BURI_PROFILE=1` counts
+  those as `archive member files checked`.
+- A link whose cut archives fail, say because someone deleted a member file,
+  runs again with the whole archives and forgets `written`. The next link
+  checks and writes every member again.
+- The thin archives write their paths straight into the name table.
+- The member index splits its sorted symbol hashes into 4,096 buckets by top
+  bits, so a lookup searches about two rows.
+
+`archive_members.rs` holds a second link to no checks, and a link after a
+deletion to every member again.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
