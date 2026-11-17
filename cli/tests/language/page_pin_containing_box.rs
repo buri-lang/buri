@@ -11,7 +11,12 @@
 //! The pin kinds are an edge in each axis, both edges in each axis, and sizes
 //! that are percentages of what the box is measured from. The setups put the
 //! nearest `Position` on the parent, on the grandparent, or nowhere, and put
-//! the pinned box in a table entry, a table row, a table and a dialog.
+//! the pinned box in a table entry, a table row, a table and a dialog. More
+//! setups give the box measured from a border, padding, or a size taken from
+//! its parent's content.
+//!
+//! The clip tests print the boxes whose overflow cuts "Pinned" instead: only
+//! those on its chain of containing blocks do.
 
 use super::pages::drive;
 
@@ -58,6 +63,28 @@ const FLOW_ROW: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Hei
 /// Straight in a table, in a positioned box.
 const TABLE: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
                 table([row([], [entry([])]), PINNED]),
+            ])"#;
+/// A positioned parent with padding and a border, which a pin measures from
+/// inside the border.
+const BORDERED: &str = r#"box("Grand", [], [box("Parent", [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(8)),
+                .BorderWidth(.Px(5)),
+            ], [PINNED])])"#;
+/// A positioned parent as tall as its padding and a box 20 tall in the flow.
+const PADDED_HEIGHT: &str = r#"box("Grand", [], [box("Parent", [.Position(.Flow), .Width(.Px(200)), .Padding(.Px(8))], [
+                box("Filler", [.Height(.Px(20))], []),
+                PINNED,
+            ])])"#;
+/// A positioned parent as wide as its padded grandparent's content.
+const PADDED_WIDTH: &str = r#"box("Grand", [.Width(.Px(200)), .Padding(.Px(8))], [
+                box("Parent", [.Position(.Flow), .Height(.Px(100))], [PINNED]),
+            ])"#;
+/// A positioned parent half as wide as its padded grandparent's content.
+const PADDED_PERCENT: &str = r#"box("Grand", [.Width(.Px(200)), .Padding(.Px(8))], [
+                box("Parent", [.Position(.Flow), .Width(.Percent(50.0)), .Height(.Px(100))], [PINNED]),
             ])"#;
 /// A dialog's panel.
 const DIALOG: &str = r#"ui.dialog({
@@ -175,4 +202,56 @@ placed! {
     edges_in_a_dialog_measure_from_the_dialog: DIALOG, EDGES => "Dialog at 20,10 30x40";
     both_edges_in_a_dialog_measure_from_the_dialog: DIALOG, BOTH => "Dialog at 30,10 954x738";
     sizes_in_a_dialog_measure_from_the_dialog: DIALOG, SIZES => "Dialog at 0,0 512x192";
+
+    both_edges_measure_inside_the_border: BORDERED, BOTH => "Parent at 30,10 120x60";
+    sizes_measure_inside_the_border: BORDERED, SIZES => "Parent at 0,0 95x22.5";
+    both_edges_measure_from_a_box_as_tall_as_its_padding_and_flow: PADDED_HEIGHT, BOTH => "Parent at 30,10 130x6";
+    both_edges_measure_from_a_box_as_wide_as_its_parents_content: PADDED_WIDTH, BOTH => "Parent at 30,10 114x70";
+    sizes_measure_from_a_box_a_percentage_of_its_parents_content: PADDED_PERCENT, SIZES => "Parent at 0,0 46x25";
+}
+
+/// Prints the boxes whose overflow cuts "Pinned", nearest first.
+const CLIPS: &str = r#"
+const names = clippedBy(labelled("Pinned")).map((at) => at.getAttribute("aria-label"));
+console.log(`clipped by ${names.length === 0 ? "nothing" : names.join(", ")}`);
+"#;
+
+/// A `Clip` box between "Pinned" and its positioned grandparent.
+const CLIP_BETWEEN: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Clipper", [.Clip(true), .Width(.Px(50)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A `Scroll` box between "Pinned" and its positioned grandparent.
+const SCROLL_BETWEEN: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Scroller", [.Scroll(.Both), .Width(.Px(50)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A `Clip` box around "Pinned", with nothing positioned.
+const CLIP_UNPOSITIONED: &str = r#"box("Grand", [.Width(.Px(200)), .Height(.Px(100))], [
+                box("Clipper", [.Clip(true), .Width(.Px(50)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A `Clip` box outside the positioned box "Pinned" measures from, and
+/// another inside it.
+const CLIP_OUTSIDE: &str = r#"box("Outer", [.Clip(true), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Grand", [.Position(.Flow), .Width(.Px(300)), .Height(.Px(100))], [
+                    box("Clipper", [.Clip(true), .Width(.Px(50)), .Height(.Px(50))], [PINNED]),
+                ]),
+            ])"#;
+
+/// One test per setup, each expecting `clipped by <boxes>`.
+macro_rules! clipped {
+    ($($test:ident: $setup:ident => $expected:literal;)*) => {
+        $(
+            #[test]
+            fn $test() {
+                let clipped = drive(stringify!($test), &page($setup, EDGES), CLIPS);
+                assert_eq!(clipped, concat!("clipped by ", $expected, "\n"));
+            }
+        )*
+    };
+}
+
+clipped! {
+    a_clip_between_a_pin_and_its_positioned_box_cuts_nothing: CLIP_BETWEEN => "nothing";
+    a_scroll_between_a_pin_and_its_positioned_box_cuts_nothing: SCROLL_BETWEEN => "nothing";
+    a_clip_around_a_pin_measured_from_the_viewport_cuts_nothing: CLIP_UNPOSITIONED => "nothing";
+    a_clip_outside_a_pins_positioned_box_cuts_it: CLIP_OUTSIDE => "Outer";
 }

@@ -46,6 +46,8 @@
 ///  * `placedAt(element)`, where a browser lays out an out-of-flow box,
 ///    which happy-dom leaves out: its offset and size within its
 ///    `containingBlock`, by the inset, size and self-alignment it computes to;
+///  * `clippedBy(element)`, the ancestors whose `overflow` cuts `element`,
+///    nearest first, which happy-dom paints none of;
 ///  * nothing a browser draws none of taking the focus: what is inside a shut
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
@@ -571,6 +573,24 @@ function containingBlock(element) {
   return null;
 }
 
+// The ancestors whose `overflow` cuts `element` in a browser, nearest first,
+// by CSS Overflow 3: those on its chain of containing blocks, which is its
+// parent for a box in the flow and `containingBlock` for one out of it. A box
+// between an out-of-flow box and its containing block cuts nothing, and
+// nothing cuts a box in the top layer or one measured from the viewport.
+function clippedBy(element) {
+  const out = [];
+  for (let at = element; at !== null && !topLayers.includes(at); ) {
+    const position = getComputedStyle(at).position;
+    at = ["absolute", "fixed"].includes(position) ? containingBlock(at) : at.parentElement;
+    if (at === null || at === document.body || at === document.documentElement) break;
+    const s = getComputedStyle(at);
+    // happy-dom leaves the longhands empty under the `overflow` shorthand.
+    if ([s.overflowX, s.overflowY].some((o) => (o || s.overflow || "visible") !== "visible")) out.push(at);
+  }
+  return out;
+}
+
 // Where a browser lays out the out-of-flow box `element`, which happy-dom lays
 // out none of: `{ x, y, width, height }` from the top left of its
 // `containingBlock`, by CSS Positioned Layout 3 and Anchor Positioning 1.
@@ -582,15 +602,18 @@ function containingBlock(element) {
 // Without one, `normal` is `start`, an auto inset leaves the box against
 // its other one, and a box with both insets auto in an axis has a static
 // position this doesn't lay out, so it throws. Lengths are pixels or
-// percentages of the box placed against. A box with no width of its own
-// fills a column's width, or the inset room when it stretches; one with no
-// height is as tall as its children in the flow, or the inset room when it
-// stretches. Left to right and top to bottom only.
+// percentages of the box placed against: its border box under an area, else
+// its padding box, which is where the offsets start too. A box with no width
+// of its own shrinks to fit its content inside the inset room, or fills that
+// room when it stretches; one with no height is as tall as its children in
+// the flow, or the inset room when it stretches. Left to right and top to
+// bottom only.
 function placedAt(element) {
   const s = getComputedStyle(element);
   const area = placedAgainst(element) !== null;
   const against = containingBlock(element);
-  const room = (dimension) => (against === null ? viewport(dimension) : sizeOf(against, dimension));
+  const room = (dimension) =>
+    against === null ? viewport(dimension) : sizeOf(against, dimension) - (area ? 0 : borders(against, dimension));
   const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, s.justifySelf, room("width"), area);
   const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, s.alignSelf, room("height"), area);
   return { x, y, width, height };
@@ -615,7 +638,12 @@ function placedAlong(element, dimension, start, end, align, room, area) {
   else if (over > 0) e -= over;
   const inside = room - s - e;
   const stretches = self === "stretch" || (self === "normal" && !area && from !== null && to !== null);
-  if (size === null) size = stretches ? inside : flowSize(element, dimension);
+  if (size === null && stretches) size = inside;
+  if (size === null && dimension === "width") {
+    const [least, most] = intrinsicWidths(element);
+    size = Math.min(most, Math.max(least, inside));
+  }
+  if (size === null) size = flowSize(element, dimension);
   if (self === "stretch") self = "start";
   if (self === "normal") self = area ? "center" : "start";
   if (!area && from === null) return [room - e - size, size];
@@ -632,30 +660,86 @@ function lengthIn(value, room) {
   if (value === "0" || value.endsWith("px")) return Number.parseFloat(value);
   throw new Error(`placedAt: the length ${value}`);
 }
-// The `dimension` of `element`'s box: where `placedAt` lays it out when it
-// is out of the flow, else its own, else what it takes from the flow.
+// The `dimension` of `element`'s border box: where `placedAt` lays it out
+// when it is out of the flow, else its own, never less than its padding and
+// border, else what it takes from the flow.
 function sizeOf(element, dimension) {
   if (element.parentElement === null) return viewport(dimension);
   const s = getComputedStyle(element);
   if (["absolute", "fixed"].includes(s.position)) return placedAt(element)[dimension];
-  const own = lengthIn(s[dimension], () => sizeOf(element.parentElement, dimension));
-  if (own !== null) return own;
+  const own = lengthIn(s[dimension], () => contentOf(element.parentElement, dimension));
+  if (own !== null) return Math.max(own, padding(element, dimension) + borders(element, dimension));
   return flowSize(element, dimension);
 }
-// The `dimension` a box with none of its own takes from the flow: a column's
-// width, or the heights of its children in the flow added up, or the tallest
-// of them in a table row, whose entries sit side by side.
+// The `dimension` of `element`'s content box, which its children in the flow
+// are laid out in.
+function contentOf(element, dimension) {
+  if (element.parentElement === null) return viewport(dimension);
+  return sizeOf(element, dimension) - padding(element, dimension) - borders(element, dimension);
+}
+// The padding on both sides of `element` along `dimension`.
+function padding(element, dimension) {
+  const s = getComputedStyle(element);
+  const basis = () => contentOf(element.parentElement, "width");
+  return sides(dimension).reduce((sum, side) => sum + (lengthIn(s[`padding${side}`], basis) ?? 0), 0);
+}
+// The border on both sides of `element` along `dimension`: none on a side
+// whose style is `none` or `hidden`, whatever its width says.
+function borders(element, dimension) {
+  const s = getComputedStyle(element);
+  return sides(dimension).reduce((sum, side) => {
+    const style = s[`border${side}Style`];
+    if (unsetStyle(style) || style === "hidden") return sum;
+    return sum + (lengthIn(s[`border${side}Width`], () => 0) ?? 0);
+  }, 0);
+}
+const sides = (dimension) => (dimension === "width" ? ["Left", "Right"] : ["Top", "Bottom"]);
+// The `dimension` a box with none of its own takes from the flow: its parent's
+// content width, or the heights of its children in the flow added up, or the
+// tallest of them in a table row, whose entries sit side by side, plus its own
+// padding and border.
 function flowSize(element, dimension) {
-  if (dimension === "width") return sizeOf(element.parentElement, "width");
+  if (dimension === "width") return contentOf(element.parentElement, "width");
   const row = display(element) === "table-row";
   let total = 0;
-  for (const child of element.children) {
-    const c = getComputedStyle(child);
-    if (["absolute", "fixed"].includes(c.position) || c.display === "none") continue;
+  for (const child of inFlow(element)) {
     const height = sizeOf(child, "height");
     total = row ? Math.max(total, height) : total + height;
   }
-  return total;
+  return total + padding(element, "height") + borders(element, "height");
+}
+// `element`'s children in the flow: neither out of it nor shown as nothing.
+const inFlow = (element) =>
+  [...element.children].filter((child) => {
+    const c = getComputedStyle(child);
+    return !["absolute", "fixed"].includes(c.position) && c.display !== "none";
+  });
+// The narrowest and the widest `element`'s border box gets without its
+// content overflowing, `[min-content, max-content]`: its own width, or what
+// its children in the flow need, side by side in a flex row and one above
+// another otherwise. A row that wraps needs only its widest child at the
+// narrowest. Text has no width here, so it throws.
+function intrinsicWidths(element) {
+  const s = getComputedStyle(element);
+  const own = lengthIn(s.width, () => {
+    throw new Error("placedAt: a percentage width inside a box that shrinks to fit");
+  });
+  if (own !== null) return [own, own];
+  if ([...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "")) {
+    throw new Error("placedAt: the width of text");
+  }
+  const row = /flex/.test(display(element)) && s.flexDirection === "row";
+  const wraps = s.flexWrap === "wrap";
+  const children = inFlow(element);
+  const gaps = row ? (lengthIn(s.columnGap === "normal" ? "0" : s.columnGap, () => 0) ?? 0) * Math.max(0, children.length - 1) : 0;
+  let [least, most] = [0, 0];
+  for (const child of children) {
+    const [l, m] = intrinsicWidths(child);
+    least = row && !wraps ? least + l : Math.max(least, l);
+    most = row ? most + m : Math.max(most, m);
+  }
+  const edges = padding(element, "width") + borders(element, "width");
+  return [least + (row && !wraps ? gaps : 0) + edges, most + gaps + edges];
 }
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom

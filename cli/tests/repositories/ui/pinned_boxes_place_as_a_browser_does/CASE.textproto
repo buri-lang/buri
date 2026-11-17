@@ -1,0 +1,26 @@
+# Pinned boxes the painter once placed or cut where a browser doesn't: pins
+# measured from inside a border and from boxes sized by their padding and
+# their parent's content, and clips between a pinned box and the box it is
+# measured from, which cut nothing. Each scene shares its golden with a twin
+# that gets the same picture another way. The pages built from these
+# snapshots check where a browser puts each box and what cuts it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "pinned boxes the painter once placed or cut where a browser doesn't, each scene beside a twin"
+
+run {
+  args: ["test", "//lib/pins", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/pins/test/__snapshots__/bordered-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/bordered-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/padded-height-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/padded-width-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/padded-percent-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/clip-between.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/scroll-between.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/clip-unpositioned.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/clip-outside.diff.png"  exists: false }

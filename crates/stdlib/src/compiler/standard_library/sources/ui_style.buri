@@ -139,6 +139,7 @@ export enum Style {
     /// Whether children that do not fit start a new line.
     Wrap(Bool),
     /// Which way this container scrolls when its content is larger than it is.
+    /// It cuts what it holds the way `Clip` does.
     Scroll(Axis),
     /// How much of the leftover space along the main axis this child takes,
     /// relative to its siblings. `0` is "none of it".
@@ -311,6 +312,9 @@ export enum Style {
     /// the card's radius off. Nothing here becomes scrollable: `Scroll` is the
     /// property that says content can be reached by scrolling to it, and this
     /// one says it is not painted at all.
+    ///
+    /// A pinned box inside is cut only when the box it's measured from is this
+    /// one or inside it, as in a browser.
     ///
     /// Declared after `Scroll`, which writes the same declaration, so an
     /// element carrying both gets this one's answer — `.Clip(false)` included,

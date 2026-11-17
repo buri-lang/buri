@@ -128,6 +128,15 @@ pub fn places(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, &format!("{COLOURS}{HOVERED}{PLACES}"), "place ")
 }
 
+/// How many boxes cut each of `case`'s snapshots' red boxes out of the flow
+/// in a browser, as `(name, boxes)` pairs in the order the snapshots mounted.
+///
+/// Each box is read as `red cut by <count>`, counting the ancestors
+/// `clippedBy` finds. A snapshot with none says `none`.
+pub fn cuts(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, &format!("{COLOURS}{HOVERED}{CUTS}"), "cut ")
+}
+
 /// What a browser draws for each open dialog's scrim in each of `case`'s
 /// snapshots, as `(name, scrims)` pairs in the order the snapshots mounted.
 ///
@@ -916,6 +925,24 @@ for (const { root, name, state, tree } of snapshots) {
     boxes.push(`red at ${x},${y} ${width}x${height}`);
   }
   console.log(`place ${name}: ${boxes.length === 0 ? "none" : boxes.join(", ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints how many boxes cut each mounted snapshot's red boxes, one `cut
+/// <name>: <boxes>` line each ([`cuts`]).
+const CUTS: &str = r#"
+for (const { root, name, state, tree } of snapshots) {
+  await hovered(state, tree);
+  const boxes = [];
+  for (const element of [root, ...root.querySelectorAll("*")]) {
+    if (!["absolute", "fixed"].includes(getComputedStyle(element).position)) continue;
+    const colour = [];
+    own(element, colour);
+    if (colour[0] !== "red") continue;
+    boxes.push(`red cut by ${clippedBy(element).length}`);
+  }
+  console.log(`cut ${name}: ${boxes.length === 0 ? "none" : boxes.join(", ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

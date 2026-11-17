@@ -669,9 +669,13 @@ fn serving_a_page() {
 /// golden with a twin pinned in the box it is measured from.
 /// `pins_measure_from_the_nearest_positioned_box_in_a_browser` checks each in
 /// happy-dom.
+///
+/// `pinned_boxes_place_as_a_browser_does` holds the pinned boxes the painter
+/// once placed or cut where a browser doesn't, each scene beside a twin. The
+/// test of the same name checks each in happy-dom.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 68);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 69);
 }
 
 /// Every case above that calls `snapshot`, mounted again as a page built for
@@ -844,6 +848,41 @@ fn pins_measure_from_the_nearest_positioned_box_in_a_browser() {
         .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
         .collect();
     assert_eq!(crate::harness::web_pages::places(&case), placed);
+}
+
+/// Where a browser lays out `pinned_boxes_place_as_a_browser_does`'s red
+/// boxes, and how many boxes cut each, read off happy-dom by CSS's rules.
+/// Each scene and its twin come out the same, the way the shared golden
+/// shows them.
+#[test]
+fn pinned_boxes_place_as_a_browser_does() {
+    let case = tests_dir().join("repositories/ui/pinned_boxes_place_as_a_browser_does");
+    // Each snapshot's red box: where it lands, and how many boxes cut it.
+    let expected: &[(&str, &str, usize)] = &[
+        ("bordered-both", "30,10 120x60", 0),
+        ("bordered-sizes", "0,0 95x22.5", 0),
+        ("padded-height-both", "30,10 130x6", 0),
+        ("padded-width-both", "30,10 114x70", 0),
+        ("padded-percent-sizes", "0,0 46x25", 0),
+        ("clip-between", "60,10 30x40", 0),
+        ("scroll-between", "60,10 30x40", 0),
+        ("clip-unpositioned", "60,10 30x40", 0),
+        ("clip-outside", "180,10 30x40", 1),
+    ];
+    let twice = |line: &dyn Fn(&str, usize) -> String| -> Vec<(String, String)> {
+        expected
+            .iter()
+            .flat_map(|(name, at, cuts)| vec![(name.to_string(), line(at, *cuts)); 2])
+            .collect()
+    };
+    assert_eq!(
+        crate::harness::web_pages::places(&case),
+        twice(&|at, _| format!("red at {at}"))
+    );
+    assert_eq!(
+        crate::harness::web_pages::cuts(&case),
+        twice(&|_, cuts| format!("red cut by {cuts}"))
+    );
 }
 
 /// What a browser draws for each scrim in `a_dialog_scrim_draws_its_styles`,

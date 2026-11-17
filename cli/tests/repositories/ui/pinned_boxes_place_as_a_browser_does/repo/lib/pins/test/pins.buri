@@ -1,0 +1,450 @@
+// Pinned boxes the painter once placed or cut where a browser doesn't. Each
+// scene shares its golden with a twin that gets the same picture another way.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+fn frame<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: styles, children: children })
+}
+
+// A positioned box 300 by 200 at the page's corner.
+fn stage<C>(children: [Node<C>]): Node<C> {
+    frame([.Position(.Flow), .Width(.Px(300)), .Height(.Px(200))], children)
+}
+
+// A transparent box pinned over `width` by `height` at `start`, `top`.
+fn over<C>(
+    start: Int,
+    top: Int,
+    width: Int,
+    height: Int,
+    children: [Node<C>],
+): Node<C> {
+    frame(
+        [
+            .Pin(.Top, .Px(top)),
+            .Pin(.Start, .Px(start)),
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+        ],
+        children,
+    )
+}
+
+// A red box 30 by 40, pinned 10 down and `start` across.
+fn red<C>(start: Int): Node<C> {
+    frame(
+        [
+            .Pin(.Top, .Px(10)),
+            .Pin(.Start, .Px(start)),
+            .Width(.Px(30)),
+            .Height(.Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        [],
+    )
+}
+
+// A red box pinned by both edges in each axis.
+fn both<C>(): Node<C> {
+    frame(
+        [
+            .Pin(.Top, .Px(10)),
+            .Pin(.Bottom, .Px(20)),
+            .Pin(.Start, .Px(30)),
+            .Pin(.End, .Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        [],
+    )
+}
+
+// A red box at the corner, sized by percentages.
+fn sizes<C>(): Node<C> {
+    frame(
+        [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Percent(50.0)),
+            .Height(.Percent(25.0)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        [],
+    )
+}
+
+fn grey(): Style {
+    .Background(.Rgb(220, 220, 220))
+}
+
+fn blue(): Style {
+    .Background(.Rgb(200, 200, 255))
+}
+
+test "bordered-both: both edges measure from inside the border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "bordered-both",
+        stage([
+            frame(
+                [
+                    .Position(.Flow),
+                    .Width(.Px(200)),
+                    .Height(.Px(100)),
+                    .Padding(.Px(8)),
+                    .BorderWidth(.Px(5)),
+                    grey(),
+                ],
+                [both()],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "bordered-both: both edges measure from inside the border, the twin: a box pinned over the padding box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "bordered-both",
+        stage([
+            frame(
+                [
+                    .Width(.Px(200)),
+                    .Height(.Px(100)),
+                    .Padding(.Px(8)),
+                    .BorderWidth(.Px(5)),
+                    grey(),
+                ],
+                [],
+            ),
+            over(5, 5, 190, 90, [both()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "bordered-sizes: sizes are percentages of the box inside the border" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "bordered-sizes",
+        stage([
+            frame(
+                [
+                    .Position(.Flow),
+                    .Width(.Px(200)),
+                    .Height(.Px(100)),
+                    .Padding(.Px(8)),
+                    .BorderWidth(.Px(5)),
+                    grey(),
+                ],
+                [sizes()],
+            ),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "bordered-sizes: sizes are percentages of the box inside the border, the twin: a box pinned over the padding box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "bordered-sizes",
+        stage([
+            frame(
+                [
+                    .Width(.Px(200)),
+                    .Height(.Px(100)),
+                    .Padding(.Px(8)),
+                    .BorderWidth(.Px(5)),
+                    grey(),
+                ],
+                [],
+            ),
+            over(5, 5, 190, 90, [sizes()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-height-both: both edges measure from a box as tall as its padding and flow" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-height-both",
+        stage([
+            frame([.Position(.Flow), .Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame([.Height(.Px(20))], []),
+                both(),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-height-both: both edges measure from a box as tall as its padding and flow, the twin: a box pinned over it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-height-both",
+        stage([
+            frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame([.Height(.Px(20))], []),
+            ]),
+            over(0, 0, 200, 36, [both()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-width-both: both edges measure from a box as wide as its parent's content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-width-both",
+        stage([
+            frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame([.Position(.Flow), .Height(.Px(100)), blue()], [both()]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-width-both: both edges measure from a box as wide as its parent's content, the twin: a box pinned over it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-width-both",
+        stage([
+            frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame([.Height(.Px(100)), blue()], []),
+            ]),
+            over(8, 8, 184, 100, [both()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-percent-sizes: sizes measure from a box a percentage of its parent's content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-percent-sizes",
+        stage([
+            frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame(
+                    [
+                        .Position(.Flow),
+                        .Width(.Percent(50.0)),
+                        .Height(.Px(100)),
+                        blue(),
+                    ],
+                    [sizes()],
+                ),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "padded-percent-sizes: sizes measure from a box a percentage of its parent's content, the twin: a box pinned over it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-percent-sizes",
+        stage([
+            frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
+                frame([.Width(.Percent(50.0)), .Height(.Px(100)), blue()], []),
+            ]),
+            over(8, 8, 92, 100, [sizes()]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-between: a clip between a pinned box and its positioned box cuts nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-between",
+        stage([
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [red(60)]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-between: a clip between a pinned box and its positioned box cuts nothing, the twin: the box pinned beside the clip" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-between",
+        stage([
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
+            red(60),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "scroll-between: a scroll between a pinned box and its positioned box cuts nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "scroll-between",
+        stage([
+            frame([.Scroll(.Both), .Width(.Px(50)), .Height(.Px(50)), blue()], [
+                red(60),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "scroll-between: a scroll between a pinned box and its positioned box cuts nothing, the twin: the box pinned beside the scroll" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "scroll-between",
+        stage([
+            frame([.Scroll(.Both), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
+            red(60),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-unpositioned: a clip around a box pinned to the page cuts nothing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-unpositioned",
+        frame([], [
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [red(60)]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-unpositioned: a clip around a box pinned to the page cuts nothing, the twin: the box pinned beside the clip" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-unpositioned",
+        frame([], [
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
+            red(60),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-outside: a clip outside a pinned box's positioned box cuts it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-outside",
+        frame([.Clip(true), .Width(.Px(200)), .Height(.Px(100))], [
+            frame([.Position(.Flow), .Width(.Px(300)), .Height(.Px(100))], [
+                frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [
+                    red(180),
+                ]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "clip-outside: a clip outside a pinned box's positioned box cuts it, the twin: the box pinned beside the inner clip" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "clip-outside",
+        frame([.Clip(true), .Width(.Px(200)), .Height(.Px(100))], [
+            frame([.Position(.Flow), .Width(.Px(300)), .Height(.Px(100))], [
+                frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
+                red(180),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}

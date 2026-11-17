@@ -251,7 +251,9 @@
 //! `overflow` but `visible` — the `clip` a
 //! `Clip` writes and the `auto` a `Scroll` writes alike — clips to the box's
 //! own rounded shape, which is what lets a card cut a full-bleed child to its
-//! corners. Both are stated at [`blur`] and [`intersect`].
+//! corners. Both are stated at [`blur`] and [`intersect`]. A pinned box is
+//! cut where the box it is measured from is cut, and not by a clipping box
+//! between the two, as in a browser.
 //!
 //! # Errors
 //!
@@ -438,10 +440,10 @@ pub fn raster(request: &Request) -> Result<Pixmap, String> {
     // An icon's artwork is in the tree, so a token in a drawing's paint is
     // worth what the themes say, as it is in a declaration.
     for node in &mut scene.nodes {
-        if let Some(Art::Artwork(artwork)) = &mut node.picture {
-            if let Cow::Owned(resolved) = substitute(artwork, &variables) {
-                *artwork = resolved;
-            }
+        if let Some(Art::Artwork(artwork)) = &mut node.picture
+            && let Cow::Owned(resolved) = substitute(artwork, &variables)
+        {
+            *artwork = resolved;
         }
     }
 
@@ -3403,7 +3405,7 @@ fn paint_with(
                 across_page,
                 AvailableSpace::MaxContent,
             )?;
-            let flow = reach_of(scene, styles, &tree, &ids, &[]);
+            let flow = reach_of(scene, styles, &tree, &ids, &[], &pins);
             // **Rounded up, never to the nearest.** A flex item's
             // `flex-shrink` is 1, so a page half a pixel shorter than the flow
             // it holds squeezes the whole tree by half a pixel — and [`px`]
@@ -3447,7 +3449,7 @@ fn paint_with(
     // `fit` scene draws is ever cut off — up to the largest canvas there is.
     let (mut wide, mut tall) = (scene.width, px(down).max(0) as u32);
     if scene.height.is_none() {
-        let all = reach_of(scene, styles, &tree, &ids, &fixed);
+        let all = reach_of(scene, styles, &tree, &ids, &fixed, &pins);
         wide = wide.max(all.r.max(0) as u32).min(MAX_VIEWPORT);
         tall = tall.max(all.b.max(0) as u32).min(MAX_VIEWPORT);
     }
@@ -3478,6 +3480,8 @@ fn paint_with(
         deferred: Vec::new(),
         raised: Vec::new(),
         anchored: Vec::new(),
+        pins: &pins,
+        clips: vec![None; scene.nodes.len()],
     };
     for &index in &scene.roots {
         let Some(style) = styles.get(index) else {
@@ -3600,6 +3604,7 @@ fn reach_of(
     tree: &TaffyTree<usize>,
     ids: &[Option<NodeId>],
     fixed: &[usize],
+    pins: &[Repinned],
 ) -> Box2 {
     let mut out = Box2 {
         l: 0,
@@ -3613,6 +3618,8 @@ fn reach_of(
         styles,
         tree,
         ids,
+        pins,
+        clips: std::cell::RefCell::new(vec![None; scene.nodes.len()]),
     };
     for &index in &scene.roots {
         if lifted(index) {
@@ -3633,6 +3640,10 @@ struct Reach<'a> {
     styles: &'a [Computed],
     tree: &'a TaffyTree<usize>,
     ids: &'a [Option<NodeId>],
+    /// [`Painter::pins`], and the clip each box they measure from hands its
+    /// children, as [`Painter::clips`].
+    pins: &'a [Repinned],
+    clips: std::cell::RefCell<Vec<Option<Option<Box2>>>>,
 }
 
 impl Reach<'_> {
@@ -3648,6 +3659,8 @@ impl Reach<'_> {
             styles,
             tree,
             ids,
+            pins,
+            ..
         } = *self;
         let (Some(node), Some(style), Some(&Some(id))) =
             (scene.node(index), styles.get(index), ids.get(index))
@@ -3701,6 +3714,11 @@ impl Reach<'_> {
         } else {
             clip
         };
+        if pins.iter().any(|pin| pin.against == Some(index))
+            && let Some(slot) = self.clips.borrow_mut().get_mut(index)
+        {
+            *slot = Some(inner);
+        }
         let from = children_origin(style, tree, id, (x + across, y + down), (left, top));
         for &child in &node.children {
             // A fixed child hangs off the page rather than off this box, so it is
@@ -3708,7 +3726,15 @@ impl Reach<'_> {
             if styles.get(child).is_some_and(|s| s.fixed) {
                 continue;
             }
-            self.reach(child, from.0, from.1, inner, out);
+            // A pinned child is clipped where the box it is measured from is.
+            let clip = match pins.binary_search_by_key(&child, |pin| pin.index) {
+                Ok(at) => pins.get(at).and_then(|pin| {
+                    pin.against
+                        .and_then(|from| self.clips.borrow().get(from).copied().flatten().flatten())
+                }),
+                Err(_) => inner,
+            };
+            self.reach(child, from.0, from.1, clip, out);
         }
     }
 }
@@ -4314,9 +4340,30 @@ struct Painter<'a> {
     /// after the whole page, out of every clip, with the open dialogs
     /// ([`Painter::top_layer`]).
     anchored: Vec<(usize, f32, f32)>,
+    /// The pinned boxes measured from a box other than their parent
+    /// ([`repinned`]), by scene index.
+    pins: &'a [Repinned],
+    /// One slot per scene node: the clip a box that [`pins`](Self::pins)
+    /// measures from hands its children, once it is painted. A pinned box is
+    /// clipped where the box it is measured from would clip it, not by a
+    /// `Clip` or `Scroll` box between the two, as in a browser.
+    clips: Vec<Option<Option<Mask>>>,
 }
 
 impl Painter<'_> {
+    /// The clip a lifted `child` of a box that clips to `inner` is drawn
+    /// with: the one the box it is measured from hands its children, or none
+    /// when that is the page.
+    fn clip_for(&self, child: usize, inner: Option<&Mask>) -> Option<Mask> {
+        match self.pins.binary_search_by_key(&child, |pin| pin.index) {
+            Ok(at) => self.pins.get(at).and_then(|pin| {
+                pin.against
+                    .and_then(|from| self.clips.get(from).cloned().flatten().flatten())
+            }),
+            Err(_) => inner.cloned(),
+        }
+    }
+
     /// Holds a lifted box back until its stacking context closes
     /// ([`Painter::close`]), with the origin, clip and list mark it would
     /// have painted with in the flow.
@@ -4584,6 +4631,11 @@ impl Painter<'_> {
         } else {
             clip
         };
+        if self.pins.iter().any(|pin| pin.against == Some(index))
+            && let Some(slot) = self.clips.get_mut(index)
+        {
+            *slot = Some(inner.cloned());
+        }
         if let Some(art) = node.picture.as_ref() {
             // Inside its own padding and border, which is where a browser draws
             // a picture: the box a drawing fills is the content box. Without it
@@ -4657,7 +4709,8 @@ impl Painter<'_> {
                 if kid.fixed {
                     self.hold(child, (0.0, 0.0), None, None);
                 } else {
-                    self.hold(child, from, inner.cloned(), mark);
+                    let clip = self.clip_for(child, inner);
+                    self.hold(child, from, clip, mark);
                 }
                 continue;
             }
