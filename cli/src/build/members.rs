@@ -185,9 +185,7 @@ impl<'a> Index<'a> {
             defined: table(3)?,
             buckets: table(1)?,
         };
-        let shaped = index.starts.len() / 4 == index.members() + 1
-            && index.buckets.len() / 4 == (1 << BUCKET_BITS) + 1;
-        shaped.then_some(index)
+        (index.starts.len() / 4 == index.members() + 1).then_some(index)
     }
 
     /// How many members the archives hold between them.

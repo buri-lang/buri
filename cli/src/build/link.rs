@@ -1584,9 +1584,7 @@ fn forget_member_files() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clear();
-    if let Some(dir) = member_dir() {
-        let _ = std::fs::remove_file(dir.join(WRITTEN));
-    }
+    let _ = member_dir().map(|dir| std::fs::remove_file(dir.join(WRITTEN)));
 }
 
 /// The thin archive [`CDriver::as_one_input`] writes. Every unit's object ends
@@ -1628,14 +1626,12 @@ impl Thin {
 
 /// `n` in decimal, written into the end of `digits`.
 fn decimal(mut n: usize, digits: &mut [u8; 20]) -> &[u8] {
-    let mut at = digits.len();
-    while let Some(next) = at.checked_sub(1) {
-        at = next;
-        if let Some(d) = digits.get_mut(at) {
-            *d = b'0' | u8::try_from(n % 10).unwrap_or(0);
-        }
+    let mut at = 0;
+    for (i, d) in digits.iter_mut().enumerate().rev() {
+        *d = b'0' | u8::try_from(n % 10).unwrap_or(0);
         n /= 10;
         if n == 0 {
+            at = i;
             break;
         }
     }
@@ -1650,31 +1646,21 @@ const AR_HEADER: &[u8; 60] = b"                0           0     0     644      
 /// `number` in decimal if there is one, and `size`. Formatting the fields
 /// cost about 2,000 instructions a header, and `fmt` about 400.
 fn ar_header(out: &mut Vec<u8>, name: &[u8], number: Option<usize>, size: usize) {
-    let start = out.len();
-    out.extend_from_slice(AR_HEADER);
+    let mut header = *AR_HEADER;
     let mut digits = [0; 20];
     let number = number.map_or(&[][..], |n| decimal(n, &mut digits));
     let mut size_digits = [0; 20];
     let size = decimal(size, &mut size_digits);
-    let header = out.get_mut(start..).unwrap_or_default();
-    fill(header.get_mut(..16), &[name, number]);
-    fill(header.get_mut(48..58), &[size]);
+    fill(header.iter_mut().take(16), &[name, number]);
+    fill(header.iter_mut().skip(48).take(10), &[size]);
+    out.extend_from_slice(&header);
 }
 
-/// Copies `pieces` one after another into the start of `field`, leaving off
-/// any that would run past its end.
-fn fill(field: Option<&mut [u8]>, pieces: &[&[u8]]) {
-    let Some(field) = field else { return };
-    let mut at = 0usize;
-    for piece in pieces {
-        let Some(end) = at.checked_add(piece.len()) else {
-            return;
-        };
-        let Some(slot) = field.get_mut(at..end) else {
-            return;
-        };
-        slot.copy_from_slice(piece);
-        at = end;
+/// Copies `pieces` one after another into `field`, leaving off whatever would
+/// run past its end.
+fn fill<'a>(field: impl Iterator<Item = &'a mut u8>, pieces: &[&[u8]]) {
+    for (slot, &byte) in field.zip(pieces.iter().copied().flatten()) {
+        *slot = byte;
     }
 }
 
