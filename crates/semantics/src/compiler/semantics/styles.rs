@@ -407,6 +407,7 @@ fn variable_rules(variant: usize) -> Vec<StyleRule> {
         59 => ("bdblur", &[], "backdrop-filter:$"),
         60 => ("caret", &[], "caret-color:$"),
         STYLE_ANIMATION => ("anim", &[], "animation:$"),
+        66 => ("order", &[], "order:$"),
         _ => return Vec::new(),
     };
     // `Shadows` writes `Shadow`'s declaration, so its rule sorts as one.
@@ -4167,6 +4168,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                 .get(which)
                 .copied()?;
             Some(("overscroll", key.into(), one("overscroll-behavior", css)))
+        }
+        // Negative too: it places a box ahead of its siblings.
+        66 => {
+            let n = first?.as_int()?;
+            Some(("order", integer_key(n), one("order", &n.to_string())))
         }
         _ => None,
     }

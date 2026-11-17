@@ -5179,6 +5179,7 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         },
         .CaretColor(color) => readBy(ctx, 12000, "caret", colorCss(ctx, color)),
         .Animation(motion) => readBy(ctx, 12400, "anim", animationCss(motion)),
+        .Order(n) => readBy(ctx, 13200, "order", str.fromInt(ctx, n)),
         _ => .None,
     }
 }

@@ -444,7 +444,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 60 properties and five ways of composing them. Every property is
+`ui/style` is 61 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -474,6 +474,30 @@ document's order alone — the order the caller wrote, and the order a screen
 reader and the tab ring read — so a toaster grows from the bottom and a dialog
 footer puts the confirming action on top without the caller reordering anything.
 A grid does not reverse: its children go in the tracks the container named.
+
+`Order(Int)` moves one child of a stack or a grid instead of all of them:
+lowest first, `0` by default. Inside `At`, it puts a chart after its form on a
+phone and back in tree order from `.Large` up. Like a reversed stack, it moves
+only the layout and the paint, so a screen reader and the tab ring still read
+the tree's order.
+
+```buri
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+export fn inputsAndChart<C>(chart: Node<C>, form: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .At(.Large, [.Layout(.Row)])],
+        children: [
+            ui.stack({
+                styles: [.Order(1), .At(.Large, [.Order(0)])],
+                children: [chart],
+            }),
+            form,
+        ],
+    })
+}
+```
 
 `Bleed(Edge, Length)` is the one way *out* of the box a container put a child
 in, and it is a distance outwards rather than a margin: `.Auto` and a negative

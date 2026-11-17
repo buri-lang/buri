@@ -82,6 +82,7 @@ fn kind(s: Style): Str {
         .Removed(_) => "Removed",
         .Figures(_) => "Figures",
         .Overscroll(_) => "Overscroll",
+        .Order(_) => "Order",
     }
 }
 
@@ -234,6 +235,7 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.Removed(true)), "Removed");
     assert.equal(kind(.Figures(.Tabular)), "Figures");
     assert.equal(kind(.Overscroll(.Contain)), "Overscroll");
+    assert.equal(kind(.Order(1)), "Order");
 }
 
 test "a matched static style binds its payload" {
@@ -1791,5 +1793,44 @@ test "an overscroll known only at run time is its class" {
     assert.equal(
         painted(ctx, [.Overscroll(late(ctx, .Chain))]),
         "e 0 class:overscroll-chain",
+    );
+}
+
+test "an order is a class in the stylesheet, under a breakpoint too" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.Group([.Order(1), .At(.Large, [.Order(0)])]))).markup(),
+        "e 0 class:order-1 lg_order-0",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".order-1{order:1}"));
+    assert.isTrue(sheet.contains(".lg_order-0{order:0}"));
+}
+
+test "a negative order is a class of its own" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(render(ctx, boxed(.Order(-2))).markup(), "e 0 class:order-n2");
+    assert.isTrue(stylesheet().contains(".order-n2{order:-2}"));
+}
+
+test "an order known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Order(late(ctx, 3))]),
+        "e 0 class:order-var;--buri-order:3",
+    );
+    assert.equal(
+        painted(ctx, [.Order(late(ctx, -1))]),
+        "e 0 class:order-var;--buri-order:-1",
     );
 }

@@ -535,6 +535,7 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Contain => "contain",
             })
         },
+        .Order(n) => .Atom(66, 0, "order", integerKey(ctx, n)),
         // `When` and `Computed`, which are decided as the program runs, and
         // classes already made.
         _ => .Unsettled,

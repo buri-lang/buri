@@ -681,6 +681,11 @@ fn serving_a_page() {
 /// `a_rail_keeps_its_overscroll` is a sticky side rail that scrolls on its own
 /// and keeps its overscroll (#355). The painter draws no scroll gesture, so the
 /// test of the same name checks the `overscroll-behavior` happy-dom computes.
+///
+/// `a_chart_follows_its_form_on_a_phone` is a header, a chart, a form and a
+/// footer, the chart ordered last on a phone and back in tree order from
+/// `.Large` up (#358). The test of the same name checks the boxes happy-dom
+/// lays out at each width.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 69);
@@ -1076,6 +1081,25 @@ fn a_rail_keeps_its_overscroll() {
         .map(|(name, values)| format!("{name}: {values}"))
         .collect();
     assert_eq!(shown, ["rail: div=contain"]);
+}
+
+/// The boxes a browser lays out in `a_chart_follows_its_form_on_a_phone`'s
+/// dashboard at each snapshot's width, in the order it places them: what the
+/// painter drew.
+#[test]
+fn a_chart_follows_its_form_on_a_phone() {
+    let case = tests_dir().join("repositories/ui/a_chart_follows_its_form_on_a_phone");
+    let shown: Vec<String> = crate::harness::web_pages::laid_out(&case)
+        .iter()
+        .map(|(name, boxes)| format!("{name}: {boxes}"))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            "dashboard-phone: Header | Form | Footer | Chart",
+            "dashboard-laptop: Header | Chart | Form | Footer",
+        ]
+    );
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

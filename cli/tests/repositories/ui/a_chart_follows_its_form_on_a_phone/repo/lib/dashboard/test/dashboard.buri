@@ -1,0 +1,29 @@
+// One dashboard on a phone and on a laptop.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "//lib/dashboard" import { dashboard };
+
+/// A dashboard of a header, a blue chart, a form and a footer.
+fn page<C>(): Node<C> {
+    dashboard(
+        ui.text({ content: .Const("Header") }),
+        ui.stack({
+            styles: [.Width(.Px(120)), .Height(.Px(80)), .Background(.Rgb(0, 0, 255))],
+            children: [ui.text({ content: .Const("Chart") })],
+        }),
+        ui.text({ content: .Const("Form") }),
+        ui.text({ content: .Const("Footer") }),
+    )
+}
+
+test "a chart follows its form on a phone and comes first from Large up" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(ctx, "dashboard-phone", page(), .Hover, [], 390);
+    snapshotWide(ctx, "dashboard-laptop", page(), .Hover, [], 1024);
+}

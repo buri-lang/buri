@@ -470,6 +470,31 @@ export enum Style {
     /// }
     /// ```
     Overscroll(Overscroll),
+    /// Where this child of a stack or a grid is placed among its siblings:
+    /// lowest first, and siblings of one order in the tree's order. `0` is
+    /// the default, and a negative order goes ahead of it. The tree's order
+    /// stays what a screen reader and the tab ring read; only the layout
+    /// and the paint move.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// /// The chart after the form on a phone, and before it from `.Large` up.
+    /// export fn inputsAndChart<C>(chart: Node<C>, form: Node<C>): Node<C> {
+    ///     ui.stack({
+    ///         styles: [.Layout(.Column), .At(.Large, [.Layout(.Row)])],
+    ///         children: [
+    ///             ui.stack({
+    ///                 styles: [.Order(1), .At(.Large, [.Order(0)])],
+    ///                 children: [chart],
+    ///             }),
+    ///             form,
+    ///         ],
+    ///     })
+    /// }
+    /// ```
+    Order(Int),
 }
 
 /// How an element moves. Each one runs forever.

@@ -4923,6 +4923,19 @@ fn an_overscroll_is_its_behavior_however_it_arrives() {
     );
 }
 
+/// A box's order is `order` whether it is written in place or only known when
+/// the page runs, and a negative one stays negative (#358).
+#[test]
+fn an_order_is_its_order_however_it_arrives() {
+    arrives_the_same(
+        "order-values",
+        &[
+            ("order", ".Order({})", "2", "2"),
+            ("order of a negative", ".Order({})", "-1", "-1"),
+        ],
+    );
+}
+
 /// A token faded past whole, by an alpha only known when the page runs, is the
 /// whole token, and one faded below nothing is none of it. An alpha known when
 /// the program is built is refused instead, so there is no page that writes one.

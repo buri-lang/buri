@@ -389,20 +389,20 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
             break;
           case 4:
             {
-              const tracks_83=layout_9[1];
-              $share(tracks_83);
-              const columns_86=$list_join($list_mapCtx(tracks_83,ctx_0,(c_84,track_85)=>{
-                if(track_85[0]===0){
-                  return $str_format(c_84,$str_fromInt(c_84,track_85[1])+'fr');
-                }else if(track_85[0]===1){
-                  return ui_style_classify$lengthCss$htol58(c_84,track_85[1]);
-                }else if(track_85[0]===2){
+              const tracks_84=layout_9[1];
+              $share(tracks_84);
+              const columns_87=$list_join($list_mapCtx(tracks_84,ctx_0,(c_85,track_86)=>{
+                if(track_86[0]===0){
+                  return $str_format(c_85,$str_fromInt(c_85,track_86[1])+'fr');
+                }else if(track_86[0]===1){
+                  return ui_style_classify$lengthCss$htol58(c_85,track_86[1]);
+                }else if(track_86[0]===2){
                   return 'auto';
                 }else{
                   $abort('no arm matched');
                 }
               }),ctx_0,' ');
-              $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_86));
+              $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_87));
             }
             break;
           case 5:
@@ -766,15 +766,15 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
       }
     case 40:
       {
-        const text_91=ui_style_classify$shadowCss$htol58(ctx_0,style_1[1]);
-        return [0,40n,0n,'sh',$str_format(ctx_0,'#'+text_91)];
+        const text_92=ui_style_classify$shadowCss$htol58(ctx_0,style_1[1]);
+        return [0,40n,0n,'sh',$str_format(ctx_0,'#'+text_92)];
       }
     case 41:
       {
         const layers_50=style_1[1];
         $share(layers_50);
-        const text_93=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$htol58(c_51,layer_52)),ctx_0,',');
-        return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_93)];
+        const text_94=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$htol58(c_51,layer_52)),ctx_0,',');
+        return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_94)];
       }
     case 42:
       {
@@ -833,8 +833,8 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        const text_95=$t27;
-        return [0,42n,0n,'ff',$str_format(ctx_0,'#'+text_95)];
+        const text_96=$t27;
+        return [0,42n,0n,'ff',$str_format(ctx_0,'#'+text_96)];
       }
     case 43:
       {
@@ -1198,7 +1198,7 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
       }
     default:
       {
-        return $k9;
+        return style_1[0]===66?[0,66n,0n,'order',ui_style_classify$integerKey$htol58(ctx_0,style_1[1])]:$k9;
       }
   }
 }

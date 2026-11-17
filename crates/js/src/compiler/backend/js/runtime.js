@@ -5911,6 +5911,7 @@ const $TREE_VAR_ABBR = {
   56: "tr",
   59: "bdblur",
   60: "caret",
+  66: "order",
 };
 
 // The variants keyed by an edge, each with a rule and a slot per edge:
@@ -5937,7 +5938,8 @@ function $tree_declare(style) {
   if (tag === 12 || tag === 13 || tag === 46) return String(value < 0 ? 0 : value);
   if (tag === 14) return "span " + (value > 0 ? value : 1);
   if (tag === 30) return value > 0 ? String(value) : "auto";
-  if (tag === 39 || tag === 52) return String(value);
+  // An order is negative too, ahead of its siblings.
+  if (tag === 39 || tag === 52 || tag === 66) return String(value);
   if (tag === 15) return $tree_length(style[2]);
   // Gaps and padding: a negative or `Auto` one is none.
   if (tag >= 17 && tag <= 23) return $tree_fit(tag === 23 ? style[2] : value, true, "0px", false);

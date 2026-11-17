@@ -1,0 +1,27 @@
+//! A header, a chart, a form and a footer, the chart moved after the others on
+//! a phone.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// The four in a column on a phone, where the chart comes last, and in a row
+/// from `.Large` up, where it comes second, as the tree has it.
+export fn dashboard<C>(
+    header: Node<C>,
+    chart: Node<C>,
+    form: Node<C>,
+    footer: Node<C>,
+): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .At(.Large, [.Layout(.Row)])],
+        children: [
+            header,
+            ui.stack({
+                styles: [.Order(1), .At(.Large, [.Order(0)])],
+                children: [chart],
+            }),
+            ui.stack({ styles: [], children: [form] }),
+            footer,
+        ],
+    })
+}

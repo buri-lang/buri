@@ -450,6 +450,14 @@ pub fn raster(request: &Request) -> Result<Pixmap, String> {
     }
 
     let styles = resolve(&scene, &sheet, state, &variables, page.ink);
+    // A flex or grid container lays out and paints its items in their
+    // `order`, and items of one order in the tree's.
+    for (node, style) in scene.nodes.iter_mut().zip(&styles) {
+        if matches!(style.flow, Flow::Flex | Flow::Grid) {
+            node.children
+                .sort_by_key(|&child| styles.get(child).map_or(0, |c| c.order));
+        }
+    }
     paint(&scene, &styles, page.background)
 }
 
@@ -1472,6 +1480,9 @@ struct Computed {
     align_self: Option<AlignItems>,
     grow: f32,
     shrink: f32,
+    /// `order`: where a flex or grid item is placed among its siblings,
+    /// lowest first. Not inherited.
+    order: i32,
     tracks: Vec<Len>,
     span: Option<u16>,
     /// `grid-area: <row>/<column>`, as the two lines the box starts at. The
@@ -1620,6 +1631,7 @@ impl Computed {
             align_self: None,
             grow: 0.0,
             shrink: 1.0,
+            order: 0,
             tracks: Vec::new(),
             span: None,
             area: None,
@@ -1994,6 +2006,11 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "flex-shrink" => {
             if let Ok(n) = value.parse() {
                 style.shrink = n;
+            }
+        }
+        "order" => {
+            if let Ok(n) = value.parse() {
+                style.order = n;
             }
         }
         "grid-template-columns" => {
@@ -7581,6 +7598,41 @@ mod tests {
         assert_eq!(at(&image, 4 * S, 0), [0, 255, 0, 255]);
         assert_eq!(at(&image, 11 * S, 0), [0, 255, 0, 255]);
         assert_eq!(at(&image, 12 * S, 0), [255, 255, 255, 255]);
+    }
+
+    /// `order` places a flex item among its siblings by its value, lowest
+    /// first, and siblings of one value keep the document's order between
+    /// them. It is the order they are painted in too, so the box placed later
+    /// covers the one it laps.
+    #[test]
+    fn an_order_places_a_box_among_its_siblings() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 flex-direction:row;width:20px;height:20px\n\
+                     e 1 width:4px;height:4px;order:1;background-color:rgb(255,0,0)\n\
+                     e 1 width:4px;height:4px;background-color:rgb(0,255,0)\n\
+                     e 1 width:4px;height:4px;order:-1;margin-inline-end:-2px;\
+                     background-color:rgb(0,0,255)\n";
+        let image = render_ok(scene, "", "rest");
+        // Blue, lapped by green, then red.
+        assert_eq!(at(&image, 0, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&image, S, 0), [0, 0, 255, 255]);
+        assert_eq!(at(&image, 2 * S, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 5 * S, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 6 * S, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 9 * S, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 10 * S, 0), [255, 255, 255, 255]);
+    }
+
+    /// A grid's items are placed in their `order` too.
+    #[test]
+    fn an_order_places_a_grid_item_among_its_siblings() {
+        let scene = "buri-scene 1\nviewport 20 20\n\
+                     e 0 display:grid;grid-template-columns:4px 4px;width:20px\n\
+                     e 1 height:4px;order:1;background-color:rgb(255,0,0)\n\
+                     e 1 height:4px;background-color:rgb(0,255,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(at(&image, 4 * S, 0), [255, 0, 0, 255]);
     }
 
     #[test]

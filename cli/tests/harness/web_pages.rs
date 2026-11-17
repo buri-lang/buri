@@ -177,6 +177,16 @@ pub fn computed(case: &Path, property: &str, initial: &str) -> Vec<(String, Stri
     read_snapshots(case, &script, "computed ")
 }
 
+/// The boxes a browser lays out for the outermost element of each of `case`'s
+/// snapshots, as `(name, boxes)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`computed`] mounts it, at its snapshot's
+/// width. A snapshot's boxes are what `boxes` answers for that element, in the
+/// order a browser places them, each as its text and joined by ` | `.
+pub fn laid_out(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, LAID_OUT, "laid out ")
+}
+
 /// Mounts each of `case`'s pages and runs `script` after, answering each line
 /// it prints that starts with `prefix` as a `(name, rest)` pair split at `: `.
 fn read_snapshots(case: &Path, script: &str, prefix: &str) -> Vec<(String, String)> {
@@ -1127,6 +1137,18 @@ for (const { root, name, tree } of snapshots) {
     .filter(([, value]) => value !== "" && value !== INITIAL)
     .map(([element, value]) => `${element.localName}=${value}`);
   console.log(`computed ${name}: ${values.join(" ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints the boxes of each snapshot's outermost element, at the snapshot's
+/// width.
+const LAID_OUT: &str = r#"
+for (const { root, name, tree } of snapshots) {
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]));
+  const outer = tree.find((n) => n.nodeType === 1);
+  const shown = boxes(outer).map((box) => box.map((n) => n.textContent).join(""));
+  console.log(`laid out ${name}: ${shown.join(" | ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

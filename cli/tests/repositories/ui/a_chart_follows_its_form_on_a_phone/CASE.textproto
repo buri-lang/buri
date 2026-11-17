@@ -1,0 +1,23 @@
+# A header, a blue chart, a form and a footer, in that tree order (#358). The
+# chart's box has `Order(1)`, and `Order(0)` from `.Large` up:
+#
+#   * **Phone, 390 wide.** A column of the header, the form, the footer, then
+#     the chart.
+#   * **Laptop, 1024 wide.** A row in tree order: the header, the chart, the
+#     form, then the footer.
+#
+# `a_chart_follows_its_form_on_a_phone` in build/repositories.rs checks that a
+# browser lays out the same boxes in the same order at each width.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a chart ordered after its siblings on a phone comes back to its place in the tree from Large up"
+
+run {
+  args: ["test", "//lib/dashboard", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/dashboard/test/__snapshots__/dashboard-phone.diff.png"  exists: false }
+path { path: "lib/dashboard/test/__snapshots__/dashboard-laptop.diff.png"  exists: false }

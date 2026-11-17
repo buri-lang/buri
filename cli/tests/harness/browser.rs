@@ -61,7 +61,8 @@
 ///  * `display(element)`, the `display` a browser gives `element`, from the
 ///    page's sheets, where happy-dom drops the values it can't parse;
 ///  * `boxes(container)`, the boxes a browser lays out for `container`'s
-///    children, each the nodes it holds, which happy-dom lays out none of;
+///    children, each the nodes it holds, in the order a flex or grid
+///    container places them by `order`, which happy-dom lays out none of;
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order;
@@ -509,10 +510,10 @@ function specificity(selector) {
 }
 
 // The boxes a browser lays out for `container`'s children, each the nodes it
-// holds, in order. A child is a box of its own where the container's layout
-// makes it one: always in a flex or a grid container, where it is a table
-// entry in a table row, where it is a row in a table, and where it isn't
-// inline in a block. A run of the other children shares one box, which is a
+// holds, in the order it places them. A child is a box of its own where the
+// container's layout makes it one: always in a flex or a grid container,
+// where it is a table entry in a table row, where it is a row in a table, and
+// where it isn't inline in a block. A run of the other children shares one box, which is a
 // run of text in a flex container, a line in a block, an anonymous entry in a
 // table row and an anonymous row in a table. In a block, a run of table
 // entries and rows shares one box too: the anonymous table a browser wraps
@@ -553,6 +554,12 @@ function boxes(container) {
     if (run === null || parts !== part(d)) out.push((run = []));
     parts = part(d);
     run.push(node);
+  }
+  // A flex or grid container places its items by `order`, lowest first, and
+  // items of one order in the tree's. A run of text is an item of order 0.
+  if (flexible) {
+    const order = ([n]) => (n.nodeType === 1 ? Number(getComputedStyle(n).order) || 0 : 0);
+    out.sort((a, b) => order(a) - order(b));
   }
   return out;
 }
