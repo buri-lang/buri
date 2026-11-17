@@ -1981,7 +1981,7 @@ fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
         10 | 45 | 57 | 58 | STYLE_REMOVED => vec![Value::Bool(false), Value::Bool(true)],
         11 | 50 | 54 | 36 => enumerated(3),
         16 | 44 | 49 | 51 | 53 => enumerated(4),
-        64 => enumerated(2),
+        64 | 65 => enumerated(2),
         _ => Vec::new(),
     };
     let mut out = Vec::new();
@@ -4160,6 +4160,13 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             .get(which)
             .copied()?;
             Some(("fig", key.into(), one("font-variant-numeric", css)))
+        }
+        65 => {
+            let (which, _) = first?.as_variant()?;
+            let (css, key) = [("auto", "chain"), ("contain", "contain")]
+                .get(which)
+                .copied()?;
+            Some(("overscroll", key.into(), one("overscroll-behavior", css)))
         }
         _ => None,
     }

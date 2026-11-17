@@ -454,6 +454,22 @@ export enum Style {
     /// }
     /// ```
     Figures(Figures),
+    /// Whether a `Scroll` box hands the rest of a scroll to the page once it
+    /// reaches its end. `.Contain` keeps it, so a side rail scrolls to its
+    /// bottom while the page behind it stays still.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// export fn rail<C>(rows: [Node<C>]): Node<C> {
+    ///     ui.stack({
+    ///         styles: [.Layout(.Column), .Scroll(.Y), .Overscroll(.Contain)],
+    ///         children: rows,
+    ///     })
+    /// }
+    /// ```
+    Overscroll(Overscroll),
 }
 
 /// How an element moves. Each one runs forever.
@@ -815,6 +831,14 @@ export enum Figures {
     Proportional,
     /// Every digit as wide as every other, so numbers line up.
     Tabular,
+}
+
+/// What a scroll box does with a scroll that reaches its end.
+export enum Overscroll {
+    /// Hands it on to the box around it, and in the end to the page.
+    Chain,
+    /// Keeps it, so nothing behind the box moves.
+    Contain,
 }
 
 /// A line drawn through or under text.

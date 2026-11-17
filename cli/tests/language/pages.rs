@@ -4905,6 +4905,24 @@ fn a_pretty_wrap_is_pretty_however_it_arrives() {
     );
 }
 
+/// A scroll box's overscroll is `overscroll-behavior` whether it is written in
+/// place or only known when the page runs (#355).
+#[test]
+fn an_overscroll_is_its_behavior_however_it_arrives() {
+    arrives_the_same(
+        "overscroll-values",
+        &[
+            (
+                "overscroll-behavior",
+                ".Overscroll({})",
+                ".Contain",
+                "contain",
+            ),
+            ("overscroll-behavior", ".Overscroll({})", ".Chain", "auto"),
+        ],
+    );
+}
+
 /// A token faded past whole, by an alpha only known when the page runs, is the
 /// whole token, and one faded below nothing is none of it. An alpha known when
 /// the program is built is refused instead, so there is no page that writes one.

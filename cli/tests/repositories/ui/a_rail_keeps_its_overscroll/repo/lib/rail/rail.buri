@@ -1,0 +1,27 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+
+/// A side rail held to the top of the viewport that scrolls on its own,
+/// beside a page long enough to scroll too. The rail keeps the rest of its
+/// scroll once it reaches its end, so the page behind it stays still.
+export fn layout<C>(rail: [Node<C>], content: [Node<C>]): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row)],
+        children: [
+            ui.stack({
+                styles: [
+                    .Position(.Sticky),
+                    .Pin(.Top, .Px(0)),
+                    .Width(.Px(240)),
+                    .MaxHeight(.Percent(100.0)),
+                    .Shrink(0),
+                    .Layout(.Column),
+                    .Scroll(.Y),
+                    .Overscroll(.Contain),
+                ],
+                children: rail,
+            }),
+            ui.stack({ styles: [.Grow(1), .Layout(.Column)], children: content }),
+        ],
+    })
+}

@@ -81,6 +81,7 @@ fn kind(s: Style): Str {
         .Animation(_) => "Animation",
         .Removed(_) => "Removed",
         .Figures(_) => "Figures",
+        .Overscroll(_) => "Overscroll",
     }
 }
 
@@ -232,6 +233,7 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.Animation(.Spin)), "Animation");
     assert.equal(kind(.Removed(true)), "Removed");
     assert.equal(kind(.Figures(.Tabular)), "Figures");
+    assert.equal(kind(.Overscroll(.Contain)), "Overscroll");
 }
 
 test "a matched static style binds its payload" {
@@ -1743,4 +1745,51 @@ test "a pretty wrap known only at run time is its class" {
         Watch: observer(),
     };
     assert.equal(painted(ctx, [.TextWrap(late(ctx, .Pretty))]), "e 0 class:tw-pretty");
+}
+
+test "an overscroll containment is a class in the stylesheet, under a breakpoint too" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            boxed(.Group([.Overscroll(.Contain), .At(.Large, [.Overscroll(.Chain)])])),
+        ).markup(),
+        "e 0 class:overscroll-contain lg_overscroll-chain",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".overscroll-contain{overscroll-behavior:contain}"));
+    assert.isTrue(sheet.contains(".lg_overscroll-chain{overscroll-behavior:auto}"));
+}
+
+test "a choice of overscroll swaps its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let open = signal(ctx, false);
+    let page = render(
+        ctx,
+        boxed(.When(.Cell(open), [.Overscroll(.Contain)], [.Overscroll(.Chain)])),
+    );
+    assert.equal(page.markup(), "e 0 class:overscroll-chain");
+    let _ = open.set(ctx, true);
+    assert.equal(page.markup(), "e 0 class:overscroll-contain");
+}
+
+test "an overscroll known only at run time is its class" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Overscroll(late(ctx, .Contain))]),
+        "e 0 class:overscroll-contain",
+    );
+    assert.equal(
+        painted(ctx, [.Overscroll(late(ctx, .Chain))]),
+        "e 0 class:overscroll-chain",
+    );
 }

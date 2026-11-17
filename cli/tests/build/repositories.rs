@@ -677,6 +677,10 @@ fn serving_a_page() {
 /// `a_pretty_paragraph_ends_on_two_words` is one description wrapped, pretty,
 /// and pretty on a phone but balanced from `.Medium` up (#359). The test of
 /// the same name checks the `text-wrap` happy-dom computes for each.
+///
+/// `a_rail_keeps_its_overscroll` is a sticky side rail that scrolls on its own
+/// and keeps its overscroll (#355). The painter draws no scroll gesture, so the
+/// test of the same name checks the `overscroll-behavior` happy-dom computes.
 #[test]
 fn snapshots() {
     run_corpus(&tests_dir().join("repositories/ui"), "ui", 69);
@@ -1059,6 +1063,19 @@ fn a_pretty_paragraph_ends_on_two_words() {
             "description-laptop: div=balance",
         ]
     );
+}
+
+/// The `overscroll-behavior` a browser gives `a_rail_keeps_its_overscroll`:
+/// the rail keeps its scroll and nothing else on the page does.
+#[test]
+fn a_rail_keeps_its_overscroll() {
+    let case = tests_dir().join("repositories/ui/a_rail_keeps_its_overscroll");
+    let kept = crate::harness::web_pages::computed(&case, "overscroll-behavior", "auto");
+    let shown: Vec<String> = kept
+        .iter()
+        .map(|(name, values)| format!("{name}: {values}"))
+        .collect();
+    assert_eq!(shown, ["rail: div=contain"]);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded

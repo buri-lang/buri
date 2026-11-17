@@ -1,0 +1,19 @@
+# A side rail held to the top of the viewport that scrolls on its own and keeps
+# its overscroll, beside content long enough to scroll the page. The painter
+# draws no scroll gesture, so the snapshot is the layout as it always was:
+# `Overscroll` changes nothing it paints.
+#
+# `a_rail_keeps_its_overscroll` in build/repositories.rs checks that a browser
+# gives the rail `overscroll-behavior: contain` and nothing else any.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a scrolling side rail keeps its overscroll, and paints as it did without it"
+
+run {
+  args: ["test", "//lib/rail", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/rail/test/__snapshots__/rail.diff.png"  exists: false }

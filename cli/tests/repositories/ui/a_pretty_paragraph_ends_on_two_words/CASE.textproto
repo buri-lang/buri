@@ -6,8 +6,8 @@
 #   * **Pretty on a phone, balanced from `.Medium` up.** The same description
 #     painted at both widths.
 #
-# `page_text_wrap.rs` checks that a browser gives the same description the
-# same `text-wrap` at each width.
+# `a_pretty_paragraph_ends_on_two_words` in build/repositories.rs checks that
+# a browser gives the same description the same `text-wrap` at each width.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

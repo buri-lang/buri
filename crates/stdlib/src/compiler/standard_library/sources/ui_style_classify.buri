@@ -529,6 +529,12 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Tabular => "tabular",
             })
         },
+        .Overscroll(overscroll) => {
+            .Atom(65, 0, "overscroll", match (overscroll) {
+                .Chain => "chain",
+                .Contain => "contain",
+            })
+        },
         // `When` and `Computed`, which are decided as the program runs, and
         // classes already made.
         _ => .Unsettled,

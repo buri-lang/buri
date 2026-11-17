@@ -444,7 +444,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 57 properties and five ways of composing them. Every property is
+`ui/style` is 60 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -513,6 +513,10 @@ container while it does — that is the whole of what separates it from
 `Scroll(Axis)`. `Passthrough(Bool)` says the pointer goes to whatever is behind
 this element instead. Both inherit the way the platform does, so a subtree opts
 out and a child opts back in.
+
+`Overscroll(.Contain)` keeps a scroll box's scroll once it reaches its end, so
+a side rail scrolls to its bottom while the page behind it stays still.
+`.Chain`, the default, hands the rest on to the page.
 
 `BackdropBlur(Length)` blurs the page behind an element, so a modal scrim
 separates its panel from the page by softening it rather than by hiding it under

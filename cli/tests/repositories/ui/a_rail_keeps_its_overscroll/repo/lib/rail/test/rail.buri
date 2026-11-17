@@ -1,0 +1,33 @@
+// A rail of links beside a page of paragraphs.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "ui/node" import * as ui;
+from "//lib/rail" import { layout };
+
+test "a rail that keeps its overscroll paints beside the page" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshotWide(
+        ctx,
+        "rail",
+        layout(
+            [
+                ui.text({ content: .Const("Overview") }),
+                ui.text({ content: .Const("Accounts") }),
+                ui.text({ content: .Const("Budgets") }),
+                ui.text({ content: .Const("Reports") }),
+            ],
+            [
+                ui.text({ content: .Const("The first paragraph of the page.") }),
+                ui.text({ content: .Const("The second paragraph of the page.") }),
+                ui.text({ content: .Const("The third paragraph of the page.") }),
+            ],
+        ),
+        .Hover,
+        [],
+        800,
+    );
+}
