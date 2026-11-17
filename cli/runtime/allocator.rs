@@ -164,12 +164,33 @@ struct Heap {
 #[repr(C, align(128))]
 struct Queued(AtomicPtr<Page>);
 
+/// A heap with no pages, which no page names as its owner. A thread that
+/// points at one finds no block on the fast paths, so `take` reaches `refill`,
+/// which tells the two apart, and `give` sends every block elsewhere.
+struct Empty(Heap);
+
+// SAFETY: nothing writes an empty heap.
+unsafe impl Sync for Empty {}
+
+const fn empty() -> Empty {
+    Empty(Heap {
+        pages: [null_mut(); CLASSES],
+        next_abandoned: null_mut(),
+        queued: Queued(AtomicPtr::new(null_mut())),
+    })
+}
+
+static UNSTARTED_HEAP: Empty = empty();
+static SYSTEM_HEAP: Empty = empty();
+
+/// A thread that hasn't allocated a small block yet.
+const UNSTARTED: *mut Heap = (&raw const UNSTARTED_HEAP.0).cast_mut();
 /// A thread whose small blocks come from the system for now.
-const SYSTEM: *mut Heap = ptr::without_provenance_mut(1);
+const SYSTEM: *mut Heap = (&raw const SYSTEM_HEAP.0).cast_mut();
 
 thread_local! {
-    /// Null until the thread's first small allocation, then its heap or `SYSTEM`.
-    static HEAP: Cell<*mut Heap> = const { Cell::new(null_mut()) };
+    /// `UNSTARTED` until the thread's first small allocation, then its heap or `SYSTEM`.
+    static HEAP: Cell<*mut Heap> = const { Cell::new(UNSTARTED) };
     static EXIT: Exit = const { Exit };
 }
 
@@ -179,7 +200,7 @@ struct Exit;
 impl Drop for Exit {
     fn drop(&mut self) {
         let heap = HEAP.try_with(|h| h.replace(SYSTEM)).unwrap_or(SYSTEM);
-        if heap != SYSTEM && !heap.is_null() {
+        if heap != SYSTEM && heap != UNSTARTED {
             let _held = lock(&ABANDONED_LOCK);
             // SAFETY: the heap left this thread above, and the lock is held.
             unsafe { (*heap).next_abandoned = ABANDONED.load(Relaxed) };
@@ -206,18 +227,27 @@ fn lock(flag: &'static AtomicBool) -> Held {
     Held(flag)
 }
 
+/// The class of each size, by the 16-byte steps it spans: every class's size
+/// is a multiple of `STEP`, so a load finds it.
+const CLASS_OF: [u8; MAX_SMALL / STEP + 1] = {
+    let mut of = [0; MAX_SMALL / STEP + 1];
+    let (mut k, mut c) = (1, 0);
+    while k < of.len() {
+        if SIZES[c] < k * STEP {
+            c += 1;
+        }
+        of[k] = c as u8;
+        k += 1;
+    }
+    of
+};
+
 #[inline]
 fn class(layout: Layout) -> Option<usize> {
     if layout.size() > MAX_SMALL || layout.align() > STEP {
         return None;
     }
-    // `GlobalAlloc` is never asked for zero bytes.
-    let s = layout.size().saturating_sub(1);
-    if s < LINEAR {
-        return Some(s / STEP);
-    }
-    let e = usize::BITS - 1 - s.leading_zeros();
-    Some(LINEAR / STEP + (e - LINEAR.trailing_zeros()) as usize * 4 + (s >> (e - 2)) % 4)
+    Some(CLASS_OF[layout.size().div_ceil(STEP)] as usize)
 }
 
 #[inline]
@@ -358,8 +388,8 @@ fn new_page(heap: *mut Heap, c: usize) -> *mut Page {
     page.cast()
 }
 
-/// The calling thread's heap: null until its first small allocation, then its
-/// heap or `SYSTEM`.
+/// The calling thread's heap: `UNSTARTED` until its first small allocation,
+/// then its heap or `SYSTEM`.
 ///
 /// Where `FRAMES_MOVE`, through [`heap_here`], a call no caller can see into.
 /// The caller may be a frame on a task's stack, and the thread under it may
@@ -668,10 +698,20 @@ unsafe fn system_dealloc(p: *mut u8, chunk: Layout) {
 }
 
 impl Allocator {
-    /// A block of class `c` when the first page on the list has nothing free.
+    /// A block of class `c`, of which the caller asked for `size` bytes, when
+    /// the first page on the list has nothing free. The thread's first small
+    /// allocation starts its heap here, and a thread on `SYSTEM` comes here
+    /// for every one.
     #[cold]
     #[inline(never)]
-    unsafe fn refill(heap: *mut Heap, c: usize) -> *mut u8 {
+    unsafe fn refill(mut heap: *mut Heap, c: usize, size: usize) -> *mut u8 {
+        if heap == UNSTARTED {
+            heap = start_thread();
+        }
+        if heap == SYSTEM {
+            // SAFETY: a non-zero size.
+            return unsafe { system_alloc(class_layout(c), size, false) };
+        }
         let mut drained = false;
         loop {
             // SAFETY: this thread's heap and its pages, used by no other thread
@@ -745,21 +785,18 @@ impl Allocator {
 // `FRAMES_MOVE` changes is only how each finds the calling thread's heap
 // (`this_heap`).
 impl Allocator {
+    // `take` and `give` call nothing but in tail position, so where the thread
+    // pointer is read inline (`this_heap`) their fast paths need no frame.
+
     #[inline]
     unsafe fn take<const FRAMES_MOVE: bool>(layout: Layout) -> *mut u8 {
         let Some(c) = class(layout) else {
             // SAFETY: the caller's contract, passed through.
-            return unsafe { system_alloc(layout, layout.size(), false) };
+            return unsafe { Self::take_large(layout) };
         };
-        let mut heap = this_heap::<FRAMES_MOVE>();
-        if heap.is_null() {
-            heap = start_thread();
-        }
-        if heap == SYSTEM {
-            // SAFETY: a non-zero size.
-            return unsafe { system_alloc(class_layout(c), layout.size(), false) };
-        }
-        // SAFETY: this thread's heap and page; the list holds free blocks of class `c`.
+        let heap = this_heap::<FRAMES_MOVE>();
+        // SAFETY: this thread's heap, or an empty one, and its page; the list
+        // holds free blocks of class `c`.
         unsafe {
             let page = (*heap).pages[c];
             if !page.is_null() {
@@ -770,8 +807,18 @@ impl Allocator {
                     return block;
                 }
             }
-            Self::refill(heap, c)
+            Self::refill(heap, c, layout.size())
         }
+    }
+
+    /// A block past the size classes, from the system.
+    ///
+    /// # Safety
+    /// `layout` has a non-zero size.
+    #[inline(never)]
+    unsafe fn take_large(layout: Layout) -> *mut u8 {
+        // SAFETY: the caller's contract, passed through.
+        unsafe { system_alloc(layout, layout.size(), false) }
     }
 
     #[inline]
@@ -798,6 +845,18 @@ impl Allocator {
                 }
                 return;
             }
+            Self::give_remote(p, page);
+        }
+    }
+
+    /// Frees `p` into `page`, which another thread's heap owns.
+    ///
+    /// # Safety
+    /// `p` is a free block of `page`, and the calling thread doesn't own `page`.
+    #[inline(never)]
+    unsafe fn give_remote(p: *mut u8, page: *mut Page) {
+        // SAFETY: the caller's contract; another thread reaches `page` only through its atomics.
+        unsafe {
             let remote = &(*page).remote;
             let mut head = remote.blocks.load(Relaxed);
             loop {
@@ -1169,5 +1228,30 @@ mod tests {
         let p = unsafe { Allocator.alloc(l) };
         assert_eq!(p as usize % 64, 0);
         unsafe { Allocator.dealloc(p, l) };
+    }
+
+    #[test]
+    fn a_new_thread_starts_its_heap_and_a_system_thread_uses_the_system() {
+        let _one = serial();
+        std::thread::spawn(|| {
+            assert_eq!(HEAP.with(Cell::get), UNSTARTED);
+            let p = unsafe { Allocator.alloc(layout(40)) };
+            assert!(page_of(p).is_some());
+            let heap = HEAP.with(Cell::get);
+            assert!(heap != UNSTARTED && heap != SYSTEM);
+            unsafe { Allocator.dealloc(p, layout(40)) };
+
+            // As after the thread's exit hook has run, until the heap goes back
+            // for the hook to hand on.
+            HEAP.with(|h| h.set(SYSTEM));
+            let q = unsafe { Allocator.alloc(layout(40)) };
+            assert!(!q.is_null() && page_of(q).is_none());
+            unsafe { fill(q, 40, 7) };
+            unsafe { check(q, 40, 7) };
+            unsafe { Allocator.dealloc(q, layout(40)) };
+            HEAP.with(|h| h.set(heap));
+        })
+        .join()
+        .unwrap();
     }
 }
