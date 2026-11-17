@@ -225,7 +225,9 @@
 //! `position: fixed` is honoured the way the page does it: the element leaves
 //! the flow, is laid out against the **page** rather than against whatever it
 //! was written inside, and escapes every ancestor's clip. Which page that is,
-//! on a picture whose height nobody stated, is written above.
+//! on a picture whose height nobody stated, is written above. Inside a
+//! translated or backdrop-blurred box it is laid out against the nearest such
+//! box instead, as in a browser.
 //!
 //! **Boxes paint in a browser's order** (CSS 2.1 Appendix E). A stacking
 //! context paints its own box, then its flow in tree order, then its
@@ -1498,12 +1500,20 @@ struct Computed {
     /// the flow ([`Computed::lifted`]).
     relative: bool,
     /// `Position(.PinAnchor)` or a tooltip's bubble: a box in the top layer,
-    /// placed against its nearest `Flow` ancestor, so a panel pinned to a
-    /// trigger hangs below the trigger, over the rest of the page and out of
-    /// every ancestor's clip (#168, #351, #352). Absolute rather than fixed —
+    /// placed against its nearest `Flow` ancestor's border box, or the page
+    /// with none ([`repinned`]), so a panel pinned to a trigger hangs below
+    /// the trigger, over the rest of the page and out of every ancestor's
+    /// clip (#168, #351, #352). Absolute rather than fixed —
     /// it keeps the origin a pin has — and the stylesheet writes it as
     /// `position: fixed` plus the `position-anchor` this reads.
     escape: bool,
+    /// `position: fixed` inside a translated or backdrop-blurred box, which a
+    /// browser measures it from: absolute, measured from the nearest such box
+    /// ([`repinned`]), and a stacking context as every fixed box is.
+    viewport: bool,
+    /// `anchor-name`, which `Position(.Flow)` writes: the box a `PinAnchor`
+    /// panel inside it is placed against ([`repinned`]).
+    anchor: bool,
     /// `VisuallyHidden`: paint nothing, but stay in the scene so the text
     /// counts towards the accessible name. The stylesheet writes the sr-only
     /// clip a browser hides the box with; this marker is what stops the painter
@@ -1623,6 +1633,8 @@ impl Computed {
             sticky: false,
             relative: false,
             escape: false,
+            viewport: false,
+            anchor: false,
             hidden: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
@@ -1731,6 +1743,7 @@ impl Computed {
     /// and its siblings.
     fn isolates(&self) -> bool {
         self.fixed
+            || self.viewport
             || self.sticky
             || self.escape
             || (self.positioned() && self.z.is_some())
@@ -1905,7 +1918,27 @@ fn resolve(
             *slot = style;
         }
     }
+    contain_fixed(scene, &mut styles);
     styles
+}
+
+/// Turns each fixed box inside a translated or backdrop-blurred box into a box
+/// measured from the nearest such box ([`Computed::viewport`]), the way a
+/// browser measures it. The top layer is measured from the viewport whatever
+/// holds it.
+fn contain_fixed(scene: &Scene, styles: &mut [Computed]) {
+    let mut stack: Vec<(usize, bool)> = scene.roots.iter().map(|&root| (root, false)).collect();
+    while let Some((index, under)) = stack.pop() {
+        let (Some(node), Some(style)) = (scene.node(index), styles.get_mut(index)) else {
+            continue;
+        };
+        if under && style.fixed && !style.top {
+            style.fixed = false;
+            style.viewport = true;
+        }
+        let holds = under || style.translate.is_some() || style.backdrop_blur > 0.0;
+        stack.extend(node.children.iter().map(|&child| (child, holds)));
+    }
 }
 
 /// Whether an element is in the state a rule is scoped to.
@@ -2008,8 +2041,8 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         }
         // `Position(.PinAnchor)` and a tooltip's bubble: the stylesheet writes
         // `position: fixed` and then the anchor the box is placed against,
-        // its `Flow` box, which is the box it was written in here — absolute,
-        // not fixed — out of every ancestor's clip and in the top layer
+        // its nearest `Flow` box ([`repinned`]) — absolute, not fixed — out
+        // of every ancestor's clip and in the top layer
         // (#168, #351, #352). Declared after `position`, so it wins over the
         // `fixed` that line set.
         "position-anchor" => {
@@ -2023,6 +2056,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // this marker makes the painter draw the subtree not at all, while the
         // node stays in the scene for the accessible name (#188).
         "--buri-visually-hidden" => style.hidden = true,
+        "anchor-name" => style.anchor = value != "none",
         // An integer, or `auto`, which parses as none.
         "z-index" => style.z = value.parse().ok(),
         "top-layer" => style.top = value == "true",
@@ -3726,8 +3760,10 @@ impl Reach<'_> {
             if styles.get(child).is_some_and(|s| s.fixed) {
                 continue;
             }
-            // A pinned child is clipped where the box it is measured from is.
+            // A pinned child is clipped where the box it is measured from is,
+            // and one placed against an anchor is clipped by nothing.
             let clip = match pins.binary_search_by_key(&child, |pin| pin.index) {
+                _ if styles.get(child).is_some_and(|s| s.escape) => None,
                 Ok(at) => pins.get(at).and_then(|pin| {
                     pin.against
                         .and_then(|from| self.clips.borrow().get(from).copied().flatten().flatten())
@@ -3970,15 +4006,22 @@ fn build_table(
     Ok(id)
 }
 
-/// A pinned box measured from a box other than the one it was written in.
+/// A pinned box that `taffy` alone would place where a browser doesn't.
 ///
 /// A browser measures a `position: absolute` box from its containing block:
 /// the nearest ancestor that is positioned, transformed or backdrop-filtered,
-/// or the page when none is (CSS Positioned Layout 3). `taffy` measures one
-/// from its parent, so [`settle_pins`] restates each such box's insets and
-/// percentage sizes from its parent's box, which leaves it where a browser
-/// puts it. An axis with no inset keeps the place the flow gives it, which is
-/// a browser's static position too.
+/// or the page when none is (CSS Positioned Layout 3). A fixed box inside a
+/// transformed or backdrop-filtered box is measured from the nearest such box
+/// ([`Computed::viewport`]), and a box placed against an anchor from the
+/// anchor's border box, or the page when no anchor holds it. `taffy` measures
+/// each from its parent, so [`settle_pins`] restates each such box's insets
+/// and percentage sizes from that box, which leaves it where a browser puts
+/// it. An axis with no inset keeps the place the flow gives it, which is a
+/// browser's static position too, except against an anchor, which centres it.
+///
+/// A box with no width that a browser shrinks to fit ([`shrinks`]) is here
+/// too, even when its parent is what it is measured from: a browser fits it
+/// in the room beside its inset, where `taffy` fits it in its parent.
 struct Repinned {
     index: usize,
     /// The scene node it was written in.
@@ -3987,40 +4030,77 @@ struct Repinned {
     against: Option<usize>,
 }
 
-/// Every pinned box in `scene` whose containing block is not the box it was
-/// written in, in tree order. A box placed against an anchor and a box held to
-/// the viewport are placed elsewhere ([`Painter::paint`], [`build`]), and a
-/// root's parent is the page already.
+/// Every pinned box in `scene` that [`Repinned`] describes, in tree order. A
+/// box held to the page is laid out on the page already ([`build`]), and so
+/// is a root's.
 fn repinned(scene: &Scene, styles: &[Computed]) -> Vec<Repinned> {
     let mut out = Vec::new();
-    let mut stack: Vec<(usize, Option<usize>)> =
-        scene.roots.iter().rev().map(|&root| (root, None)).collect();
+    // Each node, and the boxes its children measure from: the nearest
+    // containing block, the nearest transformed or backdrop-blurred box, and
+    // the nearest anchor.
+    let mut stack: Vec<(usize, [Option<usize>; 3])> = scene
+        .roots
+        .iter()
+        .rev()
+        .map(|&root| (root, [None; 3]))
+        .collect();
     while let Some((index, outer)) = stack.pop() {
         let (Some(node), Some(style)) = (scene.node(index), styles.get(index)) else {
             continue;
         };
-        let contains = style.positioned() || style.translate.is_some() || style.backdrop_blur > 0.0;
-        let inner = if contains { Some(index) } else { outer };
+        let held = style.translate.is_some() || style.backdrop_blur > 0.0;
+        let own = |is: bool, outer: Option<usize>| if is { Some(index) } else { outer };
+        let [inner, holder, anchor] = [
+            own(style.positioned() || held, outer[0]),
+            own(held, outer[1]),
+            own(style.anchor, outer[2]),
+        ];
         for &child in node.children.iter().rev() {
             let Some(kid) = styles.get(child) else {
                 continue;
             };
-            if kid.absolute && !kid.fixed && !kid.escape && inner != Some(index) {
+            let against = if kid.escape {
+                Some(anchor)
+            } else if kid.viewport {
+                Some(holder)
+            } else if kid.absolute && !kid.fixed {
+                Some(inner)
+            } else {
+                None
+            };
+            if let Some(against) = against
+                && (against != Some(index) || kid.escape || shrinks(kid))
+            {
                 out.push(Repinned {
                     index: child,
                     parent: index,
-                    against: inner,
+                    against,
                 });
             }
             // An item of a marked list is positioned too: the sheet makes it
             // the box its mark hangs from.
             let item =
                 style.marker != Marker::None && scene.node(child).is_some_and(|c| c.text.is_none());
-            stack.push((child, if item { Some(child) } else { inner }));
+            stack.push((
+                child,
+                [if item { Some(child) } else { inner }, holder, anchor],
+            ));
         }
     }
     out.sort_by_key(|pin| pin.index);
     out
+}
+
+/// Whether a browser shrinks `style`'s box to fit in the room its insets leave:
+/// out of the flow with no width, and pinned by one horizontal edge, or by
+/// neither against an anchor. Pinned by both, it fills the room; pinned by
+/// neither elsewhere, it keeps its static position.
+fn shrinks(style: &Computed) -> bool {
+    let pinned = [style.inset[0], style.inset[1]]
+        .iter()
+        .filter(|&&len| len != Len::Auto)
+        .count();
+    style.absolute && style.size[0] == Len::Auto && (pinned == 1 || (pinned == 0 && style.escape))
 }
 
 /// Where `id`'s border box sits on the page, as `[x, y, width, height]`, or
@@ -4051,10 +4131,11 @@ fn padding_box(tree: &TaffyTree<usize>, root: NodeId, id: NodeId) -> Option<[f32
     ])
 }
 
-/// Restates each of `pins`' insets and percentage sizes from the box `taffy`
-/// measures it from, so that it lands where its containing block puts it.
-/// `page` is the page's width and height. Answers whether any style changed,
-/// so the caller lays the tree out again.
+/// Restates each of `pins`' insets and sizes from the box `taffy` measures it
+/// from, so that it lands where its containing block puts it. `page` is the
+/// page's width and height, and `fits` is each pin's narrowest and widest
+/// content, where [`shrinks`] says it shrinks to fit. Answers whether any
+/// style changed, so the caller lays the tree out again.
 ///
 /// Inside a table row, `taffy` measures a pinned box from the row's grid area,
 /// which is the row's box; anywhere else from its parent's padding box.
@@ -4064,11 +4145,12 @@ fn settle_pins(
     ids: &[Option<NodeId>],
     styles: &[Computed],
     pins: &[Repinned],
+    fits: &[Option<(f32, f32)>],
     page: (f32, f32),
 ) -> Result<bool, String> {
     let fail = |e: taffy::TaffyError| format!("layout: {e}");
     let mut changed = false;
-    for pin in pins {
+    for (at, pin) in pins.iter().enumerate() {
         let (Some(&Some(id)), Some(&Some(parent)), Some(style)) = (
             ids.get(pin.index),
             ids.get(pin.parent),
@@ -4081,13 +4163,16 @@ fn settle_pins(
         } else {
             page_box(tree, root, parent)
         };
+        // An anchor's area is its border box; any other box's is its padding box.
         let against = match pin.against {
             None => Some([0.0, 0.0, page.0, page.1]),
-            Some(index) => ids
-                .get(index)
-                .copied()
-                .flatten()
-                .and_then(|id| padding_box(tree, root, id)),
+            Some(index) => ids.get(index).copied().flatten().and_then(|id| {
+                if style.escape {
+                    page_box(tree, root, id)
+                } else {
+                    padding_box(tree, root, id)
+                }
+            }),
         };
         let (Some(frame), Some(cb)) = (frame, against) else {
             continue;
@@ -4113,8 +4198,17 @@ fn settle_pins(
             top: edge(style.inset[2], cb[3], before[1]),
             bottom: edge(style.inset[3], cb[3], after[1]),
         };
+        let mut width = length(style.size[0], cb[2]);
+        // Shrunk to fit the room beside its insets: never wider than its
+        // widest content, nor narrower than its narrowest.
+        if let Some(&Some((least, most))) = fits.get(at) {
+            let room = cb[2]
+                - resolve_length(style.inset[0], cb[2])
+                - resolve_length(style.inset[1], cb[2]);
+            width = Len::Px(most.min(least.max(room)));
+        }
         own.size = Size {
-            width: dimension(length(style.size[0], cb[2])),
+            width: dimension(width),
             height: dimension(length(style.size[1], cb[3])),
         };
         own.min_size = Size {
@@ -4125,6 +4219,21 @@ fn settle_pins(
             width: dimension_auto(length(style.max[0], cb[2])),
             height: dimension_auto(length(style.max[1], cb[3])),
         };
+        // Against an anchor, an axis with no pin centres the box on it.
+        if pin.against.is_some() && style.escape {
+            let size = tree.layout(id).map_err(fail)?.size;
+            let centred = |edges: [Len; 2], room: f32, size: f32, before: f32| {
+                (edges == [Len::Auto; 2])
+                    .then(|| LengthPercentageAuto::length((room - size) / 2.0 - before))
+            };
+            let [l, r, t, b] = style.inset;
+            if let Some(left) = centred([l, r], cb[2], size.width, before[0]) {
+                own.inset.left = left;
+            }
+            if let Some(top) = centred([t, b], cb[3], size.height, before[1]) {
+                own.inset.top = top;
+            }
+        }
         if *tree.style(id).map_err(fail)? != own {
             tree.set_style(id, own).map_err(fail)?;
             changed = true;
@@ -4135,7 +4244,8 @@ fn settle_pins(
 
 /// Lays `root` out until no pin in `pins` moves, as [`settle_pins`] says.
 /// A pin measured from a box that is itself repinned can move once more after
-/// that box does, so this runs once per pin at most.
+/// that box does, so this runs once per pin at most, and once more when a pin
+/// shrinks to fit.
 #[expect(clippy::too_many_arguments, reason = "one layout's inputs")]
 fn lay_out_pins(
     tree: &mut TaffyTree<usize>,
@@ -4147,15 +4257,68 @@ fn lay_out_pins(
     pins: &[Repinned],
     room: (AvailableSpace, AvailableSpace),
 ) -> Result<(), String> {
-    for _ in 0..pins.len() {
+    let fits = fit_pins(tree, scene, styles, fonts, ids, pins)?;
+    // Measuring a pin lays it out on its own, which leaves it at the page's
+    // corner until the page is laid out again.
+    let measured = fits.iter().any(Option::is_some);
+    for round in 0..=pins.len() {
         let height = tree.layout(root).map_or(0.0, |l| l.size.height);
         let across = scene.width as f32;
-        if !settle_pins(tree, root, ids, styles, pins, (across, height))? {
+        let changed = settle_pins(tree, root, ids, styles, pins, &fits, (across, height))?;
+        if !changed && !(measured && round == 0) {
             break;
         }
         lay_out(tree, root, scene, styles, fonts, room.0, room.1)?;
     }
     Ok(())
+}
+
+/// Each of `pins`' narrowest and widest content, `(min-content,
+/// max-content)`, where [`shrinks`] says it shrinks to fit, measured with no
+/// width of its own. Each measured pin is marked dirty, so the next layout of
+/// the page places it again.
+fn fit_pins(
+    tree: &mut TaffyTree<usize>,
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut Fonts,
+    ids: &[Option<NodeId>],
+    pins: &[Repinned],
+) -> Result<Vec<Option<(f32, f32)>>, String> {
+    let fail = |e: taffy::TaffyError| format!("layout: {e}");
+    let mut fits = Vec::with_capacity(pins.len());
+    for pin in pins {
+        let (Some(&Some(id)), Some(style)) = (ids.get(pin.index), styles.get(pin.index)) else {
+            fits.push(None);
+            continue;
+        };
+        if !shrinks(style) {
+            fits.push(None);
+            continue;
+        }
+        let mut own = tree.style(id).map_err(fail)?.clone();
+        own.size.width = Dimension::auto();
+        tree.set_style(id, own).map_err(fail)?;
+        let mut widths = [0.0; 2];
+        for (width, space) in widths
+            .iter_mut()
+            .zip([AvailableSpace::MinContent, AvailableSpace::MaxContent])
+        {
+            lay_out(
+                tree,
+                id,
+                scene,
+                styles,
+                fonts,
+                space,
+                AvailableSpace::MaxContent,
+            )?;
+            *width = tree.layout(id).map_or(0.0, |l| l.size.width);
+        }
+        tree.mark_dirty(id).map_err(fail)?;
+        fits.push(Some((widths[0], widths[1])));
+    }
+    Ok(fits)
 }
 
 fn line_at(index: i16) -> GridPlacement<String> {
@@ -4685,24 +4848,9 @@ impl Painter<'_> {
             // pinned to a trigger inside a `Scroll` box hangs below the
             // trigger rather than being cut off at the scroller's edge (#168).
             //
-            // In an axis with no pin it is centred on the anchor, the way the
-            // sheet's `position-area: center` places it in a browser (#360).
+            // It is placed against its anchor already ([`settle_pins`]).
             if kid.escape {
-                let size = self
-                    .ids
-                    .get(child)
-                    .and_then(|id| id.and_then(|id| self.tree.layout(id).ok()))
-                    .map(|l| (l.location, l.size));
-                let (mut ax, mut ay) = from;
-                if let Some((at, size)) = size {
-                    if kid.inset[0] == Len::Auto && kid.inset[1] == Len::Auto {
-                        ax = left + (layout.size.width - size.width) / 2.0 - at.x;
-                    }
-                    if kid.inset[2] == Len::Auto && kid.inset[3] == Len::Auto {
-                        ay = top + (layout.size.height - size.height) / 2.0 - at.y;
-                    }
-                }
-                self.anchored.push((child, ax, ay));
+                self.anchored.push((child, from.0, from.1));
                 continue;
             }
             if kid.lifted() || mark.is_some() {

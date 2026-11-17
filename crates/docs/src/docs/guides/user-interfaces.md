@@ -1755,11 +1755,16 @@ The rest is short:
   paints over everything else. The page it is measured against is the flow's:
   the tree settles how tall the picture is, and the pin is placed on it — so a
   bottom-pinned dock sits on the last row of the tree rather than a screenful
-  below it.
+  below it. Inside a box with a `.Translate` or a `.BackdropBlur`, it is
+  measured from the nearest such box, as a browser does.
 - `.Position(.PinAnchor)` hangs from its `Flow` box and paints over the whole
   page, out of every clip, the way a browser's top layer does. So does a
   tooltip's bubble. Its pins place it the way a plain `Pin` would, and an axis
-  with no pin is centred on the anchor.
+  with no pin is centred on the anchor. With no `Flow` box around it, it is
+  measured from the page.
+- A pinned box with no `.Width` and one side pinned shrinks to fit its content
+  in the room between that pin and the far side of the box it is measured
+  from, as a browser does. It is never narrower than its widest child.
 - A `.Clip` or a `.Scroll` is measured at its own box. It cuts what is under
   it, so what a reader would have to scroll to see is not what the picture is
   tall enough to show.

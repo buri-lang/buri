@@ -35,8 +35,8 @@ fn over<C>(
     )
 }
 
-// A red box 30 by 40, pinned 10 down and `start` across.
-fn red<C>(start: Int): Node<C> {
+// A red box 30 by 40, pinned 10 down and `start` across, with `extra`.
+fn red<C>(start: Int, extra: [Style]): Node<C> {
     frame(
         [
             .Pin(.Top, .Px(10)),
@@ -44,13 +44,14 @@ fn red<C>(start: Int): Node<C> {
             .Width(.Px(30)),
             .Height(.Px(40)),
             .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
         ],
         [],
     )
 }
 
-// A red box pinned by both edges in each axis.
-fn both<C>(): Node<C> {
+// A red box pinned by both edges in each axis, with `extra`.
+fn both<C>(extra: [Style]): Node<C> {
     frame(
         [
             .Pin(.Top, .Px(10)),
@@ -58,13 +59,14 @@ fn both<C>(): Node<C> {
             .Pin(.Start, .Px(30)),
             .Pin(.End, .Px(40)),
             .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
         ],
         [],
     )
 }
 
-// A red box at the corner, sized by percentages.
-fn sizes<C>(): Node<C> {
+// A red box at the corner, sized by percentages, with `extra`.
+fn sizes<C>(extra: [Style]): Node<C> {
     frame(
         [
             .Pin(.Top, .Px(0)),
@@ -72,9 +74,47 @@ fn sizes<C>(): Node<C> {
             .Width(.Percent(50.0)),
             .Height(.Percent(25.0)),
             .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
         ],
         [],
     )
+}
+
+// A red box 30 by 40 with `extra`, which pins nothing.
+fn loose<C>(extra: [Style]): Node<C> {
+    frame(
+        [
+            .Width(.Px(30)),
+            .Height(.Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
+        ],
+        [],
+    )
+}
+
+// A red box 40 tall holding three boxes 50 by 10 in a wrapping row, with no
+// width of its own, and `extra`.
+fn fit<C>(extra: [Style]): Node<C> {
+    frame(
+        [
+            .Layout(.Row),
+            .Wrap(true),
+            .Height(.Px(40)),
+            .Background(.Rgb(255, 0, 0)),
+            .Group(extra),
+        ],
+        [
+            frame([.Width(.Px(50)), .Height(.Px(10))], []),
+            frame([.Width(.Px(50)), .Height(.Px(10))], []),
+            frame([.Width(.Px(50)), .Height(.Px(10))], []),
+        ],
+    )
+}
+
+// What `fit` draws, `width` wide and pinned at `start`, `top`.
+fn fitted<C>(start: Int, top: Int, width: Int): Node<C> {
+    fit([.Pin(.Top, .Px(top)), .Pin(.Start, .Px(start)), .Width(.Px(width))])
 }
 
 fn grey(): Style {
@@ -103,7 +143,7 @@ test "bordered-both: both edges measure from inside the border" {
                     .BorderWidth(.Px(5)),
                     grey(),
                 ],
-                [both()],
+                [both([])],
             ),
         ]),
         .Hover,
@@ -130,7 +170,7 @@ test "bordered-both: both edges measure from inside the border, the twin: a box 
                 ],
                 [],
             ),
-            over(5, 5, 190, 90, [both()]),
+            over(5, 5, 190, 90, [both([])]),
         ]),
         .Hover,
         [],
@@ -155,7 +195,7 @@ test "bordered-sizes: sizes are percentages of the box inside the border" {
                     .BorderWidth(.Px(5)),
                     grey(),
                 ],
-                [sizes()],
+                [sizes([])],
             ),
         ]),
         .Hover,
@@ -182,7 +222,7 @@ test "bordered-sizes: sizes are percentages of the box inside the border, the tw
                 ],
                 [],
             ),
-            over(5, 5, 190, 90, [sizes()]),
+            over(5, 5, 190, 90, [sizes([])]),
         ]),
         .Hover,
         [],
@@ -200,7 +240,7 @@ test "padded-height-both: both edges measure from a box as tall as its padding a
         stage([
             frame([.Position(.Flow), .Width(.Px(200)), .Padding(.Px(8)), grey()], [
                 frame([.Height(.Px(20))], []),
-                both(),
+                both([]),
             ]),
         ]),
         .Hover,
@@ -220,7 +260,7 @@ test "padded-height-both: both edges measure from a box as tall as its padding a
             frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
                 frame([.Height(.Px(20))], []),
             ]),
-            over(0, 0, 200, 36, [both()]),
+            over(0, 0, 200, 36, [both([])]),
         ]),
         .Hover,
         [],
@@ -237,7 +277,7 @@ test "padded-width-both: both edges measure from a box as wide as its parent's c
         "padded-width-both",
         stage([
             frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
-                frame([.Position(.Flow), .Height(.Px(100)), blue()], [both()]),
+                frame([.Position(.Flow), .Height(.Px(100)), blue()], [both([])]),
             ]),
         ]),
         .Hover,
@@ -257,7 +297,7 @@ test "padded-width-both: both edges measure from a box as wide as its parent's c
             frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
                 frame([.Height(.Px(100)), blue()], []),
             ]),
-            over(8, 8, 184, 100, [both()]),
+            over(8, 8, 184, 100, [both([])]),
         ]),
         .Hover,
         [],
@@ -281,7 +321,7 @@ test "padded-percent-sizes: sizes measure from a box a percentage of its parent'
                         .Height(.Px(100)),
                         blue(),
                     ],
-                    [sizes()],
+                    [sizes([])],
                 ),
             ]),
         ]),
@@ -302,7 +342,7 @@ test "padded-percent-sizes: sizes measure from a box a percentage of its parent'
             frame([.Width(.Px(200)), .Padding(.Px(8)), grey()], [
                 frame([.Width(.Percent(50.0)), .Height(.Px(100)), blue()], []),
             ]),
-            over(8, 8, 92, 100, [sizes()]),
+            over(8, 8, 92, 100, [sizes([])]),
         ]),
         .Hover,
         [],
@@ -318,7 +358,9 @@ test "clip-between: a clip between a pinned box and its positioned box cuts noth
         ctx,
         "clip-between",
         stage([
-            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [red(60)]),
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [
+                red(60, []),
+            ]),
         ]),
         .Hover,
         [],
@@ -335,7 +377,7 @@ test "clip-between: a clip between a pinned box and its positioned box cuts noth
         "clip-between",
         stage([
             frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
-            red(60),
+            red(60, []),
         ]),
         .Hover,
         [],
@@ -352,7 +394,7 @@ test "scroll-between: a scroll between a pinned box and its positioned box cuts 
         "scroll-between",
         stage([
             frame([.Scroll(.Both), .Width(.Px(50)), .Height(.Px(50)), blue()], [
-                red(60),
+                red(60, []),
             ]),
         ]),
         .Hover,
@@ -370,7 +412,7 @@ test "scroll-between: a scroll between a pinned box and its positioned box cuts 
         "scroll-between",
         stage([
             frame([.Scroll(.Both), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
-            red(60),
+            red(60, []),
         ]),
         .Hover,
         [],
@@ -386,7 +428,9 @@ test "clip-unpositioned: a clip around a box pinned to the page cuts nothing" {
         ctx,
         "clip-unpositioned",
         frame([], [
-            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [red(60)]),
+            frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [
+                red(60, []),
+            ]),
         ]),
         .Hover,
         [],
@@ -403,7 +447,7 @@ test "clip-unpositioned: a clip around a box pinned to the page cuts nothing, th
         "clip-unpositioned",
         frame([], [
             frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
-            red(60),
+            red(60, []),
         ]),
         .Hover,
         [],
@@ -421,7 +465,7 @@ test "clip-outside: a clip outside a pinned box's positioned box cuts it" {
         frame([.Clip(true), .Width(.Px(200)), .Height(.Px(100))], [
             frame([.Position(.Flow), .Width(.Px(300)), .Height(.Px(100))], [
                 frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], [
-                    red(180),
+                    red(180, []),
                 ]),
             ]),
         ]),
@@ -441,9 +485,387 @@ test "clip-outside: a clip outside a pinned box's positioned box cuts it, the tw
         frame([.Clip(true), .Width(.Px(200)), .Height(.Px(100))], [
             frame([.Position(.Flow), .Width(.Px(300)), .Height(.Px(100))], [
                 frame([.Clip(true), .Width(.Px(50)), .Height(.Px(50)), blue()], []),
-                red(180),
+                red(180, []),
             ]),
         ]),
+        .Hover,
+        [],
+    );
+}
+
+test "viewport-translated-both: a box held to the viewport measures from a translated box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "viewport-translated-both",
+        frame(
+            [.Translate(.Px(0), .Px(0)), .Width(.Px(200)), .Height(.Px(100)), grey()],
+            [
+                frame([.Position(.Flow), .Width(.Px(100)), .Height(.Px(50)), blue()], [
+                    both([.Position(.PinViewport)]),
+                ]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "viewport-translated-both: a box held to the viewport measures from a translated box, the twin: a box pinned in the translated box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "viewport-translated-both",
+        frame(
+            [.Translate(.Px(0), .Px(0)), .Width(.Px(200)), .Height(.Px(100)), grey()],
+            [frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []), both([])],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "viewport-blurred-sizes: a box held to the viewport measures from a blurred box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "viewport-blurred-sizes",
+        frame([.BackdropBlur(.Px(4)), .Width(.Px(200)), .Height(.Px(100)), grey()], [
+            frame([.Position(.Flow), .Width(.Px(100)), .Height(.Px(50)), blue()], [
+                sizes([.Position(.PinViewport)]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "viewport-blurred-sizes: a box held to the viewport measures from a blurred box, the twin: a box pinned in the blurred box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "viewport-blurred-sizes",
+        frame([.BackdropBlur(.Px(4)), .Width(.Px(200)), .Height(.Px(100)), grey()], [
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+            sizes([]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-grandparent-edges: a box on an anchor measures from its Flow grandparent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-grandparent-edges",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                    red(20, [.Position(.PinAnchor)]),
+                ]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-grandparent-edges: a box on an anchor measures from its Flow grandparent, the twin: a box pinned in the Flow box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-grandparent-edges",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []), red(20, [])],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-centred: a box on an anchor with no pin centres on its Flow grandparent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-centred",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                    loose([.Position(.PinAnchor)]),
+                ]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-centred: a box on an anchor with no pin centres on its Flow grandparent, the twin: a box pinned at the centre of the Flow box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-centred",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+                loose([.Pin(.Top, .Px(30)), .Pin(.Start, .Px(85))]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-none-edges: a box on an anchor with no Flow box measures from the viewport" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-none-edges",
+        frame([.Padding(.Px(10))], [
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                red(20, [.Position(.PinAnchor)]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-none-edges: a box on an anchor with no Flow box measures from the viewport, the twin: a box held to the viewport" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-none-edges",
+        frame([.Padding(.Px(10))], [
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+            red(20, [.Position(.PinViewport)]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-start: a box with no width fits beside its start pin in a grandparent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-start",
+        stage([
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                fit([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-start: a box with no width fits beside its start pin in a grandparent, the twin: a box as wide as its content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-start",
+        stage([
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+            fitted(20, 0, 150),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-room: a box with no width fits in the room beside its start pin" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-room",
+        stage([fit([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(220))])]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-room: a box with no width fits in the room beside its start pin, the twin: a box as wide as the room" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "shrink-room", stage([fitted(220, 0, 80)]), .Hover, []);
+}
+
+test "shrink-end: a box with no width fits beside its end pin in a grandparent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-end",
+        stage([
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                fit([.Pin(.Top, .Px(0)), .Pin(.End, .Px(20))]),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-end: a box with no width fits beside its end pin in a grandparent, the twin: a box as wide as its content" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-end",
+        stage([
+            frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+            fitted(130, 0, 150),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-floor: a box with no width is never narrower than its widest child" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-floor",
+        stage([fit([.Pin(.Top, .Px(0)), .Pin(.Start, .Px(280))])]),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-floor: a box with no width is never narrower than its widest child, the twin: a box as wide as one child" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "shrink-floor", stage([fitted(280, 0, 50)]), .Hover, []);
+}
+
+test "shrink-anchor: a box on an anchor with no width fits the anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-anchor",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(100)), .Height(.Px(50)), blue()], [
+                    fit([.Position(.PinAnchor)]),
+                ]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "shrink-anchor: a box on an anchor with no width fits the anchor, the twin: a box as wide as its content at the centre of the Flow box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-anchor",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .Padding(.Px(10)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(100)), .Height(.Px(50)), blue()], []),
+                fitted(25, 30, 150),
+            ],
+        ),
         .Hover,
         [],
     );

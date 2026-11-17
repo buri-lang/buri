@@ -284,8 +284,8 @@ const FLOW_ANCHOR: &str = "relative;anchor-name:--buri-flow;anchor-scope:--buri-
 /// runtime lifts into the top layer, placed against the nearest `Flow`
 /// ancestor. `position-area: center` makes the anchor's box the containing
 /// block, so a pin is measured from it and a percentage is of its size. The
-/// painter reads `position-anchor` as the same box: placed against its parent,
-/// out of every clip, and painted in the top layer.
+/// painter reads `position-anchor` as the same box: placed against the
+/// nearest `anchor-name`, out of every clip, and painted in the top layer.
 ///
 /// That area also centres the panel in each axis, pinned or not, so the
 /// alignment in each axis comes from the pins the panel has (#360): see

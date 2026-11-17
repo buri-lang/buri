@@ -15,6 +15,12 @@
 //! setups give the box measured from a border, padding, or a size taken from
 //! its parent's content.
 //!
+//! Further setups hold "Pinned" to the viewport inside a translated or
+//! backdrop-blurred box, which a browser measures it from, and place it
+//! against an anchor, the nearest `Flow` box or else the viewport. The last
+//! ones give "Pinned" no width and three boxes in a wrapping row, so a browser
+//! shrinks it to fit the room beside its inset.
+//!
 //! The clip tests print the boxes whose overflow cuts "Pinned" instead: only
 //! those on its chain of containing blocks do.
 
@@ -86,6 +92,18 @@ const PADDED_WIDTH: &str = r#"box("Grand", [.Width(.Px(200)), .Padding(.Px(8))],
 const PADDED_PERCENT: &str = r#"box("Grand", [.Width(.Px(200)), .Padding(.Px(8))], [
                 box("Parent", [.Position(.Flow), .Width(.Percent(50.0)), .Height(.Px(100))], [PINNED]),
             ])"#;
+/// A translated box past a positioned parent.
+const TRANSLATED: &str = r#"box("Grand", [.Translate(.Px(0), .Px(0)), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Position(.Flow), .Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A backdrop-blurred box past a positioned parent.
+const BLURRED: &str = r#"box("Grand", [.BackdropBlur(.Px(4)), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Position(.Flow), .Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
+/// A `Flow` grandparent past a parent with no position.
+const FLOW_GRANDPARENT: &str = r#"box("Grand", [.Position(.Flow), .Width(.Px(200)), .Height(.Px(100))], [
+                box("Parent", [.Width(.Px(100)), .Height(.Px(50))], [PINNED]),
+            ])"#;
 /// A dialog's panel.
 const DIALOG: &str = r#"ui.dialog({
                 isOpen: signal(ctx, true),
@@ -96,14 +114,19 @@ const DIALOG: &str = r#"ui.dialog({
 
 /// A page holding the `setup` tree with "Pinned" pinned by `pins`.
 fn page(setup: &str, pins: &str) -> String {
+    page_holding(setup, pins, "")
+}
+
+/// A page like [`page`]'s, with "Pinned" holding `children`.
+fn page_holding(setup: &str, pins: &str, children: &str) -> String {
     let pinned = format!(
         r#"ui.stack({{
                 role: .Some(.Group),
                 label: .Some(.Const("Pinned")),
                 styles: [{}, .Background(.Rgb(255, 0, 0))],
-                children: [],
+                children: [{}],
             }})"#,
-        pins
+        pins, children
     );
     format!(
         r#"from "platform/effect" import {{ Allocator, Ui }};
@@ -156,6 +179,11 @@ fn placed(name: &str, setup: &str, pins: &str) -> String {
     drive(name, &page(setup, pins), SHOW)
 }
 
+/// The same, with "Pinned" holding [`KIDS`].
+fn fitted(name: &str, setup: &str, pins: &str) -> String {
+    drive(name, &page_holding(setup, pins, KIDS), SHOW)
+}
+
 /// One test per setup and pin kind, each expecting `against <box> at <x>,<y>
 /// <width>x<height>`.
 macro_rules! placed {
@@ -169,6 +197,22 @@ macro_rules! placed {
         )*
     };
 }
+
+/// Held to the viewport, pinned by both edges in each axis.
+const VIEWPORT_BOTH: &str =
+    ".Position(.PinViewport), .Pin(.Top, .Px(10)), .Pin(.Bottom, .Px(20)), \
+                             .Pin(.Start, .Px(30)), .Pin(.End, .Px(40))";
+/// Held to the viewport, sized by percentages.
+const VIEWPORT_SIZES: &str = ".Position(.PinViewport), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(0)), \
+                              .Width(.Percent(50.0)), .Height(.Percent(25.0))";
+/// Placed against an anchor, pinned by an edge in each axis.
+const ANCHOR_EDGES: &str =
+    ".Position(.PinAnchor), .Pin(.Top, .Px(10)), .Pin(.Start, .Px(20)), .Width(.Px(30)), .Height(.Px(40))";
+/// Placed against an anchor, sized by percentages.
+const ANCHOR_SIZES: &str = ".Position(.PinAnchor), .Pin(.Top, .Px(0)), .Pin(.Start, .Px(0)), \
+                            .Width(.Percent(50.0)), .Height(.Percent(25.0))";
+/// Placed against an anchor with no pin, which centres it.
+const ANCHOR_CENTRED: &str = ".Position(.PinAnchor), .Width(.Px(30)), .Height(.Px(40))";
 
 placed! {
     edges_measure_from_a_positioned_parent: PARENT, EDGES => "Parent at 20,10 30x40";
@@ -208,6 +252,51 @@ placed! {
     both_edges_measure_from_a_box_as_tall_as_its_padding_and_flow: PADDED_HEIGHT, BOTH => "Parent at 30,10 130x6";
     both_edges_measure_from_a_box_as_wide_as_its_parents_content: PADDED_WIDTH, BOTH => "Parent at 30,10 114x70";
     sizes_measure_from_a_box_a_percentage_of_its_parents_content: PADDED_PERCENT, SIZES => "Parent at 0,0 46x25";
+
+    both_edges_on_the_viewport_measure_from_a_translated_box: TRANSLATED, VIEWPORT_BOTH => "Grand at 30,10 130x70";
+    sizes_on_the_viewport_measure_from_a_translated_box: TRANSLATED, VIEWPORT_SIZES => "Grand at 0,0 100x25";
+    both_edges_on_the_viewport_measure_from_a_blurred_box: BLURRED, VIEWPORT_BOTH => "Grand at 30,10 130x70";
+    sizes_on_the_viewport_measure_from_a_blurred_box: BLURRED, VIEWPORT_SIZES => "Grand at 0,0 100x25";
+
+    edges_on_an_anchor_measure_from_a_flow_grandparent: FLOW_GRANDPARENT, ANCHOR_EDGES => "Grand at 20,10 30x40";
+    sizes_on_an_anchor_measure_from_a_flow_grandparent: FLOW_GRANDPARENT, ANCHOR_SIZES => "Grand at 0,0 100x25";
+    no_pin_on_an_anchor_centres_on_a_flow_grandparent: FLOW_GRANDPARENT, ANCHOR_CENTRED => "Grand at 85,30 30x40";
+    edges_on_an_anchor_with_no_flow_measure_from_the_viewport: NONE, ANCHOR_EDGES => "the viewport at 20,10 30x40";
+    sizes_on_an_anchor_with_no_flow_measure_from_the_viewport: NONE, ANCHOR_SIZES => "the viewport at 0,0 512x192";
+}
+
+/// Three boxes 50 wide and 10 tall.
+const KIDS: &str = r#"box("A", [.Width(.Px(50)), .Height(.Px(10))], []),
+                box("B", [.Width(.Px(50)), .Height(.Px(10))], []),
+                box("C", [.Width(.Px(50)), .Height(.Px(10))], [])"#;
+
+/// One test per setup and pin kind, with "Pinned" holding [`KIDS`] in a
+/// wrapping row and no width, each expecting `against <box> at <x>,<y>
+/// <width>x<height>`.
+macro_rules! fitted {
+    ($($test:ident: $setup:ident, $pins:literal => $expected:literal;)*) => {
+        $(
+            #[test]
+            fn $test() {
+                let pins = concat!(".Layout(.Row), .Wrap(true), .Height(.Px(40)), ", $pins);
+                let placed = fitted(stringify!($test), $setup, pins);
+                assert_eq!(placed, concat!("against ", $expected, "\n"));
+            }
+        )*
+    };
+}
+
+fitted! {
+    no_width_fits_beside_a_start_pin_in_a_grandparent: FLOW_GRANDPARENT,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(20))" => "Grand at 20,0 150x40";
+    no_width_fits_in_the_room_beside_a_start_pin: PARENT,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(120))" => "Parent at 120,0 80x40";
+    no_width_fits_beside_an_end_pin: PARENT,
+        ".Pin(.Top, .Px(0)), .Pin(.End, .Px(20))" => "Parent at 30,0 150x40";
+    no_width_is_never_narrower_than_its_widest_child: PARENT,
+        ".Pin(.Top, .Px(0)), .Pin(.Start, .Px(180))" => "Parent at 180,0 50x40";
+    no_width_on_an_anchor_fits_the_anchor: FLOW_GRANDPARENT,
+        ".Position(.PinAnchor)" => "Grand at 25,30 150x40";
 }
 
 /// Prints the boxes whose overflow cuts "Pinned", nearest first.

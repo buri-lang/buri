@@ -732,13 +732,16 @@ export enum Position {
     /// In the flow until it would scroll out of view, and then held at the edge.
     Sticky,
     /// Out of the flow and fixed to the viewport, so scrolling does not move it.
+    /// Inside a box with a `Translate` or a `BackdropBlur`, it is measured from
+    /// the nearest such box instead, as in a browser.
     PinViewport,
     /// Placed against the nearest `Flow` ancestor the way a `Pin` is, but
     /// over the whole page and out of every ancestor's clip. A menu, listbox
     /// or popover pinned to its trigger hangs below it, over every box after
     /// it, even inside a `Scroll` box or a dialog. `PinViewport` leaves the
     /// clip too, but sticks to the viewport. In an axis with no `Pin`, the
-    /// panel sits centred on the anchor.
+    /// panel sits centred on the anchor. With no `Flow` ancestor, it is
+    /// measured from the viewport.
     PinAnchor,
 }
 

@@ -559,10 +559,12 @@ function boxes(container) {
 // `placedAgainst(element)` under a `position-area` that finds an anchor, and
 // otherwise the nearest ancestor with a box that is positioned, transformed or
 // backdrop-filtered. A fixed box skips the positioned ones. `null` is the
-// viewport, which a box with none of these is measured from.
+// viewport, which a box with none of these is measured from, and so is a box
+// in the top layer.
 function containingBlock(element) {
   const against = placedAgainst(element);
   if (against !== null) return against;
+  if (topLayers.includes(element)) return null;
   const fixed = getComputedStyle(element).position === "fixed";
   for (let at = element.parentElement; at !== null && at !== document.documentElement; at = at.parentElement) {
     if (display(at) === "contents") continue;

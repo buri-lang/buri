@@ -2651,12 +2651,13 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // bubble shows: `openTip` mints the cell it writes, and the bubble is a
         // region that follows it. The description is kept on the wrapper,
         // whether or not the bubble is showing, because a reader hears it with
-        // the trigger either way.
+        // the trigger either way. The wrapper is the bubble's anchor, as the
+        // sheet makes it in a browser.
         .Tooltip(text, styles, children, events) => {
             let at = openElement(
                 builder,
                 "div",
-                widgetBody(mem, plain(state), ["position:relative"], []),
+                widgetBody(mem, plain(state), ["position:relative", "anchor-name:--buri-flow"], []),
             );
             let shown = openTip(builder);
             let _ = match (text) {
@@ -4257,12 +4258,12 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The wrapper and its trigger, and the bubble after them while the
         // snapshot's state hovers or focuses the trigger. The wrapper is
         // positioned, as the sheet says to a browser, so it paints with the
-        // positioned boxes around it.
+        // positioned boxes around it, and it is the bubble's anchor.
         .Tooltip(text, styles, children, _events) => {
             let wrapper = widgetLine(
                 ctx,
                 plain(state),
-                ["position:relative"],
+                ["position:relative", "anchor-name:--buri-flow"],
                 [],
                 depth,
             );

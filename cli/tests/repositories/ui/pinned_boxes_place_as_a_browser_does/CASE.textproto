@@ -1,7 +1,9 @@
 # Pinned boxes the painter once placed or cut where a browser doesn't: pins
 # measured from inside a border and from boxes sized by their padding and
-# their parent's content, and clips between a pinned box and the box it is
-# measured from, which cut nothing. Each scene shares its golden with a twin
+# their parent's content, clips between a pinned box and the box it is
+# measured from, which cut nothing, boxes held to the viewport inside a
+# translated or blurred box, boxes on an anchor, and boxes with no width that
+# shrink to fit beside their pins. Each scene shares its golden with a twin
 # that gets the same picture another way. The pages built from these
 # snapshots check where a browser puts each box and what cuts it.
 #
@@ -24,3 +26,13 @@ path { path: "lib/pins/test/__snapshots__/clip-between.diff.png"  exists: false 
 path { path: "lib/pins/test/__snapshots__/scroll-between.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/clip-unpositioned.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/clip-outside.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/viewport-translated-both.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/viewport-blurred-sizes.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-grandparent-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-centred.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-none-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-start.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-room.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-end.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-floor.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/shrink-anchor.diff.png"  exists: false }

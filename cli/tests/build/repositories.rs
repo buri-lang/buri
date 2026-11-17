@@ -868,6 +868,16 @@ fn pinned_boxes_place_as_a_browser_does() {
         ("scroll-between", "60,10 30x40", 0),
         ("clip-unpositioned", "60,10 30x40", 0),
         ("clip-outside", "180,10 30x40", 1),
+        ("viewport-translated-both", "30,10 130x70", 0),
+        ("viewport-blurred-sizes", "0,0 100x25", 0),
+        ("anchor-grandparent-edges", "20,10 30x40", 0),
+        ("anchor-centred", "85,30 30x40", 0),
+        ("anchor-none-edges", "20,10 30x40", 0),
+        ("shrink-start", "20,0 150x40", 0),
+        ("shrink-room", "220,0 80x40", 0),
+        ("shrink-end", "130,0 150x40", 0),
+        ("shrink-floor", "280,0 50x40", 0),
+        ("shrink-anchor", "25,30 150x40", 0),
     ];
     let twice = |line: &dyn Fn(&str, usize) -> String| -> Vec<(String, String)> {
         expected
