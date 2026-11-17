@@ -171,9 +171,7 @@ pub fn index(archives: &[&[u8]], roots: &[&[u8]]) -> Option<Vec<u8>> {
                     needed.push(name);
                 }
             });
-            if read.is_none() {
-                kept.push(member);
-            }
+            kept.extend(read.is_none().then_some(member));
             needs.push(needed);
         }
     }
