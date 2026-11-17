@@ -139,13 +139,16 @@ impl Jump {
 }
 
 impl Bind {
-    /// The hole this binds.
+    /// Whether this binds `slot`. Compared class by class: building a
+    /// [`Slot`] per bind to compare whole was a third of the time the emitter
+    /// spends copying and patching stencils.
     #[inline]
-    fn slot(&self) -> Slot {
-        match *self {
-            Bind::Lit(l, _) => Slot::Lit(l),
-            Bind::Word(w, _) => Slot::Word(w),
-            Bind::Jump(j, _) => Slot::Jump(j),
+    fn binds(&self, slot: &Slot) -> bool {
+        match (self, slot) {
+            (Bind::Lit(l, _), Slot::Lit(s)) => l == s,
+            (Bind::Word(w, _), Slot::Word(s)) => w == s,
+            (Bind::Jump(j, _), Slot::Jump(s)) => j == s,
+            _ => false,
         }
     }
 
@@ -162,8 +165,8 @@ impl Bind {
 /// every emitted stencil, so it is inlined.
 #[inline]
 fn bind_of<'b>(binds: &'b [Bind], h: &Hole) -> Option<&'b Bind> {
-    match h.name {
-        HoleName::Slot(slot) => binds.iter().find(|b| b.slot() == slot),
+    match &h.name {
+        HoleName::Slot(slot) => binds.iter().find(|b| b.binds(slot)),
         HoleName::Symbol(_) => None,
     }
 }

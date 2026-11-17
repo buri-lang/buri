@@ -131,10 +131,15 @@ pub struct Region {
 /// shrinks a buffer. A stencil's patch is a hole site inside the stencil's
 /// code, which `the_shipped_patch_sites_are_inside_their_stencils` checks for
 /// every library this toolchain bakes.
+///
+/// One `copy_from_slice`: a byte loop here was an eighth of the time the
+/// emitter spends copying and patching stencils.
 pub fn overwrite(bytes: &mut [u8], at: u64, new: &[u8]) {
-    for (old, b) in bytes.iter_mut().skip(at as usize).zip(new) {
-        *old = *b;
-    }
+    let at = usize::try_from(at).unwrap_or(usize::MAX).min(bytes.len());
+    let rest = bytes.get_mut(at..).unwrap_or_default();
+    let n = rest.len().min(new.len());
+    let (old, _) = rest.split_at_mut(n);
+    old.copy_from_slice(new.split_at(n).0);
 }
 
 /// A pool handle is not an address, and the emitter passes both around as
@@ -309,20 +314,20 @@ impl Region {
 
     pub fn word_at(&self, addr: u64) -> u32 {
         let o = addr as usize;
-        let b = self
-            .bytes
+        self.bytes
             .get(o..o.saturating_add(4))
-            .unwrap_or(&[0, 0, 0, 0]);
-        u32::from_le_bytes([
-            *b.first().unwrap_or(&0),
-            *b.get(1).unwrap_or(&0),
-            *b.get(2).unwrap_or(&0),
-            *b.get(3).unwrap_or(&0),
-        ])
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map_or(0, u32::from_le_bytes)
     }
 
     pub fn set_word(&mut self, addr: u64, w: u32) {
-        overwrite(&mut self.bytes, addr, &w.to_le_bytes());
+        // Four bytes known at compile time are one store, where
+        // [`overwrite`]'s length is a `memcpy` call.
+        let o = addr as usize;
+        match self.bytes.get_mut(o..o.saturating_add(4)) {
+            Some(old) => old.copy_from_slice(&w.to_le_bytes()),
+            None => overwrite(&mut self.bytes, addr, &w.to_le_bytes()),
+        }
     }
 
     /// The two sections and the relocations each still needs.
@@ -444,6 +449,21 @@ impl Emitted {
 mod tests {
     use super::super::runtime;
     use super::*;
+
+    #[test]
+    fn a_patch_rewrites_only_bytes_already_emitted() {
+        let mut r = Region::new();
+        r.put(&[1, 2, 3, 4, 5, 6]);
+        r.set_word(1, 0xaabb_ccdd);
+        assert_eq!(r.word_at(1), 0xaabb_ccdd);
+        // Past the end, a word is cut short, and nothing grows.
+        r.set_word(4, 0x1122_3344);
+        r.set_bytes(5, &[9, 9]);
+        assert_eq!(r.bytes, [1, 0xdd, 0xcc, 0xbb, 0x44, 9]);
+        assert_eq!(r.word_at(4), 0);
+        r.set_word(64, 7);
+        assert_eq!(r.bytes.len(), 6);
+    }
 
     #[test]
     fn one_datum_is_pooled_once() {
