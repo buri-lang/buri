@@ -532,6 +532,9 @@ fn no_document(operations: &[String], span: Span) -> Diagnostic {
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
+/// The sentence one cause of a missing key refuses its keys with.
+type Refusal<'a> = &'a dyn Fn(&[String]) -> Diagnostic;
+
 /// The refusal of a program that reaches `missing`, one diagnostic per cause.
 ///
 /// An operation the runtime was built without, one a platform supplies to its
@@ -545,7 +548,7 @@ pub fn refusals(
     missing: &[String],
     program: &Program,
     (net, crypto): (bool, bool),
-    no_body: &dyn Fn(&[String]) -> Diagnostic,
+    no_body: Refusal<'_>,
 ) -> Diagnostics {
     let mut missing = missing.to_vec();
     missing.sort();
@@ -554,7 +557,7 @@ pub fn refusals(
     let (cryptography, rest) = split_cryptography_when(&rest, crypto);
     let (unsupplied, rest) = split_unsupplied(&rest, program);
     let (document, rest) = split_document(&rest);
-    let causes: [(Vec<String>, &dyn Fn(&[String]) -> Diagnostic); 5] = [
+    let causes: [(Vec<String>, Refusal<'_>); 5] = [
         (networking, &|keys| no_networking(keys, Span::NONE)),
         (cryptography, &|keys| no_cryptography(keys, Span::NONE)),
         (unsupplied, &|keys| no_supplier(keys, Span::NONE)),

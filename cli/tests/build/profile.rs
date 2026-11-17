@@ -93,8 +93,9 @@ fn a_profiled_run_counts_the_process_in_billions() {
     run.ok();
     let report = run.all();
     let Some(line) = report.lines().find(|l| l.starts_with("process: ")) else {
-        assert!(
-            !cfg!(target_os = "macos"),
+        assert_ne!(
+            std::env::consts::OS,
+            "macos",
             "no process line in\n{}",
             indent(&report)
         );
