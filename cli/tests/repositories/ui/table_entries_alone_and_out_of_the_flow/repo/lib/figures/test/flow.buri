@@ -1,0 +1,207 @@
+// Children of a table row out of the flow, each scene beside a twin that
+// paints the same picture with the child written outside the table. A box
+// held to the viewport keeps an empty column, as a browser holds it in an
+// anonymous table entry, so "Feb" sits over "3". An open dialog is in the top
+// layer and takes no column, so "Feb" sits over "2". A pinned box keeps an
+// empty column too, and is measured from the row it was written in, not from
+// the table entry a browser wraps it in.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+fn entry<C>(name: Str): Node<C> {
+    ui.stack({
+        role: .Some(.Cell),
+        styles: [.BorderWidth(.Px(1)), .BorderColor(.Rgb(0, 0, 0)), .Padding(.Px(4))],
+        children: [ui.text({ content: .Const(name) })],
+    })
+}
+
+fn table<C>(first: [Node<C>], second: [Node<C>]): Node<C> {
+    ui.stack({
+        role: .Some(.Table),
+        styles: [.TextWrap(.NoWrap)],
+        children: [
+            ui.stack({ role: .Some(.TableRow), styles: [], children: first }),
+            ui.stack({ role: .Some(.TableRow), styles: [], children: second }),
+        ],
+    })
+}
+
+// A red square held to the viewport's bottom end corner.
+fn held<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Position(.PinViewport),
+            .Pin(.Bottom, .Px(0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(20)),
+            .Height(.Px(20)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+fn empty<C>(): Node<C> {
+    ui.stack({ styles: [], children: [] })
+}
+
+fn frame<C>(children: [Node<C>]): Node<C> {
+    ui.stack({ styles: [], children: children })
+}
+
+test "a box held to the viewport in a table row keeps its column" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "held",
+        frame([
+            table([entry("Jan"), held(), entry("Feb")], [
+                entry("1"),
+                entry("2"),
+                entry("3"),
+            ]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "an empty column, and the box held to the viewport outside the table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "held",
+        frame([
+            table([entry("Jan"), empty(), entry("Feb")], [
+                entry("1"),
+                entry("2"),
+                entry("3"),
+            ]),
+            held(),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+fn dialog<C: Ui>(ctx: C): Node<C> {
+    ui.dialog({
+        isOpen: signal(ctx, true),
+        label: .Const("Open"),
+        children: [ui.text({ content: .Const("Over the page") })],
+        styles: [.Padding(.Px(8)), .Background(.Rgb(255, 255, 255))],
+    })
+}
+
+test "an open dialog in a table row takes no column" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog",
+        frame([
+            table([entry("Jan"), dialog(ctx), entry("Feb")], [entry("1"), entry("2")]),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "an open dialog outside the table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "dialog",
+        frame([
+            table([entry("Jan"), entry("Feb")], [entry("1"), entry("2")]),
+            dialog(ctx),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+// A red square pinned to the top start corner of what it is measured from.
+fn pinned<C>(): Node<C> {
+    ui.stack({
+        styles: [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(20)),
+            .Height(.Px(20)),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}
+
+test "a pinned box in a table row keeps its column and is measured from the row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "pinned",
+        frame([
+            ui.stack({
+                role: .Some(.Table),
+                styles: [.TextWrap(.NoWrap)],
+                children: [
+                    ui.stack({
+                        role: .Some(.TableRow),
+                        styles: [.Position(.Flow)],
+                        children: [entry("Jan"), pinned(), entry("Feb")],
+                    }),
+                    ui.stack({
+                        role: .Some(.TableRow),
+                        styles: [],
+                        children: [entry("1"), entry("2"), entry("3")],
+                    }),
+                ],
+            }),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "an empty column, and the pinned box measured from a box around the table" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "pinned",
+        ui.stack({
+            styles: [.Position(.Flow)],
+            children: [
+                table([entry("Jan"), empty(), entry("Feb")], [
+                    entry("1"),
+                    entry("2"),
+                    entry("3"),
+                ]),
+                pinned(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}

@@ -3567,6 +3567,9 @@ impl Reset {
             // A table entry stacks its children, as the painter does. Every
             // child but a text's `<span>` is a block already.
             out.push_str(":where(td,th)>:where(span){display:block}\n");
+            // A header outside any table row is a `<div>` with its role, and
+            // the painter draws it bold and centred as a browser draws a `<th>`.
+            out.push_str(":where([role=columnheader],[role=rowheader]){font-weight:bold;text-align:center}\n");
         }
         if self.image {
             // A picture and an inlined `<svg>` are the two leaves a browser

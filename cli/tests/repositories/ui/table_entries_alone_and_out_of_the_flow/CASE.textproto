@@ -1,0 +1,25 @@
+# Table entries outside any table row, and children of a table row out of the
+# flow. A table entry, a column header and a row header outside a row are each
+# a plain box, in a stack and in a table entry alike. A box held to the
+# viewport keeps an empty column, as a browser holds it in an anonymous table
+# entry, and an open dialog is in the top layer and takes none. A pinned box
+# keeps an empty column too, measured from its row rather than from the table
+# entry a browser wraps it in, which has no position of its own: each scene
+# shares its golden with a twin that writes the child outside the table. The
+# pages built from these snapshots check that a browser lays each out the same
+# way: it would put a run of table entries outside a row in an anonymous table.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "table entries outside a table row are plain boxes, and children of a row out of the flow keep the columns a browser gives them"
+
+run {
+  args: ["test", "//lib/figures", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/figures/test/__snapshots__/alone.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/held.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/dialog.diff.png"  exists: false }
+path { path: "lib/figures/test/__snapshots__/pinned.diff.png"  exists: false }

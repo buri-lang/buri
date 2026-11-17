@@ -172,9 +172,11 @@ export fn shell<C: Allocator>(
     };
     // `$served` tells `resume` this script made the dialog modal, so one shut
     // by then was shut by the reader. One whose holder isn't drawn, a
-    // `Removed` at this width, is shut and left to `resume`.
+    // `Removed` at this width, is shut and left to `resume`. A `display:
+    // contents` holder, the table entry a dialog in a table row sits in, has
+    // no box to ask, so what holds it is asked.
     let modal = if (body.contains("<dialog")) {
-        "<script>for(const d of document.querySelectorAll(\"dialog[open]\")){d.close();if(d.parentElement.checkVisibility()){d.showModal();d.$served=true}}</script>"
+        "<script>for(const d of document.querySelectorAll(\"dialog[open]\")){d.close();let p=d.parentElement;while(p&&getComputedStyle(p).display===\"contents\")p=p.parentElement;if(p&&p.checkVisibility()){d.showModal();d.$served=true}}</script>"
     } else {
         ""
     };

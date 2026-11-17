@@ -1769,7 +1769,10 @@ The rest is short:
 - A table entry stacks its children like a column, in a browser too. Any
   child written straight into a `.TableRow` gets a column of its own, and one
   in a `.Table` gets a row. A `.TableRow` with no `.Table` is a table of one
-  row. A shut dialog takes no column.
+  row. A shut or open dialog takes no column. A pinned box and one held to the
+  viewport keep an empty column, as a browser gives them one, and a pinned box
+  is measured from its row. A `.Cell`, `.ColumnHeader` or `.RowHeader` outside
+  any row is a plain box, with the header still bold and centred.
 - **A `.Password` field's value is never painted.** It is one • per
   character, the way a browser draws `<input type="password">`, so a recorded
   golden holds the width of the secret and none of it. `.Multiline` is the one

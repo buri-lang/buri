@@ -505,25 +505,35 @@ function specificity(selector) {
 // entry in a table row, where it is a row in a table, and where it isn't
 // inline in a block. A run of the other children shares one box, which is a
 // run of text in a flex container, a line in a block, an anonymous entry in a
-// table row and an anonymous row in a table. Comments, empty text and what
-// shows nothing are no box, and the children of a `display: contents` element
-// are laid out as its parent's.
+// table row and an anonymous row in a table. In a block, a run of table
+// entries and rows shares one box too: the anonymous table a browser wraps
+// them in. Comments, empty text, what shows nothing and what is in the top
+// layer, which is laid out over the page, are no box, and the children of a
+// `display: contents` element are laid out as its parent's.
 function boxes(container) {
+  drop();
   const outer = display(container);
   const children = (n) =>
     [...n.childNodes].flatMap((c) => (c.nodeType === 1 && display(c) === "contents" ? children(c) : [c]));
-  const own = /flex|grid|box/.test(outer)
+  const flexible = /flex|grid|box/.test(outer);
+  const tabular = outer === "table-row" || /^(inline-)?table$|^table-.*group$/.test(outer);
+  const own = flexible
     ? () => true
     : outer === "table-row"
       ? (d) => d === "table-cell"
-      : /^(inline-)?table$|^table-.*group$/.test(outer)
+      : tabular
         ? (d) => /^table-(row|.*group|caption)$/.test(d)
-        : (d) => !d.startsWith("inline");
+        : (d) => !d.startsWith("inline") && !d.startsWith("table-");
+  // Whether a child of that display goes in an anonymous table.
+  const part = (d) => !flexible && !tabular && d.startsWith("table-");
   const out = [];
   let run = null;
+  let parts = false;
   for (const node of children(container)) {
+    let d = "";
     if (node.nodeType === 1) {
-      const d = display(node);
+      if (topLayers.includes(node)) continue;
+      d = display(node);
       if (d === "none") continue;
       if (own(d)) {
         run = null;
@@ -531,7 +541,8 @@ function boxes(container) {
         continue;
       }
     } else if (node.nodeType !== 3 || node.data === "") continue;
-    if (run === null) out.push((run = []));
+    if (run === null || parts !== part(d)) out.push((run = []));
+    parts = part(d);
     run.push(node);
   }
   return out;

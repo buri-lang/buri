@@ -5232,9 +5232,12 @@ const $dom_dialogs = new Set();
 // Whether a browser draws what holds dialog `element`: nothing above it has
 // `display: none`, which is what `Removed` writes, under a breakpoint, a
 // condition or a computed style alike. The browser's own styles answer, so no
-// media query is worked out here.
+// media query is worked out here. A `display: contents` element has no box
+// for `checkVisibility` to find, so what holds it answers: the table entry
+// the runtime holds a dialog in inside a table row is one.
 function $dom_drawn(element) {
-  const parent = element.parentElement;
+  let parent = element.parentElement;
+  while (parent !== null && getComputedStyle(parent).display === "contents") parent = parent.parentElement;
   return parent !== null && parent.checkVisibility();
 }
 
@@ -5573,6 +5576,12 @@ const $TREE_ROLES = [
   ["th", "scope", "row"],
   ["th", "scope", "col"],
   ["td"],
+];
+// The last three as a `<div>`, for one outside any table row.
+const $TREE_LONE_ENTRIES = [
+  ["div", "role", "rowheader"],
+  ["div", "role", "columnheader"],
+  ["div", "role", "cell"],
 ];
 
 // `FieldKind`, lowered. `Multiline` is a `textarea` and has no type; the entry
@@ -6875,6 +6884,7 @@ function $tree_table_part(parent, node, anchor) {
   if (parent.$table) {
     if (name === "tr") return parent;
     const row = $tree_element(parent, "tr", anchor);
+    row.$row = true;
     into = entry ? row : $tree_element(row, "td", null);
     // A dialog is drawn over the page or not at all, so it takes no row.
     if (tag === 15) $dom_styles(row, $TREE_NO_BOX);
@@ -6941,7 +6951,11 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     return;
   }
   if (tag === 4) {
-    const role = $TREE_ROLES[node[1]];
+    let role = $TREE_ROLES[node[1]];
+    // A table entry outside a table row is a plain box in the painter. A
+    // browser would put a run of `<td>`s there in an anonymous table, and a
+    // parser drops each from a document a server sends.
+    if ((role[0] === "td" || role[0] === "th") && !parent.$row) role = $TREE_LONE_ENTRIES[node[1] - 15];
     const element = $tree_element(parent, role[0], anchor);
     for (let i = 1; i + 1 < role.length; i += 2) $dom_attribute(element, role[i], role[i + 1]);
     $tree_bind(node[4], (current) => $dom_flag(element, "aria-current", current));

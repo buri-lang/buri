@@ -14,12 +14,15 @@
 //! row to the list, so each test reads the first render and the update after
 //! it. The served tests read the document a server sends as a browser parses
 //! it, then the page that takes it over, then the update.
+//!
+//! A table entry outside any table row is a plain box in the painter. The
+//! tests of it read a stack and a table entry that each hold three of them.
 
 use super::pages::{drive, run_served, served};
 use crate::harness::browser::browser;
 
-/// Prints the boxes a browser lays out in the table row labelled "Row" and in
-/// the table labelled "Table".
+/// Prints the boxes a browser lays out in each container on the page labelled
+/// "Row", "Table", "Stack" or "Entry".
 const SHOW: &str = r#"
 const tick = () => new Promise((done) => setTimeout(done, 0));
 const named = (n) => {
@@ -32,7 +35,13 @@ const line = (label) => {
   const shown = boxes(labelled(label)).map((box) => box.map(named).join(""));
   return `${label}: ${shown.join(" | ")} (${shown.length} box${shown.length === 1 ? "" : "es"})`;
 };
-const show = () => console.log(`${line("Row")}; ${line("Table")}`);
+const LABELS = ["Row", "Table", "Stack", "Entry"];
+// What is in the top layer, over the page, from the bottom up.
+const over = () => {
+  const shown = topLayers.filter((e) => e.isConnected).map(named);
+  return shown.length === 0 ? [] : [`over the page: ${shown.join(" | ")}`];
+};
+const show = () => console.log([...LABELS.filter((l) => labelled(l) !== null).map(line), ...over()].join("; "));
 const change = async () => {
   labelled("Change").click();
   await tick();
@@ -57,6 +66,7 @@ from "ui/signal" import {{ Signal, signal }};
 struct Shared {{
     text: Signal<Str>,
     on: Signal<Bool>,
+    open: Signal<Bool>,
     level: Signal<Float>,
     picked: Signal<Str>,
 }}
@@ -65,6 +75,7 @@ fn shared<C: Ui>(ctx: C): Shared {{
     Shared {{
         text: signal(ctx, ""),
         on: signal(ctx, false),
+        open: signal(ctx, true),
         level: signal(ctx, 0.5),
         picked: signal(ctx, "x"),
     }}
@@ -95,7 +106,7 @@ const BODY: &str = r#"ui.stack({
     })"#;
 
 /// A mounted page whose table row and table hold `kid`s.
-fn page(kid: &str) -> String {
+fn page(body: &str, kid: &str) -> String {
     format!(
         r#"{}from "web" import {{ WebHost }};
 
@@ -110,20 +121,20 @@ export fn main(host: WebHost): Result<(), Str> {{
 }}
 "#,
         head(kid),
-        BODY.replace("KIDS", KIDS)
+        body.replace("KIDS", KIDS)
     )
 }
 
 /// What a browser makes of the row and the table when the page mounts, then
 /// after "Change".
-fn mounted(name: &str, kid: &str) -> String {
+fn mounted(name: &str, body: &str, kid: &str) -> String {
     let driver = format!("{SHOW}\nshow();\nawait change();\nshow();\n");
-    drive(name, &page(kid), &driver)
+    drive(name, &page(body, kid), &driver)
 }
 
 /// A page a server renders and the browser takes over, its table row and
 /// table holding `kid`s.
-fn served_page(kid: &str) -> String {
+fn served_page(body: &str, kid: &str) -> String {
     format!(
         r#"{}from "core/net/http" import * as http;
 from "platform/effect" import {{ Request, Response }};
@@ -154,14 +165,14 @@ export fn fetch(host: ServerHost, request: Request): Response {{
 }}
 "#,
         head(kid),
-        BODY.replace("KIDS", KIDS)
+        body.replace("KIDS", KIDS)
     )
 }
 
 /// What a browser makes of the row and the table as the server's document
 /// parses, once the page has taken it over, and after "Change".
-fn resumed(name: &str, kid: &str) -> String {
-    let scratch = served(name, &served_page(kid));
+fn resumed(name: &str, body: &str, kid: &str) -> String {
+    let scratch = served(name, &served_page(body, kid));
     let script = format!(
         r#"{}
 {SHOW}
@@ -179,28 +190,45 @@ show();
     run_served(&scratch.write("drive.mjs", &script), "served")
 }
 
-/// What a browser shows of the row and the table when the page mounts, then
-/// after "Change", each line the boxes it holds: `before`, then `after`.
-fn twice(before: &str, after: &str) -> String {
-    let count = |boxes: &str| {
-        let n = boxes.split(" | ").count();
-        format!("{boxes} ({n} box{})", if n == 1 { "" } else { "es" })
-    };
-    let line = |boxes: &str| format!("Row: {}; Table: {}\n", count(boxes), count(boxes));
-    format!("{}{}", line(before), line(after))
+/// What a browser shows of the two containers labelled `labels` when the page
+/// mounts, then after "Change", each line the boxes it holds: `before`, then
+/// `after`. Each line then says what is over the page, from `over`: as a
+/// server's document parses, once the page shows, and after "Change".
+fn twice(labels: [&str; 2], before: &str, after: &str, over: [&str; 3]) -> String {
+    format!(
+        "{}{}",
+        shown(labels, before, over[1]),
+        shown(labels, after, over[2])
+    )
 }
 
-/// [`twice`] as a server sends it: the first line again as the page takes it
-/// over.
-fn served_twice(before: &str, after: &str) -> String {
-    let lines = twice(before, after);
-    let first = lines.lines().next().unwrap_or_default();
-    format!("{first}\n{lines}")
+/// One line of what a browser shows: the containers labelled `labels`, each
+/// holding `boxes`, and `over` over the page.
+fn shown(labels: [&str; 2], boxes: &str, over: &str) -> String {
+    let n = boxes.split(" | ").count();
+    let held = format!("{boxes} ({n} box{})", if n == 1 { "" } else { "es" });
+    let over = if over.is_empty() {
+        String::new()
+    } else {
+        format!("; over the page: {over}")
+    };
+    let [first, second] = labels;
+    format!("{first}: {held}; {second}: {held}{over}\n")
+}
+
+/// [`twice`] as a server sends it: first the server's document as it parses.
+fn served_twice(labels: [&str; 2], before: &str, after: &str, over: [&str; 3]) -> String {
+    format!(
+        "{}{}",
+        shown(labels, before, over[0]),
+        twice(labels, before, after, over)
+    )
 }
 
 /// A test that `kid`s in a row and a table are one box each, on a page that
 /// mounts, and one a server sends: each box shows `before` and then, once
-/// "Change" adds a row, `after`.
+/// "Change" adds a row, `after`. `over` is what is over the page, in the top
+/// layer, at each of those times.
 macro_rules! one_by_one {
     ($mounted:ident, $served:ident, $kid:expr) => {
         one_by_one!(
@@ -212,20 +240,65 @@ macro_rules! one_by_one {
         );
     };
     ($mounted:ident, $served:ident, $kid:expr, $before:expr, $after:expr) => {
+        one_by_one!($mounted, $served, $kid, $before, $after, ["", "", ""]);
+    };
+    ($mounted:ident, $served:ident, $kid:expr, $before:expr, $after:expr, $over:expr) => {
+        one_by_one!(@in BODY, ["Row", "Table"], $mounted, $served, $kid, $before, $after, $over);
+    };
+    (@in $body:expr, $labels:expr, $mounted:ident, $served:ident, $kid:expr, $before:expr, $after:expr, $over:expr) => {
         #[test]
         fn $mounted() {
-            assert_eq!(mounted(stringify!($mounted), $kid), twice($before, $after));
+            assert_eq!(
+                mounted(stringify!($mounted), $body, $kid),
+                twice($labels, $before, $after, $over)
+            );
         }
 
         #[test]
         fn $served() {
             assert_eq!(
-                resumed(stringify!($served), $kid),
-                served_twice($before, $after)
+                resumed(stringify!($served), $body, $kid),
+                served_twice($labels, $before, $after, $over)
             );
         }
     };
 }
+
+/// A test that `kid`s, each a table entry outside any table row, are one box
+/// each, as the painter draws them: in a stack, and in a table entry.
+macro_rules! alone {
+    ($mounted:ident, $served:ident, $kid:expr) => {
+        one_by_one!(
+            @in LONE,
+            ["Stack", "Entry"],
+            $mounted,
+            $served,
+            $kid,
+            "one! | a! | End!",
+            "one! | a! | b! | End!",
+            ["", "", ""]
+        );
+    };
+}
+
+/// The button, then a group labelled "Stack" and a table entry labelled
+/// "Entry", each holding [`KIDS`].
+const LONE: &str = r#"ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Change"),
+                styles: [],
+                onPress: .Some(fn(c) => items.set(c, ["a", "b"])),
+            }),
+            ui.stack({ role: .Some(.Group), label: .Some(.Const("Stack")), styles: [], children: [KIDS] }),
+            ui.stack({ role: .Some(.Table), styles: [], children: [
+                ui.stack({ role: .Some(.TableRow), styles: [], children: [
+                    ui.stack({ role: .Some(.Cell), label: .Some(.Const("Entry")), styles: [], children: [KIDS] }),
+                ] }),
+            ] }),
+        ],
+    })"#;
 
 one_by_one!(
     stacks_in_a_table_row_and_a_table_are_one_box_each,
@@ -428,3 +501,120 @@ one_by_one!(
     "one | End",
     "one | End"
 );
+
+// An open dialog is drawn over the page, so it takes no table entry or row
+// either.
+one_by_one!(
+    open_dialogs_in_a_table_row_and_a_table_are_no_box,
+    open_dialogs_a_server_sends_in_a_table_row_and_a_table_are_no_box,
+    r#"if (name == "a" || name == "b") {
+        ui.dialog({ isOpen: shared.open, label: .Const(name), children: [], styles: [] })
+    } else {
+        ui.stack({ styles: [], children: [ui.text({ content: .Const(name) })] })
+    }"#,
+    "one | End",
+    "one | End",
+    ["a | a", "a | a", "a | a | b | b"]
+);
+
+// A box out of the flow keeps its table entry and its row, as an anonymous
+// entry holds it in a browser: held to the viewport, pinned, or pinned to an
+// anchor.
+one_by_one!(
+    boxes_held_to_the_viewport_in_a_table_row_and_a_table_are_one_box_each,
+    boxes_held_to_the_viewport_a_server_sends_in_a_table_row_and_a_table_are_one_box_each,
+    r#"ui.stack({ styles: [.Position(.PinViewport)], children: [ui.text({ content: .Const(name) })] })"#
+);
+
+one_by_one!(
+    pinned_boxes_in_a_table_row_and_a_table_are_one_box_each,
+    pinned_boxes_a_server_sends_in_a_table_row_and_a_table_are_one_box_each,
+    r#"ui.stack({ styles: [.Pin(.Top, .Px(0))], children: [ui.text({ content: .Const(name) })] })"#
+);
+
+one_by_one!(
+    anchored_panels_in_a_table_row_and_a_table_are_one_box_each,
+    anchored_panels_a_server_sends_in_a_table_row_and_a_table_are_one_box_each,
+    r#"ui.stack({ styles: [.Position(.PinAnchor)], children: [ui.text({ content: .Const(name) })] })"#,
+    "one | a | End",
+    "one | a | b | End",
+    [
+        "",
+        "one | a | End | one | a | End",
+        "one | a | b | End | one | a | b | End"
+    ]
+);
+
+// A table entry, a column header or a row header outside any table row is a
+// plain box, as the painter draws it: a browser would put a run of them in an
+// anonymous table, and a parser drops each from a document a server sends.
+alone!(
+    table_entries_outside_a_table_row_are_one_box_each,
+    table_entries_a_server_sends_outside_a_table_row_are_one_box_each,
+    r#"ui.stack({ role: .Some(.Cell), styles: [], children: [ui.text({ content: .Const(name) }), ui.text({ content: .Const("!") })] })"#
+);
+
+alone!(
+    column_headers_outside_a_table_row_are_one_box_each,
+    column_headers_a_server_sends_outside_a_table_row_are_one_box_each,
+    r#"ui.stack({ role: .Some(.ColumnHeader), styles: [], children: [ui.text({ content: .Const(name) }), ui.text({ content: .Const("!") })] })"#
+);
+
+alone!(
+    row_headers_outside_a_table_row_are_one_box_each,
+    row_headers_a_server_sends_outside_a_table_row_are_one_box_each,
+    r#"ui.stack({ role: .Some(.RowHeader), styles: [], children: [ui.text({ content: .Const(name) }), ui.text({ content: .Const("!") })] })"#
+);
+
+/// Prints how a browser draws each text in the group labelled "Stack": its
+/// weight and its alignment.
+const WEIGHTS: &str = r#"
+const drawn = () => {
+  const texts = [...labelled("Stack").querySelectorAll("span")];
+  console.log(texts.map((t) => `${t.textContent} ${getComputedStyle(t).fontWeight} ${getComputedStyle(t).textAlign}`).join(", "));
+};
+"#;
+
+/// Column headers and a row header in the group labelled "Stack", outside any
+/// table row: how a browser draws their texts once the page mounts, or as a
+/// server's document parses and then once the page takes it over.
+fn headers_drawn(name: &str, served_too: bool) -> String {
+    let kid = r#"ui.stack({
+        role: .Some(if (name == "End") { .RowHeader } else { .ColumnHeader }),
+        styles: [],
+        children: [ui.text({ content: .Const(name) })],
+    })"#;
+    if !served_too {
+        return drive(name, &page(LONE, kid), &format!("{WEIGHTS}\ndrawn();\n"));
+    }
+    let scratch = served(name, &served_page(LONE, kid));
+    let script = format!(
+        r#"{}
+{WEIGHTS}
+const {{ default: server }} = await import("./.buri/out/platform/server/cmd/page/fetch.mjs");
+parse(await (await server.fetch(new Request("http://localhost/"))).text());
+drawn();
+await import("./.buri/out/web/cmd/page/main.mjs");
+await new Promise((done) => setTimeout(done, 0));
+drawn();
+"#,
+        browser()
+    );
+    run_served(&scratch.write("drive.mjs", &script), "served")
+}
+
+/// Each header's text bold and centred, as the painter draws a header and a
+/// browser draws one in a table row.
+const BOLD: &str = "one bold center, a bold center, End bold center\n";
+
+#[test]
+fn headers_outside_a_table_row_are_bold_and_centred() {
+    let name = "headers_outside_a_table_row_are_bold_and_centred";
+    assert_eq!(headers_drawn(name, false), BOLD);
+}
+
+#[test]
+fn headers_a_server_sends_outside_a_table_row_are_bold_and_centred() {
+    let name = "headers_a_server_sends_outside_a_table_row_are_bold_and_centred";
+    assert_eq!(headers_drawn(name, true), BOLD.repeat(2));
+}

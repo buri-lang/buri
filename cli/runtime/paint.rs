@@ -3863,7 +3863,42 @@ fn build_table(
             }
             children.push(id);
         }
-        let placed = build(scene, styles, pictures, tree, items, built)?;
+        let mut placed = Vec::with_capacity(items.len());
+        for &item in items {
+            let ids = build(scene, styles, pictures, tree, &[item], built)?;
+            // A box held to the viewport still takes its column, empty, the
+            // way a browser holds it in an anonymous table entry: CSS lays an
+            // out-of-flow child of a table row out as an inline of no size. A
+            // dialog's scrim is in the top layer instead, out of the table.
+            let held = styles.get(item).is_some_and(|s| s.fixed && !s.top);
+            if ids.is_empty() && held {
+                placed.push(tree.new_leaf(Style::default()).map_err(fail)?);
+            }
+            // A pinned box keeps its column empty the same way, and is placed
+            // against the row it was written in, or against the table when it
+            // was written straight into one: not against the table entry a
+            // browser wraps it in, which has no `Position`.
+            let pinned = styles
+                .get(item)
+                .is_some_and(|s| s.absolute && !s.fixed && !s.escape);
+            if pinned {
+                placed.push(tree.new_leaf(Style::default()).map_err(fail)?);
+                for &id in &ids {
+                    let mut own = tree.style(id).map_err(fail)?.clone();
+                    if row.is_some() {
+                        own.grid_row = Line::from_line_index(line);
+                        own.grid_column = Line {
+                            start: line_at(1),
+                            end: line_at(-1),
+                        };
+                    }
+                    tree.set_style(id, own).map_err(fail)?;
+                    children.push(id);
+                }
+                continue;
+            }
+            placed.extend(ids);
+        }
         for (column, id) in placed.into_iter().enumerate() {
             let mut item = tree.style(id).map_err(fail)?.clone();
             item.grid_row = Line::from_line_index(line);

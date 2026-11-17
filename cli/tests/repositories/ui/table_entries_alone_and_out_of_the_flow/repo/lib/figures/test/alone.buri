@@ -1,0 +1,59 @@
+// Table entries outside any table row: in a stack and in a table entry, each
+// is a plain box stacked under the one before, not a table of its own.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/node" import { Node, Role };
+
+// A table entry of `role` holding two texts, one under the other.
+fn alone<C>(role: Role, name: Str): Node<C> {
+    ui.stack({
+        role: .Some(role),
+        styles: [.BorderWidth(.Px(1)), .BorderColor(.Rgb(0, 0, 0))],
+        children: [
+            ui.text({ content: .Const(name) }),
+            ui.text({ content: .Const("!") }),
+        ],
+    })
+}
+
+fn kinds<C>(): [Node<C>] {
+    [alone(.Cell, "Jan"), alone(.ColumnHeader, "Feb"), alone(.RowHeader, "Mar")]
+}
+
+test "table entries outside a table row" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "alone",
+        ui.stack({
+            styles: [.Gap(.Px(8)), .TextWrap(.NoWrap)],
+            children: [
+                ui.stack({ styles: [], children: kinds() }),
+                ui.stack({
+                    role: .Some(.Table),
+                    styles: [],
+                    children: [
+                        ui.stack({
+                            role: .Some(.TableRow),
+                            styles: [],
+                            children: [
+                                ui.stack({
+                                    role: .Some(.Cell),
+                                    styles: [],
+                                    children: kinds(),
+                                }),
+                            ],
+                        }),
+                    ],
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
