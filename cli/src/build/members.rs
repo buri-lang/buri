@@ -1,17 +1,16 @@
-//! The members of the baked archives a link needs, worked out from their
-//! symbols (`design/PERFORMANCE.md` §6.146).
+//! The archive members a link needs, worked out from their symbols
+//! (`design/PERFORMANCE.md` §6.146, §6.149).
 //!
 //! mold reads every member of every archive it is given, whether the link
 //! needs it or not. A Linux link is handed the runtime archive, musl's
-//! `libc.a` and the baked `libunwind.a`, and a small program needs about a
-//! fifth of their members. This file finds that fifth, so that `build::link`
-//! can hand mold archives of only those members.
+//! `libc.a`, the baked `libunwind.a` and the host's `libgcc.a`, and a small
+//! program needs about a fifth of their members. This file finds that fifth,
+//! so that `build::link` can hand mold archives of only those members.
 //!
-//! Two halves share this file's reading of archives and objects:
-//!
-//! * `cli/build.rs` writes the index, once per runtime build. It reads the
-//!   archives' symbol tables and writes which members each member needs, and
-//!   which members define each symbol, laid out as [`Index`] says.
+//! * [`index`] reads the archives' symbol tables and lays out which members
+//!   each member needs, and which members define each symbol, as [`Index`]
+//!   says. `build::link` builds it once per toolchain and keeps it under
+//!   `~/.buri`.
 //! * [`Index::keep`] runs at link time. Given the symbols the program's own
 //!   objects need, it walks that table to every member the linker could load.
 //!
@@ -31,7 +30,7 @@
 )]
 
 /// The archives the index covers, in the order its member numbers run.
-pub const ARCHIVES: usize = 3;
+pub const ARCHIVES: usize = 4;
 
 /// The index's first word.
 pub const MAGIC: u32 = u32::from_le_bytes(*b"BAM2");
@@ -145,7 +144,98 @@ pub fn undefined(object: &[u8], out: &mut Vec<u64>) -> Option<()> {
     })
 }
 
-/// The index `cli/build.rs` writes, read in place.
+/// The index of `archives` that [`Index`] reads, or `None` when one of
+/// them is not a GNU archive of ELF objects.
+///
+/// `roots` are the objects every link names besides the program's own, the
+/// crt objects: the members their symbols need are always kept. So is a
+/// member whose symbols can't be read.
+pub fn index(archives: &[&[u8]], roots: &[&[u8]]) -> Option<Vec<u8>> {
+    let mut rows: Vec<[u32; 3]> = Vec::new();
+    let mut needs: Vec<Vec<&[u8]>> = Vec::new();
+    let mut definers: std::collections::HashMap<&[u8], Vec<u32>> = std::collections::HashMap::new();
+    let mut kept: Vec<u32> = Vec::new();
+    for (which, archive) in archives.iter().enumerate() {
+        for (at, body) in members(archive)? {
+            let member = u32::try_from(rows.len()).ok()?;
+            rows.push([
+                u32::try_from(which).ok()?,
+                u32::try_from(at).ok()?,
+                u32::try_from(body.len()).ok()?,
+            ]);
+            let mut needed = Vec::new();
+            let read = symbols(body, |name, defined| {
+                if defined {
+                    definers.entry(name).or_default().push(member);
+                } else {
+                    needed.push(name);
+                }
+            });
+            if read.is_none() {
+                kept.push(member);
+            }
+            needs.push(needed);
+        }
+    }
+    let mut starts = vec![0u32];
+    let mut flat: Vec<u32> = Vec::new();
+    for (member, names) in needs.iter().enumerate() {
+        let mut row: Vec<u32> = names
+            .iter()
+            .flat_map(|name| definers.get(name).into_iter().flatten().copied())
+            .filter(|&m| m as usize != member)
+            .collect();
+        row.sort_unstable();
+        row.dedup();
+        flat.extend(row);
+        starts.push(u32::try_from(flat.len()).ok()?);
+    }
+    for object in roots {
+        let mut needed = Vec::new();
+        symbols(object, |name, defined| {
+            if !defined {
+                needed.push(name);
+            }
+        })?;
+        kept.extend(
+            needed
+                .iter()
+                .flat_map(|n| definers.get(n).into_iter().flatten()),
+        );
+    }
+    kept.sort_unstable();
+    kept.dedup();
+    let mut defined: Vec<(u64, u32)> = definers
+        .iter()
+        .flat_map(|(name, members)| members.iter().map(|&m| (hash(name), m)))
+        .collect();
+    defined.sort_unstable();
+    defined.dedup();
+
+    let mut words = vec![MAGIC];
+    let mut table = |count: usize, rows: &mut dyn Iterator<Item = u32>| -> Option<()> {
+        words.push(u32::try_from(count).ok()?);
+        words.extend(rows);
+        Some(())
+    };
+    table(rows.len(), &mut rows.iter().flatten().copied())?;
+    table(starts.len(), &mut starts.iter().copied())?;
+    table(flat.len(), &mut flat.iter().copied())?;
+    table(kept.len(), &mut kept.iter().copied())?;
+    table(
+        defined.len(),
+        &mut defined
+            .iter()
+            .flat_map(|&(h, m)| [h as u32, (h >> 32) as u32, m]),
+    )?;
+    let bucket_starts = (0..=1usize << BUCKET_BITS)
+        .map(|b| u32::try_from(defined.partition_point(|&(h, _)| bucket(h) < b)).ok())
+        .collect::<Option<Vec<u32>>>()?;
+    table(bucket_starts.len(), &mut bucket_starts.iter().copied())?;
+    Some(words.iter().flat_map(|w| w.to_le_bytes()).collect())
+}
+
+/// The index [`index`] writes, read in place.
 ///
 /// Laid out as little-endian `u32`s: [`MAGIC`], then each table as its count
 /// and its rows. The members (archive, offset, length); where each member's

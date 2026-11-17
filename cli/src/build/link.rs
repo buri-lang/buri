@@ -1444,89 +1444,135 @@ fn replace_with(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
         })
 }
 
-/// The [`members::Index`] of the baked archives, which `cli/build.rs` writes.
-/// Empty on a toolchain with no musl sysroot.
-const ARCHIVE_MEMBERS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/archive-members.bin"));
+/// The members a Linux link can be handed, for
+/// [`CDriver::only_needed_members`]: the baked archives' and the host's
+/// `libgcc.a`'s.
+struct Members {
+    /// The host's `libgcc.a`.
+    libgcc: PathBuf,
+    /// Its bytes, once this process has read them.
+    libgcc_bytes: std::sync::OnceLock<Option<Vec<u8>>>,
+    /// The [`members::index`] of the runtime archive, `libc.a`, `libunwind.a`
+    /// and `libgcc.a`, rooted at the crt objects.
+    index: Vec<u8>,
+    /// Where the member files are written, named by the index's record.
+    dir: PathBuf,
+}
 
-/// The symbols the host's `libgcc.a` needs, hashed, for
-/// [`CDriver::only_needed_members`]. `None` where the driver names no
-/// `libgcc.a` that reads.
+/// The [`Members`] for `driver`'s `libgcc.a`, or `None` where the driver
+/// names none, or an archive doesn't read.
 ///
-/// Every member's, not only the ones a link loads: the builtins it needs
-/// from libc are a handful (`abort`, `memcpy`, `getauxval`), and keeping
-/// their definers always costs less than working out which builtins the
-/// program reaches. Kept under `~/.buri/libgcc-needs/`, named by the file's
-/// identity ([`record_for`]), so a toolchain's few megabytes are read once.
-fn libgcc_needs(driver: &Path) -> Option<Vec<u64>> {
-    static READ: std::sync::Mutex<Vec<(String, Option<Vec<u64>>)>> =
+/// The index is kept under `~/.buri/archive-index/`, named by the
+/// `libgcc.a`'s identity and the baked archives' digests ([`record_for`]), so
+/// a toolchain's few megabytes are read and indexed once.
+fn archive_members(driver: &Path) -> Option<std::sync::Arc<Members>> {
+    static READ: std::sync::Mutex<Vec<(String, Option<std::sync::Arc<Members>>)>> =
         std::sync::Mutex::new(Vec::new());
     remembered(&READ, driver.display().to_string(), || {
-        let file = builtins_dir(driver)?.join("libgcc.a");
-        let record = record_for(
-            "libgcc-needs",
-            "libgcc needs v1",
-            std::slice::from_ref(&file),
+        let libgcc = builtins_dir(driver)?.join("libgcc.a");
+        let header = format!(
+            "archive index v1 {} {}",
+            crate::build::actions::runtime_archive_hash(),
+            musl::sysroot_hash()
         );
-        let kept = record.as_ref().and_then(|r| std::fs::read(r).ok());
-        if let Some(bytes) = kept {
-            let words = bytes.as_chunks::<8>().0;
-            return Some(words.iter().map(|w| u64::from_le_bytes(*w)).collect());
-        }
-        let bytes = std::fs::read(&file).ok()?;
-        crate::build::counted::add_n(
-            crate::build::counted::Count::ToolchainArchiveBytes,
-            bytes.len() as u64,
-        );
-        let mut needs = Vec::new();
-        for (_, member) in members::members(&bytes)? {
-            members::undefined(member, &mut needs)?;
-        }
-        needs.sort_unstable();
-        needs.dedup();
-        let text: Vec<u8> = needs.iter().flat_map(|n| n.to_le_bytes()).collect();
-        record.iter().for_each(|r| remember(r, &text));
-        Some(needs)
+        let record = record_for("archive-index", &header, std::slice::from_ref(&libgcc))?;
+        let dir = std::path::absolute(runtime_cross::buri_home().ok()?)
+            .ok()?
+            .join("archive-members")
+            .join(record.file_name()?.to_str()?.get(..16)?);
+        let libgcc_bytes = std::sync::OnceLock::new();
+        let index = match std::fs::read(&record) {
+            Ok(index) => index,
+            Err(_) => {
+                let bytes = read_toolchain_archive(&libgcc);
+                let index = members::index(
+                    &[
+                        runtime_native::ARCHIVE,
+                        musl::LIBC_A,
+                        musl::LIBUNWIND_A,
+                        bytes.as_deref()?,
+                    ],
+                    &musl::FILES
+                        .iter()
+                        .filter(|(name, _)| name.ends_with(".o"))
+                        .map(|(_, bytes)| *bytes)
+                        .collect::<Vec<_>>(),
+                )?;
+                remember(&record, &index);
+                let _ = libgcc_bytes.set(bytes);
+                index
+            }
+        };
+        Some(std::sync::Arc::new(Members {
+            libgcc,
+            libgcc_bytes,
+            index,
+            dir,
+        }))
     })
 }
 
-/// The baked archives cut to the kept members, each as the bytes of a thin
-/// archive naming the members' files under `~/.buri/archive-members/`, in
-/// [`members::ARCHIVES`]'s order, and how many members they name between
-/// them.
+/// The bytes of a toolchain archive, counted as `toolchain archive bytes read`.
+fn read_toolchain_archive(file: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(file).ok()?;
+    crate::build::counted::add_n(
+        crate::build::counted::Count::ToolchainArchiveBytes,
+        bytes.len() as u64,
+    );
+    Some(bytes)
+}
+
+/// The archives cut to the `kept` members, each as the bytes of a thin
+/// archive naming the members' files in `members.dir`, in
+/// [`members::ARCHIVES`]'s order.
 ///
-/// The directory is named by the runtime archive's and the sysroot's
-/// digests, so a member file holds the bytes its name says while it has the
-/// length it was written with. A member is written the first time a link
-/// needs it. Which members are there is kept in the directory's
-/// [`WRITTEN`] file, so a process checks only the members no earlier one
-/// did, rather than every member a link names (`design/PERFORMANCE.md`
-/// §6.148). A link the cut archives fail forgets that file
-/// ([`forget_member_files`]).
+/// The directory is named by the archives' identities, so a member file holds
+/// the bytes its name says while it has the length it was written with. A
+/// member is written the first time a link needs it. Which members are there
+/// is kept in the directory's [`WRITTEN`] file, so a process checks only the
+/// members no earlier one did, rather than every member a link names
+/// (`design/PERFORMANCE.md` §6.148). A link the cut archives fail forgets
+/// that file ([`forget_member_files`]).
 fn cut_archives(
+    members: &Members,
     index: &members::Index<'_>,
     kept: &[bool],
-) -> Option<([Vec<u8>; members::ARCHIVES], usize)> {
-    let archives = [runtime_native::ARCHIVE, musl::LIBC_A, musl::LIBUNWIND_A];
-    let dir = member_dir()?;
-    let mut checked = MEMBERS_CHECKED
+) -> Option<[Thin; members::ARCHIVES]> {
+    let archive = |a: usize| match a {
+        0 => Some(runtime_native::ARCHIVE),
+        1 => Some(musl::LIBC_A),
+        2 => Some(musl::LIBUNWIND_A),
+        _ => members
+            .libgcc_bytes
+            .get_or_init(|| read_toolchain_archive(&members.libgcc))
+            .as_deref(),
+    };
+    let dir = &members.dir;
+    let mut all = MEMBERS_CHECKED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if checked.len() != index.members() {
-        *checked = vec![false; index.members()];
-        // Written by an earlier process. One of another length is another
-        // index's, and is read as nothing.
-        let written = std::fs::read(dir.join(WRITTEN)).unwrap_or_default();
-        if written.len() == checked.len() {
-            for (slot, byte) in checked.iter_mut().zip(written) {
-                *slot = byte == 1;
+    let at = match all.iter().position(|(known, _)| known == dir) {
+        Some(at) => at,
+        None => {
+            // Written by an earlier process. One of another length is
+            // another index's, and is read as nothing.
+            let written = std::fs::read(dir.join(WRITTEN)).unwrap_or_default();
+            let mut checked = vec![false; index.members()];
+            if written.len() == checked.len() {
+                for (slot, byte) in checked.iter_mut().zip(written) {
+                    *slot = byte == 1;
+                }
             }
+            all.push((dir.clone(), checked));
+            all.len().checked_sub(1)?
         }
-    }
+    };
+    let checked = &mut all.get_mut(at)?.1;
     let prefix = dir.to_str()?.as_bytes();
     let mut cut: [Thin; members::ARCHIVES] = Default::default();
     let mut newly = false;
     for (m, _) in kept.iter().enumerate().filter(|(_, &keep)| keep) {
-        let (archive, at, len) = index.member(m)?;
+        let (a, start, len) = index.member(m)?;
         let mut digits = [0; 20];
         let number = decimal(m, &mut digits);
         let slot = checked.get_mut(m)?;
@@ -1537,54 +1583,44 @@ fn cut_archives(
             let file = dir.join(std::str::from_utf8(&name).ok()?);
             let there = std::fs::metadata(&file).is_ok_and(|meta| meta.len() == len as u64);
             if !there {
-                let bytes = archives.get(archive)?.get(at..at.checked_add(len)?)?;
+                let bytes = archive(a)?.get(start..start.checked_add(len)?)?;
                 crate::build::create_parent(&file);
                 replace_with(&file, bytes).ok()?;
             }
             *slot = true;
             newly = true;
         }
-        cut.get_mut(archive)?
-            .push(&[prefix, b"/", number, b".o"], len);
+        cut.get_mut(a)?.push(&[prefix, b"/", number, b".o"], len);
     }
     if newly {
         let written: Vec<u8> = checked.iter().map(|&c| u8::from(c)).collect();
         // A file that can't be written only costs the next process its checks.
         let _ = replace_with(&dir.join(WRITTEN), &written);
     }
-    let count = cut.iter().map(|thin| thin.members.len()).sum();
-    Some((cut.map(Thin::finish), count))
+    Some(cut)
 }
 
 /// The file in a member directory that says which members are there: a byte
 /// per member of the index, 1 for each one written.
 const WRITTEN: &str = "written";
 
-/// Which members this process knows are in [`member_dir`], one flag per
-/// member of the index.
-static MEMBERS_CHECKED: std::sync::Mutex<Vec<bool>> = std::sync::Mutex::new(Vec::new());
-
-/// `~/.buri/archive-members/<runtime16>-<sysroot16>`, absolute.
-fn member_dir() -> Option<PathBuf> {
-    let runtime = crate::build::actions::runtime_archive_hash();
-    let sysroot = musl::sysroot_hash();
-    Some(
-        std::path::absolute(runtime_cross::buri_home().ok()?)
-            .ok()?
-            .join("archive-members")
-            .join(format!("{}-{}", runtime.get(..16)?, sysroot.get(..16)?)),
-    )
-}
+/// Which members this process knows are in each member directory, one flag
+/// per member of the directory's index.
+static MEMBERS_CHECKED: std::sync::Mutex<Vec<(PathBuf, Vec<bool>)>> =
+    std::sync::Mutex::new(Vec::new());
 
 /// Forgets which member files are there, after a link the cut archives
 /// failed: the next one checks each member it names again, and writes the
 /// ones that have gone.
 fn forget_member_files() {
-    MEMBERS_CHECKED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clear();
-    let _ = member_dir().map(|dir| std::fs::remove_file(dir.join(WRITTEN)));
+    let known = std::mem::take(
+        &mut *MEMBERS_CHECKED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    for (dir, _) in known {
+        let _ = std::fs::remove_file(dir.join(WRITTEN));
+    }
 }
 
 /// The thin archive [`CDriver::as_one_input`] writes. Every unit's object ends
@@ -2373,19 +2409,24 @@ impl CDriver {
         )
     }
 
-    /// Where the runtime archive, `libc.a` and `libunwind.a` are staged, in
-    /// [`members::ARCHIVES`]'s order.
-    fn baked_archives(&self) -> [PathBuf; members::ARCHIVES] {
+    /// Where the runtime archive, `libc.a`, `libunwind.a` and a cut
+    /// `libgcc.a` are staged, in [`members::ARCHIVES`]'s order. The cut
+    /// `libgcc.a` is first on the library path, ahead of the host's.
+    fn cut_archive_paths(&self) -> [PathBuf; members::ARCHIVES] {
         let lib = self.dir.join("musl").join("lib");
         [
             self.dir.join(runtime_native::ARCHIVE_NAME),
             lib.join("libc.a"),
             lib.join("libunwind.a"),
+            lib.join("libgcc.a"),
         ]
     }
 
-    /// Stages the whole baked archives again, over cut ones.
+    /// Stages the whole baked archives again, over cut ones, and takes the
+    /// cut `libgcc.a` away, so the host's is found again.
     fn stage_whole_archives(&self) -> std::io::Result<()> {
+        let [.., libgcc] = self.cut_archive_paths();
+        let _ = std::fs::remove_file(libgcc);
         stage_baked(
             &self.dir,
             self.store.as_ref(),
@@ -2410,9 +2451,9 @@ impl CDriver {
         self.libc == LibcMode::MuslBaked && matches!(self.flavour, Flavour::Mold)
     }
 
-    /// Replaces the staged runtime archive, `libc.a` and `libunwind.a` with
-    /// thin archives of only the members this program can need, where
-    /// [`CDriver::cuts_archives`].
+    /// Replaces the staged runtime archive, `libc.a` and `libunwind.a`, and
+    /// the host's `libgcc.a`, with thin archives of only the members this
+    /// program can need, where [`CDriver::cuts_archives`].
     ///
     /// mold reads every member of every archive it is handed, needed or not,
     /// so its cost followed the archives' size rather than the program's. A
@@ -2421,27 +2462,37 @@ impl CDriver {
     /// (`design/PERFORMANCE.md` §6.146).
     ///
     /// The members are `build/members.rs`'s answer for the symbols the
-    /// program's objects and the host's `libgcc.a` need. Each is a file under
-    /// `~/.buri/archive-members/`, written the first time a link needs it, and
-    /// the thin archives name them there, so a link writes a few kilobytes
-    /// rather than the members' megabytes.
+    /// program's objects need (`design/PERFORMANCE.md` §6.149). Each is a
+    /// file under `~/.buri/archive-members/`, written the first time a link
+    /// needs it, and the thin archives name them there, so a link writes a
+    /// few kilobytes rather than the members' megabytes.
     ///
     /// `None` when something can't be read or written. The caller stages the
     /// whole archives again after the link either way.
     fn only_needed_members(&self, units: &[Emitted]) -> Option<()> {
-        let index = members::Index::read(ARCHIVE_MEMBERS)?;
-        let mut needs = libgcc_needs(&self.driver)?;
+        let members = archive_members(&self.driver)?;
+        let index = members::Index::read(&members.index)?;
+        let mut needs = Vec::new();
         for unit in units {
             members::undefined(&unit.bytes, &mut needs)?;
         }
         let kept = index.keep(needs);
-        let (cut, count) = cut_archives(&index, &kept)?;
-        self.baked_archives()
+        let [runtime, libc, unwind, libgcc] = cut_archives(&members, &index, &kept)?;
+        let baked: usize = [&runtime, &libc, &unwind]
             .iter()
-            .zip(cut)
-            .try_for_each(|(path, bytes)| replace_with(path, &bytes))
+            .map(|cut| cut.members.len())
+            .sum();
+        let toolchain = libgcc.members.len();
+        self.cut_archive_paths()
+            .iter()
+            .zip([runtime, libc, unwind, libgcc])
+            .try_for_each(|(path, cut)| replace_with(path, &cut.finish()))
             .ok()?;
-        crate::build::counted::add_n(crate::build::counted::Count::ArchiveMembers, count as u64);
+        crate::build::counted::add_n(crate::build::counted::Count::ArchiveMembers, baked as u64);
+        crate::build::counted::add_n(
+            crate::build::counted::Count::ToolchainArchiveMembers,
+            toolchain as u64,
+        );
         Some(())
     }
 

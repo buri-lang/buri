@@ -7491,7 +7491,8 @@ test processes 1
 - **bytes keyed**: bytes of sources read to key actions. A source too big to
   compile is refused unread, so it adds none.
 - **toolchain archive bytes read**: bytes of the host's `libgcc.a` read to
-  work out a Linux link's archive members, once per toolchain (§6.147).
+  index a Linux link's archive members, once per toolchain (§6.147), and to
+  write a member file no earlier link wrote.
 
 Load and thread scheduling can't move any of them. `build::work_counts` pins
 them, plus the files a run wrote (new inodes or changed ones under the
@@ -10313,6 +10314,32 @@ and format each one's path twice. Now:
 
 `archive_members.rs` holds a second link to no checks, and a link after a
 deletion to every member again.
+
+### 6.149 mold is handed only the `libgcc.a` members a program needs, 2026-11-17
+
+```text
+mold, aarch64 Linux     whole libgcc.a   cut      change
+a program that prints   59.19 M          56.19 M  -5.1%
+a program that serves   111.25 M         108.36 M -2.6%
+```
+
+§6.146 cut the baked archives but still handed mold the host's whole
+`libgcc.a`, about 400 members. Now it's cut too:
+
+- The index covers the runtime archive, `libc.a`, `libunwind.a` and
+  `libgcc.a`, so one walk finds the members across all four. A program that
+  prints is handed 49 of `libgcc.a`'s members, where mold loads 17, and 350
+  of the baked archives' rather than 362.
+- `libgcc.a` comes from the host, so `cli/build.rs` can't index it. The first
+  link under a `~/.buri` builds the index, about 30 M instructions, and keeps
+  it under `~/.buri/archive-index/`. Reading it back costs a link 56 k
+  instructions in `buri` (`test/one-edit`: 29.98 M to 30.03 M).
+- The cut `libgcc.a` goes in the link directory's `musl/lib`, which is first
+  on the library path, and is removed after the link.
+- Both programs linked to the same bytes as with every archive whole.
+
+`archive_members.rs` holds a program that prints to at most 100 members of
+`libgcc.a`, as `toolchain archive members linked`.
 
 ## 7. Profiling, on this platform
 

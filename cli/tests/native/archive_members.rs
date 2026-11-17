@@ -1,8 +1,10 @@
-//! A Linux link hands mold only the members of the baked archives a program
-//! can need (`design/PERFORMANCE.md` §6.146).
+//! A Linux link hands mold only the members of the baked archives and the
+//! host's `libgcc.a` a program can need (`design/PERFORMANCE.md` §6.146,
+//! §6.149).
 //!
 //! mold reads every member of every archive it is handed, so a link handed the
-//! whole runtime archive, `libc.a` and `libunwind.a` paid for all of them.
+//! whole runtime archive, `libc.a`, `libunwind.a` and `libgcc.a` paid for all
+//! of them.
 //! Each program here is built on every native backend, run, and its
 //! `BURI_PROFILE=1` count of the members handed over is held to a bound. The
 //! count is of what the linker was handed, not a timing.
@@ -188,8 +190,9 @@ fn a_program_that_serves_is_handed_what_serving_needs() {
 }
 
 /// **The toolchain's `libgcc.a` is read for the first link and not again.**
-/// What it needs is kept under `~/.buri`, so the next link, in a process of
-/// its own, is handed the same members without reading the file.
+/// Its members' symbols and the member files a link needs are kept under
+/// `~/.buri`, so the next link, in a process of its own, is handed the same
+/// members without reading the file.
 #[test]
 #[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
 fn the_toolchains_libgcc_is_read_once() {
@@ -215,8 +218,8 @@ fn the_toolchains_libgcc_is_read_once() {
             "on {backend}, the second link read libgcc.a"
         );
         assert_eq!(
-            members(&second),
-            members(&first),
+            handed(&second),
+            handed(&first),
             "on {backend}, the second link was handed other members"
         );
         let _ = std::fs::remove_dir_all(&home);
@@ -226,6 +229,43 @@ fn the_toolchains_libgcc_is_read_once() {
 /// The member files a build looked for on disk.
 fn checks(counts: &str) -> u64 {
     count(counts, "archive member files checked")
+}
+
+/// The members of the host's `libgcc.a` a build's link was handed.
+fn toolchain(counts: &str) -> u64 {
+    count(counts, "toolchain archive members linked")
+}
+
+/// Every member file a build's link was handed: the baked archives' and
+/// `libgcc.a`'s.
+fn handed(counts: &str) -> u64 {
+    members(counts) + toolchain(counts)
+}
+
+/// The most members of `libgcc.a` a program that only prints may be handed.
+/// The host's has about 400; such a program needed 49 when this was
+/// written.
+const LIBGCC_MOST: u64 = 100;
+
+/// **A program that only prints is handed a fraction of the host's
+/// `libgcc.a`, and runs.** A whole `libgcc.a` is about 400 members, and mold
+/// reads every one.
+#[test]
+#[cfg_attr(not(target_os = "linux"), ignore = "not run here: needs a Linux host")]
+fn a_program_that_only_prints_is_handed_a_fraction_of_libgcc() {
+    if !mold_or_missing() {
+        return;
+    }
+    for (backend, mode) in crate::e2e::build_modes() {
+        let (binary, counts) = built("libgcc-cut", HELLO, backend, mode, None);
+        assert_eq!(printed(&binary), "hello\n", "{backend}");
+        let handed = toolchain(&counts);
+        assert!(
+            handed <= LIBGCC_MOST,
+            "on {backend}, a program that only prints was handed {handed} members of \
+             libgcc.a, and at most {LIBGCC_MOST} were expected"
+        );
+    }
 }
 
 /// `~/.buri` for one test and backend, emptied.
@@ -253,7 +293,7 @@ fn member_files_are_looked_for_once() {
         assert_eq!(printed(&binary), "hello\n", "{backend}");
         assert_eq!(
             checks(&first),
-            members(&first),
+            handed(&first),
             "on {backend}, the first link didn't look for each member it was handed:\n{first}"
         );
         assert_eq!(
@@ -261,7 +301,7 @@ fn member_files_are_looked_for_once() {
             0,
             "on {backend}, the second link looked for member files again:\n{second}"
         );
-        assert_eq!(members(&second), members(&first), "{backend}");
+        assert_eq!(handed(&second), handed(&first), "{backend}");
         let _ = std::fs::remove_dir_all(&home);
     }
 }
@@ -288,17 +328,17 @@ fn deleted_member_files_are_written_again() {
                 }
             }
         }
-        assert_eq!(deleted, members(&first), "{backend}");
+        assert_eq!(deleted, handed(&first), "{backend}");
         let (binary, _) = built("deleted-second", HELLO, backend, mode, Some(&home));
         assert_eq!(printed(&binary), "hello\n", "{backend}");
         let (binary, third) = built("deleted-third", HELLO, backend, mode, Some(&home));
         assert_eq!(printed(&binary), "hello\n", "{backend}");
         assert_eq!(
             checks(&third),
-            members(&third),
+            handed(&third),
             "on {backend}, a link after the failed one didn't look for its members:\n{third}"
         );
-        assert_eq!(members(&third), members(&first), "{backend}");
+        assert_eq!(handed(&third), handed(&first), "{backend}");
         let _ = std::fs::remove_dir_all(&home);
     }
 }
