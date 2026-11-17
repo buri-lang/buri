@@ -23,3 +23,7 @@ mod tcp;
 mod tls;
 
 pub use net::*;
+
+// The painter, linked only when a program names it (`painter.rs`).
+#[cfg(feature = "paint")]
+use buri_rt_paint as _;

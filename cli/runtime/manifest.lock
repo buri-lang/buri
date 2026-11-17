@@ -46,6 +46,7 @@ name = "buri-rt"
 version = "0.3.0"
 dependencies = [
  "buri-rt-core",
+ "buri-rt-paint",
  "graviola",
  "hyper",
  "quinn",
@@ -60,12 +61,19 @@ dependencies = [
 name = "buri-rt-core"
 version = "0.3.0"
 dependencies = [
- "cosmic-text",
  "getrandom 0.4.3",
  "ring",
+ "tokio",
+]
+
+[[package]]
+name = "buri-rt-paint"
+version = "0.3.0"
+dependencies = [
+ "buri-rt-core",
+ "cosmic-text",
  "taffy",
  "tiny-skia",
- "tokio",
 ]
 
 [[package]]

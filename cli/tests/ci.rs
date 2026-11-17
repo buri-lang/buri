@@ -2555,6 +2555,8 @@ fn the_published_crate_ships_the_runtime() {
         "archive.rs",
         "manifest.toml",
         "core.toml",
+        "painter.rs",
+        "paint.toml",
         "manifest.lock",
         "switch_macos_arm64.s",
         "switch_linux_arm64.s",

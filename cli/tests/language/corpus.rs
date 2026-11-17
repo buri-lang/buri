@@ -1131,9 +1131,9 @@ fn dependencies_stay_behind_the_bar() {
     // on all three agreeing to the byte on two operating systems.
     // `manifest.toml`'s entries argue each one.
     //
-    // The set is two tables since the runtime became two crates (§6.142 of
-    // `design/PERFORMANCE.md`): `manifest.toml`'s, the archive's own, and
-    // `core.toml`'s, the crate under it that holds everything but the network.
+    // The set is three tables since the runtime became three crates (§6.142
+    // and §6.143 of `design/PERFORMANCE.md`): `manifest.toml`'s, the archive's
+    // own, `core.toml`'s, the crate under it, and `paint.toml`'s, the painter.
     const RUNTIME_ADMITTED: &[&str] = &[
         "cosmic-text",
         "getrandom",
@@ -1152,16 +1152,18 @@ fn dependencies_stay_behind_the_bar() {
         .expect("cli/runtime/manifest.toml");
     let core = std::fs::read_to_string(repo_root().join("cli/runtime/core.toml"))
         .expect("cli/runtime/core.toml");
-    // Each file's third-party declarations. The archive reaches the core by
-    // `path`, and that one line is the whole of it.
+    let paint = std::fs::read_to_string(repo_root().join("cli/runtime/paint.toml"))
+        .expect("cli/runtime/paint.toml");
+    // Each file's third-party declarations. The runtime's own crates reach
+    // each other by `path`, and those lines are the whole of it.
     let third_party = |manifest: &str| -> Vec<(String, String)> {
         declared(manifest)
             .into_iter()
             .filter(|(name, line)| {
-                let own = line.contains("path = \"core\"");
+                let own = line.contains("path = ");
                 assert!(
-                    !own || name == "buri-rt-core",
-                    "the runtime reaches `{name}` by path; only its own core is declared that way"
+                    !own || name == "buri-rt-core" || name == "buri-rt-paint",
+                    "the runtime reaches `{name}` by path; only its own crates are declared that way"
                 );
                 !own
             })
@@ -1176,6 +1178,7 @@ fn dependencies_stay_behind_the_bar() {
     let mut runtime_deps: Vec<String> = third_party(&runtime)
         .into_iter()
         .chain(third_party(&core))
+        .chain(third_party(&paint))
         .map(|(n, _)| n)
         .collect::<Vec<_>>();
     runtime_deps.sort();
@@ -1190,7 +1193,7 @@ fn dependencies_stay_behind_the_bar() {
     // Every one of them optional, and every one behind the one feature. Two
     // separate facts: `optional = true` is what lets the feature turn it off,
     // and `net = [...]` is what says which feature does.
-    for manifest in [&runtime, &core] {
+    for manifest in [&runtime, &core, &paint] {
         for (name, line) in third_party(manifest) {
             assert!(
                 line.contains("optional = true"),
@@ -1392,10 +1395,12 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         lines
     }
     // The runtime is two crates, the archive (`manifest.toml`) on the core
-    // (`core.toml`), and the tests build them as one: every third-party
+    // (`core.toml`) and the painter (`paint.toml`), and the tests build them
+    // as one: every third-party
     // dependency of either, and each feature with what both turn on.
     let shipped = read("cli/runtime/manifest.toml");
     let core = read("cli/runtime/core.toml");
+    let paint = read("cli/runtime/paint.toml");
     let tested = read("runtime-tests/Cargo.toml");
     let deps = |manifest: &str| -> std::collections::BTreeSet<String> {
         tables(manifest)
@@ -1413,7 +1418,12 @@ fn the_runtime_tests_build_the_shipped_runtime() {
                     .trim_end_matches(']')
                     .split(',')
                     .map(|e| e.trim().trim_matches('"').to_string())
-                    .filter(|e| !e.is_empty() && !e.starts_with("buri-rt-core/"))
+                    // The lines that only join the runtime's own crates.
+                    .filter(|e| {
+                        !e.is_empty()
+                            && !e.starts_with("buri-rt-")
+                            && !e.starts_with("dep:buri-rt-")
+                    })
                     .collect();
                 Some((name.to_string(), entries))
             })
@@ -1423,16 +1433,18 @@ fn the_runtime_tests_build_the_shipped_runtime() {
         !deps(&shipped).is_empty(),
         "manifest.toml has no dependencies to compare"
     );
-    let shipped_deps: std::collections::BTreeSet<String> =
-        deps(&shipped).union(&deps(&core)).cloned().collect();
+    let shipped_deps: std::collections::BTreeSet<String> = [&shipped, &core, &paint]
+        .iter()
+        .flat_map(|m| deps(m))
+        .collect();
     assert_eq!(
         deps(&tested),
         shipped_deps,
-        "runtime-tests/Cargo.toml's [dependencies] drifted from cli/runtime/manifest.toml's and \
-         core.toml's together; copy them across"
+        "runtime-tests/Cargo.toml's [dependencies] drifted from cli/runtime/manifest.toml's, \
+         core.toml's and paint.toml's together; copy them across"
     );
     let mut shipped_features = features(&shipped);
-    for (name, entries) in features(&core) {
+    for (name, entries) in features(&core).into_iter().chain(features(&paint)) {
         let merged = shipped_features.entry(name).or_default();
         merged.extend(entries);
     }
@@ -1447,8 +1459,8 @@ fn the_runtime_tests_build_the_shipped_runtime() {
     assert_eq!(
         sorted(features(&tested)),
         sorted(shipped_features),
-        "runtime-tests/Cargo.toml's [features] drifted from cli/runtime/manifest.toml's and \
-         core.toml's together; copy them across"
+        "runtime-tests/Cargo.toml's [features] drifted from cli/runtime/manifest.toml's, \
+         core.toml's and paint.toml's together; copy them across"
     );
 
     // Every `name`/`version` pair `manifest.lock` pins, `Cargo.lock` pins too.
@@ -1469,7 +1481,7 @@ fn the_runtime_tests_build_the_shipped_runtime() {
     let runtime = read("cli/runtime/manifest.lock");
     let missing: Vec<_> = pins(&runtime)
         .into_iter()
-        .filter(|(name, _)| *name != "\"buri-rt\"" && *name != "\"buri-rt-core\"")
+        .filter(|(name, _)| !name.starts_with("\"buri-rt"))
         .filter(|pin| !workspace.contains(pin))
         .collect();
     assert!(

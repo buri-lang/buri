@@ -60,9 +60,9 @@ crate-type = ["staticlib"]
 
 # The runtime's admitted set, in full, and it is **closed**: these seven and
 # nothing else, each optional, each behind one of the three features below.
-# This table declares the network's crates; `core.toml` declares the ones
-# `lib.rs`'s crate uses (`getrandom`, the painter's three, and `tokio` and
-# `ring` again), and the set is the two tables together.
+# This table declares the network's crates, `core.toml` the ones `lib.rs`'s
+# crate uses (`getrandom`, and `tokio` and `ring` again), and `paint.toml` the
+# painter's three. The set is the three tables together.
 #
 # Six crates for one capability — an asynchronous networking stack — which is
 # a platform interface in exactly the sense the root manifest's bar means, and
@@ -289,6 +289,7 @@ graviola = { version = "0.4", optional = true, default-features = false }
 ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
+buri-rt-paint = { path = "paint", default-features = false, optional = true }
 
 # Four features. Three of them are on and one is off, and the split is the whole
 # of the argument here: a feature is in `default` when turning it off costs a
@@ -381,7 +382,7 @@ default = ["net", "crypto", "paint"]
 net = ["buri-rt-core/net", "dep:tokio", "dep:hyper", "dep:rustls", "dep:rustls-graviola", "dep:graviola", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
 crypto = ["buri-rt-core/crypto"]
-paint = ["buri-rt-core/paint"]
+paint = ["dep:buri-rt-paint", "buri-rt-paint/paint"]
 # Off: the client requests that show Valgrind's tools each block and lock, which
 # `buri`'s own `valgrind` feature turns on (design/native/MEMORY.md §8).
 valgrind = ["buri-rt-core/valgrind"]
@@ -449,7 +450,8 @@ strip = "none"
 # inside the toolchain's own workspace directory, so without this table Cargo
 # would walk up from `$OUT_DIR/rt-pkg` and attach the runtime to the workspace
 # it must not be part of — taking the workspace's `[profile.release]` with it
-# and reaching for a target-dir lock the outer `cargo` is holding. `core` is
-# the crate under the archive, `core.toml` assembled.
+# and reaching for a target-dir lock the outer `cargo` is holding. `core` and
+# `paint` are the crates under the archive, `core.toml` and `paint.toml`
+# assembled.
 [workspace]
-members = ["core"]
+members = ["core", "paint"]

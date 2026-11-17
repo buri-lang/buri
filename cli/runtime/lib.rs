@@ -614,7 +614,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-mod abort;
+pub mod abort;
 /// Blocks up to 1 KiB from per-thread pages, the rest from the system: the
 /// compiler's own allocator (`design/PERFORMANCE.md` §6.54, §6.67). Not under
 /// `cfg(test)`, where its tests count pages nothing else may take.
@@ -666,7 +666,7 @@ mod overflow;
 /// the `paint` feature because its three crates are, and it is in `default`
 /// for `net`'s reason — a toolchain that could not paint would make
 /// `platform/effect/testing`'s `snapshot` a build-flag question for every user.
-#[cfg(feature = "paint")]
+#[cfg(all(test, feature = "paint"))]
 mod paint;
 mod rng;
 /// The thread runtime — the tokio handle, the thread pool, the task table
@@ -684,7 +684,7 @@ mod scalars;
 /// is the flattened theme document, which says what each token is worth — and
 /// nothing out, and a changed snapshot is reported as a failed assertion
 /// rather than as a toolchain fault. Behind `paint` because the painter is.
-#[cfg(feature = "paint")]
+#[cfg(all(test, feature = "paint"))]
 mod snapshot;
 mod splice;
 /// The machine-stack switch `rt.rs` suspends a task with: three hand-written
@@ -705,7 +705,7 @@ mod text;
 /// name (see §8).
 #[cfg(all(test, feature = "net"))]
 mod tls;
-mod ui;
+pub mod ui;
 pub mod value;
 
 pub use abort::*;

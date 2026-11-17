@@ -1321,7 +1321,7 @@ fn resolve<'a>(bindings: &'a [(String, Bound)], start: &'a Bound) -> Option<Stri
 /// `crate::snapshot` resolves a snapshot's themes through here too, and it
 /// installs nothing: a picture is painted once, so what it needs is the values,
 /// not a document to leave them in.
-pub(crate) fn render(doc: &str) -> String {
+pub fn render(doc: &str) -> String {
     let blocks = parse(doc);
     // Every binding, in declaration order, a later one for the same token
     // replacing an earlier one. This is what a chain is followed through. Only a

@@ -10128,9 +10128,32 @@ libburi_rt.a
 The kvstore run count doesn't move (1,129,308,071 against a baseline of
 1,129,965,872).
 
-`a_program_that_never_speaks_the_network_links_none_of_it` reads the
-archive's symbol table and follows what the core's member needs. It fails if
-that closure reaches the network's crates.
+`a_program_that_neither_speaks_the_network_nor_paints_links_neither` reads
+the archive's symbol table and follows what the core's member needs. It fails
+if that closure reaches the network's crates.
+
+### 6.143 A program that never takes a snapshot links no painter, 2026-11-17
+
+```text
+libburi_rt.a
+  buri_rt.buri_rt_paint-*.o  painter.rs: paint, snapshot (taffy, cosmic-text, tiny-skia)
+```
+
+- §6.142 left the painter in the core, so every link still loaded taffy,
+  cosmic-text, swash, skrifa and tiny-skia. Now `paint.rs` and `snapshot.rs`
+  are the crate `buri-rt-paint` (`paint.toml`), rooted at `painter.rs`, and
+  the archive links it under `paint`.
+- What the core's member pulls in fell from 52 members to 28.
+
+| Goals count, aarch64 Linux, per line | §6.142 | Now |
+| --- | --- | --- |
+| ci dev codegen instructions | 50,621.9 | 49,469.9 |
+| ci dev codegen cost | 79,902.4 | 75,813.7 |
+| monorepo-ci dev codegen instructions | 20,843.3 | 20,343.7 |
+| monorepo-ci test-build dev codegen instructions | 22,038.2 | 21,703.8 |
+
+The kvstore run count doesn't move (1,129,308,071). The same test as §6.142
+fails if the core's closure reaches the painter's crates.
 
 ## 7. Profiling, on this platform
 

@@ -27,7 +27,7 @@
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
 use crate::hang::{Capped, CappedChild};
-use buri::compiler::backend::runtime_native::{h3, net, ARCHIVE_NAME, AVAILABLE};
+use buri::compiler::backend::runtime_native::{declares, h3, net, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -1439,22 +1439,23 @@ fn no_frame_that_can_switch_threads_reads_a_thread_local() {
 }
 
 // ---------------------------------------------------------------------------
-// The network in a crate of its own
+// The network and the painter in crates of their own
 // ---------------------------------------------------------------------------
 
-/// **A program that never speaks the network links none of it.**
+/// **A program that neither speaks the network nor paints links neither.**
 ///
 /// The linker loads an archive member only for a symbol something it already
 /// loaded needs. Every program loads the runtime's core, `lib.rs`'s crate, so
 /// what that member needs, and what those members need in turn, is what every
 /// link reads. That closure must hold neither the network's own crate,
 /// `archive.rs`'s, nor TLS, HTTP/2, WebSockets or QUIC
-/// (`design/PERFORMANCE.md` §6.142).
+/// (`design/PERFORMANCE.md` §6.142). Nor may it hold the painter,
+/// `painter.rs`'s crate, or layout, shaping and rasterizing (§6.143).
 ///
 /// The closure is worked out from the archive's symbol table, so it is a count
 /// of what the linker is handed and not a timing.
 #[test]
-fn a_program_that_never_speaks_the_network_links_none_of_it() {
+fn a_program_that_neither_speaks_the_network_nor_paints_links_neither() {
     use std::collections::{HashMap, HashSet};
     if skip() {
         return;
@@ -1534,7 +1535,7 @@ fn a_program_that_never_speaks_the_network_links_none_of_it() {
             .clone()
     };
 
-    let network = [
+    let optional = [
         "buri_rt",
         "rustls",
         "rustls_graviola",
@@ -1543,18 +1544,23 @@ fn a_program_that_never_speaks_the_network_links_none_of_it() {
         "h2",
         "tungstenite",
         "quinn",
+        "buri_rt_paint",
+        "taffy",
+        "cosmic_text",
+        "swash",
+        "tiny_skia",
     ];
     let mut reached: Vec<String> = loaded(&member("buri_rt_core"))
         .into_iter()
         .map(|m| crate_of(&m))
-        .filter(|krate| network.contains(&krate.as_str()))
+        .filter(|krate| optional.contains(&krate.as_str()))
         .collect();
     reached.sort();
     reached.dedup();
     assert!(
         reached.is_empty(),
-        "every program links the runtime's core, and the core's member reaches the network's \
-         crates {reached:?} in {}. `lib.rs`'s crate must never name `archive.rs`'s modules",
+        "every program links the runtime's core, and the core's member reaches {reached:?} in \
+         {}. `lib.rs`'s crate must never name `archive.rs`'s or `painter.rs`'s modules",
         archive.display()
     );
     // Without this the check could pass on a table it misread.
@@ -1564,6 +1570,15 @@ fn a_program_that_never_speaks_the_network_links_none_of_it() {
                 .iter()
                 .any(|m| crate_of(m) == "rustls"),
             "the network's own member reaches no `rustls` in {}, so this check reads nothing",
+            archive.display()
+        );
+    }
+    if declares("paint") {
+        assert!(
+            loaded(&member("buri_rt_paint"))
+                .iter()
+                .any(|m| crate_of(m) == "tiny_skia"),
+            "the painter's member reaches no `tiny_skia` in {}, so this check reads nothing",
             archive.display()
         );
     }
