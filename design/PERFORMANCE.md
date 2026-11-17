@@ -10032,6 +10032,41 @@ A cold profiled build of `full`, on one build thread, three runs each:
 with 20 inlined helpers and with 40. The functions compiled, and the
 `javascript functions declared` count, must not change.
 
+### 6.140 The compiler's allocator keeps no frame, 2026-11-16
+
+```rust
+// Allocator::take: an unstarted or system thread's heap is an empty one
+let c = CLASS_OF[layout.size().div_ceil(STEP)];
+let page = (*heap).pages[c];   // null there, so on to `refill`
+```
+
+- `take` and `give` were 9.5% of a cold ci build's process. Each kept a stack
+  frame for its slow paths: starting the thread, a system thread, an
+  over-aligned block and a free into another thread's page.
+- Now an unstarted thread and a system thread point at empty heaps, so `take`
+  tests no flag, and `refill` tells the two apart. The other slow paths are
+  tail calls, so on Linux neither fast path saves a register.
+- A size's class is one load from a 65-entry table, by the 16-byte steps it
+  spans.
+
+| | Before | After |
+| --- | --- | --- |
+| ci build process, VM | 1,261.7M | 1,229.6M |
+| VM goals: ci dev-codegen instr/line | 52,728.1 | 51,752.6 |
+| VM goals: ci check instr/line | 4,584.4 | 4,525.7 |
+| bench `full`, macOS, dev codegen instr/line | 153,425.3 | 150,236.4 |
+| a large test build, macOS, process (three runs) | 84.6–85.1B | 83.7–84.2B |
+| `run-dev/kvstore`, VM | 1,129.30M | 1,129.20M |
+
+The goals baseline holds it. `a_new_thread_starts_its_heap_and_a_system_thread_uses_the_system`
+covers the two empty heaps.
+
+Splitting the runtime into 256 codegen units, so each link loads less of it,
+cost more than it saved. It added 4.8% to ci's dev-codegen instructions in
+the VM, and loaded 286 archive members against 75 on macOS. Shared generic
+instances tie the units together, so a link still reaches rustls and
+cosmic-text through them.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
