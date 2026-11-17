@@ -911,6 +911,68 @@ fn closure_conversion_is_linear_in_a_functions_lambdas() {
     );
 }
 
+/// `n` functions, each folding two wide literals into its argument and
+/// calling the next: stencils whose holes are mostly literals and calls, so
+/// most of the emitter's work is patching them. Answers the source and what
+/// `main` prints.
+fn many_patched_holes(n: usize) -> (String, String, i64) {
+    let mul = |i: usize| 1_099_511_627_000 + i as i64;
+    let add = |i: usize| 281_474_976_710_000 + i as i64;
+    let items: String = (0..n)
+        .map(|i| {
+            let next = if i + 1 < n {
+                format!("w{}(r + {i})", i + 1)
+            } else {
+                String::from("r")
+            };
+            format!(
+                "fn w{i}(x: Int): Int {{\n    let r = (x * {} + {}) % 1000003;\n    {next}\n}}\n",
+                mul(i),
+                add(i)
+            )
+        })
+        .collect();
+    let body = String::from("    let _ = io.println(ctx, \"${w0(7)}\").ignore();\n");
+    let mut x = 7_i64;
+    for i in 0..n {
+        let r = (x * mul(i) + add(i)) % 1_000_003;
+        x = if i + 1 < n { r + i as i64 } else { r };
+    }
+    (items, body, x)
+}
+
+/// **A program whose stencils are mostly holes runs right, and patches each
+/// hole once.** A stencil's holes are patched in place as it is copied; the
+/// count is of holes, which no load moves, so a hole patched twice shows here.
+#[test]
+fn a_program_of_many_patched_holes_runs_and_patches_linearly() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let patched = |n: usize| {
+        let (items, body, printed) = many_patched_holes(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        let holes = work_count(&run.all(), "holes patched").unwrap_or_default();
+        assert!(
+            (2.0 * n as f64..=12.0 * n as f64).contains(&holes),
+            "{n} functions of wide literals patched {holes} holes:\n{}",
+            indent(&run.all())
+        );
+        Some(holes)
+    };
+    grows_linearly("patching many holes", patched, 200);
+}
+
 /// `buri lint //...` over a repository `write` fills in, answering the
 /// profile's count of `work`.
 fn linted(name: &str, write: impl Fn(&Scratch), work: &str) -> Option<f64> {

@@ -581,6 +581,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
             crate::compiler::backend::stencils_read()
         );
         eprintln!(
+            "holes patched {}",
+            crate::compiler::backend::holes_patched()
+        );
+        eprintln!(
             "type values searched {}",
             crate::compiler::semantics::resolve::values_searched()
         );

@@ -48,6 +48,15 @@ pub fn stencils_read() -> u64 {
     0
 }
 
+/// How many holes this process's stencils patched: none in a build without
+/// the stencil backend.
+pub fn holes_patched() -> u64 {
+    #[cfg(feature = "backend-stencil")]
+    return stencil::jit::holes_patched();
+    #[cfg(not(feature = "backend-stencil"))]
+    0
+}
+
 /// The copy-and-patch backend, with the runtime archive's gaps folded in.
 #[cfg(feature = "backend-stencil")]
 pub mod stencil {

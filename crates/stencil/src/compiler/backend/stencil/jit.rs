@@ -464,6 +464,18 @@ pub struct Jit<'a> {
     /// Whether the program can fan out (`runtime::shares_counts`), so every
     /// count reads `buri_rt_shared_mask` (`emit.rs`'s `count_stencil`).
     pub(crate) shares: bool,
+    /// Holes this part's stencils patched, added to [`HOLES_PATCHED`] when
+    /// the part is done rather than once per hole.
+    patched: u64,
+}
+
+/// How many holes this process's stencils patched. `BURI_PROFILE` prints it,
+/// because unlike instructions it is the same on every run.
+static HOLES_PATCHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`HOLES_PATCHED`].
+pub fn holes_patched() -> u64 {
+    HOLES_PATCHED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The two memo tables a `Jit` is worth keeping across the parts one worker
@@ -734,6 +746,7 @@ impl<'a> Jit<'a> {
             bufs: scratch.bufs,
             part,
             shares: false,
+            patched: 0,
         }
     }
 
@@ -745,6 +758,7 @@ impl<'a> Jit<'a> {
     /// rather than reset, so a field added later cannot leak into the next part
     /// by being forgotten.
     pub(crate) fn into_scratch(self) -> Scratch<'a> {
+        HOLES_PATCHED.fetch_add(self.patched, std::sync::atomic::Ordering::Relaxed);
         Scratch {
             layouts: self.layouts,
             counts: self.counts,
@@ -1645,6 +1659,7 @@ impl<'a> Jit<'a> {
                 );
             }
         }
+        self.patched += s.holes.len() as u64;
         for (i, h) in s.holes.iter().enumerate() {
             if elide && s.tail == Some(i) {
                 // The branches to the dropped tail go where it would have.
