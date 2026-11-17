@@ -2657,7 +2657,12 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             let at = openElement(
                 builder,
                 "div",
-                widgetBody(mem, plain(state), ["position:relative", "anchor-name:--buri-flow"], []),
+                widgetBody(
+                    mem,
+                    plain(state),
+                    ["position:relative", "anchor-name:--buri-flow"],
+                    [],
+                ),
             );
             let shown = openTip(builder);
             let _ = match (text) {

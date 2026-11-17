@@ -6447,7 +6447,7 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         }),
     );
     let shown =
-        "e 0 position:relative\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;role:tooltip\nt 2 Copy to clipboard";
+        "e 0 position:relative;anchor-name:--buri-flow\ne 1 label:Copy\nt 2 Copy\ne 1 class:p-4;role:tooltip\nt 2 Copy to clipboard";
     // A snapshot in a state that hovers or focuses the trigger draws the
     // bubble, and one in any other state draws the trigger alone.
     assert.equal(
@@ -6468,12 +6468,15 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
     );
     assert.equal(
         ui.describe(ctx, tip, .Checked),
-        "buri-scene 1\nviewport 800 fit\ne 0 position:relative\ne 1 label:Copy\nt 2 Copy",
+        "buri-scene 1\nviewport 800 fit\ne 0 position:relative;anchor-name:--buri-flow\ne 1 label:Copy\nt 2 Copy",
     );
     // The document draws the bubble only while the trigger is hovered, and
     // then it is the same lines.
     let page = render(ctx, tip);
-    assert.equal(page.markup(), "e 0 position:relative\ne 1 label:Copy\nt 2 Copy");
+    assert.equal(
+        page.markup(),
+        "e 0 position:relative;anchor-name:--buri-flow\ne 1 label:Copy\nt 2 Copy",
+    );
     let _ = page.pointerMove("Copy", 0.0, 0.0);
     assert.equal(page.markup(), shown);
 }
