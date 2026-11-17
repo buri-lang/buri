@@ -10186,6 +10186,49 @@ the core's closure reaches `buri_rt_crypto` or `ring`. The conformance
 corpus's `crypto/seal.buri` and `crypto/signatures.buri` run natively, so a
 program that does seal still links the crate and gets the RFC answers.
 
+### 6.145 A unit's ELF object spells a relocation's site only for an error, 2026-11-17
+
+```rust
+// elf.rs, each relocation
+let ty = r_type(target, r.kind, w)
+    .map_err(|e| format!("{}+{:#x}: {e}", sec.name, r.offset))?;
+```
+
+- Each relocation formatted its site, `.text+0x…`, for an error message it
+  almost never had. That was 86,624 of the 1.14 M allocations the codegen
+  phases of a ci build made. Now only the error formats it.
+- `Strtab::add` searched a list of every name already written, so a unit's
+  symbol table was quadratic in its symbols, and it copied each name into a
+  `String`. Now a map keyed by the caller's own name gives the offset.
+- Only Linux writes ELF, so the macOS figures don't move.
+
+| Goals count, aarch64 Linux, per line | §6.144 | Now |
+| --- | --- | --- |
+| ci dev codegen instructions | 49,321.6 | 48,040.8 |
+| ci dev codegen cost | 75,460.5 | 74,135.3 |
+| monorepo-ci dev codegen instructions | 20,276.0 | 19,646.8 |
+| monorepo-ci test-build dev codegen instructions | 21,656.8 | 20,713.8 |
+
+The goals baseline holds it: the change is about 3% of ci's dev codegen,
+five times the rows' local limit. `a_unit_of_several_parts_links_and_runs`
+links one unit of over a thousand symbols, through this writer on Linux, and
+runs it. `a_string_table_writes_each_name_once` checks that a repeated name
+shares its offset.
+
+Tried and not kept: reusing each lowering worker's type maps from one
+function to the next, instead of growing them from empty, removed about
+25,000 hash-table allocations but only 0.12% of ci's dev codegen.
+
+DHAT found both. Build the toolchain with `--features alloc-counter`, so
+allocations go to the system allocator DHAT can see, and with line tables:
+
+```text
+CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo build --release -p buri --features alloc-counter
+valgrind --tool=dhat --num-callers=30 target/release/buri build //...
+```
+
+Then keep the stacks that pass through `objects_named` for codegen's share.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

@@ -69,6 +69,7 @@
 
 use super::abi::StencilTarget;
 use super::object::{RelKind, Reloc, Section, Symbol};
+use std::borrow::Cow;
 
 // The ELF *reader* is `cli/build.rs`'s — the toolchain has no use for one and
 // should not carry three hundred lines of it — but the strongest check
@@ -133,27 +134,31 @@ const R_X86_64_PLT32: u32 = 4;
 /// beyond an exact repeat, which is what keeps the output a function of the
 /// input order alone.
 #[derive(Default)]
-struct Strtab {
+struct Strtab<'a> {
     bytes: Vec<u8>,
-    seen: Vec<(String, u32)>,
+    /// Where each name already in `bytes` starts, keyed by the caller's own
+    /// name. A list of copies searched end to end was a `String` per symbol
+    /// and quadratic in a unit's symbols (PERFORMANCE.md §6.145).
+    seen: crate::hash::Map<Cow<'a, str>, u32>,
 }
 
-impl Strtab {
-    fn new() -> Strtab {
+impl<'a> Strtab<'a> {
+    fn new() -> Strtab<'a> {
         Strtab {
             bytes: vec![0],
-            seen: Vec::new(),
+            seen: crate::hash::Map::default(),
         }
     }
     /// Every name asked for is a section's or a symbol's, and none is empty.
-    fn add(&mut self, s: &str) -> u32 {
-        if let Some((_, at)) = self.seen.iter().find(|(n, _)| n == s) {
+    fn add(&mut self, s: impl Into<Cow<'a, str>>) -> u32 {
+        let s = s.into();
+        if let Some(at) = self.seen.get(s.as_ref()) {
             return *at;
         }
         let at = self.bytes.len() as u32;
         self.bytes.extend_from_slice(s.as_bytes());
         self.bytes.push(0);
-        self.seen.push((String::from(s), at));
+        self.seen.insert(s, at);
         at
     }
 }
@@ -193,7 +198,7 @@ impl Shdr {
 /// `w` is the four bytes at the site, which for a `Branch26` is the `b` or
 /// `bl` whose field is being relocated. A kind the target has no
 /// counterpart for is an `Err` naming both, rather than the nearest number.
-fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<u32, String> {
+fn r_type(target: StencilTarget, kind: RelKind, w: u32) -> Result<u32, String> {
     if target.is_arm64() {
         return Ok(match kind {
             RelKind::Abs64 => R_AARCH64_ABS64,
@@ -215,10 +220,7 @@ fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<
             // A64 has no `rel32` field of any width, so neither x86-64 kind
             // can be spelled for this machine.
             RelKind::Rel32 | RelKind::Pc32 => {
-                return Err(format!(
-                    "{where_}: {} has no aarch64 relocation type",
-                    x86_name(kind)
-                ))
+                return Err(format!("{} has no aarch64 relocation type", x86_name(kind)))
             }
         });
     }
@@ -231,7 +233,7 @@ fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<
         // relocation where A64 produces two, and a 26-bit word displacement is
         // not a field this machine has.
         k => Err(format!(
-            "{where_}: {} has no x86-64 relocation type",
+            "{} has no x86-64 relocation type",
             match k {
                 RelKind::Page21 => "the page half of an adrp pair",
                 RelKind::Branch26 => "the 26-bit displacement of a b/bl",
@@ -314,7 +316,7 @@ pub fn write(
         .enumerate()
         .map(|(i, s)| {
             if per_section.get(i).is_some_and(|g| !g.is_empty()) {
-                shstr.add(&format!(".rela{}", s.name))
+                shstr.add(format!(".rela{}", s.name))
             } else {
                 0
             }
@@ -329,7 +331,7 @@ pub fn write(
     // ---- the symbol table ------------------------------------------------
     let mut symtab: Vec<u8> = vec![0; SYM as usize]; // the null symbol
     for (_, s) in &order {
-        let name = strtab.add(&s.name);
+        let name = strtab.add(s.name.as_str());
         let (shndx, value, kind) = match &s.defined {
             None => (0u16, 0u64, STT_NOTYPE),
             Some(d) => {
@@ -381,7 +383,11 @@ pub fn write(
                 sec.data.get(at + 2).copied().unwrap_or(0),
                 sec.data.get(at + 3).copied().unwrap_or(0),
             ]);
-            let ty = r_type(target, r.kind, w, &format!("{}+{:#x}", sec.name, r.offset))?;
+            // The site is spelled only for the message: formatting it for
+            // every relocation was most of the allocations a unit's object
+            // took (PERFORMANCE.md §6.145).
+            let ty = r_type(target, r.kind, w)
+                .map_err(|e| format!("{}+{:#x}: {e}", sec.name, r.offset))?;
             let sym = slot.get(r.symbol).copied().unwrap_or(0) as u64;
             t.extend_from_slice(&r.offset.to_le_bytes());
             t.extend_from_slice(&((sym << 32) | ty as u64).to_le_bytes());
@@ -646,24 +652,25 @@ mod tests {
         }
     }
 
+    /// A name asked for again is the offset it was first written at, a name
+    /// that only starts like an earlier one is written in full, and the
+    /// table is the names in the order first asked for.
+    #[test]
+    fn a_string_table_writes_each_name_once() {
+        let mut t = Strtab::new();
+        let a = t.add("f");
+        let b = t.add("f2");
+        assert_eq!((t.add("f"), t.add("f2")), (a, b));
+        assert_eq!((a, b), (1, 3));
+        assert_eq!(t.bytes, b"\0f\0f2\0");
+    }
+
     /// `b` and `bl` are one Mach-O kind and two ELF ones, and getting it wrong
     /// is a call that returns into the wrong place.
     #[test]
     fn a_branch_is_split_by_its_instruction() {
-        let jump = r_type(
-            StencilTarget::LinuxArm64,
-            RelKind::Branch26,
-            0x1400_0000,
-            "t",
-        )
-        .unwrap();
-        let call = r_type(
-            StencilTarget::LinuxArm64,
-            RelKind::Branch26,
-            0x9400_0000,
-            "t",
-        )
-        .unwrap();
+        let jump = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x1400_0000).unwrap();
+        let call = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x9400_0000).unwrap();
         assert_eq!((jump, call), (R_AARCH64_JUMP26, R_AARCH64_CALL26));
     }
 
@@ -671,7 +678,7 @@ mod tests {
     /// both types exist, both apply to the same field, and only one scales.
     #[test]
     fn a_low_twelve_is_split_by_its_instruction() {
-        let of = |k| r_type(StencilTarget::LinuxArm64, k, 0, "t").unwrap();
+        let of = |k| r_type(StencilTarget::LinuxArm64, k, 0).unwrap();
         assert_eq!(
             (of(RelKind::AddLo12), of(RelKind::LoadLo12)),
             (R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC)
@@ -685,7 +692,7 @@ mod tests {
     #[test]
     fn a_kind_the_machine_does_not_have_is_refused_by_name() {
         for k in [RelKind::Rel32, RelKind::Pc32] {
-            assert!(r_type(StencilTarget::LinuxArm64, k, 0, "t").is_err());
+            assert!(r_type(StencilTarget::LinuxArm64, k, 0).is_err());
         }
         for k in [
             RelKind::Branch26,
@@ -693,10 +700,10 @@ mod tests {
             RelKind::AddLo12,
             RelKind::LoadLo12,
         ] {
-            assert!(r_type(StencilTarget::LinuxX86_64, k, 0, "t").is_err());
+            assert!(r_type(StencilTarget::LinuxX86_64, k, 0).is_err());
         }
         // And the three x86-64 emission uses are the three psABI numbers.
-        let of = |k| r_type(StencilTarget::LinuxX86_64, k, 0, "t").unwrap();
+        let of = |k| r_type(StencilTarget::LinuxX86_64, k, 0).unwrap();
         assert_eq!(of(RelKind::Abs64), R_X86_64_64);
         assert_eq!(of(RelKind::Rel32), R_X86_64_PLT32);
         assert_eq!(of(RelKind::Pc32), R_X86_64_PC32);
