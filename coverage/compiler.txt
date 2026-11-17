@@ -16,15 +16,15 @@ crates/backend                       50/50  100.00%           368/380   96.84%
 crates/diagnostics                 293/294   99.66%         2279/2370   96.16%
 crates/docs                        246/246  100.00%           813/913   89.05%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                        1091/1112   98.11%         5709/5958   95.82%
+crates/js                        1094/1114   98.20%         5731/5976   95.90%
 crates/llvm                        558/558  100.00%         7684/7885   97.45%
 crates/middle                    2489/2514   99.01%       18035/18576   97.09%
 crates/project                   1334/1336   99.85%         6358/6518   97.55%
-crates/semantics                 2292/2292  100.00%       14361/14647   98.05%
+crates/semantics                 2292/2292  100.00%       14364/14650   98.05%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
 crates/stencil                   1096/1104   99.28%         8228/8728   94.27%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16066/16148   99.49%     104700/107864   97.07%
+total                          16069/16150   99.50%     104725/107885   97.07%
 
 cli/src                           branches                      lines         
 build                            1698/1700   99.88%       11461/11771   97.37%
@@ -55,7 +55,7 @@ main                                 11/12   91.67%             63/67   94.03%
 The 30 files with the most uncovered branches:
 
 uncovered          branches           file
-       19           523/542   96.49%  crates/js/src/compiler/backend/js/javascript.rs
+       18           526/544   96.69%  crates/js/src/compiler/backend/js/javascript.rs
        10           470/480   97.92%  cli/src/commands/test.rs
         8           172/180   95.56%  crates/middle/src/compiler/middle/monomorphize.rs
         5           203/208   97.60%  crates/middle/src/compiler/middle/derives.rs
