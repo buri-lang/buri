@@ -1651,10 +1651,12 @@ pub use super::abi::{MAX_FLOAT_ARGS, MAX_INT_ARGS};
 
 fn calls(o: &mut Out) {
     // A direct call. The callee's frame begins at `fp + _JIT_N`, where `_JIT_N`
-    // is this function's own frame size, so the emitter has already written the
-    // arguments into their places with ordinary `mov` stencils and reads the
-    // results back with ordinary `mov` stencils. Nothing is copied here.
-    // (l) `_JIT_N` and `_JIT_P` are bound to the *same* frame size. Two holes
+    // is this function's own frame size, or more where the result is handed
+    // straight to a later call (`Fn2::callee_base`), so the emitter has already
+    // written the arguments into their places with ordinary `mov` stencils and
+    // reads the results back with ordinary `mov` stencils. Nothing is copied
+    // here.
+    // (l) `_JIT_N` and `_JIT_P` are bound to the *same* offset. Two holes
     // rather than one because each is then materialised separately and each has
     // a single consumer, which is what the immediate fold needs to turn the
     // pair into `add x0, x0, #N` and `sub x0, x0, #N`.

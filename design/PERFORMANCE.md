@@ -10619,6 +10619,33 @@ argument and result copies per added `map`.
 templates, shows, list items and values of every width to functions and
 closures on every backend.
 
+### 6.160 A call's result handed to another call lands in its parameter, 2026-11-18
+
+```text
+                              before      after       change
+bench full, holes patched     4.289 M     4.251 M     -0.9%
+  copying arguments           118.9 k     99.9 k      -16%
+  copying results             127.5 k     108.5 k     -15%
+bench full, emit instructions 10.608 B    10.614 B    +0.05%
+```
+
+In `f(g(x))`, `g` wrote its result at its own frame's base and the caller
+copied it into `f`'s parameter. Now `g`'s frame starts at that parameter's
+slot, so `g` writes the result where `f` reads it. A later `DecRef` may still
+read it there when `f` never writes that parameter.
+
+The emitter gets this for free: `Fn2::callee_base` reads the frame base off
+the result's slot. Calls are visited last first, so a nested
+`f(g(h(x)))` stacks each frame on the next.
+
+Compile time doesn't move: the copies saved cost about what the extra check
+does. The win is at run time.
+
+`profile::answers_handed_to_calls_are_written_where_the_callee_reads_them`
+holds the copies per added call pair.
+`odd_sizes::answers_passed_straight_to_calls_arrive_whole` covers every
+width, nesting, closures, dropped strings and deep recursion on every backend.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

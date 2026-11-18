@@ -2580,3 +2580,69 @@ fn a_function_generic_over_its_context_has_one_body_for_many_context_shapes() {
         "eight shapes of context instantiated {many} functions, against {one} for one shape"
     );
 }
+
+/// `n` functions each handed another function's answer straight, a record and
+/// an `Int`, twice, with a `main` that prints the sum of their answers. Every
+/// body is too large and called too often to be inlined. Answers the items,
+/// the body and what it prints.
+fn answers_handed_to_calls(n: usize) -> (String, String, usize) {
+    let mut items = String::from(
+        "fn down(n: Int): Int {\n    if (n <= 0) { 0 } else { 1 + down(n - 1) }\n}\n\n\
+         struct Pair {\n    a: Int,\n    b: Int,\n}\n\n",
+    );
+    for i in 0..n {
+        items.push_str(&format!(
+            "fn make{i}(k: Int): Pair {{\n    Pair {{ a: down(k) + down(k + 1), b: down({i}) }}\n}}\n\n\
+             fn count{i}(k: Int): Int {{\n    down(k) * down(k + {i}) + 1\n}}\n\n\
+             fn take{i}(n: Int, p: Pair): Int {{\n    down(n) + p.a - p.b\n}}\n\n"
+        ));
+    }
+    let sum: Vec<String> = (0..n)
+        .map(|i| format!("take{i}(count{i}(1), make{i}(t)) + take{i}(count{i}(2), make{i}(1))"))
+        .collect();
+    let body = format!(
+        "    let t = down(2);\n    let u = {};\n    let _ = io.println(ctx, \"${{u}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    // The first `take` is (i + 2) + 5 - i, and the second (2i + 5) + 3 - i.
+    let printed = (0..n).map(|i| 7 + (8 + i)).sum();
+    (items, body, printed)
+}
+
+/// **A call's answer handed straight to another call is written where that
+/// call reads it.** `take(count(1), make(t))` copied each answer out of its
+/// callee's frame and then into `take`'s. Now `make` lays its frame out at
+/// `take`'s parameter and writes its answer there.
+#[test]
+fn answers_handed_to_calls_are_written_where_the_callee_reads_them() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = answers_handed_to_calls(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        let all = run.all();
+        work_count(&all, "holes copying arguments").unwrap()
+            + work_count(&all, "holes copying results").unwrap()
+    };
+    let (few, many) = (holes(8), holes(24));
+    // Each index copied 42 holes, 12 of them `make`'s two answers going out
+    // of its frame and into `take`'s. The rest are answers read by `+`, and
+    // `count`'s, which `make`'s call comes between.
+    let copied = (many - few) / 16.0;
+    assert!(
+        copied <= 30.0,
+        "16 more indices copied {copied:.1} more holes each of arguments and results \
+         ({few} at 8, {many} at 24)"
+    );
+}

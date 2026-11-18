@@ -611,3 +611,133 @@ test "a record passed alongside another call's answer" {
         4,
     );
 }
+
+/// One call's answer passed straight to another, at every width: nested three
+/// deep, beside arguments built before and after it, to a closure and from
+/// one, from a callee handed constants and strings it drops, and down a
+/// recursion three thousand calls deep.
+#[test]
+fn answers_passed_straight_to_calls_arrive_whole() {
+    passes(
+        "answer-arguments",
+        r#"from "core/testing/assert" import * as assert;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Equal, Show for Pair;
+struct Pair {
+    a: Int,
+    b: Str,
+}
+
+derive Equal, Show for Job;
+enum Job {
+    Running(Int, I128),
+    Done,
+}
+
+fn flag(n: Int): Bool { n > 2 }
+fn small(n: Int): I8 { if (n > 0) { 1 } else { 3 } }
+fn wide(n: Int): I128 { if (n > 0) { 1 } else { 170141183460469231731687303715884105727 } }
+fn half(n: Int): Float { if (n > 0) { 1.5 } else { 0.5 } }
+fn text(n: Int): Str { if (n > 0) { "abc" } else { "" } }
+fn pair(n: Int): Pair { Pair { a: n, b: "p" } }
+fn job(n: Int): Job { if (n > 0) { Job.Running(n, 7) } else { Job.Done } }
+
+fn ofFlag(b: Bool): Int { if (b) { 1 } else { 0 } }
+fn ofSmall(x: I8): Int { if (x == 3) { 3 } else { 0 } }
+fn ofWide(w: I128): Int { if (w > 0) { 4 } else { 0 } }
+fn ofHalf(f: Float): Int { if (f == 0.5) { 5 } else { 0 } }
+fn ofText(s: Str): Int { s.length() }
+fn ofPair(p: Pair): Int { p.a + p.b.length() }
+fn ofJob(j: Job): Int { match (j) { .Running(n, w) => if (w == 7) { n } else { 0 }, .Done => 0 } }
+
+fn inc(n: Int): Int { n + 1 }
+fn mix(a: Int, b: Int, c: Int, d: Int): Int { a * 1000 + b * 100 + c * 10 + d }
+fn two(a: Pair, b: Pair): Int { a.a * 10 + b.a }
+fn keep(s: Str, n: Int): Str { if (n > 0) { s } else { "none" } }
+fn drop(s: Str, w: I128): Int { if (w > 0) { s.length() } else { 0 } }
+
+fn sum(n: Int): Int {
+    if (n == 0) { 0 } else { mix(0, 0, 0, n % 2) + sum(n - 1) }
+}
+
+fn down(n: Int): Int {
+    if (n == 0) { 0 } else { inc(down(n - 1)) }
+}
+
+test "every width" {
+    assert.equal(ofFlag(flag(3)), 1);
+    assert.equal(ofSmall(small(0)), 3);
+    assert.equal(ofWide(wide(0)), 4);
+    assert.equal(ofHalf(half(0)), 5);
+    assert.equal(ofText(text(1)), 3);
+    assert.equal(ofPair(pair(4)), 5);
+    assert.equal(ofJob(job(6)), 6);
+    assert.equal(ofJob(job(0)), 0);
+}
+
+test "nested and beside other arguments" {
+    assert.equal(inc(inc(inc(1))), 4);
+    assert.equal(ofText(keep(text(1), ofPair(pair(2)))), 3);
+    let x = 3;
+    assert.equal(mix(inc(1), x + 1, inc(x), 9), 2449);
+    assert.equal(mix(1, inc(1), inc(2), inc(3)), 1234);
+    assert.equal(mix(1, mix(2, 3, 4, 5), 6, 7), 235567);
+    assert.equal(two(pair(3), pair(inc(4))), 35);
+    let t = inc(5);
+    assert.equal(mix(t, t, inc(t), t), 6676);
+}
+
+test "constants and dropped strings" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(inc(drop(str.format(ctx, "${x()}!"), 170141183460469231731687303715884105727)), 3);
+    assert.equal(ofText(keep(str.format(ctx, "<${x()}>"), 1)), 3);
+    assert.equal(ofText(keep("lit", 0)), 4);
+    assert.equal(ofPair(Pair { a: inc(drop(Job.Done.show(ctx), 1)), b: "q" }), 7);
+}
+
+test "answers dropped after the call they are passed to" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(ofText(built(ctx, 12)), 3);
+    assert.equal(ofPair(Pair { a: 1, b: built(ctx, 4) }), 3);
+    assert.equal(again(built(ctx, 345), 3), 4);
+    assert.equal(keep(built(ctx, 6), 1), "6!");
+    assert.equal(ofJob(job(inc(4))) + ofText(built(ctx, ofText(built(ctx, 1)))), 7);
+}
+
+fn built<C: Allocator>(ctx: C, n: Int): Str { str.format(ctx, "${n}!") }
+
+fn again(s: Str, n: Int): Int {
+    if (n <= 0) { s.length() } else { again(s, n - 1) }
+}
+
+fn x(): Int { 1 }
+
+struct Held {
+    run: fn(Int, Pair) => Int,
+    both: fn(Int, Int) => Int,
+}
+
+test "closures" {
+    let h = Held { run: fn(n, p) => n * 10 + p.a, both: fn(a, b) => a * 10 + b };
+    let run = h.run;
+    assert.equal(run(inc(1), pair(3)), 23);
+    let f = fn(n: Int) => n * 3;
+    let g = fn(s: Str) => s.length();
+    assert.equal(f(g(text(1))), 9);
+    assert.equal(run(f(2), pair(f(1))), 63);
+    let both = h.both;
+    let t = f(2);
+    assert.equal(both(t, t), 66);
+}
+
+test "deep recursions" {
+    assert.equal(sum(3000), 1500);
+    assert.equal(down(3000), 3000);
+}
+"#,
+        6,
+    );
+}

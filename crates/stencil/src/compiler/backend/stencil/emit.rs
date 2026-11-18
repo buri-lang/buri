@@ -1399,7 +1399,7 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        let base = st.frame.size;
+        let base = st.callee_base(dest);
         self.sunk_args(prog, code, st, args);
         let callee = self.frame_sig_of(func);
         for (a, off) in args.iter().zip(&callee.params) {
@@ -1518,7 +1518,7 @@ impl<'a> Jit<'a> {
     ) {
         // The environment is prepended to the argument list as a pointer, so
         // the callee's frame is laid out for `[Ptr] ++ args`.
-        let base = st.frame.size;
+        let base = st.callee_base(dest);
         let ret_n = self.slot_bytes_of(prog, code.ty_of(dest));
         let mut at = RET + ret_n;
         let env_at = at;

@@ -115,7 +115,10 @@ pub const STACK_USABLE: u64 = 64 * 1024 * 1024;
 /// past it without ever touching it, which is the same hazard native code
 /// answers with stack probes. A Buri frame is a `middle::layout` locals area
 /// and 1 MiB is far past any this compiler emits, at a cost of address space
-/// alone — the pages are zero-fill and never faulted in. It is not a *proof*,
+/// alone — the pages are zero-fill and never faulted in. A call whose result
+/// goes straight to another call enters its frame at that call's parameter
+/// slot (`Fn2::callee_base`), a few words further up, which changes nothing
+/// here. It is not a *proof*,
 /// and neither is the machine stack's: no backend here emits stack probes, so a
 /// machine frame past the OS guard has exactly this exposure. The two are level
 /// here rather than one being sound.

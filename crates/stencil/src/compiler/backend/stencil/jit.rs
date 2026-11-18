@@ -1225,6 +1225,13 @@ impl Fn2 {
     pub fn at(&self, v: ir::ValueId) -> u32 {
         *self.slot.get(v)
     }
+
+    /// Where the frame of the call defining `dest` begins: past this frame,
+    /// or where [`Jit::pin_call_values`] pinned the result in a later call's
+    /// frame, so the callee writes it there.
+    pub fn callee_base(&self, dest: ir::ValueId) -> u32 {
+        (self.at(dest) - RET).max(self.frame.size)
+    }
     /// Where a value **lives**: a CPS register if one was assigned, the frame
     /// otherwise. This is the paper's "whether it operates on constants,
     /// registers, or stack locations".
@@ -2769,6 +2776,10 @@ impl<'a> Jit<'a> {
     /// class of its own, used in its defining block:
     ///
     ///  * a **result**, whose every use is in the block after the call;
+    ///  * a **result passed to a later call**, in that call's parameter slot,
+    ///    with the first call's frame moved up to put its result there
+    ///    ([`Fn2::callee_base`]). A read past the second call needs a
+    ///    parameter the callee never writes, as an argument's does;
     ///  * an **argument**, last read by that call, and defined by an
     ///    instruction that writes nothing but its own slot, a record, an enum,
     ///    a template or a derived leaf built for the call among them. A direct
@@ -2809,7 +2820,11 @@ impl<'a> Jit<'a> {
         let alone = |v: ir::ValueId, pin: &ir::PerValue<Option<u32>>| {
             *members.get(v) == 1 && pin.get(v).is_none()
         };
-        let calls_code = |func: &FuncIdx| matches!(prog.funcs.get(*func).body, ir::Body::Code(_));
+        let code_of = |func: &FuncIdx| match &prog.funcs.get(*func).body {
+            ir::Body::Code(code) => Some(code),
+            ir::Body::Runtime(_) => None,
+        };
+        let calls_code = |func: &FuncIdx| code_of(func).is_some();
         // Where each value is read in the block at hand — an instruction's
         // index, or `last` for the terminator — and where it is defined. One
         // entry per value, stamped with the block it describes.
@@ -2818,11 +2833,16 @@ impl<'a> Jit<'a> {
         let mut sunk = code.per_value_in(&mut self.bufs.sunk, None);
         let mut kept = std::mem::take(&mut self.bufs.kept);
         let mut offs: Vec<u32> = Vec::new();
+        // How far past `frame_size` each call of the block lays its frame:
+        // zero, or the parameter slot of the call its result is handed to.
+        let mut shift: Vec<u32> = Vec::new();
         for (bid, b) in code.iter() {
             if !has_call(b) {
                 continue;
             }
             let last = b.insts.len();
+            shift.clear();
+            shift.resize(last, 0);
             // How many instructions before each index leave the callee's
             // frame alone, so a range is pure in one subtraction.
             kept.clear();
@@ -2849,7 +2869,9 @@ impl<'a> Jit<'a> {
                 to <= from || ent(&kept, to, 0) - ent(&kept, from, 0) == to - from
             };
             let mut results: Vec<(usize, usize)> = Vec::new();
-            for (j, i) in b.insts.iter().enumerate() {
+            // Last call first, so the frame of the call a result is handed
+            // to has its place already.
+            for (j, i) in b.insts.iter().enumerate().rev() {
                 let d = match *i {
                     ir::Inst::Call { dest, func, .. } if calls_code(&func) => dest,
                     ir::Inst::CallIndirect { dest, .. } => dest,
@@ -2861,6 +2883,54 @@ impl<'a> Jit<'a> {
                 // `dr.first` is past `j`.
                 if !alone(d, pin) || dr.count != *uses.get(d) {
                     continue;
+                }
+                // `f(g(x))`: `g`'s frame starts at its result's parameter slot
+                // in `f`'s. Nothing below that slot is live across `g`.
+                let e = (j + 1..(end + 1).min(last)).find(|k| {
+                    !b.insts
+                        .get(*k)
+                        .is_some_and(|i| keeps_callee_frame(i, self.routes))
+                });
+                if let Some(e) = e {
+                    let once = |args: &[ir::ValueId]| args.iter().filter(|a| **a == d).count() == 1;
+                    let at = match b.insts.get(e) {
+                        Some(ir::Inst::Call { func, args, .. }) if once(args) => {
+                            // A read after the call needs a parameter the
+                            // callee's entry block passes on nowhere, so
+                            // `coalesce` merged nothing into it.
+                            let p = args.iter().position(|a| *a == d);
+                            code_of(func)
+                                .zip(p)
+                                .filter(|(callee, p)| {
+                                    let entry = callee.entry();
+                                    end == e
+                                        || entry.params.get(*p).is_some_and(|v| {
+                                            !entry.term.targets().any(|t| t.args.contains(v))
+                                        })
+                                })
+                                .and_then(|(_, p)| self.frames.get(*func).params.get(p).copied())
+                        }
+                        Some(ir::Inst::CallIndirect { dest, args, .. })
+                            if end == e && once(args) =>
+                        {
+                            let mut at = RET + *width.get(*dest) + 8;
+                            args.iter().find_map(|a| {
+                                let here = at;
+                                at += *width.get(*a);
+                                (*a == d).then_some(here)
+                            })
+                        }
+                        _ => None,
+                    };
+                    if let Some(at) = at.filter(|_| pure(e + 1, end + 1)) {
+                        let at = ent(&shift, e, 0) + at;
+                        *pin.get_mut(d) = Some(frame_size + at);
+                        shift.get_mut(j).into_iter().for_each(|s| *s = at - RET);
+                        if end > e {
+                            results.push((e, end));
+                        }
+                        continue;
+                    }
                 }
                 // A `Bool` read only to be counted shares the slot it is
                 // counted from: the conversion is a copy of the same word.
@@ -2924,6 +2994,7 @@ impl<'a> Jit<'a> {
                         !entry.is_some_and(|e| e.term.targets().any(|t| t.args.contains(v)))
                     })
                 };
+                let off_base = frame_size + ent(&shift, j, 0);
                 for (p, (a, off)) in args.iter().zip(offs.iter()).enumerate() {
                     let Some(k) = def_at(*a).filter(|k| *k < j) else {
                         continue;
@@ -2934,7 +3005,7 @@ impl<'a> Jit<'a> {
                     // pinned it.
                     if matches!(b.insts.get(k), Some(ir::Inst::Const { .. })) {
                         if *uses.get(*a) == 1 {
-                            *pin.get_mut(*a) = Some(frame_size + off);
+                            *pin.get_mut(*a) = Some(off_base + off);
                             *sunk.get_mut(*a) = Some(k as u32);
                         }
                         continue;
@@ -2991,7 +3062,7 @@ impl<'a> Jit<'a> {
                     {
                         continue;
                     }
-                    *pin.get_mut(*a) = Some(frame_size + off);
+                    *pin.get_mut(*a) = Some(off_base + off);
                     if end > j {
                         results.push((j, end));
                     }
