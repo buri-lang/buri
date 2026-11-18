@@ -90,6 +90,7 @@ fn the_checked_in_corpus_is_up_to_date() {
             std::fs::write(path, text).unwrap();
         }
     }
+    let _unchanged = crate::source_tree::Unchanged::new(&["cli/tests/coverage_counts"]);
     let mut have = Vec::new();
     list(&dir, &dir, &mut have);
     have.sort();
@@ -105,12 +106,10 @@ fn the_checked_in_corpus_is_up_to_date() {
         let on_disk = std::fs::read_to_string(dir.join(path)).unwrap();
         assert!(on_disk == *text, "{path} differs from what the generator writes for seed {SEED:#x}; run it with BURI_BLESS=1");
     }
-    // The layout the counts assume is the one the formatter keeps.
-    let ran = crate::shared::ran_command(
-        buri()
-            .current_dir(dir.join("repo"))
-            .args(["format", "--check"]),
-    );
+    // The layout the counts assume is the one the formatter keeps. Checked in
+    // a copy, because `buri format` writes under the repository's `.buri`.
+    let repo = repository("format");
+    let ran = crate::shared::ran_command(buri().current_dir(&repo).args(["format", "--check"]));
     assert_eq!(
         ran.status, 0,
         "the generated sources aren't formatted:\n{}{}",

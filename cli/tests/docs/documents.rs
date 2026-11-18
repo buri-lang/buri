@@ -1800,7 +1800,7 @@ fn copy_of_the_example_monorepo() -> PathBuf {
     to
 }
 
-fn copy_tree(from: &Path, to: &Path) {
+pub fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).expect("the scratch tree is creatable");
     for entry in std::fs::read_dir(from).expect("the source tree is readable") {
         let entry = entry.expect("a directory entry");

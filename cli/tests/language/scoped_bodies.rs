@@ -34,6 +34,7 @@ use buri::compiler::driver::{self, Analysis};
 use buri::compiler::modules::Unit;
 use buri::diagnostics::FileId;
 
+use crate::harness::source_tree::Unchanged;
 use crate::harness::Scratch;
 use std::path::{Path, PathBuf};
 
@@ -64,6 +65,7 @@ fn repositories() -> Vec<Scratch> {
 
 #[test]
 fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
+    let _unchanged = Unchanged::new(&["cli/tests/example", "cli/tests/repositories/lsp"]);
     let mut repositories_checked = 0usize;
     let mut files_checked = 0usize;
     for copy in repositories() {
@@ -97,7 +99,7 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
                 .loaded
                 .modules
                 .iter()
-                .filter(|m| m.disk.as_ref().is_some_and(|d| d.starts_with(&root)))
+                .filter(|m| m.disk.as_ref().is_some_and(|d| d.starts_with(root)))
                 .map(|m| m.file)
                 .collect();
             for file in files {
@@ -160,6 +162,7 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
 /// ```
 #[test]
 fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
+    let _unchanged = Unchanged::new(&["cli/tests/example", "cli/tests/repositories/lsp"]);
     let mut repositories_checked = 0usize;
     let mut files_checked = 0usize;
     // The largest number of standard library bodies any one target's
@@ -212,7 +215,7 @@ fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
             );
 
             for m in &full.loaded.modules {
-                if !m.disk.as_ref().is_some_and(|d| d.starts_with(&root)) {
+                if !m.disk.as_ref().is_some_and(|d| d.starts_with(root)) {
                     continue;
                 }
                 let name = open.map.name(m.file).to_string();

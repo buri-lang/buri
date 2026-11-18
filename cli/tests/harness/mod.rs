@@ -29,6 +29,7 @@ pub mod shape;
 mod signals;
 #[macro_use]
 pub mod shard;
+pub mod source_tree;
 pub mod sweep;
 pub mod web_pages;
 // The far side of a `core/net/websocket` row: a hand-written server, because a

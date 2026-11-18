@@ -7,24 +7,9 @@
 //! of it that `coverage_agrees` leaves on JavaScript run here.
 
 use crate::hang::CappedChild;
+use crate::shared::copy_tree as copy;
 use std::path::Path;
 use std::process::Command;
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_name() == ".buri" {
-            continue;
-        }
-        let dest = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy(&entry.path(), &dest);
-        } else {
-            std::fs::copy(entry.path(), dest).unwrap();
-        }
-    }
-}
 
 /// A fresh directory for `name`, under this process's own.
 fn scratch(name: &str) -> crate::sweep::Owned {

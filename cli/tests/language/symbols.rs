@@ -51,6 +51,7 @@ use buri::compiler::middle::monomorphize::{self, FuncKind, Program};
 use buri::compiler::modules::Unit;
 use buri::diagnostics::Diagnostics;
 
+use crate::harness::source_tree::Unchanged;
 use crate::harness::{indent, Scratch};
 use std::process::Command;
 
@@ -84,6 +85,7 @@ fn repositories() -> Vec<Scratch> {
 
 #[test]
 fn no_two_functions_in_one_program_share_a_symbol() {
+    let _unchanged = Unchanged::new(&["cli/tests/example", "cli/tests/repositories/testing"]);
     let mut programs = 0usize;
     for copy in repositories() {
         let root = &copy.root;

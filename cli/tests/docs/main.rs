@@ -45,6 +45,9 @@ mod hang;
 #[path = "../harness/shard.rs"]
 mod shard;
 
+#[path = "../harness/source_tree.rs"]
+mod source_tree;
+
 mod documents;
 mod examples;
 mod scanning;

@@ -9,6 +9,7 @@
 //! `--coverage` sent down the wrong side natively; this is the net for the
 //! next one. The corpus holds that case in `semantics/conditions.buri`.
 
+use crate::shared::copy_tree as copy;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
@@ -37,22 +38,6 @@ fn corpus(name: &str, native: bool) -> crate::sweep::Owned {
         }
     }
     repo
-}
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_name() == ".buri" {
-            continue;
-        }
-        let dest = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy(&entry.path(), &dest);
-        } else {
-            std::fs::copy(entry.path(), dest).unwrap();
-        }
-    }
 }
 
 /// What `buri test //... --verbose` said about each test, without times or

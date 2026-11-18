@@ -1945,26 +1945,69 @@ pub fn tls_bind_answers(stdout: &str, absent: &Path) {
 /// Eleven files import `//lib/<package>`, so a harness that compiled each as a
 /// bare snippet would be refused by the *front end* and would say nothing
 /// about a backend.
+///
+/// Opened in a copy, because opening runs the corpus's generators and they
+/// write under the repository's `.buri`. The copy is named for the process,
+/// outlives the workspace that reads from it, and a later run sweeps it.
 pub fn conformance_repository() -> Option<&'static Workspace> {
     static REPOSITORY: OnceLock<Option<Workspace>> = OnceLock::new();
-    REPOSITORY
-        .get_or_init(|| {
-            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
-            // Through `session::open_at` rather than `Workspace::load`, because a
-            // `generators` entry names a program and loading the graph does not run
-            // it. `//lib/proto` declares one, so a workspace loaded the short way
-            // has no module behind `point.proto` and the *front end* refuses every
-            // file that imports it — which would read here as a backend that
-            // stopped compiling them.
-            let session =
-                buri::build::session::open_at(&root, &buri::commands::arguments::Flags::default())
-                    .ok()?;
-            if session.diagnostics.has_errors() {
-                return None;
-            }
-            std::sync::Arc::try_unwrap(session.workspace).ok()
-        })
-        .as_ref()
+    REPOSITORY.get_or_init(open_conformance).as_ref()
+}
+
+/// [`conformance_repository`]'s work, done again on every call.
+pub fn open_conformance() -> Option<Workspace> {
+    crate::sweep::once();
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "native-conformance-{}-{}",
+        std::process::id(),
+        OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    copy_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"),
+        &root,
+    );
+    // Through `session::open_at` rather than `Workspace::load`, because a
+    // `generators` entry names a program and loading the graph does not run
+    // it. `//lib/proto` declares one, so a workspace loaded the short way
+    // has no module behind `point.proto` and the *front end* refuses every
+    // file that imports it — which would read here as a backend that
+    // stopped compiling them.
+    let session =
+        buri::build::session::open_at(&root, &buri::commands::arguments::Flags::default()).ok()?;
+    if session.diagnostics.has_errors() {
+        return None;
+    }
+    std::sync::Arc::try_unwrap(session.workspace).ok()
+}
+
+/// How many copies [`open_conformance`] has made in this process.
+static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[test]
+fn opening_the_conformance_repository_writes_into_a_copy() {
+    let _unchanged = crate::source_tree::Unchanged::new(&["cli/tests/conformance"]);
+    assert!(
+        open_conformance().is_some(),
+        "the conformance repository opens"
+    );
+}
+
+/// Copies the tree at `from` to `to`, leaving out the `.buri` a build wrote.
+pub fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() == ".buri" {
+            continue;
+        }
+        let dest = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &dest);
+        } else {
+            std::fs::copy(entry.path(), dest).unwrap();
+        }
+    }
 }
 
 /// The corpus root the file walkers start from.

@@ -187,6 +187,11 @@ mod stencil_host;
 // of the file is what makes the unread rest of it free.
 mod shared;
 
+// The check that a scenario which once wrote into a checked-in fixture leaves
+// it unchanged.
+#[path = "../harness/source_tree.rs"]
+mod source_tree;
+
 // The scheduled Valgrind jobs' hook: `shared` runs each program it built
 // under memcheck or helgrind when `BURI_MEMCHECK` or `BURI_HELGRIND` is set.
 mod valgrind;

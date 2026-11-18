@@ -143,18 +143,55 @@ fn source_text(root: &Path, rel: &str, compiled_in: &str) -> String {
 /// `buri docs test` over `documents`, run from the checkout's root the way
 /// someone checking the toolchain's own pages runs it.
 ///
+/// It runs in a copy of the documents and of every repository a `repo=` fence
+/// in them names, laid out as in the checkout. A `repo=` repository has its
+/// generators run, and they write under its `.buri`, so in place they wrote
+/// into the checked-in tree.
+///
 /// Fails with every failure at once — a fence at a time would make fixing a
 /// document a dozen round trips.
 pub fn docs_test(root: &Path, documents: &[String]) {
+    let copy = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "buri-docs-test-{}-{}",
+        std::process::id(),
+        COPIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_dir_all(&copy);
+    let mut repositories = std::collections::BTreeSet::new();
+    for document in documents {
+        let to = copy.join(document);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(root.join(document), &to).expect("the document exists");
+        let text = std::fs::read_to_string(&to).unwrap();
+        for line in text.lines().filter(|l| l.contains("```")) {
+            if let Some((_, rest)) = line.split_once("repo=") {
+                repositories.insert(rest.split_whitespace().next().unwrap_or("").to_string());
+            }
+        }
+    }
+    // What `buri docs test` takes for the toolchain's checkout, so it resolves
+    // `repo=` against the copy rather than the checkout above it.
+    let marker = "crates/docs/src/docs/SPEC.md";
+    std::fs::create_dir_all(copy.join("crates/docs/src/docs/language")).unwrap();
+    std::fs::copy(root.join(marker), copy.join(marker)).unwrap();
+    let named: Vec<&str> = repositories.iter().map(String::as_str).collect();
+    let _unchanged = crate::source_tree::Unchanged::new(&named);
+    for repository in &repositories {
+        crate::documents::copy_tree(&root.join(repository), &copy.join(repository));
+    }
     let mut args = vec!["docs", "test", "--color=never"];
     args.extend(documents.iter().map(String::as_str));
-    let out = crate::documents::ran(root, &args);
+    let out = crate::documents::ran(&copy, &args);
     assert!(
         out.status.success(),
         "\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    let _ = std::fs::remove_dir_all(&copy);
 }
+
+/// How many copies [`docs_test`] has made in this process.
+static COPIES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Compiles every block of every topic of one kind.
 fn check_kind(kind: topics::Kind) {

@@ -7,6 +7,7 @@
 //! through `buri`. This copies the corpus, keeps each such package's native-set
 //! files, and runs them on the debug backend under the heap check.
 
+use crate::shared::copy_tree as copy;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -52,22 +53,6 @@ fn split_corpus() -> (PathBuf, Vec<String>, usize) {
         packages.push(format!("//lib/{package}"));
     }
     (repo, packages, declared)
-}
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        if entry.file_name() == ".buri" {
-            continue;
-        }
-        let dest = to.join(entry.file_name());
-        if entry.file_type().unwrap().is_dir() {
-            copy(&entry.path(), &dest);
-        } else {
-            std::fs::copy(entry.path(), dest).unwrap();
-        }
-    }
 }
 
 #[test]
