@@ -11,20 +11,20 @@ cli/lint                           572/572  100.00%         2978/3003   99.17%
 cli/other                          611/616   99.19%         3593/3712   96.79%
 cli/run                              58/58  100.00%           327/338   96.75%
 cli/serve+watch                      68/68  100.00%           379/398   95.23%
-cli/test                           472/482   97.93%         3651/3723   98.07%
+cli/test                           474/484   97.93%         3655/3727   98.07%
 crates/backend                       50/50  100.00%           368/380   96.84%
 crates/diagnostics                 293/294   99.66%         2279/2370   96.16%
 crates/docs                        246/246  100.00%           816/916   89.08%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1094/1114   98.20%         5731/5976   95.90%
 crates/llvm                        558/558  100.00%         7684/7885   97.45%
-crates/middle                    2489/2514   99.01%       18035/18576   97.09%
+crates/middle                    2547/2572   99.03%       18325/18864   97.14%
 crates/project                   1338/1340   99.85%         6359/6519   97.55%
-crates/semantics                 2292/2292  100.00%       14372/14658   98.05%
+crates/semantics                 2300/2300  100.00%       14402/14688   98.05%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
 crates/stencil                   1098/1106   99.28%         8250/8748   94.31%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16153/16234   99.50%     105422/108582   97.09%
+total                          16221/16302   99.50%     105746/108904   97.10%
 
 cli/src                           branches                      lines         
 build                            1778/1780   99.89%       12109/12422   97.48%
@@ -42,7 +42,7 @@ commands/mod                         20/20  100.00%           283/288   98.26%
 commands/query                       38/38  100.00%           124/125   99.20%
 commands/run                         58/58  100.00%           327/338   96.75%
 commands/serve                       34/34  100.00%           135/140   96.43%
-commands/test                      470/480   97.92%         3613/3685   98.05%
+commands/test                      472/482   97.93%         3617/3689   98.05%
 commands/test_times                    2/2  100.00%             38/38  100.00%
 commands/version                       4/4  100.00%             23/25   92.00%
 commands/watch                       34/34  100.00%           244/258   94.57%
@@ -56,8 +56,8 @@ The 30 files with the most uncovered branches:
 
 uncovered          branches           file
        18           526/544   96.69%  crates/js/src/compiler/backend/js/javascript.rs
-       10           470/480   97.92%  cli/src/commands/test.rs
-        8           172/180   95.56%  crates/middle/src/compiler/middle/monomorphize.rs
+       10           472/482   97.93%  cli/src/commands/test.rs
+        8           176/184   95.65%  crates/middle/src/compiler/middle/monomorphize.rs
         5           203/208   97.60%  crates/middle/src/compiler/middle/derives.rs
         5           701/706   99.29%  crates/middle/src/compiler/middle/rc.rs
         3           157/160   98.12%  cli/src/language_server/mod.rs
