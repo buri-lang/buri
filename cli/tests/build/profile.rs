@@ -2362,6 +2362,79 @@ fn constant_arguments_are_written_where_the_callee_reads_them() {
     );
 }
 
+/// `n` functions each called with a struct and an enum built in the call,
+/// and once more with constant ones, with a `main` that prints the sum of
+/// their answers. Answers the items, the body and what it prints.
+fn records_built_for_calls(n: usize) -> (String, String, usize) {
+    let mut items = String::from(
+        "fn down(n: Int): Int {\n    if (n <= 0) { 0 } else { 1 + down(n - 1) }\n}\n\n\
+         struct Pair {\n    a: Int,\n    b: Int,\n}\n\n\
+         enum Step {\n    By(Int),\n    Stay,\n}\n\n",
+    );
+    for i in 0..n {
+        items.push_str(&format!(
+            "fn take{i}(p: Pair, s: Step): Int {{\n    match (s) {{\n        \
+             .By(k) => down(p.a) - p.b + k,\n        .Stay => {i},\n    }}\n}}\n\n"
+        ));
+    }
+    let sum: Vec<String> = (0..n)
+        .map(|i| {
+            format!(
+                "take{i}(Pair {{ a: down({i}) + 1, b: down(1) }}, Step.By({i})) \
+                 + take{i}(Pair {{ a: 1, b: 1 }}, Step.Stay)"
+            )
+        })
+        .collect();
+    let body = format!(
+        "    let t = {};\n    let _ = io.println(ctx, \"${{t}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    (items, body, n * (n - 1) + n * (n - 1) / 2)
+}
+
+/// **A record built for a call is built in the callee's frame.** A struct or
+/// an enum made only to be passed was built in the caller's frame and copied
+/// into the callee's. Now it is built where the callee reads it.
+#[test]
+fn records_built_for_calls_are_built_where_the_callee_reads_them() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = records_built_for_calls(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        let all = run.all();
+        (
+            work_count(&all, "holes patched").unwrap(),
+            work_count(&all, "holes copying arguments").unwrap(),
+        )
+    };
+    let ((few, few_copied), (many, many_copied)) = (holes(8), holes(24));
+    // Each function's two calls copied 12 holes of arguments.
+    let copied = (many_copied - few_copied) / 16.0;
+    assert!(
+        copied <= 3.0,
+        "16 more functions patched {copied:.1} more holes each copying arguments \
+         ({few_copied} at 8, {many_copied} at 24)"
+    );
+    // Each function and its two calls were 97 holes.
+    let patched = (many - few) / 16.0;
+    assert!(
+        patched < 90.0,
+        "16 more functions patched {patched:.1} more holes each ({few} at 8, {many} at 24)"
+    );
+}
+
 /// A library whose eight tests each call one function generic over a
 /// `Random` context: from eight contexts that bind `Random` among other
 /// effects, in other orders, or from eight of the one that binds all three.

@@ -2432,9 +2432,14 @@ impl<'a> Jit<'a> {
                         e.variants.get(v).as_slice()
                     }
                 };
-                // The only aggregates pinned are those pinned at the return
-                // area (`coalesce`), and they take their fields there too:
-                // only the `Return` reads them, and nothing else writes there.
+                // An aggregate pinned at the return area (`coalesce`) takes
+                // its fields there too: only the `Return` reads it, and
+                // nothing else writes there. One pinned in a callee's frame
+                // (`pin_call_values`) takes none: a call between a field's
+                // load and the aggregate would write over it.
+                if pin.get(dest).is_some_and(|p| p != RET) {
+                    continue;
+                }
                 let root = find(uf, dest);
                 let in_class = |v: &ir::ValueId| find(uf, *v) == root;
                 // A field already aliased is a length, which no load below
@@ -2764,7 +2769,8 @@ impl<'a> Jit<'a> {
     ///
     ///  * a **result**, whose every use is in the block after the call;
     ///  * an **argument**, used once, by that call, and defined by an
-    ///    instruction that writes nothing but its own slot. Its definition must
+    ///    instruction that writes nothing but its own slot, a record or an
+    ///    enum built for the call among them. Its definition must
     ///    not land inside a pinned result's life, whose slot it could overlap;
     ///  * a **constant** argument used once, by that call, which the call
     ///    writes itself ([`Fn2::sunk`]), so nothing between needs checking.
@@ -2909,6 +2915,8 @@ impl<'a> Jit<'a> {
                                 | ir::Inst::GetField { .. }
                                 | ir::Inst::GetPayload { .. }
                                 | ir::Inst::GetTag { .. }
+                                | ir::Inst::MakeStruct { .. }
+                                | ir::Inst::MakeEnum { .. }
                         )
                     ) && b.insts.get(k).is_some_and(keeps_callee_frame);
                     // Read once, by this call, so no edge merged it, and

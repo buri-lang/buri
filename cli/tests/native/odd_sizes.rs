@@ -421,3 +421,92 @@ test "the literals a derived Show writes" {
         5,
     );
 }
+
+/// Records and enums built straight into a call's argument list: from other
+/// calls' answers, from fields loaded out of another record, past more calls
+/// made for the same arguments, wide ones, nested ones, and two in one call.
+#[test]
+fn records_built_as_arguments_arrive_whole() {
+    passes(
+        "record-arguments",
+        r#"from "core/testing/assert" import * as assert;
+
+struct Pair {
+    a: Int,
+    b: Int,
+}
+
+struct Wide {
+    a: Int,
+    b: Int,
+    c: Int,
+    d: Int,
+    e: Int,
+    f: Int,
+}
+
+struct Outer {
+    p: Pair,
+    q: Pair,
+}
+
+enum Step {
+    By(Int),
+    Both(Int, Int),
+    Stay,
+}
+
+fn down(n: Int): Int {
+    if (n <= 0) { 0 } else { 1 + down(n - 1) }
+}
+
+fn diff(p: Pair): Int {
+    down(p.a) - p.b
+}
+
+fn walk(p: Pair, s: Step): Int {
+    match (s) {
+        .By(k) => diff(p) * 10 + k,
+        .Both(k, j) => diff(p) * 100 + k * 10 + j,
+        .Stay => diff(p),
+    }
+}
+
+fn sum(w: Wide): Int {
+    w.a + w.b * 10 + w.c * 100 + w.d * 1000 + w.e * 10000 + w.f * 100000
+}
+
+fn outer(o: Outer): Int {
+    diff(o.p) * 10 + diff(o.q)
+}
+
+fn swap(p: Pair): Pair {
+    Pair { a: p.b, b: p.a }
+}
+
+test "from other calls' answers" {
+    assert.equal(diff(Pair { a: down(5), b: down(2) }), 3);
+    assert.equal(walk(Pair { a: down(4) + 1, b: down(1) }, Step.By(down(3))), 43);
+    assert.equal(walk(Pair { a: 9, b: down(3) }, Step.Both(down(1), down(2))), 612);
+    assert.equal(walk(Pair { a: down(2), b: 2 }, Step.Stay), 0);
+}
+
+test "from fields loaded out of another record" {
+    let p = swap(Pair { a: 2, b: 7 });
+    assert.equal(diff(Pair { a: p.a, b: p.b }), 5);
+    assert.equal(diff(Pair { a: p.a, b: down(p.b) - 1 }), 6);
+}
+
+test "wide and nested" {
+    assert.equal(sum(Wide { a: 1, b: down(2), c: 3, d: down(4), e: 5, f: down(6) }), 654321);
+    let q = Pair { a: down(8), b: 3 };
+    assert.equal(outer(Outer { p: Pair { a: down(9), b: down(1) }, q: q }), 85);
+}
+
+test "a record passed alongside another call's answer" {
+    assert.equal(walk(Pair { a: 6, b: 1 }, Step.By(walk(Pair { a: 3, b: 3 }, Step.Stay))), 50);
+}
+"#,
+        4,
+    );
+}

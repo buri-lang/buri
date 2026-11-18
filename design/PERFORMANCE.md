@@ -10567,6 +10567,27 @@ the argument copies and holes per added call, and
 `odd_sizes::constants_passed_to_functions_arrive_whole` passes constants of
 every width past other calls on every backend.
 
+### 6.158 A record built for a call is built in the callee's frame, 2026-11-18
+
+```text
+                              before      after       change
+bench full, holes patched     4.374 M     4.360 M     -0.3%
+  copying arguments           192.5 k     178.1 k     -7.5%
+```
+
+A `MakeStruct` or `MakeEnum` used once, as a direct call's argument, was
+built in the caller's frame and copied into the callee's. `pin_call_values`
+now pins it where the callee reads its parameter, as it already did for a
+loaded field or an arithmetic result. Its fields are then written there
+rather than aliased into it, because `alias_parts` keeps a field in the
+aggregate's slot from the field's load onward, and a call in between would
+write over it.
+
+`profile::records_built_for_calls_are_built_where_the_callee_reads_them`
+holds the argument copies per added call, and
+`odd_sizes::records_built_as_arguments_arrive_whole` passes records and enums
+built from calls' answers, loaded fields and nested records on every backend.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
