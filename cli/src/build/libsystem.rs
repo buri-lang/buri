@@ -58,6 +58,11 @@ impl Exports {
     /// The exports of `tbd`, a version 4 text stub, for `target`, such as
     /// `arm64-macos`. `None` when a flow list never closes. A stub without a
     /// header makes a cut that fails its link, which then links again whole.
+    ///
+    /// An `arm64e-macos` symbol is one an `arm64-macos` link takes too: lld
+    /// matches a stub's symbols to a link by CPU type, and Apple's own SDKs
+    /// list most of libSystem for `arm64e-macos` alone. The cut still names
+    /// `arm64-macos`.
     pub fn read(tbd: &str, target: &str) -> Option<Exports> {
         let mut out = Exports {
             target: target.to_string(),
@@ -69,7 +74,7 @@ impl Exports {
         documents.next()?;
         for (n, document) in documents.enumerate() {
             let mut section = String::new();
-            let mut ours = false;
+            let mut mine = false;
             let mut lines = document.lines();
             while let Some(line) = lines.next() {
                 // A flow list may go on over several lines.
@@ -82,7 +87,7 @@ impl Exports {
                 }
                 let trimmed = entry.trim_start();
                 let item = trimmed.strip_prefix("- ");
-                ours &= item.is_none();
+                mine &= item.is_none();
                 let Some((key, value)) = item.unwrap_or(trimmed).split_once(':') else {
                     continue;
                 };
@@ -99,8 +104,10 @@ impl Exports {
                     continue;
                 }
                 match key {
-                    "targets" => ours = items(value).any(|t| t == target),
-                    "symbols" if ours => {
+                    "targets" => {
+                        mine = items(value).any(|t| t.replacen("arm64e-", "arm64-", 1) == target)
+                    }
+                    "symbols" if mine => {
                         for name in items(value) {
                             if name.starts_with("$ld$") {
                                 out.ld.push(name.to_string());
@@ -166,9 +173,29 @@ pub fn undefined<'a>(object: &'a [u8], mut f: impl FnMut(&'a [u8])) -> Option<()
     Some(())
 }
 
-/// [`undefined`] for every object member of an archive. `None` when
-/// `archive` isn't one.
+/// [`undefined`] for every object member of an archive, and of every slice of
+/// a universal one, such as the compiler's `libclang_rt.osx.a`. A slice for
+/// another architecture only adds names, which keeps every symbol the link
+/// needs in the cut. `None` when `archive` isn't one.
 pub fn archive_undefined<'a>(archive: &'a [u8], mut f: impl FnMut(&'a [u8])) -> Option<()> {
+    let be = |at: usize| -> Option<usize> {
+        let word = archive.get(at..at.checked_add(4)?)?.try_into().ok()?;
+        usize::try_from(u32::from_be_bytes(word)).ok()
+    };
+    // `FAT_MAGIC`, then `fat_arch` entries of five big-endian words.
+    if be(0)? == 0xcafe_babe {
+        for n in 0..be(4)? {
+            let entry = n.checked_mul(20)?.checked_add(8)?;
+            let (offset, size) = (be(entry.checked_add(8)?)?, be(entry.checked_add(12)?)?);
+            members_undefined(archive.get(offset..offset.checked_add(size)?)?, &mut f)?;
+        }
+        return Some(());
+    }
+    members_undefined(archive, &mut f)
+}
+
+/// [`undefined`] for every object member of a thin archive.
+fn members_undefined<'a>(archive: &'a [u8], f: &mut impl FnMut(&'a [u8])) -> Option<()> {
     archive.starts_with(b"!<arch>\n").then_some(())?;
     let mut at = 8usize;
     while at < archive.len() {
@@ -185,7 +212,7 @@ pub fn archive_undefined<'a>(archive: &'a [u8], mut f: impl FnMut(&'a [u8])) -> 
             .and_then(|n| number(n.get(..13)?));
         let body = body.get(name.unwrap_or(0)..)?;
         // The symbol index isn't an object, and is passed over.
-        let _ = undefined(body, &mut f);
+        let _ = undefined(body, &mut *f);
         at = start.checked_add(size)?.checked_add(size & 1)?;
     }
     Some(())
@@ -264,6 +291,31 @@ exports:
         );
         assert!(cut.contains("install-name:    '/usr/lib/libSystem.B.dylib'\n"));
         assert!(Exports::read(&cut, "arm64-macos").unwrap().has(b"_b"));
+    }
+
+    #[test]
+    fn an_arm64e_symbol_is_read_for_arm64() {
+        let arm64e = TBD.replacen("[ arm64-macos ]", "[ arm64e-macos ]", 2);
+        let exports = Exports::read(&arm64e, "arm64-macos").unwrap();
+        assert!(exports.has(b"_a") && exports.has(b"_c") && !exports.has(b"_intel"));
+        assert!(exports.cut(&[b"_a"]).contains("targets: [ arm64-macos ]"));
+        assert!(!Exports::read(&arm64e, "x86_64-macos").unwrap().has(b"_c"));
+    }
+
+    /// A universal file of one slice, `slice`, as `lipo` lays one out.
+    fn universal(slice: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for word in [0xcafe_babe, 1, 0x0100_000c, 0, 28, slice.len() as u32, 0] {
+            out.extend_from_slice(&u32::to_be_bytes(word));
+        }
+        out.extend_from_slice(slice);
+        out
+    }
+
+    #[test]
+    fn a_universal_archive_is_read_slice_by_slice() {
+        assert!(archive_undefined(&universal(b"!<arch>\n"), |_| {}).is_some());
+        assert!(archive_undefined(&universal(b"hello"), |_| {}).is_none());
     }
 
     #[test]

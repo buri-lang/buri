@@ -10383,6 +10383,10 @@ program imports about eighty of them.
   one, and a program edited again writes nothing new.
 - A link the cut breaks runs again with the whole `libSystem`.
 - All 12 links wrote the same bytes as with the whole stub.
+- Apple's SDKs list most of libSystem for `arm64e-macos` only, and lld takes
+  those symbols for an `arm64` link, so the cut does too. It also reads every
+  slice of a universal archive, such as Apple clang's `libclang_rt.osx.a`.
+  Without both, the cut never engaged outside nix.
 
 `system_library.rs` holds a program that prints to at most 300 symbols, as
 `system library symbols linked`, and checks that a program that serves links
