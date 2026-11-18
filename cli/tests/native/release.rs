@@ -6,7 +6,7 @@
 //! too wide for registers. The conformance corpus covers the rest, and the files
 //! of it that `coverage_agrees` leaves on JavaScript run here.
 
-use crate::hang::CappedChild;
+use crate::counted::counted_output;
 use crate::shared::copy_tree as copy;
 use std::path::Path;
 use std::process::Command;
@@ -702,7 +702,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
 
 /// The instructions `binary` retires running `mode`, the fewer of two runs,
-/// or `None` where the kernel counts nothing, such as CI's virtual machines.
+/// less what preempting it made the kernel do ([`crate::counted`]). `None`
+/// where the kernel counts nothing, such as CI's virtual machines.
 fn retired(binary: &Path, mode: &str, prints: &str) -> Option<u64> {
     let once = || {
         let child = Command::new(binary)
@@ -711,15 +712,14 @@ fn retired(binary: &Path, mode: &str, prints: &str) -> Option<u64> {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let instructions = crate::shared::exited_instructions(child.id());
-        let out = child.capped_wait_with_output().unwrap();
+        let (out, instructions) = counted_output(child);
         assert!(
             out.status.success() && out.stdout == prints.as_bytes(),
             "{mode}: {}\n{}",
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr)
         );
-        instructions.filter(|&n| n > 0)
+        instructions
     };
     Some(once()?.min(once()?))
 }

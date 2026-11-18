@@ -10721,6 +10721,10 @@ Instructions aren't exact, for two reasons:
   read 53–55 M, with no faults or switches counted. `buri::profile::fewest`
   keeps each step's fewest over several rounds. `cli/tests/build/loading.rs`
   runs every shape in each round, so one shape's rounds are 0.35 s apart.
+- **A child's count drops what preempting it cost.** `harness/counted.rs`
+  reaps the child with `wait4` and takes 11 k instructions off for each
+  involuntary switch. `alloc_churn`'s large literal read 771–790 M under load,
+  and 771–772 M after that.
 - **A compiled program's large blocks used to move with the machine.** macOS's
   `malloc` keeps a freed block past a few KB until the kernel reclaims it, on
   the kernel's schedule. A loop that dropped and remade a 288 KB list then got

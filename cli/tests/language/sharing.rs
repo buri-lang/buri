@@ -27,7 +27,7 @@
 //! cargo test -p buri --test language sharing::
 //! ```
 
-use crate::harness::hang::{Capped, CappedChild};
+use crate::harness::hang::Capped;
 use std::process::{Command, Stdio};
 
 use crate::harness::{js_runtime, Scratch, JS_BINARY};
@@ -532,7 +532,8 @@ struct Cost {
 /// What `runs` more runs of `size` cost `package`: its run with `2 × runs`
 /// less its run with `runs`, so that starting the runtime and compiling the
 /// code are on neither side. Each is the fewer instructions of two launches,
-/// since a launch only ever gains noise.
+/// since a launch only ever gains noise, less what preempting it made the
+/// kernel do (`harness/counted.rs`).
 ///
 /// A count rather than a time, so a loaded machine reads what an idle one
 /// does. A clock was what made these flaky: under load one pair read 402 ms
@@ -649,10 +650,7 @@ await import(pathToFileURL(artifact).href);
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
-    let instructions = buri::profile::exited_instructions(child.id());
-    let out = child
-        .capped_wait_with_output()
-        .unwrap_or_else(|e| panic!("`{what}` did not finish: {e}"));
+    let (out, instructions) = crate::harness::counted::counted_output(child);
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(out.status.success(), "`{what}` failed:\n{stdout}{stderr}");

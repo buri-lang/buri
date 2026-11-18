@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub mod browser;
 mod case;
 pub mod ci;
+pub mod counted;
 pub mod hang;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod inherited;

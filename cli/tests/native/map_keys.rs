@@ -12,8 +12,8 @@
 //! `agreement::wide_integers_hash_every_bit` and
 //! `agreement::floats_hash_every_bit` pin.
 
-use crate::hang::CappedChild;
-use crate::shared::{exited_instructions, heap_checked, ran_command, Ran};
+use crate::counted::counted_output;
+use crate::shared::{heap_checked, ran_command, Ran};
 use std::path::Path;
 
 /// The lookups a `get` run does.
@@ -101,8 +101,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
 
 /// The fewer instructions of two runs, since a short process's count only
-/// gains noise (`design/PERFORMANCE.md` §8). `None` where the kernel counts
-/// nothing.
+/// gains noise (`design/PERFORMANCE.md` §8), less what preempting it made the
+/// kernel do ([`crate::counted`]). `None` where the kernel counts nothing.
 fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Option<u64> {
     let once = || {
         let child = std::process::Command::new(binary)
@@ -111,8 +111,7 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let instructions = exited_instructions(child.id());
-        let out = child.capped_wait_with_output().unwrap();
+        let (out, instructions) = counted_output(child);
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -127,7 +126,7 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
         assert_eq!(r.status, 0, "{backend} {args:?}: {}", r.stderr);
         assert_eq!(r.stdout, expected, "{backend} {args:?}: {}", r.stderr);
     }
-    first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0)
+    first.zip(second).map(|(a, b)| a.min(b))
 }
 
 /// Instructions per insert and per lookup, with `keys` the arguments after the

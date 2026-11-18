@@ -8,24 +8,24 @@
 //! blocks through the allocation probe everywhere. The counted runs are the
 //! program as it ships, and one more of each runs under the heap check.
 
-use crate::hang::CappedChild;
-use crate::shared::{exited_instructions, heap_checked, probed, ran_command, Ran};
+use crate::counted::counted_output;
+use crate::shared::{heap_checked, probed, ran_command, Ran};
 use std::path::Path;
 
-/// One run, with the fewest instructions of five, because a short process's
-/// count only ever gains noise (`design/PERFORMANCE.md` §8). An idle run's
-/// noise takes away from the work's count, and under a landing's load three
-/// runs in a row all gained it: a large literal step counted 770 against 756.
-/// `None` where the kernel counts nothing, such as CI's virtual machines.
+/// One run, with the fewest instructions of three, because a short process's
+/// count only ever gains noise (`design/PERFORMANCE.md` §8). The count leaves
+/// out what preempting the run made the kernel do ([`crate::counted`]), which
+/// a loaded machine adds most of. `None` where the kernel counts nothing, such
+/// as CI's virtual machines.
 fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     let once = || {
-        let mut cmd = std::process::Command::new(binary);
-        cmd.args(args)
+        let child = std::process::Command::new(binary)
+            .args(args)
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped());
-        let child = cmd.spawn().unwrap();
-        let instructions = exited_instructions(child.id());
-        let out = child.capped_wait_with_output().unwrap();
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let (out, instructions) = counted_output(child);
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -34,11 +34,10 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
         (ran, instructions)
     };
     let (ran, first) = once();
-    let rest: Option<Vec<u64>> = (1..5).map(|_| once().1).collect();
-    let fewest = first
-        .zip(rest)
-        .map(|(a, rest)| rest.into_iter().fold(a, u64::min));
-    (ran, fewest.filter(|&n| n > 0))
+    let (_, second) = once();
+    let (_, third) = once();
+    let fewest = first.zip(second).zip(third);
+    (ran, fewest.map(|((a, b), c)| a.min(b).min(c)))
 }
 
 /// The instructions one operation costs, from `ops` of them against none, and

@@ -19,8 +19,8 @@
 //! of them at once. Each task's answer must be the old list and its own
 //! element, and the old list must read as it did.
 
-use crate::hang::CappedChild;
-use crate::shared::{exited_instructions, probed, ran_checked, Ran};
+use crate::counted::counted_output;
+use crate::shared::{probed, ran_checked, Ran};
 
 /// One program on every backend, under the heap check.
 fn run_each(name: &str, source: &str) -> Vec<(&'static str, Ran)> {
@@ -449,7 +449,8 @@ struct Measured {
 /// program the product ships. The instructions are the fewest of three runs,
 /// because a short process's count only ever gains noise
 /// (`design/PERFORMANCE.md` §8). On a loaded machine the fewer of two still
-/// read 3.1% over its twin.
+/// read 3.1% over its twin. The count leaves out what preempting a run made
+/// the kernel do ([`crate::counted`]).
 fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     let once = || {
         let child = std::process::Command::new(binary)
@@ -458,8 +459,7 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let instructions = exited_instructions(child.id());
-        let out = child.capped_wait_with_output().unwrap();
+        let (out, instructions) = counted_output(child);
         let ran = Ran {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).to_string(),
@@ -471,14 +471,10 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     let (_, second) = once();
     let (_, third) = once();
     let blocks = probed(&ran.stderr).0;
-    // A kernel without hardware counters (a virtual machine, such as CI's macOS
-    // runners) reports every process as having retired nothing; that is no
-    // count, the same as Linux's absent one.
     let counted = first
         .zip(second)
         .zip(third)
-        .map(|((a, b), c)| a.min(b).min(c))
-        .filter(|&n| n > 0);
+        .map(|((a, b), c)| a.min(b).min(c));
     Measured {
         ran,
         blocks,

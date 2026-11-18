@@ -168,6 +168,10 @@ mod product_link;
 #[path = "../harness/hang.rs"]
 mod hang;
 
+// A child's instructions, less what preempting it made the kernel do.
+#[path = "../harness/counted.rs"]
+mod counted;
+
 // Why this host can't run a stencil program, which `stencil` and `agreement`
 // skip on.
 #[cfg(feature = "backend-stencil")]
