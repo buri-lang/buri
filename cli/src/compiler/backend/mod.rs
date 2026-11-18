@@ -57,6 +57,18 @@ pub fn holes_patched() -> u64 {
     0
 }
 
+/// Of those holes, how many copied values at each of the stencil backend's
+/// copy sites, by name: none in a build without it.
+pub fn holes_copying() -> Vec<(&'static str, u64)> {
+    #[cfg(feature = "backend-stencil")]
+    return stencil::jit::COPIES
+        .into_iter()
+        .zip(stencil::jit::holes_copying())
+        .collect();
+    #[cfg(not(feature = "backend-stencil"))]
+    Vec::new()
+}
+
 /// The copy-and-patch backend, with the runtime archive's gaps folded in.
 #[cfg(feature = "backend-stencil")]
 pub mod stencil {

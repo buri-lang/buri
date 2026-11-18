@@ -2229,6 +2229,68 @@ fn a_mid_sized_record_passed_between_functions_copies_in_few_holes() {
     );
 }
 
+/// `n` functions returning a record each arm of an `if` builds, and `n`
+/// returning a number each arm computes, with a `main` that prints the sum of
+/// their answers. Answers the items, the body and what it prints.
+fn returned_from_arms(n: usize) -> (String, String, usize) {
+    let items: String = (0..n)
+        .map(|i| {
+            format!(
+                "fn make{i}(a: Int): P {{\n    \
+                 if (a > {i}) {{ P {{ x: a, y: a + {i}, z: a * 2 }} }} \
+                 else {{ P {{ x: {i}, y: a, z: 0 }} }}\n}}\n\n\
+                 fn pick{i}(a: Int): Int {{\n    \
+                 if (a > {i}) {{ a * 3 }} else {{ a + {i} }}\n}}\n\n"
+            )
+        })
+        .collect();
+    let sum: Vec<String> = (0..n)
+        .map(|i| format!("make{i}({}).y + pick{i}({i})", i * 2))
+        .collect();
+    let body = format!(
+        "    let t = {};\n    let _ = io.println(ctx, \"${{t}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    let items = format!("struct P {{\n    x: Int,\n    y: Int,\n    z: Int,\n}}\n\n{items}");
+    (items, body, 5 * n * (n - 1) / 2)
+}
+
+/// **A value each arm of an `if` computes is returned where it is built.**
+/// Both arms jumped to a block that copied its parameter into the return
+/// area, and a record built in the returning block was copied there too, so
+/// every such function paid a copy on every return. Now each arm returns, and
+/// the record's fields are written into the return area.
+#[test]
+fn values_returned_from_arms_are_built_in_the_return_area() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let copies = |n: usize| {
+        let (items, body, printed) = returned_from_arms(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        work_count(&run.all(), "holes copying returns").unwrap()
+    };
+    // Each function copied its answer into the return area: a record of three
+    // words in two stencils, and a word in one, each of three holes.
+    let (few, many) = (copies(8), copies(24));
+    let per_pair = (many - few) / 16.0;
+    assert!(
+        per_pair < 1.0,
+        "16 more pairs of functions patched {per_pair:.1} more holes each copying \
+         returns ({few} at 8, {many} at 24)"
+    );
+}
+
 /// A library whose eight tests each call one function generic over a
 /// `Random` context: from eight contexts that bind `Random` among other
 /// effects, in other orders, or from eight of the one that binds all three.

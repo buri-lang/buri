@@ -1669,6 +1669,44 @@ impl Code {
     /// used only in dropped blocks — that is what dominance means — so nothing
     /// dangles, and renumbering values would invalidate every id a caller
     /// holds for no gain.
+    /// Returns where a block jumps to one that does nothing but return.
+    ///
+    /// A block with no instructions whose terminator is `Return(v)` returns
+    /// its argument for `v` where `v` is one of its parameters, and `v` itself
+    /// otherwise, since `v`'s definition then dominates every block that
+    /// jumps there. So each `Jump` to such a block becomes that `Return`, and
+    /// the value a native backend returns is defined where it is returned,
+    /// rather than in a predecessor and copied through the block's parameter.
+    /// Answers whether any jump became a return; the blocks no edge reaches
+    /// any more are [`Code::retain_reachable`]'s to drop.
+    pub fn return_in_place(&mut self) -> bool {
+        let bare = |b: &Block| b.insts.is_empty() && matches!(b.term, Term::Return(_));
+        if !self.blocks.iter().any(bare) {
+            return false;
+        }
+        let returns: Vec<Option<ValueId>> = self
+            .blocks
+            .iter()
+            .map(|b| {
+                let Term::Jump(t) = &b.term else { return None };
+                let to = self.get(t.block);
+                let Term::Return(v) = to.term else {
+                    return None;
+                };
+                let arg = to.params.iter().zip(&t.args).find(|(p, _)| **p == v);
+                to.insts.is_empty().then(|| arg.map_or(v, |(_, a)| *a))
+            })
+            .collect();
+        let mut folded = false;
+        for (b, r) in self.blocks.iter_mut().zip(returns) {
+            if let Some(v) = r {
+                b.term = Term::Return(v);
+                folded = true;
+            }
+        }
+        folded
+    }
+
     pub fn retain_reachable(&mut self) {
         let keep = self.reachable();
         // A kept block's new id; a dropped block's is never read, because

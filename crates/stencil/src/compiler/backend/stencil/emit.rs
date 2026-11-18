@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{copyless_test, Bind, Fn2, Jit, Label, Plan, RET, V};
+use super::jit::{copyless_test, Bind, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
 use super::runtime;
@@ -128,6 +128,13 @@ fn write_through(st: &Fn2, v: ir::ValueId) -> bool {
 
 impl<'a> Jit<'a> {
     // -- primitives --------------------------------------------------------
+
+    /// [`Jit::mv`], counting its holes against `site`.
+    fn mv_at(&mut self, site: CopySite, dst: u32, src: u32, bytes: u32) {
+        let before = self.patched;
+        self.mv(dst, src, bytes);
+        self.copying.add(site, self.patched - before);
+    }
 
     pub(crate) fn mv(&mut self, dst: u32, src: u32, bytes: u32) {
         if bytes == 0 || dst == src {
@@ -1401,7 +1408,7 @@ impl<'a> Jit<'a> {
                 continue;
             }
             let n = self.slot_bytes_of(prog, code.ty_of(*a));
-            self.mv(base + *off, st.at(*a), n);
+            self.mv_at(CopySite::Arguments, base + *off, st.at(*a), n);
         }
         self.emit(
             "call",
@@ -1413,7 +1420,7 @@ impl<'a> Jit<'a> {
             ],
         );
         let n = self.slot_bytes_of(prog, code.ty_of(dest));
-        self.mv(st.at(dest), base + RET, n);
+        self.mv_at(CopySite::Results, st.at(dest), base + RET, n);
     }
 
     /// A trivial `Body::Runtime` body at its call site, reading the caller's
@@ -1504,12 +1511,12 @@ impl<'a> Jit<'a> {
             at += self.slot_bytes_of(prog, code.ty_of(*a));
         }
         let c = st.at(callee);
-        self.mv(base + env_at, c + 8, 8);
+        self.mv_at(CopySite::Arguments, base + env_at, c + 8, 8);
         // `params` was pushed one entry per argument just above, so zipping it
         // back is the same pairing an index would give.
         for (a, off) in args.iter().zip(&params) {
             let n = self.slot_bytes_of(prog, code.ty_of(*a));
-            self.mv(base + *off, st.at(*a), n);
+            self.mv_at(CopySite::Arguments, base + *off, st.at(*a), n);
         }
         self.emit(
             "calli",
@@ -1520,7 +1527,7 @@ impl<'a> Jit<'a> {
                 Jump::Cont0.to(V::Fall),
             ],
         );
-        self.mv(st.at(dest), base + RET, ret_n);
+        self.mv_at(CopySite::Results, st.at(dest), base + RET, ret_n);
     }
 
     /// One `Inst::CallIntrinsic`. `middle` emits one for the keys it writes
@@ -1802,7 +1809,7 @@ impl<'a> Jit<'a> {
             }
             Term::Return(v) => {
                 let n = self.slot_bytes_of(prog, code.ty_of(*v));
-                self.mv(RET, st.at(*v), n);
+                self.mv_at(CopySite::Returns, RET, st.at(*v), n);
                 self.emit("ret", &[]);
             }
             Term::Unreachable => self.emit("unreachable", &[]),
@@ -1977,6 +1984,7 @@ impl<'a> Jit<'a> {
     /// read, and the frame slots, which a promoted parameter only takes part in
     /// when something that cannot read a register reads it.
     fn edge(&mut self, prog: &ir::Program, code: &ir::Code, st: &mut Fn2, t: &Target) {
+        let before = self.patched;
         let params = code.get(t.block).params.clone();
         let mut pend: Vec<(Reg, bool, RSrc)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
@@ -2057,8 +2065,7 @@ impl<'a> Jit<'a> {
                 pending.push((d, s, n));
             }
         }
-        let mut tmp = st.scratch + 48;
-        while let Some(&(_, s, n)) = pending.first() {
+        while !pending.is_empty() {
             match pending
                 .iter()
                 .position(|(d, _, _)| !pending.iter().any(|(_, s, _)| s == d))
@@ -2067,18 +2074,46 @@ impl<'a> Jit<'a> {
                     let (d, s, n) = pending.remove(i);
                     self.mv(d, s, n);
                 }
-                None => {
-                    // A cycle: break it through a scratch slot, at the first
-                    // entry.
-                    self.mv(tmp, s, n);
-                    for p in pending.iter_mut() {
-                        if p.1 == s {
-                            p.1 = tmp;
-                        }
-                    }
-                    tmp += 8;
-                }
+                None => self.rotate(st, &mut pending),
             }
+        }
+        self.copying.add(CopySite::Edges, self.patched - before);
+    }
+
+    /// One cycle of an edge's frame copies, which [`Jit::edge`] calls when no
+    /// copy is ready: then every destination is some copy's source, so the
+    /// copies left are cycles, and the first one starts one.
+    ///
+    /// A copy's parameter and argument have one type, so every copy in a cycle
+    /// is as wide as the first. The cycle turns a piece at a time through the
+    /// scratch from `ROTATE_AT` to the end of the frame: the first copy's
+    /// destination is saved, each copy along the cycle overwrites the source
+    /// the one before it has read, and the last takes the saved piece. So a
+    /// value of any width turns through the same scratch, and no scratch byte
+    /// is read after the next cycle writes it.
+    fn rotate(&mut self, st: &Fn2, pending: &mut Vec<(u32, u32, u32)>) {
+        const ROTATE_AT: u32 = 48;
+        const PIECE: u32 = SCRATCH_WORDS as u32 * 8 - ROTATE_AT;
+        let (d0, mut s, n) = pending.remove(0);
+        let mut cycle = vec![(d0, s)];
+        // The copy that overwrites what the last one read. The first one's
+        // destination is no longer pending, so the walk stops at the copy
+        // that reads it.
+        while let Some(i) = pending.iter().position(|(d, _, _)| *d == s) {
+            let (d, next, _) = pending.remove(i);
+            cycle.push((d, next));
+            s = next;
+        }
+        let tmp = st.scratch + ROTATE_AT;
+        let mut off = 0;
+        while off < n {
+            let k = PIECE.min(n - off);
+            self.mv(tmp, d0 + off, k);
+            for (d, s) in &cycle {
+                let from = if *s == d0 { tmp } else { s + off };
+                self.mv(d + off, from, k);
+            }
+            off += k;
         }
     }
 

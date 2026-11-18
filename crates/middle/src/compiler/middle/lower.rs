@@ -922,6 +922,9 @@ impl FnLower<'_> {
         pairs::cancel(&mut self.code);
         slices::sink(&mut self.code);
         slices::offsets(&mut self.code);
+        if self.code.return_in_place() {
+            self.code.retain_reachable();
+        }
         self.code
     }
 

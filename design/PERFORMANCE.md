@@ -10507,6 +10507,41 @@ returns at once for type arguments with no context in them. Symbol names copy
 a module, owner or name whole when it has nothing to replace, rather than a
 character at a time. Bench `full`'s monomorphize fell from 4.02 B to 3.93 B.
 
+### 6.156 A returned value is built where it is returned, 2026-11-18
+
+```text
+                              before      after       change
+bench full, holes patched     4.668 M     4.549 M     -2.5%
+  copying returns             122.6 k     38.1 k      -69%
+  copying edges               24.8 k      13.6 k      -45%
+bench full, emit              10.78 B     10.68 B     -0.9%
+code repo test build, holes   25.29 M     25.03 M     -1.0%
+code repo test build, emit    22.91 B     22.63 B     -1.2%
+run-dev/kvstore               1.066 B     1.034 B     -3.0%
+```
+
+`BURI_PROFILE` now prints `holes copying <site>` for arguments, results,
+returns and edges. On bench `full` those were 12% of all holes, and returns
+were a quarter of that.
+
+- A `Return` copied its value into the return area unless the value was one
+  word wide. It's now pinned there at any width, and an aggregate's fields
+  are written straight into it.
+- Both arms of an `if` jumped to a block that did nothing but return its
+  parameter, so each arm copied its answer into the parameter and the block
+  copied it again. `ir::Code::return_in_place` makes each such jump the
+  `Return` itself.
+
+`profile::values_returned_from_arms_are_built_in_the_return_area` holds the
+returns' holes flat as functions are added, and `odd_sizes.rs` returns
+records of 1 to 40 words from `if` and `match` arms on every backend.
+
+An edge's cycle now turns through a fixed scratch area a piece at a time. It
+used to copy a whole value into the scratch and step 8 bytes, which could run
+past the frame for a value wider than the scratch's 256 bytes.
+`odd_sizes::records_rotated_round_a_loop_come_back_in_order` rotates records
+of 40 and 70 words.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

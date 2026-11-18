@@ -466,7 +466,58 @@ pub struct Jit<'a> {
     pub(crate) shares: bool,
     /// Holes this part's stencils patched, added to [`HOLES_PATCHED`] when
     /// the part is done rather than once per hole.
-    patched: u64,
+    pub(crate) patched: u64,
+    /// Of those, the ones each [`CopySite`] patched, added to
+    /// [`HOLES_COPYING`] with them.
+    pub(crate) copying: Copying,
+}
+
+/// Holes patched at each [`CopySite`].
+#[derive(Default)]
+pub(crate) struct Copying {
+    arguments: u64,
+    results: u64,
+    returns: u64,
+    edges: u64,
+}
+
+impl Copying {
+    pub(crate) fn add(&mut self, site: CopySite, n: u64) {
+        *match site {
+            CopySite::Arguments => &mut self.arguments,
+            CopySite::Results => &mut self.results,
+            CopySite::Returns => &mut self.returns,
+            CopySite::Edges => &mut self.edges,
+        } += n;
+    }
+}
+
+/// A place the emitter copies a value between frame slots: what
+/// `BURI_PROFILE`'s `holes copying` lines count.
+#[derive(Clone, Copy)]
+pub(crate) enum CopySite {
+    /// Into the callee's frame, before a call.
+    Arguments,
+    /// Out of the callee's frame, after a call.
+    Results,
+    /// Into the return area, at a `Return`.
+    Returns,
+    /// Into a block's parameters, on an edge.
+    Edges,
+}
+
+/// [`CopySite`]'s variants by index, as `BURI_PROFILE` names them.
+pub const COPIES: [&str; 4] = ["arguments", "results", "returns", "edges"];
+
+static HOLES_COPYING: [std::sync::atomic::AtomicU64; COPIES.len()] =
+    [const { std::sync::atomic::AtomicU64::new(0) }; COPIES.len()];
+
+/// How many holes this process patched copying values at each of
+/// [`COPIES`]'s sites.
+pub fn holes_copying() -> [u64; COPIES.len()] {
+    HOLES_COPYING
+        .each_ref()
+        .map(|n| n.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// How many holes this process's stencils patched. `BURI_PROFILE` prints it,
@@ -747,6 +798,7 @@ impl<'a> Jit<'a> {
             part,
             shares: false,
             patched: 0,
+            copying: Copying::default(),
         }
     }
 
@@ -759,6 +811,13 @@ impl<'a> Jit<'a> {
     /// by being forgotten.
     pub(crate) fn into_scratch(self) -> Scratch<'a> {
         HOLES_PATCHED.fetch_add(self.patched, std::sync::atomic::Ordering::Relaxed);
+        let c = &self.copying;
+        for (total, n) in HOLES_COPYING
+            .iter()
+            .zip([c.arguments, c.results, c.returns, c.edges])
+        {
+            total.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+        }
         Scratch {
             layouts: self.layouts,
             counts: self.counts,
@@ -2365,9 +2424,9 @@ impl<'a> Jit<'a> {
                         e.variants.get(v).as_slice()
                     }
                 };
-                if pin.get(dest).is_some() {
-                    continue;
-                }
+                // The only aggregates pinned are those pinned at the return
+                // area (`coalesce`), and they take their fields there too:
+                // only the `Return` reads them, and nothing else writes there.
                 let root = find(uf, dest);
                 let in_class = |v: &ir::ValueId| find(uf, *v) == root;
                 // A field already aliased is a length, which no load below
@@ -2666,12 +2725,10 @@ impl<'a> Jit<'a> {
             // copy with a fixed destination.
             if let ir::Term::Return(v) = &b.term {
                 // Read by the `Return` alone, so nothing reads or writes its
-                // class past its definition, and no edge merged it.
-                if *width.get(*v) == 8
-                    && !*is_param.get(*v)
-                    && *def_block.get(*v) == Some(*id)
-                    && *uses.get(*v) == 1
-                {
+                // class past its definition, and no edge merged it. At any
+                // width: the return area is as wide as the value, and nothing
+                // else in the function writes it.
+                if !*is_param.get(*v) && *def_block.get(*v) == Some(*id) && *uses.get(*v) == 1 {
                     // A class of one, pinned at the return area.
                     *pin.get_mut(*v) = Some(RET);
                 }

@@ -247,3 +247,92 @@ fn records_of_every_copy_width_survive_calls_and_returns() {
     }
     passes("copy-widths", &test, widths.len());
 }
+
+/// Records of one, three, forty and seventy words turned round a loop: a tail
+/// call passes three of them on rotated and two more swapped, so each pass is
+/// two cycles of copies on the loop's way back. Forty and seventy words are
+/// wider than the scratch a cycle turns through.
+#[test]
+fn records_rotated_round_a_loop_come_back_in_order() {
+    let widths = [1usize, 3, 40, 70];
+    let mut test = String::from("from \"core/testing/assert\" import * as assert;\n");
+    for n in widths {
+        let fields: String = (0..n).map(|i| format!("    a{i}: Int,\n")).collect();
+        let make = |r: usize| {
+            let made: Vec<String> = (0..n).map(|i| format!("a{i}: {}", r * 1000 + i)).collect();
+            format!("W{n} {{ {} }}", made.join(", "))
+        };
+        let last = n - 1;
+        // Seven passes turn the three once and swap the two.
+        let want: usize = [2usize, 3, 1, 5, 4]
+            .iter()
+            .zip([100_000, 10_000, 1_000, 100, 1])
+            .map(|(r, m)| (r * 1000 + last) * m)
+            .sum();
+        test.push_str(&format!(
+            "\nstruct W{n} {{\n{fields}}}\n\n\
+             fn turn{n}(a: W{n}, b: W{n}, c: W{n}, x: W{n}, y: W{n}, k: Int): W{n} {{\n    \
+             if (k <= 0) {{\n        \
+             W{n} {{ ..a, a{last}: a.a{last} * 100000 + b.a{last} * 10000 + c.a{last} * 1000 \
+             + x.a{last} * 100 + y.a{last} }}\n    \
+             }} else {{\n        turn{n}(b, c, a, y, x, k - 1)\n    }}\n}}\n\n\
+             test \"records of {n} words turned round a loop\" {{\n    \
+             let v = turn{n}({a}, {b}, {c}, {x}, {y}, 7);\n    \
+             assert.equal(v.a{last}, {want});\n    \
+             assert.equal(v.a0, {first});\n}}\n",
+            a = make(1),
+            b = make(2),
+            c = make(3),
+            x = make(4),
+            y = make(5),
+            first = if last == 0 { want } else { 2000 },
+        ));
+    }
+    passes("rotated", &test, widths.len());
+}
+
+/// Records of one, three, seventeen and forty words and a string, returned
+/// from both arms of an `if`, from each arm of a `match`, and past an `if`
+/// whose arms only check something, all come back whole.
+#[test]
+fn records_returned_from_arms_come_back_whole() {
+    let widths = [1usize, 3, 17, 40];
+    let mut test = String::from("from \"core/testing/assert\" import * as assert;\n");
+    for n in widths {
+        let fields: String = (0..n).map(|i| format!("    a{i}: Int,\n")).collect();
+        let make = |base: &str| {
+            let made: Vec<String> = (0..n).map(|i| format!("a{i}: {base} + {i}")).collect();
+            format!("W{n} {{ {}, name: \"w{n}\" }}", made.join(", "))
+        };
+        let last = n - 1;
+        test.push_str(&format!(
+            "\nstruct W{n} {{\n{fields}    name: Str,\n}}\n\n\
+             fn either{n}(k: Int): W{n} {{\n    \
+             if (k > 0) {{ {pos} }} else {{ {neg} }}\n}}\n\n\
+             fn pick{n}(k: Int): W{n} {{\n    \
+             match (k) {{\n        0 => {zero},\n        1 => {one},\n        _ => {many},\n    }}\n}}\n\n\
+             fn past{n}(w: W{n}, k: Int): W{n} {{\n    \
+             let _ = if (k > 0) {{ assert.isTrue(k > 0) }} else {{ assert.isTrue(k <= 0) }};\n    \
+             w\n}}\n\n\
+             test \"records of {n} words returned from arms\" {{\n    \
+             assert.equal(either{n}(5).a{last}, {e5});\n    \
+             assert.equal(either{n}(-5).a0, -501);\n    \
+             assert.equal(pick{n}(0).a{last}, {last});\n    \
+             assert.equal(pick{n}(1).a0, 10);\n    \
+             assert.equal(pick{n}(7).a{last}, {p7});\n    \
+             assert.equal(pick{n}(7).name, \"w{n}\");\n    \
+             let w = past{n}(either{n}(2), 3);\n    \
+             assert.equal(w.a{last}, {e2});\n    \
+             assert.equal(past{n}(w, -1).name, \"w{n}\");\n}}\n",
+            pos = make("k * 100"),
+            neg = make("k * 100 - 1"),
+            zero = make("0"),
+            one = make("10"),
+            many = make("k * 1000"),
+            e5 = 500 + last,
+            p7 = 7000 + last,
+            e2 = 200 + last,
+        ));
+    }
+    passes("returned", &test, widths.len());
+}

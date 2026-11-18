@@ -328,7 +328,7 @@ fn arithmetic_lowers_to_one_block() {
 #[test]
 fn an_if_becomes_a_branch_and_a_join_with_a_parameter() {
     let p = lower_plain(&program(
-        "export fn pick(c: Bool): Int { if (c) { 1 } else { 2 } }",
+        "export fn pick(c: Bool): Int { (if (c) { 1 } else { 2 }) + 3 }",
         "  let _ = pick(true);",
     ));
     assert_eq!(
@@ -344,7 +344,9 @@ fn an_if_becomes_a_branch_and_a_join_with_a_parameter() {
          \x20   v3 = const 2\n\
          \x20   jump b3(v3)\n\
          \x20 b3(v1: i64):\n\
-         \x20   return v1\n\
+         \x20   v4 = const 3\n\
+         \x20   v5 = call fn core_number$I64_add(v1, v4)\n\
+         \x20   return v5\n\
          }\n"
     );
 }
@@ -397,7 +399,7 @@ export fn code(c: Colour): Int {
     let text = render(&p, ":code");
     assert!(text.contains("v2 = tag v0"), "{text}");
     assert!(
-        text.contains("switch v2, [0 -> b2(), 1 -> b3(), 2 -> b4()]"),
+        text.contains("switch v2, [0 -> b1(), 1 -> b2(), 2 -> b3()]"),
         "{text}"
     );
     // Total, so no default: an enum's table always is (VALUE-MODEL.md §6).
@@ -616,7 +618,7 @@ export fn step(n: Int): Int {
         text.contains("b0(v0: i32, v1: i64, v2: i64):\n    jump b1(v0, v1, v2)"),
         "{text}"
     );
-    assert!(text.contains("switch v3, [0 -> b3(), 1 -> b4()]"), "{text}");
+    assert!(text.contains("switch v3, [0 -> b2(), 1 -> b3()]"), "{text}");
     assert!(
         text.contains("const undef"),
         "the narrower member pads: {text}"

@@ -584,6 +584,9 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
             "holes patched {}",
             crate::compiler::backend::holes_patched()
         );
+        for (site, n) in crate::compiler::backend::holes_copying() {
+            eprintln!("holes copying {site} {n}");
+        }
         eprintln!(
             "type values searched {}",
             crate::compiler::semantics::resolve::values_searched()
