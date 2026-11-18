@@ -813,9 +813,10 @@ struct Generator {
     joiners: HashMap<usize, FuncIdx>,
     /// The three helpers every decoder shares ([`Generator::helper`]).
     helpers: HashMap<Helper, FuncIdx>,
-    /// The runtime operations decoders call, by key and parameter types
-    /// ([`Generator::runtime`]).
-    runtime: HashMap<(String, Vec<Ty>), FuncIdx>,
+    /// How many runtime functions decoders call ([`Generator::rt`]),
+    /// which numbers their symbols. Each decoder is one descriptor's, so no
+    /// two ask for the same operation at the same types.
+    runtime: usize,
     out: Derives,
 }
 
@@ -852,7 +853,7 @@ impl Generator {
             queue: Vec::new(),
             joiners: HashMap::default(),
             helpers: HashMap::default(),
-            runtime: HashMap::default(),
+            runtime: 0,
             out,
         }
     }
@@ -3228,26 +3229,13 @@ impl Generator {
     /// else, and because `middle::rc` reads how `list.push` treats its
     /// receiver off the function.
     fn rt(&mut self, key: &str, args: Vec<Expr>, ret: Ty) -> Expr {
-        let params: Vec<Ty> = args.iter().map(|a| a.ty).collect();
-        let f = self.runtime(key, params, ret);
-        self.call(f, args, ret)
-    }
-
-    fn runtime(&mut self, key: &str, params: Vec<Ty>, ret: Ty) -> FuncIdx {
-        let slot = (key.to_string(), params);
-        if let Some(f) = self.runtime.get(&slot) {
-            return *f;
-        }
         let mut frame = Frame::new();
-        for (i, t) in slot.1.iter().enumerate() {
-            frame.param(&format!("p{i}"), t);
+        for (i, a) in args.iter().enumerate() {
+            frame.param(&format!("p{i}"), &a.ty);
         }
-        let symbol = format!(
-            "$derive$rt${}${}",
-            key.replace('.', "$"),
-            self.runtime.len()
-        );
-        let idx = self.funcs.push(Func {
+        let symbol = format!("$derive$rt${}${}", key.replace('.', "$"), self.runtime);
+        self.runtime += 1;
+        let f = self.funcs.push(Func {
             symbol: symbol.clone(),
             debug_name: symbol,
             params: frame.params,
@@ -3258,8 +3246,7 @@ impl Generator {
             env: false,
             span: Span::NONE,
         });
-        self.runtime.insert(slot, idx);
-        idx
+        self.call(f, args, ret)
     }
 
     /// Adds a finished function. Unqualified, so it lands in the root codegen
