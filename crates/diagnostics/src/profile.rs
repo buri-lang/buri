@@ -207,9 +207,18 @@ pub enum Work {
     JsFunctionsFolded,
     /// Functions monomorphization instantiated (`monomorphize.rs`).
     FunctionsInstantiated,
+    /// Function bodies walked to replace structural calls (`derives.rs`).
+    BodiesRewrittenForDerives,
+    /// Function bodies walked for the parameters they consume (`rc.rs`).
+    BodiesWalkedForConsumingUses,
+    /// Function bodies walked for their calls and effects (`rc.rs`).
+    BodiesWalkedForCallsAndEffects,
+    /// Function bodies walked for the structural calls and primitive types
+    /// they hold (`derives.rs`).
+    BodiesWalkedForDerives,
 }
 
-const WORKS: usize = Work::FunctionsInstantiated as usize + 1;
+const WORKS: usize = Work::BodiesWalkedForDerives as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -234,6 +243,10 @@ const WORK_NAMES: [&str; WORKS] = [
     "javascript functions declared",
     "javascript functions folded",
     "functions instantiated",
+    "bodies rewritten for derives",
+    "bodies walked for consuming uses",
+    "bodies walked for calls and effects",
+    "bodies walked for derives",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

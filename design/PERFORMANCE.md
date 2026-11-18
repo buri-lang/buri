@@ -10646,6 +10646,36 @@ holds the copies per added call pair.
 `odd_sizes::answers_passed_straight_to_calls_arrive_whole` covers every
 width, nesting, closures, dropped strings and deep recursion on every backend.
 
+### 6.161 Derives and ownership walk only bodies with something to find, 2026-11-18
+
+```text
+                              before      after       change
+bench full, middle            12.551 B    11.388 B    -9.3%
+bench full, all phases        35.828 B    34.450 B    -3.8%
+```
+
+macOS `sample` put two whole-program walks near the top of a bench `full`
+build:
+
+- `derives::rewrite` walked every body to replace structural calls. Now
+  `collect`, which walks every body anyway, notes which ones hold such a call,
+  and `rewrite` walks only those.
+- `rc::promote_consuming` walked every body for the parameters it consumes.
+  Only a borrowed parameter can be promoted, so a function with none is
+  skipped.
+- `rc` walked every body for its calls, then again, per fixpoint round, for its
+  effects. Now `rc::call_graph` reads both in one walk, and the effects
+  fixpoint reads only the summary.
+- `derives` walked every body for its structural calls, then again for the
+  primitive types it writes. Now `derives::collect` reads both.
+- `fingerprint` hashed each node's span as three words. It now packs the span
+  into two, which took a further 0.6% off middle.
+
+`profile::functions_with_nothing_to_derive_or_borrow_are_not_walked_for_it`
+counts the bodies each pass walks, through `BURI_PROFILE`'s `bodies rewritten
+for derives`, `bodies walked for consuming uses`, `bodies walked for calls and
+effects` and `bodies walked for derives`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

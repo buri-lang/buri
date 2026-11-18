@@ -121,9 +121,8 @@ function reached from the program's roots.
   0.4%.
 - **`rc::name_discards` and `rc::analyze`.** Native only. Names discarded
   values (in place), then builds the plan: a whole-program fixpoint over
-  ownership and purity, plus about six walks of every body (`BodyIndex`,
-  `effects_once`, `ownership_dependencies`, `collect_consuming`,
-  `consuming_uses`, `scan_func`). 7.7%.
+  ownership and purity, plus about five walks of every body (`BodyIndex`,
+  `call_graph`, `collect_consuming`, `consuming_uses`, `scan_func`). 7.7%.
 - **Lower.** `Program` plus `Plan` to IR, each function in parallel. It
   rebuilds the plan's preorder numbering (`Sites::of`) and builds its own
   `rc::Syntactic` for list loops. 6.4%.

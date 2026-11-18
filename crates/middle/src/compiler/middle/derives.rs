@@ -285,8 +285,13 @@ pub struct Derives {
 /// reaches, and rewrites every derive call site to a direct call.
 pub fn run(program: &mut Program) -> Derives {
     let mut out = Derives::default();
-    let wanted = collect(program, &mut out);
-    let mut g = Generator::new(program, out);
+    let Found {
+        wanted,
+        users,
+        prims,
+        results,
+    } = collect(program, &mut out);
+    let mut g = Generator::new(program, out, prims, results);
     for (op, desc) in wanted {
         g.request(op, desc);
     }
@@ -297,7 +302,7 @@ pub fn run(program: &mut Program) -> Derives {
     let built = g.finish();
     program.funcs = built.funcs;
     route_cells(program, &built.routed);
-    rewrite(program, &built.routed, &built.hash_ty);
+    rewrite(program, &users, &built.routed, &built.hash_ty);
     for f in &mut program.funcs {
         prim_to_json_body(f);
     }
@@ -380,19 +385,33 @@ struct Built {
 // Finding the call sites
 // ---------------------------------------------------------------------------
 
-/// Every `(operation, descriptor)` the program asks for, deduplicated and in a
-/// deterministic order.
+/// What [`collect`]'s one walk of every body finds.
+#[derive(Default)]
+struct Found {
+    /// Every `(operation, descriptor)` the program asks for, deduplicated and
+    /// in a deterministic order.
+    wanted: Vec<(Op, usize)>,
+    /// The functions whose bodies hold a structural intrinsic: the ones
+    /// [`rewrite`] has anything to do in.
+    users: Vec<FuncIdx>,
+    /// The first type each primitive is written at, for [`Env::discover`].
+    prims: HashMap<Prim, Ty>,
+    /// The first type each operation answers at a call site.
+    results: HashMap<Op, Ty>,
+}
+
+/// Walks every body once for what this pass needs of it ([`Found`]).
 ///
 /// Also fills in the two places a descriptor reaches an *intrinsic function*
 /// rather than an expression, which this pass reports rather than rewrites.
-fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
-    let mut seen: Vec<(Op, usize)> = Vec::new();
-    let push = |op: Op, d: usize, seen: &mut Vec<(Op, usize)>| {
-        if !seen.contains(&(op, d)) {
-            seen.push((op, d));
+fn collect(program: &Program, out: &mut Derives) -> Found {
+    let mut found = Found::default();
+    let push = |op: Op, d: usize, wanted: &mut Vec<(Op, usize)>| {
+        if !wanted.contains(&(op, d)) {
+            wanted.push((op, d));
         }
     };
-    for f in &program.funcs {
+    for (i, f) in program.funcs.entries() {
         if let (Some(key), Some(d)) = (f.intrinsic_key(), f.desc) {
             // One `json.decode` instance per decoded type, and one descriptor
             // per type.
@@ -403,28 +422,60 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
                 // against, so that writing a value equal to the one already
                 // there re-runs nothing. `monomorphize::build_fn` put the
                 // descriptor here for exactly this.
-                push(Op::Eq, d, &mut seen);
+                push(Op::Eq, d, &mut found.wanted);
             } else {
-                push(Op::Show, d, &mut seen);
+                push(Op::Show, d, &mut found.wanted);
             }
         }
         let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| {
-            let ExprKind::Intrinsic { name, args, .. } = &e.kind else {
-                return;
-            };
-            let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) else {
-                return;
-            };
-            // `monomorphize::structural_call` passes the descriptor last.
-            push(
-                op,
-                descriptor_arg(args).or_ice("a structural intrinsic names its descriptor"),
-                &mut seen,
-            );
+        crate::profile::work(crate::profile::Work::BodiesWalkedForDerives, 1);
+        let mut uses = false;
+        let Found {
+            wanted,
+            prims,
+            results,
+            ..
+        } = &mut found;
+        typed::walk(body, &mut |e| match &e.kind {
+            // A literal is the cheapest place to learn a primitive's type, and
+            // the three that name their own primitive unambiguously are the
+            // three a generated body writes.
+            ExprKind::Str(_) => {
+                prims.entry(Prim::Str).or_insert(e.ty);
+            }
+            ExprKind::Bool(_) => {
+                prims.entry(Prim::Bool).or_insert(e.ty);
+            }
+            ExprKind::Char(_) => {
+                prims.entry(Prim::Char).or_insert(e.ty);
+            }
+            ExprKind::Prim { prim, args: a, .. } => {
+                let [a, _] = &**a;
+                prims.entry(*prim).or_insert(a.ty);
+            }
+            ExprKind::Unary { prim, arg: a, .. } => {
+                prims.entry(prim.prim()).or_insert(a.ty);
+            }
+            ExprKind::Intrinsic { name, args, .. } => {
+                let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) else {
+                    return;
+                };
+                uses = true;
+                results.entry(op).or_insert(e.ty);
+                // `monomorphize::structural_call` passes the descriptor last.
+                push(
+                    op,
+                    descriptor_arg(args).or_ice("a structural intrinsic names its descriptor"),
+                    wanted,
+                );
+            }
+            _ => {}
         });
+        if uses {
+            found.users.push(i);
+        }
     }
-    seen
+    found
 }
 
 /// The descriptor `structural_call` appended to the argument list.
@@ -503,48 +554,22 @@ impl Decoding {
 const JSON_VARIANTS: [&str; 6] = ["Null", "Bool", "Num", "Str", "Array", "Object"];
 
 impl Env {
-    fn discover(program: &Program) -> Env {
+    /// `prim_of` and `result` are what [`collect`] read off the bodies. A
+    /// descriptor's type overrides a body's.
+    fn discover(
+        program: &Program,
+        mut prim_of: HashMap<Prim, Ty>,
+        mut result: HashMap<Op, Ty>,
+    ) -> Env {
         let ty_of = types_of(program);
-        let mut prim_of: HashMap<Prim, Ty> = HashMap::default();
+        let mut described: HashMap<Prim, Ty> = HashMap::default();
         for (i, d) in program.descriptors.iter().enumerate() {
             if let (Desc::Prim(p), Some(ty)) = (d, ty_of.get(&i)) {
-                prim_of.entry(*p).or_insert_with(|| *ty);
+                described.entry(*p).or_insert_with(|| *ty);
             }
         }
-        let mut result: HashMap<Op, Ty> = HashMap::default();
+        prim_of.extend(described);
         let mut json_variants: Dense<VariantId, String> = Dense::new();
-        for f in &program.funcs {
-            let Some(body) = f.body() else { continue };
-            typed::walk(body, &mut |e| {
-                match &e.kind {
-                    // A literal is the cheapest place to learn a primitive's
-                    // type, and the three that name their own primitive
-                    // unambiguously are the three a generated body writes.
-                    ExprKind::Str(_) => {
-                        prim_of.entry(Prim::Str).or_insert_with(|| e.ty);
-                    }
-                    ExprKind::Bool(_) => {
-                        prim_of.entry(Prim::Bool).or_insert_with(|| e.ty);
-                    }
-                    ExprKind::Char(_) => {
-                        prim_of.entry(Prim::Char).or_insert_with(|| e.ty);
-                    }
-                    ExprKind::Prim { prim, args: a, .. } => {
-                        let [a, _] = &**a;
-                        prim_of.entry(*prim).or_insert_with(|| a.ty);
-                    }
-                    ExprKind::Unary { prim, arg: a, .. } => {
-                        prim_of.entry(prim.prim()).or_insert_with(|| a.ty);
-                    }
-                    ExprKind::Intrinsic { name, .. } => {
-                        if let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) {
-                            result.entry(op).or_insert_with(|| e.ty);
-                        }
-                    }
-                    _ => {}
-                }
-            });
-        }
         // `Str` is needed for an object key even in a program that never shows
         // anything, and `Show`'s result is a `Str`.
         if let Some(s) = result.get(&Op::Show).cloned() {
@@ -806,8 +831,13 @@ enum Helper {
 }
 
 impl Generator {
-    fn new(program: &mut Program, out: Derives) -> Generator {
-        let env = Env::discover(program);
+    fn new(
+        program: &mut Program,
+        out: Derives,
+        prims: HashMap<Prim, Ty>,
+        results: HashMap<Op, Ty>,
+    ) -> Generator {
+        let env = Env::discover(program, prims, results);
         let ok = support(program, &env);
         Generator {
             descs: std::rc::Rc::new(program.descriptors.clone()),
@@ -3555,11 +3585,19 @@ const ORDER_GREATER: VariantId = VariantId::declared(2);
 // ---------------------------------------------------------------------------
 
 /// Replaces every structural intrinsic that has a generated function with a
-/// direct call to it.
-fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
-    for f in &mut program.funcs {
-        let Some(body) = f.body_mut() else { continue };
-        rewrite_expr(body, routed, hash_ty);
+/// direct call to it, in the `users` [`collect`] found. A generated body holds
+/// none.
+fn rewrite(
+    program: &mut Program,
+    users: &[FuncIdx],
+    routed: &HashMap<(Op, usize), FuncIdx>,
+    hash_ty: &Ty,
+) {
+    crate::profile::work(crate::profile::Work::BodiesRewrittenForDerives, users.len());
+    for i in users {
+        let body = program.funcs.get_mut(*i).body_mut();
+        body.into_iter()
+            .for_each(|b| rewrite_expr(b, routed, hash_ty));
     }
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.

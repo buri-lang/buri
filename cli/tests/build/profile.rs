@@ -2646,3 +2646,74 @@ fn answers_handed_to_calls_are_written_where_the_callee_reads_them() {
          ({few} at 8, {many} at 24)"
     );
 }
+
+/// `n` functions over `Int`s alone, each called twice and too large to inline,
+/// beside one that compares a derived record and keeps a `Str`. Answers the
+/// items, the body and what it prints.
+fn plain_functions(n: usize) -> (String, String, String) {
+    let mut items = String::from(
+        "fn down(n: Int): Int {\n    if (n <= 0) { 0 } else { 1 + down(n - 1) }\n}\n\n\
+         struct Tag(Int, Str);\n\nderive Equal for Tag;\n\n\
+         fn same(t: Tag, s: Str): Bool {\n    t == Tag(down(1), s)\n}\n\n",
+    );
+    for i in 0..n {
+        items.push_str(&format!(
+            "fn step{i}(k: Int): Int {{\n    down(k) * down(k + {i}) + 1\n}}\n\n"
+        ));
+    }
+    let sum: Vec<String> = (0..n).map(|i| format!("step{i}(1) + step{i}(2)")).collect();
+    let body = format!(
+        "    let u = {};\n    let s = \"tag\".repeat(ctx, 2);\n    \
+         let _ = io.println(ctx, \"${{u}} ${{same(Tag(1, s), s)}} ${{same(Tag(2, s), s)}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    // step(1) is (i + 1) + 1, and step(2) is 2(i + 2) + 1.
+    let printed: usize = (0..n).map(|i| (i + 2) + (2 * i + 5)).sum();
+    (items, body, format!("{printed} true false\n"))
+}
+
+/// **A function with no structural call and nothing borrowed costs the native
+/// middle passes no walk, and `rc` reads its calls and effects in one.**
+/// `derives` walked every body to replace structural calls, and `rc` walked
+/// every body for the parameters it consumes. Now each walks only the bodies
+/// with something to find. `rc` also walked each body once for its calls and
+/// again, per round of a fixpoint, for its effects, and `derives` walked each
+/// once for its structural calls and again for the types it writes.
+#[test]
+fn functions_with_nothing_to_derive_or_borrow_are_not_walked_for_it() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let counts = |n: usize| {
+        let (items, body, printed) = plain_functions(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch.run(&["run", "//app"]).ok().says(&printed);
+        let all = run.all();
+        [
+            work_count(&all, "bodies rewritten for derives").unwrap(),
+            work_count(&all, "bodies walked for consuming uses").unwrap(),
+            work_count(&all, "bodies walked for calls and effects").unwrap(),
+            work_count(&all, "bodies walked for derives").unwrap(),
+        ]
+    };
+    let (few, many) = (counts(8), counts(24));
+    assert!(
+        many[..2] == few[..2],
+        "16 more `Int` functions walked more bodies: {few:?} at 8, {many:?} at 24"
+    );
+    // About one walk each (17 for the 16). Walking for effects apart from
+    // calls, or for types apart from structural calls, made it at least two.
+    for (k, what) in [(2, "its calls and effects"), (3, "derives")] {
+        let walked = (many[k] - few[k]) / 16.0;
+        assert!(
+            walked <= 1.5,
+            "each of 16 more `Int` functions was walked {walked:.1} times for {what}"
+        );
+    }
+}

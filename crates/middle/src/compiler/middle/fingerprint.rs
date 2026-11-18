@@ -68,6 +68,12 @@ impl Hasher {
         ts.iter().for_each(|t| self.ty(*t));
     }
 
+    /// A span in two words rather than the derived three.
+    fn span(&mut self, s: crate::diagnostics::Span) {
+        self.word(u64::from(s.file.0));
+        self.word(u64::from(s.start) | (u64::from(s.end) << 32));
+    }
+
     fn str(&mut self, s: &str) {
         std::hash::Hasher::write(self, s.as_bytes());
     }
@@ -187,7 +193,7 @@ fn func(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, i: FuncIdx, f: &Func) 
     // `lower` drops the descriptor (its module docs say why), and its index
     // is the program's, so only whether there is one is hashed.
     h.word(u64::from(desc.is_some()));
-    span.hash(h);
+    h.span(*span);
     match kind {
         FuncKind::Body(body) => {
             h.word(locals.len() as u64);
@@ -205,7 +211,7 @@ fn func(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, i: FuncIdx, f: &Func) 
 fn local(h: &mut Hasher, l: &Local) {
     l.name.hash(h);
     h.ty(l.ty);
-    l.span.hash(h);
+    h.span(l.span);
 }
 
 fn callee(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, f: FuncIdx) {
@@ -222,7 +228,7 @@ fn exprs(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, es: &[Expr]) {
 fn expr(h: &mut Hasher, s: &Dense<FuncIdx, u128>, e: &Expr) {
     std::mem::discriminant(&e.kind).hash(h);
     h.ty(e.ty);
-    e.span.hash(h);
+    h.span(e.span);
     match &e.kind {
         ExprKind::Int(m, negative) => {
             m.hash(h);
@@ -317,7 +323,7 @@ fn expr(h: &mut Hasher, s: &Dense<FuncIdx, u128>, e: &Expr) {
                         h.word(0);
                         pat(h, pattern);
                         expr(h, s, value);
-                        span.hash(h);
+                        h.span(*span);
                     }
                     Stmt::Expr(e) => {
                         h.word(1);
@@ -339,7 +345,7 @@ fn expr(h: &mut Hasher, s: &Dense<FuncIdx, u128>, e: &Expr) {
                 pat(h, &arm.pattern);
                 optional(h, s, arm.guard.as_ref());
                 expr(h, s, &arm.body);
-                arm.span.hash(h);
+                h.span(arm.span);
             }
         }
         ExprKind::Lambda {
@@ -453,7 +459,7 @@ fn pats(h: &mut Hasher, ps: &[Pattern]) {
 fn pat(h: &mut Hasher, p: &Pattern) {
     std::mem::discriminant(&p.kind).hash(h);
     h.ty(p.ty);
-    p.span.hash(h);
+    h.span(p.span);
     match &p.kind {
         PatKind::Wild | PatKind::Unit | PatKind::Error => {}
         PatKind::Bind { local, sub } => {

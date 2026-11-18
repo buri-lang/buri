@@ -914,10 +914,10 @@ pub fn analyze<C: Counted + Clone + Sync>(
 pub fn answers(program: &Program, counted: &mut dyn Counted, opts: &Options) -> Answers {
     // One call graph and one callees-first order, shared by both fixpoints
     // that close over it.
-    let deps = ownership_dependencies(program);
+    let (deps, effects) = call_graph(program);
     let order = super::strongly_connected(&deps);
     let ownership = infer_ownership(program, counted, opts, &deps, &order);
-    let (purity, can_abort) = infer_effects(program, &deps, &order);
+    let (purity, can_abort) = infer_effects(program, &deps, &effects, &order);
     // The whole-program escape answer. `program.funcs` is the
     // post-monomorphization set, so an intrinsic present in it is one the
     // program can *reach* — the same reachability `infer_effects`'s fixpoint
@@ -1334,8 +1334,19 @@ fn grower(growers: &Dense<FuncIdx, bool>, f: FuncIdx) -> bool {
 /// Each function's ownership row: one entry per parameter.
 pub type Own = Dense<FuncIdx, Vec<ir::Ownership>>;
 
-/// [`ownership_dependencies`]'s influence list.
+/// [`call_graph`]'s influence list.
 type Deps = Dense<FuncIdx, Vec<FuncIdx>>;
+
+/// What a body says of its own effects, before its callees' are known; `None`
+/// for a function with no body. [`infer_effects`] closes it over the calls.
+type Effects = Dense<FuncIdx, Option<BodyEffects>>;
+
+struct BodyEffects {
+    purity: ir::Purity,
+    aborts: bool,
+    /// Every function it calls or jumps into, whose effects are its own.
+    calls: Vec<FuncIdx>,
+}
 
 fn infer_ownership(
     program: &Program,
@@ -1452,25 +1463,59 @@ fn settles_once(deps: &Deps, scc: &[FuncIdx]) -> Option<FuncIdx> {
 /// (`target -> i`). The second edge is what puts a `Continue` and its target in
 /// one component: a cross-function jump is always a cycle here, so its two ends
 /// converge together rather than one being finalized before the other.
-fn ownership_dependencies(program: &Program) -> Deps {
+///
+/// The same walk reads each body's own [`Effects`].
+fn call_graph(program: &Program) -> (Deps, Effects) {
     let mut deps: Deps = program.funcs.map(|_| Vec::new());
+    let mut effects: Effects = program.funcs.map(|_| None);
     for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
+        crate::profile::work(crate::profile::Work::BodiesWalkedForCallsAndEffects, 1);
+        let mut fx = BodyEffects {
+            purity: ir::Purity::Pure,
+            aborts: false,
+            calls: Vec::new(),
+        };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, .. } => deps.get_mut(i).push(*func),
+            ExprKind::CallFunc { func, .. } => {
+                deps.get_mut(i).push(*func);
+                fx.calls.push(*func);
+            }
             ExprKind::Continue { func, .. } => {
                 let target = func.unwrap_or(i);
                 deps.get_mut(i).push(target);
                 deps.get_mut(target).push(i);
+                fx.calls.extend(*func);
+            }
+            // An indirect call reaches a code pointer this pass cannot name, so
+            // it is whatever the worst function in the program is.
+            ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
+                fx.purity = ir::Purity::Effectful;
+                fx.aborts = true;
+            }
+            ExprKind::Intrinsic { name, .. } => {
+                fx.purity = worse(fx.purity, intrinsic_purity(name));
+            }
+            ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
+                fx.purity = ir::Purity::Effectful;
+            }
+            // Division by zero aborts (SPEC 6.9), and so does an exhausted
+            // allocation budget (MEMORY.md §7.2).
+            ExprKind::Prim { op, .. } => {
+                fx.aborts |= matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem);
+            }
+            ExprKind::Array { .. } | ExprKind::Template { .. } => {
+                fx.purity = worse(fx.purity, ir::Purity::Allocating);
             }
             _ => {}
         });
+        *effects.get_mut(i) = Some(fx);
     }
     for row in deps.iter_mut() {
         row.sort_unstable();
         row.dedup();
     }
-    deps
+    (deps, effects)
 }
 
 /// One function's consuming pass: promotes every borrowed parameter the body
@@ -1486,6 +1531,11 @@ fn promote_consuming(
     own: &mut Own,
     pieces: Option<&Dense<FuncIdx, bool>>,
 ) -> bool {
+    // With nothing borrowed there is nothing to promote.
+    if !own.get(i).contains(&ir::Ownership::Borrow) {
+        return false;
+    }
+    crate::profile::work(crate::profile::Work::BodiesWalkedForConsumingUses, 1);
     let mut consumed: HashSet<LocalId> = HashSet::default();
     consuming_uses(body, own, counted, i, &mut consumed, pieces);
     let row = own.get(i);
@@ -1511,7 +1561,7 @@ fn promote_consuming(
 
 /// The local fixpoint over one strongly connected component, against the
 /// already-final rows of everything it calls. Every source of a promoting
-/// `Continue` shares its target's component (`ownership_dependencies`), so the
+/// `Continue` shares its target's component (`call_graph`), so the
 /// loop-variable rule need only walk this component's own functions.
 fn converge_scc(
     counted: &mut dyn Counted,
@@ -2035,11 +2085,12 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
 /// order, and the order taken is the ownership fixpoint's: `order` is the
 /// components of `deps` callees first. Every callee and every `Continue` target
 /// a body reads is an edge of `deps`, so a component is reached with all its
-/// inputs final — a non-recursive function is walked once, and a recursive
-/// component is walked until it settles.
+/// inputs final — a non-recursive function is read once, and a recursive
+/// component is read until it settles. Each body is walked once, by [`call_graph`].
 fn infer_effects(
     program: &Program,
     deps: &Deps,
+    effects: &Effects,
     order: &super::Components<FuncIdx>,
 ) -> (Dense<FuncIdx, ir::Purity>, Dense<FuncIdx, bool>) {
     let mut purity: Dense<FuncIdx, ir::Purity> = program.funcs.map(|f| match &f.kind {
@@ -2054,62 +2105,37 @@ fn infer_effects(
         .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)));
     for scc in order.iter() {
         if let Some(only) = settles_once(deps, scc) {
-            effects_once(program, only, &mut purity, &mut aborts);
+            effects_once(effects, only, &mut purity, &mut aborts);
             continue;
         }
         let mut changed = true;
         while changed {
             changed = false;
             for &i in scc {
-                changed |= effects_once(program, i, &mut purity, &mut aborts);
+                changed |= effects_once(effects, i, &mut purity, &mut aborts);
             }
         }
     }
     (purity, aborts)
 }
 
-/// One function's purity and abortability, read off its body against the rows
+/// One function's purity and abortability: its body's own, against the rows
 /// it calls. Returns whether either moved.
 fn effects_once(
-    program: &Program,
+    effects: &Effects,
     i: FuncIdx,
     purity: &mut Dense<FuncIdx, ir::Purity>,
     aborts: &mut Dense<FuncIdx, bool>,
 ) -> bool {
-    let Some(body) = program.funcs.get(i).body() else {
+    let Some(fx) = effects.get(i) else {
         return false;
     };
-    let mut p = ir::Purity::Pure;
-    let mut a = false;
-    typed::walk(body, &mut |e| match &e.kind {
-        ExprKind::CallFunc { func: c, .. } | ExprKind::Continue { func: Some(c), .. } => {
-            p = worse(p, *purity.get(*c));
-            a |= *aborts.get(*c);
-        }
-        // An indirect call reaches a code pointer this pass cannot name, so it
-        // is whatever the worst function in the program is.
-        ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => {
-            p = ir::Purity::Effectful;
-            a = true;
-        }
-        ExprKind::Intrinsic { name, .. } => {
-            p = worse(p, intrinsic_purity(name));
-        }
-        ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
-            p = ir::Purity::Effectful;
-        }
-        // Division by zero aborts (SPEC 6.9), and so does an exhausted
-        // allocation budget (MEMORY.md §7.2).
-        ExprKind::Prim { op, .. } => {
-            if matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem) {
-                a = true;
-            }
-        }
-        ExprKind::Array { .. } | ExprKind::Template { .. } => {
-            p = worse(p, ir::Purity::Allocating);
-        }
-        _ => {}
-    });
+    let mut p = fx.purity;
+    let mut a = fx.aborts;
+    for c in &fx.calls {
+        p = worse(p, *purity.get(*c));
+        a |= *aborts.get(*c);
+    }
     let (purity, aborts) = (purity.get_mut(i), aborts.get_mut(i));
     if *purity == p && *aborts == a {
         return false;
