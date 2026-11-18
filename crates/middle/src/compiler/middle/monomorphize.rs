@@ -1405,14 +1405,14 @@ impl<'a> Monomorphizer<'a> {
         symbol.push_str(
             self.module_symbols
                 .entry(info.module.index())
-                .or_insert_with(|| module.chars().map(symbol_char).collect()),
+                .or_insert_with(|| sanitize(module)),
         );
         symbol.push('$');
         if let Some(o) = owner {
-            symbol.extend(o.chars().map(symbol_char));
+            push_symbol(&mut symbol, o);
             symbol.push('_');
         }
-        symbol.extend(info.name.chars().map(symbol_char));
+        push_symbol(&mut symbol, &info.name);
         (symbol, debug)
     }
 
@@ -2269,9 +2269,12 @@ impl Monomorphizer<'_> {
                     args = self.erased_args(id, &erased, args);
                     resolved = erased;
                 }
-                if let Some((narrowed, changes)) = self.narrowed(id, &resolved) {
-                    args = self.narrowed_args(id, &changes, args);
-                    resolved = narrowed;
+                // Tested here, as a build that doesn't narrow passes every call.
+                if self.narrow {
+                    if let Some((narrowed, changes)) = self.narrowed(id, &resolved) {
+                        args = self.narrowed_args(id, &changes, args);
+                        resolved = narrowed;
+                    }
                 }
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFunc { func: slot, args }
@@ -2700,9 +2703,12 @@ impl Monomorphizer<'_> {
             args = self.erased_args(fid, &erased, args);
             instance_targs = erased;
         }
-        if let Some((narrowed, changes)) = self.narrowed(fid, &instance_targs) {
-            args = self.narrowed_args(fid, &changes, args);
-            instance_targs = narrowed;
+        // Tested here, as a build that doesn't narrow passes every call.
+        if self.narrow {
+            if let Some((narrowed, changes)) = self.narrowed(fid, &instance_targs) {
+                args = self.narrowed_args(fid, &changes, args);
+                instance_targs = narrowed;
+            }
         }
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFunc { func: slot, args }
@@ -3871,7 +3877,22 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
 }
 
 fn sanitize(s: &str) -> String {
-    s.chars().map(symbol_char).collect()
+    let mut out = String::with_capacity(s.len());
+    push_symbol(&mut out, s);
+    out
+}
+
+/// Appends `s` with each character a symbol may not hold replaced by `_`.
+/// Most names need nothing replaced, and those are copied whole rather than
+/// decoded a character at a time.
+fn push_symbol(out: &mut String, s: &str) {
+    if s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
+    {
+        out.push_str(s);
+    } else {
+        out.extend(s.chars().map(symbol_char));
+    }
 }
 
 /// A character of a symbol: itself if a symbol may hold it, `_` otherwise.

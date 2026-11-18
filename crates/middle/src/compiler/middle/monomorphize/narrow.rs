@@ -46,9 +46,9 @@ use crate::diagnostics::Invariant as _;
 impl Monomorphizer<'_> {
     /// `f`'s type arguments with every context at a narrowable parameter
     /// replaced by its narrowed context, with each change, or `None` where none
-    /// changes.
+    /// changes. Asked only while narrowing.
     pub(super) fn narrowed(&mut self, f: FnId, targs: &[Ty]) -> Option<(Vec<Ty>, Vec<Changed>)> {
-        if !self.narrow || !targs.iter().any(|t| matches!(t.kind(), TyKind::Ctx(..))) {
+        if !targs.iter().any(|t| matches!(t.kind(), TyKind::Ctx(..))) {
             return None;
         }
         let at = f.index();
