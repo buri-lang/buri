@@ -18,7 +18,8 @@ Every finding is a warning with a stable code, and the code names its page:
 `fail_on_finding` makes a finding fail the command.
 [`rules`](../build/repo-config.md#rules) turns a rule off by the name the finding
 prints: `enabled(rule) = override.unwrap_or(default)`, so `default: DISABLED`
-gives you an allow list. There's no per-rule severity, per-directory exemption or
+gives you an allow list. [`no-comments`](../lints/no-comments.md) is off until
+`rules` names it. There's no per-rule severity, per-directory exemption or
 suppression comment, so that one file answers "is this rule on here".
 
 A rule that's off drops out of the report, and the report says so:

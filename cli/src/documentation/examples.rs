@@ -1073,7 +1073,7 @@ fn run_block_in(
     }
     if let Claim::Lint { code } = &block.claim {
         if failures.is_empty() {
-            match lint_codes(&base.text) {
+            match lint_codes(&base.text, code) {
                 Ok(got) if got.contains(code) => {}
                 Ok(got) => failures.push(Failure {
                     origin: block.origin.clone(),
@@ -1213,20 +1213,25 @@ fn indent(text: &str) -> String {
 }
 
 /// Every code `buri lint` reports about `source`, written as the `lib.buri` of
-/// the one library in a scratch repository.
-fn lint_codes(source: &str) -> Result<Vec<String>, String> {
+/// the one library in a scratch repository whose `REPO.buri` turns `code` on,
+/// so a rule that is off by default can show its example too.
+fn lint_codes(source: &str, code: &str) -> Result<Vec<String>, String> {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!("buri-doc-lint-{}-{n}", std::process::id()));
-    let codes = lint_codes_in(&root, source);
+    let codes = lint_codes_in(&root, source, code);
     let _ = std::fs::remove_dir_all(&root);
     codes
 }
 
-fn lint_codes_in(root: &std::path::Path, source: &str) -> Result<Vec<String>, String> {
+fn lint_codes_in(root: &std::path::Path, source: &str, code: &str) -> Result<Vec<String>, String> {
     let package = root.join("lib/example");
     std::fs::create_dir_all(&package).map_err(|e| e.to_string())?;
-    std::fs::write(root.join("REPO.buri"), "").map_err(|e| e.to_string())?;
+    let repo = format!(
+        "lint {{ rules {{ {}: true }} }}\n",
+        crate::documentation::lints::rule_field(code)
+    );
+    std::fs::write(root.join("REPO.buri"), repo).map_err(|e| e.to_string())?;
     std::fs::write(package.join("BUILD.buri"), "library {}\n").map_err(|e| e.to_string())?;
     std::fs::write(package.join("lib.buri"), source).map_err(|e| e.to_string())?;
     let mut map = SourceMap::new();

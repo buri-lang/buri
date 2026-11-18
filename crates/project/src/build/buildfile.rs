@@ -1153,34 +1153,39 @@ pub struct LintRules {
 
 impl LintRules {
     /// Whether this repository listens to a rule. The one rule of arithmetic,
-    /// and the only way any part of the toolchain asks the question.
+    /// and the only way any part of the toolchain asks the question. A rule
+    /// that is off by default runs only when the block names it.
     pub fn enabled(&self, code: &str) -> bool {
         match self.overrides.get(code) {
             Some(written) => *written,
-            None => self.default == RuleDefault::Enabled,
+            None => {
+                self.default == RuleDefault::Enabled
+                    && crate::documentation::lints::on_by_default(code)
+            }
         }
     }
 
     /// Every code this repository has turned off, in catalogue order.
     ///
     /// Over the catalogue rather than over the overrides, because
-    /// `default: DISABLED` turns off the rules nobody wrote down.
+    /// `default: DISABLED` turns off the rules nobody wrote down. A rule that
+    /// is off by default and not named is left out: nothing turned it off.
     pub fn disabled(&self) -> Vec<&'static str> {
         crate::documentation::lints::LINTS
             .iter()
             .map(|l| l.code)
-            .filter(|code| !self.enabled(code))
+            .filter(|code| crate::documentation::lints::on_by_default(code) && !self.enabled(code))
             .collect()
     }
 
-    /// Whether every rule in the catalogue runs, which is what a `REPO.buri`
-    /// with no `rules` block says and what an empty one says too.
+    /// Whether no rule that is on by default was turned off, which is what a
+    /// `REPO.buri` with no `rules` block says and what an empty one says too.
     ///
     /// Asked of the answer rather than of the fields: a block that writes
     /// `default: DISABLED` and then turns every rule back on has said nothing,
     /// and a reader of a report should not be told about a block that changed
     /// its mind.
-    pub fn everything_runs(&self) -> bool {
+    pub fn nothing_turned_off(&self) -> bool {
         self.disabled().is_empty()
     }
 }
@@ -2656,7 +2661,7 @@ library {
         assert!(!rules.enabled("hand-rolled-hex-digits"));
         // Everything else is what it was.
         assert!(rules.enabled("unused-import"));
-        assert!(!rules.everything_runs());
+        assert!(!rules.nothing_turned_off());
         assert_eq!(
             rules.disabled(),
             ["hand-rolled-hex-digits", "ignored-result"]
@@ -2677,12 +2682,17 @@ library {
         assert!(!rules.enabled("unused-variable"));
         assert_eq!(
             rules.disabled().len(),
-            crate::documentation::lints::LINTS.len() - 1
+            crate::documentation::lints::LINTS
+                .iter()
+                .filter(|l| crate::documentation::lints::on_by_default(l.code))
+                .count()
+                - 1
         );
     }
 
-    /// No block, and an empty one, are the same claim: the whole catalogue
-    /// runs. So is a block that writes every rule it names `true`.
+    /// No block, and an empty one, are the same claim: every rule that is on
+    /// by default runs, and only those. So is a block that writes every rule
+    /// it names `true`.
     #[test]
     fn every_rule_runs_until_one_is_written_off() {
         for src in [
@@ -2693,10 +2703,15 @@ library {
         ] {
             let read = read_repo_config(src, FileId(0));
             assert!(read.errors.is_empty(), "{src:?}: {:#?}", read.errors);
-            assert!(read.value.lint.rules.everything_runs(), "{src:?}");
+            assert!(read.value.lint.rules.nothing_turned_off(), "{src:?}");
             assert!(read.value.lint.rules.disabled().is_empty(), "{src:?}");
             for l in crate::documentation::lints::LINTS {
-                assert!(read.value.lint.rules.enabled(l.code), "{src:?}: {}", l.code);
+                assert_eq!(
+                    read.value.lint.rules.enabled(l.code),
+                    crate::documentation::lints::on_by_default(l.code),
+                    "{src:?}: {}",
+                    l.code
+                );
             }
         }
     }
@@ -2720,7 +2735,7 @@ library {
             "{:#?}",
             d.fix
         );
-        assert!(read.value.lint.rules.everything_runs());
+        assert!(read.value.lint.rules.nothing_turned_off());
 
         // A code spelled the way a finding prints it is not a field name
         // either: a textproto field cannot hold a hyphen, and the near miss
@@ -2747,11 +2762,11 @@ library {
         );
         // And the file is read as if it had not been written, rather than as
         // an allow list nobody asked for.
-        assert!(read.value.lint.rules.everything_runs());
+        assert!(read.value.lint.rules.nothing_turned_off());
 
         let read = read_repo_config("lint { rules { default: false } }\n", FileId(0));
         assert!(!read.errors.is_empty(), "a bool is not a rule default");
-        assert!(read.value.lint.rules.everything_runs());
+        assert!(read.value.lint.rules.nothing_turned_off());
     }
 
     /// A rule takes `true` or `false` and nothing else, the same way the two

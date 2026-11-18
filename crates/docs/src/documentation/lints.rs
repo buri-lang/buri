@@ -95,6 +95,11 @@ pub const LINTS: &[LintDoc] = &[
         "A package lists every library it uses",
         &["build/build-files"]
     ),
+    l!(
+        "no-comments",
+        "Only doc comments are written",
+        &["build/repo-config"]
+    ),
     l!("oversized-function", "A function is one responsibility"),
     l!("test-missing-assertion", "A test asserts something"),
     l!("test-title-newline", "A test title is one line"),
@@ -189,6 +194,18 @@ const UNNECESSARY: &[&str] = &[
     "unused-variable",
     "unused-variant",
 ];
+
+/// The rules a repository hears from only once its `rules` block names them.
+///
+/// Every other rule is about a mistake. These are about a house style that a
+/// repository opts into, so neither an absent block nor `default: ENABLED`
+/// turns one on.
+const OFF_BY_DEFAULT: &[&str] = &["no-comments"];
+
+/// Whether a rule runs in a repository whose `rules` block does not name it.
+pub fn on_by_default(code: &str) -> bool {
+    !OFF_BY_DEFAULT.contains(&code)
+}
 
 /// Whether a finding says "this is not needed", as opposed to "this is wrong".
 pub fn is_unnecessary(code: &str) -> bool {

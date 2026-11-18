@@ -1,0 +1,8 @@
+# One JSON-RPC request per line. The harness adds the Content-Length framing,
+# and turns `<scratch>` into wherever the copy of repo/ landed.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The comment on line 1 is the one finding. The doc comment and the string are not.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "// Why the label is short.\n/// The label a till prints.\nexport fn label(): Str {\n    \"// cents\"\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

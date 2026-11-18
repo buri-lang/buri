@@ -793,9 +793,6 @@ fn package_rules(session: &Session, package: PackageId, diagnostics: &mut Diagno
 /// which of *these* checks run, not which errors a build may ignore.
 fn keep_what_the_repository_runs(session: &Session, diagnostics: &mut Diagnostics) {
     let rules = &session.workspace.repo.lint.rules;
-    if rules.everything_runs() {
-        return;
-    }
     diagnostics.items.retain(|d| match d.code.as_deref() {
         Some(code) => crate::documentation::lints::find(code).is_none() || rules.enabled(code),
         None => true,
@@ -813,7 +810,7 @@ fn keep_what_the_repository_runs(session: &Session, diagnostics: &mut Diagnostic
 /// a line nobody reads.
 pub fn rules_note(session: &Session) -> Option<String> {
     let rules = &session.workspace.repo.lint.rules;
-    if rules.everything_runs() {
+    if rules.nothing_turned_off() {
         return None;
     }
     let all = crate::documentation::lints::LINTS.len();
@@ -1781,9 +1778,9 @@ struct Text {
     length: usize,
     hash: u64,
     role: crate::compiler::modules::Role,
-    /// `duplicate-import`, `todo-comment`, `hand-rolled-hex-digits`,
-    /// `time-unit-conversion`, `parameter-count` and `oversized-function`, in
-    /// the order they are asked.
+    /// `duplicate-import`, `todo-comment`, `no-comments`,
+    /// `hand-rolled-hex-digits`, `time-unit-conversion`, `parameter-count` and
+    /// `oversized-function`, in the order they are asked.
     findings: Vec<Diagnostic>,
     /// Where every identifier token is. What it says is the text under it.
     idents: Vec<Span>,
@@ -1821,6 +1818,7 @@ impl Text {
         let mut found = Diagnostics::new();
         check_duplicate_imports(m, &mut found);
         check_warning_comments(lexes, m, &mut found);
+        check_comments(lexes, m, &mut found);
         check_hex_digit_tables(lexes, m, &mut found);
         check_time_unit_conversions(lexes, m, &mut found);
         check_function_shapes(lexes.session, m, &mut found);
@@ -2133,6 +2131,22 @@ fn check_warning_comments(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut D
             )
             .with_bind("marker", marker),
         );
+    }
+}
+
+/// `no-comments`: one finding per ordinary comment, at its span.
+///
+/// Read off the lexer's trivia, which is the one place a doc comment is told
+/// apart: a `///` or `//!` line never becomes a [`Comment`], so it is never
+/// seen here. A string is a token, so nothing inside one is either.
+///
+/// [`Comment`]: crate::parsing::lexer::Comment
+fn check_comments(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    for (_, trivia) in &lexes.of(m.file).trivia {
+        for c in &trivia.comments {
+            let span = Span::new(m.file, c.at.start as usize, c.at.end as usize);
+            diagnostics.push(Diagnostic::templated("no-comments", span));
+        }
     }
 }
 

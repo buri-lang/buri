@@ -1,0 +1,46 @@
+# `no-comments` is off until REPO.buri names it. Then every ordinary comment is
+# a finding: a line comment, a block comment, a nested block as one finding, a
+# comment at the end of a line and one at the end of the file. Doc comments
+# (`///` and `//!`) and comment-like text inside a string are never findings.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "no-comments: off by default, and once named in REPO.buri every ordinary comment is reported at its span while doc comments and strings are not"
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "off.txt"
+}
+
+edit {
+  file: "REPO.buri"
+  replace: "# No `lint` block, so `no-comments` is off.\n"
+  with: "lint {\n    rules {\n        no_comments: true\n    }\n}\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# `check_during_build` runs the rule during `buri build` too.
+edit {
+  file: "REPO.buri"
+  replace: "lint {\n"
+  with: "lint {\n    check_during_build: true\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}

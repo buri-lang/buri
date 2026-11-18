@@ -1,0 +1,5 @@
+lint {
+    rules {
+        no_comments: true
+    }
+}

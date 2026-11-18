@@ -1,0 +1,4 @@
+/// The label a till prints.
+export fn label(): Str {
+    "cents"
+}

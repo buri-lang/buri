@@ -66,8 +66,8 @@ message Language {
 //
 // Every field defaults to the behaviour of a `REPO.buri` with no `lint` block
 // at all: the catalogue runs when `buri lint` is asked to run it, what it finds
-// is a warning, and every rule in it runs. So the block is worth writing only
-// to say something.
+// is a warning, and every rule in it runs but `no-comments`, which a repository
+// opts into. So the block is worth writing only to say something.
 //
 // Two of the three fields are ratchets — each may only make the toolchain
 // stricter, by running the checks in more places or by making a finding cost
@@ -90,7 +90,8 @@ message Lint {
   // either way, because running the linter is already the request to be told.
   bool fail_on_finding = 2;
 
-  // Which of the catalogue's rules run here. Absent, or empty: all of them.
+  // Which of the catalogue's rules run here. Absent, or empty: all of them but
+  // `no-comments`.
   Rules rules = 3;
 }
 
@@ -113,7 +114,8 @@ message Lint {
 // is silently absent is worse than one that was never written.
 message Rules {
   // What every rule not named below is. Absent: ENABLED — so an empty `rules`
-  // block, like an absent one, changes nothing.
+  // block, like an absent one, changes nothing. `no_comments` is off unless
+  // written `true`, whatever this says.
   RuleDefault default = 1;
 
   // Two targets may not depend on each other. `buri docs lint circular-dependency`.
@@ -151,6 +153,9 @@ message Rules {
 
   // A package lists every library it uses. `buri docs lint missing-dependency`.
   bool missing_dependency = 14;
+
+  // Only doc comments are written. Off unless set `true`. `buri docs lint no-comments`.
+  bool no_comments = 31;
 
   // A function is one responsibility. `buri docs lint oversized-function`.
   bool oversized_function = 15;

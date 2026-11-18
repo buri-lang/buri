@@ -94,7 +94,7 @@ lint {
 |---|---|
 | `check_during_build` | `buri build` and `buri test` run the catalogue too, and report what it finds. Default false. |
 | `fail_on_finding` | A finding fails whichever command reported it. Default false: the command prints the finding and returns its usual exit code. |
-| `rules` | Which of the catalogue's rules run. Absent or empty: all of them. |
+| `rules` | Which of the catalogue's rules run. Absent or empty: all of them but `no-comments`. |
 
 Turn on `check_during_build` because those are the commands you actually run,
 and a shape finding is cheapest to fix while you're making the shape.
@@ -127,6 +127,10 @@ lint {
     }
 }
 ```
+
+[`no-comments`](../lints/no-comments.md) is off by default, since it's a house
+style rather than a mistake. Only `no_comments: true` turns it on;
+`default: ENABLED` doesn't.
 
 The catalogue **generates the field set**, so the block accepts exactly the
 lint codes this `buri` has. `unused_improt: false` gets the
