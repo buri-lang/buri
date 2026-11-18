@@ -3,7 +3,7 @@
 # Branches gate, in total and per area; lines are context.
 
 area                              branches                      lines         
-cli/build                        1776/1778   99.89%       12094/12407   97.48%
+cli/build                        1778/1780   99.89%       12109/12422   97.48%
 cli/documentation                  485/486   99.79%         2782/2852   97.55%
 cli/format                           98/98  100.00%           377/378   99.74%
 cli/language_server              1239/1246   99.44%         7971/8129   98.06%
@@ -24,10 +24,10 @@ crates/semantics                 2292/2292  100.00%       14372/14658   98.05%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
 crates/stencil                   1096/1104   99.28%         8235/8733   94.30%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16147/16228   99.50%     105380/108541   97.09%
+total                          16149/16230   99.50%     105395/108556   97.09%
 
 cli/src                           branches                      lines         
-build                            1776/1778   99.89%       12094/12407   97.48%
+build                            1778/1780   99.89%       12109/12422   97.48%
 commands/add                           8/8  100.00%             69/72   95.83%
 commands/arguments                   43/44   97.73%           125/129   96.90%
 commands/build                     128/128  100.00%           742/765   96.99%
