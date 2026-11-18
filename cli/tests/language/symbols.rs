@@ -63,7 +63,8 @@ fn tests_dir() -> PathBuf {
 /// The worked monorepo and every repository the test-runner corpus is written
 /// against — the small ones are where a shape like two same-named contexts is
 /// written down on purpose, and the large one is where an accident would be.
-fn repositories() -> Vec<PathBuf> {
+/// Each is a copy.
+fn repositories() -> Vec<Scratch> {
     let mut out = vec![tests_dir().join("example")];
     let testing = tests_dir().join("repositories/testing");
     let mut cases: Vec<PathBuf> = std::fs::read_dir(&testing)
@@ -74,14 +75,19 @@ fn repositories() -> Vec<PathBuf> {
         .collect();
     cases.sort();
     out.extend(cases);
-    out
+    // Opening a repository runs its generators, which write under `.buri`, so
+    // each is opened in a copy and the source tree stays as checked in.
+    out.iter()
+        .map(|source| Scratch::copy_of("symbols", source))
+        .collect()
 }
 
 #[test]
 fn no_two_functions_in_one_program_share_a_symbol() {
     let mut programs = 0usize;
-    for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+    for copy in repositories() {
+        let root = &copy.root;
+        let Ok(mut open) = session::open_at(root, &Flags::default()) else {
             continue;
         };
         // A repository whose own build files do not read compiles nothing.
@@ -133,8 +139,11 @@ fn no_two_functions_in_one_program_share_a_symbol() {
 /// is why every target of the repository is compiled together here.
 #[test]
 fn a_context_constructor_is_named_by_the_module_that_declares_it() {
-    let root = tests_dir().join("repositories/testing/same_named_contexts/repo");
-    let mut open = session::open_at(&root, &Flags::default()).expect("the case repository");
+    let copy = Scratch::copy_of(
+        "symbols",
+        &tests_dir().join("repositories/testing/same_named_contexts/repo"),
+    );
+    let mut open = session::open_at(&copy.root, &Flags::default()).expect("the case repository");
     assert!(
         !open.diagnostics.has_errors(),
         "the case repository does not open"

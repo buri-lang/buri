@@ -34,6 +34,7 @@ use buri::compiler::driver::{self, Analysis};
 use buri::compiler::modules::Unit;
 use buri::diagnostics::FileId;
 
+use crate::harness::Scratch;
 use std::path::{Path, PathBuf};
 
 fn tests_dir() -> PathBuf {
@@ -42,8 +43,8 @@ fn tests_dir() -> PathBuf {
 
 /// Every repository the language server is tested against, and the worked
 /// monorepo — the largest body of Buri here, and the only one with a `ui/style`
-/// closure spanning several files.
-fn repositories() -> Vec<PathBuf> {
+/// closure spanning several files. Each is a copy.
+fn repositories() -> Vec<Scratch> {
     let mut out = vec![tests_dir().join("example")];
     let lsp = tests_dir().join("repositories/lsp");
     let mut cases: Vec<PathBuf> = std::fs::read_dir(&lsp)
@@ -54,15 +55,20 @@ fn repositories() -> Vec<PathBuf> {
         .collect();
     cases.sort();
     out.extend(cases);
-    out
+    // Opening a repository runs its generators, which write under `.buri`, so
+    // each is opened in a copy and the source tree stays as checked in.
+    out.iter()
+        .map(|source| Scratch::copy_of("scoped-bodies", source))
+        .collect()
 }
 
 #[test]
 fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
     let mut repositories_checked = 0usize;
     let mut files_checked = 0usize;
-    for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+    for copy in repositories() {
+        let root = &copy.root;
+        let Ok(mut open) = session::open_at(root, &Flags::default()) else {
             continue;
         };
         // A repository whose own build files do not read compiles nothing, and
@@ -160,8 +166,9 @@ fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
     // whole-closure run checked, so the zero below is measured against
     // something rather than asserted into an empty room.
     let mut most_std_bodies = 0usize;
-    for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+    for copy in repositories() {
+        let root = &copy.root;
+        let Ok(mut open) = session::open_at(root, &Flags::default()) else {
             continue;
         };
         if open.diagnostics.has_errors() {
