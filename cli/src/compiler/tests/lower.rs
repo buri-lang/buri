@@ -736,10 +736,10 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
 /// operations land at this drop's key, so a plan that pushed the drop
 /// first released a value before the `incref` that paid for it
 /// (`middle/rc.rs`'s `Stmt::Let` case, and
-/// `reports/llvm-parallel-listen-fix.md` for what that cost). The two
-/// drops below are independent — `v2` is the literal the call borrowed,
-/// `v3` is the block it returned — so what this string pins is which side
-/// of the initializer the binding's drop comes out on.
+/// `reports/llvm-parallel-listen-fix.md` for what that cost). What this
+/// string pins is which side of the initializer the binding's drop, of the
+/// block the call returned, comes out on. The literal the call borrowed
+/// takes no drop: a literal is immortal.
 #[test]
 fn a_binding_nothing_reads_is_still_dropped() {
     let p = lower_plain(&program(
@@ -760,7 +760,6 @@ export fn junk<C: Allocator>(ctx: C, n: Int): Int {
          \x20 b0(v0: unit, v1: i64):\n\
          \x20   v2 = const \"z\"\n\
          \x20   v3 = call fn core_str$Str_repeat$htol58(v2, v0, v1)\n\
-         \x20   decref v2\n\
          \x20   decref v3\n\
          \x20   return v1\n\
          }\n"

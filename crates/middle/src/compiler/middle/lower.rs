@@ -292,6 +292,7 @@ fn lower_one(
                 tuples: Vec::new(),
                 sites: Sites::of(fplan, body),
                 node_values: HashMap::default(),
+                literals: Vec::new(),
                 #[cfg(debug_assertions)]
                 debug_name: &f.debug_name,
             };
@@ -885,6 +886,10 @@ struct FnLower<'a> {
     /// What each node evaluated to, for the sites that name a temporary
     /// rather than a local.
     node_values: HashMap<rc::NodeId, ValueId>,
+    /// The constant aggregates, in order. A literal `Str` is immortal
+    /// (VALUE-MODEL.md §3) and the rest own nothing, so [`FnLower::push`]
+    /// drops a reference operation on one.
+    literals: Vec<ValueId>,
     /// The function being lowered, for the plan-order tripwire's message and
     /// for nothing else — which is why it is not carried at all in a build
     /// that has no tripwire in it.
@@ -1104,6 +1109,11 @@ impl FnLower<'_> {
     }
 
     fn push(&mut self, inst: Inst) {
+        if let Inst::IncRef { value } | Inst::DecRef { value } = inst {
+            if self.literals.binary_search(&value).is_ok() {
+                return;
+            }
+        }
         let cur = self.cur;
         self.code.get_mut(cur).insts.push(inst);
     }
@@ -1121,7 +1131,13 @@ impl FnLower<'_> {
     }
 
     fn constant(&mut self, ty: Type, value: Const) -> ValueId {
-        self.emit(ty, |dest| Inst::Const { dest, value })
+        let counted = matches!(ty, Type::Agg(_));
+        let v = self.emit(ty, |dest| Inst::Const { dest, value });
+        // Values are numbered as they are made, so this stays sorted.
+        if counted {
+            self.literals.push(v);
+        }
+        v
     }
 
     fn int(&mut self, ty: Type, n: usize) -> ValueId {

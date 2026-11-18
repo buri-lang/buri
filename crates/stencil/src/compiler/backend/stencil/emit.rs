@@ -1400,6 +1400,13 @@ impl<'a> Jit<'a> {
             }
         }
         let base = st.frame.size;
+        // The constants pinned in the callee's frame, written now.
+        for a in args {
+            let block = &code.get(st.cur).insts;
+            if let Some(c) = st.sunk.get(*a).and_then(|k| block.get(k as usize)) {
+                self.inst(prog, code, st, c);
+            }
+        }
         let callee = self.frame_sig_of(func);
         for (a, off) in args.iter().zip(&callee.params) {
             // A zero-sized argument — a lifted lambda's empty environment —

@@ -336,3 +336,88 @@ fn records_returned_from_arms_come_back_whole() {
     }
     passes("returned", &test, widths.len());
 }
+
+/// Constants of every width passed straight to a function: past another call
+/// made for the same call's arguments, named and passed twice, kept by the
+/// callee, and the literals a derived `Show` writes between its fields.
+#[test]
+fn constants_passed_to_functions_arrive_whole() {
+    passes(
+        "constant-arguments",
+        r#"from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Equal, Show for Job;
+enum Job {
+    Running(Int),
+    Failed { code: Int, message: Str },
+    Done,
+}
+
+derive Equal, Show for Two;
+struct Two {
+    a: Str,
+    b: Str,
+}
+
+fn join(a: Str, n: Int, b: Str, wa: Str, wb: Str): Int {
+    if (a == wa && b == wb) { n } else { -1 }
+}
+
+fn next(n: Int): Int {
+    n + 1
+}
+
+fn mixed(a: Bool, c: Char, f: Float, s: Str): Str {
+    if (a && c == 'x' && f > 2.0) { s } else { "no" }
+}
+
+fn wide(w: I128, k: I128): I128 {
+    w - k
+}
+
+fn seven(): I128 {
+    7
+}
+
+fn twice(s: Str): Two {
+    Two { a: s, b: s }
+}
+
+test "literals passed past a call" {
+    assert.equal(join("<", next(next(1)), ">", "<", ">"), 3);
+    assert.equal(join("(", join("[", next(5), "]", "[", "]"), ")", "(", ")"), 6);
+}
+
+test "a literal named and passed twice" {
+    let s = "kept";
+    assert.equal(join(s, next(0), s, "kept", s), 1);
+    assert.equal(join(s, 2, "kept", s, s), 2);
+}
+
+test "constants of every width" {
+    assert.equal(mixed(true, 'x', 2.5, "y"), "y");
+    assert.equal(mixed(true, 'x', 1.5, "y"), "no");
+    let top: I128 = 170141183460469231731687303715884105727;
+    assert.equal(wide(170141183460469231731687303715884105727, seven()), top - 7);
+}
+
+test "a literal the callee keeps" {
+    assert.equal(twice("z"), Two { a: "z", b: "z" });
+    assert.equal(twice("z").b, "z");
+}
+
+test "the literals a derived Show writes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let failed = Job.Failed { code: next(1), message: "no" };
+    assert.equal(failed.show(ctx), ".Failed { code: 2, message: \"no\" }");
+    assert.equal(Job.Running(next(2)).show(ctx), ".Running(3)");
+    assert.equal(Job.Done.show(ctx), ".Done");
+}
+"#,
+        5,
+    );
+}

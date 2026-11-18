@@ -2291,6 +2291,77 @@ fn values_returned_from_arms_are_built_in_the_return_area() {
     );
 }
 
+/// `n` functions each called with two string literals around a call made for
+/// the same call's arguments, with a `main` that prints the sum of their
+/// answers. Answers the items, the body and what it prints.
+fn literals_around_calls(n: usize) -> (String, String, usize) {
+    let mut items = String::from(
+        "fn down(n: Int): Int {\n    if (n <= 0) { 0 } else { 1 + down(n - 1) }\n}\n\n",
+    );
+    for i in 0..n {
+        items.push_str(&format!(
+            "fn tag{i}(a: Str, k: Int, b: Str): Int {{\n    \
+             if (a == b) {{ down(k) }} else {{ k + {i} }}\n}}\n\n"
+        ));
+    }
+    let sum: Vec<String> = (0..n)
+        .map(|i| format!("tag{i}(\"a{i}\", down({i}), \"b{i}\")"))
+        .collect();
+    let body = format!(
+        "    let t = {};\n    let _ = io.println(ctx, \"${{t}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    (items, body, n * (n - 1))
+}
+
+/// **A constant argument is written where the callee reads it, and a literal
+/// takes no counts.** Each literal was stored in the caller's frame, copied
+/// into the callee's, and released after the call, though a literal string
+/// is immortal. The constant handed to `down` was copied too. Now the call
+/// writes each constant into the callee's frame itself, and nothing releases
+/// a literal.
+#[test]
+fn constant_arguments_are_written_where_the_callee_reads_them() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = literals_around_calls(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        let all = run.all();
+        (
+            work_count(&all, "holes patched").unwrap(),
+            work_count(&all, "holes copying arguments").unwrap(),
+        )
+    };
+    let ((few, few_copied), (many, many_copied)) = (holes(8), holes(24));
+    // Each call's copies were six holes. The three left copy `down`'s answer,
+    // which is no constant.
+    let copied = (many_copied - few_copied) / 16.0;
+    assert!(
+        copied <= 3.0,
+        "16 more calls patched {copied:.1} more holes each copying arguments \
+         ({few_copied} at 8, {many_copied} at 24)"
+    );
+    // Each function and its call were 70.4 holes, 6 of them releasing the two
+    // literals.
+    let patched = (many - few) / 16.0;
+    assert!(
+        patched < 62.0,
+        "16 more calls patched {patched:.1} more holes each ({few} at 8, {many} at 24)"
+    );
+}
+
 /// A library whose eight tests each call one function generic over a
 /// `Random` context: from eight contexts that bind `Random` among other
 /// effects, in other orders, or from eight of the one that binds all three.

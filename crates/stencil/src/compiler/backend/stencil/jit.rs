@@ -566,6 +566,8 @@ struct Bufs {
     after_def: ir::PerValue<u32>,
     members: ir::PerValue<u32>,
     reads: ir::PerValue<BlockUses>,
+    /// [`Fn2::sunk`]'s table, between `pin_call_values` and the emitter.
+    sunk: ir::PerValue<Option<u32>>,
     defs: ir::PerValue<Option<(ir::BlockId, usize)>>,
     kept: Vec<usize>,
     block_uses: ir::PerValue<BlockUses>,
@@ -1178,6 +1180,10 @@ pub(crate) struct Fn2 {
     pub constants: ir::PerValue<Option<u64>>,
     /// How many times each value is read, anywhere in the function.
     pub uses: ir::PerValue<u32>,
+    /// Per `Const` a call's argument is pinned to, its index in its block: it
+    /// is written at the call, not where it is defined
+    /// ([`Jit::pin_call_values`]).
+    pub sunk: ir::PerValue<Option<u32>>,
 }
 
 impl Default for Fn2 {
@@ -1203,6 +1209,7 @@ impl Fn2 {
             cur: ir::BlockId::ENTRY,
             constants: ir::PerValue::default(),
             uses: ir::PerValue::default(),
+            sunk: ir::PerValue::default(),
         }
     }
 
@@ -1534,6 +1541,7 @@ impl<'a> Jit<'a> {
                 st.uses = count_uses(code, &opnd, &mut st.uses);
                 let order = self.layout(code);
                 st.scratch = self.slots(prog, code, frame, &st.uses, &opnd, &order, &mut st.slot);
+                std::mem::swap(&mut st.sunk, &mut self.bufs.sunk);
                 st.reg = code.per_value_in(&mut st.reg, None);
                 st.wt = code.per_value_in(&mut st.wt, true);
                 st.cross = code.per_value_in(&mut st.cross, false);
@@ -2757,7 +2765,9 @@ impl<'a> Jit<'a> {
     ///  * a **result**, whose every use is in the block after the call;
     ///  * an **argument**, used once, by that call, and defined by an
     ///    instruction that writes nothing but its own slot. Its definition must
-    ///    not land inside a pinned result's life, whose slot it could overlap.
+    ///    not land inside a pinned result's life, whose slot it could overlap;
+    ///  * a **constant** argument used once, by that call, which the call
+    ///    writes itself ([`Fn2::sunk`]), so nothing between needs checking.
     #[allow(
         clippy::too_many_arguments,
         reason = "the tables `slots` already built"
@@ -2774,6 +2784,7 @@ impl<'a> Jit<'a> {
     ) {
         let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
         if !code.blocks().iter().any(has_call) {
+            self.bufs.sunk = code.per_value_in(&mut self.bufs.sunk, None);
             return;
         }
         let mut members = code.per_value_in(&mut self.bufs.members, 0);
@@ -2789,6 +2800,7 @@ impl<'a> Jit<'a> {
         // entry per value, stamped with the block it describes.
         let mut reads = code.per_value_in(&mut self.bufs.reads, BlockUses::default());
         let mut defs = code.per_value_in(&mut self.bufs.defs, None);
+        let mut sunk = code.per_value_in(&mut self.bufs.sunk, None);
         let mut kept = std::mem::take(&mut self.bufs.kept);
         for (bid, b) in code.iter() {
             if !has_call(b) {
@@ -2876,6 +2888,17 @@ impl<'a> Jit<'a> {
                     let Some(k) = def_at(*a).filter(|k| *k < j) else {
                         continue;
                     };
+                    // A constant read only here is written here, whatever
+                    // comes between: nothing else reads its slot. Read by
+                    // nothing but a call, no edge or `Return` merged or
+                    // pinned it.
+                    if matches!(b.insts.get(k), Some(ir::Inst::Const { .. })) {
+                        if *uses.get(*a) == 1 {
+                            *pin.get_mut(*a) = Some(frame_size + off);
+                            *sunk.get_mut(*a) = Some(k as u32);
+                        }
+                        continue;
+                    }
                     let defines = matches!(
                         b.insts.get(k),
                         Some(
@@ -2906,6 +2929,7 @@ impl<'a> Jit<'a> {
         self.bufs.members = members;
         self.bufs.reads = reads;
         self.bufs.defs = defs;
+        self.bufs.sunk = sunk;
         self.bufs.kept = kept;
     }
 
@@ -3437,10 +3461,11 @@ impl<'a> Jit<'a> {
             tagsw: None,
             incbr: None,
         };
-        // Every `Const` whose uses are all immediates disappears.
+        // Every `Const` whose uses are all immediates disappears, and so does
+        // one the call that reads it writes.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
-                if matches!(st.home(*dest), Loc::Imm) {
+                if matches!(st.home(*dest), Loc::Imm) || st.sunk.get(*dest).is_some() {
                     *skip = true;
                 }
             }

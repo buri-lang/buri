@@ -10542,6 +10542,31 @@ past the frame for a value wider than the scratch's 256 bytes.
 `odd_sizes::records_rotated_round_a_loop_come_back_in_order` rotates records
 of 40 and 70 words.
 
+### 6.157 A constant argument is written where the callee reads it, 2026-11-18
+
+```text
+                              before      after       change
+bench full, holes patched     4.549 M     4.374 M     -3.9%
+  copying arguments           285.2 k     192.5 k     -32%
+bench full, emit              10.67 B     10.61 B     -0.6%
+```
+
+A third of the argument copies on bench `full` were constants, mostly string
+literals. Each was written to its own slot and copied into the callee's frame.
+It couldn't be pinned there because a `DecRef` after the call read it again.
+
+- A literal `Str` is immortal (VALUE-MODEL.md §3), and the other constant
+  aggregates own nothing. So lowering no longer emits an `IncRef` or a
+  `DecRef` on a constant.
+- A constant used only as one call's argument is now pinned in the callee's
+  frame and written by the call itself (`Fn2::sunk`), so nothing between its
+  definition and the call can overwrite it.
+
+`profile::constant_arguments_are_written_where_the_callee_reads_them` holds
+the argument copies and holes per added call, and
+`odd_sizes::constants_passed_to_functions_arrive_whole` passes constants of
+every width past other calls on every backend.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
