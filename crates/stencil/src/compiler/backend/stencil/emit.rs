@@ -74,7 +74,7 @@ const RC_OUT_OF_LINE: u32 = 16;
 
 /// The narrowest copy [`Jit::mv`] makes with `mov/32n`'s loop rather than a
 /// run of `mov/32`s.
-const MOV_LOOP_BYTES: u32 = 256;
+const MOV_LOOP_BYTES: u32 = 1024;
 
 /// Each count's stencils, plain and `/shared`, then their `/at` twins, in the
 /// order `Jit::count_stencil` picks from.

@@ -2181,14 +2181,14 @@ fn a_wide_record_passed_between_functions_runs_and_copies_in_a_few_holes() {
             .says(&format!("{printed}\n"));
         work_count(&run.all(), "holes patched").unwrap()
     };
-    // 67 fields is 536 bytes, which leaves a tail after the looped runs. The
-    // record's literal alone costs about six holes a field; copies by the
-    // run of thirty-two bytes cost four times that.
-    let (narrow, wide) = (holes(67), holes(201));
-    let per_field = (wide - narrow) / 134.0;
+    // 134 fields is 1072 bytes, wide enough for the loop, and leaves a tail
+    // after the looped runs. The record's literal alone costs about six holes
+    // a field; copies by the run of thirty-two bytes cost four times that.
+    let (narrow, wide) = (holes(134), holes(402));
+    let per_field = (wide - narrow) / 268.0;
     assert!(
         per_field <= 12.0,
-        "a record 134 fields wider patched {per_field:.1} more holes per field \
-         ({narrow} at 67 fields, {wide} at 201)"
+        "a record 268 fields wider patched {per_field:.1} more holes per field \
+         ({narrow} at 134 fields, {wide} at 402)"
     );
 }

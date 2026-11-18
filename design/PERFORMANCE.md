@@ -10396,11 +10396,11 @@ against the cut too.
 
 ```text
 test build, 399,665 lines   unrolled   loop      change
-holes patched               58.5 M     31.8 M    -45.6%
-emit                        34.10 B    27.16 B   -20.4%
-link, with children         13.08 B    5.99 B    -54.2%
-dev codegen per line        165,263    130,118   -21.3%
-total                       94.35 B    78.24 B   -17.1%
+holes patched               58.5 M     36.1 M    -38.2%
+emit                        34.10 B    28.35 B   -16.9%
+link, with children         13.08 B    6.03 B    -53.9%
+dev codegen per line        165,263    133,566   -19.2%
+total                       94.35 B    80.36 B   -14.8%
 bench full, total           43.83 B    43.77 B   noise (no copy reaches the loop)
 ```
 
@@ -10409,11 +10409,11 @@ A record of a few hundred words passed by value to a call was hundreds of
 stencils, and each one was laid out and patched on its own. In one package,
 calls cost 4.26 M holes and struct building and field reads 1.7 M more.
 
-- A copy of 256 bytes or more is one `mov/32n` stencil, which loops `N`
+- A copy of 1024 bytes or more is one `mov/32n` stencil, which loops `N`
   times over thirty-two bytes. The tail stays on the fixed stencils.
-- The loop runs more instructions a byte than the fixed stencils. At 128
-  bytes, storing a record of eight `Str`s in a map went from under
-  160 to 255 instructions a field, so `glue_counts.rs` holds the line at 256.
+- The loop runs more instructions a byte than the fixed stencils, so a
+  program that copies mid-sized records often runs slower. From 256 bytes,
+  CI's `run-dev/kvstore` count rose 7.4%. From 1024, it moves -0.06%.
 - The loop has no `memcpy` call in it. A stencil can't call anything, since
   that would spill the CPS register file. An empty `asm` keeps clang from
   turning the loop back into a call.
@@ -10423,7 +10423,7 @@ calls cost 4.26 M holes and struct building and field reads 1.7 M more.
   reach, so `build/image.rs` links them in buri rather than handing them to
   lld.
 
-`profile.rs` passes a record of 67 fields and one of 201 through recursive
+`profile.rs` passes a record of 134 fields and one of 402 through recursive
 calls. It checks the printed sum, and that each added field costs at most
 12 holes: the literal costs about 6, and the unrolled copies cost 24.
 
