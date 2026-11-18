@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16151 16232 99.50%
+total 16153 16234 99.50%
 area cli/build 1778 1780 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -20,7 +20,7 @@ area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
 area crates/middle 2489 2514 99.01%
-area crates/project 1334 1336 99.85%
+area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1098 1106 99.28%
@@ -57,7 +57,7 @@ area crates/syntax 1268 1268 100.00%
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-546 546 cli/src/commands/lint.rs
+544 544 cli/src/commands/lint.rs
 28 28 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 38 38 cli/src/commands/query.rs
@@ -166,7 +166,7 @@ area crates/syntax 1268 1268 100.00%
 100 100 crates/middle/src/compiler/middle/slices.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 60 60 crates/middle/src/compiler/middle/vacate.rs
-178 178 crates/project/src/build/buildfile.rs
+182 182 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
 90 90 crates/project/src/build/textproto.rs
 22 22 crates/project/src/build/workspace.rs
