@@ -12,11 +12,11 @@ use crate::hang::CappedChild;
 use crate::shared::{exited_instructions, heap_checked, probed, ran_command, Ran};
 use std::path::Path;
 
-/// One run, with the fewest instructions of three, because a short process's
+/// One run, with the fewest instructions of five, because a short process's
 /// count only ever gains noise (`design/PERFORMANCE.md` §8). An idle run's
-/// noise takes away from the work's count, and under memory pressure two runs
-/// in a row both gained it. `None` where the kernel counts nothing, such as
-/// CI's virtual machines.
+/// noise takes away from the work's count, and under a landing's load three
+/// runs in a row all gained it: a large literal step counted 770 against 756.
+/// `None` where the kernel counts nothing, such as CI's virtual machines.
 fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     let once = || {
         let mut cmd = std::process::Command::new(binary);
@@ -34,13 +34,11 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
         (ran, instructions)
     };
     let (ran, first) = once();
-    let (_, second) = once();
-    let (_, third) = once();
-    let fewest = first.zip(second).zip(third);
-    (
-        ran,
-        fewest.map(|((a, b), c)| a.min(b).min(c)).filter(|&n| n > 0),
-    )
+    let rest: Option<Vec<u64>> = (1..5).map(|_| once().1).collect();
+    let fewest = first
+        .zip(rest)
+        .map(|(a, rest)| rest.into_iter().fold(a, u64::min));
+    (ran, fewest.filter(|&n| n > 0))
 }
 
 /// The instructions one operation costs, from `ops` of them against none, and
