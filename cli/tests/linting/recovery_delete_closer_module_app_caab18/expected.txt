@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_app_caab18/main.buri:8:11
+  |
+8 | fn banner(: Str {
+  |           ^
+  |
+ --> lib/recovery_delete_closer_module_app_caab18/main.buri:8:10
+  |
+8 | fn banner(: Str {
+  |          ^ opened here
+  |
+  = fix: write `)` here

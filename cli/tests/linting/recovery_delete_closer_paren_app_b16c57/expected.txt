@@ -1,0 +1,27 @@
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_paren_app_b16c57/main.buri:15:49
+   |
+15 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+error: `Str` has no method `mapErr` [unknown-method]
+  --> lib/recovery_delete_closer_paren_app_b16c57/main.buri:20:30
+   |
+20 |     io.println(ctx, banner().mapErr(fn(_e) => "could not write to standard output") // a trailing comment
+   |                              ^^^^^^
+   |
+   = fix: check the spelling — `buri docs core/str` lists every method `Str` has
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_b16c57/main.buri:21:1
+   |
+21 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_b16c57/main.buri:20:15
+   |
+20 |     io.println(ctx, banner().mapErr(fn(_e) => "could not write to standard output") // a trailing comment
+   |               ^ opened here
+   |
+   = fix: write `)` here

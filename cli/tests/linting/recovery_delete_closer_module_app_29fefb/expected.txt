@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_29fefb/main.buri:23:1
+   |
+23 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_29fefb/main.buri:15:49
+   |
+15 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ opened here
+   |
+   = fix: write `}` here
