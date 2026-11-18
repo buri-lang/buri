@@ -18,13 +18,13 @@ crates/docs                        246/246  100.00%           816/916   89.08%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1094/1114   98.20%         5731/5976   95.90%
 crates/llvm                        558/558  100.00%         7691/7885   97.54%
-crates/middle                    2569/2594   99.04%       18378/18917   97.15%
+crates/middle                    2564/2588   99.07%       18410/18951   97.15%
 crates/project                   1338/1340   99.85%         6359/6519   97.55%
 crates/semantics                 2300/2300  100.00%       14402/14688   98.05%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
-crates/stencil                   1110/1118   99.28%         8356/8854   94.38%
+crates/stencil                   1124/1132   99.29%         8406/8904   94.41%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16255/16336   99.50%     105914/109065   97.11%
+total                          16264/16344   99.51%     105996/109149   97.11%
 
 cli/src                           branches                      lines         
 build                            1778/1780   99.89%       12115/12428   97.48%
@@ -58,12 +58,12 @@ uncovered          branches           file
        18           526/544   96.69%  crates/js/src/compiler/backend/js/javascript.rs
        10           472/482   97.93%  cli/src/commands/test.rs
         8           182/190   95.79%  crates/middle/src/compiler/middle/monomorphize.rs
-        5           203/208   97.60%  crates/middle/src/compiler/middle/derives.rs
-        5           701/706   99.29%  crates/middle/src/compiler/middle/rc.rs
+        5           703/708   99.29%  crates/middle/src/compiler/middle/rc.rs
+        4           196/200   98.00%  crates/middle/src/compiler/middle/derives.rs
         3           157/160   98.12%  cli/src/language_server/mod.rs
         3             45/48   93.75%  crates/middle/src/compiler/middle/coverage/derived.rs
         3           105/108   97.22%  crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-        3           465/468   99.36%  crates/stencil/src/compiler/backend/stencil/jit.rs
+        3           479/482   99.38%  crates/stencil/src/compiler/backend/stencil/jit.rs
         2           310/312   99.36%  crates/js/src/compiler/backend/js/generate.rs
         2             46/48   95.83%  crates/stencil/src/compiler/backend/stencil/mod.rs
         2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/object.rs

@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16255 16336 99.50%
+total 16264 16344 99.51%
 area cli/build 1778 1780 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,11 +19,11 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
-area crates/middle 2569 2594 99.04%
+area crates/middle 2564 2588 99.07%
 area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1110 1118 99.28%
+area crates/stencil 1124 1132 99.29%
 area crates/syntax 1268 1268 100.00%
 280 281 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -145,7 +145,7 @@ area crates/syntax 1268 1268 100.00%
 138 138 crates/middle/src/compiler/middle/coverage/mod.rs
 18 18 crates/middle/src/compiler/middle/dce.rs
 36 36 crates/middle/src/compiler/middle/decision.rs
-203 208 crates/middle/src/compiler/middle/derives.rs
+196 200 crates/middle/src/compiler/middle/derives.rs
 0 0 crates/middle/src/compiler/middle/fingerprint.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
@@ -163,7 +163,7 @@ area crates/syntax 1268 1268 100.00%
 52 52 crates/middle/src/compiler/middle/monomorphize/narrow.rs
 116 116 crates/middle/src/compiler/middle/monomorphize/upsert.rs
 62 62 crates/middle/src/compiler/middle/pairs.rs
-701 706 crates/middle/src/compiler/middle/rc.rs
+703 708 crates/middle/src/compiler/middle/rc.rs
 100 100 crates/middle/src/compiler/middle/slices.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 60 60 crates/middle/src/compiler/middle/vacate.rs
@@ -209,7 +209,7 @@ area crates/syntax 1268 1268 100.00%
 35 36 crates/stencil/src/compiler/backend/stencil/elf.rs
 302 302 crates/stencil/src/compiler/backend/stencil/emit.rs
 86 86 crates/stencil/src/compiler/backend/stencil/glue.rs
-465 468 crates/stencil/src/compiler/backend/stencil/jit.rs
+479 482 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 14 14 crates/stencil/src/compiler/backend/stencil/lists.rs
 46 48 crates/stencil/src/compiler/backend/stencil/mod.rs
