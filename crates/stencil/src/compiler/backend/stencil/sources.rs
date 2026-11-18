@@ -557,11 +557,16 @@ fn moves(o: &mut Out) {
             ),
         );
     }
-    // A copy whose size is itself a hole, for an aggregate wider than the
-    // widest fixed stencil.
+    // `N` runs of thirty-two bytes, front to back, for an aggregate wider than
+    // a few `mov/32`s (`Jit::mv`). A loop rather than a `memcpy` of `32 * N`,
+    // which would be a call, and the empty `asm` keeps clang's loop-idiom pass
+    // from turning the loop back into one.
     o.push(
-        "mov/n",
-        "void $NAME(ARGS) { memcpy((char*)fp + OFF(_JIT_D), (char*)fp + OFF(_JIT_A), OFF(_JIT_N)); TAIL; }"
+        "mov/32n",
+        "void $NAME(ARGS) { char *d = (char*)fp + OFF(_JIT_D); \
+         const char *s = (const char*)fp + OFF(_JIT_A); uintptr_t n = OFF(_JIT_N); \
+         do { memcpy(d, s, 32); d += 32; s += 32; __asm__ volatile(\"\" ::: \"memory\"); } \
+         while (--n); TAIL; }"
             .into(),
     );
     // Store an immediate: 64-bit through the constant pool, and a 32-bit form
@@ -1630,17 +1635,6 @@ fn runtime_calls(o: &mut Out) {
             .into(),
     );
 
-    // A copy between two addresses held in frame slots, with the count in a
-    // third. `mov/n` copies frame to frame with a constant size; this is the
-    // form where all three are values. No emitter reaches it today —
-    // `str.concat` was its one caller and now calls the runtime — and it stays
-    // because the shape is the general one, not that operation's.
-    o.push(
-        "memcpy/p",
-        "void $NAME(ARGS0) { memcpy((void *)AT(uint64_t, _JIT_D), \
-         (const void *)AT(uint64_t, _JIT_A), AT(uint64_t, _JIT_B)); TAIL0; }"
-            .into(),
-    );
     // The address of a frame slot, for an argument the C side takes by
     // reference: an out-pointer, or a `T` whose width the runtime learns from a
     // stride rather than from a type.

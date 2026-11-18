@@ -2126,3 +2126,69 @@ fn a_javascript_build_folds_one_body_once() {
         .ok()
         .says(&format!("total {}", twin_total(40)));
 }
+
+/// A record of `n` `Int` fields that `steps` recursive functions each take
+/// unchanged three calls deep and read one field of, and the sum `main`
+/// prints of them.
+fn wide_record_passed(n: usize, steps: usize) -> (String, String, usize) {
+    let fields: Vec<String> = (0..n).map(|i| format!("    a{i}: Int,")).collect();
+    let made: Vec<String> = (0..n).map(|i| format!("a{i}: {i}")).collect();
+    let field = |s: usize| s * (n - 1) / steps.max(2);
+    let bumps: String = (0..steps)
+        .map(|s| {
+            let f = field(s);
+            format!(
+                "fn bump{s}(r: R, k: Int): Int {{\n    \
+                 if (k <= 0) {{ r.a{f} }} else {{ bump{s}(r, k - 1) + 1 }}\n}}\n"
+            )
+        })
+        .collect();
+    let items = format!(
+        "struct R {{\n{fields}\n}}\n\n{bumps}",
+        fields = fields.join("\n")
+    );
+    let sum: Vec<String> = (0..steps).map(|s| format!("bump{s}(r, 3)")).collect();
+    let body = format!(
+        "    let r = R {{ {made} }};\n    let t = {sum};\n    \
+         let _ = io.println(ctx, \"${{t}}\").ignore();\n",
+        made = made.join(", "),
+        sum = sum.join(" + "),
+    );
+    (items, body, (0..steps).map(|s| field(s) + 3).sum())
+}
+
+/// **A wide record passed between functions runs right, and a copy of it is a
+/// few holes however wide it is.** Each copy was a stencil per thirty-two
+/// bytes, so a record of a few hundred words passed to a call was hundreds of
+/// stencils laid out and patched one by one. PERFORMANCE.md §6.152.
+#[test]
+fn a_wide_record_passed_between_functions_runs_and_copies_in_a_few_holes() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = wide_record_passed(n, 12);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        work_count(&run.all(), "holes patched").unwrap()
+    };
+    // 67 fields is 536 bytes, which leaves a tail after the looped runs. The
+    // record's literal alone costs about six holes a field; copies by the
+    // run of thirty-two bytes cost four times that.
+    let (narrow, wide) = (holes(67), holes(201));
+    let per_field = (wide - narrow) / 134.0;
+    assert!(
+        per_field <= 12.0,
+        "a record 134 fields wider patched {per_field:.1} more holes per field \
+         ({narrow} at 67 fields, {wide} at 201)"
+    );
+}
