@@ -422,6 +422,107 @@ test "the literals a derived Show writes" {
     );
 }
 
+/// Strings a template or a derived `Show` writes, passed straight to a
+/// function and given back after it: to a callee that keeps them, to one that
+/// hands them on to itself, read before the call too, and list items and
+/// values of every width passed to closures.
+#[test]
+fn written_strings_and_closure_arguments_arrive_whole() {
+    passes(
+        "written-arguments",
+        r#"from "core/testing/assert" import * as assert;
+from "core/str" import * as str;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+derive Equal, Show for Job;
+enum Job {
+    Running(Int),
+    Done,
+}
+
+struct Pair {
+    a: Int,
+    b: Str,
+}
+
+fn size(s: Str): Int {
+    s.length()
+}
+
+fn both(a: Str, n: Int, b: Str): Int {
+    a.length() * 100 + n * 10 + b.length()
+}
+
+fn again(s: Str, n: Int): Int {
+    if (n <= 0) { s.length() } else { again(s, n - 1) }
+}
+
+fn keep(s: Str): Pair {
+    Pair { a: s.length(), b: s }
+}
+
+test "templates passed to functions" {
+    let ctx = context { Allocator: alloc() };
+    let n = 42;
+    assert.equal(size(str.format(ctx, "n=${n}")), 4);
+    assert.equal(both(str.format(ctx, "${n}"), size(str.format(ctx, "${n}!")), str.format(ctx, "<${n}>")), 234);
+    assert.equal(again(str.format(ctx, "${n}${n}"), 3), 4);
+    assert.equal(keep(str.format(ctx, "${n}-")).b, "42-");
+}
+
+test "derived shows passed to functions" {
+    let ctx = context { Allocator: alloc() };
+    assert.equal(size(Job.Running(size("abc")).show(ctx)), 11);
+    assert.equal(both(Job.Done.show(ctx), 1, Job.Running(7).show(ctx)), 521);
+    assert.equal(keep(Job.Running(2).show(ctx)).b, ".Running(2)");
+}
+
+test "a string read before the call it is passed to" {
+    let ctx = context { Allocator: alloc() };
+    let s = str.format(ctx, "${size("ab")}x");
+    assert.equal(s.length() + size(s), 4);
+    let t = Job.Done.show(ctx);
+    assert.equal(both(t, t.length(), t), 555);
+}
+
+test "list items and every width passed to closures" {
+    let ctx = context { Allocator: alloc() };
+    let xs = ["a", "bb", str.format(ctx, "${size("ccc")}")];
+    assert.equal(xs.map(ctx, fn(s) => s.length()), [1, 2, 1]);
+    assert.equal(xs.map(ctx, fn(s) => size(s) + s.length()), [2, 4, 2]);
+    let top: I128 = 170141183460469231731687303715884105727;
+    let f = fn(w: I128, p: Pair, k: Bool, s: Str) => if (k && p.a == s.length()) { w - 1 } else { w - 2 };
+    assert.equal(f(top, Pair { a: 39, b: "z" }, true, str.format(ctx, "${top}")), top - 1);
+    assert.equal(f(top, keep("abc"), true, "q"), top - 2);
+    let g = fn(x: Int, s: Str) => x * 2 + s.length();
+    assert.equal(g(g(3, Job.Done.show(ctx)), str.format(ctx, "${top}")), 61);
+}
+
+struct Held {
+    run: fn(I128, Bool, Str, Int) => I128,
+}
+
+fn through(h: Held, n: Int): I128 {
+    let run = h.run;
+    run(170141183460469231731687303715884105727, n > 0, "four", n)
+}
+
+test "constants and written strings passed to a held closure" {
+    let ctx = context { Allocator: alloc() };
+    let h = Held { run: fn(w, k, s, n) => if (k && s.length() == n) { w - 1 } else { w - 2 } };
+    let top: I128 = 170141183460469231731687303715884105727;
+    assert.equal(through(h, 4), top - 1);
+    assert.equal(through(h, 3), top - 2);
+    let run = h.run;
+    assert.equal(run(top, true, str.format(ctx, "${size("abc")}"), 1), top - 1);
+    assert.equal(run(7, true, Job.Done.show(ctx), 5), 6);
+}
+"#,
+        5,
+    );
+}
+
 /// Records and enums built straight into a call's argument list: from other
 /// calls' answers, from fields loaded out of another record, past more calls
 /// made for the same arguments, wide ones, nested ones, and two in one call.

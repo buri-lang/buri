@@ -2435,6 +2435,74 @@ fn records_built_for_calls_are_built_where_the_callee_reads_them() {
     );
 }
 
+/// `n` structs of their own type, each pair of them mapped through a closure
+/// that reads both fields, with a `main` that prints the sum of the mapped
+/// lists' lengths. Answers the items, the body and what it prints.
+fn items_mapped_by_closures(n: usize) -> (String, String, usize) {
+    let items: String = (0..n)
+        .map(|i| format!("struct Item{i} {{\n    a: Int,\n    b: Str,\n}}\n\n"))
+        .collect();
+    let sum: Vec<String> = (0..n)
+        .map(|i| {
+            format!(
+                "[Item{i} {{ a: t, b: \"x{i}\" }}, Item{i} {{ a: {i}, b: \"y\" }}]\
+                 .map(ctx, fn(s) => s.a + s.b.length()).length()"
+            )
+        })
+        .collect();
+    let body = format!(
+        "    let t = 3;\n    let u = {};\n    let _ = io.println(ctx, \"${{u}}\").ignore();\n",
+        sum.join(" + ")
+    );
+    (items, body, 2 * n)
+}
+
+/// **A closure's argument and answer stay in its frame.** Each list item
+/// `map` hands its closure was loaded into the caller's frame and copied into
+/// the closure's, and the closure's answer was copied back out before it was
+/// stored. Now the item is loaded where the closure reads it, and the answer
+/// stored from where the closure wrote it.
+#[test]
+fn closure_arguments_and_answers_stay_in_the_closures_frame() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = items_mapped_by_closures(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        let all = run.all();
+        (
+            work_count(&all, "holes copying arguments").unwrap(),
+            work_count(&all, "holes copying results").unwrap(),
+        )
+    };
+    let ((few_args, few_results), (many_args, many_results)) = (holes(8), holes(24));
+    // Each type's `map` copied 6 holes of arguments: 3 were the item.
+    let args = (many_args - few_args) / 16.0;
+    assert!(
+        args <= 3.0,
+        "16 more types copied {args:.1} more holes each of arguments \
+         ({few_args} at 8, {many_args} at 24)"
+    );
+    // And 3 of results, the closure's answer.
+    let results = (many_results - few_results) / 16.0;
+    assert!(
+        results < 1.0,
+        "16 more types copied {results:.1} more holes each of results \
+         ({few_results} at 8, {many_results} at 24)"
+    );
+}
+
 /// A library whose eight tests each call one function generic over a
 /// `Random` context: from eight contexts that bind `Random` among other
 /// effects, in other orders, or from eight of the one that binds all three.

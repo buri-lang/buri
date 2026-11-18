@@ -10588,6 +10588,37 @@ holds the argument copies per added call, and
 `odd_sizes::records_built_as_arguments_arrive_whole` passes records and enums
 built from calls' answers, loaded fields and nested records on every backend.
 
+### 6.159 Closure calls and written strings keep to the callee's frame, 2026-11-18
+
+```text
+                              before      after       change
+bench full, holes patched     4.360 M     4.289 M     -1.6%
+  copying arguments           178.1 k     118.9 k     -33%
+  copying results             139.2 k     127.5 k     -8.4%
+```
+
+`pin_call_values` now pins three more kinds of value in the callee's frame:
+
+- A closure call's arguments and result, at `call_indirect`'s layout: the
+  result, the environment pointer, then each argument. `map` handing each
+  list item to its step was the largest share. A constant argument is
+  written there by the call, as for a direct call.
+- An argument also read before the call, such as a list item counted by an
+  `IncRef` first. Those reads find it in the callee's frame too.
+- A template's `str.concat` or a derived `show` or `hash` leaf passed to a
+  call. These intrinsics call only C, so they leave the callee's frame alone,
+  and so do `IncRef` and `DecRef`, whose glue runs on the machine stack.
+
+An argument a `DecRef` drops after the call stays pinned only when the
+callee's entry block hands that parameter on nowhere. Then no other value
+shares its slot, and the callee never writes it.
+
+`profile::closure_arguments_and_answers_stay_in_the_closures_frame` holds the
+argument and result copies per added `map`.
+`odd_sizes::written_strings_and_closure_arguments_arrive_whole` passes
+templates, shows, list items and values of every width to functions and
+closures on every backend.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

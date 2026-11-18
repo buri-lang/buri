@@ -1400,13 +1400,7 @@ impl<'a> Jit<'a> {
             }
         }
         let base = st.frame.size;
-        // The constants pinned in the callee's frame, written now.
-        for a in args {
-            let block = &code.get(st.cur).insts;
-            if let Some(c) = st.sunk.get(*a).and_then(|k| block.get(k as usize)) {
-                self.inst(prog, code, st, c);
-            }
-        }
+        self.sunk_args(prog, code, st, args);
         let callee = self.frame_sig_of(func);
         for (a, off) in args.iter().zip(&callee.params) {
             // A zero-sized argument — a lifted lambda's empty environment —
@@ -1496,6 +1490,23 @@ impl<'a> Jit<'a> {
         true
     }
 
+    /// The constant arguments pinned in the callee's frame ([`Fn2::sunk`]),
+    /// written just before the call.
+    fn sunk_args(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &mut Fn2,
+        args: &[ir::ValueId],
+    ) {
+        for a in args {
+            let block = &code.get(st.cur).insts;
+            if let Some(c) = st.sunk.get(*a).and_then(|k| block.get(k as usize)) {
+                self.inst(prog, code, st, c);
+            }
+        }
+    }
+
     fn call_indirect(
         &mut self,
         prog: &ir::Program,
@@ -1517,6 +1528,7 @@ impl<'a> Jit<'a> {
             params.push(at);
             at += self.slot_bytes_of(prog, code.ty_of(*a));
         }
+        self.sunk_args(prog, code, st, args);
         let c = st.at(callee);
         self.mv_at(CopySite::Arguments, base + env_at, c + 8, 8);
         // `params` was pushed one entry per argument just above, so zipping it

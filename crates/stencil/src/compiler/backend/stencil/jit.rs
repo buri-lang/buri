@@ -2231,7 +2231,7 @@ impl<'a> Jit<'a> {
         {
             self.coalesce(code, order, &mut uf, &mut pin, &width, uses, opnd);
         }
-        self.pin_call_values(prog, code, &uf, &mut pin, frame.size, uses, opnd);
+        self.pin_call_values(prog, code, &uf, &mut pin, frame.size, &width, uses, opnd);
         // One slot per class: the pinned offset when the class holds a
         // parameter or a return value, a fresh one otherwise.
         let mut at = frame.param_end;
@@ -2468,7 +2468,7 @@ impl<'a> Jit<'a> {
                                 | ir::Inst::Binary { .. }
                                 | ir::Inst::Unary { .. }
                         )
-                    ) && def.is_some_and(keeps_callee_frame);
+                    ) && def.is_some_and(|i| keeps_callee_frame(i, self.routes));
                     if !loads {
                         continue;
                     }
@@ -2754,9 +2754,10 @@ impl<'a> Jit<'a> {
         self.bufs.grown = grown;
     }
 
-    /// (i.c) A value that only crosses a direct call lives **in the callee's
+    /// (i.c) A value that only crosses a call lives **in the callee's
     /// frame**: an argument where the callee reads its parameter, a result
-    /// where the callee left it. That deletes the copy between the value's own
+    /// where the callee left it. A direct call's callee has a frame layout of
+    /// its own; a closure's is `call_indirect`'s. That deletes the copy between the value's own
     /// slot and the callee's, on each side of the call — the load and store a
     /// list loop otherwise pays per element for the element it hands its step
     /// and the answer it takes back.
@@ -2768,10 +2769,13 @@ impl<'a> Jit<'a> {
     /// class of its own, used in its defining block:
     ///
     ///  * a **result**, whose every use is in the block after the call;
-    ///  * an **argument**, used once, by that call, and defined by an
-    ///    instruction that writes nothing but its own slot, a record or an
-    ///    enum built for the call among them. Its definition must
-    ///    not land inside a pinned result's life, whose slot it could overlap;
+    ///  * an **argument**, last read by that call, and defined by an
+    ///    instruction that writes nothing but its own slot, a record, an enum,
+    ///    a template or a derived leaf built for the call among them. A direct
+    ///    call's argument may instead be last read by a `DecRef` past the
+    ///    call, when the callee never writes that parameter's slot. Its
+    ///    definition must not land inside a pinned result's life, whose slot
+    ///    it could overlap;
     ///  * a **constant** argument used once, by that call, which the call
     ///    writes itself ([`Fn2::sunk`]), so nothing between needs checking.
     #[allow(
@@ -2785,10 +2789,15 @@ impl<'a> Jit<'a> {
         uf: &ir::PerValue<ir::ValueId>,
         pin: &mut ir::PerValue<Option<u32>>,
         frame_size: u32,
+        width: &ir::PerValue<u32>,
         uses: &ir::PerValue<u32>,
         opnd: &Operands,
     ) {
-        let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
+        let has_call = |b: &ir::Block| {
+            b.insts
+                .iter()
+                .any(|i| matches!(i, ir::Inst::Call { .. } | ir::Inst::CallIndirect { .. }))
+        };
         if !code.blocks().iter().any(has_call) {
             self.bufs.sunk = code.per_value_in(&mut self.bufs.sunk, None);
             return;
@@ -2808,6 +2817,7 @@ impl<'a> Jit<'a> {
         let mut defs = code.per_value_in(&mut self.bufs.defs, None);
         let mut sunk = code.per_value_in(&mut self.bufs.sunk, None);
         let mut kept = std::mem::take(&mut self.bufs.kept);
+        let mut offs: Vec<u32> = Vec::new();
         for (bid, b) in code.iter() {
             if !has_call(b) {
                 continue;
@@ -2822,7 +2832,7 @@ impl<'a> Jit<'a> {
                 for d in i.results() {
                     *defs.get_mut(*d) = Some((bid, k));
                 }
-                so_far += usize::from(keeps_callee_frame(i));
+                so_far += usize::from(keeps_callee_frame(i, self.routes));
                 kept.push(so_far);
             }
             for k in 0..b.insts.len() {
@@ -2840,12 +2850,11 @@ impl<'a> Jit<'a> {
             };
             let mut results: Vec<(usize, usize)> = Vec::new();
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::Call { dest: d, func, .. } = *i else {
-                    continue;
+                let d = match *i {
+                    ir::Inst::Call { dest, func, .. } if calls_code(&func) => dest,
+                    ir::Inst::CallIndirect { dest, .. } => dest,
+                    _ => continue,
                 };
-                if !calls_code(&func) {
-                    continue;
-                }
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
                 // A value is read after its definition (`ir::verify`), so
@@ -2883,14 +2892,39 @@ impl<'a> Jit<'a> {
                 results.push((j, end));
             }
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::Call { func, args, .. } = i else {
-                    continue;
+                // Each argument's offset in the callee's frame, and the
+                // callee's entry block where the call names its body.
+                offs.clear();
+                let (args, entry) = match i {
+                    ir::Inst::Call { func, args, .. } => {
+                        let ir::Body::Code(callee) = &prog.funcs.get(*func).body else {
+                            continue;
+                        };
+                        offs.extend_from_slice(&self.frames.get(*func).params);
+                        (args, Some(callee.entry()))
+                    }
+                    // `call_indirect`'s layout: the result, the environment's
+                    // pointer, and then each argument.
+                    ir::Inst::CallIndirect { dest, args, .. } => {
+                        let mut at = RET + *width.get(*dest) + 8;
+                        for a in args {
+                            offs.push(at);
+                            at += *width.get(*a);
+                        }
+                        (args, None)
+                    }
+                    _ => continue,
                 };
-                if !calls_code(func) {
-                    continue;
-                }
-                let fs = self.frames.get(*func);
-                for (a, off) in args.iter().zip(fs.params.iter()) {
+                // A parameter the callee's entry block passes on nowhere:
+                // `coalesce` merges no other value into it, so the callee
+                // never writes its slot.
+                let params: &[ir::ValueId] = entry.map_or(&[], |e| &e.params);
+                let unwritten = |p: usize| {
+                    params.get(p).is_some_and(|v| {
+                        !entry.is_some_and(|e| e.term.targets().any(|t| t.args.contains(v)))
+                    })
+                };
+                for (p, (a, off)) in args.iter().zip(offs.iter()).enumerate() {
                     let Some(k) = def_at(*a).filter(|k| *k < j) else {
                         continue;
                     };
@@ -2917,20 +2951,50 @@ impl<'a> Jit<'a> {
                                 | ir::Inst::GetTag { .. }
                                 | ir::Inst::MakeStruct { .. }
                                 | ir::Inst::MakeEnum { .. }
+                                | ir::Inst::CallIntrinsic { .. }
                         )
-                    ) && b.insts.get(k).is_some_and(keeps_callee_frame);
-                    // Read once, by this call, so no edge merged it, and
-                    // defined by an instruction, so it is no entry parameter;
-                    // the values pinned above are a call's result and a
-                    // `FromBool` read before the next call.
+                    ) && b
+                        .insts
+                        .get(k)
+                        .is_some_and(|i| keeps_callee_frame(i, self.routes));
+                    // Read once more, by a `DecRef` after the call, in a
+                    // parameter the callee leaves alone: the drop reads what
+                    // the call was handed.
+                    let dropped = |r: &BlockUses| {
+                        r.count == 2
+                            && matches!(b.insts.get(r.last), Some(ir::Inst::DecRef { .. }))
+                            && unwritten(p)
+                    };
+                    // Every read is in this block, the last by this call or
+                    // else by that `DecRef`.
+                    let Some(r) = read_at(*a).filter(|r| r.count == *uses.get(*a)) else {
+                        continue;
+                    };
+                    let end = if r.last == j {
+                        j
+                    } else if dropped(&r) {
+                        r.last
+                    } else {
+                        continue;
+                    };
+                    // Read by instructions alone, so no edge merged it, and
+                    // defined by an instruction, so it is no entry parameter.
+                    // What reads it before the call reads it here. Across its
+                    // life, `k + 1..=end`, only the call writes the callee's
+                    // frame. Its definition lands in no other value's life in
+                    // a callee's frame: a call's result, a `FromBool` read
+                    // before the next call, or an argument a `DecRef` reads
+                    // after its call.
                     if !defines
-                        || *uses.get(*a) != 1
-                        || !pure(k + 1, j)
+                        || ent(&kept, end + 1, 0) - ent(&kept, k + 1, 0) != end - k - 1
                         || results.iter().any(|(rj, re)| *rj < k && k <= *re)
                     {
                         continue;
                     }
                     *pin.get_mut(*a) = Some(frame_size + off);
+                    if end > j {
+                        results.push((j, end));
+                    }
                 }
             }
         }
@@ -3828,8 +3892,17 @@ fn uses(st: &Fn2, v: ir::ValueId) -> usize {
 /// own frame out there, and so may anything that reaches a helper; what is
 /// listed here writes only frame slots and scratch, or calls only C, which
 /// runs on the machine stack.
-fn keeps_callee_frame(i: &ir::Inst) -> bool {
+fn keeps_callee_frame(i: &ir::Inst, routes: &super::route::Routes<'_>) -> bool {
+    use super::route::Call;
+    use crate::compiler::backend::intrinsic_keys::Leaf;
     match i {
+        // A template's `str.concat` and a derived `show` or `hash` leaf call
+        // only C. Any other intrinsic has a runtime row, which may run a Buri
+        // step in the frame past this one (`glue.rs`'s entry thunk).
+        ir::Inst::CallIntrinsic { key, .. } => matches!(
+            routes.calls.get(*key),
+            Call::Concat | Call::Derive(Leaf::Show | Leaf::Hash, _)
+        ),
         ir::Inst::Binary { prim, .. } => !matches!(
             prim,
             crate::compiler::semantics::types::Prim::Str
@@ -3845,7 +3918,11 @@ fn keeps_callee_frame(i: &ir::Inst) -> bool {
         | ir::Inst::ArrayLen { .. }
         | ir::Inst::ArrayGet { .. }
         | ir::Inst::ArraySet { .. }
-        | ir::Inst::ArrayPrefix { .. } => true,
+        | ir::Inst::ArrayPrefix { .. }
+        // A count is open-coded, and a dying block's glue runs on the
+        // machine stack (`glue.rs`).
+        | ir::Inst::IncRef { .. }
+        | ir::Inst::DecRef { .. } => true,
         _ => false,
     }
 }
