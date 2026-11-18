@@ -2926,6 +2926,13 @@ struct Flight {
 }
 
 impl Flight {
+    fn new(done: bool) -> Flight {
+        Flight {
+            done: std::sync::Mutex::new(done),
+            ended: std::sync::Condvar::new(),
+        }
+    }
+
     fn wait(&self) {
         let mut done = self
             .done
@@ -2997,6 +3004,11 @@ impl Flights {
     }
 
     /// The units of `missing` this build emits, and the ones it waits for.
+    ///
+    /// A unit this round already emitted is waited for too, as one already
+    /// done. `missing` was read from the cache before the claim, and another
+    /// build may have stored the unit and released it in between: then no
+    /// flight holds it, and claiming it would emit it a second time.
     fn claim<'a>(
         cache: &Cache,
         missing: &[Coded<'a>],
@@ -3011,13 +3023,13 @@ impl Flights {
         for &unit in missing {
             let (_, key) = unit;
             let name = cache.path(key);
-            match flights.get(&name) {
-                Some(flight) => theirs.push((unit, std::sync::Arc::clone(flight))),
+            let held = flights.get(&name).map(std::sync::Arc::clone).or_else(|| {
+                Flights::landed(cache, key).then(|| std::sync::Arc::new(Flight::new(true)))
+            });
+            match held {
+                Some(flight) => theirs.push((unit, flight)),
                 None => {
-                    let flight = std::sync::Arc::new(Flight {
-                        done: std::sync::Mutex::new(false),
-                        ended: std::sync::Condvar::new(),
-                    });
+                    let flight = std::sync::Arc::new(Flight::new(false));
                     flights.insert(name.clone(), std::sync::Arc::clone(&flight));
                     mine.units.push(unit);
                     mine.names.push(name);
@@ -4781,6 +4793,36 @@ mod tests {
     /// rather than refused. Both halves are asserted, and so is the release —
     /// a claim that outlived its holder would turn the fallback into the only
     /// path.
+    #[test]
+    fn a_unit_another_build_stored_after_this_one_looked_is_not_emitted_again() {
+        let root = std::env::temp_dir().join(format!("buri-flights-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache = Cache::open(&root);
+        let key = crate::build::cache::ActionKey::of(b"a shared unit");
+        let keys = vec![("shared".to_string(), key.clone())];
+        let object = |bytes: &[u8]| Emitted {
+            name: "shared.o".to_string(),
+            key: Some(key.clone()),
+            bytes: bytes.to_vec(),
+        };
+        // This build looked in the cache and missed. Another then emitted the
+        // unit, stored it and released its claim, before this one claimed.
+        let first = codegen_units_with(&cache, &keys, vec![None], |_| Ok(vec![object(b"theirs")]));
+        assert!(first.is_ok());
+        let mut asked = 0;
+        let second = codegen_units_with(&cache, &keys, vec![None], |_| {
+            asked += 1;
+            Ok(vec![object(b"mine")])
+        });
+        let second = second.unwrap_or_default();
+        assert_eq!(asked, 0, "the unit was emitted twice");
+        assert_eq!(
+            second.first().map(|(e, _)| e.bytes.as_slice()),
+            Some(&b"theirs"[..])
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn the_shared_runner_is_held_by_one_suite_at_a_time() {
         let dir = std::env::temp_dir().join(format!("buri-runner-{}", std::process::id()));
