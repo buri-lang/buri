@@ -2192,3 +2192,81 @@ fn a_wide_record_passed_between_functions_runs_and_copies_in_a_few_holes() {
          ({narrow} at 134 fields, {wide} at 402)"
     );
 }
+
+/// A library whose eight tests each call one function generic over a
+/// `Random` context: from eight contexts that bind `Random` among other
+/// effects, in other orders, or from eight of the one that binds all three.
+fn random_from_contexts(shapes: bool) -> Scratch {
+    let scratch = Scratch::repo("profile-context-shapes");
+    scratch.write(
+        "lib/spin/BUILD.buri",
+        "library {\n  test { sources: [\"test/spin.buri\"] }\n}\n",
+    );
+    scratch.write(
+        "lib/spin/lib.buri",
+        "from \"core/random\" import * as random;\n\
+         from \"platform/effect\" import { Random };\n\n\
+         export struct Mul(Int);\n\n\
+         export fn mul(k: Int): Mul {\n    Mul(k)\n}\n\n\
+         impl Random for Mul {\n    \
+         fn nextInt(self, low: Int, high: Int): Int {\n        (low * self.0 + high) % 1000003\n    }\n\n    \
+         fn nextFloat(self): Float {\n        0.5\n    }\n}\n\n\
+         fn step<C: Random>(ctx: C, n: Int): Int {\n    \
+         if (n == 0) { 0 } else { random.int(ctx, n, 1) + step(ctx, n - 1) }\n}\n\n\
+         export fn twice<C: Random>(ctx: C): Int {\n    step(ctx, 3) + random.int(ctx, 1, 0)\n}\n",
+    );
+    // `R` is where `Random` goes.
+    let shaped = [
+        "R",
+        "R, Allocator: alloc()",
+        "Allocator: alloc(), R",
+        "R, Stdout: stdout()",
+        "Stdout: stdout(), R",
+        "Allocator: alloc(), Stdout: stdout(), R",
+        "R, Allocator: alloc(), Stdout: stdout()",
+        "Stdout: stdout(), R, Allocator: alloc()",
+    ];
+    let mut tests = "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Allocator, Random, Stdout };\n\
+         from \"platform/effect/testing\" import { alloc, stdout };\n\
+         from \"//lib/spin\" import { mul, twice };\n"
+        .to_string();
+    for k in 1..=8 {
+        let shape = shaped[if shapes { k - 1 } else { 6 }];
+        let fields = shape.replace('R', &format!("Random: mul({k})"));
+        // Seven times `k`, plus three.
+        tests.push_str(&format!(
+            "\ntest \"shape {k}\" {{\n    assert.equal(twice(context {{ {fields} }}), {});\n}}\n",
+            7 * k + 3
+        ));
+    }
+    scratch.write("lib/spin/test/spin.buri", &tests);
+    scratch
+}
+
+/// **A function generic over its caller's context has one body for every
+/// context that binds the same implementations of the effects it names.**
+/// Each shape of context a test held made a copy of the function and of all
+/// it called with that context: tests holding eight shapes made eight copies
+/// of a library function. A count of the functions instantiated, which no
+/// load can move. PERFORMANCE.md §6.153.
+#[test]
+fn a_function_generic_over_its_context_has_one_body_for_many_context_shapes() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let instantiated = |shapes: bool| {
+        let run = random_from_contexts(shapes).run_with_env(
+            &["test", "//..."],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok().says("8 passed, 0 failed");
+        work_count(&run.all(), "functions instantiated").unwrap()
+    };
+    let (many, one) = (instantiated(true), instantiated(false));
+    assert!(
+        many <= one,
+        "eight shapes of context instantiated {many} functions, against {one} for one shape"
+    );
+}

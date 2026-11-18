@@ -10427,6 +10427,51 @@ calls cost 4.26 M holes and struct building and field reads 1.7 M more.
 calls. It checks the printed sum, and that each added field costs at most
 12 holes: the literal costs about 6, and the unrolled copies cost 24.
 
+### 6.153 A test's call gets a body for the effects its callee names, 2026-11-17
+
+```text
+test build, BURI_THREADS=1    one per context   narrowed   change
+monomorphize                  4.27 B            3.86 B     -9.6%
+middle                        14.40 B           11.75 B    -18.4%
+emit                          28.31 B           23.60 B    -16.6%
+link                          4.47 B            3.30 B     -26.2%
+total                         78.79 B           69.25 B    -12.1%
+bench full, buri build        35.80 B           35.86 B    +0.2% (doesn't narrow)
+```
+
+`fn f<C: Stdout>(ctx: C)` called from eight tests with eight different
+contexts was eight bodies, alike apart from where each context keeps
+`Stdout`. A native `buri test` now calls it at one context that binds only
+the effects `C` is bounded by, in `TraitId` order. The caller builds that
+context from its own.
+
+- It applies when every bound of `C` is an effect, the return type doesn't
+  name `C`, and each parameter that names it is exactly `C`. JS and coverage
+  builds don't narrow.
+- `Tables::add_narrowed_contexts` adds those contexts while checking, so
+  monomorphizing only looks them up.
+- `core/tasks` keeps tasks typed `fn(C) => ()` in runtime storage, and a
+  drain at the narrowed context would run tasks queued at the caller's. So
+  `narrow.rs` narrows `C` only if no type built from it reaches a runtime
+  operation that keeps a value, there or in any callee it hands such a type
+  on to. The operations of `core/list`, `core/map`, `core/str` and the other
+  value modules keep nothing, so any type may reach them. Without that rule,
+  three suites of the test build failed.
+- That check walks every body `C` reaches, and stops at the first one that
+  rules it out. It's asked last, only for a call whose context would change.
+- `buri build` doesn't narrow. A program mostly runs at one context, so the
+  walk was all cost: 1.6% of bench `full`, 12 programs with nothing to share.
+  A rule that kept each function's first context whole cut that to 0.2%, but
+  it also kept only -7.0% of the test build's -12.1%.
+
+`context_narrowing.rs` runs nine tests over every build mode and JS: wider
+contexts in any order, narrowing twice, a trait method on a known and on a
+generic receiver, a context read from a field, tasks spawned into the
+caller's scope, and an actor. `profile.rs`
+checks that eight tests calling a function from eight context shapes
+instantiate no more functions than eight tests that all use one shape:
+18 against 18, and 39 without narrowing.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

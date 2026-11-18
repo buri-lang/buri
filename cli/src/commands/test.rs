@@ -1747,8 +1747,11 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         Err(refused) => return answer(Err(refused.clone()), Some(Built::Refused(refused))),
     };
     let mut diagnostics = Diagnostics::new();
-    // Coverage reports each instantiation of a generic on its own.
-    let mut program = front.monomorphize(None, &mut diagnostics, shared.coverage.is_none());
+    // Coverage reports each instantiation of a generic on its own, and only
+    // native code narrows a context.
+    let erase = shared.coverage.is_none();
+    let narrow = erase && platform.is_native();
+    let mut program = front.monomorphize(None, &mut diagnostics, erase, narrow);
     if diagnostics.has_errors() {
         return answer(Err(diagnostics.clone()), Some(Built::Refused(diagnostics)));
     }
@@ -2808,6 +2811,7 @@ impl Front {
         modules: Option<&[String]>,
         diagnostics: &mut Diagnostics,
         erase: bool,
+        narrow: bool,
     ) -> monomorphize::Program {
         let analysis = self.analysis();
         let paths = analysis
@@ -2833,6 +2837,7 @@ impl Front {
             diagnostics,
             roots,
             erase,
+            narrow,
         )
     }
 
@@ -4720,7 +4725,7 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
         }
     };
     let mut diagnostics = Diagnostics::new();
-    let mut program = front.monomorphize(None, &mut diagnostics, true);
+    let mut program = front.monomorphize(None, &mut diagnostics, true, true);
     if diagnostics.has_errors() || program.roots.tests().is_empty() {
         return abandoned();
     }
@@ -4835,7 +4840,7 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         ),
     );
     let mut diagnostics = Diagnostics::new();
-    let mut program = analysis.monomorphize(Some(&modules), &mut diagnostics, true);
+    let mut program = analysis.monomorphize(Some(&modules), &mut diagnostics, true, true);
     drop(analysis);
     let abandoned = || {
         tell.tell(Done::Shared {

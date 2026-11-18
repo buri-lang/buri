@@ -56,7 +56,7 @@ struct Facts {
 
 /// Whether a type mentions parameter `j`, or `Self` or anything unsettled,
 /// which could stand for it.
-fn mentions(ty: &Ty, j: usize) -> bool {
+pub(super) fn mentions(ty: &Ty, j: usize) -> bool {
     if !(ty.has_params() | ty.has_vars() | ty.has_error()) {
         return false;
     }

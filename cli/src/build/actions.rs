@@ -503,6 +503,9 @@ fn monomorphized(
         diagnostics,
         roots,
         true,
+        // A program mostly runs at one context, so narrowing it would only
+        // cost (`narrow.rs`).
+        false,
     );
     if diagnostics.has_errors() {
         return Err(std::mem::take(diagnostics));

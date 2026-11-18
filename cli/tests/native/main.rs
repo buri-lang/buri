@@ -298,6 +298,10 @@ mod supplied_context;
 // down a recursion, twice to one callee and stored by it, under the heap check.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod context_passing;
+// A function generic over its caller's context, called from contexts binding
+// other effects as well, in other orders, under the heap check.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod context_narrowing;
 // The test processes `buri test` starts, under the harness's Valgrind tool.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod test_processes;

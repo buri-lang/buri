@@ -1064,6 +1064,7 @@ impl<'a> Checker<'a> {
         // declared into before anything is exported.
         let node_con = own_type(self.loaded, &self.scopes, "ui/node", "NodeKind");
         let role_con = own_type(self.loaded, &self.scopes, "ui/node", "Role");
+        self.tables.add_narrowed_contexts();
         Checked {
             tables: self.tables,
             scopes: self.scopes,

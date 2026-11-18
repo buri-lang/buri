@@ -939,6 +939,15 @@ impl CtxType {
     pub fn has(&self, t: TraitId) -> bool {
         self.bindings.iter().any(|(id, _)| *id == t)
     }
+
+    /// The effects of a narrowed context ([`Tables::add_narrowed_contexts`]):
+    /// one whose bindings are effects in ascending order, the `i`th held at
+    /// type parameter `i`.
+    pub fn narrowed(&self) -> Option<Vec<TraitId>> {
+        let shaped = (self.bindings.iter().zip(0..)).all(|((_, ty), i)| *ty == Ty::param(i));
+        let effects: Vec<TraitId> = self.bindings.iter().map(|(t, _)| *t).collect();
+        (shaped && effects.is_sorted_by(|a, b| a < b)).then_some(effects)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1499,6 +1508,44 @@ impl Tables {
 
     pub fn add_ctx_type(&mut self, c: CtxType) -> CtxTypeId {
         self.ctx_types.push(c)
+    }
+
+    /// One context for each set of effects a type parameter is bounded by and
+    /// nothing else: it binds those effects in ascending order, each held at
+    /// a type parameter of its own ([`CtxType::narrowed`]).
+    ///
+    /// A function generic over its caller's context sees only the effects its
+    /// bound names. `monomorphize` instantiates it at this context, read at
+    /// the caller's implementations of those effects, so callers whose
+    /// contexts bind other effects as well share one body
+    /// (`monomorphize/narrow.rs`).
+    pub fn add_narrowed_contexts(&mut self) {
+        let mut have: crate::hash::Set<Vec<TraitId>> = self
+            .ctx_types
+            .iter()
+            .filter_map(CtxType::narrowed)
+            .collect();
+        let mut wanted = Vec::new();
+        for f in self.fns.iter() {
+            for g in f.generics.iter() {
+                if g.bounds.is_empty() || !g.bounds.iter().all(|b| self.trait_(*b).is_effect) {
+                    continue;
+                }
+                let mut effects = g.bounds.clone();
+                effects.sort_unstable();
+                effects.dedup();
+                if !have.contains(&effects) {
+                    have.insert(effects.clone());
+                    wanted.push(effects);
+                }
+            }
+        }
+        for effects in wanted {
+            let bindings = effects.iter().enumerate();
+            self.add_ctx_type(CtxType {
+                bindings: bindings.map(|(i, t)| (*t, Ty::param(i as u32))).collect(),
+            });
+        }
     }
 
     /// The type of a `context { ... }` expression: the one an earlier context

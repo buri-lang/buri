@@ -35,6 +35,7 @@ use crate::hash::Map as HashMap;
 
 mod erase;
 mod hand_written;
+mod narrow;
 mod upsert;
 
 /// What a concrete function *is*.
@@ -701,6 +702,21 @@ pub struct Monomorphizer<'a> {
     erase: bool,
     /// Which of each declaration's type parameters are erasable.
     erasable: HashMap<FnId, std::rc::Rc<[bool]>>,
+    /// Whether to narrow a context to the effects a callee names
+    /// (`narrow.rs`).
+    narrow: bool,
+    /// By declaration index, what `narrow.rs` knows of each type parameter
+    /// that may be narrowable; `None` until asked.
+    narrowable: Vec<Option<std::rc::Rc<[Option<CtxTypeId>]>>>,
+    /// Per declaration and type parameter, whether it keeps every type built
+    /// from it away from the runtime (`narrow.rs`).
+    ctx_kept: HashMap<(FnId, usize), bool>,
+    /// Per declaration, what its own body says to that (`narrow.rs`).
+    kept_facts: HashMap<FnId, std::rc::Rc<narrow::Facts>>,
+    /// The function supplying a trait method in each written `impl`.
+    impl_methods: HashMap<(TraitId, MethodId), narrow::Impls>,
+    /// The narrowed contexts, by their effects; empty unless `narrow`.
+    narrowed_ctx: HashMap<Vec<TraitId>, CtxTypeId>,
     /// See [`Monomorphizer::canonical`].
     ctx_canon: std::cell::RefCell<HashMap<Vec<(TraitId, Ty)>, Ty>>,
     /// What `upsert.rs` rewrites a map's read and write back into.
@@ -736,6 +752,7 @@ pub fn run_erasing(
         diags,
         roots,
         erase,
+        false,
     )
 }
 
@@ -748,8 +765,17 @@ pub fn run_extracted(
     diags: &mut Diagnostics,
     roots: Roots<'_>,
     erase: bool,
+    narrow: bool,
 ) -> Program {
-    run_on(checked, extracted, module_paths, diags, roots, erase)
+    run_on(
+        checked,
+        extracted,
+        module_paths,
+        diags,
+        roots,
+        erase,
+        narrow,
+    )
 }
 
 fn run_on(
@@ -759,6 +785,7 @@ fn run_on(
     diags: &mut Diagnostics,
     roots: Roots<'_>,
     erase: bool,
+    narrow: bool,
 ) -> Program {
     let _phase = crate::profile::enter(crate::profile::Phase::Monomorphize);
     let upserts = upsert::Upserts::find(checked, &module_paths);
@@ -784,6 +811,15 @@ fn run_on(
         cell_equal: HashMap::default(),
         erase,
         erasable: HashMap::default(),
+        narrow,
+        narrowable: Vec::new(),
+        ctx_kept: HashMap::default(),
+        kept_facts: HashMap::default(),
+        impl_methods: HashMap::default(),
+        narrowed_ctx: match narrow {
+            true => narrow::narrowed_contexts(&checked.tables),
+            false => HashMap::default(),
+        },
         ctx_canon: Default::default(),
         upserts,
         upsert_here: false,
@@ -832,6 +868,7 @@ fn run_on(
     // Instantiation order follows the worklist, which follows source order, so
     // two builds of the same commit produce identical output.
     while let Some((key, slot)) = m.queue.pop() {
+        crate::profile::work(crate::profile::Work::FunctionsInstantiated, 1);
         // Out of the table while it is built, because building requests more.
         let mut func = std::mem::take(m.funcs.get_mut(slot));
         m.build(key, slot, &mut func);
@@ -2232,6 +2269,10 @@ impl Monomorphizer<'_> {
                     args = self.erased_args(id, &erased, args);
                     resolved = erased;
                 }
+                if let Some((narrowed, changes)) = self.narrowed(id, &resolved) {
+                    args = self.narrowed_args(id, &changes, args);
+                    resolved = narrowed;
+                }
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::CallFunc { func: slot, args }
             }
@@ -2658,6 +2699,10 @@ impl Monomorphizer<'_> {
         if let Some(erased) = self.erased(fid, &instance_targs) {
             args = self.erased_args(fid, &erased, args);
             instance_targs = erased;
+        }
+        if let Some((narrowed, changes)) = self.narrowed(fid, &instance_targs) {
+            args = self.narrowed_args(fid, &changes, args);
+            instance_targs = narrowed;
         }
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFunc { func: slot, args }
