@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16225 16306 99.50%
+total 16237 16318 99.50%
 area cli/build 1778 1780 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
-area crates/middle 2551 2576 99.03%
+area crates/middle 2563 2588 99.03%
 area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -151,10 +151,10 @@ area crates/syntax 1268 1268 100.00%
 18 18 crates/middle/src/compiler/middle/forward.rs
 28 28 crates/middle/src/compiler/middle/fuse.rs
 78 78 crates/middle/src/compiler/middle/inline.rs
-74 74 crates/middle/src/compiler/middle/ir.rs
+84 84 crates/middle/src/compiler/middle/ir.rs
 28 28 crates/middle/src/compiler/middle/known_calls.rs
 48 48 crates/middle/src/compiler/middle/layout.rs
-144 144 crates/middle/src/compiler/middle/lower.rs
+146 146 crates/middle/src/compiler/middle/lower.rs
 56 56 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 182 190 crates/middle/src/compiler/middle/monomorphize.rs
@@ -207,9 +207,9 @@ area crates/syntax 1268 1268 100.00%
 2 2 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 35 36 crates/stencil/src/compiler/backend/stencil/elf.rs
-296 296 crates/stencil/src/compiler/backend/stencil/emit.rs
+300 300 crates/stencil/src/compiler/backend/stencil/emit.rs
 86 86 crates/stencil/src/compiler/backend/stencil/glue.rs
-459 462 crates/stencil/src/compiler/backend/stencil/jit.rs
+455 458 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 14 14 crates/stencil/src/compiler/backend/stencil/lists.rs
 46 48 crates/stencil/src/compiler/backend/stencil/mod.rs
