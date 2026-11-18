@@ -10472,6 +10472,41 @@ checks that eight tests calling a function from eight context shapes
 instantiate no more functions than eight tests that all use one shape:
 18 against 18, and 39 without narrowing.
 
+### 6.154 A copy moves 128 bytes a stencil, 2026-11-18
+
+```text
+test build, BURI_THREADS=1    32 bytes   128 bytes   change
+holes patched                 29.03 M    24.93 M     -14.1%
+emit                          23.56 B    22.66 B     -3.8%
+total                         69.38 B    68.29 B     -1.6%
+run-dev/kvstore               1.130 B    1.066 B     -5.7%
+bench full, buri build        35.85 B    35.82 B     noise
+```
+
+Under the loop's threshold, `Jit::mv` copied at most thirty-two bytes a
+stencil, so a record of thirty-one words took eight on every call it was
+passed to.
+
+- The fixed copies are now 128, 96, 64, 48, 32, 24, 16, 8, 4, 2 and 1 bytes.
+  `mov/48` and `mov/64` were already built, but nothing emitted them.
+- `mov/128n` replaces `mov/32n` and loops over 128 bytes. That makes the loop
+  cheap enough to start at 256 bytes rather than 1024, and kvstore's count
+  falls rather than rising as it did in §6.152.
+- None of these stencils calls `memcpy`, on any of the three targets.
+
+`odd_sizes.rs` passes records of 11 to 140 words, one at each width a copy
+splits differently at, down a recursion and back on every backend and JS.
+`profile.rs` checks that between 8 and 31 fields each added field costs at
+most 16 holes. With thirty-two-byte copies it cost 24, and it costs 12 now.
+
+### 6.155 A build that doesn't narrow asks nothing about it, 2026-11-18
+
+`buri build` asked `narrowed` at every call, and only then learned that
+narrowing was off. Each call site now checks the flag first, and `narrowed`
+returns at once for type arguments with no context in them. Symbol names copy
+a module, owner or name whole when it has nothing to replace, rather than a
+character at a time. Bench `full`'s monomorphize fell from 4.02 B to 3.93 B.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

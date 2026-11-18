@@ -549,7 +549,7 @@ fn shard(o: Out) -> Vec<Out2> {
 /// `GetTag` on a tagged enum — is one of these, because an aggregate lives flat
 /// in the frame at its real `middle::layout` offsets.
 fn moves(o: &mut Out) {
-    for n in [1u32, 2, 4, 8, 16, 24, 32, 48, 64] {
+    for n in [1u32, 2, 4, 8, 16, 24, 32, 48, 64, 96, 128] {
         o.push(
             &format!("mov/{n}"),
             format!(
@@ -557,15 +557,15 @@ fn moves(o: &mut Out) {
             ),
         );
     }
-    // `N` runs of thirty-two bytes, front to back, for an aggregate wider than
-    // a few `mov/32`s (`Jit::mv`). A loop rather than a `memcpy` of `32 * N`,
+    // `N` runs of 128 bytes, front to back, for an aggregate wider than a few
+    // `mov/128`s (`Jit::mv`). A loop rather than a `memcpy` of `128 * N`,
     // which would be a call, and the empty `asm` keeps clang's loop-idiom pass
     // from turning the loop back into one.
     o.push(
-        "mov/32n",
+        "mov/128n",
         "void $NAME(ARGS) { char *d = (char*)fp + OFF(_JIT_D); \
          const char *s = (const char*)fp + OFF(_JIT_A); uintptr_t n = OFF(_JIT_N); \
-         do { memcpy(d, s, 32); d += 32; s += 32; __asm__ volatile(\"\" ::: \"memory\"); } \
+         do { memcpy(d, s, 128); d += 128; s += 128; __asm__ volatile(\"\" ::: \"memory\"); } \
          while (--n); TAIL; }"
             .into(),
     );

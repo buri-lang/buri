@@ -72,9 +72,9 @@ const RC_LIGHT: u32 = 4;
 /// writing each one out made a match over `n` counted variants `n²` code.
 const RC_OUT_OF_LINE: u32 = 16;
 
-/// The narrowest copy [`Jit::mv`] makes with `mov/32n`'s loop rather than a
-/// run of `mov/32`s.
-const MOV_LOOP_BYTES: u32 = 1024;
+/// The narrowest copy [`Jit::mv`] makes with `mov/128n`'s loop rather than a
+/// run of `mov/128`s.
+const MOV_LOOP_BYTES: u32 = 256;
 
 /// Each count's stencils, plain and `/shared`, then their `/at` twins, in the
 /// order `Jit::count_stencil` picks from.
@@ -135,16 +135,14 @@ impl<'a> Jit<'a> {
         }
         // Decomposed into fixed-width copies rather than a `memcpy` call: a
         // stencil that calls anything has to preserve the CPS register file
-        // across it, and the widest of these is two `ldp`/`stp` pairs.
+        // across it, and the widest of these is four `ldp`/`stp` pairs.
         let (mut d, mut s, mut left) = (dst, src, bytes);
-        // A wide aggregate is one looping stencil and its tail. Unrolled, a
-        // record of a few hundred words passed to a call was a stencil per
-        // thirty-two bytes, and each was laid out and patched on its own
-        // (PERFORMANCE.md §6.152).
+        // A wide aggregate is one looping stencil and its tail, so a copy is a
+        // few stencils however wide it is (PERFORMANCE.md §6.152, §6.154).
         if left >= MOV_LOOP_BYTES {
-            let runs = left / 32;
+            let runs = left / 128;
             self.emit(
-                "mov/32n",
+                "mov/128n",
                 &[
                     Lit::D.of(d as u64),
                     Lit::A.of(s as u64),
@@ -152,13 +150,17 @@ impl<'a> Jit<'a> {
                     Jump::Cont.to(V::Fall),
                 ],
             );
-            d += runs * 32;
-            s += runs * 32;
-            left -= runs * 32;
+            d += runs * 128;
+            s += runs * 128;
+            left -= runs * 128;
         }
         while left > 0 {
             let (n, key) = [
-                (32u32, "mov/32"),
+                (128u32, "mov/128"),
+                (96, "mov/96"),
+                (64, "mov/64"),
+                (48, "mov/48"),
+                (32, "mov/32"),
                 (24, "mov/24"),
                 (16, "mov/16"),
                 (8, "mov/8"),

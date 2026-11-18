@@ -1,7 +1,8 @@
 //! Values at the sizes a native backend takes a different path for: list
 //! elements three, five, six and seven bytes wide, which no single load reads,
-//! and a string literal longer than sixteen mebibytes, past what a Mach-O
-//! instruction relocation's addend can reach.
+//! a string literal longer than sixteen mebibytes, past what a Mach-O
+//! instruction relocation's addend can reach, and records at each width a
+//! copy splits differently at.
 //!
 //! Each run is a real `buri test` over a repository, under the heap check, on
 //! JavaScript and on every native backend this toolchain has built in.
@@ -213,4 +214,36 @@ test "a long literal and a short one after it" {{
         "ab".repeat(n / 2)
     );
     passes("long-literal", &test, 1);
+}
+
+/// Records from 96 bytes to over a kilobyte, each passed down a recursion that
+/// rebuilds it and handed back up, so every width a copy splits differently at
+/// is copied on a call, into a literal and on a return: under 128 bytes, at it,
+/// past it with each tail, at the loop's 256 and past it, and over a kilobyte.
+#[test]
+fn records_of_every_copy_width_survive_calls_and_returns() {
+    let widths = [11usize, 15, 16, 17, 23, 31, 32, 33, 47, 48, 63, 140];
+    let mut test = String::from("from \"core/testing/assert\" import * as assert;\n");
+    for n in widths {
+        let fields: String = (0..n).map(|i| format!("    a{i}: Int,\n")).collect();
+        let made: Vec<String> = (0..n).map(|i| format!("a{i}: {}", i * 3)).collect();
+        let (mid, last) = (n / 2, n - 1);
+        test.push_str(&format!(
+            "\nstruct W{n} {{\n{fields}    flag: Bool,\n}}\n\n\
+             fn keep{n}(w: W{n}, k: Int): W{n} {{\n    \
+             if (k <= 0) {{ w }} else {{ keep{n}(W{n} {{ ..w, a0: w.a0 + 1 }}, k - 1) }}\n}}\n\n\
+             test \"a record of {n} words and a flag\" {{\n    \
+             let w = W{n} {{ {made}, flag: true }};\n    \
+             let v = keep{n}(w, 4);\n    \
+             assert.equal(v.a0, 4);\n    \
+             assert.equal(v.a{mid}, {mid3});\n    \
+             assert.equal(v.a{last}, {last3});\n    \
+             assert.isTrue(v.flag);\n    \
+             assert.equal(w.a0, 0);\n}}\n",
+            made = made.join(", "),
+            mid3 = mid * 3,
+            last3 = last * 3,
+        ));
+    }
+    passes("copy-widths", &test, widths.len());
 }

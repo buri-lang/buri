@@ -2193,6 +2193,42 @@ fn a_wide_record_passed_between_functions_runs_and_copies_in_a_few_holes() {
     );
 }
 
+/// **A record too narrow for the copy loop is copied a hundred and
+/// twenty-eight bytes to a stencil.** Copies under the loop went thirty-two
+/// bytes to a stencil, so a record of thirty-one words was eight stencils on
+/// every call it was passed to; it is three now. PERFORMANCE.md §6.154.
+#[test]
+fn a_mid_sized_record_passed_between_functions_copies_in_few_holes() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let holes = |n: usize| {
+        let (items, body, printed) = wide_record_passed(n, 12);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch
+            .run(&["run", "//app"])
+            .ok()
+            .says(&format!("{printed}\n"));
+        work_count(&run.all(), "holes patched").unwrap()
+    };
+    // Eight fields is 64 bytes and thirty-one is 248, just under the loop's
+    // 256. Thirty-two-byte copies cost about 24 holes a field between them,
+    // 128-byte copies about 12.
+    let (narrow, wide) = (holes(8), holes(31));
+    let per_field = (wide - narrow) / 23.0;
+    assert!(
+        per_field <= 16.0,
+        "a record 23 fields wider patched {per_field:.1} more holes per field \
+         ({narrow} at 8 fields, {wide} at 31)"
+    );
+}
+
 /// A library whose eight tests each call one function generic over a
 /// `Random` context: from eight contexts that bind `Random` among other
 /// effects, in other orders, or from eight of the one that binds all three.
