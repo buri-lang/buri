@@ -2,8 +2,9 @@ name: Memcheck
 
 # Compiled Buri programs and the native runtime under Valgrind's memcheck, on
 # every commit to main and every pull request, the way ci.yml runs
-# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each distinct
-# error becomes one GitHub issue, labelled `planned` and `urgent`.
+# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). An error fails
+# the shard that met it, and each distinct error is printed in the job's log
+# and its summary.
 #
 # * **The workload** is the native conformance set built three ways, the
 #   backend-agreement and at-scale rows on both native backends, every other
@@ -17,12 +18,9 @@ name: Memcheck
 # * **Built once per architecture.** The `build` job compiles the test
 #   binaries and the shards run them. Each shard used to build them itself:
 #   about 200 s of each of 15 jobs (run 42365863930).
-# * **A test's own failure is its own issue.** Valgrind's errors never change
-#   a program's exit status, so a failed test is the test's, and `failed`
-#   drafts it from the step's output.
-# * **Issues are filed from `main` only.** A run on any other ref prints the
-#   issues it would have filed. One run per ref at a time, so two runs on main
-#   never file the same signature twice.
+# * **A test's own failure is reported on its own.** Valgrind's errors never
+#   change a program's exit status, so a failed test is the test's, and
+#   `failed` writes it up from the step's output.
 
 on:
   push:
@@ -104,7 +102,6 @@ jobs:
           mapfile -t tests < <(cat target/memcheck-tests/*)
           tar -I 'zstd -T0' -cf memcheck-tests.tar.zst target/memcheck-tests target/debug/buri target/debug/examples/valgrind "${tests[@]}"
           ls -l memcheck-tests.tar.zst
-      # Not `memcheck-*`: the `file` job reads those for issues.
       - uses: actions/upload-artifact@v7
         with:
           name: tests-memcheck-${{ matrix.arch }}
@@ -231,7 +228,7 @@ jobs:
           done
           exit "$status"
       # A test that failed on its own, apart from any Valgrind error: its own
-      # draft issue, and a red step that says so.
+      # report, and a red step that says so.
       - name: Tests that failed on their own
         if: always()
         run: |
@@ -239,9 +236,11 @@ jobs:
           for log in "$BURI_MEMCHECK"/logs/*.log; do
             [ -e "$log" ] || continue
             nix develop .#perf -c target/debug/examples/valgrind failed memcheck "$BURI_MEMCHECK" "$(basename "$log" .log)" \
-              "$log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || status=1
+              "$log" || status=1
           done
           exit "$status"
+      # Every report, in the log and the job's summary, and a red step when
+      # Valgrind found an error.
       - name: Report
         if: always()
         run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_MEMCHECK"
@@ -252,20 +251,3 @@ jobs:
           path: target/memcheck
           retention-days: 14
           if-no-files-found: ignore
-
-  # One issue per signature, and none for a signature with an open issue. The
-  # only job with write access, and only to issues.
-  file:
-    needs: memcheck
-    if: always()
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: .github/actions
-      - uses: ./.github/actions/file-issues
-        with:
-          pattern: memcheck-*

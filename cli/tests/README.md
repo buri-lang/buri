@@ -593,8 +593,8 @@ and `manifest.lock`.
 
 ### Valgrind
 
-Two workflows run what this domain builds under Valgrind, Linux only,
-and file each distinct error as an issue labelled `planned` and `urgent`.
+Two workflows run what this domain builds under Valgrind, Linux only. An
+error fails the shard that met it.
 
 | Workflow | Tool | Shards |
 |---|---|---|
@@ -621,14 +621,13 @@ nix develop .#perf -c cargo run -p buri --features backend-llvm,valgrind --examp
   Runs that count a program's instructions don't, and run it bare.
 - `BURI_CONFORMANCE_BUILD` is `stencil` (the default), `llvm-debug` or
   `llvm-release`.
-- `report` writes one draft issue per distinct error to `issues/`. An error is
-  its kind and its first named frame past the allocator, so one bug reached by
-  many programs is one issue.
+- `report` writes one report per distinct error to `errors/`, prints them,
+  adds them to the job's summary, and exits 1 if there was an error. An error
+  is its kind and its first named frame past the allocator, so one bug reached
+  by many programs is one report.
 - Valgrind's errors never set a program's exit status, so a test that fails
-  under a tool failed on its own. `failed` drafts it as its own issue,
+  under a tool failed on its own. `failed` writes it up as its own report,
   `memcheck: test failed: <test> (<build>)`, from the step's output.
-- A workflow files a draft from `main` only, and only when no open issue has
-  its signature in the title. Elsewhere it prints the issue it would file.
 - Memcheck: a definite leak is an error, except in the runtime's unit tests,
   some of which leave a block behind on purpose. `native/memcheck.supp` holds
   the suppressions, each with its reason.

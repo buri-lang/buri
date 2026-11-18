@@ -1006,6 +1006,133 @@ fn the_workflow_runs_at_most_five_macos_jobs() {
     println!("{total} macOS job(s): {}", counted.join(", "));
 }
 
+/// Every file under `.github/` a workflow runs: the workflows and the
+/// composite actions, with their text.
+fn workflow_files() -> Vec<(PathBuf, String)> {
+    let mut out = Vec::new();
+    let mut dirs = vec![repo_root().join(".github")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "yml" || e == "yaml") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                out.push((path, text));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// **No workflow files an issue.**
+///
+/// A failure fails its run, and every landing waits for main's runs to pass,
+/// so an issue for it says nothing the red run did not. Memcheck and Races
+/// filed one per error until 2026-11-17.
+#[test]
+fn no_workflow_files_an_issue() {
+    let files = workflow_files();
+    let mut found = Vec::new();
+    for (path, text) in &files {
+        for (n, line) in text.lines().enumerate() {
+            let code = line.split('#').next().unwrap_or("");
+            if [
+                "issues: write",
+                "gh issue create",
+                "gh issue comment",
+                "issues.create",
+            ]
+            .iter()
+            .any(|f| code.contains(f))
+            {
+                found.push(format!("{}:{}: {}", path.display(), n + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "these lines file issues; fail the job instead:\n  {}",
+        found.join("\n  ")
+    );
+    assert!(
+        files.len() >= 4,
+        "only {} workflow file(s) were read",
+        files.len()
+    );
+}
+
+/// **A Valgrind error fails its job.**
+///
+/// `valgrind report` exits 1 when memcheck or helgrind found an error, and
+/// prints each one in the log and the job's summary. Each Valgrind workflow
+/// runs it after every other step, whatever they did, and nothing turns its
+/// failure into a pass.
+#[test]
+fn a_valgrind_error_fails_its_job() {
+    for (file, job, dir) in [
+        ("memcheck.yml", "memcheck", "$BURI_MEMCHECK"),
+        ("races.yml", "races", "$BURI_HELGRIND"),
+    ] {
+        let text =
+            std::fs::read_to_string(repo_root().join(".github/workflows").join(file)).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            let code = line.split('#').next().unwrap_or("");
+            assert!(
+                !code.contains("continue-on-error") && !code.contains("|| true"),
+                "{file}:{}: `{}` lets a failure pass",
+                n + 1,
+                line.trim()
+            );
+        }
+        let jobs = jobs(&text);
+        let body = jobs
+            .get(job)
+            .unwrap_or_else(|| panic!("{file} has no `{job}` job"));
+        let report = body
+            .split("\n      - ")
+            .find(|step| step.starts_with("name: Report\n"))
+            .unwrap_or_else(|| panic!("{file}'s `{job}` job has no step named `Report`"));
+        assert!(
+            report.contains("\n        if: always()\n"),
+            "{file}'s `Report` runs only when the steps before it passed:\n{report}"
+        );
+        assert!(
+            report.contains(&format!("valgrind report \"{dir}\"")),
+            "{file}'s `Report` does not run `valgrind report \"{dir}\"`:\n{report}"
+        );
+        assert_eq!(
+            jobs.len(),
+            if file == "memcheck.yml" { 2 } else { 1 },
+            "{file}'s jobs are {:?}; a job after the runs that reads their artifacts is how \
+             issues used to be filed",
+            jobs.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+/// **The nightly refuses to publish while main's Memcheck or Races is red.**
+///
+/// They are as much main's checks as `ci.yml`, so the step that reads main's
+/// CI reads all three.
+#[test]
+fn the_nightly_refuses_while_any_check_on_main_is_red() {
+    let nightly =
+        std::fs::read_to_string(repo_root().join(".github/workflows/nightly.yml")).unwrap();
+    let step = nightly
+        .split("\n      - ")
+        .find(|step| step.starts_with("name: Refuse to release while main CI is red\n"))
+        .expect("nightly.yml has no step named `Refuse to release while main CI is red`");
+    assert!(
+        step.contains("for workflow in ci.yml memcheck.yml races.yml; do")
+            && step.contains("--workflow=\"$workflow\"")
+            && step.contains("if [ \"$conclusion\" != \"success\" ]; then"),
+        "nightly.yml's gate does not refuse when any of ci.yml, memcheck.yml and races.yml \
+         is red on main:\n{step}"
+    );
+}
+
 /// **Every memcheck run is in exactly one shard.**
 ///
 /// `memcheck.yml` builds its test binaries once per architecture, and each

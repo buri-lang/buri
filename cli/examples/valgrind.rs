@@ -1,17 +1,18 @@
-//! The scheduled Valgrind jobs' tool (cli/tests/README.md, "Valgrind").
+//! The Valgrind jobs' tool (cli/tests/README.md, "Valgrind").
 //!
 //! ```text
 //! cargo run -q -p buri --example valgrind -- tests <memcheck|helgrind> <dir> <build> <test binary> [args]
 //! cargo run -q -p buri --example valgrind -- report <dir>
-//! cargo run -q -p buri --example valgrind -- failed <memcheck|helgrind> <dir> <build> <log> <run url>
+//! cargo run -q -p buri --example valgrind -- failed <memcheck|helgrind> <dir> <build> <log>
 //! ```
 //!
 //! `tests` runs a Rust test binary under the tool with the flags the test
 //! harness uses, less memcheck's leak check, and exits as it did. `report`
-//! writes a draft issue per distinct error in `<dir>/issues`, prints each
-//! title, and exits 1 when there was an error. `failed` reads a test binary's
-//! output, writes a draft per test that failed on its own, prints each title,
-//! and exits 1 when one did.
+//! writes a report per distinct error in `<dir>/errors`, prints every report
+//! there, adds them to `$GITHUB_STEP_SUMMARY` when that is set, and exits 1
+//! when there was an error. `failed` reads a test binary's output, writes a
+//! report per test that failed on its own, prints each title, and exits 1 when
+//! one did.
 
 #![allow(
     clippy::print_stdout,
@@ -70,33 +71,35 @@ fn main() -> ExitCode {
         }
         ["report", dir] => {
             let errors = valgrind::report(Path::new(dir));
-            let issues = std::fs::read_dir(Path::new(dir).join("issues")).unwrap();
-            let mut titles: Vec<String> = issues
-                .filter_map(|e| std::fs::read_to_string(e.unwrap().path()).ok())
-                .map(|body| body.lines().next().unwrap_or_default().to_string())
-                .collect();
-            titles.sort();
-            for title in &titles {
-                println!("{title}");
+            let summary = valgrind::summary(Path::new(dir));
+            print!("{summary}");
+            println!("{errors} Valgrind error(s)");
+            if let Some(path) = std::env::var_os("GITHUB_STEP_SUMMARY") {
+                use std::io::Write as _;
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .create(true)
+                    .open(path)
+                    .unwrap();
+                write!(file, "{summary}").unwrap();
             }
-            println!("{errors} error(s), {} distinct", titles.len());
             if errors == 0 {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
             }
         }
-        ["failed", tool, dir, build, log, run] => {
+        ["failed", tool, dir, build, log] => {
             let Some(tool) = valgrind::Tool::named(tool) else {
                 return usage();
             };
-            let issues = Path::new(dir).join("issues");
-            std::fs::create_dir_all(&issues).unwrap();
+            let reports = Path::new(dir).join("errors");
+            std::fs::create_dir_all(&reports).unwrap();
             let log = std::fs::read_to_string(log).unwrap_or_default();
-            let found = valgrind::failures(&log, tool.name(), build, run);
-            for (signature, draft) in &found {
-                println!("{}", draft.lines().next().unwrap_or_default());
-                std::fs::write(issues.join(format!("{signature}.md")), draft).unwrap();
+            let found = valgrind::failures(&log, tool.name(), build);
+            for (signature, report) in &found {
+                println!("{}", report.lines().next().unwrap_or_default());
+                std::fs::write(reports.join(format!("{signature}.md")), report).unwrap();
             }
             println!("{} test(s) failed on their own", found.len());
             if found.is_empty() {
@@ -112,7 +115,7 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!(
         "usage: valgrind tests <memcheck|helgrind> <dir> <build> <test binary> [args] | valgrind report <dir> \
-         | valgrind failed <memcheck|helgrind> <dir> <build> <log> <run url>"
+         | valgrind failed <memcheck|helgrind> <dir> <build> <log>"
     );
     ExitCode::from(2)
 }

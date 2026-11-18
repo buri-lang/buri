@@ -1,4 +1,4 @@
-//! Programs under Valgrind's memcheck or helgrind, and the issues their errors
+//! Programs under Valgrind's memcheck or helgrind, and the reports their errors
 //! become (cli/tests/README.md, "Valgrind").
 //!
 //! ```text
@@ -11,11 +11,11 @@
 //! With `BURI_MEMCHECK` or `BURI_HELGRIND` set, `shared` runs every program
 //! this domain built under that tool. Each run leaves `runs/<run>.xml`, the
 //! tool's report, and `runs/<run>.about`: the program, its build, and how to
-//! run it again. `report` turns each error into `issues/<signature>.md`, a
+//! run it again. `report` turns each error into `errors/<signature>.md`, a
 //! title line and a body. The signature is the error's kind and the first
 //! function past the allocator, so one bug met by a hundred programs is one
-//! draft. The workflows (`.github/workflows/memcheck.yml` and `races.yml`)
-//! file the drafts.
+//! report. The workflows (`.github/workflows/memcheck.yml` and `races.yml`)
+//! print the reports, add them to the job's summary, and fail the job.
 
 // The example uses `report`, `run` and `Tool`, and the test binary the rest.
 #![allow(dead_code)]
@@ -115,7 +115,7 @@ const FLAGS: &[&str] = &[
     "--fair-sched=yes",
     // A forked child about to exec is not the program.
     "--child-silent-after-fork=yes",
-    // Each error's suppression, for an issue that turns out not to be a bug.
+    // Each error's suppression, for an error that turns out not to be a bug.
     "--gen-suppressions=all",
 ];
 
@@ -229,7 +229,7 @@ pub fn program_exited(pid: u32) -> bool {
 
 /// Runs `cmd` under `tool` with `extra` flags, leaving its report in `dir/runs`.
 ///
-/// `again` is how to rerun it, for the issue.
+/// `again` is how to rerun it, for the report.
 pub fn run(
     tool: Tool,
     dir: &Path,
@@ -359,11 +359,11 @@ fn valgrind() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("valgrind"))
 }
 
-/// Writes a draft issue for each distinct error in `dir/runs`, and answers
-/// how many errors there were.
+/// Writes a report for each distinct error in `dir/runs` to `dir/errors`, and
+/// answers how many errors there were.
 pub fn report(dir: &Path) -> usize {
-    let issues = dir.join("issues");
-    std::fs::create_dir_all(&issues).unwrap();
+    let reports = dir.join("errors");
+    std::fs::create_dir_all(&reports).unwrap();
     let mut runs: Vec<PathBuf> = std::fs::read_dir(dir.join("runs"))
         .map(|d| d.filter_map(|e| e.ok().map(|e| e.path())).collect())
         .unwrap_or_default();
@@ -394,22 +394,42 @@ pub fn report(dir: &Path) -> usize {
                 continue;
             }
             count += 1;
-            let path = issues.join(format!("{}.md", error.signature()));
+            let path = reports.join(format!("{}.md", error.signature()));
             // The first program to meet a bug names it.
             if !path.exists() {
-                std::fs::write(&path, error.draft(tool, program, build, again)).unwrap();
+                std::fs::write(&path, error.report(tool, program, build, again)).unwrap();
             }
         }
     }
     count
 }
 
-/// A draft issue for each test that failed in `log`, a test binary's output
-/// under `tool`: the test's own failure, which no Valgrind error causes.
+/// Every report in `dir/errors` as Markdown, ordered by title: each title as a
+/// heading, then its body. Empty when there are none.
+pub fn summary(dir: &Path) -> String {
+    let mut reports: Vec<(String, String)> = std::fs::read_dir(dir.join("errors"))
+        .map(|d| {
+            d.filter_map(|e| std::fs::read_to_string(e.ok()?.path()).ok())
+                .map(|text| {
+                    let (title, body) = text.split_once('\n').unwrap_or((&text, ""));
+                    (title.to_string(), body.to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    reports.sort();
+    reports
+        .iter()
+        .map(|(title, body)| format!("### {title}\n\n{body}\n"))
+        .collect()
+}
+
+/// A report for each test that failed in `log`, a test binary's output under
+/// `tool`: the test's own failure, which no Valgrind error causes.
 ///
-/// Each is `(signature, draft)`. The signature is the tool, build and test, so
-/// a test failing again is the issue already open.
-pub fn failures(log: &str, tool: &str, build: &str, run: &str) -> Vec<(String, String)> {
+/// Each is `(signature, report)`. The signature is the tool, build and test,
+/// so two shards' copies of one failure are one report.
+pub fn failures(log: &str, tool: &str, build: &str) -> Vec<(String, String)> {
     let mut found = Vec::new();
     let mut lines = log.lines().peekable();
     while let Some(line) = lines.next() {
@@ -429,17 +449,16 @@ pub fn failures(log: &str, tool: &str, build: &str, run: &str) -> Vec<(String, S
         }
         let output = output.join("\n");
         let signature = fnv(&format!("test failure\n{tool}\n{build}\n{name}"));
-        let draft = format!(
-            "{tool}: test failed: {name} ({build}) [{signature}]\n\
-             The scheduled {tool} job ran this test and it failed on its own, apart \
-             from any Valgrind error.\n\n\
+        let report = format!(
+            "{tool}: test failed: {name} ({build})\n\
+             The {tool} job ran this test and it failed on its own, apart from any \
+             Valgrind error.\n\n\
              - **Test:** `{name}`\n\
-             - **Build:** {build}\n\
-             - **Run:** {run}\n\n\
+             - **Build:** {build}\n\n\
              ```text\n{output}\n```\n",
             output = output.trim(),
         );
-        found.push((signature, draft));
+        found.push((signature, report));
     }
     found
 }
@@ -674,11 +693,11 @@ impl Error {
         fnv(&format!("{}\n{}", self.kind, self.culprit()))
     }
 
-    /// The issue: a title line, then the body.
-    pub fn draft(&self, tool: &str, program: &str, build: &str, again: &str) -> String {
+    /// The report: a title line, then the body.
+    pub fn report(&self, tool: &str, program: &str, build: &str, again: &str) -> String {
         format!(
-            "{tool}: {kind} in {culprit} [{signature}]\n\
-             The scheduled {tool} job found this.\n\n\
+            "{tool}: {kind} in {culprit}\n\
+             The {tool} job found this.\n\n\
              - **Program:** `{program}`\n\
              - **Build:** {build}\n\n\
              ```text\n{text}```\n\n\
@@ -690,7 +709,6 @@ impl Error {
             kind = self.kind,
             suppression = self.suppression,
             culprit = self.culprit(),
-            signature = self.signature(),
             text = self.text,
         )
     }
@@ -800,7 +818,7 @@ fn unescape(s: &str) -> String {
 
 /// A symbol without the hash suffix a build or a type adds: Rust's
 /// `::h<16 hex digits>`, and the `.<32 hex digits>` of Buri's glue, so one bug
-/// in the glue of many types is one issue.
+/// in the glue of many types is one report.
 fn without_hash(name: &str) -> String {
     let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
     match (name.rsplit_once("::h"), name.rsplit_once('.')) {
@@ -897,16 +915,13 @@ fn an_error_reads_back_with_its_frames_and_a_stable_signature() {
     assert_eq!(again[0].signature(), found[0].signature());
     assert_eq!(again[1].signature(), found[1].signature());
     assert_ne!(found[0].signature(), found[1].signature());
-    let draft = found[0].draft("memcheck", "/t/program", "stencil debug", "cargo test");
-    assert!(draft.starts_with(&format!(
-        "memcheck: InvalidRead in buri_rt_list_get [{}]\n",
-        found[0].signature()
-    )));
+    let report = found[0].report("memcheck", "/t/program", "stencil debug", "cargo test");
+    assert!(report.starts_with("memcheck: InvalidRead in buri_rt_list_get\n"));
     assert_eq!(
         found[0].suppression,
         "{\n   <insert_a_suppression_name_here>\n   Memcheck:Addr8\n   fun:memcpy\n}"
     );
-    assert!(draft.contains(&found[0].suppression));
+    assert!(report.contains(&found[0].suppression));
 }
 
 #[test]
@@ -1051,7 +1066,7 @@ fn a_race_on_a_crates_cached_static_is_theirs_and_one_beside_it_is_ours() {
 }
 
 #[test]
-fn a_failed_test_is_its_own_draft() {
+fn a_failed_test_is_its_own_report() {
     let log = "running 2 tests
 test conformance::shard_7 ... FAILED
 test conformance::shard_6 ... ok
@@ -1070,17 +1085,62 @@ failures:
 
 test result: FAILED. 1 passed; 1 failed
 ";
-    let found = failures(log, "memcheck", "llvm release", "https://run");
+    let found = failures(log, "memcheck", "llvm release");
     assert_eq!(found.len(), 1);
-    let (signature, draft) = &found[0];
-    assert!(draft.starts_with(&format!(
-        "memcheck: test failed: conformance::shard_7 (llvm release) [{signature}]\n"
-    )));
-    assert!(draft.contains("`numbers/integers.buri` exited 1:\nassert.equal failed\n```"));
-    assert!(draft.contains("https://run"));
-    assert_ne!(
-        *signature,
-        failures(log, "memcheck", "stencil debug", "https://run")[0].0
+    let (signature, report) = &found[0];
+    assert!(report.starts_with("memcheck: test failed: conformance::shard_7 (llvm release)\n"));
+    assert!(report.contains("`numbers/integers.buri` exited 1:\nassert.equal failed\n```"));
+    assert_ne!(*signature, failures(log, "memcheck", "stencil debug")[0].0);
+    assert!(failures("test result: ok. 2 passed", "memcheck", "stencil debug").is_empty());
+}
+
+/// What a run of the tool leaves for the job's log and summary: each distinct
+/// error once, under its title, and the count that fails the job.
+#[test]
+fn a_report_counts_the_errors_and_summarizes_each_distinct_one() {
+    let dir = std::env::temp_dir().join(format!("buri-summary-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("runs")).unwrap();
+    let error = r#"<valgrindoutput><error>
+  <kind>InvalidRead</kind>
+  <what>Invalid read of size 8</what>
+  <stack><frame><ip>0x1</ip><fn>buri_rt_list_get</fn><file>list.rs</file><line>12</line></frame></stack>
+</error></valgrindoutput>"#;
+    // One bug met by two programs.
+    for run in ["a", "b"] {
+        std::fs::write(dir.join(format!("runs/{run}.xml")), error).unwrap();
+        std::fs::write(
+            dir.join(format!("runs/{run}.about")),
+            format!("memcheck\n/t/{run}\nstencil debug\ncargo test\n"),
+        )
+        .unwrap();
+    }
+    assert_eq!(report(&dir), 2);
+    std::fs::write(
+        dir.join("errors/0.md"),
+        "memcheck: test failed: e2e::x (llvm release)\nIt failed.\n",
+    )
+    .unwrap();
+    let text = summary(&dir);
+    assert_eq!(text.matches("### ").count(), 2, "{text}");
+    assert!(
+        text.contains(
+            "### memcheck: InvalidRead in buri_rt_list_get\n\nThe memcheck job found this."
+        ),
+        "{text}"
     );
-    assert!(failures("test result: ok. 2 passed", "memcheck", "stencil debug", "").is_empty());
+    assert!(
+        text.contains("### memcheck: test failed: e2e::x (llvm release)\n\nIt failed.\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("`/t/a`") && !text.contains("`/t/b`"),
+        "{text}"
+    );
+
+    let clean = dir.join("clean");
+    std::fs::create_dir_all(clean.join("runs")).unwrap();
+    assert_eq!(report(&clean), 0);
+    assert_eq!(summary(&clean), "");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

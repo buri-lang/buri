@@ -2,10 +2,9 @@ name: Races
 
 # Concurrent Buri programs and the runtime's scheduler under Valgrind's
 # helgrind, on every commit to main and every pull request, the way ci.yml runs
-# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). Each distinct
-# data race or lock-order inversion becomes one GitHub issue, labelled `planned`
-# and `urgent`, filed from `main` only. One run per ref at a time, so two runs
-# on main never file the same signature twice.
+# (design/native/MEMORY.md §8, cli/tests/README.md "Valgrind"). A data race or
+# lock-order inversion fails the shard that met it, and each distinct one is
+# printed in the job's log and its summary.
 #
 # * **The workload** is the fan-out, task, scope and actor rows, `process.start`
 #   with several children, and the runtime's `rt::` tests, on stencil and
@@ -112,7 +111,8 @@ jobs:
         run: |
           [ -e "$BURI_HELGRIND/tests.log" ] || exit 0
           nix develop .#perf -c target/debug/examples/valgrind failed helgrind "$BURI_HELGRIND" '${{ matrix.shard }}' \
-            "$BURI_HELGRIND/tests.log" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            "$BURI_HELGRIND/tests.log"
+      # memcheck.yml's step of the same name.
       - name: Report
         if: always()
         run: nix develop .#perf -c target/debug/examples/valgrind report "$BURI_HELGRIND"
@@ -123,18 +123,3 @@ jobs:
           path: target/helgrind
           retention-days: 14
           if-no-files-found: ignore
-
-  file:
-    needs: races
-    if: always()
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          sparse-checkout: .github/actions
-      - uses: ./.github/actions/file-issues
-        with:
-          pattern: helgrind-*
