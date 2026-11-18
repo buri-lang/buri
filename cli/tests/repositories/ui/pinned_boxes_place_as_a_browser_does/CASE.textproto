@@ -33,6 +33,7 @@ path { path: "lib/pins/test/__snapshots__/viewport-blurred-sizes.diff.png"  exis
 path { path: "lib/pins/test/__snapshots__/anchor-grandparent-edges.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/anchor-centred.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/anchor-none-edges.diff.png"  exists: false }
+path { path: "lib/pins/test/__snapshots__/anchor-grandparent-sizes.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-start.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-room.diff.png"  exists: false }
 path { path: "lib/pins/test/__snapshots__/shrink-end.diff.png"  exists: false }

@@ -887,6 +887,7 @@ fn pinned_boxes_place_as_a_browser_does() {
         ("anchor-grandparent-edges", "20,10 30x40", 0),
         ("anchor-centred", "85,30 30x40", 0),
         ("anchor-none-edges", "20,10 30x40", 0),
+        ("anchor-grandparent-sizes", "0,50 200x30", 0),
         ("shrink-start", "20,0 150x40", 0),
         ("shrink-room", "220,0 80x40", 0),
         ("shrink-end", "130,0 150x40", 0),

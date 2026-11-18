@@ -756,6 +756,78 @@ test "anchor-none-edges: a box on an anchor with no Flow box measures from the v
     );
 }
 
+test "anchor-grandparent-sizes: a box on an anchor takes its percentages from its Flow grandparent" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-grandparent-sizes",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .PaddingEdge(.Start, .Px(60)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(80)), .Height(.Px(40)), blue()], [
+                    frame(
+                        [
+                            .Position(.PinAnchor),
+                            .Pin(.Top, .Percent(50.0)),
+                            .Pin(.Start, .Px(0)),
+                            .Width(.Full),
+                            .Height(.Px(30)),
+                            .Background(.Rgb(255, 0, 0)),
+                        ],
+                        [],
+                    ),
+                ]),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "anchor-grandparent-sizes: a box on an anchor takes its percentages from its Flow grandparent, the twin: a box pinned in the Flow box" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "anchor-grandparent-sizes",
+        frame(
+            [
+                .Position(.Flow),
+                .Width(.Px(200)),
+                .Height(.Px(100)),
+                .PaddingEdge(.Start, .Px(60)),
+                grey(),
+            ],
+            [
+                frame([.Width(.Px(80)), .Height(.Px(40)), blue()], []),
+                frame(
+                    [
+                        .Pin(.Top, .Px(50)),
+                        .Pin(.Start, .Px(0)),
+                        .Width(.Px(200)),
+                        .Height(.Px(30)),
+                        .Background(.Rgb(255, 0, 0)),
+                    ],
+                    [],
+                ),
+            ],
+        ),
+        .Hover,
+        [],
+    );
+}
+
 test "shrink-start: a box with no width fits beside its start pin in a grandparent" {
     let ctx = context {
         Allocator: alloc(),
