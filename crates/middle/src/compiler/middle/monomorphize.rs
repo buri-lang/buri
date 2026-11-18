@@ -3886,22 +3886,22 @@ fn sanitize(s: &str) -> String {
 /// Most names need nothing replaced, and those are copied whole rather than
 /// decoded a character at a time.
 fn push_symbol(out: &mut String, s: &str) {
-    if s.bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
-    {
+    if s.bytes().all(symbol_byte) {
         out.push_str(s);
     } else {
-        out.extend(s.chars().map(symbol_char));
+        out.extend(s.chars().map(|c| {
+            if u8::try_from(c).is_ok_and(symbol_byte) {
+                c
+            } else {
+                '_'
+            }
+        }));
     }
 }
 
-/// A character of a symbol: itself if a symbol may hold it, `_` otherwise.
-fn symbol_char(c: char) -> char {
-    if c.is_ascii_alphanumeric() || c == '_' || c == '$' {
-        c
-    } else {
-        '_'
-    }
+/// Whether a symbol may hold the character `b`.
+fn symbol_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
 /// A short, deterministic tag distinguishing two instantiations of one
