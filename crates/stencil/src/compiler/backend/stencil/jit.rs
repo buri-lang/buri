@@ -441,6 +441,14 @@ pub struct Jit<'a> {
     /// argument.
     helpers: Vec<super::glue::Helper>,
     helper_ix: HashMap<super::glue::Helper, usize>,
+    /// [`Jit::layout_of`]'s answers, by type id. A part is one program's, so
+    /// an id names one type for the part's whole life, and a frame slot asks
+    /// once per value: an index here instead of hashing the type in
+    /// `layouts`.
+    by_type: Vec<Option<std::rc::Rc<Layout>>>,
+    /// [`Jit::enum_layout`]'s answers, by the enum's type id, for the same
+    /// reason.
+    by_enum: Vec<Option<std::rc::Rc<EnumLayout>>>,
     /// Each helper's symbol, and whether it is program-wide
     /// ([`super::glue::shared_symbol`]) rather than this part's own.
     helper_names: Vec<(String, bool)>,
@@ -794,6 +802,8 @@ impl<'a> Jit<'a> {
             veneer_ok: false,
             helpers: Vec::new(),
             helper_ix: HashMap::default(),
+            by_type: Vec::new(),
+            by_enum: Vec::new(),
             helper_names: Vec::new(),
             shared_ix: HashMap::default(),
             helper_at: Vec::new(),
@@ -949,7 +959,17 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         e: ir::EnumTy,
     ) -> std::rc::Rc<EnumLayout> {
-        self.layouts.of_enum(&prog.types.enum_head(e))
+        let i = e.id().index();
+        if let Some(Some(l)) = self.by_enum.get(i) {
+            return std::rc::Rc::clone(l);
+        }
+        let l = self.layouts.of_enum(&prog.types.enum_head(e));
+        self.by_enum.resize(self.by_enum.len().max(i + 1), None);
+        self.by_enum
+            .get_mut(i)
+            .into_iter()
+            .for_each(|at| *at = Some(std::rc::Rc::clone(&l)));
+        l
     }
 
     /// [`Jit::layout_of`], shared.
@@ -958,7 +978,7 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         id: ir::TypeId,
     ) -> std::rc::Rc<Layout> {
-        self.layouts.shared(&prog.type_info(id).ty)
+        self.layout_of(prog, id)
     }
 
     /// Whether `middle::layout` put `field` behind a pointer inside `owner`,
@@ -984,7 +1004,17 @@ impl<'a> Jit<'a> {
     }
 
     pub(crate) fn layout_of(&mut self, prog: &ir::Program, id: ir::TypeId) -> std::rc::Rc<Layout> {
-        self.layouts.shared(&prog.type_info(id).ty)
+        let i = id.index();
+        if let Some(Some(l)) = self.by_type.get(i) {
+            return std::rc::Rc::clone(l);
+        }
+        let l = self.layouts.shared(&prog.type_info(id).ty);
+        self.by_type.resize(self.by_type.len().max(i + 1), None);
+        self.by_type
+            .get_mut(i)
+            .into_iter()
+            .for_each(|at| *at = Some(std::rc::Rc::clone(&l)));
+        l
     }
 
     /// The same, for a type reached through another type's arguments rather
@@ -1029,6 +1059,8 @@ impl<'a> Jit<'a> {
     /// out — and it is a `memset`.
     pub fn plan(&mut self, prog: &ir::Program) {
         self.entries = prog.funcs.map(|_| 0);
+        self.by_type.clear();
+        self.by_enum.clear();
     }
 }
 

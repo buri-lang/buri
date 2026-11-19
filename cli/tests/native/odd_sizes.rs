@@ -741,3 +741,88 @@ test "deep recursions" {
         6,
     );
 }
+
+/// Records and enums of several widths, met by function after function of one
+/// unit: built, read field by field, matched and passed on. Every function
+/// lays out the same types again, so each must find the layout the first one
+/// found.
+#[test]
+fn types_met_by_many_functions_of_one_unit_read_back() {
+    passes(
+        "shared-layouts",
+        r#"from "core/testing/assert" import * as assert;
+
+struct Narrow { a: Bool, b: Bool, c: Bool }
+
+struct Wide { x: Int, y: Int, z: Int, w: Int }
+
+struct Mixed { n: Narrow, at: Int, wide: Wide }
+
+enum Shape {
+    Dot,
+    Line(Int),
+    Box(Wide),
+    Tagged(Narrow, Int),
+}
+
+fn narrow(i: Int): Narrow { Narrow { a: i > 0, b: i > 1, c: i > 2 } }
+
+fn wide(i: Int): Wide { Wide { x: i, y: i * 2, z: i * 3, w: i * 4 } }
+
+fn mixed(i: Int): Mixed { Mixed { n: narrow(i), at: i, wide: wide(i) } }
+
+fn bits(n: Narrow): Int {
+    (if (n.a) { 1 } else { 0 }) + (if (n.b) { 2 } else { 0 }) + (if (n.c) { 4 } else { 0 })
+}
+
+fn total(w: Wide): Int { w.x + w.y + w.z + w.w }
+
+fn shape(i: Int): Shape {
+    match (i % 4) {
+        0 => .Dot,
+        1 => .Line(i),
+        2 => .Box(wide(i)),
+        _ => .Tagged(narrow(i), i),
+    }
+}
+
+fn measure(s: Shape): Int {
+    match (s) {
+        .Dot => 0,
+        .Line(n) => n,
+        .Box(w) => total(w),
+        .Tagged(n, k) => bits(n) * 100 + k,
+    }
+}
+
+fn of(m: Mixed): Int { bits(m.n) * 1000 + m.at * 100 + total(m.wide) }
+
+fn swap(m: Mixed): Mixed {
+    Mixed { n: narrow(3 - bits(m.n) % 4), at: m.wide.x, wide: wide(m.at + 1) }
+}
+
+fn sum(i: Int, acc: Int): Int {
+    if (i == 0) { acc } else { sum(i - 1, acc + measure(shape(i)) + of(mixed(i % 3))) }
+}
+
+test "records read field by field" {
+    assert.equal(bits(narrow(2)), 3);
+    assert.equal(total(wide(5)), 50);
+    assert.equal(of(mixed(2)), 3220);
+    assert.equal(of(swap(mixed(1))), 3120);
+}
+
+test "enums matched by payload" {
+    assert.equal(measure(shape(4)), 0);
+    assert.equal(measure(shape(5)), 5);
+    assert.equal(measure(shape(6)), 60);
+    assert.equal(measure(shape(7)), 707);
+}
+
+test "every type met again in a loop" {
+    assert.equal(sum(12, 0), 19636);
+}
+"#,
+        3,
+    );
+}
