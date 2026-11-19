@@ -2672,11 +2672,12 @@ fn plain_functions(n: usize) -> (String, String, String) {
     (items, body, format!("{printed} true false\n"))
 }
 
-/// **A function with no structural call and nothing borrowed costs the native
-/// middle passes no walk, and `rc` reads its calls and effects in one.**
-/// `derives` walked every body to replace structural calls, and `rc` walked
-/// every body for the parameters it consumes. Now each walks only the bodies
-/// with something to find. `rc` also walked each body once for its calls and
+/// **A function with no structural call, no match and nothing borrowed costs
+/// the native middle passes no walk, and `rc` reads its calls and effects in
+/// one.** `derives` walked every body to replace structural calls,
+/// `decision` every body to rewrite its matches, and `rc` every body for the
+/// parameters it consumes. Now each walks only the bodies with something to
+/// find. `rc` also walked each body once for its calls and
 /// again, per round of a fixpoint, for its effects, and `derives` walked each
 /// once for its structural calls and again for the types it writes.
 #[test]
@@ -2698,22 +2699,64 @@ fn functions_with_nothing_to_derive_or_borrow_are_not_walked_for_it() {
         [
             work_count(&all, "bodies rewritten for derives").unwrap(),
             work_count(&all, "bodies walked for consuming uses").unwrap(),
+            work_count(&all, "bodies walked for decisions").unwrap(),
             work_count(&all, "bodies walked for calls and effects").unwrap(),
             work_count(&all, "bodies walked for derives").unwrap(),
         ]
     };
     let (few, many) = (counts(8), counts(24));
     assert!(
-        many[..2] == few[..2],
+        many[..3] == few[..3],
         "16 more `Int` functions walked more bodies: {few:?} at 8, {many:?} at 24"
     );
     // About one walk each (17 for the 16). Walking for effects apart from
     // calls, or for types apart from structural calls, made it at least two.
-    for (k, what) in [(2, "its calls and effects"), (3, "derives")] {
+    for (k, what) in [(3, "its calls and effects"), (4, "derives")] {
         let walked = (many[k] - few[k]) / 16.0;
         assert!(
             walked <= 1.5,
             "each of 16 more `Int` functions was walked {walked:.1} times for {what}"
         );
     }
+}
+
+/// A function whose first statement calls a one-line function, followed by
+/// `n` statements that call nothing small enough to paste.
+fn early_call(n: usize) -> (String, String, String) {
+    let lets: String = (1..=n)
+        .map(|i| format!("    let t{i} = down(t{}) + {i};\n", i - 1))
+        .collect();
+    let items = format!(
+        "fn down(n: Int): Int {{\n    if (n <= 0) {{ 0 }} else {{ 1 + down(n - 1) }}\n}}\n\n\
+         fn twice(k: Int): Int {{\n    k * 2\n}}\n\n\
+         fn long(k: Int): Int {{\n    let t0 = twice(k);\n{lets}    t{n}\n}}\n"
+    );
+    // Called twice, so `long` is never pasted into `main` itself.
+    let body = "    let _ = io.println(ctx, \"${long(3) + long(4)}\").ignore();\n".to_string();
+    // `down` of a positive number is that number, so each statement adds `i`.
+    let printed = 14 + n * (n + 1);
+    (items, body, format!("{printed}\n"))
+}
+
+/// **The inliner stops walking a body after the last call it could paste.**
+/// A pasted body is not walked again in the same round, so nothing after the
+/// last such call can change, and its statements are not walked at all.
+#[test]
+fn a_body_is_walked_for_inlining_only_up_to_its_last_small_call() {
+    let walked = |n: usize| {
+        let (items, body, printed) = early_call(n);
+        let scratch = large_shape("node", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        scratch.run(&["run", "//app"]).ok().says(&printed);
+        work_count(&run.all(), "nodes walked for inlining").unwrap()
+    };
+    let (few, many) = (walked(8), walked(40));
+    assert!(
+        many == few,
+        "32 more statements after the last small call were walked: {few} at 8, {many} at 40"
+    );
 }

@@ -65,7 +65,7 @@ pub fn run(program: &mut Program) -> Stats {
     // every one; see `revisit` for the rest.
     let mut dirty = program.funcs.map(|_| true);
     let mut before: Option<Facts> = None;
-    for _ in 0..ROUNDS {
+    for round in 1..=ROUNDS {
         let facts = Facts::collect(&own, &limits);
         if let Some(before) = &before {
             revisit(&mut dirty, &own, &facts, before);
@@ -76,7 +76,8 @@ pub fn run(program: &mut Program) -> Stats {
         let folded = fold_round(program, &dirty, &inlined, &own);
         let total: usize = inlined.iter().sum();
         stats.inlined += total;
-        if total == 0 {
+        // After the last round nothing reads `own` or `dirty` again.
+        if total == 0 || round == ROUNDS {
             break;
         }
         // A function whose body moved names nothing now, so it is measured
@@ -251,7 +252,7 @@ struct FuncFacts {
     limit: usize,
     /// In a call-graph cycle, including a self-call.
     recursive: bool,
-    /// Contains a `?` anywhere. See `may_inline`.
+    /// Contains a `?` anywhere. See `inlinable`.
     has_try: bool,
 }
 
@@ -350,10 +351,10 @@ impl Facts {
     }
 
     /// Whether a call to `callee` may be replaced by its body, in a caller
-    /// grown to `size_now`.
+    /// still within its limit: the half of the decision about the callee
+    /// alone, so fixed for a whole round.
     ///
-    /// A caller never inlines itself: its body is out of the table while it is
-    /// walked, so [`inline_expr`] finds nothing to paste.
+    /// A caller never inlines itself: a self-call makes it recursive.
     ///
     /// The `has_try` condition is the one that is not a heuristic. `?`
     /// compiles to a `return` in the enclosing JavaScript function
@@ -361,12 +362,6 @@ impl Facts {
     /// return from *that* caller — skipping everything it meant to do with the
     /// result, at a type the caller does not even return. Nothing catches that
     /// afterwards.
-    fn may_inline(&self, callee: FuncIdx, size_now: usize, limit: usize) -> bool {
-        size_now <= limit && self.inlinable(callee)
-    }
-
-    /// The half of [`Facts::may_inline`] that is about the callee alone, and
-    /// so is fixed for a whole round.
     fn inlinable(&self, callee: FuncIdx) -> bool {
         let c = self.per_func.get(callee);
         if c.recursive || c.has_try {
@@ -403,25 +398,28 @@ fn inline_round(
         let Some(mut body) = func.take_body() else {
             continue;
         };
-        // A body that calls nothing inlinable would be walked to inline nothing.
-        if !*dirty.get(i) || !own.get(i).callees().any(|j| j != i && facts.inlinable(j)) {
+        // A body that calls nothing inlinable would be walked to inline
+        // nothing. A function is never inlinable into itself: a self-call
+        // makes it recursive.
+        let left = own.get(i).callees().filter(|j| facts.inlinable(*j)).count();
+        if !*dirty.get(i) || left == 0 {
             func.set_body(body);
             continue;
         }
-        let mut locals = std::mem::take(&mut func.locals);
-        let limit = facts.per_func.get(i).limit;
-        let mut size = facts.per_func.get(i).size;
-        let mut count = 0;
-        inline_expr(
-            &mut body,
+        let mut paste = Paste {
+            locals: std::mem::take(&mut func.locals),
             program,
             facts,
-            &mut live,
-            limit,
-            &mut locals,
-            &mut size,
-            &mut count,
-        );
+            live: &mut live,
+            limit: facts.per_func.get(i).limit,
+            size: facts.per_func.get(i).size,
+            done: 0,
+            left,
+            walked: 0,
+        };
+        paste.expr(&mut body);
+        crate::profile::work(crate::profile::Work::NodesWalkedForInlining, paste.walked);
+        let (locals, count) = (paste.locals, paste.done);
         let func = program.funcs.get_mut(i);
         func.set_body(body);
         func.locals = locals;
@@ -435,7 +433,7 @@ fn inline_round(
 ///
 /// [`Facts`] counts the bodies as they were when the round started, and pasting
 /// a body names everything it names once more. These counts follow that, so
-/// [`inline_expr`] knows when the call it is inlining is the last thing that
+/// [`Paste`] knows when the call it is inlining is the last thing that
 /// names its callee.
 struct Live {
     calls: Dense<FuncIdx, usize>,
@@ -498,88 +496,107 @@ fn fold_round(
     folded
 }
 
-#[allow(clippy::too_many_arguments)]
-fn inline_expr(
-    e: &mut Expr,
-    program: &mut Program,
-    facts: &Facts,
-    live: &mut Live,
+/// One caller's walk in [`inline_round`]: what it pastes into, and how much.
+struct Paste<'a> {
+    program: &'a mut Program,
+    facts: &'a Facts,
+    live: &'a mut Live,
+    locals: typed::Locals,
     limit: usize,
-    locals: &mut typed::Locals,
-    size: &mut usize,
-    done: &mut usize,
-) {
-    // Children first, so a call that only becomes visible after its own
-    // arguments are rewritten is still seen this round.
-    typed::children_mut(e, &mut |child| {
-        inline_expr(child, program, facts, live, limit, locals, size, done);
-    });
+    /// The caller's size so far, pasted bodies included.
+    size: usize,
+    /// Calls inlined.
+    done: usize,
+    /// Calls to an inlinable function the walk has still to meet. The walk
+    /// stops at the last one: a body pasted this round is not walked, so
+    /// nothing after it can be inlined.
+    left: usize,
+    /// Nodes walked.
+    walked: usize,
+}
 
-    let ExprKind::CallFunc { func, args } = &mut e.kind else {
-        return;
-    };
-    let callee = *func;
-    // The checker gave the call one argument per parameter.
-    if !facts.may_inline(callee, *size, limit) {
-        return;
-    }
-    // Copying a body and then dropping the original is most of what inlining
-    // costs, so the last call to a function takes the body itself.
-    let last = live.last(callee);
-    let target = program.funcs.get_mut(callee);
-    let Some(mut body) = (if last {
-        target.take_body()
-    } else {
-        target.body().cloned()
-    }) else {
-        return;
-    };
-    *live.calls.get_mut(callee) -= 1;
-    if last {
-        *live.moved.get_mut(callee) = true;
-    } else {
-        live.copied(&body);
-    }
-    let target = program.funcs.get(callee);
-
-    // Every local of the callee is appended to the caller's table and every
-    // reference to one shifted by where they landed. `LocalId` is an index
-    // into that table (`typed::Body`), so nothing else can capture: no two
-    // bindings can end up with the same id.
-    let shift = locals.append(&target.locals);
-    shift_expr(&mut body, &shift);
-
-    // Each argument is bound in turn, before the body runs. That is exactly
-    // what a call does, so evaluation order (SPEC 8.2) is preserved without
-    // any reasoning about the arguments themselves — and an argument used
-    // twice, or not at all, needs no special case. The bindings that turn out
-    // to be unnecessary are removed later, by the local cleanup in `javascript.rs`.
-    let args = std::mem::take(args);
-    let stmts: Vec<Stmt> = target
-        .params
-        .iter()
-        .zip(args)
-        .map(|(p, arg)| {
-            let local = shift.of(*p);
-            let span = arg.span;
-            Stmt::Let {
-                pattern: typed::Pattern {
-                    kind: PatKind::Bind { local, sub: None },
-                    ty: arg.ty,
-                    span,
-                },
-                value: arg,
-                span,
+impl Paste<'_> {
+    fn expr(&mut self, e: &mut Expr) {
+        self.walked += 1;
+        // Children first, so a call that only becomes visible after its own
+        // arguments are rewritten is still seen this round.
+        typed::children_mut(e, &mut |child| {
+            if self.left > 0 {
+                self.expr(child);
             }
-        })
-        .collect();
+        });
 
-    *size += facts.per_func.get(callee).size;
-    *done += 1;
-    e.kind = ExprKind::Block {
-        stmts,
-        tail: Some(Box::new(body)),
-    };
+        let ExprKind::CallFunc { func, args } = &mut e.kind else {
+            return;
+        };
+        let callee = *func;
+        if !self.facts.inlinable(callee) {
+            return;
+        }
+        self.left = self.left.saturating_sub(1);
+        // The checker gave the call one argument per parameter.
+        if self.size > self.limit {
+            return;
+        }
+        // Copying a body and then dropping the original is most of what
+        // inlining costs, so the last call to a function takes the body itself.
+        let last = self.live.last(callee);
+        let target = self.program.funcs.get_mut(callee);
+        let Some(mut body) = (if last {
+            target.take_body()
+        } else {
+            target.body().cloned()
+        }) else {
+            return;
+        };
+        *self.live.calls.get_mut(callee) -= 1;
+        if last {
+            *self.live.moved.get_mut(callee) = true;
+        } else {
+            self.live.copied(&body);
+        }
+        let target = self.program.funcs.get(callee);
+
+        // Every local of the callee is appended to the caller's table and
+        // every reference to one shifted by where they landed. `LocalId` is an
+        // index into that table (`typed::Body`), so nothing else can capture:
+        // no two bindings can end up with the same id.
+        let shift = self.locals.append(&target.locals);
+        shift_expr(&mut body, &shift);
+
+        // Each argument is bound in turn, before the body runs. That is
+        // exactly what a call does, so evaluation order (SPEC 8.2) is
+        // preserved without any reasoning about the arguments themselves —
+        // and an argument used twice, or not at all, needs no special case.
+        // The bindings that turn out to be unnecessary are removed later, by
+        // the local cleanup in `javascript.rs`.
+        let args = std::mem::take(args);
+        let stmts: Vec<Stmt> = target
+            .params
+            .iter()
+            .zip(args)
+            .map(|(p, arg)| {
+                let local = shift.of(*p);
+                let span = arg.span;
+                Stmt::Let {
+                    pattern: typed::Pattern {
+                        kind: PatKind::Bind { local, sub: None },
+                        ty: arg.ty,
+                        span,
+                    },
+                    value: arg,
+                    span,
+                }
+            })
+            .collect();
+
+        self.size += self.facts.per_func.get(callee).size;
+        self.done += 1;
+        e.kind = ExprKind::Block {
+            stmts,
+            tail: Some(Box::new(body)),
+        };
+    }
 }
 
 /// Every local id in an expression, moved to where `shift` put its table.

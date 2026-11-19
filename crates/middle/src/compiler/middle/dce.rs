@@ -65,13 +65,18 @@ pub enum Chunks {
 /// `Ordered`, and a `--filter`ed batch keeps one intrinsic copy per suite
 /// (buri-lang/buri#186). `monomorphize::one_symbol_per_function` leaves them
 /// out for that reason.
-pub fn run(program: &mut Program) {
-    let reached = reachable(program, &program_roots(program), Chunks::Followed);
+///
+/// Answers, per function, whether its body holds a match of two or more
+/// arms: the bodies `decision` has anything to do in, found on this walk so
+/// that `decision` need not walk the rest.
+pub fn run(program: &mut Program) -> Dense<FuncIdx, bool> {
+    let (reached, decides) = reach(program, &program_roots(program), Chunks::Followed);
     for (func, seen) in program.funcs.iter_mut().zip(&reached) {
         if !*seen {
             func.kind = FuncKind::Dropped;
         }
     }
+    decides
 }
 
 /// The slots this program starts at: its entry, or every one of its tests,
@@ -104,7 +109,18 @@ pub fn program_roots(program: &Program) -> Vec<FuncIdx> {
 /// also holds, or missing one it needs, is the same defect as a dropped live
 /// function — and it would be found by a different piece of code.
 pub fn reachable(program: &Program, roots: &[FuncIdx], chunks: Chunks) -> Dense<FuncIdx, bool> {
+    reach(program, roots, chunks).0
+}
+
+/// [`reachable`], and which of the reached bodies hold a match of two or more
+/// arms.
+fn reach(
+    program: &Program,
+    roots: &[FuncIdx],
+    chunks: Chunks,
+) -> (Dense<FuncIdx, bool>, Dense<FuncIdx, bool>) {
     let mut reached = program.funcs.map(|_| false);
+    let mut decides = program.funcs.map(|_| false);
     let mut work: Vec<FuncIdx> = roots.to_vec();
     for f in &work {
         *reached.get_mut(*f) = true;
@@ -115,7 +131,7 @@ pub fn reachable(program: &Program, roots: &[FuncIdx], chunks: Chunks) -> Dense<
             continue;
         };
         let mut callees = Vec::new();
-        references(body, chunks, &mut callees);
+        references(body, chunks, &mut callees, decides.get_mut(f));
         for c in callees {
             let seen = reached.get_mut(c);
             if !*seen {
@@ -124,7 +140,7 @@ pub fn reachable(program: &Program, roots: &[FuncIdx], chunks: Chunks) -> Dense<
             }
         }
     }
-    reached
+    (reached, decides)
 }
 
 /// The slots one function's body names directly: the edges [`reachable`]
@@ -136,7 +152,7 @@ pub fn reachable(program: &Program, roots: &[FuncIdx], chunks: Chunks) -> Dense<
 pub fn callees(program: &Program, func: FuncIdx) -> Vec<FuncIdx> {
     let mut out = Vec::new();
     if let Some(body) = program.funcs.get(func).body() {
-        references(body, Chunks::Followed, &mut out);
+        references(body, Chunks::Followed, &mut out, &mut false);
     }
     out
 }
@@ -150,7 +166,9 @@ pub fn callees(program: &Program, func: FuncIdx) -> Vec<FuncIdx> {
 /// names the function a merged tail-recursive group became, which cannot be
 /// dead while a member is live — but this pass runs before that rewrite and
 /// after it in a second run, and it costs one arm to be right in both.
-fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<FuncIdx>) {
+///
+/// Sets `decides` where the body holds a match of two or more arms.
+fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<FuncIdx>, decides: &mut bool) {
     // A chunk node under `Deferred` is a leaf: its one child is the reference
     // to the function the chunk holds, and following it is exactly what this
     // walk is being asked not to do.
@@ -162,9 +180,10 @@ fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<FuncIdx>) {
             out.push(*func);
         }
         ExprKind::Continue { func: Some(f), .. } => out.push(*f),
+        ExprKind::Match { arms, .. } => *decides |= arms.len() > 1,
         _ => {}
     }
-    typed::children(e, &mut |c| references(c, chunks, out));
+    typed::children(e, &mut |c| references(c, chunks, out, decides));
 }
 
 /// Whether this node fetches a chunk.

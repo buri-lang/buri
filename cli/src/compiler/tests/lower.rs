@@ -83,9 +83,9 @@ fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
 /// `middle::run` with every pass but the inliner, in its order. Keep the two
 /// in step.
 fn run_without_inlining(program: &mut Program) {
-    middle::dce::run(program);
+    let decides = middle::dce::run(program);
     middle::tail_calls::rewrite(program);
-    middle::decision::run(program);
+    middle::decision::run(program, &decides);
     middle::chunks::run(program, false);
 }
 

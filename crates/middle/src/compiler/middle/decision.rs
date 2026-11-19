@@ -66,17 +66,26 @@
 //! Design: `design/native/ARCHITECTURE.md` §1, §2.2.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
-use crate::compiler::semantics::types::{FieldId, Ty, TyConId, VariantId};
+use crate::compiler::semantics::types::{FieldId, FuncIdx, Ty, TyConId, VariantId};
 use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
 /// of discriminant tests.
-pub fn run(program: &mut Program) {
-    for f in &mut program.funcs {
+///
+/// `decides` is `dce::run`'s answer: which bodies hold a match of two or more
+/// arms, the only kind [`group`] rewrites. A function past its end was
+/// appended since, by `tail_calls`, and is walked.
+pub fn run(program: &mut Program, decides: &Dense<FuncIdx, bool>) {
+    for (i, f) in program.funcs.entries_mut() {
+        if i.index() < decides.len() && !*decides.get(i) {
+            continue;
+        }
         let Func { locals, kind, .. } = f;
         let FuncKind::Body(body) = kind else { continue };
+        crate::profile::work(crate::profile::Work::BodiesWalkedForDecisions, 1);
         rewrite(locals, body);
     }
 }
@@ -452,7 +461,7 @@ fn collapse(locals: &mut typed::Locals, rows: Vec<Arm>, at: Collapse, ty: &Ty) -
 
 #[cfg(test)]
 mod tests {
-    use super::run;
+    use super::{run, Dense};
     use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots, Root};
@@ -565,7 +574,7 @@ mod tests {
             arm(variant(VariantId::SOME, PatKind::Wild), None, 1),
             arm(variant(VariantId::NONE, PatKind::Wild), None, 2),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         assert_eq!(arms_of(&p).len(), 2);
         assert!(matches!(
             arms_of(&p)[0].pattern.kind,
@@ -585,7 +594,7 @@ mod tests {
             arm(variant(VariantId::SOME, PatKind::Wild), None, 20),
             arm(variant(VariantId::NONE, PatKind::Wild), None, 30),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 2);
         // The group's own arm binds the column rather than testing it.
@@ -632,7 +641,7 @@ mod tests {
             arm(variant(VariantId::NONE, PatKind::Wild), None, 20),
             arm(variant(VariantId::SOME, PatKind::Wild), None, 30),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 2);
         assert!(
@@ -656,7 +665,7 @@ mod tests {
             arm(variant(VariantId::NONE, PatKind::Wild), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         assert_eq!(arms_of(&p).len(), 3);
         assert!(matches!(
             arms_of(&p)[0].pattern.kind,
@@ -673,7 +682,7 @@ mod tests {
             arm(pat(PatKind::Wild), None, 20),
             arm(variant(VariantId::NONE, PatKind::Wild), None, 30),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         assert_eq!(arms_of(&p).len(), 3);
         assert!(matches!(arms_of(&p)[1].pattern.kind, PatKind::Wild));
     }
@@ -693,7 +702,7 @@ mod tests {
             ),
             arm(variant(VariantId::GREATER, PatKind::Wild), None, 20),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         assert!(matches!(arms_of(&p)[0].pattern.kind, PatKind::Or(_)));
     }
 
@@ -705,7 +714,7 @@ mod tests {
             arm(pat(int(1)), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
-        run(&mut p);
+        run(&mut p, &Dense::default());
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 3);
         assert!(matches!(arms[2].pattern.kind, PatKind::Wild));

@@ -115,12 +115,12 @@ pub fn run(program: &mut Program, opts: &Options) {
     // Inlining creates *new* dead functions — a body inlined at its single
     // call site leaves the original unreachable — so reachability is
     // recomputed after it rather than only at monomorphization.
-    dce::run(program);
+    let decides = dce::run(program);
     // `tail_calls` and `decision` are decisions about the *program*, not about
     // an emitter, which is why they run here for every backend rather than
     // inside the one that has them today.
     tail_calls::rewrite(program);
-    decision::run(program);
+    decision::run(program, &decides);
     // Last, because a chunk is a partition of the functions there *are*: an
     // inlined body, a dropped one and a merged tail-call group all move the
     // line this pass draws.

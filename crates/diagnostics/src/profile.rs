@@ -216,9 +216,15 @@ pub enum Work {
     /// Function bodies walked for the structural calls and primitive types
     /// they hold (`derives.rs`).
     BodiesWalkedForDerives,
+    /// Function bodies walked to rewrite their matches into decisions
+    /// (`decision.rs`).
+    BodiesWalkedForDecisions,
+    /// Expression nodes the inliner walked for calls to paste
+    /// (`inline.rs`).
+    NodesWalkedForInlining,
 }
 
-const WORKS: usize = Work::BodiesWalkedForDerives as usize + 1;
+const WORKS: usize = Work::NodesWalkedForInlining as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -247,6 +253,8 @@ const WORK_NAMES: [&str; WORKS] = [
     "bodies walked for consuming uses",
     "bodies walked for calls and effects",
     "bodies walked for derives",
+    "bodies walked for decisions",
+    "nodes walked for inlining",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];
