@@ -1120,6 +1120,76 @@ fn a_test_run_keys_each_rule_once() {
     );
 }
 
+/// `n` libraries with a suite each, every one of them dropping a record of
+/// lists that `//lib/row` declares.
+fn rows_dropped(n: usize) -> Scratch {
+    let scratch = Scratch::repo("profile-rows-dropped");
+    scratch.write(
+        "lib/row/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/row/lib.buri",
+        "export struct Row {\n    export names: [Str],\n    export groups: [[Str]],\n}\n",
+    );
+    for i in 0..n {
+        scratch.write(
+            &format!("lib/p{i}/BUILD.buri"),
+            "library {\n    dependencies: [\"//lib/row\"]\n    \
+             test {\n        sources: [\"test/width.buri\"]\n    }\n}\n",
+        );
+        scratch.write(
+            &format!("lib/p{i}/lib.buri"),
+            &format!(
+                "from \"//lib/row\" import {{ Row }};\n\n\
+                 export fn width(row: Row): Int {{\n    \
+                 row.names.length() + row.groups.length() + {i}\n}}\n"
+            ),
+        );
+        scratch.write(
+            &format!("lib/p{i}/test/width.buri"),
+            &format!(
+                "from \"//lib/p{i}\" import * as p;\n\
+                 from \"//lib/row\" import {{ Row }};\n\
+                 from \"core/testing/assert\" import * as assert;\n\n\
+                 test \"p{i}\" {{\n    \
+                 let row = Row {{ names: [\"a\", \"b\"], groups: [[\"c\"], [\"d\", \"e\"]] }};\n    \
+                 assert.equal(p.width(row), {});\n}}\n",
+                4 + i
+            ),
+        );
+    }
+    scratch
+}
+
+/// **The glue every unit drops a type with is emitted once a run.** Drop and
+/// copy glue is a weak symbol every unit that needs it defines, and each unit
+/// emitted it again: a test run of `n` suites over one record emitted its glue
+/// in every unit of every suite. The run now emits each body once and lays it
+/// out again wherever it's needed, so twice the suites emit no more glue.
+#[test]
+fn a_test_run_emits_the_glue_its_units_share_once() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let glue = |n: usize| {
+        let run = rows_dropped(n).run_with_env(
+            &["test", "//..."],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        assert_eq!(run.tests_passed(), n, "{}", indent(&run.all()));
+        work_count(&run.all(), "glue bodies emitted").unwrap()
+    };
+    let (few, many) = (glue(4), glue(8));
+    assert!(few > 0.0, "4 suites dropping a record emitted no glue");
+    assert_eq!(
+        many, few,
+        "8 suites dropping one record emitted {many} glue bodies, against {few} for 4"
+    );
+}
+
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B

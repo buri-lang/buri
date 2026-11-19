@@ -449,6 +449,9 @@ pub struct Jit<'a> {
     shared_ix: HashMap<String, usize>,
     /// Where each helper starts and ends within the part.
     helper_at: Vec<(u64, u64)>,
+    /// The helpers a glue body being emitted for [`super::glue::Glue`] asked
+    /// for, in order, so that the parts that reuse the body ask for them too.
+    asks: Option<Vec<super::glue::Helper>>,
     /// Where each stencil's spilled constants were copied into this unit's
     /// pool, by stencil name. One copy per unit: the bytes are clang's
     /// `.rodata` and every copy of the stencil reads the same ones.
@@ -794,6 +797,7 @@ impl<'a> Jit<'a> {
             helper_names: Vec::new(),
             shared_ix: HashMap::default(),
             helper_at: Vec::new(),
+            asks: None,
             spilled: HashMap::default(),
             counts: scratch.counts,
             bufs: scratch.bufs,
@@ -834,6 +838,9 @@ impl<'a> Jit<'a> {
     /// ([`super::glue::shared_symbol`]); everything else is a local symbol of
     /// this part.
     pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
+        if let Some(asks) = &mut self.asks {
+            asks.push(h.clone());
+        }
         if let Some(i) = self.helper_ix.get(&h) {
             return self
                 .helper_names
@@ -1521,11 +1528,49 @@ impl<'a> Jit<'a> {
                 Some(h) => h.clone(),
                 None => break,
             };
-            let at = self.emit_helper(prog, &h);
+            let at = match self.helper_names.get(i) {
+                Some((name, true)) => {
+                    let name = name.clone();
+                    self.shared_glue(prog, &h, name)
+                }
+                _ => self.emit_helper(prog, &h),
+            };
             self.helper_at.push((at, self.region.code_addr()));
             i += 1;
         }
         self.resolve(prog);
+    }
+
+    /// One drop or copy glue body ([`super::glue::shared_symbol`]), laid out
+    /// here from the bytes the first part to need it emitted.
+    ///
+    /// The body is emitted into a region of its own, so it is the same bytes
+    /// whichever part emitted it and whichever part reuses it, and a part's
+    /// object doesn't depend on which came first. It reads no function of the
+    /// program, so it leaves no fixup behind: what it names is the runtime or
+    /// another glue body, and both are relocations against a symbol. The
+    /// helpers it asked for are asked for again here, in the same order, so
+    /// this part defines every glue symbol the body names.
+    fn shared_glue(&mut self, prog: &ir::Program, h: &super::glue::Helper, name: String) -> u64 {
+        let key = (self.target, self.shares, name);
+        let memo = self.tables.later::<super::glue::Glue>();
+        let body = match memo.get(&key) {
+            Some(body) => body,
+            None => {
+                let part = std::mem::take(&mut self.region);
+                let spilled = std::mem::take(&mut self.spilled);
+                self.asks = Some(Vec::new());
+                self.emit_helper(prog, h);
+                let asks = self.asks.take().unwrap_or_default();
+                self.spilled = spilled;
+                let emitted = std::mem::replace(&mut self.region, part).finish();
+                memo.put(key, emitted, asks)
+            }
+        };
+        for h in &body.asks {
+            self.helper(h.clone());
+        }
+        self.region.splice(&body.emitted)
     }
 
     fn function(&mut self, prog: &ir::Program, fi: FuncIdx) {

@@ -78,7 +78,7 @@ impl std::fmt::Display for Reg {
 /// does: the build script picks a target to compile *for* and the emitter picks
 /// a target to look a library *up* by, and the two must agree on the spelling or
 /// the toolchain would silently emit arm64 bytes into an x86-64 object.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum StencilTarget {
     MacosArm64,
     LinuxArm64,

@@ -447,3 +447,70 @@ fn a_unit_only_a_different_program_stored_is_lowered_again() {
         );
     }
 }
+
+/// A native program over `//lib/rows` that prints `body`, an `Int`, over the
+/// rows `first` and `second`.
+fn rows_program(body: &str) -> String {
+    format!(
+        "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+         from \"native\" import {{ NativeHost }};\n\
+         from \"core/io\" import * as io;\n\
+         from \"//lib/rows\" import {{ Row, width }};\n\n\
+         export fn main(host: NativeHost): Result<(), Str> {{\n    \
+         let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+         let first = Row {{ names: [\"a\", \"b\"], groups: [[\"c\"], [\"d\", \"e\"]] }};\n    \
+         let second = Row {{ names: [\"f\"], groups: [[\"g\"]] }};\n    \
+         let _ =io.println(ctx, \"${{{body}}}\").ignore();\n    \
+         .Ok(())\n}}\n"
+    )
+}
+
+/// **Programs built together that drop the same records run right, and each
+/// is the binary it would be built alone.** Every unit that drops a record of
+/// lists defines that record's glue. A build emits each glue body once and
+/// lays it out again in every unit that needs it, so which program reached a
+/// body first decides nothing about the bytes.
+#[test]
+fn programs_built_together_that_drop_the_same_records_are_built_alike() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::codegen_sharing", &why);
+        return;
+    }
+    let scratch = Scratch::repo("codegen-sharing-rows");
+    let binary = format!(
+        "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{}\" }}]\n}}\n",
+        host_variant()
+    );
+    scratch.write(
+        "lib/rows/BUILD.buri",
+        "library {\n  visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/rows/lib.buri",
+        "export struct Row {\n    export names: [Str],\n    export groups: [[Str]],\n}\n\n\
+         export fn width(row: Row): Int {\n    \
+         row.names.length() * 10 + row.groups.length()\n}\n",
+    );
+    for (package, body) in [
+        ("cmd/a", "first.names.length() + second.groups.length()"),
+        ("cmd/b", "width(first) + width(second)"),
+    ] {
+        scratch.write(&format!("{package}/BUILD.buri"), &binary);
+        scratch.write(&format!("{package}/main.buri"), &rows_program(body));
+    }
+
+    scratch.run(&["build", "//..."]).ok();
+    let mut built = Vec::new();
+    for (package, want) in [("cmd/a", "3\n"), ("cmd/b", "33\n")] {
+        assert_eq!(printed(&scratch, package), want, "//{package}");
+        built.push((package, executable(&scratch, package)));
+    }
+    for (package, built) in built {
+        scratch.run(&["clean"]).ok();
+        scratch.run(&["build", &format!("//{package}")]).ok();
+        assert!(
+            executable(&scratch, package) == built,
+            "//{package} differs built alone"
+        );
+    }
+}

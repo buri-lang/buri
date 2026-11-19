@@ -584,6 +584,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
             "holes patched {}",
             crate::compiler::backend::holes_patched()
         );
+        eprintln!(
+            "glue bodies emitted {}",
+            crate::compiler::backend::glue_emitted()
+        );
         for (site, n) in crate::compiler::backend::holes_copying() {
             eprintln!("holes copying {site} {n}");
         }

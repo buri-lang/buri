@@ -57,6 +57,15 @@ pub fn holes_patched() -> u64 {
     0
 }
 
+/// How many drop and copy glue bodies this process's stencil backend emitted,
+/// rather than laid out again: none in a build without it.
+pub fn glue_emitted() -> u64 {
+    #[cfg(feature = "backend-stencil")]
+    return stencil::glue::glue_emitted();
+    #[cfg(not(feature = "backend-stencil"))]
+    0
+}
+
 /// Of those holes, how many copied values at each of the stencil backend's
 /// copy sites, by name: none in a build without it.
 pub fn holes_copying() -> Vec<(&'static str, u64)> {

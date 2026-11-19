@@ -16,7 +16,8 @@
 //! named by what it does and by the type's glue key
 //! (`layout::Layouts::glue_key`), and defined weak ([`shared_symbol`]): every
 //! unit that drops a `[Str]` emits the same symbol and the linker keeps one.
-//! The rest name a function of this program, so each is a **local** symbol of
+//! A build emits each of those bodies once, into a region of its own, and
+//! every unit that needs it copies those bytes ([`Glue`]). The rest name a function of this program, so each is a **local** symbol of
 //! the part that needed it.
 //!
 //! # Two calling conventions, and the bridge between them
@@ -68,15 +69,17 @@
               so it stays far inside one `sub sp` immediate (`glue_stub`)"
 )]
 
-use super::abi::{Jump, Lit, Word};
+use super::abi::{Jump, Lit, StencilTarget, Word};
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, Label, RET, V};
+use super::region::Emitted;
 use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, Words, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::{FuncIdx, Ty};
+use crate::hash::Map as HashMap;
 
 /// One generated function.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -168,6 +171,66 @@ pub fn shared_symbol(h: &Helper, layouts: &mut Layouts<'_>) -> Option<String> {
         | Helper::Kept { .. } => return None,
     };
     Some(format!("buri$stencil$glue${what}${key}"))
+}
+
+/// The drop and copy glue emitted against one `Tables`, by target, by whether
+/// the program's counts are shared, and by symbol: what `Jit::shared_glue`
+/// lays out again rather than emitting again.
+///
+/// Every unit that drops a `[Str]` defines the same weak symbol, and a test
+/// build is hundreds of programs whose units drop the same types. The symbol
+/// is the glue key, which covers everything a body reads
+/// ([`shared_symbol`]), so one body per key serves every part, unit and
+/// program over these tables. The target picks the stencils, and the counts'
+/// sharing picks what every count stencil reads (`emit.rs`'s
+/// `count_stencil`), so both are in the key too.
+#[derive(Default)]
+pub(crate) struct Glue(std::sync::Mutex<HashMap<GlueKey, std::sync::Arc<GlueBody>>>);
+
+type GlueKey = (StencilTarget, bool, String);
+
+/// One glue body, emitted into a region of its own, and the helpers it asked
+/// for in the order it asked.
+pub(crate) struct GlueBody {
+    pub(crate) emitted: Emitted,
+    pub(crate) asks: Vec<Helper>,
+}
+
+/// How many glue bodies this process emitted, rather than laid out again.
+/// `BURI_PROFILE` prints it.
+static GLUE_EMITTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`GLUE_EMITTED`].
+pub fn glue_emitted() -> u64 {
+    GLUE_EMITTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+impl Glue {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<GlueKey, std::sync::Arc<GlueBody>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn get(&self, key: &GlueKey) -> Option<std::sync::Arc<GlueBody>> {
+        self.lock().get(key).cloned()
+    }
+
+    /// A body just emitted. Two parts on two threads may both emit one key;
+    /// the bodies are the same bytes, and the first kept serves both.
+    pub(crate) fn put(
+        &self,
+        key: GlueKey,
+        emitted: Emitted,
+        asks: Vec<Helper>,
+    ) -> std::sync::Arc<GlueBody> {
+        GLUE_EMITTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut memo = self.lock();
+        let body = memo
+            .entry(key)
+            .or_insert_with(|| std::sync::Arc::new(GlueBody { emitted, asks }));
+        std::sync::Arc::clone(body)
+    }
 }
 
 /// The symbol a part-local helper is emitted under.

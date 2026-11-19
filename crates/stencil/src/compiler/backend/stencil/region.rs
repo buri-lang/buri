@@ -330,6 +330,28 @@ impl Region {
         }
     }
 
+    /// A body emitted into a region of its own, laid out here: its code at the
+    /// next four-aligned offset and its pool at the next [`PART_ALIGN`]-aligned
+    /// one, with every offset it carries moved as [`Emitted::append`] moves a
+    /// part's. Answers where its code starts.
+    pub fn splice(&mut self, body: &Emitted) -> u64 {
+        self.align_code(4);
+        while !self.pool.len().is_multiple_of(PART_ALIGN) {
+            self.pool.push(0);
+        }
+        let code_base = self.code_addr();
+        let pool_base = self.pool.len() as u64;
+        self.bytes.extend_from_slice(&body.code);
+        self.pool.extend_from_slice(&body.pool);
+        for r in &body.code_relocs {
+            self.relocs.push(r.moved(code_base, pool_base));
+        }
+        for r in &body.pool_relocs {
+            self.pool_relocs.push(r.moved(pool_base, pool_base));
+        }
+        code_base
+    }
+
     /// The two sections and the relocations each still needs.
     pub fn finish(mut self) -> Emitted {
         for (at, target) in std::mem::take(&mut self.pool_targets) {
@@ -423,25 +445,37 @@ impl Emitted {
         let pool_base = self.pool.len() as u64;
         self.code.extend_from_slice(&other.code);
         self.pool.extend_from_slice(&other.pool);
-        let rebase = |r: &mut Reloc, base: u64| {
-            r.at += base;
-            match &mut r.target {
-                // A pool offset, whether it is spelled as this relocation's
-                // addend or as the `Here` a pool word holds.
-                Target::Pool => r.addend += pool_base as i64,
-                Target::Here(off) => *off += pool_base,
-                Target::Func(_) | Target::Symbol(_) => {}
-            }
-        };
         for mut r in other.code_relocs {
-            rebase(&mut r, code_base);
+            r.rebase(code_base, pool_base);
             self.code_relocs.push(r);
         }
         for mut r in other.pool_relocs {
-            rebase(&mut r, pool_base);
+            r.rebase(pool_base, pool_base);
             self.pool_relocs.push(r);
         }
         code_base
+    }
+}
+
+impl Reloc {
+    /// Moved to a section `base` bytes further on, beside a pool `pool_base`
+    /// bytes further on.
+    fn rebase(&mut self, base: u64, pool_base: u64) {
+        self.at += base;
+        match &mut self.target {
+            // A pool offset, whether it is spelled as this relocation's
+            // addend or as the `Here` a pool word holds.
+            Target::Pool => self.addend += pool_base as i64,
+            Target::Here(off) => *off += pool_base,
+            Target::Func(_) | Target::Symbol(_) => {}
+        }
+    }
+
+    /// [`Reloc::rebase`], of a copy.
+    fn moved(&self, base: u64, pool_base: u64) -> Reloc {
+        let mut r = self.clone();
+        r.rebase(base, pool_base);
+        r
     }
 }
 

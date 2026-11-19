@@ -1037,10 +1037,10 @@ pub struct Tables {
     later: Later,
 }
 
-/// One answer a later stage keeps against a [`Tables`], for as long as the
-/// tables live.
+/// The answers later stages keep against a [`Tables`], for as long as the
+/// tables live: one per type that asks, and room for two.
 #[derive(Default)]
-struct Later(std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>);
+struct Later([std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>; 2]);
 
 impl Clone for Later {
     /// Empty, because a clone can be changed afterwards, and an answer about
@@ -1221,15 +1221,18 @@ impl Tables {
     ///
     /// For a memo a later stage fills from these tables, such as the build's
     /// codegen keys of units it has lowered, which are valid for as long as
-    /// the tables are and no longer. A clone or a layer starts empty. One type
-    /// asks for it.
+    /// the tables are and no longer. A clone or a layer starts empty. Two
+    /// types ask for it: the build's unit keys and the stencil backend's glue.
+    ///
+    /// Each type takes the first slot that is empty or already its own, so two
+    /// types asking at once on two threads end up in one slot each.
     pub fn later<T: std::any::Any + Send + Sync + Default>(&self) -> &T {
         use crate::diagnostics::Invariant as _;
         self.later
             .0
-            .get_or_init(|| Box::new(T::default()))
-            .downcast_ref()
-            .or_ice("`Tables::later` was asked for two types")
+            .iter()
+            .find_map(|slot| slot.get_or_init(|| Box::new(T::default())).downcast_ref())
+            .or_ice("`Tables::later` was asked for more types than it has room for")
     }
 
     /// The same entries, for the phases that fill them in. Ids come from the
