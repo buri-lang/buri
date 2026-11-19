@@ -435,11 +435,12 @@ pub fn normalise(text: &str, root: &Path) -> String {
     // scratch path carries this process's id.
     s = replace_between(&s, "answered in ", "ms;", "answered in 0ms;");
     s = replace_between(&s, "bytes written ", "\"", "bytes written N\"");
-    // The toolchain's own version. The nightly release bumps the patch on every
-    // build, so a golden that pinned it would redden on the next nightly — the
-    // `serverInfo` version and every `buri <x.y.z>` line move like an elapsed
-    // time does, and are normalised the same way.
-    s = s.replace(env!("CARGO_PKG_VERSION"), "<version>");
+    // The toolchain's own version: the release under the nightly's training,
+    // `0.0.0-dev` elsewhere, so a golden never pins it.
+    s = s.replace(
+        option_env!("BURI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")),
+        "<version>",
+    );
     s = scrub_explain_keys(&s);
     // Work that ran a minute says so, and how long a step takes is the
     // machine's business, not the golden's.

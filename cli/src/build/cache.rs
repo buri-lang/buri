@@ -925,8 +925,8 @@ impl KeyBuilder {
         // compiler is a different artifact, so a rebuild moves every key in
         // every repository at once.
         //
-        // It names the running executable, not `CARGO_PKG_VERSION`.
-        // The version stays `0.3.0` across a rebuild, so two `buri` binaries
+        // It names the running executable, not the version.
+        // The version stays `0.0.0-dev` across a rebuild, so two `buri` binaries
         // built from different source at the same version used to compute the
         // same keys and share a cache — behaviour changed under a key that did
         // not, and whoever rebuilt the toolchain had to `rm -rf .buri` by hand.

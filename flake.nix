@@ -210,10 +210,8 @@
             meta.mainProgram = "cargo-nextest";
           };
 
-        # The version is read rather than written down. `buri version` prints
-        # `CARGO_PKG_VERSION`, so a version repeated here is a second place to
-        # forget, and a package that claims 0.3.0 while its binary says 0.4.0
-        # is worse than one that claims nothing.
+        # The package version is `0.0.0-dev`, which a from-source `buri version`
+        # prints too. Releases get theirs from `BURI_VERSION` in the nightly.
         cargoToml = builtins.fromTOML (builtins.readFile ./cli/Cargo.toml);
 
         # LLVM 21.1, pinned deliberately rather than taken from the default

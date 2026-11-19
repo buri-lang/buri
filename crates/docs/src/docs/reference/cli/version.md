@@ -2,6 +2,16 @@
 
 Prints the toolchain version on one line. It works outside a repository.
 
+```sh
+buri version
+```
+
+```text
+buri 0.3.48
+```
+
+A release prints its own version. A build from source prints `0.0.0-dev`.
+
 `--verbose` adds the running executable's identity: the id its linker wrote
 into it (`LC_UUID` on macOS, the GNU build id on Linux). Two builds of one
 version are different compilers, and the identity tells them apart, so put it in

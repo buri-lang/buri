@@ -6,7 +6,13 @@
 //!   2  malformed invocation, unparseable build file — the thing you asked
 //!      *with* is wrong
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The release the nightly built, from `BURI_VERSION`. The package version
+/// stays `0.0.0-dev`: it feeds rustc's symbol hashes, so bumping it moved the
+/// compiler's code layout on every release.
+pub const VERSION: &str = match option_env!("BURI_VERSION") {
+    Some(release) => release,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub struct Args {
     pub command: String,

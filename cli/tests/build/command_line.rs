@@ -111,6 +111,17 @@ fn a_subcommand_nothing_resembles_names_no_nearest_one() {
         .silent_about("did you mean");
 }
 
+/// The nightly builds with `BURI_VERSION` set to the release, and this suite
+/// with it, so there `buri version` names the release. Any other build is
+/// `0.0.0-dev`.
+#[test]
+fn version_names_the_release_it_was_built_for() {
+    let want = option_env!("BURI_VERSION").unwrap_or("0.0.0-dev");
+    let run = empty("command-line-version").run(&["version"]);
+    run.ok();
+    assert_eq!(run.stdout, format!("buri {want}\n"));
+}
+
 #[test]
 fn version_checks_the_bundled_standard_library_on_request() {
     let scratch = empty("command-line-self-check");

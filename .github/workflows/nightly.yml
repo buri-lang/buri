@@ -5,9 +5,13 @@ name: Nightly
 # *release* build. A single leg here compiles `buri` with `--features
 # backend-llvm` for a release triple and takes ~20 minutes; that is expected and
 # does NOT fall under the fast-CI guideline. Three things this file does that
-# ci.yml does not: it edits `version` in cli/Cargo.toml, it packages the built
-# binary as a tarball, and it commits to main, tags, and cuts a GitHub
-# prerelease.
+# ci.yml does not: it builds with `BURI_VERSION` set to the release, it packages
+# the built binary as a tarball, and it commits the installers' hashes to main,
+# tags, and cuts a GitHub prerelease.
+#
+# The package version in cli/Cargo.toml stays `0.0.0-dev`. It feeds rustc's
+# symbol hashes, so bumping it each night moved the compiler's code layout and
+# CI's counted goals with it. The tags alone carry the release number.
 #
 # Every run is a real release. It fires on `schedule` (2:11am US Pacific; GitHub
 # cron is UTC and cannot do DST, so `11 9 * * *` is 2:11am PDT / 1:11am PST) or
@@ -105,6 +109,9 @@ jobs:
     runs-on: macos-latest
     # An instrumented release build, a debug build of six suites, and their run.
     timeout-minutes: 150
+    # The build's version, so the profile is of the same source.
+    env:
+      BURI_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/macos-toolchain
@@ -113,12 +120,6 @@ jobs:
       - uses: ./.github/actions/test-tools
         with:
           llvm: llvm@21
-      # The same edit the build makes, so the profile is of the same source.
-      - name: set version to ${{ needs.version.outputs.version }}
-        run: |
-          set -eu
-          v="${{ needs.version.outputs.version }}"
-          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
       - name: train the profile
         run: sh .github/pgo.sh aarch64-apple-darwin train
       - uses: actions/upload-artifact@v7
@@ -136,19 +137,15 @@ jobs:
     runs-on: macos-latest
     # A release build with fat LTO on three cores.
     timeout-minutes: 90
+    # What `buri version` prints, read by `option_env!` in arguments.rs.
+    env:
+      BURI_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/macos-toolchain
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-aarch64-apple-darwin
-      # See the Linux legs' step of the same name.
-      - name: set version to ${{ needs.version.outputs.version }}
-        run: |
-          set -eu
-          v="${{ needs.version.outputs.version }}"
-          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
-          grep -m1 '^version' cli/Cargo.toml
       - uses: actions/download-artifact@v8
         with:
           name: profdata-aarch64-apple-darwin
@@ -195,26 +192,14 @@ jobs:
     # free runners have four cores; PGO compiles twice more and runs half the e2e
     # suites. 150 leaves headroom for setup and the pull.
     timeout-minutes: 150
+    # What `buri version` prints; `docker run -e` passes it into Alpine.
+    env:
+      BURI_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
-      # --- version: cli/Cargo.toml drives CARGO_PKG_VERSION, which is what `buri
-      # version` prints, so editing it before the build is what makes the binary
-      # report 0.3.N. Done on the HOST — the docker build reads the edited file
-      # from the mounted workspace. perl, not sed: macOS's BSD sed has neither
-      # the GNU `0,/re/` address nor in-place `-i` without an argument, and the
-      # macOS jobs make the same edit. The one-liner rewrites only the first
-      # `version = "..."` — the package version — and leaves `rust-version` alone.
-      - name: set version to ${{ needs.version.outputs.version }}
-        run: |
-          set -eu
-          v="${{ needs.version.outputs.version }}"
-          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
-          grep -m1 '^version' cli/Cargo.toml
-
       # --- Linux build INSIDE Alpine via `docker run`. The workspace is
-      # bind-mounted so the checked-out source (with the version already bumped on
-      # the host) goes in and target/ comes back out. The container installs a
+      # bind-mounted so the checked-out source goes in and target/ comes back out. The container installs a
       # musl-host rustup with the pinned toolchain, clang for cli/build.rs's
       # stencil generators (gcc degrades them to empty), and Alpine's musl-built LLVM 21 with the static
       # archives its `--system-libs --link-static` set names — `-lrt -ldl -lm -lz
@@ -234,6 +219,7 @@ jobs:
           docker run --rm \
             -v "$PWD":/w -w /w \
             -e TARGET="${{ matrix.target }}" \
+            -e BURI_VERSION \
             alpine:edge sh -euc '
               apk add --no-cache \
                 rustup build-base musl-dev clang21 lld \
@@ -280,8 +266,8 @@ jobs:
           version: ${{ needs.version.outputs.version }}
 
   # Templating and publication: downloads the three tarballs, rewrites flake.nix /
-  # Formula/buri.rb / Cargo.{toml,lock} to the version and the three sha256s,
-  # commits to main, tags, and cuts the prerelease.
+  # Formula/buri.rb to the version and the three sha256s, commits to main, tags,
+  # and cuts the prerelease. Neither file is compiled into `buri`.
   publish:
     name: publish
     needs: [version, build, build-macos]
@@ -297,7 +283,7 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: template flake.nix, Formula/buri.rb, Cargo.{toml,lock}
+      - name: template flake.nix, Formula/buri.rb
         run: |
           set -euo pipefail
           v="${{ needs.version.outputs.version }}"
@@ -310,13 +296,6 @@ jobs:
           darwin_arm64=$(hash_for aarch64-apple-darwin)
           linux_x86_64=$(hash_for x86_64-unknown-linux-musl)
           linux_arm64=$(hash_for aarch64-unknown-linux-musl)
-
-          # cli/Cargo.toml + Cargo.lock: bump `buri`'s version. perl for both, so
-          # the same edit is portable — the toml's first `version = "..."` is the
-          # package version, and in Cargo.lock it is the line right after
-          # `name = "buri"`.
-          perl -i -pe 'if (!$done && /^version = "/) { s/"[^"]+"/"'"$v"'"/; $done=1 }' cli/Cargo.toml
-          perl -0777 -i -pe 's/(name = "buri"\nversion = ")[0-9.]+/${1}'"$v"'/' Cargo.lock
 
           # flake.nix: the version and the three hashes, each tagged with a
           # machine-editable marker so this sed is deterministic.
@@ -346,7 +325,7 @@ jobs:
           v="${{ needs.version.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cli/Cargo.toml Cargo.lock flake.nix Formula/buri.rb
+          git add flake.nix Formula/buri.rb
           git commit -m "release: nightly v$v"
           # The release commit sits on exactly the commit the tarballs were
           # built from, and the tag below names it. Main may have moved on while

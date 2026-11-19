@@ -255,8 +255,8 @@ benchmark over source that does not compile is a benchmark of the error paths.*
 
 **A cell that drives the binary starts from a cache no other binary wrote.**
 Not the bench target, which compiles in process and keeps no cache — the
-end-to-end cells §6 quotes. A cache key carries `arguments::VERSION`, which is
-`CARGO_PKG_VERSION`: a *version*, not a hash of the running executable. So
+end-to-end cells §6 quotes. A cache key carries `arguments::VERSION`: a
+*version*, not a hash of the running executable. So
 rebuilding `buri` at the same version moves no key, and the first build in a
 workspace whose `.buri` a previous binary wrote mixes the two compilers'
 objects. Only that first build is affected, which is what makes the reading look
