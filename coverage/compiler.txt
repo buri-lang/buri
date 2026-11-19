@@ -18,13 +18,13 @@ crates/docs                        246/246  100.00%           816/916   89.08%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1094/1114   98.20%         5731/5976   95.90%
 crates/llvm                        558/558  100.00%         7691/7885   97.54%
-crates/middle                    2574/2598   99.08%       18460/19009   97.11%
+crates/middle                    2576/2600   99.08%       18473/19022   97.11%
 crates/project                   1338/1340   99.85%         6359/6519   97.55%
 crates/semantics                 2306/2306  100.00%       14421/14707   98.06%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
 crates/stencil                   1132/1140   99.30%         8502/9000   94.47%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16290/16370   99.51%     106219/109380   97.11%
+total                          16292/16372   99.51%     106232/109393   97.11%
 
 cli/src                           branches                      lines         
 build                            1780/1782   99.89%       12171/12484   97.49%
@@ -57,7 +57,7 @@ The 30 files with the most uncovered branches:
 uncovered          branches           file
        18           526/544   96.69%  crates/js/src/compiler/backend/js/javascript.rs
        10           472/482   97.93%  cli/src/commands/test.rs
-        8           182/190   95.79%  crates/middle/src/compiler/middle/monomorphize.rs
+        8           184/192   95.83%  crates/middle/src/compiler/middle/monomorphize.rs
         5           703/708   99.29%  crates/middle/src/compiler/middle/rc.rs
         4           196/200   98.00%  crates/middle/src/compiler/middle/derives.rs
         3           157/160   98.12%  cli/src/language_server/mod.rs
