@@ -80,11 +80,11 @@ use crate::hash::Map;
 /// appended since, by `tail_calls`, and is walked.
 pub fn run(program: &mut Program, decides: &Dense<FuncIdx, bool>) {
     for (i, f) in program.funcs.entries_mut() {
+        let Func { locals, kind, .. } = f;
+        let FuncKind::Body(body) = kind else { continue };
         if i.index() < decides.len() && !*decides.get(i) {
             continue;
         }
-        let Func { locals, kind, .. } = f;
-        let FuncKind::Body(body) = kind else { continue };
         crate::profile::work(crate::profile::Work::BodiesWalkedForDecisions, 1);
         rewrite(locals, body);
     }
