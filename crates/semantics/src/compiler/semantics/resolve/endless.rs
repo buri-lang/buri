@@ -191,6 +191,7 @@ pub(super) fn endless_functions<'a>(
     // Every `impl` of each trait, in a fixed order, for a method called on a
     // bare parameter, which could reach any of them.
     let mut by_trait: Option<HashMap<TraitId, Vec<(TyConId, &'a ImplInfo)>>> = None;
+    let mut by_method: HashMap<(TraitId, MethodId), Vec<(&'a ImplInfo, FnId)>> = HashMap::default();
     search(&owners, |f| {
         let mut out = Vec::new();
         let Some(body) = bodies.get(&f).filter(|_| beyond || mine.contains(&f)) else {
@@ -220,7 +221,11 @@ pub(super) fn endless_functions<'a>(
                     &mut receivers,
                 );
                 for recv in receivers {
-                    let impls: Vec<&ImplInfo> = if matches!(recv.kind(), TyKind::Param(_)) {
+                    // A derived `impl` has no method of its own: where one is
+                    // reached, its components were taken as receivers above.
+                    let single;
+                    let with_method = |imp: &'a ImplInfo| Some((imp, imp.method(*method)?));
+                    let impls: &[(&ImplInfo, FnId)] = if matches!(recv.kind(), TyKind::Param(_)) {
                         let index = by_trait.get_or_insert_with(|| {
                             let mut index: HashMap<TraitId, Vec<(TyConId, &ImplInfo)>> =
                                 HashMap::default();
@@ -230,24 +235,27 @@ pub(super) fn endless_functions<'a>(
                             index.values_mut().for_each(|v| v.sort_by_key(|(c, _)| *c));
                             index
                         });
-                        index
-                            .get(trait_id)
-                            .into_iter()
-                            .flatten()
-                            .map(|(_, imp)| *imp)
-                            .collect()
+                        // Most of a trait's `impl`s are derived, so each
+                        // method's are listed once rather than at every call.
+                        by_method.entry((*trait_id, *method)).or_insert_with(|| {
+                            let impls = index.get(trait_id).map_or(&[][..], Vec::as_slice);
+                            crate::profile::work(
+                                crate::profile::Work::ImplsSoughtForEndlessCalls,
+                                impls.len(),
+                            );
+                            impls
+                                .iter()
+                                .filter_map(|(_, imp)| with_method(imp))
+                                .collect()
+                        })
                     } else {
-                        recv.head()
-                            .and_then(|con| tables.impls.get(&(*trait_id, con)))
-                            .into_iter()
-                            .collect()
+                        let imp = recv
+                            .head()
+                            .and_then(|con| tables.impls.get(&(*trait_id, con)));
+                        single = imp.and_then(with_method);
+                        single.as_slice()
                     };
-                    // A derived `impl` has no method of its own: where one is
-                    // reached, its components were taken as receivers above.
-                    for (imp, to) in impls
-                        .into_iter()
-                        .filter_map(|imp| Some((imp, imp.method(*method)?)))
-                    {
+                    for &(imp, to) in impls {
                         let arity = imp.generics.len();
                         let step = Step::Dispatch {
                             to,

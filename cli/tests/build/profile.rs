@@ -2760,3 +2760,50 @@ fn a_body_is_walked_for_inlining_only_up_to_its_last_small_call() {
         "32 more statements after the last small call were walked: {few} at 8, {many} at 40"
     );
 }
+
+/// `n` structs deriving `Equal`, each compared by its own generic function: `n`
+/// calls of `==` on a type parameter, and `n` more `impl`s of `Equal` they
+/// may reach.
+fn generic_equals(n: usize) -> (String, String) {
+    let items: String = (0..n)
+        .map(|i| {
+            format!(
+                "struct S{i}(Int);\n\nderive Equal for S{i};\n\n\
+                 fn same{i}<T: Equal>(a: T, b: T): Int {{\n    \
+                 if (a == b) {{ {i} }} else {{ 0 }}\n}}\n\n"
+            )
+        })
+        .collect();
+    let calls: Vec<String> = (0..n)
+        .map(|i| format!("same{i}(S{i}(k), S{i}(k))"))
+        .collect();
+    let body = format!(
+        "    let k = 3;\n    let _ = io.println(ctx, \"${{{}}}\").ignore();\n",
+        calls.join(" + ")
+    );
+    (items, body)
+}
+
+/// **The search for endless instantiations lists a method's `impl`s once.**
+/// At each call of a trait's method on a type parameter it looked through
+/// every `impl` of the trait, derived ones included, for those with the
+/// method: a program with `n` such calls and `n` derived `impl`s looked
+/// through `n` squared. On a 48-library workspace that was a sixteenth of
+/// checking. Doubling both now about doubles the `impl`s looked through.
+#[test]
+fn endless_search_lists_a_methods_impls_once() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    each_grows_linearly(
+        "generic `==` on derived structs",
+        &["impls sought for endless calls"],
+        "native",
+        generic_equals,
+        32,
+    );
+    let (items, body) = generic_equals(4);
+    let scratch = large_shape("native", &items, &body);
+    scratch.run(&["run", "//app"]).ok().says("6");
+}

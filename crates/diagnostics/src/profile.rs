@@ -222,9 +222,12 @@ pub enum Work {
     /// Expression nodes the inliner walked for calls to paste
     /// (`inline.rs`).
     NodesWalkedForInlining,
+    /// `impl`s the search for endless instantiations looked through for the
+    /// method a call on a type parameter may reach (`endless.rs`).
+    ImplsSoughtForEndlessCalls,
 }
 
-const WORKS: usize = Work::NodesWalkedForInlining as usize + 1;
+const WORKS: usize = Work::ImplsSoughtForEndlessCalls as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -255,6 +258,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "bodies walked for derives",
     "bodies walked for decisions",
     "nodes walked for inlining",
+    "impls sought for endless calls",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];
