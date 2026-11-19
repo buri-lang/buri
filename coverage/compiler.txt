@@ -22,9 +22,9 @@ crates/middle                    2570/2594   99.07%       18434/18983   97.11%
 crates/project                   1338/1340   99.85%         6359/6519   97.55%
 crates/semantics                 2306/2306  100.00%       14421/14707   98.06%
 crates/stdlib                        12/12  100.00%           134/158   84.81%
-crates/stencil                   1128/1136   99.30%         8478/8976   94.45%
+crates/stencil                   1132/1140   99.30%         8502/9000   94.47%
 crates/syntax                    1284/1284  100.00%         6984/7145   97.75%
-total                          16282/16362   99.51%     106169/109330   97.11%
+total                          16286/16366   99.51%     106193/109354   97.11%
 
 cli/src                           branches                      lines         
 build                            1780/1782   99.89%       12171/12484   97.49%
@@ -63,7 +63,7 @@ uncovered          branches           file
         3           157/160   98.12%  cli/src/language_server/mod.rs
         3             45/48   93.75%  crates/middle/src/compiler/middle/coverage/derived.rs
         3           105/108   97.22%  crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-        3           481/484   99.38%  crates/stencil/src/compiler/backend/stencil/jit.rs
+        3           485/488   99.39%  crates/stencil/src/compiler/backend/stencil/jit.rs
         2           310/312   99.36%  crates/js/src/compiler/backend/js/generate.rs
         2             46/48   95.83%  crates/stencil/src/compiler/backend/stencil/mod.rs
         2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/object.rs
