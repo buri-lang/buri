@@ -228,9 +228,12 @@ pub enum Work {
     /// Trait method calls the search for endless instantiations followed to
     /// the `impl`s they may run (`endless.rs`).
     TraitCallsFollowedForEndless,
+    /// Sources hashed for the cache keys of builds and test runs
+    /// (`build/actions.rs`).
+    SourcesHashedForKeys,
 }
 
-const WORKS: usize = Work::TraitCallsFollowedForEndless as usize + 1;
+const WORKS: usize = Work::SourcesHashedForKeys as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -263,6 +266,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "nodes walked for inlining",
     "impls sought for endless calls",
     "trait calls followed for endless calls",
+    "sources hashed for keys",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

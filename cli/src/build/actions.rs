@@ -1464,58 +1464,8 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
             sources.iter().map(move |rel| (dir, rel.as_str()))
         })
         .collect();
-    let read = |&(dir, rel): &(&std::path::Path, &str)| -> Option<std::sync::Arc<Vec<u8>>> {
-        let bytes = crate::build::read_source(&dir.join(rel)).ok()?;
-        Some(std::sync::Arc::new(match content {
-            Content::Bytes => bytes,
-            Content::Program => read_as(rel, bytes),
-        }))
-    };
-    let path = |(dir, rel): &(&std::path::Path, &str)| (dir.join(rel), content);
-    let mut contents: Vec<Option<Option<std::sync::Arc<Vec<u8>>>>> = {
-        let memo = READS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        files
-            .iter()
-            .map(|file| memo.as_ref().and_then(|m| m.get(&path(file)).cloned()))
-            .collect()
-    };
-    let missing: Vec<&(&std::path::Path, &str)> = files
-        .iter()
-        .zip(&contents)
-        .filter(|(_, known)| known.is_none())
-        .map(|(file, _)| file)
-        .collect();
-    // Read in parallel, hashed in order. A key is a fold over the sources in
-    // sorted order and that fold stays exactly where it was, on this thread; a
-    // library of three hundred and sixty files is three hundred and sixty
-    // `open`/`read`/`close` round trips, and those are what the cores are idle
-    // for. `parallel::map` returns in index order, so the bytes reach the
-    // builder in the order `sources` is in. A few files cost less to read than
-    // the threads would to start.
-    let fresh: Vec<Option<std::sync::Arc<Vec<u8>>>> = if missing.len() < SERIAL_READS {
-        missing.iter().map(|file| read(file)).collect()
-    } else {
-        crate::parallel::map_items(&missing, |_, file| read(file))
-    };
-    {
-        let mut memo = READS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(memo) = memo.as_mut() {
-            for (file, bytes) in missing.iter().zip(&fresh) {
-                memo.insert(path(file), bytes.clone());
-            }
-        }
-        let unknown = contents.iter_mut().filter(|known| known.is_none());
-        for (known, bytes) in unknown.zip(fresh) {
-            *known = Some(bytes);
-        }
-    }
-    let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> =
-        contents.into_iter().map(Option::flatten).collect();
-    let mut contents = contents.iter();
+    let digests = digests(&files, content);
+    let mut digests = digests.iter();
     for (member, sources) in &rules {
         let package = workspace.package(member.package);
         k.rule_identity(&package.label(), member.kind.name(), sources);
@@ -1531,22 +1481,83 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
                 module.text.as_bytes(),
             );
         }
-        for (rel, read) in sources.iter().zip(contents.by_ref()) {
+        for (rel, digest) in sources.iter().zip(digests.by_ref()) {
             k.file(
                 &workspace.rel_of(&package.dir.join(rel)),
-                read.as_deref().map(Vec::as_slice),
+                digest.as_deref().map(str::as_bytes),
             );
         }
     }
 }
 
+/// The digest of each of `files`, a directory and a path in it, read as
+/// `content`, or `None` for one that can't be read.
+///
+/// A key takes a source's digest rather than its bytes. A source is in the
+/// closure of every suite and artifact that reaches it, and hashing its bytes
+/// into each of their keys cost a test run more than reading them did; with
+/// [`remember_reads`], each is hashed once.
+fn digests(
+    files: &[(&std::path::Path, &str)],
+    content: Content,
+) -> Vec<Option<std::sync::Arc<str>>> {
+    let read = |&(dir, rel): &(&std::path::Path, &str)| -> Option<std::sync::Arc<str>> {
+        let bytes = crate::build::read_source(&dir.join(rel)).ok()?;
+        crate::profile::work(crate::profile::Work::SourcesHashedForKeys, 1);
+        let bytes = match content {
+            Content::Bytes => bytes,
+            Content::Program => read_as(rel, bytes),
+        };
+        Some(hash_bytes(&bytes).into())
+    };
+    let path = |(dir, rel): &(&std::path::Path, &str)| (dir.join(rel), content);
+    let mut digests: Vec<Option<Option<std::sync::Arc<str>>>> = {
+        let memo = READS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        files
+            .iter()
+            .map(|file| memo.as_ref().and_then(|m| m.get(&path(file)).cloned()))
+            .collect()
+    };
+    let missing: Vec<&(&std::path::Path, &str)> = files
+        .iter()
+        .zip(&digests)
+        .filter(|(_, known)| known.is_none())
+        .map(|(file, _)| file)
+        .collect();
+    // Read and hashed in parallel. A library of three hundred and sixty files
+    // is three hundred and sixty `open`/`read`/`close` round trips, and those
+    // are what the cores are idle for. `parallel::map` returns in index order,
+    // so the digests reach the key in the order `files` is in. A few files
+    // cost less to read than the threads would to start.
+    let fresh: Vec<Option<std::sync::Arc<str>>> = if missing.len() < SERIAL_READS {
+        missing.iter().map(|file| read(file)).collect()
+    } else {
+        crate::parallel::map_items(&missing, |_, file| read(file))
+    };
+    let mut memo = READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(memo) = memo.as_mut() {
+        for (file, digest) in missing.iter().zip(&fresh) {
+            memo.insert(path(file), digest.clone());
+        }
+    }
+    let unknown = digests.iter_mut().filter(|known| known.is_none());
+    for (known, digest) in unknown.zip(fresh) {
+        *known = Some(digest);
+    }
+    digests.into_iter().map(Option::flatten).collect()
+}
+
 /// Below this many files a key reads them on its own thread.
 const SERIAL_READS: usize = 32;
 
-type Reads = crate::hash::Map<(PathBuf, Content), Option<std::sync::Arc<Vec<u8>>>>;
+type Reads = crate::hash::Map<(PathBuf, Content), Option<std::sync::Arc<str>>>;
 
-/// Every source a key has read, by path and reading, once [`remember_reads`]
-/// has been called.
+/// The digest of every source a key has read, by path and reading, once
+/// [`remember_reads`] has been called.
 static READS: std::sync::Mutex<Option<Reads>> = std::sync::Mutex::new(None);
 
 /// From here to the end of the process, a key reads each source once.
@@ -1805,12 +1816,11 @@ fn suite_key(
     let mut files: Vec<String> = suite.sources.iter().map(|x| x.value.clone()).collect();
     files.sort();
     k.rule_identity(&package.label(), "test", &files);
-    for rel in &files {
-        let full = package.dir.join(rel);
-        let contents = crate::build::read_source(&full)
-            .ok()
-            .map(|b| read_as(rel, b));
-        k.file(rel, contents.as_deref());
+    let own: Vec<(&std::path::Path, &str)> = (files.iter())
+        .map(|rel| (package.dir.as_path(), rel.as_str()))
+        .collect();
+    for (rel, digest) in files.iter().zip(digests(&own, Content::Program)) {
+        k.file(rel, digest.as_deref().map(str::as_bytes));
     }
     k
 }

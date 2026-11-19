@@ -1007,6 +1007,51 @@ fn library_chain(scratch: &Scratch, n: usize) {
     }
 }
 
+/// [`library_chain`], with a suite in each library.
+fn tested_chain(n: usize) -> Scratch {
+    let scratch = Scratch::repo("profile-tested-chain");
+    library_chain(&scratch, n);
+    for i in 0..n {
+        let build = scratch.read(&format!("lib/p{i}/BUILD.buri"));
+        let build = build.replacen(
+            "library {\n",
+            "library {\n    test {\n        sources: [\"test/total.buri\"]\n    }\n",
+            1,
+        );
+        scratch.write(&format!("lib/p{i}/BUILD.buri"), &build);
+        scratch.write(
+            &format!("lib/p{i}/test/total.buri"),
+            &format!(
+                "from \"core/testing/assert\" import * as assert;\n\n\
+                 test \"p{i}\" {{\n    assert.equal({i}, {i});\n}}\n"
+            ),
+        );
+    }
+    scratch
+}
+
+/// **A test run hashes each source once for its keys.** Every suite's two
+/// keys, its verdict's and its build's, hashed the bytes of every source in
+/// its closure, so a chain of libraries each with a suite hashed the square of
+/// its length. A key now takes each source's digest, which a run works out
+/// once.
+#[test]
+fn a_test_run_hashes_each_source_once_for_its_keys() {
+    grows_linearly(
+        "a chain of tested libraries, hashing sources for keys",
+        |n| {
+            let run = tested_chain(n).run_with_env(
+                &["test", "//..."],
+                &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+            );
+            run.ok();
+            assert_eq!(run.tests_passed(), n, "{}", indent(&run.all()));
+            work_count(&run.all(), "sources hashed for keys")
+        },
+        8,
+    );
+}
+
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B
