@@ -1,0 +1,18 @@
+from "core/io" import * as io;
+from "platform/effect" import { Allocator, Stdout };
+
+// Hands its context on and does nothing else with it.
+export fn doubled<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.map(ctx, fn(x) => x * 2)
+}
+
+// Writes with its context, so the context is read here.
+export fn logged<C: Allocator + Stdout>(
+    ctx: C,
+    label: Str,
+    xs: [Int],
+): Result<(), Str> {
+    io
+        .println(ctx, "${label} ${doubled(ctx, xs)}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}

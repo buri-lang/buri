@@ -45,6 +45,7 @@ use crate::compiler::backend::{intrinsic_keys, runtime_table};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, Stmt};
 use crate::compiler::semantics::types::*;
 use crate::hash::Map as HashMap;
+use std::sync::Arc;
 
 /// What one function's own body says about each of its type parameters.
 struct Facts {
@@ -52,6 +53,22 @@ struct Facts {
     ok: Vec<bool>,
     /// Per parameter, the callee parameters it is passed to.
     deps: Vec<Vec<(FnId, usize)>>,
+}
+
+/// [`Monomorphizer::shared_facts`]'s memo: per function, the body its facts
+/// were read from, `None` for an operation the runtime supplies.
+#[derive(Default)]
+struct SharedFacts(std::sync::Mutex<HashMap<FnId, (Option<Arc<typed::Body>>, Arc<Facts>)>>);
+
+impl SharedFacts {
+    fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<FnId, (Option<Arc<typed::Body>>, Arc<Facts>)>> {
+        // A panic while held leaves only whole entries behind.
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// Whether a type mentions parameter `j`, or `Self` or anything unsettled,
@@ -167,44 +184,46 @@ impl Monomorphizer<'_> {
         if let Some(known) = self.erasable.get(&f) {
             return known.clone();
         }
-        // Every function the answer depends on, with its own facts.
-        let mut found: HashMap<FnId, Facts> = HashMap::default();
+        // Every function the answer depends on, with its own facts and what
+        // the fixed point has left of them.
+        let mut found: HashMap<FnId, (Arc<Facts>, Vec<bool>)> = HashMap::default();
         let mut stack = vec![f];
         while let Some(g) = stack.pop() {
             if found.contains_key(&g) || self.erasable.contains_key(&g) {
                 continue;
             }
-            let facts = self.facts(g);
+            let facts = self.shared_facts(g);
             stack.extend(facts.deps.iter().flatten().map(|(h, _)| *h));
-            found.insert(g, facts);
+            let ok = facts.ok.clone();
+            found.insert(g, (facts, ok));
         }
         // Rule out whatever passes a parameter to one that is ruled out, until
         // nothing changes.
         loop {
             let next: Vec<Vec<bool>> = found
                 .values()
-                .map(|facts| {
+                .map(|(facts, ok)| {
                     let passed_on = |(h, t): &(FnId, usize)| {
                         let known = self.erasable.get(h).map(|m| m.get(*t).copied());
-                        let open = found.get(h).map(|x| x.ok.get(*t).copied());
+                        let open = found.get(h).map(|x| x.1.get(*t).copied());
                         known.or(open).flatten() == Some(true)
                     };
-                    let ok = facts.ok.iter().zip(&facts.deps);
+                    let ok = ok.iter().zip(&facts.deps);
                     ok.map(|(ok, deps)| *ok && deps.iter().all(passed_on))
                         .collect()
                 })
                 .collect();
             let mut changed = false;
-            for (facts, ok) in found.values_mut().zip(next) {
-                changed |= facts.ok != ok;
-                facts.ok = ok;
+            for ((_, ok), next) in found.values_mut().zip(next) {
+                changed |= *ok != next;
+                *ok = next;
             }
             if !changed {
                 break;
             }
         }
-        for (g, facts) in found {
-            self.erasable.insert(g, facts.ok.into());
+        for (g, (_, ok)) in found {
+            self.erasable.insert(g, ok.into());
         }
         self.erasable
             .get(&f)
@@ -212,8 +231,34 @@ impl Monomorphizer<'_> {
             .unwrap_or_else(|| Vec::new().into())
     }
 
+    /// [`Monomorphizer::facts`], worked out once for every program built
+    /// from these tables that reads `f` from the same body.
+    ///
+    /// A body is the program's own where style extraction rewrote it, and
+    /// shared with the other programs where it didn't, so the memo keeps the
+    /// body it read with its facts and answers only for that one. Holding the
+    /// body keeps its address from being reused by another.
+    fn shared_facts(&self, f: FnId) -> Arc<Facts> {
+        let body = self.extracted.bodies.get(&f);
+        let memo = self.tables().later::<SharedFacts>();
+        let same = |held: &Option<Arc<typed::Body>>| {
+            held.as_ref().map(Arc::as_ptr) == body.map(Arc::as_ptr)
+        };
+        if let Some((held, facts)) = memo.lock().get(&f) {
+            if same(held) {
+                return facts.clone();
+            }
+        }
+        let facts = Arc::new(self.facts(f));
+        memo.lock()
+            .entry(f)
+            .or_insert_with(|| (body.cloned(), facts.clone()));
+        facts
+    }
+
     /// What `f`'s declaration and body say on their own.
     fn facts(&self, f: FnId) -> Facts {
+        crate::profile::work(crate::profile::Work::FunctionsReadForErasure, 1);
         let info = self.tables().fn_info(f);
         let n = info.generics.len();
         let mut facts = Facts {

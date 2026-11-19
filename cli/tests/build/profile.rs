@@ -1190,6 +1190,70 @@ fn a_test_run_emits_the_glue_its_units_share_once() {
     );
 }
 
+/// `n` programs, every one of them handing a context to `//lib/walk`'s helper,
+/// which only passes it on.
+fn contexts_handed_on(n: usize) -> Scratch {
+    let scratch = Scratch::repo("profile-contexts-handed-on");
+    scratch.write(
+        "lib/walk/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/walk/lib.buri",
+        "from \"platform/effect\" import { Allocator };\n\n\
+         export fn doubled<C: Allocator>(ctx: C, xs: [Int]): [Int] {\n    \
+         xs.map(ctx, fn(x) => x * 2)\n}\n",
+    );
+    for i in 0..n {
+        scratch.write(
+            &format!("app{i}/BUILD.buri"),
+            "binary {\n    dependencies: [\"//lib/walk\"]\n    \
+             outputs: [{ platform: \"node\" }]\n}\n",
+        );
+        scratch.write(
+            &format!("app{i}/main.buri"),
+            &format!(
+                "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
+                 from \"node\" import {{ NodeHost }};\n\
+                 from \"core/io\" import * as io;\n\
+                 from \"//lib/walk\" import * as walk;\n\n\
+                 export fn main(host: NodeHost): Result<(), Str> {{\n    \
+                 let ctx = context {{ Allocator: host.alloc, Stdout: host.stdout }};\n    \
+                 let _ = io.println(ctx, \"${{walk.doubled(ctx, [{i}]).length()}}\").ignore();\n    \
+                 .Ok(())\n}}\n"
+            ),
+        );
+    }
+    scratch
+}
+
+/// **A build reads each function for erasable type parameters once.** Every
+/// program read the body of every generic function it reached for which type
+/// parameters it only hands on (`erase.rs`), so `n` programs over one library
+/// read its helper, and the standard library's, `n` times. The programs built
+/// from one compilation now share what a body says, so twice the programs
+/// read no more.
+#[test]
+fn a_build_reads_each_function_for_erasure_once() {
+    let read = |n: usize| {
+        let run = contexts_handed_on(n).run_with_env(
+            &["build", "//..."],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+        );
+        run.ok();
+        work_count(&run.all(), "functions read for erasure").unwrap()
+    };
+    let (few, many) = (read(2), read(4));
+    assert!(
+        few > 0.0,
+        "2 programs handing on a context read no function"
+    );
+    assert_eq!(
+        many, few,
+        "4 programs handing on one context read {many} functions, against {few} for 2"
+    );
+}
+
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B

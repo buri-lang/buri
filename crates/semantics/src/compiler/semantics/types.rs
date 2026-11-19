@@ -1038,9 +1038,9 @@ pub struct Tables {
 }
 
 /// The answers later stages keep against a [`Tables`], for as long as the
-/// tables live: one per type that asks, and room for two.
+/// tables live: one per type that asks, and room for three.
 #[derive(Default)]
-struct Later([std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>; 2]);
+struct Later([std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>; 3]);
 
 impl Clone for Later {
     /// Empty, because a clone can be changed afterwards, and an answer about
@@ -1221,8 +1221,9 @@ impl Tables {
     ///
     /// For a memo a later stage fills from these tables, such as the build's
     /// codegen keys of units it has lowered, which are valid for as long as
-    /// the tables are and no longer. A clone or a layer starts empty. Two
-    /// types ask for it: the build's unit keys and the stencil backend's glue.
+    /// the tables are and no longer. A clone or a layer starts empty. Three
+    /// types ask for it: the build's unit keys, the stencil backend's glue and
+    /// monomorphization's facts about erasable type parameters.
     ///
     /// Each type takes the first slot that is empty or already its own, so two
     /// types asking at once on two threads end up in one slot each.

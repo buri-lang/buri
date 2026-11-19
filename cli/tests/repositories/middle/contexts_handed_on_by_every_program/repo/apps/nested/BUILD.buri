@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//libs/walk"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

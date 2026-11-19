@@ -236,9 +236,12 @@ pub enum Work {
     RulesKeyed,
     /// Function bodies lint walked for an assertion a test reaches (`lint.rs`).
     BodiesWalkedForAssertions,
+    /// Functions, and the runtime's operations, read for which of their type
+    /// parameters are erasable (`erase.rs`).
+    FunctionsReadForErasure,
 }
 
-const WORKS: usize = Work::BodiesWalkedForAssertions as usize + 1;
+const WORKS: usize = Work::FunctionsReadForErasure as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -274,6 +277,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "sources hashed for keys",
     "rules keyed",
     "bodies walked for assertions",
+    "functions read for erasure",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

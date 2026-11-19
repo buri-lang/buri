@@ -1,0 +1,28 @@
+# Two programs in one build reach //libs/walk, whose `doubled` only hands
+# its context on and whose `logged` writes with it. Each program builds its
+# own context, one of them handing it through a generic function of its own,
+# and both answer.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "programs built together that hand their own contexts to one library each answer"
+
+run {
+  args: ["build", "//..."]
+  exit: 0
+}
+
+run {
+  args: ["run", "//apps/plain"]
+  exit: 0
+  golden: "plain.txt"
+  stream: OUT
+}
+
+run {
+  args: ["run", "//apps/nested"]
+  exit: 0
+  golden: "nested.txt"
+  stream: OUT
+}

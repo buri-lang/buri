@@ -10676,6 +10676,32 @@ counts the bodies each pass walks, through `BURI_PROFILE`'s `bodies rewritten
 for derives`, `bodies walked for consuming uses`, `bodies walked for calls and
 effects` and `bodies walked for derives`.
 
+### 6.162 Programs built together read each body for erasure once, 2026-11-19
+
+```text
+                              before      after       change
+bench full, monomorphize      3.932 B     3.692 B     -6.1%
+bench full, all phases        33.700 B    33.488 B    -0.6%
+```
+
+Each program read every generic function it reached for the type parameters
+it only hands on (`erase.rs`), so a library's helpers were read once per
+program. What one body says doesn't depend on the program, so the facts now
+live in a memo on the tables (`Tables::later`), keyed by function and body.
+
+A body style extraction rewrote is that program's own. The memo keeps the
+`Arc` of the body it read and answers only for that same body, which also
+keeps its address from being reused. The fixed point over the call graph
+still runs per program, since a dependency's body may differ.
+
+A memo of `substitute` per instance didn't help: bench full worked out
+345,523 distinct substitutions over 358,605 instances, so almost none repeat.
+
+`profile::a_build_reads_each_function_for_erasure_once` counts `functions
+read for erasure` for 2 and 4 programs.
+`middle/contexts_handed_on_by_every_program` builds two programs that hand
+their own contexts to one library and runs both.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
