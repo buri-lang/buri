@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16264 16344 99.51%
+total 16270 16350 99.51%
 area cli/build 1778 1780 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
-area crates/middle 2564 2588 99.07%
+area crates/middle 2570 2594 99.07%
 area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -144,13 +144,13 @@ area crates/syntax 1268 1268 100.00%
 45 48 crates/middle/src/compiler/middle/coverage/derived.rs
 138 138 crates/middle/src/compiler/middle/coverage/mod.rs
 18 18 crates/middle/src/compiler/middle/dce.rs
-36 36 crates/middle/src/compiler/middle/decision.rs
+40 40 crates/middle/src/compiler/middle/decision.rs
 196 200 crates/middle/src/compiler/middle/derives.rs
 0 0 crates/middle/src/compiler/middle/fingerprint.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
 28 28 crates/middle/src/compiler/middle/fuse.rs
-78 78 crates/middle/src/compiler/middle/inline.rs
+80 80 crates/middle/src/compiler/middle/inline.rs
 84 84 crates/middle/src/compiler/middle/ir.rs
 28 28 crates/middle/src/compiler/middle/known_calls.rs
 48 48 crates/middle/src/compiler/middle/layout.rs
