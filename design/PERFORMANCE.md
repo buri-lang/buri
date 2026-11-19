@@ -10702,6 +10702,29 @@ read for erasure` for 2 and 4 programs.
 `middle/contexts_handed_on_by_every_program` builds two programs that hand
 their own contexts to one library and runs both.
 
+### 6.163 An instance asks nothing per instance that its declaration answers, 2026-11-19
+
+```text
+                              before      after       change
+bench full, monomorphize      3.692 B     3.525 B     -4.5%
+bench full, all phases        33.488 B    33.355 B    -0.4%
+```
+
+`Monomorphizer::build` did two lookups for each of bench full's 358,605
+instances:
+
+- It spelled the function's runtime key, two allocations, to see whether a
+  JavaScript engine answers it (`ENGINE_KEYS`). That answer is now kept per
+  declaration.
+- It searched the standard library's modules by path to see whether
+  `upsert.rs` may rewrite the body. That answer is now one flag per module,
+  worked out when the pass starts.
+
+`profile::a_runtime_key_is_spelled_once_per_function` counts `runtime keys
+spelled` for 8 and 16 instances of one function.
+`middle/contexts_handed_on_by_every_program` normalizes a string at two
+contexts on JavaScript.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

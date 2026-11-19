@@ -239,9 +239,11 @@ pub enum Work {
     /// Functions, and the runtime's operations, read for which of their type
     /// parameters are erasable (`erase.rs`).
     FunctionsReadForErasure,
+    /// Runtime keys monomorphization spelled for a function (`monomorphize.rs`).
+    RuntimeKeysSpelled,
 }
 
-const WORKS: usize = Work::FunctionsReadForErasure as usize + 1;
+const WORKS: usize = Work::RuntimeKeysSpelled as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -278,6 +280,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "rules keyed",
     "bodies walked for assertions",
     "functions read for erasure",
+    "runtime keys spelled",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

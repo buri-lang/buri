@@ -663,6 +663,10 @@ pub struct Monomorphizer<'a> {
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
     module_paths: Vec<String>,
+    /// By module index, whether the module is the standard library's.
+    standard: Vec<bool>,
+    /// See [`Monomorphizer::engine_answers`].
+    engine_fns: HashMap<FnId, bool>,
     /// Every instantiation symbol minted so far, against the type arguments
     /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
     /// the six-character hash a *tag* rather than an identity — the hash names
@@ -799,7 +803,12 @@ fn run_on(
         descriptors: std::collections::BTreeMap::new(),
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
+        standard: module_paths
+            .iter()
+            .map(|m| crate::compiler::standard_library::find(m).is_some())
+            .collect(),
         module_paths,
+        engine_fns: HashMap::default(),
         taken: HashMap::default(),
         locals: typed::Locals::new(),
         js_implemented: std::collections::BTreeSet::new(),
@@ -1513,9 +1522,7 @@ impl Monomorphizer<'_> {
         self.upsert_here = match &key {
             Key::Fn(id, _) => {
                 let module = self.checked.tables.fn_info(*id).module;
-                self.module_paths
-                    .get(module.index())
-                    .is_none_or(|m| crate::compiler::standard_library::find(m).is_none())
+                self.standard.get(module.index()) != Some(&true)
             }
             Key::Test(..) => true,
             _ => false,
@@ -1523,8 +1530,8 @@ impl Monomorphizer<'_> {
         match key {
             Key::Fn(id, targs) => {
                 self.build_fn(id, targs, f);
-                let key = self.runtime_key(self.checked.tables.fn_info(id));
-                if f.body().is_some() && ENGINE_KEYS.contains(&key.as_str()) {
+                if f.body().is_some() && self.engine_answers(id) {
+                    let key = self.runtime_key(self.checked.tables.fn_info(id));
                     self.engine.push((slot, key));
                 }
             }
@@ -1773,6 +1780,19 @@ impl Monomorphizer<'_> {
         self.rewrite(&body.expr, targs)
     }
 
+    /// Whether a JavaScript engine answers `id` itself ([`ENGINE_KEYS`]).
+    /// Asked once per declaration rather than per instance, since spelling
+    /// its runtime key is two allocations.
+    fn engine_answers(&mut self, id: FnId) -> bool {
+        if let Some(known) = self.engine_fns.get(&id) {
+            return *known;
+        }
+        let key = self.runtime_key(self.checked.tables.fn_info(id));
+        let answers = ENGINE_KEYS.contains(&key.as_str());
+        self.engine_fns.insert(id, answers);
+        answers
+    }
+
     /// The name the backend looks up for an operation the runtime supplies.
     ///
     /// **The key does not carry `targs`, and that is deliberate**: one key
@@ -1803,6 +1823,7 @@ impl Monomorphizer<'_> {
 
     /// [`Monomorphizer::intrinsic_key`], unchecked.
     fn runtime_key(&self, info: &FnInfo) -> String {
+        crate::profile::work(crate::profile::Work::RuntimeKeysSpelled, 1);
         let module = self
             .module_paths
             .get(info.module.index())

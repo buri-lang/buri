@@ -1,3 +1,4 @@
+from "core/io" import * as io;
 from "node" import { NodeHost };
 from "platform/effect" import { Allocator, Stdout };
 from "//libs/walk" import { doubled, logged };
@@ -7,10 +8,20 @@ fn rewalked<C: Allocator + Stdout>(ctx: C, xs: [Int]): Result<(), Str> {
     logged(ctx, "nested", doubled(ctx, xs))
 }
 
+// One function the engine answers, at this function's context.
+fn composed<C: Allocator>(ctx: C, s: Str): Bool {
+    s.normalize(ctx, .Nfc) == "é"
+}
+
 export fn main(host: NodeHost): Result<(), Str> {
     let ctx = context {
         Allocator: host.alloc,
         Stdout: host.stdout,
     };
-    rewalked(ctx, [3, 4, 5])
+    let _ = rewalked(ctx, [3, 4, 5])?;
+    // The same function at the entry's context.
+    let direct = "é".normalize(ctx, .Nfc) == "é";
+    io
+        .println(ctx, "composed ${composed(ctx, "é")} ${direct}")
+        .mapErr(fn(_e) => "could not write to standard output")
 }

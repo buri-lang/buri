@@ -1254,6 +1254,31 @@ fn a_build_reads_each_function_for_erasure_once() {
     );
 }
 
+/// **A function's runtime key is spelled once, not per instance.** Every
+/// instance of a function spelled its runtime key, two allocations, to see
+/// whether a JavaScript engine answers it, so `n` instances of one generic
+/// function spelled it `n` times. The answer is now kept per declaration.
+#[test]
+fn a_runtime_key_is_spelled_once_per_function() {
+    let spelled = |n: usize| {
+        let items: String = (0..n)
+            .map(|i| format!("struct S{i} {{\n    v: Int,\n}}\n\n"))
+            .chain(std::iter::once(String::from(
+                "fn id<T>(x: T): T {\n    x\n}\n",
+            )))
+            .collect();
+        let body: String = (0..n)
+            .map(|i| format!("    let _ = id(S{i} {{ v: {i} }});\n"))
+            .collect();
+        counted_work("node", &items, &body, "runtime keys spelled").unwrap()
+    };
+    let (few, many) = (spelled(8), spelled(16));
+    assert_eq!(
+        many, few,
+        "16 instances of one function spelled {many} runtime keys, against {few} for 8"
+    );
+}
+
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B

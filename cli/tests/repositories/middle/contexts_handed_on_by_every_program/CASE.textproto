@@ -1,7 +1,8 @@
 # Two programs in one build reach //libs/walk, whose `doubled` only hands
 # its context on and whose `logged` writes with it. Each program builds its
 # own context, one of them handing it through a generic function of its own,
-# and both answer.
+# and both answer. One also normalizes a string, which a JavaScript engine
+# answers itself, at two contexts.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
