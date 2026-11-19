@@ -225,9 +225,12 @@ pub enum Work {
     /// `impl`s the search for endless instantiations looked through for the
     /// method a call on a type parameter may reach (`endless.rs`).
     ImplsSoughtForEndlessCalls,
+    /// Trait method calls the search for endless instantiations followed to
+    /// the `impl`s they may run (`endless.rs`).
+    TraitCallsFollowedForEndless,
 }
 
-const WORKS: usize = Work::ImplsSoughtForEndlessCalls as usize + 1;
+const WORKS: usize = Work::TraitCallsFollowedForEndless as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -259,6 +262,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "bodies walked for decisions",
     "nodes walked for inlining",
     "impls sought for endless calls",
+    "trait calls followed for endless calls",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

@@ -2807,3 +2807,45 @@ fn endless_search_lists_a_methods_impls_once() {
     let scratch = large_shape("native", &items, &body);
     scratch.run(&["run", "//app"]).ok().says("6");
 }
+
+/// A generic function comparing its own `T` once, and `n` structs of fixed
+/// types, each with itself.
+fn fixed_equals(n: usize) -> (String, String) {
+    let structs: String = (0..n)
+        .map(|i| format!("struct S{i}(Int);\n\nderive Equal for S{i};\n\n"))
+        .collect();
+    let checks: String = (0..n)
+        .map(|i| format!("    let c{i} = if (S{i}(k) == S{i}(k)) {{ k }} else {{ 0 }};\n"))
+        .collect();
+    let sum: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
+    let items = format!(
+        "{structs}fn count<T: Equal>(a: T, b: T, k: Int): Int {{\n{checks}    \
+         let t = if (a == b) {{ 1 }} else {{ 0 }};\n    {} + t\n}}\n",
+        sum.join(" + ")
+    );
+    let body = "    let _ = io.println(ctx, \"${count(2, 2, 3)}\").ignore();\n".to_string();
+    (items, body)
+}
+
+/// **The search for endless instantiations follows only trait calls that
+/// mention a type parameter.** A call at fixed types is an edge from none of
+/// the caller's parameters, whichever `impl` it runs, yet each was taken apart
+/// into the `impl`s it could reach. However many fixed comparisons the generic
+/// function makes, the search follows its one call at `T`.
+#[test]
+fn endless_search_follows_only_trait_calls_on_type_parameters() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let (items, body) = fixed_equals(16);
+    let followed = counted_work(
+        "native",
+        &items,
+        &body,
+        "trait calls followed for endless calls",
+    );
+    assert_eq!(followed, Some(1.0), "16 fixed comparisons and one at `T`");
+    let scratch = large_shape("native", &items, &body);
+    scratch.run(&["run", "//app"]).ok().says("49");
+}
