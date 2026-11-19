@@ -59,6 +59,27 @@ impl Hasher {
         self.b = fold(self.b ^ w.rotate_left(32), K3);
     }
 
+    /// Two words at the cost of one: each lane takes one word and multiplies
+    /// by the other.
+    ///
+    /// Only for words that are never the constant they are xored with: a
+    /// multiplier of zero would forget the lane. `x` is a small tag or a file
+    /// number and `y` a type's identity or a span's offsets, all far below
+    /// `K2` and `K3`.
+    fn pair(&mut self, x: u64, y: u64) {
+        self.a = fold(self.a ^ x, K2 ^ y);
+        self.b = fold(self.b ^ y, K3 ^ x);
+    }
+
+    /// What every node starts with: which kind it is, its type and its span.
+    fn head(&mut self, tag: u64, t: Ty, s: crate::diagnostics::Span) {
+        self.pair(tag, t.identity() as u64);
+        self.pair(
+            u64::from(s.file.0),
+            u64::from(s.start) | (u64::from(s.end) << 32),
+        );
+    }
+
     fn ty(&mut self, t: Ty) {
         self.word(t.identity() as u64);
     }
@@ -82,6 +103,32 @@ impl Hasher {
         let a = fold(self.a ^ self.b, K1);
         let b = fold(self.b ^ a, K0);
         (u128::from(a) << 64) | u128::from(b)
+    }
+}
+
+/// The number `std::mem::discriminant` hashes for `v`'s variant.
+fn tag<T>(v: &T) -> u64 {
+    let mut t = Tag(0);
+    std::mem::discriminant(v).hash(&mut t);
+    t.0
+}
+
+/// Catches the one integer a discriminant hashes as.
+struct Tag(u64);
+
+impl std::hash::Hasher for Tag {
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0 << 8) | u64::from(*b);
+        }
+    }
+
+    fn write_isize(&mut self, n: isize) {
+        self.0 = n as u64;
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
     }
 }
 
@@ -210,8 +257,7 @@ fn func(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, i: FuncIdx, f: &Func) 
 
 fn local(h: &mut Hasher, l: &Local) {
     l.name.hash(h);
-    h.ty(l.ty);
-    h.span(l.span);
+    h.head(0, l.ty, l.span);
 }
 
 fn callee(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, f: FuncIdx) {
@@ -226,9 +272,7 @@ fn exprs(h: &mut Hasher, summaries: &Dense<FuncIdx, u128>, es: &[Expr]) {
 }
 
 fn expr(h: &mut Hasher, s: &Dense<FuncIdx, u128>, e: &Expr) {
-    std::mem::discriminant(&e.kind).hash(h);
-    h.ty(e.ty);
-    h.span(e.span);
+    h.head(tag(&e.kind), e.ty, e.span);
     match &e.kind {
         ExprKind::Int(m, negative) => {
             m.hash(h);
@@ -457,9 +501,7 @@ fn pats(h: &mut Hasher, ps: &[Pattern]) {
 }
 
 fn pat(h: &mut Hasher, p: &Pattern) {
-    std::mem::discriminant(&p.kind).hash(h);
-    h.ty(p.ty);
-    h.span(p.span);
+    h.head(tag(&p.kind), p.ty, p.span);
     match &p.kind {
         PatKind::Wild | PatKind::Unit | PatKind::Error => {}
         PatKind::Bind { local, sub } => {
