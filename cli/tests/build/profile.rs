@@ -983,6 +983,53 @@ fn linted(name: &str, write: impl Fn(&Scratch), work: &str) -> Option<f64> {
     work_count(&run.all(), work)
 }
 
+/// **Lint finds a test's assertion without walking what it compares.** Each
+/// test asserted on `chain()`, and lint, looking for an assertion the test
+/// reaches, walked every function `chain()` calls before the `assert.equal`
+/// beside it: `n` tests over a chain of `n` walked the square of `n` bodies.
+#[test]
+fn lint_finds_a_tests_assertion_without_walking_what_it_compares() {
+    grows_linearly(
+        "tests asserting on a chain of calls, walking bodies for assertions",
+        |n| {
+            let scratch = Scratch::repo("profile-assert-chain");
+            let mut lib = String::from("export fn f0(): Int {\n    1\n}\n");
+            for i in 1..n {
+                lib.push_str(&format!(
+                    "\nexport fn f{i}(): Int {{\n    f{}() + 1\n}}\n",
+                    i - 1
+                ));
+            }
+            scratch.write(
+                "lib/chain/BUILD.buri",
+                "library {\n    test {\n        sources: [\"test/chain.buri\"]\n    }\n}\n",
+            );
+            scratch.write("lib/chain/lib.buri", &lib);
+            let mut tests = format!(
+                "from \"core/testing/assert\" import * as assert;\n\
+                 from \"//lib/chain\" import {{ f{} }};\n",
+                n - 1
+            );
+            for i in 0..n {
+                tests.push_str(&format!(
+                    "\ntest \"chain {i}\" {{\n    assert.equal(f{}(), {n});\n}}\n",
+                    n - 1
+                ));
+            }
+            scratch.write("lib/chain/test/chain.buri", &tests);
+            let run = scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
+            run.ok();
+            assert!(
+                !run.all().contains("test-missing-assertion"),
+                "{}",
+                indent(&run.all())
+            );
+            work_count(&run.all(), "bodies walked for assertions")
+        },
+        12,
+    );
+}
+
 /// A chain of `n` libraries, each calling the one before it.
 fn library_chain(scratch: &Scratch, n: usize) {
     for i in 0..n {

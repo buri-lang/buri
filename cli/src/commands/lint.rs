@@ -4481,31 +4481,34 @@ fn check_tests_assert(
         }
         // Reachability from the test's body. The set is small — a test's
         // closure is its helpers — so a plain worklist is the whole algorithm.
-        let mut seen: BTreeSet<FnId> = BTreeSet::new();
+        //
+        // A function is asked whether it asserts when a body names it, not
+        // when it is taken off the list. Either order finds the same answer,
+        // but `assert.equal(total(), 3)` names `total` after `assert.equal`,
+        // so taking the last one named first walked everything `total`
+        // reaches before looking at the assertion beside it.
+        let mut seen: BTreeSet<FnId> = BTreeSet::from([case.func]);
         let mut queue = vec![case.func];
-        let mut found = false;
+        let mut found = asserts(case.func);
         // A body that did not check has lost whatever it called, so what is
         // reachable from it is not something this can claim to know.
         let mut unreadable = false;
-        while let Some(f) = queue.pop() {
-            if !seen.insert(f) {
-                continue;
-            }
+        while let Some(f) = queue.pop().filter(|_| !found) {
             if unchecked.body(f) {
                 unreadable = true;
-                break;
-            }
-            if asserts(f) {
-                found = true;
                 break;
             }
             let Some(body) = analysis.checked.bodies.get(&f) else {
                 continue;
             };
+            crate::profile::work(crate::profile::Work::BodiesWalkedForAssertions, 1);
             crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
                 match &e.kind {
                     typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
-                        queue.push(func.id)
+                        if !found && seen.insert(func.id) {
+                            found = asserts(func.id);
+                            queue.push(func.id);
+                        }
                     }
                     _ => {}
                 };

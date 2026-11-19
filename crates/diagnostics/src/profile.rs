@@ -234,9 +234,11 @@ pub enum Work {
     /// Rules whose identity and source digests a cache key worked out
     /// (`build/actions.rs`).
     RulesKeyed,
+    /// Function bodies lint walked for an assertion a test reaches (`lint.rs`).
+    BodiesWalkedForAssertions,
 }
 
-const WORKS: usize = Work::RulesKeyed as usize + 1;
+const WORKS: usize = Work::BodiesWalkedForAssertions as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -271,6 +273,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "trait calls followed for endless calls",
     "sources hashed for keys",
     "rules keyed",
+    "bodies walked for assertions",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];
