@@ -231,9 +231,12 @@ pub enum Work {
     /// Sources hashed for the cache keys of builds and test runs
     /// (`build/actions.rs`).
     SourcesHashedForKeys,
+    /// Rules whose identity and source digests a cache key worked out
+    /// (`build/actions.rs`).
+    RulesKeyed,
 }
 
-const WORKS: usize = Work::SourcesHashedForKeys as usize + 1;
+const WORKS: usize = Work::RulesKeyed as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -267,6 +270,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "impls sought for endless calls",
     "trait calls followed for endless calls",
     "sources hashed for keys",
+    "rules keyed",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

@@ -714,6 +714,96 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
     // two enumerations are checked where the enumeration is.
 }
 
+/// Two suites over one shared library both run again when it changes, and
+/// both stay cached when only one of them is edited.
+///
+/// A run works out each library's share of a key once and gives it to every
+/// suite that reaches the library, so an edit to it has to reach all of them,
+/// and an edit to one suite's own library only that one.
+#[test]
+fn editing_a_shared_library_re_runs_every_suite_that_reaches_it() {
+    let scratch = Scratch::repo("shared-dep-key");
+    scratch.write(
+        "lib/base/BUILD.buri",
+        "library {\n    sources: [\"b.buri\"]\n    visibility: [\"//...\"]\n}\n",
+    );
+    scratch.write(
+        "lib/base/lib.buri",
+        "from \"//lib/base/b.buri\" export { unit };\n",
+    );
+    scratch.write("lib/base/b.buri", "export fn unit(): I64 { 1 }\n");
+    for (name, factor) in [("a", 2), ("b", 3)] {
+        scratch.write(
+            &format!("lib/{name}/BUILD.buri"),
+            "library {\n    dependencies: [\"//lib/base\"]\n\n    test {\n        \
+             sources: [\"test/t.buri\"]\n    }\n}\n",
+        );
+        scratch.write(
+            &format!("lib/{name}/lib.buri"),
+            &format!(
+                "from \"//lib/base\" import {{ unit }};\n\n\
+                 export fn scaled(): I64 {{ unit() * {factor} }}\n"
+            ),
+        );
+        scratch.write(
+            &format!("lib/{name}/test/t.buri"),
+            &format!(
+                "from \"//lib/{name}\" import {{ scaled }};\n\
+                 from \"core/testing/assert\" import * as assert;\n\n\
+                 test \"scaled\" {{\n  assert.equal(scaled(), {factor});\n}}\n"
+            ),
+        );
+    }
+
+    let first = scratch.run(&["test", "//...", "--explain"]);
+    first.ok();
+    assert_eq!(first.tests_passed(), 2, "{}", indent(&first.all()));
+
+    // Only `//lib/a`'s own code moves, to the same answer.
+    scratch.write(
+        "lib/a/lib.buri",
+        "from \"//lib/base\" import { unit };\n\nexport fn scaled(): I64 { unit() + unit() }\n",
+    );
+    let one = scratch.run(&["test", "//...", "--explain"]);
+    one.ok();
+    assert_eq!(
+        status(&one, "test //lib/a"),
+        "run",
+        "{}",
+        indent(&one.all())
+    );
+    assert_eq!(
+        status(&one, "test //lib/b"),
+        "cached",
+        "editing //lib/a re-ran a suite with no path to it:\n{}",
+        indent(&one.all())
+    );
+
+    // `unit` now answers 2, so neither suite's assertion holds. A suite served
+    // from the cache would still say it passed.
+    scratch.write("lib/base/b.buri", "export fn unit(): I64 { 2 }\n");
+    let both = scratch.run(&["test", "//...", "--explain"]);
+    both.exits(1);
+    assert_eq!(
+        status(&both, "test //lib/a"),
+        "run",
+        "{}",
+        indent(&both.all())
+    );
+    assert_eq!(
+        status(&both, "test //lib/b"),
+        "run",
+        "{}",
+        indent(&both.all())
+    );
+    assert_eq!(
+        both.tests_passed(),
+        0,
+        "the cache served a verdict for code that had changed:\n{}",
+        indent(&both.all())
+    );
+}
+
 /// A suite that says `tasks().anyOrder()` is cached, and its report is the same
 /// report twice.
 ///

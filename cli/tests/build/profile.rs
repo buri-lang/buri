@@ -1052,6 +1052,27 @@ fn a_test_run_hashes_each_source_once_for_its_keys() {
     );
 }
 
+/// **A test run keys each rule once.** Every suite's two keys listed the
+/// files of every rule in its closure and folded in each one's digest, so a
+/// chain of libraries each with a suite did the square of its length in
+/// lookups. Each rule's share of a key is now worked out once a run.
+#[test]
+fn a_test_run_keys_each_rule_once() {
+    grows_linearly(
+        "a chain of tested libraries, keying rules",
+        |n| {
+            let run = tested_chain(n).run_with_env(
+                &["test", "//..."],
+                &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+            );
+            run.ok();
+            assert_eq!(run.tests_passed(), n, "{}", indent(&run.all()));
+            work_count(&run.all(), "rules keyed")
+        },
+        8,
+    );
+}
+
 /// **Linting checks each library once.** `buri lint` analysed every target on
 /// its own, so a library was checked again for every target that depends on
 /// it: a chain of 200 libraries took 24.8 B instructions to lint, against 2.4 B

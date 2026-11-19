@@ -941,6 +941,15 @@ impl KeyBuilder {
         KeyBuilder { hasher }
     }
 
+    /// A builder for one piece of a key, which another key takes through
+    /// [`KeyBuilder::dependency`]. It names no action, mode or toolchain: the
+    /// key that takes it does.
+    pub fn part() -> KeyBuilder {
+        KeyBuilder {
+            hasher: Sha256::new(),
+        }
+    }
+
     /// The platform is in the key. Tags are not, on purpose: a tag decides
     /// whether a build is allowed, never what it produces, so tagging a
     /// library differently invalidates no cache entry.

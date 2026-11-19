@@ -1449,14 +1449,60 @@ fn contribute_as(session: &Session, member: TargetId, k: &mut KeyBuilder, conten
     contribute_all(session, &[member], k, content);
 }
 
-/// [`contribute_as`] for each of `members` in turn, with every member's
-/// sources read in one batch.
+/// [`contribute_as`] for each of `members` in turn.
 fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, content: Content) {
     let workspace = &session.workspace;
-    let rules: Vec<(TargetId, Vec<String>)> = members
-        .iter()
-        .map(|&member| (member, rule_files(workspace, member)))
+    for (member, part) in members.iter().zip(parts(session, members, content)) {
+        k.dependency(&part);
+        // What a generator produced, rather than only what it was given. The
+        // inputs in the part catch an edit to a declared file; this catches
+        // everything else that decides the modules this rule is compiled from
+        // — the tool's own sources above all, which are in no list here and
+        // are what a generator *is*. Without it, editing the tool left every
+        // dependent's `link` key where it was and the cache served the old
+        // artifact. Outside the part, because a rule has no modules until its
+        // generators have run.
+        let package = workspace.package(member.package);
+        for module in crate::build::generators::modules_of(workspace, *member) {
+            k.input(
+                &format!("{}/{}", package.label(), module.name),
+                module.text.as_bytes(),
+            );
+        }
+    }
+}
+
+/// Each of `members`' rule identity and the digests of the sources it names
+/// ([`rule_files`]), read as `content`, as one key apiece, with every
+/// member's sources read in one batch.
+///
+/// A member is in the closure of every suite and artifact that reaches it, so
+/// once [`remember_reads`] has been called each is worked out once a run.
+/// Before, each key listed and sorted every member's files and looked up each
+/// file's digest again, twice per suite.
+fn parts(session: &Session, members: &[TargetId], content: Content) -> Vec<ActionKey> {
+    let workspace = &session.workspace;
+    let id = |m: &TargetId| {
+        let dir = workspace.package(m.package).dir.clone();
+        (dir, m.kind.name(), content)
+    };
+    let mut parts: Vec<Option<ActionKey>> = {
+        let memo = READS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        members
+            .iter()
+            .map(|m| {
+                memo.as_ref()
+                    .and_then(|memo| memo.parts.get(&id(m)).cloned())
+            })
+            .collect()
+    };
+    let rules: Vec<(TargetId, Vec<String>)> = (members.iter().zip(&parts))
+        .filter(|(_, known)| known.is_none())
+        .map(|(&member, _)| (member, rule_files(workspace, member)))
         .collect();
+    crate::profile::work(crate::profile::Work::RulesKeyed, rules.len());
     let files: Vec<(&std::path::Path, &str)> = rules
         .iter()
         .flat_map(|(member, sources)| {
@@ -1466,28 +1512,34 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
         .collect();
     let digests = digests(&files, content);
     let mut digests = digests.iter();
-    for (member, sources) in &rules {
-        let package = workspace.package(member.package);
-        k.rule_identity(&package.label(), member.kind.name(), sources);
-        // What a generator produced, rather than only what it was given. The
-        // inputs above catch an edit to a declared file; this catches everything
-        // else that decides the modules this rule is compiled from — the tool's own
-        // sources above all, which are in no list here and are what a generator
-        // *is*. Without it, editing the tool left every dependent's `link` key
-        // where it was and the cache served the old artifact.
-        for module in crate::build::generators::modules_of(workspace, *member) {
-            k.input(
-                &format!("{}/{}", package.label(), module.name),
-                module.text.as_bytes(),
-            );
-        }
-        for (rel, digest) in sources.iter().zip(digests.by_ref()) {
-            k.file(
-                &workspace.rel_of(&package.dir.join(rel)),
-                digest.as_deref().map(str::as_bytes),
-            );
+    let fresh: Vec<ActionKey> = rules
+        .iter()
+        .map(|(member, sources)| {
+            let package = workspace.package(member.package);
+            let mut k = KeyBuilder::part();
+            k.rule_identity(&package.label(), member.kind.name(), sources);
+            for (rel, digest) in sources.iter().zip(digests.by_ref()) {
+                k.file(
+                    &workspace.rel_of(&package.dir.join(rel)),
+                    digest.as_deref().map(str::as_bytes),
+                );
+            }
+            k.finish()
+        })
+        .collect();
+    let mut memo = READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(memo) = memo.as_mut() {
+        for ((member, _), part) in rules.iter().zip(&fresh) {
+            memo.parts.insert(id(member), part.clone());
         }
     }
+    let unknown = parts.iter_mut().filter(|known| known.is_none());
+    for (known, part) in unknown.zip(fresh) {
+        *known = Some(part);
+    }
+    parts.into_iter().flatten().collect()
 }
 
 /// The digest of each of `files`, a directory and a path in it, read as
@@ -1517,7 +1569,10 @@ fn digests(
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         files
             .iter()
-            .map(|file| memo.as_ref().and_then(|m| m.get(&path(file)).cloned()))
+            .map(|file| {
+                memo.as_ref()
+                    .and_then(|m| m.reads.get(&path(file)).cloned())
+            })
             .collect()
     };
     let missing: Vec<&(&std::path::Path, &str)> = files
@@ -1541,7 +1596,7 @@ fn digests(
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(memo) = memo.as_mut() {
         for (file, digest) in missing.iter().zip(&fresh) {
-            memo.insert(path(file), digest.clone());
+            memo.reads.insert(path(file), digest.clone());
         }
     }
     let unknown = digests.iter_mut().filter(|known| known.is_none());
@@ -1554,10 +1609,15 @@ fn digests(
 /// Below this many files a key reads them on its own thread.
 const SERIAL_READS: usize = 32;
 
-type Reads = crate::hash::Map<(PathBuf, Content), Option<std::sync::Arc<str>>>;
+/// What keys have worked out, once [`remember_reads`] has been called.
+#[derive(Default)]
+struct Reads {
+    /// The digest of every source a key has read, by path and reading.
+    reads: crate::hash::Map<(PathBuf, Content), Option<std::sync::Arc<str>>>,
+    /// Every rule's [`parts`], by package, kind and reading.
+    parts: crate::hash::Map<(PathBuf, &'static str, Content), ActionKey>,
+}
 
-/// The digest of every source a key has read, by path and reading, once
-/// [`remember_reads`] has been called.
 static READS: std::sync::Mutex<Option<Reads>> = std::sync::Mutex::new(None);
 
 /// From here to the end of the process, a key reads each source once.
