@@ -410,6 +410,10 @@ mod sort_comparators;
 // what such a chain costs, counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod match_chains;
+// A record a loop rebuilds from its own fields each step: what each step
+// reads, and what a step costs, counted rather than timed, on every backend.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod loop_records;
 // A match testing variants arm by arm: each variant's arm, at every tag width,
 // and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

@@ -1513,6 +1513,11 @@ impl FnLower<'_> {
                         continue;
                     }
                     let f = self.field_type(rec, *i);
+                    // A number or a `Bool` holds no reference, so there is
+                    // nothing of the old value to release.
+                    if !matches!(f, Type::Agg(_) | Type::Ptr) {
+                        continue;
+                    }
                     replaced.push(self.emit(f, |dest| Inst::GetField {
                         dest,
                         agg: b,

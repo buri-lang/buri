@@ -597,7 +597,6 @@ struct Bufs {
     opnd: Operands,
     literals: Literals,
     loops: Loops,
-    pinned: ir::PerValue<bool>,
     grown: ir::PerValue<bool>,
 }
 
@@ -2765,6 +2764,15 @@ impl<'a> Jit<'a> {
                             })
                         })
                     };
+                    // The last read may be the struct the field goes into,
+                    // built over the bytes it is read from: a loop's record
+                    // rebuilt in its own slot. It stores its fields in order,
+                    // so it reads the field before any store lands on it but
+                    // an earlier field's, and a field stored where it already
+                    // is stores nothing.
+                    let first = seen > 0
+                        && self.reads_first(prog, code, slot, b.insts.get(last), *dest, src, w);
+                    let writes = |k: usize| writes(k) && !(k == last && first);
                     seen == *uses.get(*dest) && seen > 0 && !(j + 1..=last).any(writes)
                 };
                 if !held {
@@ -2779,6 +2787,46 @@ impl<'a> Jit<'a> {
         self.bufs.param = param;
         self.bufs.fixed = fixed;
         self.bufs.aliased = held_parts;
+    }
+
+    /// Whether `make`, a `MakeStruct`, reads `read`, `w` bytes at `src`,
+    /// before any of its stores writes there. A store of a field to where it
+    /// already is writes nothing.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one question about one store order"
+    )]
+    fn reads_first(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        slot: &ir::PerValue<u32>,
+        make: Option<&ir::Inst>,
+        read: ir::ValueId,
+        src: u32,
+        w: u32,
+    ) -> bool {
+        let Some(ir::Inst::MakeStruct { dest, ty, fields }) = make else {
+            return false;
+        };
+        let base = *slot.get(*dest);
+        let l = self.layout_of(prog, ty.id());
+        let mut clobbered = false;
+        for (f, at) in fields.iter().zip(l.fields.iter()) {
+            let to = base + at.bytes();
+            let fw = self.width(prog, code.ty_of(*f));
+            let over = to < src + w && src < to + fw;
+            if *f == read {
+                // Its own store reads before it writes, so it may land on
+                // the bytes it reads only exactly.
+                if clobbered || (over && to != src) {
+                    return false;
+                }
+            } else if over && *slot.get(*f) != to {
+                clobbered = true;
+            }
+        }
+        true
     }
 
     /// The merges themselves. See [`Jit::slots`].
@@ -2800,6 +2848,13 @@ impl<'a> Jit<'a> {
     /// at a join whose answer is passed straight to the outer match's join, and
     /// a record either one answers is then built once, in the outer join's
     /// slot.
+    ///
+    /// A tail call's loop header holds the entry's parameters, where the
+    /// caller left them, and a latch merges into it too. A record each arm
+    /// rebuilds from the loop's own (`St { ..s, acc: n }`) is then built over
+    /// it, its unchanged fields stored where they already are, which is
+    /// nothing; [`Jit::forward_fields`] reads each field in place where the
+    /// struct reads it before a store lands on it.
     #[allow(
         clippy::too_many_arguments,
         reason = "the tables `slots` already built"
@@ -2830,13 +2885,7 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        // Per class root: whether the class holds a pinned value, and whether
-        // anything has merged into it. So far only the entry's parameters are
-        // pinned: a return value pinned below is read by its `Return` alone.
-        let mut pinned = code.per_value_in(&mut self.bufs.pinned, false);
-        for ((_, x), (_, p)) in pinned.iter_mut().zip(pin.iter()) {
-            *x = p.is_some();
-        }
+        // Per class root: whether anything has merged into it.
         let mut grown = code.per_value_in(&mut self.bufs.grown, false);
         let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
         // The entry first, whose parameters are where a tail call's loop
@@ -2866,11 +2915,11 @@ impl<'a> Jit<'a> {
                 // slot is where the caller left it and the class can simply
                 // take that. Or a latch's parameter that nothing has merged
                 // into yet — the order above meets a latch before its arms —
-                // passed to a class that takes no caller's slot: a tail call's
-                // loop header is pinned, as the entry's parameters merge into
-                // it.
+                // and so is pinned nowhere. Its class may be a tail call's
+                // loop header, pinned where the caller left the entry's
+                // parameters: the loop's record is then built in place.
                 let entry_ok = pin.get(a).is_some() && *id == ir::BlockId::ENTRY;
-                let latch_ok = jumps && !*pinned.get(root) && !*grown.get(a);
+                let latch_ok = jumps && !*grown.get(a);
                 if !entry_ok && (*def_block.get(a) != Some(*id) || (*is_param.get(a) && !latch_ok))
                 {
                     continue;
@@ -2888,8 +2937,6 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 *uf.get_mut(a) = root;
-                let held = *pinned.get(root) | *pinned.get(a);
-                *pinned.get_mut(root) = held;
                 *grown.get_mut(root) = true;
             }
             // (i.b) A `Return`'s move into the return area, which is the same
@@ -2908,7 +2955,6 @@ impl<'a> Jit<'a> {
         self.bufs.is_param = is_param;
         self.bufs.def_block = def_block;
         self.bufs.after_def = after_def;
-        self.bufs.pinned = pinned;
         self.bufs.grown = grown;
     }
 
