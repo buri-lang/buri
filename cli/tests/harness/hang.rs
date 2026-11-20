@@ -278,8 +278,13 @@ pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
 pub fn wait_within(child: &mut Child, what: &str, bounds: Bounds) -> ExitStatus {
     match watch(child, what, bounds) {
         Ok(status) => status,
-        Err(killed) => panic!("{}", report(&killed)),
+        Err(killed) => fail(&killed),
     }
+}
+
+/// Fail the test that ran a killed child, naming the child and the test.
+pub fn fail(killed: &Killed) -> ! {
+    panic!("{}", report(killed))
 }
 
 /// Wait for a child, killing its tree once it is stuck or past a ceiling.
@@ -302,9 +307,21 @@ pub fn wait_within(child: &mut Child, what: &str, bounds: Bounds) -> ExitStatus 
 /// deadlock. Nothing is asked of a host that will not answer, so a ceiling
 /// there is simply never reached.
 pub fn watch(child: &mut Child, what: &str, bounds: Bounds) -> Result<ExitStatus, Killed> {
+    watch_until(child, what, bounds, Child::try_wait)
+}
+
+/// [`watch`], asking `exited` whether the child has stopped instead of
+/// [`Child::try_wait`], which reaps it. `counted.rs` reads a child's usage
+/// after it exits and before it is reaped, so it asks without reaping.
+pub fn watch_until(
+    child: &mut Child,
+    what: &str,
+    bounds: Bounds,
+    mut exited: impl FnMut(&mut Child) -> std::io::Result<Option<ExitStatus>>,
+) -> Result<ExitStatus, Killed> {
     let cap = bounds.idle;
     let pid = child.id();
-    launched(child);
+    launched(child, &mut exited);
     // A zero period is over the moment the clock starts. Asking `try_wait`
     // first would let a child that exits within the launch poll through.
     if cap.is_zero() {
@@ -325,7 +342,7 @@ pub fn watch(child: &mut Child, what: &str, bounds: Bounds) -> Result<ExitStatus
     };
     let mut nap = Duration::from_micros(200);
     loop {
-        match child.try_wait() {
+        match exited(child) {
             Ok(Some(status)) => return Ok(status),
             Err(e) => panic!("waiting for `{what}`: {e}"),
             Ok(None) => {}
@@ -371,8 +388,11 @@ pub fn watch(child: &mut Child, what: &str, bounds: Bounds) -> Result<ExitStatus
 ///
 /// The test is user time above zero: the loader runs in user mode before
 /// `main`, so a program that has started has some, and a held one has none.
-fn launched(child: &mut Child) {
-    while !has_run(child.id()) && matches!(child.try_wait(), Ok(None)) {
+fn launched(
+    child: &mut Child,
+    exited: &mut impl FnMut(&mut Child) -> std::io::Result<Option<ExitStatus>>,
+) {
+    while !has_run(child.id()) && matches!(exited(child), Ok(None)) {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -533,7 +553,7 @@ pub fn argv(cmd: &std::process::Command) -> String {
 }
 
 /// A running process's command line, or its pid where the host won't say.
-fn named(pid: u32) -> String {
+pub fn named(pid: u32) -> String {
     #[cfg(target_os = "linux")]
     if let Ok(line) = std::fs::read(format!("/proc/{pid}/cmdline")) {
         let words: Vec<String> = line

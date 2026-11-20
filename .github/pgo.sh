@@ -72,9 +72,13 @@ if [ "$step" != use ]; then
   # 3-core macOS runner until it stopped answering.
   #
   # A test that fails often stops early, for a tool the machine lacks, and the
-  # profile then covers less. So each suite's output is dropped but its result
-  # line is kept, and one line sums them; a suite that ends without one counts
-  # as a crash.
+  # profile then covers less. So each suite's result line is kept, and one line
+  # sums them; a suite that ends without one counts as a crash.
+  #
+  # Each finished test's line goes to the log as it happens, named by suite, and
+  # so does libtest's "has been running for over 60 seconds", so a stall names
+  # the test that stalled. Runs 44670440615 and 44693285711 lost the runner
+  # mid-training and the log said nothing about which test was running.
   #
   # Every run of buri merges its counts into one pooled file, and a run whose
   # profile is laid out otherwise destroys that file for good: a copy of buri
@@ -83,8 +87,12 @@ if [ "$step" != use ]; then
   # pool is named here, by the name the build already gave it.
   cores=$(getconf _NPROCESSORS_ONLN)
   : > "$work/results.txt"
-  LLVM_PROFILE_FILE="$work/raw/default_%m.profraw" NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c \
-    '{} --test-threads=2 2>/dev/null | grep "^test result:" || echo "test result: crashed"' \
+  LLVM_PROFILE_FILE="$work/raw/default_%m.profraw" NEXTEST_RUN_ID=pgo-$$ xargs -P "$cores" -I{} sh -c '
+    suite=$(basename "$1" | sed "s/-[0-9a-f]*\$//")
+    "$1" --test-threads=2 2>/dev/null | awk -v suite="$suite" "
+      /^test result:/ { print; done = 1; next }
+      /^test / { print suite \": \" \$0 > \"/dev/stderr\"; fflush(\"/dev/stderr\") }
+      END { if (!done) print \"test result: crashed\" }"' sh {} \
     < "$work/units.txt" >> "$work/results.txt"
   awk '/crashed/ { crashed++ }
     { for (i = 1; i < NF; i++) if ($(i+1) ~ /^(passed|failed);$/) n[$(i+1)] += $i }
