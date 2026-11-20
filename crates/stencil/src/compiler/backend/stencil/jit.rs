@@ -2253,6 +2253,10 @@ pub(crate) struct Plan {
     pub cmpbr: Option<(ir::ValueId, ir::ValueId, usize)>,
     /// A `GetTag` the switch will do itself: the aggregate and its enum.
     pub tagsw: Option<(ir::ValueId, ir::EnumTy)>,
+    /// A `GetTag` and its comparison with a variant the branch will do
+    /// itself: the aggregate, its enum, the variant, and whether the branch is
+    /// taken on any other variant.
+    pub tagbr: Option<(ir::ValueId, ir::EnumTy, u64, bool)>,
     /// The increment a jump into a loop's test does itself.
     pub incbr: Option<Incbr>,
 }
@@ -3679,6 +3683,7 @@ impl<'a> Jit<'a> {
             skip,
             cmpbr: None,
             tagsw: None,
+            tagbr: None,
             incbr: None,
         };
         // Every `Const` whose uses are all immediates disappears, and so does
@@ -3695,7 +3700,7 @@ impl<'a> Jit<'a> {
         }
         // The instructions the fusions below absorb, skipped once they are all
         // known: the comparison check reads the `Const`s' flags alone.
-        let (mut cmp_at, mut inc_at) = (None, None);
+        let (mut cmp_at, mut inc_at, mut tag_test_at) = (None, None, None);
         // (d) The comparison immediately before a branch on its result.
         if let ir::Term::Branch { cond, .. } = &block.term {
             if let Some(k) = block.insts.iter().rposition(|i| i.results().contains(cond)) {
@@ -3726,6 +3731,29 @@ impl<'a> Jit<'a> {
                             cmp_at = Some(k);
                             p.cmpbr = Some((*lhs, *rhs, at));
                         }
+                        // (d') A test of a `GetTag` against a variant, which
+                        // every refutable variant pattern is: the branch reads
+                        // the tag in place, as a switch's case does, and the
+                        // tag never lands in a slot.
+                        if let (Some(_), ir::BinOp::Eq | ir::BinOp::Ne, Some(c)) =
+                            (fused, op, *st.constants.get(*rhs))
+                        {
+                            let def = block.insts.get(..k).and_then(|before| {
+                                before.iter().rposition(|i| i.results().contains(lhs))
+                            });
+                            if let Some(j) = def.filter(|j| {
+                                uses(st, *lhs) == 1 && (j + 1..k).all(|x| ent(&p.skip, x, false))
+                            }) {
+                                // The test reads the aggregate's slot.
+                                let in_frame = |a: &ir::ValueId| matches!(st.home(*a), Loc::Frame);
+                                if let Some(ir::Inst::GetTag { agg, ty, .. }) = block.insts.get(j) {
+                                    if in_frame(agg) {
+                                        p.tagbr = Some((*agg, *ty, c, *op == ir::BinOp::Ne));
+                                        tag_test_at = Some(j);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3752,7 +3780,7 @@ impl<'a> Jit<'a> {
             tag_at = p.tagsw.map(|_| k);
         }
         for (k, s) in p.skip.iter_mut().enumerate() {
-            *s |= [cmp_at, inc_at, tag_at].contains(&Some(k));
+            *s |= [cmp_at, inc_at, tag_at, tag_test_at].contains(&Some(k));
         }
         p
     }

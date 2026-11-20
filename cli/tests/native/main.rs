@@ -393,6 +393,10 @@ mod alloc_churn;
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod sort_comparators;
+// A match testing variants arm by arm: each variant's arm, at every tag width,
+// and its instructions counted rather than timed, on every backend.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod variant_tests;
 // Records and enums of several strings and lists, shared and released under
 // the heap check, and what retaining and releasing one field costs, on every
 // backend built in.

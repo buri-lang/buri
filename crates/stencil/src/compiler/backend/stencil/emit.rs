@@ -1709,7 +1709,7 @@ impl<'a> Jit<'a> {
                         V::Blk(Label::of(else_.block))
                     };
                     let fall = if ft { Jump::T } else { Jump::F };
-                    self.cond(st, *cond, plan, tv, fv, fall);
+                    self.test(prog, st, *cond, plan, tv, fv, fall);
                     return;
                 }
                 // With edge copies, one arm's copies fall through and the
@@ -1728,7 +1728,7 @@ impl<'a> Jit<'a> {
                     (V::Fall, V::Blk(lf))
                 };
                 let fall = if y_is_then { Jump::F } else { Jump::T };
-                self.cond(st, *cond, plan, tv, fv, fall);
+                self.test(prog, st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
                 self.emit("jump", &[Jump::T.to(V::Blk(Label::of(x.block)))]);
                 st.place(lf, self.region.code_addr());
@@ -1893,6 +1893,66 @@ impl<'a> Jit<'a> {
         );
     }
 
+    /// A branch's test: [`Plan::tagbr`]'s where the plan has one, the tag
+    /// read in place and compared with the variant the way a switch's case
+    /// is, so the tag is never stored to a slot and read back; otherwise
+    /// [`Jit::cond`]'s.
+    #[allow(clippy::too_many_arguments, reason = "`cond`'s, and the program")]
+    fn test(
+        &mut self,
+        prog: &ir::Program,
+        st: &Fn2,
+        cond: ir::ValueId,
+        plan: &Plan,
+        tv: V,
+        fv: V,
+        fall: Jump,
+    ) {
+        let Some((agg, e, variant, other)) = plan.tagbr else {
+            return self.cond(st, cond, plan, tv, fv, fall);
+        };
+        let (mut src, w, niche) = self.tag_field(prog, st, agg, e);
+        let known = self.lib.known;
+        // The stencil's `T` arm is taken where the field equals `n`. A
+        // niche's field is the pointer, null on the variant `w` names.
+        let (base, n, equal_is_variant) = if niche {
+            (Some(known.tag_eq), 0, u64::from(w) == variant)
+        } else {
+            // A byte, which all but enums of over 256 variants have.
+            let base = (w == 1).then_some(known.tag_eq8);
+            // The variant as the tag's width holds it, whatever the
+            // constant's own sign extension.
+            let n = variant & (u64::MAX >> (64 - 8 * w.clamp(1, 8)));
+            (base, n, true)
+        };
+        let (t, f, fall) = if equal_is_variant != other {
+            (tv, fv, fall)
+        } else {
+            let fall = match fall {
+                Jump::T => Jump::F,
+                _ => Jump::T,
+            };
+            (fv, tv, fall)
+        };
+        let mut binds = vec![Jump::T.to(t), Jump::F.to(f)];
+        let key = match base {
+            Some(base) => {
+                binds.push(Lit::N.of(n));
+                self.arm_key(base, fall)
+            }
+            // A wider tag, widened into a scratch word first.
+            None => {
+                let s0 = st.scratch + 24;
+                self.load_w(s0, src, w);
+                src = s0;
+                binds.push(Word::K.lit(n));
+                self.arm_key(known.eq_u64_fi, fall)
+            }
+        };
+        binds.push(Lit::A.of(u64::from(src)));
+        self.emit(key, &binds);
+    }
+
     /// `(byte offset, width-or-null-variant, is a niche)` for an enum's
     /// discriminant. For a niche the second field is the *variant index* the
     /// null pointer stands for, because there is no tag field to read.
@@ -1928,7 +1988,7 @@ impl<'a> Jit<'a> {
         };
         let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
         let plan = self.plan_block(code, st, header);
-        let Some((lhs, rhs, _)) = plan.cmpbr else {
+        let Some((lhs, rhs, _)) = plan.cmpbr.filter(|_| plan.tagbr.is_none()) else {
             return false;
         };
         if !frame(lhs) || !frame(rhs) {
