@@ -41,7 +41,12 @@ fn wide(w: W, i: Int, n: Int): W {
 }
 
 fn tick(s: St, i: Int, n: Int): St {
-  if (i == n) { s } else { tick(St { acc: s.acc + i, steps: s.steps, last: s.last * 3 % 101 }, i + 1, n) }
+  if (i == n) {
+    s
+  } else {
+    let last = s.last * 3 % 101;
+    tick(St { acc: s.acc + i, steps: s.steps, last: last }, i + 1, n)
+  }
 }
 
 fn mk(i: Int): A { A { pad: i, p: P { x: i + 1, y: i + 2 } } }
@@ -70,7 +75,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// **Each step sees the record the step before it built**: fields rotated,
 /// swapped, wide fields swapped, a field read after another took a new value,
 /// a new value computed from a field another new value replaces, the record
-/// passed on unchanged, a field kept between two new ones, and a record built
+/// passed on unchanged, a field kept between two new ones with the last of them
+/// computed first, and a record built
 /// from a field of another kind of record.
 #[test]
 fn each_step_reads_the_record_before_it() {
