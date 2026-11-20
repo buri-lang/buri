@@ -397,6 +397,10 @@ mod alloc_churn;
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod sort_comparators;
+// Tests of one value against literal after literal: each literal's arm, and
+// what such a chain costs, counted rather than timed, on every backend.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod match_chains;
 // A match testing variants arm by arm: each variant's arm, at every tag width,
 // and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

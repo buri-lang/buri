@@ -584,7 +584,9 @@ struct Bufs {
     block_uses: ir::PerValue<BlockUses>,
     barrier: Vec<bool>,
     imm: ir::PerValue<u32>,
-    seen: ir::PerBlock<bool>,
+    /// [`Jit::layout`]'s visited marks, which are also each block's count
+    /// of incoming edges; [`Fn2::npred`] between the layout and the emitter.
+    seen: ir::PerBlock<u32>,
     stack: Vec<(ir::BlockId, usize)>,
     param: ir::PerValue<bool>,
     def_in: ir::PerValue<(u32, u32)>,
@@ -1223,6 +1225,32 @@ pub(crate) struct Fn2 {
     /// is written at the call, not where it is defined
     /// ([`Jit::pin_call_values`]).
     pub sunk: ir::PerValue<Option<u32>>,
+    /// Each block's count of incoming edges, one more for the entry.
+    pub npred: ir::PerBlock<u32>,
+    /// What `r2` holds where the code emitted so far ends, if a test left
+    /// something there ([`Carry`]).
+    pub carry: Option<Carry>,
+}
+
+/// A frame word, or a byte tag, that the last test emitted left in `r2`
+/// (`ldbr/eq`, `ldbr/eq8`), so that a later test of the same bytes compares
+/// the register.
+///
+/// It holds at `at` and only there: any stencil emitted since moves the end
+/// of the code past it. It holds into a block placed at `at` where no edge
+/// but the one falling through enters it.
+#[derive(Clone, Copy)]
+pub(crate) struct Carry {
+    /// [`Carry::key`]'s.
+    pub key: u64,
+    pub at: u64,
+}
+
+impl Carry {
+    /// The bytes a test read: its slot, and whether it read a byte tag there.
+    pub fn key(slot: u32, byte: bool) -> u64 {
+        u64::from(slot) << 1 | u64::from(byte)
+    }
 }
 
 impl Default for Fn2 {
@@ -1249,6 +1277,8 @@ impl Fn2 {
             constants: ir::PerValue::default(),
             uses: ir::PerValue::default(),
             sunk: ir::PerValue::default(),
+            npred: ir::PerBlock::default(),
+            carry: None,
         }
     }
 
@@ -1624,6 +1654,8 @@ impl<'a> Jit<'a> {
                 opnd.fill(code);
                 st.uses = count_uses(code, &opnd, &mut st.uses);
                 let order = self.layout(code);
+                std::mem::swap(&mut st.npred, &mut self.bufs.seen);
+                st.carry = None;
                 st.scratch = self.slots(prog, code, frame, &st.uses, &opnd, &order, &mut st.slot);
                 std::mem::swap(&mut st.sunk, &mut self.bufs.sunk);
                 st.reg = code.per_value_in(&mut st.reg, None);
@@ -1641,6 +1673,9 @@ impl<'a> Jit<'a> {
                 for (oi, id) in order.iter().copied().enumerate() {
                     let here = self.region.code_addr();
                     st.place(Label::of(id), here);
+                    // `r2` still holds what the test before left there only
+                    // where that test is this block's one way in.
+                    st.carry = st.carry.filter(|c| c.at == here && *st.npred.get(id) == 1);
                     // Which side of the promotion's region every read in this
                     // block is on. See [`Fn2::loc`].
                     st.cur = id;
@@ -1663,6 +1698,7 @@ impl<'a> Jit<'a> {
                     self.bufs.skip = plan.skip;
                 }
                 self.resolve_blocks(base, &st.blk);
+                std::mem::swap(&mut st.npred, &mut self.bufs.seen);
                 self.bufs.order = order;
                 self.bufs.st = st;
             }
@@ -2259,6 +2295,9 @@ pub(crate) struct Plan {
     pub tagbr: Option<(ir::ValueId, ir::EnumTy, u64, bool)>,
     /// The increment a jump into a loop's test does itself.
     pub incbr: Option<Incbr>,
+    /// Where [`Plan::cmpbr`] is a 64-bit integer in the frame tested for
+    /// equality with a literal: whether the branch is taken where they differ.
+    pub eqk: Option<bool>,
 }
 
 /// A back edge that increments a loop's index and takes the loop's test, as
@@ -2619,20 +2658,30 @@ impl<'a> Jit<'a> {
         // How far a read inside one block may be from the field it reads.
         // Bounds the scan below, so a long block stays linear.
         const WINDOW: usize = 32;
-        let get = |i: &ir::Inst| matches!(i, ir::Inst::GetField { .. });
+        let get =
+            |i: &ir::Inst| matches!(i, ir::Inst::GetField { .. } | ir::Inst::GetPayload { .. });
         if !code.blocks().iter().any(|b| b.insts.iter().any(get)) {
             return;
         }
-        let mut members = code.per_value_in(&mut self.bufs.members, 0);
-        let mut param = code.per_value_in(&mut self.bufs.param, false);
-        for v in code.value_ids() {
-            *members.get_mut(find(uf, v)) += 1;
-        }
-        for b in code.blocks().iter().skip(1) {
-            for p in &b.params {
-                *param.get_mut(*p) = true;
+        // Where `alias_parts` ran, it left the same counts and marks behind.
+        let (members, param) = if parts {
+            (
+                std::mem::take(&mut self.bufs.members),
+                std::mem::take(&mut self.bufs.param),
+            )
+        } else {
+            let mut members = code.per_value_in(&mut self.bufs.members, 0);
+            let mut param = code.per_value_in(&mut self.bufs.param, false);
+            for v in code.value_ids() {
+                *members.get_mut(find(uf, v)) += 1;
             }
-        }
+            for b in code.blocks().iter().skip(1) {
+                for p in &b.params {
+                    *param.get_mut(*p) = true;
+                }
+            }
+            (members, param)
+        };
         let held_parts = std::mem::take(&mut self.bufs.aliased);
         // `alias_parts`' answer, where it ran for this function.
         let aliased: Option<&ir::PerValue<bool>> = if parts { Some(&held_parts) } else { None };
@@ -2649,25 +2698,41 @@ impl<'a> Jit<'a> {
         }
         for (bid, b) in code.iter() {
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::GetField {
-                    dest,
-                    agg,
-                    ty,
-                    field,
-                } = i
-                else {
-                    continue;
+                let (dest, agg) = match i {
+                    ir::Inst::GetField { dest, agg, .. }
+                    | ir::Inst::GetPayload { dest, agg, .. } => (dest, agg),
+                    _ => continue,
                 };
-                let id = ty.id();
-                let l = self.layout_of(prog, id);
-                let off = l.fields.get(*field).bytes();
                 let w = self.width(prog, code.ty_of(*dest));
-                let owner = prog.type_info(id).ty;
-                if w == 0
-                    || !w.is_multiple_of(8)
-                    || !alone(*dest)
-                    || self.boxes(&owner, &prog.types.field(*ty, *field))
-                {
+                if w == 0 || !w.is_multiple_of(8) || !alone(*dest) {
+                    continue;
+                }
+                // Where the part sits in its aggregate, and whether
+                // `middle::layout` put it behind a pointer there.
+                let (off, boxed) = match i {
+                    ir::Inst::GetField { ty, field, .. } => {
+                        let id = ty.id();
+                        let off = self.layout_of(prog, id).fields.get(*field).bytes();
+                        let owner = prog.type_info(id).ty;
+                        (off, self.boxes(&owner, &prog.types.field(*ty, *field)))
+                    }
+                    ir::Inst::GetPayload {
+                        ty, variant, field, ..
+                    } => {
+                        let off = self
+                            .enum_layout(prog, *ty)
+                            .variants
+                            .get(*variant)
+                            .get(*field)
+                            .bytes();
+                        let head = prog.types.enum_head(*ty);
+                        let boxed =
+                            self.boxes(&head.ty, &head.payload(self.tables, *variant, *field));
+                        (off, boxed)
+                    }
+                    _ => continue,
+                };
+                if boxed {
                     continue;
                 }
                 let src = *slot.get(*agg) + off;
@@ -3213,14 +3278,17 @@ impl<'a> Jit<'a> {
     /// the loop body immediately after the test, which is where the elision
     /// wants them.
     fn layout(&mut self, code: &ir::Code) -> Vec<ir::BlockId> {
-        let mut seen = code.per_block_in(&mut self.bufs.seen, false);
+        // Each block's incoming edges, counted as the walk visits each edge
+        // once; a block is seen once its count is not zero. The entry's count
+        // is one more than its edges.
+        let mut seen = code.per_block_in(&mut self.bufs.seen, 0);
         let mut post = std::mem::take(&mut self.bufs.order);
         post.clear();
         // An explicit stack, because a deeply nested function would blow a
         // recursive one and this runs on every function in the program.
         let mut stack = std::mem::take(&mut self.bufs.stack);
         stack.clear();
-        *seen.get_mut(ir::BlockId::ENTRY) = true;
+        *seen.get_mut(ir::BlockId::ENTRY) = 1;
         stack.push((ir::BlockId::ENTRY, 0));
         while let Some((b, k)) = stack.pop() {
             // The `k`th successor alone: a switch's block is popped once per
@@ -3229,8 +3297,9 @@ impl<'a> Jit<'a> {
             match code.get(b).term.target(k).map(|t| t.block) {
                 Some(s) => {
                     stack.push((b, k + 1));
-                    if !*seen.get(s) {
-                        *seen.get_mut(s) = true;
+                    let n = seen.get_mut(s);
+                    *n += 1;
+                    if *n == 1 {
                         stack.push((s, 0));
                     }
                 }
@@ -3685,6 +3754,7 @@ impl<'a> Jit<'a> {
             tagsw: None,
             tagbr: None,
             incbr: None,
+            eqk: None,
         };
         // Every `Const` whose uses are all immediates disappears, and so does
         // one the call that reads it writes.
@@ -3730,6 +3800,18 @@ impl<'a> Jit<'a> {
                         if let Some(at) = fused {
                             cmp_at = Some(k);
                             p.cmpbr = Some((*lhs, *rhs, at));
+                            let word = matches!(
+                                prim,
+                                crate::compiler::semantics::types::Prim::I64
+                                    | crate::compiler::semantics::types::Prim::U64
+                            );
+                            if word && (a, b) == ("f", "i") {
+                                p.eqk = match op {
+                                    ir::BinOp::Eq => Some(false),
+                                    ir::BinOp::Ne => Some(true),
+                                    _ => None,
+                                };
+                            }
                         }
                         // (d') A test of a `GetTag` against a variant, which
                         // every refutable variant pattern is: the branch reads

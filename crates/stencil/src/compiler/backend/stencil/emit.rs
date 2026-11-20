@@ -36,7 +36,9 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{copyless_test, Bind, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V};
+use super::jit::{
+    copyless_test, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V,
+};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
 use super::runtime;
@@ -1709,7 +1711,11 @@ impl<'a> Jit<'a> {
                         V::Blk(Label::of(else_.block))
                     };
                     let fall = if ft { Jump::T } else { Jump::F };
-                    self.test(prog, st, *cond, plan, tv, fv, fall);
+                    let held = self.test(prog, st, *cond, plan, tv, fv, fall);
+                    st.carry = held.map(|key| Carry {
+                        key,
+                        at: self.region.code_addr(),
+                    });
                     return;
                 }
                 // With edge copies, one arm's copies fall through and the
@@ -1728,7 +1734,7 @@ impl<'a> Jit<'a> {
                     (V::Fall, V::Blk(lf))
                 };
                 let fall = if y_is_then { Jump::F } else { Jump::T };
-                self.test(prog, st, *cond, plan, tv, fv, fall);
+                let _ = self.test(prog, st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
                 self.emit("jump", &[Jump::T.to(V::Blk(Label::of(x.block)))]);
                 st.place(lf, self.region.code_addr());
@@ -1780,6 +1786,13 @@ impl<'a> Jit<'a> {
                 // corpus's switches this halves the dispatch.
                 let total = default.is_none() && cases.len() > 1;
                 let last = cases.len() - 1;
+                // (m) A byte tag or a frame word is read once, into `r2`, and
+                // every case after the first compares the register.
+                let known = self.lib.known;
+                let chain = match fusedw {
+                    None => Some(false),
+                    Some(f) => (f == known.tag_eq8).then_some(true),
+                };
                 for (ci, (k, tgt)) in cases.iter().enumerate() {
                     // The last case is laid out next: every case is a block
                     // only this switch enters, and the layout's depth-first
@@ -1788,6 +1801,15 @@ impl<'a> Jit<'a> {
                         self.edge(prog, code, st, tgt);
                         self.emit("jump", &[Jump::T.to(V::Fall)]);
                         return;
+                    }
+                    if let Some(byte) = chain {
+                        let case = V::Blk(Label::of(tgt.block));
+                        self.chain_test(st, src, byte, *k, case, V::Fall, Jump::F);
+                        st.carry = Some(Carry {
+                            key: Carry::key(src, byte),
+                            at: self.region.code_addr(),
+                        });
+                        continue;
                     }
                     // (g) The next case's test falls through, so the test's
                     // `JIT_F` arm is the one that has to be the elidable one:
@@ -1808,14 +1830,15 @@ impl<'a> Jit<'a> {
                         Some(_) => (case, V::Fall, Jump::F, 0),
                         None => (case, V::Fall, Jump::F, *k),
                     };
-                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), fall);
-                    let mut binds: Vec<Bind> =
-                        vec![Lit::A.of(src as u64), Jump::T.to(hit), Jump::F.to(miss)];
-                    if fusedw.is_some() {
-                        binds.push(Lit::N.of(n));
-                    } else {
-                        binds.push(Word::K.lit(n));
-                    }
+                    // A tag that is not read in place is a frame word,
+                    // which `chain` took above.
+                    let key = self.arm_key(fusedw.unwrap_or(known.tag_eq), fall);
+                    let binds = [
+                        Lit::A.of(src as u64),
+                        Jump::T.to(hit),
+                        Jump::F.to(miss),
+                        Lit::N.of(n),
+                    ];
                     self.emit(key, &binds);
                 }
                 match default {
@@ -1897,6 +1920,10 @@ impl<'a> Jit<'a> {
     /// read in place and compared with the variant the way a switch's case
     /// is, so the tag is never stored to a slot and read back; otherwise
     /// [`Jit::cond`]'s.
+    ///
+    /// Answers what the test left in `r2` for the block laid out next, if it
+    /// was [`Jit::chain_test`]'s and that block is where it fails to, as a
+    /// [`Carry::key`].
     #[allow(clippy::too_many_arguments, reason = "`cond`'s, and the program")]
     fn test(
         &mut self,
@@ -1907,9 +1934,21 @@ impl<'a> Jit<'a> {
         tv: V,
         fv: V,
         fall: Jump,
-    ) {
+    ) -> Option<u64> {
         let Some((agg, e, variant, other)) = plan.tagbr else {
-            return self.cond(st, cond, plan, tv, fv, fall);
+            if let (Some(ne), Some((lhs, rhs, _))) = (plan.eqk, plan.cmpbr) {
+                let (t, f, fall) = if ne {
+                    (fv, tv, other_arm(fall))
+                } else {
+                    (tv, fv, fall)
+                };
+                let slot = st.at(lhs);
+                let miss_falls = matches!(f, V::Fall);
+                self.chain_test(st, slot, false, constant(st, rhs), t, f, fall);
+                return miss_falls.then_some(Carry::key(slot, false));
+            }
+            self.cond(st, cond, plan, tv, fv, fall);
+            return None;
         };
         let (mut src, w, niche) = self.tag_field(prog, st, agg, e);
         let known = self.lib.known;
@@ -1928,29 +1967,53 @@ impl<'a> Jit<'a> {
         let (t, f, fall) = if equal_is_variant != other {
             (tv, fv, fall)
         } else {
-            let fall = match fall {
-                Jump::T => Jump::F,
-                _ => Jump::T,
-            };
-            (fv, tv, fall)
+            (fv, tv, other_arm(fall))
         };
-        let mut binds = vec![Jump::T.to(t), Jump::F.to(f)];
-        let key = match base {
-            Some(base) => {
-                binds.push(Lit::N.of(n));
-                self.arm_key(base, fall)
-            }
+        if base == Some(known.tag_eq8) {
+            let miss_falls = matches!(f, V::Fall);
+            self.chain_test(st, src, true, n, t, f, fall);
+            return miss_falls.then_some(Carry::key(src, true));
+        }
+        let (key, k) = match base {
+            Some(base) => (self.arm_key(base, fall), Lit::N.of(n)),
             // A wider tag, widened into a scratch word first.
             None => {
                 let s0 = st.scratch + 24;
                 self.load_w(s0, src, w);
                 src = s0;
-                binds.push(Word::K.lit(n));
-                self.arm_key(known.eq_u64_fi, fall)
+                (self.arm_key(known.eq_u64_fi, fall), Word::K.lit(n))
             }
         };
-        binds.push(Lit::A.of(u64::from(src)));
+        let binds = [Jump::T.to(t), Jump::F.to(f), k, Lit::A.of(u64::from(src))];
         self.emit(key, &binds);
+        None
+    }
+
+    /// (m) A test of a frame word, or of a byte tag, against `k`: of `r2`
+    /// where [`Fn2::carry`] says the code so far left those bytes there,
+    /// otherwise of the bytes themselves, read into `r2` for the next test.
+    /// The `T` arm is taken where they are equal, and only the `F` arm keeps
+    /// `r2`.
+    #[allow(clippy::too_many_arguments, reason = "a test's operands and arms")]
+    fn chain_test(&mut self, st: &Fn2, slot: u32, byte: bool, k: u64, t: V, f: V, fall: Jump) {
+        let known = self.lib.known;
+        let here = self.region.code_addr();
+        let held = st
+            .carry
+            .is_some_and(|c| c.key == Carry::key(slot, byte) && c.at == here);
+        let binds = [
+            Word::K.lit(k),
+            Jump::T.to(t),
+            Jump::F.to(f),
+            Lit::A.of(u64::from(slot)),
+        ];
+        let (base, binds) = match (held, byte) {
+            (true, _) => (known.eq_r2, &binds[..3]),
+            (false, true) => (known.ld_eq8, &binds[..]),
+            (false, false) => (known.ld_eq, &binds[..]),
+        };
+        let key = self.arm_key(base, fall);
+        self.emit(key, binds);
     }
 
     /// `(byte offset, width-or-null-variant, is a niche)` for an enum's
@@ -3701,4 +3764,12 @@ fn open_coded_key(key: &str) -> bool {
             // table row (G5, `glue.rs`'s `Helper::Walk`).
             | "alloc.copyOut"
     )
+}
+
+/// The other arm of a two-target stencil.
+fn other_arm(j: Jump) -> Jump {
+    match j {
+        Jump::T => Jump::F,
+        _ => Jump::T,
+    }
 }

@@ -11215,22 +11215,23 @@ On the arm64 VM, 2026-11-19:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      2131273777     2124695049     1642073870     1629673879       1.003       1.298  OVER -O0
-floats        679058005      690558129      575558040      572558243       0.983       1.180
-lists        2724244215     2785090692     1659070622     1650441788       0.978       1.642
-sort         1067274177     1100313368      279393434      316152129       0.970       3.820
-tree         1623289890     1715040610     1471248502     1471248593       0.947       1.103
-maps         1539046121     1779070176      947453585      946265270       0.865       1.624
-kvstore      1020210524     1307580821      670203405      664424046       0.780       1.522
-match        1162938679     1865847930      615666024      615666191       0.623       1.889
+strings      2104678737     2124695049     1642073870     1629673879       0.991       1.282
+lists        2713594211     2774440692     1648420622     1639791793       0.978       1.646
+floats        670561413      690558129      575558039      572558244       0.971       1.165
+sort         1067394179     1100433370      279513436      316272131       0.970       3.819
+tree         1612804290     1715040610     1471248502     1471248593       0.940       1.096
+maps         1481570053     1730717829      899101195      897912871       0.856       1.648
+kvstore       989061729     1292280197      654902849      649123489       0.765       1.510
+match        1059302316     1865847930      615666025      615666190       0.568       1.721
 ```
 
-- strings is over `-O0` in the runtime: its `memcpy`, and `str_concat`, which
-  LLVM's link-time optimisation inlines.
 - sort's comparator is `compare` at an integer, so the lowering tests the two
   integers in place of calling it; sort was 5.16 times `-O1`.
 - A match that tests its variants arm by arm reads each tag in place, as a
   switch does; match was 2.09 times `-O1`.
+- A value tested against literal after literal, an integer or a byte tag, is
+  read into a register once for all its tests, and a payload's fields are read
+  where they are; match was 1.89 times `-O1`.
 
 - It counts each program four ways: `buri build`, `--release` with
   `BURI_LLVM_OPT=0` and with `BURI_LLVM_OPT=1`, and plain `--release`, which is

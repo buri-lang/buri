@@ -1859,6 +1859,37 @@ fn supernodes(o: &mut Out) {
          else { __attribute__((musttail)) return _JIT_F(PASS); } }"
             .into(),
     );
+    // (m) The first test of a chain of tests on one frame word or one byte
+    // tag: where the test fails, what it read stays in `r2`, so that the
+    // chain's later tests compare the register (`ldbr/eqr`) instead
+    // of loading it again. Only a terminator's test uses them, where nothing
+    // is live in `r2`.
+    //
+    // Where the test passes `r2` is left undefined. Passed on, it would be
+    // the literal, which clang then rebuilds with a `mov` on that arm.
+    for (key, read) in [
+        ("ldbr/eq", "AT(uint64_t, _JIT_A)"),
+        ("ldbr/eq8", "(uint64_t)AT(uint8_t, _JIT_A)"),
+    ] {
+        o.push(
+            key,
+            format!(
+                "void $NAME(ARGS) {{ uint64_t t = {read}; \
+                 if (t == (uint64_t)(uintptr_t)_JIT_K) \
+                 {{ __asm__(\"\" : \"=r\"(r2)); \
+                 __attribute__((musttail)) return _JIT_T(PASS); }} \
+                 else {{ r2 = t; __attribute__((musttail)) return _JIT_F(PASS); }} }}"
+            ),
+        );
+    }
+    // The chain's later tests, of `r2`, which they keep the same way.
+    o.push(
+        "ldbr/eqr",
+        "void $NAME(ARGS) { if (r2 == (uint64_t)(uintptr_t)_JIT_K) \
+         { __asm__(\"\" : \"=r\"(r2)); __attribute__((musttail)) return _JIT_T(PASS); } \
+         else { __attribute__((musttail)) return _JIT_F(PASS); } }"
+            .into(),
+    );
     // Increment, store, and branch on the comparison: the back edge of every
     // `core/list` loop (`middle/lower/lists.rs`, `jit.rs`'s `Incbr`). Without
     // it the increment stores the counter and the comparison loads it straight

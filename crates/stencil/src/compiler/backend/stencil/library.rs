@@ -264,11 +264,17 @@ pub struct Known {
     pub tag_eq8: usize,
     pub tag_eq32: usize,
     pub tag_eq: usize,
+    /// `ldbr/eq` and `ldbr/eq8`: a frame word or a byte tag against a
+    /// literal, leaving what was read in `r2`; and `ldbr/eqr`, the
+    /// test of a chain after the first, comparing `r2`.
+    pub ld_eq: usize,
+    pub ld_eq8: usize,
+    pub eq_r2: usize,
 }
 
 impl Known {
     /// Every key a [`Known`] holds, in its fields' order.
-    pub const KEYS: [&'static str; 10] = [
+    pub const KEYS: [&'static str; 13] = [
         "br/f",
         "br/r0",
         "br/r1",
@@ -279,11 +285,14 @@ impl Known {
         "tagbr/eq8",
         "tagbr/eq32",
         "tagbr/eq",
+        "ldbr/eq",
+        "ldbr/eq8",
+        "ldbr/eqr",
     ];
 
     /// Each key's index in `index`, or the first key it lacks.
     fn find(index: &Index) -> Result<Known, String> {
-        let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq] =
+        let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq, ld_eq, ld_eq8, eq_r2] =
             Known::KEYS.map(|key| index.find(key).map(|i| i as usize).ok_or(key));
         let missing = |key: &str| format!("the library has no `{key}` stencil");
         Ok(Known {
@@ -297,6 +306,9 @@ impl Known {
             tag_eq8: tag_eq8.map_err(missing)?,
             tag_eq32: tag_eq32.map_err(missing)?,
             tag_eq: tag_eq.map_err(missing)?,
+            ld_eq: ld_eq.map_err(missing)?,
+            ld_eq8: ld_eq8.map_err(missing)?,
+            eq_r2: eq_r2.map_err(missing)?,
         })
     }
 
@@ -1019,6 +1031,9 @@ mod tests {
             k.tag_eq8,
             k.tag_eq32,
             k.tag_eq,
+            k.ld_eq,
+            k.ld_eq8,
+            k.eq_r2,
         ];
         for (key, at) in Known::KEYS.iter().zip(found) {
             assert_eq!(back.at(key).map(|(i, _)| i), Some(at), "{key}");

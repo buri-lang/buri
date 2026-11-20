@@ -123,9 +123,11 @@ fn each_variant_takes_its_own_arm() {
 }
 
 /// A step's cost on the copy-and-patch backend, in instructions, over the
-/// loop in [`STEPS`]. Measured at 58 once the tag is read in place; it was 64
-/// with the tag stored to a slot and read back for each arm's test.
-const STEP_BOUND: u64 = 61;
+/// loop in [`STEPS`]. Measured at 52 once a payload's fields are read where
+/// they are and `i % 5` and the tag are each read once for all their tests;
+/// it was 58 with them read again for each test, and 64 with the tag stored
+/// to a slot and read back for each arm's test.
+const STEP_BOUND: u64 = 55;
 
 /// The match of `design/PERFORMANCE.md` §9's `match` program: a step builds
 /// one of five variants and a match tests it arm by arm, guards and all.
