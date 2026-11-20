@@ -293,6 +293,8 @@ fn lower_one(
                 sites: Sites::of(fplan, body),
                 node_values: HashMap::default(),
                 literals: Vec::new(),
+                unit_of,
+                unit: *unit_of.get(i),
                 #[cfg(debug_assertions)]
                 debug_name: &f.debug_name,
             };
@@ -890,6 +892,11 @@ struct FnLower<'a> {
     /// (VALUE-MODEL.md §3) and the rest own nothing, so [`FnLower::push`]
     /// drops a reference operation on one.
     literals: Vec<ValueId>,
+    /// Each function's codegen unit, and this function's. A unit's
+    /// fingerprint covers its own members' bodies and no other unit's, so a
+    /// lowering may read only those (`lists.rs`, [`FnLower::int_comparator`]).
+    unit_of: &'a Dense<FuncIdx, u32>,
+    unit: u32,
     /// The function being lowered, for the plan-order tripwire's message and
     /// for nothing else — which is why it is not carried at all in a build
     /// that has no tripwire in it.

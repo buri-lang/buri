@@ -389,6 +389,10 @@ mod collection_costs;
 // blocks moved between threads and actors, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod alloc_churn;
+// A sort whose comparator compares integers: its answers at every width and
+// order, and its instructions counted rather than timed, on every backend.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod sort_comparators;
 // Records and enums of several strings and lists, shared and released under
 // the heap check, and what retaining and releasing one field costs, on every
 // backend built in.

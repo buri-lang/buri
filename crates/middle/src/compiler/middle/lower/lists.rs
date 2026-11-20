@@ -63,7 +63,7 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::{pairs, rc};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind};
 use crate::compiler::semantics::types::{
-    FieldId, FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind, VariantId,
+    FieldId, FuncIdx, IntPrim, LocalId, Prim, Scalar, Ty, TyConId, TyKind, VariantId,
 };
 use crate::diagnostics::Invariant as _;
 
@@ -162,6 +162,10 @@ struct Order<'a> {
     order_t: Type,
     order: EnumTy,
     greater: ValueId,
+    /// Where the comparator is `compare` at an integer of its two arguments,
+    /// that integer, and whether it compares the second with the first:
+    /// [`FnLower::int_comparator`].
+    ints: Option<(Prim, bool)>,
 }
 
 /// One argument to a step: the value, its source type, and whether this loop
@@ -1142,6 +1146,7 @@ impl FnLower<'_> {
             order_t,
             order: self.enum_of(order_ty, TyConId::ORDER),
             greater,
+            ints: self.int_comparator(callee),
         };
         let counted = self.counts.counted(elem);
         let zero = self.int(Type::I64, 0);
@@ -1490,6 +1495,16 @@ impl FnLower<'_> {
     /// `order(x, y)`'s tag `op` `Greater`: [`BinOp::Eq`] asks whether `y` sorts
     /// strictly before `x`, and [`BinOp::Ne`] whether it doesn't.
     fn order(&mut self, order: &Order<'_>, op: BinOp, x: ValueId, y: ValueId) -> ValueId {
+        // `compare(x, y) == .Greater` is `x > y`, and `!=` is `x <= y`.
+        if let Some((prim, swapped)) = order.ints {
+            let (x, y) = if swapped { (y, x) } else { (x, y) };
+            let op = if op == BinOp::Eq {
+                BinOp::Gt
+            } else {
+                BinOp::Le
+            };
+            return self.bin(op, prim, x, y);
+        }
         let args = vec![
             Arg {
                 value: x,
@@ -1509,6 +1524,61 @@ impl FnLower<'_> {
             agg: o,
         });
         self.bin(op, Prim::I32, tag, order.greater)
+    }
+
+    /// The integer a comparator compares, where its whole body is `compare` at
+    /// an integer of its two parameters, `a.compare(b)` or `b.compare(a)`, and
+    /// whether it is the second. Then a sort's test of its answer is a test of
+    /// the two integers, and its loops call nothing: `sort` on `[Int]` hands
+    /// `sortBy` such a lambda. Only a comparator of this function's own unit,
+    /// whose fingerprint covers the body read here; not 128-bit integers, which
+    /// compare through the runtime.
+    fn int_comparator(&self, callee: &Via) -> Option<(Prim, bool)> {
+        let Via::Direct { func, .. } = callee else {
+            return None;
+        };
+        if *self.unit_of.get(*func) != self.unit {
+            return None;
+        }
+        let g = self.program.funcs.get(*func);
+        let FuncKind::Body(body) = &g.kind else {
+            return None;
+        };
+        let mut body: &Expr = body;
+        while let ExprKind::Block {
+            stmts,
+            tail: Some(tail),
+        } = &body.kind
+        {
+            if !stmts.is_empty() {
+                return None;
+            }
+            body = &**tail;
+        }
+        let ExprKind::CallFunc { func: c, args } = &body.kind else {
+            return None;
+        };
+        let FuncKind::Intrinsic(key) = &self.program.funcs.get(*c).kind else {
+            return None;
+        };
+        let (intrinsic_keys::Num::Int(int), "compare") = intrinsic_keys::number_key(key)? else {
+            return None;
+        };
+        if matches!(int, IntPrim::I128 | IntPrim::U128) {
+            return None;
+        }
+        let ([.., a, b], [x, y]) = (g.params.as_slice(), args.as_slice()) else {
+            return None;
+        };
+        let (ExprKind::Local(x), ExprKind::Local(y)) = (&x.kind, &y.kind) else {
+            return None;
+        };
+        let swapped = match (x == a && y == b, x == b && y == a) {
+            (true, _) => false,
+            (_, true) => true,
+            _ => return None,
+        };
+        Some((int.scalar().prim(), swapped))
     }
 
     /// `lhs op rhs`: a `Bool` for a comparison, and an `I64` otherwise.
