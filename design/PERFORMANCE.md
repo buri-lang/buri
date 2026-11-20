@@ -10794,6 +10794,29 @@ only when it is.
 replaces and drops `(0, Str)` elements under the heap check. The
 `run-dev/kvstore` row holds the count.
 
+### 6.167 A string compare reads its tail as one number, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              1.0114 B    1.0062 B    -0.52%
+kvstore, release              0.6544 B    0.6491 B    -0.80%
+maps, stencil                 1.4884 B    1.4871 B    -0.09%
+maps, release                 0.8992 B    0.8979 B    -0.14%
+```
+
+`str_compare` built a slice of each side, compared eight-byte words, and
+then loaded the tail through a second slice per length class. Now
+`prefix_order` works on the two pointers and the shorter length. It reads
+words while eight bytes are left, then reads the tail as one big-endian
+number: the last eight bytes, two four-byte reads, or three bytes. Those
+reads may repeat bytes or take in ones already found equal, which doesn't
+change the order.
+
+`native::strings::strings_order_by_their_bytes_at_every_length_and_start`
+compares every length under 20, first differing byte and start offset
+against Rust's byte order, on both backends. The `run-dev/kvstore` row holds
+the count.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

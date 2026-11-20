@@ -359,3 +359,89 @@ fn comparing_a_string_with_itself_costs_the_same_at_any_length() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+const ORDERS: &str = r#"
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn letters(): Str { "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-" }
+
+fn tag(s: Str, t: Str): Str {
+  match (s.compare(t)) { .Less => "<", .Equal => "=", .Greater => ">" }
+}
+
+fn other<C: Allocator>(ctx: C, o: Int, n: Int, d: Int, c: Str): Str {
+  if (d >= n) { letters().slice(o, o + n) } else {
+    letters().slice(o, o + d).concat(ctx, c).concat(ctx, letters().slice(o + d + 1, o + n))
+  }
+}
+
+fn row<C: Allocator>(ctx: C, o: Int, n: Int, k: Int, acc: Str): Str {
+  if (k == 1200) { acc } else {
+    let c = match (k % 3) { 0 => "0", 1 => "~", _ => "é" };
+    let b = other(ctx, o, k / 60, k / 3 % 20, c);
+    row(ctx, o, n, k + 1, acc.concat(ctx, tag(letters().slice(o, o + n), b)))
+  }
+}
+
+fn rows<C: Allocator + Stdout>(ctx: C, i: Int): Result<(), Str> {
+  if (i == 60) { .Ok(()) } else {
+    match (io.println(ctx, row(ctx, i / 20, i % 20, 0, ""))) {
+      .Ok(_) => rows(ctx, i + 1),
+      .Err(_e) => .Err("stdout"),
+    }
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  rows(context { Allocator: host.alloc, Stdout: host.stdout }, 0)
+}
+"#;
+
+/// What [`ORDERS`] prints: for each start `o` in 0..3 and length `n` in
+/// 0..20, one tag a pair, `n` letters from `o` against each length, first
+/// differing byte and replacement byte.
+fn orders() -> String {
+    let letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-";
+    let mut out = String::new();
+    for i in 0..60 {
+        let (o, n) = (i / 20, i % 20);
+        let a = &letters.as_bytes()[o..o + n];
+        for k in 0..1200 {
+            let (m, d, c) = (k / 60, k / 3 % 20, ["0", "~", "é"][k % 3]);
+            let mut b = letters.as_bytes()[o..o + m].to_vec();
+            if d < m {
+                b.splice(d..=d, c.bytes());
+            }
+            out.push(match a.cmp(&b[..]) {
+                std::cmp::Ordering::Less => '<',
+                std::cmp::Ordering::Equal => '=',
+                std::cmp::Ordering::Greater => '>',
+            });
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// **Strings order by their bytes at every length and start.** `compare`
+/// reads eight bytes at a time and then one word that ends at the shorter
+/// length, so each length under 20, each first differing byte, and starts
+/// off a word boundary are compared against the bytes' own order; `é`
+/// checks that a byte above 127 orders after ASCII.
+#[test]
+fn strings_order_by_their_bytes_at_every_length_and_start() {
+    let want = orders();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("string-orders", ORDERS);
+        let ran = ran_command(heap_checked(&mut std::process::Command::new(&binary)));
+        assert_eq!(ran.status, 0, "{backend}: {}", ran.stderr);
+        assert!(
+            ran.stdout == want,
+            "{backend}: orders differ\n{}",
+            ran.stdout
+        );
+    }
+}

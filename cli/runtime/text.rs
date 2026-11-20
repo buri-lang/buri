@@ -597,15 +597,16 @@ pub unsafe extern "C" fn buri_rt_str_compare(
     optr: *const u8,
     olen: u64,
 ) -> i32 {
-    // SAFETY: the caller promises both ranges.
-    let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
+    let la = (len & BURI_RT_STR_LEN_MASK) as usize;
+    let lb = (olen & BURI_RT_STR_LEN_MASK) as usize;
     // Two views of the same bytes are equal without reading them, as in
     // `buri_rt_str_equal`. An ordered map's lookup with the key it stored
     // asks this at every node that holds the key.
-    if a.as_ptr() == b.as_ptr() && a.len() == b.len() {
+    if ptr == optr && la == lb {
         return 1;
     }
-    match byte_order(a, b) {
+    // SAFETY: the caller promises both ranges, and the prefix is inside each.
+    match unsafe { prefix_order(ptr, optr, la.min(lb)) }.then(la.cmp(&lb)) {
         std::cmp::Ordering::Less => 0,
         std::cmp::Ordering::Equal => 1,
         std::cmp::Ordering::Greater => 2,
@@ -640,50 +641,49 @@ pub unsafe extern "C" fn buri_rt_str_equal(
 /// Here each eight bytes are one big-endian word, whose order is the bytes'
 /// order, and the few left over are one more.
 fn byte_order(a: &[u8], b: &[u8]) -> std::cmp::Ordering {
-    // Both sides have eight bytes from `at` only while the shorter one does.
+    let n = a.len().min(b.len());
+    // SAFETY: each slice covers the shorter one's length.
+    unsafe { prefix_order(a.as_ptr(), b.as_ptr(), n) }.then(a.len().cmp(&b.len()))
+}
+
+/// The order of the `n` bytes at `a` against the `n` at `b`, read as
+/// big-endian words, whose order is the bytes' order. Raw pointers rather
+/// than slices, because a slice's bounds checks were a third of a short
+/// comparison.
+///
+/// # Safety
+/// `a` and `b` each cover `n` readable bytes.
+unsafe fn prefix_order(a: *const u8, b: *const u8, n: usize) -> std::cmp::Ordering {
+    // SAFETY (all three): each caller below reads inside both ranges.
+    let word = |p: *const u8| u64::from_be(unsafe { p.cast::<u64>().read_unaligned() });
+    let quad = |p: *const u8| u64::from(u32::from_be(unsafe { p.cast::<u32>().read_unaligned() }));
+    let byte = |p: *const u8| u64::from(unsafe { *p });
     let mut at = 0;
-    while let (Some(x), Some(y)) = (a.get(at..at + 8), b.get(at..at + 8)) {
-        let (x, y) = (word(x), word(y));
+    while at + 8 <= n {
+        // SAFETY: the eight bytes from `at` are inside both ranges.
+        let (x, y) = unsafe { (word(a.add(at)), word(b.add(at))) };
         if x != y {
             return x.cmp(&y);
         }
         at += 8;
     }
-    let n = a.len().min(b.len());
-    if at < n {
-        let (x, y) = (last(a, n), last(b, n));
-        if x != y {
-            return x.cmp(&y);
+    if at == n {
+        return std::cmp::Ordering::Equal;
+    }
+    // The bytes left as one number each, whose order is theirs. It may repeat
+    // bytes, or take in bytes before the ones left, which the two sides have
+    // in common.
+    // SAFETY: `0 < n`, and every read is inside `[0, n)`.
+    let last = |s: *const u8| unsafe {
+        if n >= 8 {
+            word(s.add(n - 8))
+        } else if n >= 4 {
+            quad(s) << 32 | quad(s.add(n - 4))
+        } else {
+            byte(s) << 16 | byte(s.add(n / 2)) << 8 | byte(s.add(n - 1))
         }
-    }
-    a.len().cmp(&b.len())
-}
-
-/// The bytes of `s` before `n`, where fewer than eight are left to compare,
-/// as one number whose order is theirs.
-///
-/// The number may repeat bytes or take in bytes before the ones left, which
-/// the two sides have in common, so it orders as the bytes left do. Each read
-/// stays inside `s`.
-fn last(s: &[u8], n: usize) -> u64 {
-    let byte = |i: usize| s.get(i).map_or(0, |&b| u64::from(b));
-    let quad = |i: usize| {
-        s.get(i..i + 4)
-            .and_then(|q| q.try_into().ok())
-            .map_or(0, |q| u64::from(u32::from_be_bytes(q)))
     };
-    if n >= 8 {
-        s.get(n - 8..n).map_or(0, word)
-    } else if n >= 4 {
-        quad(0) << 32 | quad(n - 4)
-    } else {
-        byte(0) << 16 | byte(n / 2) << 8 | byte(n - 1)
-    }
-}
-
-/// Eight bytes as the big-endian word they spell.
-fn word(bytes: &[u8]) -> u64 {
-    bytes.try_into().map_or(0, u64::from_be_bytes)
+    last(a).cmp(&last(b))
 }
 
 /// `str.toInt(self) -> Option<Int>` — `$str_toInt`.
