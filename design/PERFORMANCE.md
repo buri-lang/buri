@@ -11265,6 +11265,22 @@ match        1059302316     1865847930      615666025      615666190       0.568
   read into a register once for all its tests, and a payload's fields are read
   where they are; match was 1.89 times `-O1`.
 
+This work may not make dev codegen dearer. The register reads above added
+about 120 cost per line to `ci`'s dev codegen row, though they ran fewer
+instructions. The rise was in last-level write misses (about 30,000 more), and
+they were spread over the paths where vectors grow, so the heap was laid out
+differently rather than any one function costing more. It was paid back in the
+stencil backend: a unit's first part is now the base the other parts are
+appended to, not copied into a new buffer, and most units are one part. On the
+arm64 VM, two runs each:
+
+| Row | Before | After |
+| --- | --- | --- |
+| `ci` cost | 61553.9, 61154.3 | 60958.4, 60989.7 |
+| `ci` instructions | 41419.6, 41422.4 | 41354.6, 41352.1 |
+| `monorepo-ci` cost | 23478.1, 23551.6 | 23487.7, 23483.6 |
+| `monorepo-ci` instructions | 17093.8, 17093.3 | 17059.6, 17063.3 |
+
 - It counts each program four ways: `buri build`, `--release` with
   `BURI_LLVM_OPT=0` and with `BURI_LLVM_OPT=1`, and plain `--release`, which is
   `-O2`. `BURI_LLVM_OPT` exists only for this.

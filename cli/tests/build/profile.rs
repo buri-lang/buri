@@ -400,6 +400,49 @@ fn a_release_build_builds_each_llvm_module_once() {
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "6\n");
 }
 
+/// `n` recursive functions, which nothing inlines, and a `main` printing the
+/// sum of each at one: `n * (n + 1) / 2`.
+fn many_recursive(n: usize) -> (String, String) {
+    let items: String = (0..n)
+        .map(|i| format!("fn f{i}(k: Int): Int {{\n    if (k <= 0) {{ {i} }} else {{ f{i}(k - 1) + 1 }}\n}}\n\n"))
+        .collect();
+    let calls: Vec<String> = (0..n).map(|i| format!("f{i}(1)")).collect();
+    let body = format!(
+        "    let _ = io.println(ctx, \"${{{}}}\").ignore();\n",
+        calls.join(" + ")
+    );
+    (items, body)
+}
+
+/// **A unit is joined from its parts without copying the first.** A debug
+/// build emits a unit's functions in parts of up to 512, and each part's code
+/// was copied into a buffer of the unit's: a second copy of every unit's code,
+/// which most units, being one part, never needed. Now a unit of one part is
+/// that part, so a small program copies no code to join its units, and a unit
+/// of more parts copies only the parts after its first. Both programs run.
+#[test]
+fn a_unit_is_joined_without_copying_its_first_part() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let copied = |n: usize| {
+        let (items, body) = many_recursive(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        let binary = scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()));
+        let ran = std::process::Command::new(binary).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&ran.stdout),
+            format!("{}\n", n * (n + 1) / 2)
+        );
+        work_count(&run.all(), "unit code bytes copied").unwrap()
+    };
+    assert_eq!(copied(3), 0.0, "one part a unit, and nothing copied");
+    assert!(copied(600) > 0.0, "a unit of two parts joins them");
+}
+
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 ///

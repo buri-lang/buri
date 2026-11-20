@@ -241,9 +241,12 @@ pub enum Work {
     FunctionsReadForErasure,
     /// Runtime keys monomorphization spelled for a function (`monomorphize.rs`).
     RuntimeKeysSpelled,
+    /// Bytes of code the stencil backend copied to join a unit's parts
+    /// (`stencil/mod.rs`).
+    UnitCodeBytesCopied,
 }
 
-const WORKS: usize = Work::RuntimeKeysSpelled as usize + 1;
+const WORKS: usize = Work::UnitCodeBytesCopied as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -281,6 +284,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "bodies walked for assertions",
     "functions read for erasure",
     "runtime keys spelled",
+    "unit code bytes copied",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

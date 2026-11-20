@@ -802,12 +802,23 @@ fn assemble_unit(
 
     // The parts, concatenated in part order: one code section, one constant
     // pool, and every offset either part-relative and moved or a relocation and
-    // left alone ([`region::Emitted::append`]).
-    let mut emitted = region::Emitted::default();
-    emitted.reserve_for(parts.iter().map(|p| &p.emitted));
-    let mut entries: Vec<u64> = Vec::with_capacity(members.len());
-    let mut helper_symbols: Vec<jit::HelperSymbol> = Vec::new();
+    // left alone ([`region::Emitted::append`]). The first part's offsets are
+    // already the unit's, so it is the base the others are appended to rather
+    // than a copy: most units are one part, and copying it was a second
+    // unit-sized buffer written for nothing.
+    let mut parts = parts.into_iter();
+    let (mut emitted, mut entries, mut helper_symbols) = match parts.next() {
+        Some(first) => (first.emitted, first.entries, first.helpers),
+        None => Default::default(),
+    };
+    let rest = parts.as_slice();
+    emitted.reserve_for(rest.iter().map(|p| &p.emitted));
+    entries.reserve(members.len().saturating_sub(entries.len()));
     for p in parts {
+        crate::profile::work(
+            crate::profile::Work::UnitCodeBytesCopied,
+            p.emitted.code.len(),
+        );
         let base = emitted.append(p.emitted);
         entries.extend(p.entries.iter().map(|e| e.saturating_add(base)));
         helper_symbols.extend(p.helpers.into_iter().map(|h| jit::HelperSymbol {
