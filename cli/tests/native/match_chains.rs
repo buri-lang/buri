@@ -189,3 +189,73 @@ fn a_literal_test_costs_a_compare() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A step's cost on the copy-and-patch backend, in instructions, over the
+/// loop in [`NESTED_STEPS`]: a record built by one of an `if`'s two branches
+/// inside a match arm, whose answer is the match's answer.
+/// Measured at 52 with the record built in the match's place, and 58 when
+/// the `if` built it aside and the match copied it.
+const NESTED_STEP_BOUND: u64 = 54;
+
+/// A step matches a `Pair` and builds a record in one of the two branches of
+/// an `if` inside the arm, so the `if`'s answer is passed straight on as the
+/// match's.
+const NESTED_STEPS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+enum Op { Pair(Int, Int), Skip }
+
+struct St { acc: Int, steps: Int, last: Int }
+
+fn op(i: Int): Op {
+  if (i == -1) { .Skip } else { .Pair(i % 7, i % 11) }
+}
+
+fn apply(s: St, o: Op): St {
+  match (o) {
+    .Pair(a, b) => if (a > b) {
+      St { ..s, acc: s.acc + a - b }
+    } else {
+      St { ..s, last: a * b, steps: s.steps + 1 }
+    },
+    .Skip => s,
+  }
+}
+
+fn run(s: St, i: Int, n: Int): St {
+  if (i == n) { s } else { run(apply(s, op(i)), i + 1, n) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let n = match (env.arguments(ctx).first().withDefault("none")) {
+    "steps" => 200000,
+    _ => 0,
+  };
+  let s = run(St { acc: 0, steps: 0, last: 0 }, 0, n);
+  io.println(ctx, "${s.acc * 1000000 + s.steps * 100 + s.last}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A record built inside a match arm is built where the match answers** on
+/// the copy-and-patch backend, rather than built aside and then copied there.
+#[test]
+fn a_record_built_inside_an_arm_is_not_copied_out() {
+    let steps = 200_000;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("nested-steps", NESTED_STEPS);
+        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "145464545416\n");
+        eprintln!("{backend}: {n:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > NESTED_STEP_BOUND) {
+            failures.push(format!(
+                "{backend}: {n:?} instructions a step, over {NESTED_STEP_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

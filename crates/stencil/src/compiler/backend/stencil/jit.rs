@@ -2356,7 +2356,7 @@ impl<'a> Jit<'a> {
         }
         let mut uf = code.per_value_from(&mut self.bufs.uf, |v| v);
         {
-            self.coalesce(code, order, &mut uf, &mut pin, &width, uses, opnd);
+            self.coalesce(code, order, &mut uf, &mut pin, uses, opnd);
         }
         self.pin_call_values(prog, code, &uf, &mut pin, frame.size, &width, uses, opnd);
         // One slot per class: the pinned offset when the class holds a
@@ -2794,6 +2794,12 @@ impl<'a> Jit<'a> {
     /// at the end of a predecessor, and each temporary a predecessor passes the
     /// latch afterwards is checked against the header's class, not the
     /// latch's.
+    ///
+    /// The same holds of any block whose parameter its `Jump` only passes on,
+    /// and of a parameter at any width: an `if` or a match inside an arm meets
+    /// at a join whose answer is passed straight to the outer match's join, and
+    /// a record either one answers is then built once, in the outer join's
+    /// slot.
     #[allow(
         clippy::too_many_arguments,
         reason = "the tables `slots` already built"
@@ -2804,7 +2810,6 @@ impl<'a> Jit<'a> {
         order: &[ir::BlockId],
         uf: &mut ir::PerValue<ir::ValueId>,
         pin: &mut ir::PerValue<Option<u32>>,
-        width: &ir::PerValue<u32>,
         uses: &ir::PerValue<u32>,
         opnd: &Operands,
     ) {
@@ -2865,7 +2870,7 @@ impl<'a> Jit<'a> {
                 // loop header is pinned, as the entry's parameters merge into
                 // it.
                 let entry_ok = pin.get(a).is_some() && *id == ir::BlockId::ENTRY;
-                let latch_ok = jumps && *width.get(a) == 8 && !*pinned.get(root) && !*grown.get(a);
+                let latch_ok = jumps && !*pinned.get(root) && !*grown.get(a);
                 if !entry_ok && (*def_block.get(a) != Some(*id) || (*is_param.get(a) && !latch_ok))
                 {
                     continue;
