@@ -16,6 +16,10 @@ struct P { x: Int, y: Int }
 
 struct W { p: P, q: P, n: Int }
 
+struct A { pad: Int, p: P }
+
+struct B { p: P, k: Int }
+
 fn step(s: St, i: Int): St {
   match (i % 7) {
     0 => St { ..s, acc: s.acc + i },
@@ -36,22 +40,41 @@ fn wide(w: W, i: Int, n: Int): W {
   if (i == n) { w } else { wide(W { p: w.q, q: w.p, n: w.n + i }, i + 1, n) }
 }
 
+fn tick(s: St, i: Int, n: Int): St {
+  if (i == n) { s } else { tick(St { acc: s.acc + i, steps: s.steps, last: s.last * 3 % 101 }, i + 1, n) }
+}
+
+fn mk(i: Int): A { A { pad: i, p: P { x: i + 1, y: i + 2 } } }
+
+fn conv(i: Int): B {
+  let a = mk(i);
+  B { p: a.p, k: a.pad }
+}
+
+fn walk(b: B, i: Int, n: Int): B {
+  if (i == n) { b } else { walk(B { p: conv(i).p, k: b.k + b.p.x }, i + 1, n) }
+}
+
 export fn main(host: NativeHost): Result<(), Str> {
   let s = run(St { acc: 1, steps: 2, last: 3 }, 0, 100);
   let w = wide(W { p: P { x: 1, y: 2 }, q: P { x: 3, y: 4 }, n: 0 }, 0, 7);
   let _ = io.println(host.stdout, "${s.acc} ${s.steps} ${s.last}").ignore();
   let _ = io.println(host.stdout, "${w.p.x} ${w.p.y} ${w.q.x} ${w.q.y} ${w.n}").ignore();
+  let t = tick(St { acc: 1, steps: 2, last: 3 }, 0, 10);
+  let b = walk(conv(0), 0, 5);
+  let _ = io.println(host.stdout, "${t.acc} ${t.steps} ${t.last} ${b.p.x} ${b.p.y} ${b.k}").ignore();
   .Ok(())
 }
 "#;
 
 /// **Each step sees the record the step before it built**: fields rotated,
 /// swapped, wide fields swapped, a field read after another took a new value,
-/// a new value computed from a field another new value replaces, and the
-/// record passed on unchanged.
+/// a new value computed from a field another new value replaces, the record
+/// passed on unchanged, a field kept between two new ones, and a record built
+/// from a field of another kind of record.
 #[test]
 fn each_step_reads_the_record_before_it() {
-    let expected = "17 4596 7029\n3 4 1 2 21\n";
+    let expected = "17 4596 7029\n3 4 1 2 21\n46 2 94 5 6 11\n";
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("loop-records", ANSWERS);
         let ran = ran_built(&binary, backend);

@@ -2612,7 +2612,10 @@ impl<'a> Jit<'a> {
                     }
                     // What touched the class since may be reads of the
                     // struct's other fields, which leave this one's bytes
-                    // alone until the struct is built.
+                    // alone until the struct is built. A class holds values
+                    // of one type, since `coalesce` merges only an argument
+                    // into its parameter, so a `GetField` that touches it
+                    // reads one of this struct's own fields.
                     if before.is_some_and(|t| t > k) {
                         let (lo, hi) = (off.bytes(), off.bytes() + w);
                         let apart = |x: usize| {
@@ -2620,19 +2623,9 @@ impl<'a> Jit<'a> {
                             let ins = opnd.inst(bid, x).iter().any(&in_class)
                                 || i.is_some_and(|i| i.results().iter().any(&in_class));
                             let other = |i: &ir::Inst| match i {
-                                ir::Inst::GetField {
-                                    dest: r,
-                                    agg,
-                                    ty: rt,
-                                    field,
-                                } => {
+                                ir::Inst::GetField { dest: r, field, .. } => {
                                     let o = offs.get(field.index()).map_or(0, |a| a.bytes());
-                                    let rw = *width.get(*r);
-                                    variant.is_none()
-                                        && rt.id() == id
-                                        && in_class(agg)
-                                        && !in_class(r)
-                                        && (o + rw <= lo || hi <= o)
+                                    o + *width.get(*r) <= lo || hi <= o
                                 }
                                 _ => false,
                             };
@@ -2806,7 +2799,17 @@ impl<'a> Jit<'a> {
                     // an earlier field's, and a field stored where it already
                     // is stores nothing.
                     let first = seen > 0
-                        && self.reads_first(prog, code, slot, b.insts.get(last), *dest, src, w);
+                        && self.reads_first(
+                            prog,
+                            code,
+                            uf,
+                            slot,
+                            b.insts.get(last),
+                            *dest,
+                            *agg,
+                            src,
+                            w,
+                        );
                     let writes = |k: usize| writes(k) && !(k == last && first);
                     seen == *uses.get(*dest) && seen > 0 && !(j + 1..=last).any(writes)
                 };
@@ -2824,11 +2827,12 @@ impl<'a> Jit<'a> {
         self.bufs.aliased = held_parts;
     }
 
-    /// Whether `make` reads `read`, `w` bytes at `src`, before it writes
-    /// there. An arithmetic stencil reads its operands before it writes its
-    /// one word of answer, so an answer stored over the word it reads is.
-    /// A `MakeStruct` stores its fields in order, and a store of a field to
-    /// where it already is writes nothing.
+    /// Whether `make` reads `read`, a field of `agg` read where it is (`w`
+    /// bytes at `src`), before it writes there. An arithmetic stencil reads its operands before it
+    /// writes its one word of answer, so an answer stored over the word it
+    /// reads is. A `MakeStruct` of `agg`'s own class stores its fields in
+    /// order over `agg`'s, and a store of a field to where it already is
+    /// writes nothing.
     #[allow(
         clippy::too_many_arguments,
         reason = "one question about one store order"
@@ -2837,14 +2841,18 @@ impl<'a> Jit<'a> {
         &mut self,
         prog: &ir::Program,
         code: &ir::Code,
+        uf: &ir::PerValue<ir::ValueId>,
         slot: &ir::PerValue<u32>,
         make: Option<&ir::Inst>,
         read: ir::ValueId,
+        agg: ir::ValueId,
         src: u32,
         w: u32,
     ) -> bool {
         let (dest, ty, fields) = match make {
-            Some(ir::Inst::MakeStruct { dest, ty, fields }) => (dest, ty, fields),
+            Some(ir::Inst::MakeStruct { dest, ty, fields }) if find(uf, *dest) == find(uf, agg) => {
+                (dest, ty, fields)
+            }
             Some(ir::Inst::Binary { dest, .. } | ir::Inst::Unary { dest, .. }) => {
                 return w == 8
                     && *slot.get(*dest) == src
@@ -2852,20 +2860,19 @@ impl<'a> Jit<'a> {
             }
             _ => return false,
         };
+        // One class is one type and one slot, so `read` is at its own
+        // field's place in the struct, which no other field's overlaps.
         let base = *slot.get(*dest);
         let l = self.layout_of(prog, ty.id());
         let mut clobbered = false;
         for (f, at) in fields.iter().zip(l.fields.iter()) {
             let to = base + at.bytes();
-            let fw = self.width(prog, code.ty_of(*f));
-            let over = to < src + w && src < to + fw;
             if *f == read {
-                // Its own store reads before it writes, so it may land on
-                // the bytes it reads only exactly.
-                if clobbered || (over && to != src) {
+                // Its own store reads it before writing.
+                if clobbered {
                     return false;
                 }
-            } else if over && *slot.get(*f) != to {
+            } else if to < src + w && src < to + self.width(prog, code.ty_of(*f)) {
                 clobbered = true;
             }
         }
