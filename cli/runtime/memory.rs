@@ -1435,6 +1435,14 @@ mod heap_offset {
     /// Two threads disagreed, so [`OFFSET`] stays zero.
     static BROKEN: AtomicBool = AtomicBool::new(false);
 
+    /// [`OFFSET`] while [`GATE`](super::GATE) lets an allocation take the
+    /// cache, and zero otherwise.
+    static ALLOC: AtomicUsize = AtomicUsize::new(0);
+
+    /// [`OFFSET`] while [`GATE`](super::GATE) lets a free take the cache, and
+    /// zero otherwise.
+    static FREE: AtomicUsize = AtomicUsize::new(0);
+
     /// This thread's thread pointer.
     #[cfg(target_arch = "aarch64")]
     #[inline(always)]
@@ -1471,7 +1479,25 @@ mod heap_offset {
     /// This thread's heap, or null.
     #[inline(always)]
     pub(super) fn get() -> *const ThreadHeap {
-        let offset = OFFSET.load(Ordering::Relaxed);
+        at(&OFFSET)
+    }
+
+    /// This thread's heap for [`alloc_cached`](super::alloc_cached), or null.
+    #[inline(always)]
+    pub(super) fn alloc() -> *const ThreadHeap {
+        at(&ALLOC)
+    }
+
+    /// This thread's heap for [`buri_rt_free`](super::buri_rt_free), or null.
+    #[inline(always)]
+    pub(super) fn free() -> *const ThreadHeap {
+        at(&FREE)
+    }
+
+    /// The thread pointer plus `word`, or null while `word` is zero.
+    #[inline(always)]
+    fn at(word: &AtomicUsize) -> *const ThreadHeap {
+        let offset = word.load(Ordering::Relaxed);
         if offset == 0 {
             return std::ptr::null();
         }
@@ -1487,13 +1513,30 @@ mod heap_offset {
         if BROKEN.load(Ordering::Relaxed) {
             return;
         }
-        // A latch every allocation reads with a plain load.
-        super::valgrind::atomic(&OFFSET);
-        if let Err(known) = OFFSET.compare_exchange(0, offset, Ordering::Relaxed, Ordering::Relaxed)
-            && known != offset
-        {
-            BROKEN.store(true, Ordering::Relaxed);
-            OFFSET.store(0, Ordering::Relaxed);
+        super::relatch(|| {
+            // A latch every allocation reads with a plain load.
+            super::valgrind::atomic(&OFFSET);
+            if let Err(known) =
+                OFFSET.compare_exchange(0, offset, Ordering::Relaxed, Ordering::Relaxed)
+                && known != offset
+            {
+                BROKEN.store(true, Ordering::Relaxed);
+                OFFSET.store(0, Ordering::Relaxed);
+            }
+        });
+    }
+
+    /// Recompute [`ALLOC`] and [`FREE`] from [`OFFSET`] and the gate. Only
+    /// [`relatch`](super::relatch) calls it, under its lock.
+    pub(super) fn refresh() {
+        let offset = OFFSET.load(Ordering::Relaxed);
+        for (word, bits) in [(&ALLOC, super::ALLOC_GATE), (&FREE, super::FREE_GATE)] {
+            // Latches every allocation and free read with a plain load.
+            super::valgrind::atomic(word);
+            word.store(
+                if super::gated(bits) { 0 } else { offset },
+                Ordering::Relaxed,
+            );
         }
     }
 }
@@ -1528,7 +1571,16 @@ mod heap_slot {
 /// answered.
 #[inline(always)]
 fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
-    let t = if gated(GATE_HEAP_CHECK | GATE_SCOPES) {
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
+    let t = heap_offset::alloc();
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )))]
+    let t = if gated(ALLOC_GATE) {
         std::ptr::null()
     } else {
         heap_fast()
@@ -1603,8 +1655,7 @@ unsafe fn headed(p: *mut u8, payload: u64) -> *mut u8 {
 /// # Safety
 /// As [`buri_rt_free`], and `p` is not null.
 #[inline(always)]
-unsafe fn free_cached(p: *mut u8) {
-    let t = heap_fast();
+unsafe fn free_cached(p: *mut u8, t: *const ThreadHeap) {
     if t.is_null() {
         // SAFETY: forwarded.
         return unsafe { free_uncached(p) };
@@ -2238,18 +2289,34 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     }
     // A shipped program's gate is clear, and it gets a copy of the body with
     // every check folded away: no quarantine test, no trace, no index lookup,
-    // and none of their registers saved on the way in.
-    if gated(GATE_HEAP_CHECK | GATE_INDEXED) {
+    // and none of their registers saved on the way in. On Linux the gate is
+    // folded into the heap's own offset, which reads zero while a bit is set.
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
+    let t = heap_offset::free();
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )))]
+    let t = if gated(FREE_GATE) {
+        std::ptr::null()
+    } else {
+        heap_fast()
+    };
+    if t.is_null() {
         // SAFETY: forwarded.
         unsafe { free_gated(p) }
     } else {
         // SAFETY: forwarded.
-        unsafe { free_cached(p) }
+        unsafe { free_cached(p, t) }
     }
 }
 
 /// [`buri_rt_free`] with a bit of [`GATE`] set: the heap check is on or
-/// undecided, or some block may have a scalar index to forget.
+/// undecided, or some block may have a scalar index to forget. Also where a
+/// free goes while this thread's heap can't be found without a call.
 ///
 /// # Safety
 /// As [`buri_rt_free`], and `p` is not null.
@@ -2264,7 +2331,7 @@ unsafe fn free_gated(p: *mut u8) {
         return unsafe { free_uncached(p) };
     }
     // SAFETY: forwarded.
-    unsafe { free_cached(p) }
+    unsafe { free_cached(p, heap_fast()) }
 }
 
 /// Run `drop_glue` on a block that has died, then [`buri_rt_free`] it: the
@@ -2847,6 +2914,11 @@ const GATE_SCOPES: u8 = 2;
 /// [`GATE`]'s bit for a process that has built a scalar index.
 pub(crate) const GATE_INDEXED: u8 = 4;
 
+/// The bits that send an allocation the long way round.
+const ALLOC_GATE: u8 = GATE_HEAP_CHECK | GATE_SCOPES;
+/// The bits that send a free the long way round.
+const FREE_GATE: u8 = GATE_HEAP_CHECK | GATE_INDEXED;
+
 /// Whether any of `bits` is set in [`GATE`].
 #[inline(always)]
 fn gated(bits: u8) -> bool {
@@ -2855,9 +2927,34 @@ fn gated(bits: u8) -> bool {
 
 /// Set `bit` in [`GATE`], for good.
 pub(crate) fn gate(bit: u8) {
-    // A latch every allocation reads with a plain load.
-    valgrind::atomic(&GATE);
-    GATE.fetch_or(bit, Ordering::Relaxed);
+    relatch(|| {
+        // A latch every allocation reads with a plain load.
+        valgrind::atomic(&GATE);
+        GATE.fetch_or(bit, Ordering::Relaxed);
+    });
+}
+
+/// Run `change`, a write to [`GATE`] or to the heap's offset, then bring the
+/// fast paths' words up to date.
+///
+/// **On Linux the gate costs the fast paths nothing.** `heap_offset` keeps a
+/// copy of the offset for allocations and one for frees, each zero while a bit
+/// that path must not pass is set, so the one load that finds the heap also
+/// asks the gate. Every change goes through one lock, so a copy is never
+/// worked out from a gate or an offset that another change has already
+/// replaced. Elsewhere the gate is still its own load.
+fn relatch(change: impl FnOnce()) {
+    static LOCK: Mutex<()> = Mutex::new(());
+    let _held = match LOCK.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    change();
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
+    heap_offset::refresh();
 }
 
 /// [`heap_check`]'s cached answer: `0` until it is decided, then one more than
@@ -2880,8 +2977,10 @@ fn heap_check_decided() -> HeapCheck {
     valgrind::atomic(&HEAP_MODE);
     HEAP_MODE.store(byte, Ordering::Relaxed);
     if mode == HeapCheck::Off {
-        valgrind::atomic(&GATE);
-        GATE.fetch_and(!GATE_HEAP_CHECK, Ordering::Relaxed);
+        relatch(|| {
+            valgrind::atomic(&GATE);
+            GATE.fetch_and(!GATE_HEAP_CHECK, Ordering::Relaxed);
+        });
     }
     mode
 }

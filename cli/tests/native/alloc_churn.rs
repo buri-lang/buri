@@ -273,3 +273,91 @@ fn the_heap_counts_are_the_same_whether_a_block_comes_from_the_cache_or_not() {
         );
     }
 }
+
+/// Small blocks made and dropped, then long non-ASCII strings of one length
+/// sliced, each dropped before the next is made, then a scope opened, with
+/// more churn after each. The slices build scalar indexes, and those and the
+/// scope each turn on something every later free or allocation has to ask
+/// about. The strings take turns between two layouts with their `é`s in
+/// different places. `main` prints the churn sums and each string's 201st
+/// scalar.
+const LATCHES: &str = r#"
+from "core/alloc" import * as alloc;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn churn<C: Allocator>(ctx: C, i: Int, n: Int, acc: Int): Int {
+  if (i >= n) {
+    acc
+  } else {
+    let xs = list.range(ctx, 0, i % 9);
+    churn(ctx, i + 1, n, acc + xs.length() + str.fromInt(ctx, i).length())
+  }
+}
+
+fn picks<C: Allocator>(ctx: C, k: Int, n: Int, acc: Str): Str {
+  if (k >= n) {
+    acc
+  } else {
+    let s = if (k % 2 == 0) {
+      str.format(ctx, "${"é".repeat(ctx, 150)}${"b".repeat(ctx, 150)}")
+    } else {
+      str.format(ctx, "${"a".repeat(ctx, 300)}${"é".repeat(ctx, 75)}")
+    };
+    picks(ctx, k + 1, n, acc.concat(ctx, s.slice(200, 201)))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let before = churn(ctx, 0, 5000, 0);
+  let picked = picks(ctx, 0, 300, "");
+  let indexed = churn(ctx, 0, 5000, 0);
+  let scoped = alloc.scoped(ctx, fn(s) => churn(s, 0, 5000, 0) + "z".repeat(s, 50).length());
+  let after = churn(ctx, 0, 5000, 0);
+  io.println(ctx, "${before} ${picked} ${indexed} ${scoped} ${after}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **Turning on a scalar index or a scope partway through sends every later
+/// block the right way.** On Linux the cache's fast paths find the thread's
+/// heap and ask the gate in one load, so each change to the gate has to reach
+/// that word too. A free that missed it would keep a string's index for the
+/// next string given the same block, and slice that one wrong. An allocation
+/// that missed it would hand a scope a cached block. The counts must match
+/// the heap check's, which never uses the cache, with nothing live at exit.
+#[test]
+fn blocks_go_the_right_way_after_an_index_or_a_scope_turns_on_partway() {
+    let probe = counts_probe();
+    let picked = "ba".repeat(150);
+    let want = format!("38880 {picked} 38880 38930 38880\n");
+    for (backend, build) in crate::e2e::probed_builds(&probe) {
+        let binary = build("alloc-latches", LATCHES);
+        let counts = |checked: bool| {
+            let mut cmd = std::process::Command::new(&binary);
+            if checked {
+                heap_checked(&mut cmd);
+            }
+            let r = ran_command(&mut cmd);
+            assert_eq!(r.status, 0, "{backend} checked={checked}: {}", r.stderr);
+            assert_eq!(r.stdout, want, "{backend} checked={checked}");
+            r.stderr
+                .lines()
+                .find_map(|l| l.strip_prefix("counts="))
+                .unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr))
+                .to_string()
+        };
+        let (shipped, checked) = (counts(false), counts(true));
+        assert_eq!(
+            shipped, checked,
+            "{backend}: total blocks, bytes, live blocks, bytes"
+        );
+        assert!(
+            shipped.ends_with(" 0 0"),
+            "{backend}: {shipped} still live at exit"
+        );
+    }
+}
