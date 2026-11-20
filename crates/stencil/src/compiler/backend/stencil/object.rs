@@ -614,7 +614,7 @@ fn group_relocs(
         // low-12 kind is not pc-relative but has no more room in its immediate
         // than an `adrp` does — and only `Abs64` carries it in the bytes.
         if r.kind != RelKind::Abs64 && r.addend != 0 {
-            if r.addend < 0 || r.addend > MAX_ADDEND {
+            if !(0..=MAX_ADDEND).contains(&r.addend) {
                 return Err(format!(
                     "a relocation in {} has addend {}; ARM64_RELOC_ADDEND \
                      carries an unsigned 24-bit value and nothing wider",
