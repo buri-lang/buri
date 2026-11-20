@@ -66,6 +66,8 @@
 ///  * `parse(html)`, which lays out a document a server sent as a browser
 ///    parses it, running its inline scripts;
 ///  * `moves`, every move the address bar made, in order;
+///  * Back and Forward scrolling the window to where it was when the reader
+///    left that entry, which happy-dom leaves out;
 ///  * an input's value sanitized as Chromium does it, where happy-dom
 ///    sanitizes in part: a slider on its track and its step, a number field
 ///    empty unless it holds a number, a line field without line breaks and an
@@ -827,6 +829,29 @@ for (const [method, word] of [["pushState", "pushed"], ["replaceState", "replace
   history[method] = (state, title, url) => {
     move(state, title, url);
     moves.push(`${word} ${url}`);
+  };
+}
+
+// Scroll restoration, which happy-dom leaves out: each history entry keeps
+// where the window was scrolled when the reader left it, and going back or
+// forward to it scrolls there once `popstate` has run.
+const scrolled = [null];
+let entry = 0;
+const pushState = history.pushState.bind(history);
+history.pushState = (state, title, url) => {
+  scrolled[entry] = [scrollX, scrollY];
+  pushState(state, title, url);
+  scrolled.splice(++entry, Infinity, null);
+};
+for (const [method, steps] of [["back", () => -1], ["forward", () => 1], ["go", (delta) => delta]]) {
+  const traverse = history[method].bind(history);
+  history[method] = (delta) => {
+    const to = entry + steps(delta);
+    if (to === entry || scrolled[to] === undefined) return traverse(delta);
+    scrolled[entry] = [scrollX, scrollY];
+    entry = to;
+    traverse(delta);
+    if (history.scrollRestoration === "auto" && scrolled[to] !== null) scrollTo(...scrolled[to]);
   };
 }
 "##;

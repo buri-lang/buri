@@ -65,8 +65,8 @@
 //! The document half is JavaScript's. A native artifact has nothing to render
 //! into, so a native build that reaches `render`, `shell`, `resume`, `state` or
 //! `title` stops at code generation naming the operation. `path`, `route`,
-//! `navigate`, `replace` and `routeLink` are ordinary Buri over the graph, and
-//! run wherever a `Location` does.
+//! `navigate`, `replace`, `back`, `scrollTo` and `routeLink` are ordinary Buri
+//! over the graph, and run wherever a `Location` does.
 
 from "core/json" import * as json;
 from "core/json" import { Json };
@@ -327,6 +327,9 @@ export fn route<C: Location>(ctx: C): Prop<Str> {
 /// The entry goes on the history first and the cell after it, so anything the
 /// write wakes reads an address bar that already agrees with it.
 ///
+/// The new page opens at its top, as a document a link loads does. Back and
+/// Forward return to where the reader had scrolled.
+///
 /// `path` is an address on this site, as `/guide/routing`. Nothing here reaches
 /// another origin: that is a link, and a reader deserves to see where one goes.
 export fn navigate<C: Location + Ui>(ctx: C, path: Str): () {
@@ -372,6 +375,32 @@ export fn replace<C: Location + Ui>(ctx: C, path: Str): () {
 /// browser's button would.
 export fn back<C: Location>(ctx: C): () {
     ctx.back()
+}
+
+/// Scrolls the window to `x` and `y` CSS pixels from the page's top left
+/// corner, at once.
+///
+/// `navigate` already opens each page at its top. This is for the rest, such as
+/// a "Back to top" button:
+///
+/// ```buri role=std
+/// # from "platform/effect" import { Location, Ui };
+/// # from "ui/node" import * as ui;
+/// # from "ui/node" import { Node };
+/// # from "ui/web" import * as web;
+///
+/// export fn toTop<C: Location + Ui>(): Node<C> {
+///     ui.button({
+///         label: .Const("Back to top"),
+///         styles: [],
+///         onPress: .Some(fn(c) => web.scrollTo(c, 0.0, 0.0)),
+///     })
+/// }
+/// ```
+///
+/// A headless `Location` has no window, so there it does nothing.
+export fn scrollTo<C: Location>(ctx: C, x: Float, y: Float): () {
+    ctx.scrollTo(x, y)
 }
 
 /// A link that navigates without loading a document.

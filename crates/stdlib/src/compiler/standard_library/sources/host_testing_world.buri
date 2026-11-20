@@ -1398,7 +1398,8 @@ export fn observer(): Observer;
 /// entry behind it back and writes the cell, as a browser's `popstate` does.
 /// So a test checks a Back button by where it lands: a second `back` goes
 /// further back, which it wouldn't if the first had pushed. With nothing
-/// behind, `back` does nothing.
+/// behind, `back` does nothing. There is no window, so `scrollTo` does nothing
+/// either.
 export struct Address {
     cell: Int,
     behind: Int,
@@ -1432,6 +1433,8 @@ impl Location for Address {
             .None => (),
         }
     }
+
+    fn scrollTo(self, x: Float, y: Float): () {}
 }
 
 /// A headless `Location` starting at `at`, over `ctx`'s graph.

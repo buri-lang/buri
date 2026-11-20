@@ -155,9 +155,18 @@ function hasHistory() {
   return typeof history !== "undefined" && history !== null;
 }
 
+// The window scrolled to `x` and `y`, instantly whatever the page's
+// `scroll-behavior` says.
+function scroll(x, y) {
+  if (typeof scrollTo === "function") scrollTo({ left: x, top: y, behavior: "instant" });
+}
+
 // `ui/web`'s `navigate` and `replace` call `push` or `replace` and then write
 // the signal themselves, so the graph and the address bar move together
 // however the address was reached. `back` leaves the write to `popstate`.
+//
+// `push` opens the new entry at the top, as a document load does. The browser
+// keeps the scroll of the entry left, and Back and Forward restore it.
 const HostLocation = {
   path: (self) => {
     if (address === undefined) {
@@ -170,6 +179,7 @@ const HostLocation = {
   },
   push: (self, path) => {
     if (hasHistory()) history.pushState({}, "", path);
+    scroll(0, 0);
   },
   replace: (self, path) => {
     if (hasHistory()) history.replaceState({}, "", path);
@@ -177,6 +187,7 @@ const HostLocation = {
   back: (self) => {
     if (hasHistory()) history.back();
   },
+  scrollTo: (self, x, y) => scroll(x, y),
 };
 
 // `IndexedDb`, the store behind `HostStorage`: one object store, `values`, in

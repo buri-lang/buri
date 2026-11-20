@@ -166,3 +166,16 @@ test "what read the route re-runs when the page goes back" {
     web.back(ctx);
     assert.equal(log.recorded(), ["home", "about", "home"]);
 }
+
+// buri-lang/buri#362. A headless address has no window, so `scrollTo` does
+// nothing there, and a page that scrolls is still one a test can drive.
+test "scrollTo leaves a headless address where it is" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+        Location: address(headless(), "/"),
+    };
+    web.navigate(ctx, "/long");
+    web.scrollTo(ctx, 0.0, 400.0);
+    assert.equal(web.path(ctx), "/long");
+}

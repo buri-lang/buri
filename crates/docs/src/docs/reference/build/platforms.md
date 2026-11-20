@@ -134,8 +134,13 @@ import { signal, write } from "buri:ui";
 let address;
 export const HostLocation = {
   path: (self) => (address ??= signal(location.pathname)),
-  push: (self, path) => history.pushState({}, "", path),
+  push: (self, path) => {
+    history.pushState({}, "", path);
+    scrollTo({ left: 0, top: 0, behavior: "instant" });
+  },
   replace: (self, path) => history.replaceState({}, "", path),
+  back: (self) => history.back(),
+  scrollTo: (self, x, y) => scrollTo({ left: x, top: y, behavior: "instant" }),
 };
 await main();
 ```

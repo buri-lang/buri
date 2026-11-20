@@ -3929,6 +3929,117 @@ console.log(moves.join("\n"));
     assert_eq!(printed, "/next /next\n/ /\n2\npushed /next\n");
 }
 
+/// A page taller than the window, with a route link and a button that
+/// navigate, and a button that scrolls the window (buri-lang/buri#362).
+const SCROLL_PAGE: &str = r#"from "platform/effect" import { Allocator, Location, Ui };
+from "ui/node" import * as ui;
+from "ui/web" import * as web;
+from "web" import { WebHost };
+
+export fn main(host: WebHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Ui: host.ui,
+        Location: host.location,
+    };
+    ui.mount(
+        ctx,
+        ui.stack({
+            styles: [.Layout(.Column)],
+            children: [
+                ui.text({ content: web.route(ctx) }),
+                ui.stack({ styles: [.Height(.Px(5000))], children: [] }),
+                web.routeLink({
+                    dest: .Const("/next"),
+                    styles: [],
+                    children: [ui.text({ content: .Const("Next") })],
+                }),
+                ui.button({
+                    label: .Const("Later"),
+                    styles: [],
+                    onPress: .Some(fn(c) => web.navigate(c, "/later")),
+                }),
+                ui.button({
+                    label: .Const("Somewhere"),
+                    styles: [],
+                    onPress: .Some(fn(c) => web.scrollTo(c, 20.0, 300.0)),
+                }),
+            ],
+        }),
+        [],
+    )
+}
+"#;
+
+/// The prelude of a driver for [`SCROLL_PAGE`]: `settle()` and `at()`, the
+/// path and how far the window is scrolled.
+const SCROLL_DRIVER: &str = r#"
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((done) => setTimeout(done, 0));
+};
+const at = () => `${location.pathname} ${scrollX} ${scrollY}`;
+"#;
+
+#[test]
+fn a_navigation_opens_the_new_page_at_its_top() {
+    let printed = drive(
+        "scroll-navigate",
+        SCROLL_PAGE,
+        &format!(
+            "{SCROLL_DRIVER}
+scrollTo(30, 800);
+document.querySelector(\"a\").click();
+await settle();
+console.log(at());
+scrollTo(30, 800);
+labelled(\"Later\").click();
+await settle();
+console.log(at());
+"
+        ),
+    );
+    assert_eq!(printed, "/next 0 0\n/later 0 0\n");
+}
+
+#[test]
+fn scroll_to_moves_the_window_where_the_page_asks() {
+    let printed = drive(
+        "scroll-to",
+        SCROLL_PAGE,
+        &format!(
+            "{SCROLL_DRIVER}
+labelled(\"Somewhere\").click();
+await settle();
+console.log(at());
+"
+        ),
+    );
+    assert_eq!(printed, "/ 20 300\n");
+}
+
+#[test]
+fn back_and_forward_return_to_where_the_reader_had_scrolled() {
+    let printed = drive(
+        "scroll-back",
+        SCROLL_PAGE,
+        &format!(
+            "{SCROLL_DRIVER}
+scrollTo(0, 800);
+document.querySelector(\"a\").click();
+await settle();
+scrollTo(0, 150);
+history.back();
+await settle();
+console.log(at());
+history.forward();
+await settle();
+console.log(at());
+"
+        ),
+    );
+    assert_eq!(printed, "/ 0 800\n/next 0 150\n");
+}
+
 /// Each style value twice, each in a stack named for it: once written where
 /// the node is given it, and once arriving through a parameter, a local, a
 /// function's result or a conditional.

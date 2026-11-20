@@ -343,6 +343,28 @@ only send the reader forward again.
 Both need `Location` **and** `Ui`: one to move the address bar, one to write the
 signal. Reach another site with a `ui.link`, so the reader sees where it goes.
 
+`navigate` opens the new page at its top, as a document load does. Back and
+Forward return to where the reader had scrolled. To scroll anywhere else, call
+`web.scrollTo(ctx, x, y)` with CSS pixels from the page's top left corner:
+
+```buri
+# from "platform/effect" import { Location, Ui };
+# from "ui/node" import * as ui;
+# from "ui/node" import { Node };
+# from "ui/web" import * as web;
+
+fn toTop<C: Location + Ui>(): Node<C> {
+    ui.button({
+        label: .Const("Back to top"),
+        styles: [],
+        onPress: .Some(fn(c) => web.scrollTo(c, 0.0, 0.0)),
+    })
+}
+```
+
+It scrolls the window at once rather than smoothly. In a test, `address` has no
+window, so `scrollTo` does nothing there.
+
 `web.back(ctx)` is the reader's Back button, pressed by the page:
 
 ```buri

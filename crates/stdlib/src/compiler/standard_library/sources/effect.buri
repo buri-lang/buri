@@ -1254,11 +1254,16 @@ export struct Event(Int);
 /// `back` is the third move, and the one the page doesn't make itself: the
 /// browser goes back an entry and fires `popstate`, which writes the signal.
 /// `ui/web`'s `back` is its door.
+///
+/// `scrollTo` is where on the page the reader is, which a history entry keeps
+/// beside its address: `push` opens the new entry at the top, and going back
+/// or forward returns to where the reader had scrolled, as a browser does.
 export effect Location {
     /// The cell holding the path of the page's address, as `/guide/routing`.
     /// The runtime writes it when the reader navigates.
     fn path(self): Int;
     /// A new history entry at `path`, which the reader can press Back out of.
+    /// The window scrolls to the top, as it does when a document loads.
     fn push(self, path: Str): ();
     /// `path` in place of the entry the reader is on, which Back does not
     /// return to. What a redirect wants.
@@ -1270,4 +1275,7 @@ export effect Location {
     /// a tab that came from another site it leaves for that site, as the
     /// button would.
     fn back(self): ();
+    /// Scrolls the window to `x` and `y` CSS pixels from the page's top left
+    /// corner, at once rather than smoothly.
+    fn scrollTo(self, x: Float, y: Float): ();
 }

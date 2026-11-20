@@ -406,6 +406,8 @@ Every element node carries eight more handlers, each an omittable `onX`:
 focus, scrolling, a keypress, a press that landed elsewhere, or a drag, without
 any of them being a required parameter. There is no
 generic `onTap`: activating something is a `button`'s or a `link`'s job.
+`onScroll` reads how far a box has scrolled; a page scrolls the window with
+`ui/web`'s [`scrollTo`](websites.md#the-page-navigates-itself).
 
 **A form ends in a `.Submit` button.** Enter in a field is the browser's own
 dispatch, and the browser's own rule comes with it: a form is submitted

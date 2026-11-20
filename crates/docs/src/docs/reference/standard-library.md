@@ -1318,7 +1318,10 @@ need `Location` and `Ui`, one for the address bar and one for the signal.
 `web.back(ctx)` goes back one entry, as the browser's Back button does, so an
 in-page Back button adds no entry. It needs only `Location`: the browser writes
 the signal when it gets there. `platform/effect/testing`'s `address` keeps a
-history too, so a test checks where `back` lands.
+history too, so a test checks where `back` lands. `navigate` opens the new page
+at its top, and Back and Forward return to where the reader had scrolled.
+`web.scrollTo(ctx, x, y)` scrolls the window anywhere else, at once; it needs
+only `Location`, and does nothing under `address`.
 
 `web.routeLink({ dest, styles, children, isCurrent, onFollow })` is that
 navigation as a link: it takes `ui.link`'s config and fills an `onFollow` left

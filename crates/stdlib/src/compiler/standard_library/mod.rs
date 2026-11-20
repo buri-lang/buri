@@ -1067,6 +1067,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Location", "back", "ui/web", "web.back(ctx)"),
     w("Location", "push", "ui/web", "web.navigate(ctx, path)"),
     w("Location", "replace", "ui/web", "web.replace(ctx, path)"),
+    w("Location", "scrollTo", "ui/web", "web.scrollTo(ctx, x, y)"),
     // `web`'s own store.
     w("Storage", "get", "web/storage", "storage.get(ctx, key)"),
     w(

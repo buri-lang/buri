@@ -56,8 +56,9 @@ export struct WebHost {
 /// reader navigates.
 ///
 /// `main.mjs` implements it: `path` is a signal holding `location.pathname`,
-/// written again on every `popstate`, and `push`, `replace` and `back` are
-/// `history.pushState`, `history.replaceState` and `history.back`.
+/// written again on every `popstate`, `push`, `replace` and `back` are
+/// `history.pushState`, `history.replaceState` and `history.back`, and
+/// `scrollTo` is the window's. `push` also scrolls the window to the top.
 export struct HostLocation {}
 
 impl Location for HostLocation {
@@ -68,6 +69,8 @@ impl Location for HostLocation {
     fn replace(self, path: Str): ();
 
     fn back(self): ();
+
+    fn scrollTo(self, x: Float, y: Float): ();
 }
 
 /// The page's store, over the browser's IndexedDB: one object store in a
