@@ -10993,6 +10993,28 @@ check's. With the free copy left stale, the slices came out wrong.
 `native::number_text` now prints every integer as it ships too, and bounds
 four digits (192 to 183 instructions on macOS stencil).
 
+### 6.173 A split records each piece without a call, 2026-11-20
+
+```text
+                              before      after       change
+strings, stencil              1.8428 B    1.7868 B    -3.04%
+strings, release              1.3859 B    1.3299 B    -4.04%
+```
+
+Counted with aarch64 callgrind. The other programs moved by less than
+0.01%.
+
+- A split saved each piece's range through a call that spilled four
+  registers to write two words: 18 instructions a piece. `Pieces::push` is
+  inline now, and only the seventeenth piece on goes out of line.
+- `is_quarantined` asks whether the heap check is off first, one byte
+  compare, before matching on the mode. That saves about 4 instructions on
+  each `incref_by`, which a split's views take.
+
+`native::split_text` already cuts up to forty pieces under the heap check.
+Its bound on a three-piece split went from 638 to 584 (608 to 561
+instructions on macOS stencil).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

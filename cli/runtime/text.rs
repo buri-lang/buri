@@ -245,12 +245,22 @@ impl Pieces {
         }
     }
 
+    /// Inline, so a split keeps its pieces' count in a register; past the
+    /// sixteenth piece it goes to [`Pieces::spill`].
+    #[inline(always)]
     fn push(&mut self, piece: (usize, usize)) {
         if let Some(slot) = self.inline.get_mut(self.n) {
             slot.write(piece);
             self.n += 1;
             return;
         }
+        self.spill(piece);
+    }
+
+    /// [`Pieces::push`] once the stack slots are full.
+    #[cold]
+    #[inline(never)]
+    fn spill(&mut self, piece: (usize, usize)) {
         if self.spilled.is_empty() {
             let mut spilled = self.written().to_vec();
             spilled.push(piece);

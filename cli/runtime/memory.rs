@@ -3189,7 +3189,8 @@ fn heap_use_after_free(what: &[u8]) -> ! {
 /// on every path that reaches here.
 #[inline]
 unsafe fn is_quarantined(p: *mut u8) -> bool {
-    if !heap_check().quarantines() {
+    // A shipped program's answer in one compare.
+    if heap_check_off() || !heap_check().quarantines() {
         return false;
     }
     // SAFETY: forwarded.

@@ -140,6 +140,11 @@ fn a_split_cuts_every_piece_and_a_search_finds_the_first_match() {
 /// `item-919293-949596` on `-` went from 668 to 608, `indexOf("-")` from 146
 /// to 131 and `contains("99")`, past six `9`s, from 392 to 295.
 ///
+/// **A split records each piece without a call.** Saving a piece's range was
+/// a call that spilled four registers to write two words, three times a
+/// split of three pieces. Only the seventeenth piece on goes out of line. A
+/// split went from 608 to 561.
+///
 /// Each bound sits about halfway. Only the copy-and-patch backend is bounded,
 /// as in `growing_steps.rs`.
 #[test]
@@ -149,7 +154,7 @@ fn a_split_and_a_search_compare_a_short_needle_without_a_call() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("split-text-costs", SPLIT);
-        for (mode, each, bound) in [("split", 3, 638), ("index", 4, 138), ("contains", 2, 343)] {
+        for (mode, each, bound) in [("split", 3, 584), ("index", 4, 138), ("contains", 2, 343)] {
             let want = format!("{}\n", each * STEPS);
             let (n, _) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step");
