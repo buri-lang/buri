@@ -58,7 +58,9 @@
 )]
 
 use crate::list::{copy_small, move_small};
-use crate::memory::{BURI_RT_GROWTH_FLOOR, buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap};
+use crate::memory::{
+    BURI_RT_GROWTH_FLOOR, buri_rt_alloc, buri_rt_incref, buri_rt_incref_unique, buri_rt_unique_cap,
+};
 use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK, BuriList, BuriStr, str_of};
 use crate::{BURI_OK, scalars};
 
@@ -874,45 +876,88 @@ pub unsafe extern "C" fn buri_rt_str_concat(
         unsafe { out.write(BuriStr::empty()) };
         return;
     }
+    // Path 1 where it calls nothing: no index to forget and a copy short
+    // enough to be inline. Everything else is `concat_slow`, out of line, so
+    // that this path saves no registers for the calls the others make.
+    //
     // SAFETY: the caller promises `a_base` is null or a live payload pointer.
-    if let Some(cap) = unsafe { buri_rt_unique_cap(a_base) } {
-        // The view may start inside the block, so the offset of its start is
-        // part of what has to fit.
-        let offset = (a_ptr as usize).saturating_sub(a_base as usize);
-        if offset.saturating_add(n) as u64 <= cap {
-            // The write can land on bytes a longer, dead view of this block was
-            // indexed over (`scalars.rs`).
-            scalars::forget(a_base);
-            // SAFETY: the block has room for `offset + n` bytes, so the `lb`
-            // bytes at `a_ptr + la` are inside it; the ranges may touch, which
-            // is what `copy` allows.
-            unsafe {
-                move_small(b_ptr, a_ptr.cast_mut().add(la), lb);
-                buri_rt_incref(a_base);
-                out.write(BuriStr {
-                    base: a_base,
-                    ptr: a_ptr,
-                    len: n as u64 | ascii,
-                });
-            }
-            return;
-        }
-        let block = buri_rt_alloc(grown(n as u64));
-        // SAFETY: a fresh block of at least `n` bytes, disjoint from both
-        // sources, and each source covers its own length.
+    if let Some(cap) = unsafe { buri_rt_unique_cap(a_base) }
+        && fits(a_base, a_ptr, n, cap)
+        && lb <= 64
+        && !scalars::indexed(a_base)
+    {
+        // SAFETY: as in `concat_slow`'s path 1, and the block's count is one,
+        // so a second is a plain store.
         unsafe {
-            copy_small(a_ptr, block, la);
-            copy_small(b_ptr, block.add(la), lb);
+            move_small(b_ptr, a_ptr.cast_mut().add(la), lb);
+            buri_rt_incref_unique(a_base);
             out.write(BuriStr {
-                base: block,
-                ptr: block,
+                base: a_base,
+                ptr: a_ptr,
                 len: n as u64 | ascii,
             });
         }
         return;
     }
-    let block = buri_rt_alloc(n as u64);
-    // SAFETY: as above, with a block sized exactly to the result.
+    // SAFETY: forwarded.
+    unsafe { concat_slow(a_base, a_ptr, la, b_ptr, lb, ascii, out) }
+}
+
+/// Whether `n` bytes from `a_ptr` fit in `a_base`'s block of `cap` bytes. The
+/// view may start inside the block, so the offset of its start is part of
+/// what has to fit.
+#[inline(always)]
+fn fits(a_base: *mut u8, a_ptr: *const u8, n: usize, cap: u64) -> bool {
+    let offset = (a_ptr as usize).saturating_sub(a_base as usize);
+    offset.saturating_add(n) as u64 <= cap
+}
+
+/// [`buri_rt_str_concat`]'s three paths, for a result of `la + lb > 0` bytes
+/// whose `ascii` flag is already worked out.
+///
+/// # Safety
+/// As [`buri_rt_str_concat`], with the lengths masked.
+#[inline(never)]
+unsafe fn concat_slow(
+    a_base: *mut u8,
+    a_ptr: *const u8,
+    la: usize,
+    b_ptr: *const u8,
+    lb: usize,
+    ascii: u64,
+    out: *mut BuriStr,
+) {
+    let n = la.saturating_add(lb);
+    // SAFETY: the caller promises `a_base` is null or a live payload pointer.
+    let unique = unsafe { buri_rt_unique_cap(a_base) };
+    if let Some(cap) = unique
+        && fits(a_base, a_ptr, n, cap)
+    {
+        // The write can land on bytes a longer, dead view of this block was
+        // indexed over (`scalars.rs`).
+        scalars::forget(a_base);
+        // SAFETY: the block has room for `offset + n` bytes, so the `lb` bytes
+        // at `a_ptr + la` are inside it; the ranges may touch, which is what
+        // `copy` allows.
+        unsafe {
+            move_small(b_ptr, a_ptr.cast_mut().add(la), lb);
+            buri_rt_incref(a_base);
+            out.write(BuriStr {
+                base: a_base,
+                ptr: a_ptr,
+                len: n as u64 | ascii,
+            });
+        }
+        return;
+    }
+    // Path 2 where the block was unique, and path 3 where it wasn't.
+    let block = buri_rt_alloc(if unique.is_some() {
+        grown(n as u64)
+    } else {
+        n as u64
+    });
+    // SAFETY: a fresh block of at least `n` bytes, disjoint from both sources,
+    // and each source covers its own length.
     unsafe {
         copy_small(a_ptr, block, la);
         copy_small(b_ptr, block.add(la), lb);

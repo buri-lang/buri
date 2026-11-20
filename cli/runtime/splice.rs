@@ -254,6 +254,33 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
         }
         return;
     }
+    // SAFETY: forwarded.
+    unsafe { replace_copied(ptr, n, at, item, s, retain, release, out) }
+}
+
+/// [`buri_rt_map_replace_at`] on a shared list: a copy with `item` at `at`,
+/// and the receiver's count given back.
+///
+/// Out of line, so that the in-place path, which calls only the release glue,
+/// saves no registers for the copy's calls.
+///
+/// # Safety
+/// As [`buri_rt_map_replace_at`], with `at < n` and `s` not zero.
+#[inline(never)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the entry's row, less the equality glue"
+)]
+unsafe fn replace_copied(
+    ptr: *const u8,
+    n: usize,
+    at: usize,
+    item: *const u8,
+    s: usize,
+    retain: Retain,
+    release: Release,
+    out: *mut BuriList,
+) {
     let fresh = block(n, s);
     // SAFETY: the fresh block covers `n` elements, disjoint from the source.
     unsafe {
@@ -294,6 +321,54 @@ const EXCHANGED_AT: usize = std::mem::size_of::<BuriList>();
     reason = "the flattened row: list, index, item, element glue, out"
 )]
 pub unsafe extern "C" fn buri_rt_map_exchange_at(
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    item: *const u8,
+    stride: u64,
+    retain: Retain,
+    release: Release,
+    equal: *const u8,
+    out: *mut u8,
+) {
+    // The swap in place where it calls nothing: an element short enough to
+    // copy inline. Everything else is `exchange_slow`, out of line, so that
+    // this path saves no registers for the calls the others make.
+    let s = stride as usize;
+    // SAFETY: the caller promises a live block or null.
+    if at >= 0
+        && (at as u64) < len
+        && s != 0
+        && s <= 64
+        && unsafe { buri_rt_unique_cap(ptr) }.is_some()
+    {
+        // SAFETY: as in `exchange_slow`'s in-place path.
+        unsafe {
+            let slot = ptr.cast_mut().add(at as usize * s);
+            copy_small(slot, out.add(EXCHANGED_AT), s);
+            copy_small(item, slot, s);
+            out.cast::<BuriList>().write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            });
+        }
+        return;
+    }
+    // SAFETY: forwarded.
+    unsafe { exchange_slow(ptr, len, at, item, stride, retain, release, equal, out) }
+}
+
+/// [`buri_rt_map_exchange_at`]'s whole answer: an index outside the list, the
+/// swap in place, or a copy of a shared list.
+///
+/// # Safety
+/// As [`buri_rt_map_exchange_at`].
+#[inline(never)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the flattened row: list, index, item, element glue, out"
+)]
+unsafe extern "C" fn exchange_slow(
     ptr: *const u8,
     len: u64,
     at: i64,

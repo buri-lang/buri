@@ -246,6 +246,10 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 /// # Safety
 /// `ptr` covers `n * stride` bytes and is null or a live payload pointer;
 /// `retain`, where non-null, is the retain glue for the element type.
+///
+/// Inline, with paths 2 and 3 out of line: path 1 calls nothing, so its caller
+/// saves no registers for it, and the two that allocate pay for their own.
+#[inline(always)]
 unsafe fn append_dest(
     ptr: *const u8,
     n: usize,
@@ -280,25 +284,61 @@ unsafe fn append_dest(
                 };
             }
             // SAFETY: claimed just above, and not written through.
-            unsafe { buri_rt_unclaim(ptr) };
-            let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
-            // SAFETY: a fresh block of at least `needed` bytes, disjoint from
-            // the source, which covers its own `n` elements. The zeroing runs
-            // to the capacity the header records, because that is what the
-            // walks read.
-            unsafe {
-                copy_retaining(fresh, ptr, n, stride, retain);
-                if retain.is_some() {
-                    let headroom = (buri_rt_cap(fresh) as usize).saturating_sub(used);
-                    std::ptr::write_bytes(fresh.add(used), 0, headroom);
-                }
-            }
-            return BuriList {
-                ptr: fresh,
-                len: total as u64,
-            };
+            return unsafe { append_grown(ptr, n, total, stride, cap, retain) };
         }
     }
+    // SAFETY: forwarded.
+    unsafe { append_exact(ptr, n, total, stride, retain) }
+}
+
+/// [`append_dest`]'s path 2: the claimed block of `cap` bytes has no room, so
+/// the claim goes back and the prefix moves to a grown block.
+///
+/// # Safety
+/// As [`append_dest`], with `ptr` claimed and not written through, and
+/// `stride` and `total` not zero.
+#[inline(never)]
+unsafe fn append_grown(
+    ptr: *const u8,
+    n: usize,
+    total: usize,
+    stride: usize,
+    cap: u64,
+    retain: Retain,
+) -> BuriList {
+    let needed = total.saturating_mul(stride) as u64;
+    let used = n.saturating_mul(stride);
+    // SAFETY: the caller claimed it and wrote nothing through it.
+    unsafe { buri_rt_unclaim(ptr) };
+    let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
+    // SAFETY: a fresh block of at least `needed` bytes, disjoint from the
+    // source, which covers its own `n` elements. The zeroing runs to the
+    // capacity the header records, because that is what the walks read.
+    unsafe {
+        copy_retaining(fresh, ptr, n, stride, retain);
+        if retain.is_some() {
+            let headroom = (buri_rt_cap(fresh) as usize).saturating_sub(used);
+            std::ptr::write_bytes(fresh.add(used), 0, headroom);
+        }
+    }
+    BuriList {
+        ptr: fresh,
+        len: total as u64,
+    }
+}
+
+/// [`append_dest`]'s path 3: exactly `total` elements, the prefix copied in.
+///
+/// # Safety
+/// As [`append_dest`], with `stride` and `total` not zero.
+#[inline(never)]
+unsafe fn append_exact(
+    ptr: *const u8,
+    n: usize,
+    total: usize,
+    stride: usize,
+    retain: Retain,
+) -> BuriList {
     let out = block(total, stride);
     // SAFETY: a fresh block of `total` elements, disjoint from the source.
     unsafe { copy_retaining(out.ptr, ptr, n, stride, retain) };

@@ -378,6 +378,10 @@ mod flags;
 // the instructions `has` and the set operations take against its size.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod indexset;
+// A string, a list and an ordered map grown a step at a time, owned and
+// shared: what each answers, and what an owned step costs, counted.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod growing_steps;
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod wrapping;
 // What an ordered map's lookups and a list's projections cost against the

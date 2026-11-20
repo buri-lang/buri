@@ -3352,6 +3352,29 @@ pub unsafe fn buri_rt_unclaim(p: *const u8) {
     }
 }
 
+/// [`buri_rt_incref`] on a block [`buri_rt_unique_cap`] just answered `Some`
+/// for: an unmarked block at a count of one, which is neither shared nor
+/// quarantined, so the second count is a plain store and there is nothing to
+/// check.
+///
+/// Crate-private on purpose. Its body names [`MASK`], through the debug
+/// assertion's `is_shared`, and a public inline function exports every static
+/// it names: each of the runtime's reads of `MASK` then goes through the
+/// global offset table, one load more on every allocation.
+///
+/// # Safety
+/// `p` is a live payload pointer that [`buri_rt_unique_cap`] answered `Some`
+/// for on this thread, with nothing in between that could change its count.
+#[inline(always)]
+pub(crate) unsafe fn buri_rt_incref_unique(p: *mut u8) {
+    // SAFETY: the caller promises a live, unmarked block at a count of one.
+    unsafe {
+        let h = header(p);
+        debug_assert!(!is_shared(h) && (*h).rc == 1, "not a unique block");
+        (*h).rc = 2;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // `Allocator`, the effect
 // ---------------------------------------------------------------------------

@@ -10817,6 +10817,40 @@ compares every length under 20, first differing byte and start offset
 against Rust's byte order, on both backends. The `run-dev/kvstore` row holds
 the count.
 
+### 6.168 A runtime step that owns its block saves next to nothing, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              1.0062 B    0.9940 B    -1.21%
+maps, stencil                 1.4871 B    1.4642 B    -1.54%
+strings, stencil              2.1047 B    2.0886 B    -0.76%
+floats, stencil               0.6706 B    0.6676 B    -0.45%
+kvstore, release              0.6491 B    0.6380 B    -1.71%
+maps, release                 0.8979 B    0.8679 B    -3.35%
+```
+
+`str_concat`, `append_dest`, `replaceAt` and `exchangeAt` each had one common
+path: a block the step owns, with room for what it adds. That path ran the
+whole function's entry, saving up to seven register pairs that only the other
+paths use, because it called out for a scalar index's release, a long copy or
+the check against blocks freed early.
+
+Each function now tests for its common path and does it without a call,
+which makes it a leaf that saves no registers. Everything else tail-calls a
+`#[inline(never)]` function holding the old body: `concat_slow`,
+`append_grown`, `append_exact`, `replace_copied` and `exchange_slow`. A
+string's common path takes pieces of 64 bytes or less, onto a block with no
+scalar index, and `memory.rs`'s `buri_rt_incref_unique` sets its count to two
+with no quarantine check.
+
+`buri_rt_incref_unique` stays `pub(crate)`. A `pub` inline function naming
+the allocator's private `MASK` exported it, and every allocation then read it
+through the GOT: 0.3% more on `tree`, `lists` and `strings`.
+
+`native::growing_steps` grows strings, lists and ordered maps owned and
+shared, under the heap check, and bounds an append, a push and a `replaceAt`
+in instructions a step on copy-and-patch builds.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
