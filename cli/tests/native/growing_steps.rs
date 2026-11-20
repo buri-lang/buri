@@ -173,7 +173,7 @@ fn growing_a_value_answers_the_same_owned_or_shared() {
     let n = 3000;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
-        let binary = build("growing-steps", STEPPED);
+        let binary = build("growing-steps-answers", STEPPED);
         for mode in [
             "concat",
             "concat-wide",
@@ -220,7 +220,7 @@ fn an_owned_step_saves_next_to_nothing() {
     let steps = STEPS.to_string();
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
-        let binary = build("growing-steps", STEPPED);
+        let binary = build("growing-steps-costs", STEPPED);
         for (mode, bound) in [("concat", 140), ("push", 135), ("replace", 96)] {
             let want = format!("{}\n", answer(mode, STEPS));
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
