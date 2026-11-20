@@ -255,3 +255,38 @@ fn a_list_spliced_at_every_width_keeps_its_elements() {
         assert_eq!(live, 0, "{backend}: blocks still live at exit");
     }
 }
+
+/// **An element whose first word is zero still lets go of what it holds.**
+/// The runtime asks a live element's first word before scanning the rest for a
+/// reference, and an `(Int, Str)` whose `Int` is 0 has one only further on:
+/// each `replaceAt` here releases such an element, and so does the list's end.
+#[test]
+fn an_element_whose_first_word_is_zero_is_released() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn filled<C: Allocator>(ctx: C, xs: [(Int, Str)], i: Int): [(Int, Str)] {
+  if (i == 50) { xs } else { filled(ctx, xs.push(ctx, (0, str.format(ctx, "s${i}"))), i + 1) }
+}
+
+fn swapped<C: Allocator>(ctx: C, xs: [(Int, Str)], i: Int): [(Int, Str)] {
+  if (i == 50) { xs } else { swapped(ctx, xs.replaceAt(ctx, i, (0, str.format(ctx, "t${i}"))), i + 1) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc };
+  let xs = swapped(ctx, filled(ctx, [(0, "")], 0), 0).push(ctx, (0, ""));
+  let text = xs.mapCtx(ctx, fn(c, x) => x.1).join(ctx, "");
+  let _ = io.println(host.stdout, str.format(ctx, "${xs.length()} ${text.length()}")).ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("zero-first-word", source) {
+        assert_eq!(r.stdout, "52 143\n", "{backend}: stderr: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: blocks still live at exit");
+    }
+}

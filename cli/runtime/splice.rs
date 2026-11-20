@@ -51,7 +51,7 @@ extern "C" fn release_elements(p: *mut u8) {
         // SAFETY: `i * stride` is inside the block's capacity.
         unsafe {
             let at = p.add(i.saturating_mul(stride));
-            if !spare(at, stride) {
+            if holds(at, stride) {
                 release(at);
             }
         }
@@ -85,11 +85,21 @@ unsafe fn release_one(at: *mut u8, stride: usize, release: Release) {
     if let Some(release) = release {
         // SAFETY: the caller promises the element.
         unsafe {
-            if !spare(at, stride) {
+            if holds(at, stride) {
                 release(at);
             }
         }
     }
+}
+
+/// Whether the element at `at` is not [`spare`]. A live element's first word
+/// is rarely zero, so it answers before the scan.
+///
+/// # Safety
+/// `at` covers `stride` readable bytes.
+unsafe fn holds(at: *const u8, stride: usize) -> bool {
+    // SAFETY: the caller promises the range, and the word is inside it.
+    unsafe { (stride >= 8 && at.cast::<u64>().read_unaligned() != 0) || !spare(at, stride) }
 }
 
 /// `core/map`'s `insertAt(ctx, xs, at, x) -> [T]`: `x` before index `at`, which

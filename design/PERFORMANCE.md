@@ -10747,12 +10747,12 @@ by length.
 
 ```text
                               before      after       change
-kvstore, stencil              1.0235 B    1.0189 B    -0.45%
-maps, stencil                 1.5390 B    1.5327 B    -0.41%
-strings, stencil              2.1313 B    2.1022 B    -1.37%
-floats, stencil               0.6791 B    0.6691 B    -1.47%
-kvstore, release              0.6644 B    0.6620 B    -0.37%
-maps, release                 0.9463 B    0.9399 B    -0.67%
+kvstore, stencil              1.0235 B    1.0155 B    -0.79%
+maps, stencil                 1.5390 B    1.5204 B    -1.21%
+strings, stencil              2.1313 B    2.1047 B    -1.25%
+floats, stencil               0.6791 B    0.6706 B    -1.25%
+kvstore, release              0.6644 B    0.6584 B    -0.90%
+maps, release                 0.9463 B    0.9313 B    -1.59%
 ```
 
 `replaceAt`, `insertAt`, `exchangeAt`, `push` and `str_concat` copy one
@@ -10773,6 +10773,26 @@ one and eight put one copy on each side of the threshold, which read as 24
 more instructions a field. Every mode measures the same with the new widths
 before and after this change. A `core/map` insert of a record over 64 bytes
 costs 20 more instructions (1.8%), and one of a single `Str` 150 fewer.
+
+### 6.166 Releasing an element asks its first word before scanning it, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              1.0155 B    1.0114 B    -0.40%
+maps, stencil                 1.5204 B    1.4884 B    -2.11%
+kvstore, release              0.6584 B    0.6544 B    -0.62%
+maps, release                 0.9313 B    0.8992 B    -3.44%
+```
+
+`replaceAt` and a dying list's release skip an element that is all zero,
+which holds no reference. They checked that by OR-ing every word of it, so a
+live element, which is nearly every one, cost a scan of its whole width.
+`splice.rs`'s `holds` answers from a first word that isn't zero, and scans
+only when it is.
+
+`native::collections::an_element_whose_first_word_is_zero_is_released`
+replaces and drops `(0, Str)` elements under the heap check. The
+`run-dev/kvstore` row holds the count.
 
 ## 7. Profiling, on this platform
 
