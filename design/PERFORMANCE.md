@@ -10883,6 +10883,38 @@ step 3000. The block now grows only when it's too small.
 near the front, replaces over empty and full slots, and pushes behind a longer
 list. It bounds each in instructions a step on copy-and-patch builds.
 
+### 6.170 A rendered number copies its text without a call, 2026-11-20
+
+```text
+                              before      after       change
+floats, stencil               0.6676 B    0.5731 B    -14.15%
+lists, stencil                2.7136 B    2.5186 B    -7.19%
+strings, stencil              2.0886 B    1.9878 B    -4.82%
+maps, stencil                 1.4573 B    1.4249 B    -2.22%
+floats, release               0.5726 B    0.4781 B    -16.50%
+lists, release                1.6398 B    1.4448 B    -11.89%
+strings, release              1.6297 B    1.5289 B    -6.18%
+maps, release                 0.8664 B    0.8340 B    -3.74%
+kvstore, release              0.6213 B    0.6194 B    -0.31%
+```
+
+Counted with aarch64 callgrind.
+
+- `write_decimal` is inline and writes two digits a store through a
+  pointer. It was a call that checked each byte against the slice it was
+  handed, and that cost more than the digits did.
+- A float's text, and any string `BuriStr::copy_from` makes, goes to the heap
+  through `copy_small`, so 64 bytes or less call no `memcpy`.
+
+A faster `indexOf` and `split` didn't pay. A scan that jumps between the
+needle's first byte, plus ranges kept in uninitialized stack slots, left the
+copy-and-patch split-and-search step where it was (944 to 949 instructions)
+and added 62 M to strings release, because `find` stopped being inlined.
+
+`native::number_text` checks every length and sign. It bounds a four-digit
+`str.fromInt` (236 to 199 instructions a step) and `0.30000000000000004`
+(745 to 596) on copy-and-patch builds.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
