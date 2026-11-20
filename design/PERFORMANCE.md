@@ -10725,6 +10725,24 @@ spelled` for 8 and 16 instances of one function.
 `middle/contexts_handed_on_by_every_program` normalizes a string at two
 contexts on JavaScript.
 
+### 6.164 A string compared with itself is equal without reading it, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              1.0253 B    1.0235 B    -0.17%
+kvstore, release              0.6662 B    0.6644 B    -0.26%
+```
+
+An ordered map's lookup with the key it stored compares that key with itself
+at the node that holds it. In kvstore, 16% of `buri_rt_str_compare` calls had
+the same pointer and length on both sides, and each still read every byte.
+`str_compare` now answers Equal for those at once, as `str_equal` already did.
+
+`native::strings::comparing_a_string_with_itself_costs_the_same_at_any_length`
+compares a 4096-byte and an 8-byte string with themselves and bounds the
+instructions per comparison, and checks slices that share a start still order
+by length.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

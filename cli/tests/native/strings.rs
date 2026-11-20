@@ -281,3 +281,81 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(live, 0, "checked={checked}: blocks still live at exit");
     }
 }
+
+/// A string compared with a second holder of the same bytes 100,000 times,
+/// and the order of a view against the string it starts. `main` takes the
+/// mode and the string's length; `none` compares nothing.
+const SAME_COMPARES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn equals(xs: [Str], ys: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else {
+    let a = xs[i % 2].withDefault("");
+    let b = ys[i % 2].withDefault("");
+    let one = match (a.compare(b)) { .Equal => 1, _ => 0 };
+    equals(xs, ys, i + 1, n, acc + one)
+  }
+}
+
+fn tag(s: Str, t: Str): Str {
+  match (s.compare(t)) { .Less => "<", .Equal => "=", .Greater => ">" }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let size = args[1].andThen(fn(s) => s.toInt()).withDefault(2);
+  let s = "ab".repeat(ctx, size / 2);
+  let t = "ba".repeat(ctx, size / 2);
+  let xs = [s, t];
+  let ys = [s, t];
+  let answer = match (args.first()) {
+    .Some("same") => "${equals(xs, ys, 0, 100000, 0)}",
+    .Some("views") => {
+      let head = s.slice(0, size / 2);
+      "${tag(head, s)}${tag(s, head)}${tag(head, head)}${tag(s, t)}${tag(t, s)}"
+    },
+    _ => "0",
+  };
+  io.println(ctx, answer).mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **Comparing a string with another holder of the same bytes costs the same
+/// at any length.** `compare` read both sides eight bytes at a time even when
+/// they were one view, so an ordered map's lookup with the key it stored read
+/// the whole key at every node that held it. Two views of the same bytes and
+/// length are equal without reading them, as `==` already answers; a view
+/// that starts the other still orders by its length.
+#[test]
+fn comparing_a_string_with_itself_costs_the_same_at_any_length() {
+    const COMPARES: u64 = 100_000;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("same-compares", SAME_COMPARES);
+        let views = ran_command(heap_checked(
+            std::process::Command::new(&binary).args(["views", "4096"]),
+        ));
+        assert_eq!(views.status, 0, "{backend}: {}", views.stderr);
+        assert_eq!(views.stdout, "<>=<>\n", "{backend}: {}", views.stderr);
+        let want = format!("{COMPARES}\n");
+        let per_op = crate::collection_costs::per_op;
+        let (short, _) = per_op(backend, &binary, "same", &["8"], COMPARES, &want);
+        let (long, _) = per_op(backend, &binary, "same", &["4096"], COMPARES, &want);
+        eprintln!("{backend}: 8 bytes {short:?}, 4,096 bytes {long:?} instructions a compare");
+        let (Some(short), Some(long)) = (short, long) else {
+            continue;
+        };
+        if long * 10 > short * 12 + 100 {
+            failures.push(format!(
+                "{backend}: comparing a 4,096-byte string with itself is {long} instructions \
+                 against {short} for 8 bytes"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

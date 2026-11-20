@@ -598,6 +598,12 @@ pub unsafe extern "C" fn buri_rt_str_compare(
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
     let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
+    // Two views of the same bytes are equal without reading them, as in
+    // `buri_rt_str_equal`. An ordered map's lookup with the key it stored
+    // asks this at every node that holds the key.
+    if a.as_ptr() == b.as_ptr() && a.len() == b.len() {
+        return 1;
+    }
     match byte_order(a, b) {
         std::cmp::Ordering::Less => 0,
         std::cmp::Ordering::Equal => 1,
