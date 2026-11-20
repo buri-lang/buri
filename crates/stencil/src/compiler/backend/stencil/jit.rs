@@ -671,6 +671,11 @@ impl<'a> Scratch<'a> {
 /// Where a frame keeps its result: first, at `fp + 0` (this file's header).
 pub(crate) const RET: u32 = 0;
 
+/// How far apart, in instructions of one block, [`Jit::alias_parts`] and
+/// [`Jit::forward_fields`] look between a value and its reads. Bounds their
+/// scans, so a long block stays linear.
+const WINDOW: usize = 32;
+
 #[derive(Clone, Default)]
 pub(crate) struct FrameSig {
     pub ret_size: u32,
@@ -2386,7 +2391,7 @@ impl<'a> Jit<'a> {
             };
             *s = off;
         }
-        let parts = self.alias_parts(prog, code, &uf, &pin, slot, uses, opnd);
+        let parts = self.alias_parts(prog, code, &uf, &pin, &width, slot, uses, opnd);
         self.forward_fields(prog, code, &uf, &pin, &width, slot, uses, opnd, parts, at);
         self.bufs.pin = pin;
         self.bufs.width = width;
@@ -2424,6 +2429,7 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         uf: &ir::PerValue<ir::ValueId>,
         pin: &ir::PerValue<Option<u32>>,
+        width: &ir::PerValue<u32>,
         slot: &mut ir::PerValue<u32>,
         uses: &ir::PerValue<u32>,
         opnd: &Operands,
@@ -2601,8 +2607,40 @@ impl<'a> Jit<'a> {
                     let touches = |x: &ir::Inst| {
                         opnd.inst(bid, k).iter().any(&in_class) || x.results().iter().any(&in_class)
                     };
-                    if def.is_some_and(touches) || before.is_some_and(|t| t > k) {
+                    if def.is_some_and(touches) {
                         continue;
+                    }
+                    // What touched the class since may be reads of the
+                    // struct's other fields, which leave this one's bytes
+                    // alone until the struct is built.
+                    if before.is_some_and(|t| t > k) {
+                        let (lo, hi) = (off.bytes(), off.bytes() + w);
+                        let apart = |x: usize| {
+                            let i = b.insts.get(x);
+                            let ins = opnd.inst(bid, x).iter().any(&in_class)
+                                || i.is_some_and(|i| i.results().iter().any(&in_class));
+                            let other = |i: &ir::Inst| match i {
+                                ir::Inst::GetField {
+                                    dest: r,
+                                    agg,
+                                    ty: rt,
+                                    field,
+                                } => {
+                                    let o = offs.get(field.index()).map_or(0, |a| a.bytes());
+                                    let rw = *width.get(*r);
+                                    variant.is_none()
+                                        && rt.id() == id
+                                        && in_class(agg)
+                                        && !in_class(r)
+                                        && (o + rw <= lo || hi <= o)
+                                }
+                                _ => false,
+                            };
+                            !ins || i.is_some_and(other)
+                        };
+                        if j - k > WINDOW || !(k + 1..j).all(apart) {
+                            continue;
+                        }
                     }
                     *slot.get_mut(*f) = *slot.get(dest) + off.bytes();
                     *aliased.get_mut(*f) = true;
@@ -2654,9 +2692,6 @@ impl<'a> Jit<'a> {
         parts: bool,
         end: u32,
     ) {
-        // How far a read inside one block may be from the field it reads.
-        // Bounds the scan below, so a long block stays linear.
-        const WINDOW: usize = 32;
         let get =
             |i: &ir::Inst| matches!(i, ir::Inst::GetField { .. } | ir::Inst::GetPayload { .. });
         if !code.blocks().iter().any(|b| b.insts.iter().any(get)) {
@@ -2789,9 +2824,11 @@ impl<'a> Jit<'a> {
         self.bufs.aliased = held_parts;
     }
 
-    /// Whether `make`, a `MakeStruct`, reads `read`, `w` bytes at `src`,
-    /// before any of its stores writes there. A store of a field to where it
-    /// already is writes nothing.
+    /// Whether `make` reads `read`, `w` bytes at `src`, before it writes
+    /// there. An arithmetic stencil reads its operands before it writes its
+    /// one word of answer, so an answer stored over the word it reads is.
+    /// A `MakeStruct` stores its fields in order, and a store of a field to
+    /// where it already is writes nothing.
     #[allow(
         clippy::too_many_arguments,
         reason = "one question about one store order"
@@ -2806,8 +2843,14 @@ impl<'a> Jit<'a> {
         src: u32,
         w: u32,
     ) -> bool {
-        let Some(ir::Inst::MakeStruct { dest, ty, fields }) = make else {
-            return false;
+        let (dest, ty, fields) = match make {
+            Some(ir::Inst::MakeStruct { dest, ty, fields }) => (dest, ty, fields),
+            Some(ir::Inst::Binary { dest, .. } | ir::Inst::Unary { dest, .. }) => {
+                return w == 8
+                    && *slot.get(*dest) == src
+                    && self.width(prog, code.ty_of(*dest)) <= 8;
+            }
+            _ => return false,
         };
         let base = *slot.get(*dest);
         let l = self.layout_of(prog, ty.id());

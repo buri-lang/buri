@@ -194,9 +194,9 @@ fn a_literal_test_costs_a_compare() {
 /// loop in [`NESTED_STEPS`]: a record built by one of an `if`'s two branches
 /// inside a match arm, whose answer is the match's answer.
 /// Measured at 52 with the record built in the match's place, and 58 when
-/// the `if` built it aside and the match copied it; 39 since the match's
-/// place is the loop's own record.
-const NESTED_STEP_BOUND: u64 = 42;
+/// the `if` built it aside and the match copied it; 37 since the match's
+/// place is the loop's own record and each new field is computed in it.
+const NESTED_STEP_BOUND: u64 = 40;
 
 /// A step matches a `Pair` and builds a record in one of the two branches of
 /// an `if` inside the arm, so the `if`'s answer is passed straight on as the

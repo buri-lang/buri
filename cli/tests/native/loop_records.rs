@@ -17,12 +17,13 @@ struct P { x: Int, y: Int }
 struct W { p: P, q: P, n: Int }
 
 fn step(s: St, i: Int): St {
-  match (i % 6) {
+  match (i % 7) {
     0 => St { ..s, acc: s.acc + i },
     1 => St { acc: s.last, steps: s.acc, last: s.steps },
     2 => St { ..s, acc: 1000 - s.acc, last: s.acc },
     3 => s,
     4 => St { acc: s.steps, steps: s.acc, last: s.last + 1 },
+    5 => St { acc: (s.acc + s.steps) % 10007, steps: s.acc * 2 % 10007, last: s.last },
     _ => St { ..s, steps: s.steps + 1 },
   }
 }
@@ -45,11 +46,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
 
 /// **Each step sees the record the step before it built**: fields rotated,
-/// swapped, wide fields swapped, one field read after another took a new value,
-/// and the record passed on unchanged.
+/// swapped, wide fields swapped, a field read after another took a new value,
+/// a new value computed from a field another new value replaces, and the
+/// record passed on unchanged.
 #[test]
 fn each_step_reads_the_record_before_it() {
-    let expected = "981 817 19\n3 4 1 2 21\n";
+    let expected = "17 4596 7029\n3 4 1 2 21\n";
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("loop-records", ANSWERS);
         let ran = ran_built(&binary, backend);
@@ -59,12 +61,14 @@ fn each_step_reads_the_record_before_it() {
 }
 
 /// A step's cost on the copy-and-patch backend, in instructions, over the
-/// loop in [`STEPS`]. Measured at 26 with the record rebuilt over the loop's
-/// own, and 42 when it was built aside and copied back.
-const STEP_BOUND: u64 = 30;
+/// loop in [`STEPS`]. Measured at 27 with the record rebuilt over the loop's
+/// own and each new field computed in its place, 30 with the new fields
+/// computed aside and stored, and 42 when the record was built aside and
+/// copied back.
+const STEP_BOUND: u64 = 29;
 
 /// A step matches an operation and rebuilds the loop's record, changing one
-/// or two of its fields or none.
+/// of its fields, all three, or none.
 const STEPS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -84,7 +88,7 @@ fn apply(s: St, o: Op): St {
   match (o) {
     .Add(k) => St { ..s, acc: s.acc + k },
     .Skip => s,
-    .Bump => St { ..s, steps: s.steps + 1 },
+    .Bump => St { acc: s.acc + 1, steps: s.steps + 1, last: s.last + 2 },
   }
 }
 
@@ -99,7 +103,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     _ => 0,
   };
   let s = run(St { acc: 0, steps: 0, last: 0 }, 0, n);
-  io.println(ctx, "${s.acc * 1000000 + s.steps}").mapErr(fn(_e) => "stdout")
+  io.println(ctx, "${s.acc * 1000000000000 + s.steps * 1000000 + s.last}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
@@ -112,7 +116,14 @@ fn a_loop_record_is_rebuilt_in_place() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("loop-record-steps", STEPS);
-        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "399993066666\n");
+        let (n, _) = per_op(
+            backend,
+            &binary,
+            "steps",
+            &[],
+            steps,
+            "466659066666133332\n",
+        );
         eprintln!("{backend}: {n:?} instructions a step");
         if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND) {
             failures.push(format!(
