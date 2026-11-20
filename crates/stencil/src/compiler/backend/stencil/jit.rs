@@ -3744,13 +3744,11 @@ impl<'a> Jit<'a> {
                             if let Some(j) = def.filter(|j| {
                                 uses(st, *lhs) == 1 && (j + 1..k).all(|x| ent(&p.skip, x, false))
                             }) {
-                                // The test reads the aggregate's slot.
-                                let in_frame = |a: &ir::ValueId| matches!(st.home(*a), Loc::Frame);
+                                // The test reads the aggregate's slot: `promote`
+                                // gives no register to what a `GetTag` reads.
                                 if let Some(ir::Inst::GetTag { agg, ty, .. }) = block.insts.get(j) {
-                                    if in_frame(agg) {
-                                        p.tagbr = Some((*agg, *ty, c, *op == ir::BinOp::Ne));
-                                        tag_test_at = Some(j);
-                                    }
+                                    p.tagbr = Some((*agg, *ty, c, *op == ir::BinOp::Ne));
+                                    tag_test_at = Some(j);
                                 }
                             }
                         }

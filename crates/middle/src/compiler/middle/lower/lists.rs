@@ -1541,10 +1541,7 @@ impl FnLower<'_> {
             return None;
         }
         let g = self.program.funcs.get(*func);
-        let FuncKind::Body(body) = &g.kind else {
-            return None;
-        };
-        let mut body: &Expr = body;
+        let mut body: &Expr = g.body()?;
         while let ExprKind::Block {
             stmts,
             tail: Some(tail),
@@ -1567,12 +1564,12 @@ impl FnLower<'_> {
         if matches!(int, IntPrim::I128 | IntPrim::U128) {
             return None;
         }
-        let ([.., a, b], [x, y]) = (g.params.as_slice(), args.as_slice()) else {
-            return None;
+        let local = |e: &Expr| match &e.kind {
+            ExprKind::Local(l) => Some(*l),
+            _ => None,
         };
-        let (ExprKind::Local(x), ExprKind::Local(y)) = (&x.kind, &y.kind) else {
-            return None;
-        };
+        let (x, y) = (local(args.first()?)?, local(args.get(1)?)?);
+        let (a, b) = (*g.params.iter().nth_back(1)?, *g.params.last()?);
         let swapped = match (x == a && y == b, x == b && y == a) {
             (true, _) => false,
             (_, true) => true,
