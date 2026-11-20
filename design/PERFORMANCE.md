@@ -10851,6 +10851,38 @@ through the GOT: 0.3% more on `tree`, `lists` and `strings`.
 shared, under the heap check, and bounds an append, a push and a `replaceAt`
 in instructions a step on copy-and-patch builds.
 
+### 6.169 A push, an insert and a replace in place call nothing, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              0.9907 B    0.9740 B    -1.69%
+maps, stencil                 1.4642 B    1.4628 B    -0.10%
+kvstore, release              0.6380 B    0.6213 B    -2.62%
+maps, release                 0.8679 B    0.8664 B    -0.17%
+```
+
+`push`, `insertAt` and `replaceAt` on a block the step owns now do their work
+without a call, so they save no registers. A long element's `memcpy` is the
+last statement, which makes it a tail call. Everything else is out of line:
+`push_grown`, `push_exact`, `insert_slow`, `replace_held` and `replace_slow`.
+
+- `spare`, the test that a slot holds nothing, reads a run of 64 bytes or
+  less as at most three overlapping loads.
+- `insertAt` shifts the tail in place when it's 256 bytes or less.
+- A unique block that grows lets its old block go with one walk over the
+  moved-out slots, and doesn't zero it first.
+- `give_back` sets `RELEASING` only when there's glue to run.
+
+It also fixes a blowup. A slot past `len` can hold an element that a longer,
+now dead list put there. `push` and `insertAt` read that as "no room" and grew
+the block, doubling its capacity, even when the old capacity was enough. A
+loop that pushed onto `xs` after a longer list did the same took 7.6 GB by
+step 3000. The block now grows only when it's too small.
+
+`native::growing_steps` covers each path: long and string elements, inserts
+near the front, replaces over empty and full slots, and pushes behind a longer
+list. It bounds each in instructions a step on copy-and-patch builds.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

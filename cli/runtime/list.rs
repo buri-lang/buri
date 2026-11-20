@@ -104,6 +104,28 @@ pub(crate) unsafe fn move_small(src: *const u8, dst: *mut u8, n: usize) {
     }
 }
 
+/// Moves the `n` bytes at `at` up by `by`, as `std::ptr::copy(at, at + by,
+/// n)`, without a call: [`up_to_64`] a step at a time from the top. Each
+/// step reads its bytes before it writes them, and writes only over bytes a
+/// step above has read or the gap the move opens, so the steps below are
+/// untouched. A loop of short steps, for the few elements a node of a tree
+/// holds; a long move belongs to `memmove`.
+///
+/// # Safety
+/// `[at, at + n + by)` is writable.
+#[inline(always)]
+pub(crate) unsafe fn shift_up(at: *mut u8, n: usize, by: usize) {
+    let mut rest = n;
+    // SAFETY: each step stays inside `[at, at + n + by)`.
+    unsafe {
+        while rest > 64 {
+            rest = rest.wrapping_sub(64);
+            up_to_64(at.add(rest), at.add(rest.wrapping_add(by)), 64);
+        }
+        up_to_64(at, at.add(by), rest);
+    }
+}
+
 /// Copies `n <= 64` bytes. Each size class reads both ends of the range in
 /// words that may overlap in the middle, and reads everything before it
 /// writes, so the ranges may overlap.
@@ -206,9 +228,9 @@ pub(crate) fn block(count: usize, stride: usize) -> BuriList {
 ///     the result uniquely owned and the next append in a loop takes this path
 ///     again.
 ///  2. **Grown.** Uniquely owned but out of capacity, or with those slots not
-///     spare: a fresh block with [`buri_rt_grown_capacity`] bytes, so the
-///     *next* append takes path 1 and a loop of `n` appends allocates
-///     O(log n) times rather than O(n). For an element type holding references
+///     spare: a fresh block with [`regrown_capacity`] bytes, doubled where
+///     it was out of room, so the *next* append takes path 1 and a loop of
+///     `n` appends allocates O(log n) times rather than O(n). For an element type holding references
 ///     the bytes past the copied prefix are zeroed, which is what makes them
 ///     spare.
 ///  3. **Exact.** Shared, immortal, or empty: exactly what the result needs.
@@ -291,6 +313,22 @@ unsafe fn append_dest(
     unsafe { append_exact(ptr, n, total, stride, retain) }
 }
 
+/// The capacity of the copy a block held once moves to, when it needs
+/// `needed` bytes and has `cap`: doubled where the block is out of room, and
+/// the same where it had room but the slots past its end weren't spare.
+///
+/// The second case is a step after a longer, now-dead list wrote past this
+/// one's end. Doubling there grew the block on every such step, however
+/// little it held: a loop that pushed onto a list and then dropped the
+/// longer one took the machine's memory within a few thousand steps.
+pub(crate) fn regrown_capacity(needed: u64, cap: u64) -> u64 {
+    if cap >= needed {
+        cap
+    } else {
+        buri_rt_grown_capacity(needed, cap)
+    }
+}
+
 /// [`append_dest`]'s path 2: the claimed block of `cap` bytes has no room, so
 /// the claim goes back and the prefix moves to a grown block.
 ///
@@ -310,7 +348,7 @@ unsafe fn append_grown(
     let used = n.saturating_mul(stride);
     // SAFETY: the caller claimed it and wrote nothing through it.
     unsafe { buri_rt_unclaim(ptr) };
-    let fresh = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
+    let fresh = buri_rt_alloc(regrown_capacity(needed, cap));
     // SAFETY: a fresh block of at least `needed` bytes, disjoint from the
     // source, which covers its own `n` elements. The zeroing runs to the
     // capacity the header records, because that is what the walks read.
@@ -350,7 +388,12 @@ unsafe fn append_exact(
 ///
 /// # Safety
 /// `at` covers `bytes` readable bytes.
+#[inline(always)]
 pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
+    if bytes <= 64 {
+        // SAFETY: forwarded.
+        return unsafe { bits_up_to_64(at, bytes) } == 0;
+    }
     // SAFETY: the caller promises the range.
     let bytes = unsafe { std::slice::from_raw_parts(at, bytes) };
     // A word at a time: OR-ing whole chunks lets the loop vectorise.
@@ -359,6 +402,38 @@ pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
         .iter()
         .fold(0u64, |acc, w| acc | u64::from_ne_bytes(*w));
     any == 0 && rest.iter().all(|b| *b == 0)
+}
+
+/// The OR of the `n <= 64` bytes at `at`, read as [`up_to_64`] reads them:
+/// both ends of the range in words that may overlap in the middle. An
+/// element's slot is one range of a few words, so this is a handful of loads
+/// where a loop over the words took a few instructions for each.
+///
+/// # Safety
+/// `at` covers `n <= 64` readable bytes.
+#[inline(always)]
+unsafe fn bits_up_to_64(at: *const u8, n: usize) -> u128 {
+    use std::ptr::read_unaligned as get;
+    // SAFETY: each read stays inside `[0, n)`.
+    unsafe {
+        let end = at.add(n);
+        if n >= 32 {
+            get(at.cast::<u128>())
+                | get(at.add(16).cast::<u128>())
+                | get(end.sub(32).cast::<u128>())
+                | get(end.sub(16).cast::<u128>())
+        } else if n >= 16 {
+            get(at.cast::<u128>()) | get(end.sub(16).cast::<u128>())
+        } else if n >= 8 {
+            u128::from(get(at.cast::<u64>()) | get(end.sub(8).cast::<u64>()))
+        } else if n >= 4 {
+            u128::from(get(at.cast::<u32>()) | get(end.sub(4).cast::<u32>()))
+        } else if n > 0 {
+            u128::from(*at | *at.add(n / 2) | *end.sub(1))
+        } else {
+            0
+        }
+    }
 }
 
 /// `list.get(self, index) -> Option<T>` — `stride` bytes into `out`.
@@ -447,16 +522,96 @@ pub unsafe extern "C" fn buri_rt_list_push(
     out: *mut BuriList,
 ) {
     let (n, s) = (len as usize, stride as usize);
-    // SAFETY: the caller promises the receiver's range. Where the receiver is
-    // uniquely owned this writes nothing and allocates nothing — MEMORY.md
-    // §5.3, and the reason an accumulate-in-a-loop `push` is amortized O(1).
-    let result = unsafe { append_dest(ptr, n, 1, s, retain) };
-    // SAFETY: the destination has room for `n + 1` elements, and `item` covers
-    // one and is a stack slot the caller spilled, so it cannot be inside it.
-    unsafe {
-        if !result.ptr.is_null() {
-            copy_small(item, result.ptr.add(n.saturating_mul(s)), s);
+    // [`append_dest`]'s path 1, written out so that it ends in the item's
+    // copy: it calls nothing else, and a long item's `memcpy` is its tail
+    // call, so the push saves no registers. Paths 2 and 3 are out of line.
+    // Where the receiver is uniquely owned this allocates nothing —
+    // MEMORY.md §5.3, and the reason an accumulate-in-a-loop `push` is
+    // amortized O(1).
+    if s != 0 && !ptr.is_null() {
+        // SAFETY: the caller promises a live payload pointer.
+        if let Some(cap) = unsafe { buri_rt_claim_unique(ptr) } {
+            let used = n.saturating_mul(s);
+            // SAFETY: when `cap` covers `used + s` bytes, the slot at `used`
+            // is inside the block.
+            let fits = cap >= used.saturating_add(s) as u64
+                && (retain.is_none() || unsafe { spare(ptr.add(used), s) });
+            if !fits {
+                // SAFETY: claimed just above, and not written through.
+                return unsafe { push_grown(ptr, n, item, s, cap, retain, out) };
+            }
+            // SAFETY: the claimed reference is the result's; the slot is
+            // inside the block, and `item` is a stack slot the caller
+            // spilled, so it cannot be inside it.
+            unsafe {
+                out.write(BuriList {
+                    ptr: ptr.cast_mut(),
+                    len: (n as u64).wrapping_add(1),
+                });
+                copy_small(item, ptr.cast_mut().add(used), s);
+            }
+            return;
         }
+    }
+    // SAFETY: forwarded.
+    unsafe { push_exact(ptr, n, item, s, retain, out) }
+}
+
+/// [`buri_rt_list_push`] onto a claimed block with no room: [`append_dest`]'s
+/// path 2, then the item.
+///
+/// # Safety
+/// As [`buri_rt_list_push`], with `ptr` claimed and not written through, and
+/// `stride` not zero.
+#[inline(never)]
+unsafe fn push_grown(
+    ptr: *const u8,
+    n: usize,
+    item: *const u8,
+    stride: usize,
+    cap: u64,
+    retain: Retain,
+    out: *mut BuriList,
+) {
+    // SAFETY: forwarded; the grown block has room for `n + 1` elements, and
+    // `item` is outside it.
+    unsafe {
+        let result = append_grown(ptr, n, n.saturating_add(1), stride, cap, retain);
+        copy_small(item, result.ptr.add(n.saturating_mul(stride)), stride);
+        out.write(result);
+    }
+}
+
+/// [`buri_rt_list_push`] onto a block it can't claim, or none: an empty
+/// element, or [`append_dest`]'s path 3, then the item.
+///
+/// # Safety
+/// As [`buri_rt_list_push`].
+#[inline(never)]
+unsafe fn push_exact(
+    ptr: *const u8,
+    n: usize,
+    item: *const u8,
+    stride: usize,
+    retain: Retain,
+    out: *mut BuriList,
+) {
+    let total = n.saturating_add(1);
+    if stride == 0 {
+        // SAFETY: the caller promises `out`.
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: total as u64,
+            })
+        };
+        return;
+    }
+    // SAFETY: forwarded; the fresh block has room for `total` elements, and
+    // `item` is outside it.
+    unsafe {
+        let result = append_exact(ptr, n, total, stride, retain);
+        copy_small(item, result.ptr.add(n.saturating_mul(stride)), stride);
         out.write(result);
     }
 }

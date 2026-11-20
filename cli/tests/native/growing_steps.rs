@@ -64,6 +64,44 @@ fn kept<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int, acc: Int): Int {
   }
 }
 
+fn pushedWide<C: Allocator>(ctx: C, xs: [Wide], i: Int, n: Int): [Wide] {
+  if (i >= n) { xs } else {
+    pushedWide(ctx, xs.push(ctx, Wide { a: i, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7, k: i }), i + 1, n)
+  }
+}
+
+fn pushedText<C: Allocator>(ctx: C, xs: [Str], i: Int, n: Int): [Str] {
+  if (i >= n) { xs } else { pushedText(ctx, xs.push(ctx, "ab"), i + 1, n) }
+}
+
+fn insertedNear<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int): [Int] {
+  if (i >= n) { xs } else { insertedNear(ctx, xs.insertAt(ctx, i % 4, i).removeAt(ctx, 4), i + 1, n) }
+}
+
+fn insertedBehind<C: Allocator>(ctx: C, xs: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc + xs.length() } else {
+    let longer = xs.push(ctx, "x".concat(ctx, "y"));
+    let seen = longer.length();
+    insertedBehind(ctx, xs.insertAt(ctx, 0, "y"), i + 1, n, acc + seen)
+  }
+}
+
+fn pushedBehind<C: Allocator>(ctx: C, xs: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc + xs.length() } else {
+    let longer = xs.push(ctx, "x".concat(ctx, "y"));
+    let seen = longer.length();
+    pushedBehind(ctx, xs.push(ctx, "y"), i + 1, n, acc + seen)
+  }
+}
+
+fn emptied<C: Allocator>(ctx: C, xs: [[Int]], i: Int, n: Int): [[Int]] {
+  if (i >= n) { xs } else { emptied(ctx, xs.replaceAt(ctx, i % 64, []), i + 1, n) }
+}
+
+fn filled<C: Allocator>(ctx: C, xs: [[Int]], i: Int, n: Int): [[Int]] {
+  if (i >= n) { xs } else { filled(ctx, xs.replaceAt(ctx, i % 64, [i]), i + 1, n) }
+}
+
 fn inserted<C: Allocator>(ctx: C, m: OrderedMap<Int, Int>, i: Int, n: Int): OrderedMap<Int, Int> {
   if (i >= n) { m } else { inserted(ctx, m.insert(ctx, i * 7919 % 1000, i), i + 1, n) }
 }
@@ -106,6 +144,13 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Some("push-shared") => branched(ctx, [], 0, n, 0),
     .Some("replace") => replaced(ctx, list.repeat(ctx, 0, 64), 0, n).sum(),
     .Some("replace-shared") => kept(ctx, list.repeat(ctx, 0, 64), 0, n, 0),
+    .Some("push-wide") => pushedWide(ctx, [], 0, n).fold(fn(acc, w) => acc + w.a + w.k, 0),
+    .Some("push-text") => pushedText(ctx, [], 0, n).fold(fn(acc, s) => acc + s.length(), 0),
+    .Some("insert-near") => insertedNear(ctx, list.repeat(ctx, 0, 4), 0, n).sum(),
+    .Some("insert-behind") => insertedBehind(ctx, [], 0, n, 0),
+    .Some("push-behind") => pushedBehind(ctx, [], 0, n, 0),
+    .Some("replace-emptied") => emptied(ctx, list.repeat(ctx, [7], 64), 0, n).fold(fn(acc, l) => acc + l.length() + 1, 0),
+    .Some("replace-filled") => filled(ctx, list.repeat(ctx, [], 64), 0, n).fold(fn(acc, l) => acc + l.sum(), 0),
     .Some("insert") => values(inserted(ctx, orderedmap.empty(), 0, n)),
     .Some("update") => values(updated(ctx, keyed(ctx), 0, n)),
     .Some("update-wide") => {
@@ -140,6 +185,21 @@ fn answer(mode: &str, n: u64) -> u64 {
             }
             acc + xs.iter().sum::<u64>()
         }
+        "push-wide" => 2 * (0..n).sum::<u64>(),
+        "push-text" => 2 * n,
+        "insert-near" => {
+            let mut xs = vec![0u64; 4];
+            for i in 0..n {
+                xs.insert((i % 4) as usize, i);
+                xs.remove(4);
+            }
+            xs.iter().sum()
+        }
+        // Each step's longer list is one past the `i` elements before it.
+        "insert-behind" => (0..n).map(|i| i + 1).sum::<u64>() + n,
+        "push-behind" => (0..n).map(|i| i + 1).sum::<u64>() + n,
+        "replace-emptied" => (0..64).map(|j| if j < n { 1 } else { 2 }).sum(),
+        "replace-filled" => (n.saturating_sub(64)..n).sum(),
         "insert" => {
             let mut m = std::collections::BTreeMap::new();
             for i in 0..n {
@@ -165,9 +225,17 @@ fn answer(mode: &str, n: u64) -> u64 {
 /// **Every step answers what it did, whichever path the runtime took for it.**
 /// A piece of 8 bytes or of 78, appended to a string that owns its block, one
 /// whose scalars were just read, and one still held elsewhere; a push and a
-/// concatenation onto a list owned and shared; `replaceAt` on a list owned and
-/// shared; and an ordered map inserted into, updated with values of one word
-/// and of nine, and inserted into while the map before is still read.
+/// concatenation onto a list owned and shared; a push of nine words and of a
+/// string; `insertAt` near the end of a short list; `replaceAt` on a list
+/// owned and shared, over empty lists and full ones; and an ordered map
+/// inserted into, updated with values of one word and of nine, and inserted
+/// into while the map before is still read.
+///
+/// Two modes push onto a list, read the longer list and drop it, then push or
+/// insert onto the shorter one, whose block still holds the longer one's last
+/// string past its end. Each such step copied the list into a block of twice
+/// the capacity, so these took the machine's memory within 3000 steps: the
+/// copy now keeps the capacity where the block had room.
 #[test]
 fn growing_a_value_answers_the_same_owned_or_shared() {
     let n = 3000;
@@ -183,6 +251,13 @@ fn growing_a_value_answers_the_same_owned_or_shared() {
             "push-shared",
             "replace",
             "replace-shared",
+            "push-wide",
+            "push-text",
+            "insert-near",
+            "insert-behind",
+            "push-behind",
+            "replace-emptied",
+            "replace-filled",
             "insert",
             "update",
             "update-wide",
@@ -213,6 +288,19 @@ fn growing_a_value_answers_the_same_owned_or_shared() {
 ///
 /// In instructions a step on the copy-and-patch backend, an 8-byte append went
 /// from 157 to 124, a push from 150 to 121, and a `replaceAt` from 102 to 91.
+///
+/// Then the push and `replaceAt` paths stopped saving registers at all: each
+/// ends in its copy, and a long element's `memcpy` is the tail call. A
+/// `replaceAt` over an empty list, which is what an ordered map's descent
+/// leaves in a node's place, no longer calls out to release it; `insertAt`
+/// shifts a short tail inline; and an element's all-zero test reads a few
+/// overlapping words in place of a loop. A push went from 120 to 99, one of
+/// nine words from 332 to 305 and one of a string from 341 to 302, an
+/// `insertAt` and `removeAt` from 233 to 214, a `replaceAt` from 91 to 82 and
+/// one over an empty list from 127 to 108, and an ordered map's update from
+/// 2332 to 2220. A `replaceAt` over a full list, which releases what it
+/// replaces, read 272 before and 275 after, and is bounded so it stays there.
+///
 /// Each bound sits about halfway. LLVM open-codes an append and inlines the
 /// rest, so only the copy-and-patch backend is bounded.
 #[test]
@@ -221,7 +309,17 @@ fn an_owned_step_saves_next_to_nothing() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("growing-steps-costs", STEPPED);
-        for (mode, bound) in [("concat", 140), ("push", 135), ("replace", 96)] {
+        for (mode, bound) in [
+            ("concat", 140),
+            ("push", 110),
+            ("replace", 86),
+            ("push-wide", 318),
+            ("push-text", 321),
+            ("insert-near", 223),
+            ("replace-emptied", 117),
+            ("replace-filled", 285),
+            ("update", 2276),
+        ] {
             let want = format!("{}\n", answer(mode, STEPS));
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step, {blocks} blocks");

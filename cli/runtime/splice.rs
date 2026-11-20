@@ -27,10 +27,11 @@
 
 use std::cell::Cell;
 
-use crate::list::{Release, Retain, block, copy_retaining, copy_small, move_small, spare};
-use crate::memory::{
-    buri_rt_alloc, buri_rt_cap, buri_rt_decref, buri_rt_grown_capacity, buri_rt_unique_cap,
+use crate::list::{
+    Release, Retain, block, copy_retaining, copy_small, move_small, regrown_capacity, shift_up,
+    spare,
 };
+use crate::memory::{buri_rt_alloc, buri_rt_cap, buri_rt_decref, buri_rt_free, buri_rt_unique_cap};
 use crate::value::BuriList;
 
 thread_local! {
@@ -44,10 +45,21 @@ thread_local! {
 /// which is the walk the backends' own list glue makes.
 extern "C" fn release_elements(p: *mut u8) {
     let (stride, release) = RELEASING.get();
-    let Some(release) = release else { return };
     // SAFETY: `buri_rt_decref` hands its glue a live payload pointer.
+    unsafe { release_from(p, 0, stride, release) }
+}
+
+/// Releases each element of the block at `p` from index `from` to the end of
+/// its capacity, skipping those that hold nothing.
+///
+/// # Safety
+/// `p` is a live payload pointer of a `[T]` block whose elements from `from`
+/// on are the caller's to release; `release` is `T`'s release glue.
+unsafe fn release_from(p: *mut u8, from: usize, stride: usize, release: Release) {
+    let Some(release) = release else { return };
+    // SAFETY: the caller promises a live payload pointer.
     let cap = unsafe { buri_rt_cap(p) } as usize;
-    for i in 0..cap / stride.max(1) {
+    for i in from..cap / stride.max(1) {
         // SAFETY: `i * stride` is inside the block's capacity.
         unsafe {
             let at = p.add(i.saturating_mul(stride));
@@ -58,17 +70,43 @@ extern "C" fn release_elements(p: *mut u8) {
     }
 }
 
+/// Frees a block the caller holds the only count of, once its first `moved`
+/// elements have moved out. The rest of its capacity is released first,
+/// because a slot past the moved ones can still hold what a longer, dead
+/// descriptor put there. The moved slots are neither zeroed nor read.
+///
+/// # Safety
+/// `p` is a live payload pointer of a `[T]` block that
+/// [`buri_rt_unique_cap`] answered for, and the caller holds its count;
+/// `release` is `T`'s release glue.
+unsafe fn free_held(p: *mut u8, moved: usize, stride: usize, release: Release) {
+    // SAFETY: the caller promises the block and its only count.
+    unsafe {
+        release_from(p, moved, stride, release);
+        buri_rt_free(p);
+    }
+}
+
 /// Gives back the receiver's count, releasing its elements if it was the last.
+///
+/// A block held once dies here, and the walk over its elements is this
+/// call's own. Only a block that may live on goes through `buri_rt_decref`,
+/// whose glue takes the block alone, so that path alone sets [`RELEASING`].
 ///
 /// # Safety
 /// `ptr` is null or a live payload pointer of a `[T]` block this call owns a
 /// count of; `release` is `T`'s release glue.
 unsafe fn give_back(ptr: *const u8, stride: usize, release: Release) {
+    // SAFETY: the caller promises a live block or null.
+    if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
+        // SAFETY: the count is the caller's, and the only one.
+        return unsafe { free_held(ptr.cast_mut(), 0, stride, release) };
+    }
     if ptr.is_null() {
         return;
     }
-    RELEASING.set((stride, release));
     let glue: Option<extern "C" fn(*mut u8)> = if release.is_some() {
+        RELEASING.set((stride, release));
         Some(release_elements)
     } else {
         None
@@ -125,6 +163,64 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
     _equal: *const u8,
     out: *mut BuriList,
 ) {
+    // The insert in place that calls nothing: room in a block held once, for
+    // an element and a tail short enough to shift inline. Everything else is
+    // `insert_slow`, out of line, so that this path saves no registers for
+    // the calls the others make.
+    let (n, s) = (len as usize, stride as usize);
+    let from = (at.max(0) as usize).min(n);
+    let tail = (n - from).saturating_mul(s);
+    if s != 0 && s <= 64 && tail <= SHIFTED_INLINE {
+        // SAFETY: the caller promises a live block or null.
+        if let Some(cap) = unsafe { buri_rt_unique_cap(ptr) } {
+            let used = n.saturating_mul(s);
+            // SAFETY: slot `n` is inside the capacity when it covers
+            // `used + s` bytes.
+            let fits = cap >= used.saturating_add(s) as u64
+                && (retain.is_none() || unsafe { spare(ptr.add(used), s) });
+            if fits {
+                let p = ptr.cast_mut();
+                // SAFETY: as in `insert_slow`'s in-place path.
+                unsafe {
+                    shift_up(p.add(from * s), tail, s);
+                    copy_small(item, p.add(from * s), s);
+                    out.write(BuriList {
+                        ptr: p,
+                        len: n as u64 + 1,
+                    });
+                }
+                return;
+            }
+        }
+    }
+    // SAFETY: forwarded.
+    unsafe { insert_slow(ptr, len, at, item, stride, retain, release, out) }
+}
+
+/// The longest tail [`buri_rt_map_insert_at`] shifts without a call: four
+/// of [`shift_up`]'s steps.
+const SHIFTED_INLINE: usize = 256;
+
+/// [`buri_rt_map_insert_at`]'s whole answer: an empty element, the insert in
+/// place, or a copy, grown where the list was held once.
+///
+/// # Safety
+/// As [`buri_rt_map_insert_at`].
+#[inline(never)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the entry's row, less the equality glue"
+)]
+unsafe fn insert_slow(
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    item: *const u8,
+    stride: u64,
+    retain: Retain,
+    release: Release,
+    out: *mut BuriList,
+) {
     let (n, s) = (len as usize, stride as usize);
     let at = (at.max(0) as usize).min(n);
     let total = n.saturating_add(1);
@@ -165,7 +261,7 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
     // fits, and exact where it was shared.
     let fresh = match unique {
         Some(cap) => {
-            let p = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
+            let p = buri_rt_alloc(regrown_capacity(needed, cap));
             BuriList {
                 ptr: p,
                 len: total as u64,
@@ -180,26 +276,25 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
         let f = fresh.ptr;
         if unique.is_some() {
             // The list was the caller's alone, so its elements move rather
-            // than copy: no retain here, and the old block's slots are zeroed
-            // so its release below skips them. A slot past `n` still holds
-            // what a longer, dead descriptor put there, and is released.
+            // than copy: no retain here, and the old block goes with only
+            // its slots past `n` released, which still hold what a longer,
+            // dead descriptor put there.
             let p = ptr.cast_mut();
             std::ptr::copy_nonoverlapping(p, f, at * s);
             std::ptr::copy_nonoverlapping(p.add(at * s), f.add((at + 1) * s), (n - at) * s);
+            copy_small(item, f.add(at * s), s);
             if retain.is_some() {
-                std::ptr::write_bytes(p, 0, n * s);
+                let used = total * s;
+                let headroom = (buri_rt_cap(f) as usize).saturating_sub(used);
+                std::ptr::write_bytes(f.add(used), 0, headroom);
             }
+            free_held(p, n, s, release);
         } else {
             copy_retaining(f, ptr, at, s, retain);
             copy_retaining(f.add((at + 1) * s), ptr.add(at * s), n - at, s, retain);
+            copy_small(item, f.add(at * s), s);
+            give_back(ptr, s, release);
         }
-        copy_small(item, f.add(at * s), s);
-        if unique.is_some() && retain.is_some() {
-            let used = total * s;
-            let headroom = (buri_rt_cap(f) as usize).saturating_sub(used);
-            std::ptr::write_bytes(f.add(used), 0, headroom);
-        }
-        give_back(ptr, s, release);
         out.write(fresh);
     }
 }
@@ -225,6 +320,88 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     _equal: *const u8,
     out: *mut BuriList,
 ) {
+    // The write in place: a slot of a block held once. Over a slot that holds
+    // nothing to release, such as the empty node a descent left in its place,
+    // it calls nothing, and a long item's `memcpy` is the tail call. The
+    // other paths are out of line, so that this one saves no registers.
+    let s = stride as usize;
+    // SAFETY: the caller promises a live block or null.
+    if at >= 0 && (at as u64) < len && s != 0 && unsafe { buri_rt_unique_cap(ptr) }.is_some() {
+        // SAFETY: `at` is inside the caller's live block.
+        let slot = unsafe { ptr.cast_mut().add(at as usize * s) };
+        if let Some(release) = release {
+            // SAFETY: the slot covers `s` bytes.
+            if unsafe { holds(slot, s) } {
+                // SAFETY: forwarded.
+                return unsafe { replace_held(slot, item, s, release, ptr, len, out) };
+            }
+        }
+        // SAFETY: the item moves in with the count the caller handed over,
+        // over a slot with nothing to give back.
+        unsafe {
+            out.write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            });
+            copy_small(item, slot, s);
+        }
+        return;
+    }
+    // SAFETY: forwarded.
+    unsafe { replace_slow(ptr, len, at, item, stride, retain, release, out) }
+}
+
+/// [`buri_rt_map_replace_at`] in place over a slot that holds something: the
+/// item already holds the count the caller handed over, so the element it
+/// replaces lets go first, and then the bytes move in.
+///
+/// # Safety
+/// `slot` is element `at` of the live block at `ptr`, which the call holds
+/// the only count of; `item` covers `s` bytes and the call owns its counts;
+/// `release` is the element's release glue; `out` is writable.
+#[inline(never)]
+unsafe fn replace_held(
+    slot: *mut u8,
+    item: *const u8,
+    s: usize,
+    release: unsafe extern "C" fn(*mut u8),
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriList,
+) {
+    // SAFETY: the caller promises the slot, the item and `out`.
+    unsafe {
+        release(slot);
+        copy_small(item, slot, s);
+        out.write(BuriList {
+            ptr: ptr.cast_mut(),
+            len,
+        });
+    }
+}
+
+/// [`buri_rt_map_replace_at`] past its write in place: an index outside the
+/// list, which hands the item back, or a shared list, which is copied with
+/// the item at `at` and its count given back.
+///
+/// # Safety
+/// As [`buri_rt_map_replace_at`], with the block not held once where `at` is
+/// inside it.
+#[inline(never)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the entry's row, less the equality glue"
+)]
+unsafe fn replace_slow(
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    item: *const u8,
+    stride: u64,
+    retain: Retain,
+    release: Release,
+    out: *mut BuriList,
+) {
     let (n, s) = (len as usize, stride as usize);
     if at < 0 || at as usize >= n || s == 0 {
         // SAFETY: the caller promises `out` and hands over the item, which
@@ -239,48 +416,6 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
         return;
     }
     let at = at as usize;
-    // SAFETY: the caller promises a live block.
-    if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
-        let slot = unsafe { ptr.cast_mut().add(at * s) };
-        // SAFETY: the item already holds the count the caller handed over, so
-        // the element it replaces can let go first; then the bytes move in.
-        unsafe {
-            release_one(slot, s, release);
-            copy_small(item, slot, s);
-            out.write(BuriList {
-                ptr: ptr.cast_mut(),
-                len,
-            });
-        }
-        return;
-    }
-    // SAFETY: forwarded.
-    unsafe { replace_copied(ptr, n, at, item, s, retain, release, out) }
-}
-
-/// [`buri_rt_map_replace_at`] on a shared list: a copy with `item` at `at`,
-/// and the receiver's count given back.
-///
-/// Out of line, so that the in-place path, which calls only the release glue,
-/// saves no registers for the copy's calls.
-///
-/// # Safety
-/// As [`buri_rt_map_replace_at`], with `at < n` and `s` not zero.
-#[inline(never)]
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the entry's row, less the equality glue"
-)]
-unsafe fn replace_copied(
-    ptr: *const u8,
-    n: usize,
-    at: usize,
-    item: *const u8,
-    s: usize,
-    retain: Retain,
-    release: Release,
-    out: *mut BuriList,
-) {
     let fresh = block(n, s);
     // SAFETY: the fresh block covers `n` elements, disjoint from the source.
     unsafe {
