@@ -482,9 +482,26 @@ const TALLY_WORDS: usize = 5;
 /// One thread's share of the heap counters. Only its own thread writes it, so a
 /// change is a load and a store rather than a read-modify-write; readers on
 /// other threads sum it under [`OPEN_TALLIES`].
+#[repr(C)]
 struct Tally {
     words: [AtomicU64; TALLY_WORDS],
+    /// What the cache's fast paths counted, one entry per exact payload size.
+    ///
+    /// **A cache hit and a cached free count here, one word each, instead of
+    /// two words of `words`.** A slot's size is its index, so its two counts
+    /// give the blocks and the bytes both: [`Tally::read`] multiplies. That is
+    /// one load, add and store on each path instead of two, measured at up to
+    /// 3% of a list-building program. The entries have the stride of
+    /// [`Cache::slots`], so one index reaches both.
+    slots: [SlotCount; CACHE_SLOTS],
     state: std::cell::Cell<u8>,
+}
+
+/// One payload size's blocks taken from and given to the cache by its fast
+/// paths.
+struct SlotCount {
+    taken: AtomicU64,
+    given: AtomicU64,
 }
 
 /// Not yet in [`OPEN_TALLIES`]; the thread's first count opens it.
@@ -532,7 +549,33 @@ fn freed(cap: u64) -> [(usize, u64); 2] {
     [(FREED_BLOCKS, 1), (FREED_BYTES, cap)]
 }
 
+/// Add one to a count only this thread writes.
+#[inline(always)]
+fn bump(w: &AtomicU64) {
+    w.store(w.load(Ordering::Relaxed).wrapping_add(1), Ordering::Relaxed);
+}
+
 impl Tally {
+    /// The words with the slots' counts folded in.
+    fn read(&self) -> [u64; TALLY_WORDS] {
+        let mut n = self.words.each_ref().map(|w| w.load(Ordering::Relaxed));
+        for (size, s) in (0u64..).zip(&self.slots) {
+            let taken = s.taken.load(Ordering::Relaxed);
+            let given = s.given.load(Ordering::Relaxed);
+            for (i, d) in [
+                (ALLOCATED_BLOCKS, taken),
+                (ALLOCATED_BYTES, taken.wrapping_mul(size)),
+                (FREED_BLOCKS, given),
+                (FREED_BYTES, given.wrapping_mul(size)),
+            ] {
+                if let Some(w) = n.get_mut(i) {
+                    *w = w.wrapping_add(d);
+                }
+            }
+        }
+        n
+    }
+
     /// Add `deltas` to this thread's words, open or not. [`Tally::seen`] makes
     /// sure a reader will see them, and the hot paths skip it where the tally
     /// is certainly open: a cache that holds or takes a block is armed, and
@@ -563,7 +606,7 @@ impl Tally {
             // The drain closes the tally at thread exit, so a thread that can
             // no longer register one never opens it.
             if CACHE_DRAIN.try_with(|_| ()).is_ok() {
-                open_tallies().push(self.words.as_ptr() as usize);
+                open_tallies().push(std::ptr::from_ref(self) as usize);
                 self.state.set(TALLY_OPEN);
                 return;
             }
@@ -590,10 +633,10 @@ fn retire(deltas: &[(usize, u64)]) {
 fn close_tally(t: &Tally) {
     if t.state.get() == TALLY_OPEN {
         let mut open = open_tallies();
-        for (retired, w) in RETIRED_TALLY.iter().zip(&t.words) {
-            retired.fetch_add(w.load(Ordering::Relaxed), Ordering::Relaxed);
+        for (retired, w) in RETIRED_TALLY.iter().zip(t.read()) {
+            retired.fetch_add(w, Ordering::Relaxed);
         }
-        let me = t.words.as_ptr() as usize;
+        let me = std::ptr::from_ref(t) as usize;
         open.retain(|&a| a != me);
     }
     t.state.set(TALLY_CLOSED);
@@ -619,9 +662,9 @@ fn summed() -> [u64; TALLY_WORDS] {
     for &a in open.iter() {
         // SAFETY: an address stays in the list only while its thread is alive,
         // and it leaves under the lock this holds.
-        let words = unsafe { &*(a as *const [AtomicU64; TALLY_WORDS]) };
-        for (s, w) in sum.iter_mut().zip(words) {
-            *s = s.wrapping_add(w.load(Ordering::Relaxed));
+        let tally = unsafe { &*(a as *const Tally) };
+        for (s, w) in sum.iter_mut().zip(tally.read()) {
+            *s = s.wrapping_add(w);
         }
     }
     sum
@@ -933,7 +976,7 @@ fn cache_budget() -> u64 {
 /// periods rather than the whole of `cache_budget()`. Measured on 200 000
 /// 64-byte blocks: **419 360 bytes retained before this slice, 25 600
 /// after.**
-const CACHE_SWEEP_OPS: u32 = 1024;
+const CACHE_SWEEP_OPS: u64 = 1024;
 
 /// One thread's cache: a free-list head per exact payload size, the bytes
 /// they hold between them, and (G6) the decay state that gives them back.
@@ -979,7 +1022,7 @@ struct Cache {
     /// Cache operations left before the next sweep. Counting down keeps the
     /// fast path's test a compare against a constant, and zero, before the
     /// cache is armed, sends every push to the slow path that arms it.
-    until_sweep: u32,
+    until_sweep: u64,
     /// Sweeps so far, for [`CACHE_MID_SWEEP_EVERY`].
     sweeps: u32,
     /// **G5: the `core/alloc::scoped` arena this thread is inside, plus one;
@@ -1259,6 +1302,11 @@ impl Drop for CacheDrain {
 /// A thread's cache and its [`Tally`], in one thread-local so the allocation
 /// path pays one `tlv_get_addr` for both. The tally sits outside the
 /// `UnsafeCell` because other threads read it.
+///
+/// In this order, so [`Tally::slots`] sits close enough behind
+/// [`Cache::slots`] that one address and two offsets reach a slot and its
+/// counts.
+#[repr(C)]
 struct ThreadHeap {
     cache: std::cell::UnsafeCell<Cache>,
     tally: Tally,
@@ -1284,6 +1332,12 @@ thread_local! {
             }),
             tally: Tally {
                 words: [const { AtomicU64::new(0) }; TALLY_WORDS],
+                slots: [const {
+                    SlotCount {
+                        taken: AtomicU64::new(0),
+                        given: AtomicU64::new(0),
+                    }
+                }; CACHE_SLOTS],
                 state: std::cell::Cell::new(TALLY_NEW),
             },
             big: std::cell::UnsafeCell::new(BigCache {
@@ -1483,11 +1537,9 @@ fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
     let Some(t) = (unsafe { t.as_ref() }) else {
         return alloc_missed::<ZEROED>(payload, t);
     };
-    // SAFETY: as above.
-    let Some(p) = cache_take(unsafe { &mut *t.cache.get() }, payload) else {
+    let Some(p) = cache_take(t, payload) else {
         return alloc_missed::<ZEROED>(payload, t);
     };
-    t.tally.add(&allocated(payload));
     if ZEROED {
         // SAFETY: `p` has `payload` usable bytes.
         unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
@@ -1569,7 +1621,6 @@ unsafe fn free_cached(p: *mut u8) {
     }
     // SAFETY: this thread's own heap, and nothing derived from it escapes.
     let t = unsafe { &*t };
-    t.tally.add(&freed(cap));
     // SAFETY: as above.
     let cache = unsafe { &mut *t.cache.get() };
     let bytes = slot_bytes(cap);
@@ -1590,16 +1641,19 @@ unsafe fn free_cached(p: *mut u8) {
     // storage.
     unsafe { (*header(p)).rc = slot.head as u64 };
     slot.head = p;
+    #[expect(clippy::indexing_slicing, reason = "as above")]
+    bump(&t.tally.slots[cap as usize].given);
 }
 
 /// [`free_cached`] once the cache's fast push refused a block of `cap` bytes:
-/// kept by the slow push or given back to the platform allocator. The free is
-/// already in the tally.
+/// counted, then kept by the slow push or given back to the platform
+/// allocator.
 ///
 /// # Safety
 /// As [`cache_push_slow`].
 #[inline(never)]
 unsafe fn free_missed(t: &ThreadHeap, p: *mut u8, cap: u64) {
+    t.tally.add(&freed(cap));
     // SAFETY: forwarded.
     if !unsafe { cache_push_slow(t, p, cap) } {
         // SAFETY: `p - 16` is the allocation, and `layout_for(cap)` is the
@@ -1616,17 +1670,15 @@ fn cache_pop_counted(payload: u64) -> Option<*mut u8> {
     // destructors run must not panic, and the answer there is simply "no
     // cache".
     let popped = CACHE.try_with(|t| {
-        t.tally.add(&allocated(payload));
         let hit = if payload <= CACHE_MAX_PAYLOAD {
-            // SAFETY: `t` is this thread's own cell, and no reference derived
-            // from it escapes this closure or crosses a call that could
-            // re-enter.
-            cache_take(unsafe { &mut *t.cache.get() }, payload)
+            cache_take(t, payload)
         } else {
             None
         };
-        // A hit came from an armed cache, so the tally is open.
+        // A hit came from an armed cache, so the tally is open, and the hit
+        // counted itself.
         if hit.is_none() {
+            t.tally.add(&allocated(payload));
             t.tally.seen(&allocated(payload));
         }
         hit
@@ -1637,9 +1689,13 @@ fn cache_pop_counted(payload: u64) -> Option<*mut u8> {
     })
 }
 
-/// The head of `payload`'s slot, if it has one.
+/// The head of `payload`'s slot in `t`'s cache, if it has one, with the
+/// allocation counted.
 #[inline(always)]
-fn cache_take(cache: &mut Cache, payload: u64) -> Option<*mut u8> {
+fn cache_take(t: &ThreadHeap, payload: u64) -> Option<*mut u8> {
+    // SAFETY: this thread's own cell, and no reference derived from it
+    // escapes this function or crosses a call that could re-enter.
+    let cache = unsafe { &mut *t.cache.get() };
     let slot = cache.slots.get_mut(payload as usize)?;
     let p = slot.head;
     if p.is_null() {
@@ -1651,6 +1707,9 @@ fn cache_take(cache: &mut Cache, payload: u64) -> Option<*mut u8> {
     // G6: the program wanted this size in this period, so the sweep
     // leaves the slot alone.
     slot.idle = 0;
+    if let Some(n) = t.tally.slots.get(payload as usize) {
+        bump(&n.taken);
+    }
     cache.room += slot_bytes(payload);
     Some(p)
 }
@@ -1769,7 +1828,6 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
 #[inline(always)]
 unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
     let pushed = CACHE.try_with(|t| {
-        t.tally.add(&freed(cap));
         // SAFETY: `t` is this thread's own cell, as in `cache_pop_counted`.
         let cache = unsafe { &mut *t.cache.get() };
         let bytes = slot_bytes(cap);
@@ -1777,6 +1835,7 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
         // so this closure stays small enough to inline into `buri_rt_free`
         // rather than costing a second frame on every free.
         if cap > CACHE_MAX_PAYLOAD || bytes > cache.room || cache.until_sweep <= 1 {
+            t.tally.add(&freed(cap));
             // SAFETY: forwarded.
             return unsafe { cache_push_slow(t, p, cap) };
         }
@@ -1793,6 +1852,8 @@ unsafe fn cache_push_counted(p: *mut u8, cap: u64) -> bool {
             (*header(p)).rc = slot.head as u64;
         }
         slot.head = p;
+        #[expect(clippy::indexing_slicing, reason = "as above")]
+        bump(&t.tally.slots[cap as usize].given);
         true
     });
     pushed.unwrap_or_else(|_| {
@@ -6115,7 +6176,7 @@ mod tests {
 
     /// This thread's own heap counts, which no other test moves.
     fn own_tally() -> [u64; TALLY_WORDS] {
-        CACHE.with(|t| t.tally.words.each_ref().map(|w| w.load(Ordering::Relaxed)))
+        CACHE.with(|t| t.tally.read())
     }
 
     /// Run a test of the per-thread cache with the heap check off.
@@ -6423,7 +6484,7 @@ mod tests {
                 unsafe { buri_rt_free(p) };
             }
 
-            let bound = 2 * u64::from(CACHE_SWEEP_OPS) * slot_bytes(PAYLOAD);
+            let bound = 2 * CACHE_SWEEP_OPS * slot_bytes(PAYLOAD);
             let residue = cache_held();
             assert!(
                 residue <= bound,

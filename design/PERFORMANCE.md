@@ -10915,6 +10915,46 @@ and added 62 M to strings release, because `find` stopped being inlined.
 `str.fromInt` (236 to 199 instructions a step) and `0.30000000000000004`
 (745 to 596) on copy-and-patch builds.
 
+### 6.171 A cache hit counts itself with one add, 2026-11-20
+
+```text
+                              before      after       change
+strings, stencil              1.9878 B    1.9132 B    -3.76%
+lists, stencil                2.5186 B    2.4765 B    -1.67%
+floats, stencil               0.5731 B    0.5626 B    -1.83%
+tree, stencil                 1.6128 B    1.5917 B    -1.31%
+maps, stencil                 1.4249 B    1.4122 B    -0.89%
+kvstore, stencil              0.9583 B    0.9543 B    -0.41%
+strings, release              1.5289 B    1.4543 B    -4.88%
+lists, release                1.4448 B    1.4026 B    -2.91%
+floats, release               0.4781 B    0.4676 B    -2.19%
+tree, release                 1.4712 B    1.4502 B    -1.43%
+maps, release                 0.8340 B    0.8213 B    -1.52%
+kvstore, release              0.6194 B    0.6154 B    -0.64%
+```
+
+Counted with aarch64 callgrind. `sort` and `match` didn't move.
+
+- A pop or push from the thread's cache adds one to a count for its size.
+  It added to four heap counts before. A reader works out blocks and bytes
+  from the size counts, so `buri_rt_heap_stats` and the exit audit read the
+  same numbers. A miss still adds to the heap counts.
+- `ThreadHeap` and `Tally` are `#[repr(C)]`. Without that, rustc put the
+  cache past the offset an aarch64 load can reach, and each path paid a
+  `mov` that ate the saving.
+- `find` is inline in every caller, and a needle's tail of 16 bytes or less
+  is compared byte by byte, not with a call to `bcmp`. A longer tail still
+  goes through slice equality, out of line.
+- A split keeps its ranges in uninitialized stack slots, and
+  `list_of_views` writes each view through a moving pointer.
+
+`native::alloc_churn` checks that the heap counts match with and without the
+heap check. It bounds a `list.range` step (187 to 180 instructions) and a
+list literal step (177 to 170). `native::split_text` checks splits up to 40
+pieces and needles of 2 to 20 bytes. It bounds a three-piece split (668 to
+608), `indexOf("-")` (146 to 131) and a missed `contains("99")` (392 to
+295).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

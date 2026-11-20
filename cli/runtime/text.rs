@@ -63,6 +63,7 @@ use crate::memory::{
 };
 use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK, BuriList, BuriStr, str_of};
 use crate::{BURI_OK, scalars};
+use std::mem::MaybeUninit;
 
 /// The discriminant an `Option`-returning entry answers when the value is
 /// absent. `.None` is `Option`'s second variant (`option.buri:9-12`), so its
@@ -158,6 +159,10 @@ fn scalar_at(bytes: &[u8], at: usize) -> Option<char> {
 /// The first byte offset at which `needle` occurs in `haystack`.
 ///
 /// The empty needle occurs at 0, which is what `String.prototype.indexOf` says.
+///
+/// Inline into every caller: out of line, its call and saved registers cost
+/// more than a short search does.
+#[inline(always)]
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     let Some((&first, rest)) = needle.split_first() else {
         return Some(0);
@@ -173,12 +178,32 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     let mut at = 0;
     while let Some(found) = memchr(first, starts.get(at..).unwrap_or(&[])) {
         let start = at + found;
-        if haystack.get(start + 1..start + needle.len()) == Some(rest) {
+        if haystack
+            .get(start + 1..start + needle.len())
+            .is_some_and(|h| same(h, rest))
+        {
             return Some(start);
         }
         at = start + 1;
     }
     None
+}
+
+/// Whether `a` holds `b`'s bytes, for an `a` as long as `b`. A needle's tail
+/// is short, and comparing it here costs less than the call slice equality
+/// makes.
+#[inline(always)]
+fn same(a: &[u8], b: &[u8]) -> bool {
+    if b.len() > 16 {
+        return same_long(a, b);
+    }
+    a.iter().zip(b).all(|(x, y)| x == y)
+}
+
+/// [`same`] for a long tail, out of line so a search keeps its registers.
+#[inline(never)]
+fn same_long(a: &[u8], b: &[u8]) -> bool {
+    a == b
 }
 
 /// The first offset of `byte` in `bytes`, eight bytes at a time.
@@ -202,8 +227,11 @@ fn memchr(byte: u8, bytes: &[u8]) -> Option<usize> {
 }
 
 /// The ranges a split cut, on the stack until there are more than sixteen.
+///
+/// The stack slots start uninitialised: zeroing all sixteen cost more than a
+/// three-piece split wrote.
 struct Pieces {
-    inline: [(usize, usize); 16],
+    inline: [MaybeUninit<(usize, usize)>; 16],
     n: usize,
     spilled: Vec<(usize, usize)>,
 }
@@ -211,7 +239,7 @@ struct Pieces {
 impl Pieces {
     fn new() -> Pieces {
         Pieces {
-            inline: [(0, 0); 16],
+            inline: [MaybeUninit::uninit(); 16],
             n: 0,
             spilled: Vec::new(),
         }
@@ -219,19 +247,30 @@ impl Pieces {
 
     fn push(&mut self, piece: (usize, usize)) {
         if let Some(slot) = self.inline.get_mut(self.n) {
-            *slot = piece;
+            slot.write(piece);
             self.n += 1;
             return;
         }
         if self.spilled.is_empty() {
-            self.spilled.extend_from_slice(&self.inline);
+            let mut spilled = self.written().to_vec();
+            spilled.push(piece);
+            self.spilled = spilled;
+            return;
         }
         self.spilled.push(piece);
     }
 
+    /// The first `n` slots, which `push` wrote.
+    fn written(&self) -> &[(usize, usize)] {
+        let n = self.n.min(self.inline.len());
+        // SAFETY: `push` wrote every slot below `n`, and `MaybeUninit<T>` has
+        // `T`'s layout.
+        unsafe { std::slice::from_raw_parts(self.inline.as_ptr().cast(), n) }
+    }
+
     fn as_slice(&self) -> &[(usize, usize)] {
         if self.spilled.is_empty() {
-            self.inline.get(..self.n).unwrap_or(&[])
+            self.written()
         } else {
             &self.spilled
         }
@@ -311,8 +350,9 @@ unsafe fn list_of_views(
     }
     let block = buri_rt_alloc((pieces.len().saturating_mul(stride)) as u64);
     let mut views = 0u64;
-    for (i, (from, to)) in pieces.iter().enumerate() {
-        let n = to.saturating_sub(*from);
+    let mut at = block.cast::<BuriStr>();
+    for &(from, to) in pieces {
+        let n = to.saturating_sub(from);
         let element = if n == 0 || ptr.is_null() {
             BuriStr::empty()
         } else {
@@ -320,17 +360,16 @@ unsafe fn list_of_views(
             // SAFETY: the caller promises the range is inside `base`'s block.
             BuriStr {
                 base,
-                ptr: unsafe { ptr.add(*from) },
+                ptr: unsafe { ptr.add(from) },
                 len: n as u64 | ascii,
             }
         };
-        // SAFETY: `i * stride` is inside the spine block just allocated.
+        // SAFETY: the spine block just allocated has one element for each
+        // piece, so `at` stays inside it.
         unsafe {
-            block
-                .add(i.saturating_mul(stride))
-                .cast::<BuriStr>()
-                .write(element)
-        };
+            at.write(element);
+            at = at.add(1);
+        }
     }
     // One reference per non-empty view, taken in one update.
     // SAFETY: `base` is the live block every view points into.

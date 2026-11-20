@@ -397,6 +397,11 @@ mod alloc_churn;
 // one rendering costs, counted rather than timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod number_text;
+// A string split and searched: the pieces and positions at every count and
+// needle length, and what one costs, counted rather than timed, on every
+// backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod split_text;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

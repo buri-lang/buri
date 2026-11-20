@@ -81,6 +81,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// step from 208 to 177 and from 109 to 99; a large literal step from 782 to
 /// 757 and from 261 to 255.
 ///
+/// **A cache hit counts itself with one add.** A pop or push once added to
+/// four heap counts; it now adds one to its own size's count, and a reader
+/// works the bytes out from the sizes. A `list.range` step went from 187 to
+/// 180 instructions on stencil, a list literal step from 177 to 170 and a
+/// large literal step from 756 to 747.
+///
 /// Each bound sits about halfway.
 #[test]
 fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
@@ -89,9 +95,9 @@ fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("alloc-churn", &churn());
         for (mode, length, stencil, llvm) in [
-            ("range", 2, 198, 159),
-            ("literal", 2, 192, 104),
-            ("large", LARGE, 769, 258),
+            ("range", 2, 183, 159),
+            ("literal", 2, 173, 104),
+            ("large", LARGE, 751, 258),
         ] {
             let want = format!("{}\n", STEPS * length);
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
@@ -186,5 +192,84 @@ fn blocks_moved_between_threads_and_actors_read_right_and_are_all_freed() {
                 "{backend} checked={checked}: blocks still live at exit"
             );
         }
+    }
+}
+
+/// Four parallel tasks each make a list and a string of a different size each
+/// step, 1 to 1,112 bytes, so some sizes fit the small-block cache and some
+/// don't. The answer is the sum of their lengths.
+const SIZES: &str = r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+
+fn sizes<C: Allocator>(ctx: C, k: Int, n: Int, acc: Int): Int {
+  if (k >= n) {
+    acc
+  } else {
+    let xs = list.range(ctx, 0, k % 140);
+    sizes(ctx, k + 1, n, acc + xs.length() + str.fromInt(ctx, k * 7919).length())
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let counts = tasks.parallel(ctx, list.range(ctx, 0, 4), fn(c, _i, x) => sizes(c, x, 20000 + x, 0));
+  io.println(ctx, "${counts.foldCtx(ctx, fn(_c, a, b) => a + b, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// [`crate::shared::ALLOC_PROBE`], plus a line with every heap count.
+fn counts_probe() -> String {
+    format!(
+        "{}
+__attribute__((destructor)) static void buri_counts_probe(void) {{
+  Stats s; buri_rt_heap_stats(&s);
+  fprintf(stderr, \"counts=%llu %llu %llu %llu\\n\",
+          (unsigned long long)s.total_blocks, (unsigned long long)s.total_bytes,
+          (unsigned long long)s.live_blocks, (unsigned long long)s.live_bytes);
+}}
+",
+        crate::shared::ALLOC_PROBE
+    )
+}
+
+/// **The heap counts are the same whether a block comes from the cache or
+/// not.** A block the small-block cache hands out or takes back is counted
+/// by its size's own pair of counts, and the rest in the thread's totals, so
+/// the totals are read by adding the two. Under the heap check no block goes
+/// near the cache, so both runs must count every block and byte alike, with
+/// nothing live at exit.
+#[test]
+fn the_heap_counts_are_the_same_whether_a_block_comes_from_the_cache_or_not() {
+    let probe = counts_probe();
+    for (backend, build) in crate::e2e::probed_builds(&probe) {
+        let binary = build("alloc-sizes", SIZES);
+        let counts = |checked: bool| {
+            let mut cmd = std::process::Command::new(&binary);
+            if checked {
+                heap_checked(&mut cmd);
+            }
+            let r = ran_command(&mut cmd);
+            assert_eq!(r.status, 0, "{backend} checked={checked}: {}", r.stderr);
+            assert_eq!(r.stdout, "6219814\n", "{backend} checked={checked}");
+            r.stderr
+                .lines()
+                .find_map(|l| l.strip_prefix("counts="))
+                .unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr))
+                .to_string()
+        };
+        let (shipped, checked) = (counts(false), counts(true));
+        assert_eq!(
+            shipped, checked,
+            "{backend}: total blocks, bytes, live blocks, bytes"
+        );
+        assert!(
+            shipped.ends_with(" 0 0"),
+            "{backend}: {shipped} still live at exit"
+        );
     }
 }
