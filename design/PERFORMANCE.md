@@ -11275,18 +11275,18 @@ build of the same program, and ideally no more than `-O1`'s:
 nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions -- --levels
 ```
 
-On the arm64 VM, 2026-11-19:
+On the arm64 VM, 2026-11-20:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      2104678737     2124695049     1642073870     1629673879       0.991       1.282
-lists        2713594211     2774440692     1648420622     1639791793       0.978       1.646
-floats        670561413      690558129      575558039      572558244       0.971       1.165
+strings      2088581988     2124695049     1642073871     1629673879       0.983       1.272
+lists        2713594211     2774440692     1648420622     1639791788       0.978       1.646
 sort         1067394179     1100433370      279513436      316272131       0.970       3.819
-tree         1612804290     1715040610     1471248502     1471248593       0.940       1.096
-maps         1481570053     1730717829      899101195      897912871       0.856       1.648
-kvstore       989061729     1292280197      654902849      649123489       0.765       1.510
-match        1059302316     1865847930      615666025      615666190       0.568       1.721
+floats        667565222      690558129      575558039      572558243       0.967       1.160
+tree         1612804285     1715040610     1471248502     1471248593       0.940       1.096
+maps         1448295294     1699224637      867608025      866419710       0.852       1.669
+kvstore       947698801     1264437045      627058456      621279096       0.750       1.511
+match        1059302311     1865847930      615666024      615666190       0.568       1.721
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11296,6 +11296,9 @@ match        1059302316     1865847930      615666025      615666190       0.568
 - A value tested against literal after literal, an integer or a byte tag, is
   read into a register once for all its tests, and a payload's fields are read
   where they are; match was 1.89 times `-O1`.
+- A record that an `if` or a match inside an arm answers is built in the
+  outer match's slot, not built aside and copied there; kvstore ran 1.3% fewer
+  instructions and maps 0.6% fewer.
 
 This work may not make dev codegen dearer. The register reads above added
 about 120 cost per line to `ci`'s dev codegen row, though they ran fewer
