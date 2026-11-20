@@ -1571,20 +1571,7 @@ mod heap_slot {
 /// answered.
 #[inline(always)]
 fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
-    #[cfg(all(
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86_64")
-    ))]
-    let t = heap_offset::alloc();
-    #[cfg(not(all(
-        target_os = "linux",
-        any(target_arch = "aarch64", target_arch = "x86_64")
-    )))]
-    let t = if gated(ALLOC_GATE) {
-        std::ptr::null()
-    } else {
-        heap_fast()
-    };
+    let t = alloc_heap();
     // SAFETY: this thread's own heap, and nothing derived from it escapes.
     let Some(t) = (unsafe { t.as_ref() }) else {
         return alloc_missed::<ZEROED>(payload, t);
@@ -1598,6 +1585,38 @@ fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
     }
     // SAFETY: as above.
     unsafe { headed(p, payload) }
+}
+
+/// This thread's heap for the allocation fast path, or null where it must not
+/// run.
+#[inline(always)]
+fn alloc_heap() -> *const ThreadHeap {
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    ))]
+    return heap_offset::alloc();
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64")
+    )))]
+    if gated(ALLOC_GATE) {
+        std::ptr::null()
+    } else {
+        heap_fast()
+    }
+}
+
+/// [`buri_rt_alloc`]'s cache hit alone: a live block of `payload` bytes, or
+/// `None` where `buri_rt_alloc` would go on past the cache. A caller that
+/// tail-calls its own slow half on `None` needs no stack frame for a hit.
+#[inline(always)]
+pub(crate) fn alloc_hit(payload: u64) -> Option<*mut u8> {
+    // SAFETY: this thread's own heap, and nothing derived from it escapes.
+    let t = unsafe { alloc_heap().as_ref() }?;
+    let p = cache_take(t, payload)?;
+    // SAFETY: `p` is a block of `payload` bytes the cache just gave up.
+    Some(unsafe { headed(p, payload) })
 }
 
 /// [`alloc_cached`] past the cache: with `t` null, where the cache's paths

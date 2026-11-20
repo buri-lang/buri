@@ -10955,6 +10955,44 @@ pieces and needles of 2 to 20 bytes. It bounds a three-piece split (668 to
 608), `indexOf("-")` (146 to 131) and a missed `contains("99")` (392 to
 295).
 
+### 6.172 One load finds the heap and asks the gate, 2026-11-20
+
+```text
+                              before      after       change
+strings, stencil              1.9132 B    1.8428 B    -3.68%
+lists, stencil                2.4765 B    2.3680 B    -4.38%
+floats, stencil               0.5626 B    0.5446 B    -3.20%
+tree, stencil                 1.5917 B    1.5445 B    -2.97%
+maps, stencil                 1.4032 B    1.3785 B    -1.76%
+kvstore, stencil              0.9418 B    0.9356 B    -0.66%
+strings, release              1.4543 B    1.3859 B    -4.70%
+lists, release                1.4026 B    1.2942 B    -7.73%
+floats, release               0.4676 B    0.4496 B    -3.85%
+tree, release                 1.4502 B    1.4030 B    -3.26%
+maps, release                 0.8213 B    0.7966 B    -3.01%
+kvstore, release              0.6154 B    0.6093 B    -0.99%
+```
+
+Counted with aarch64 callgrind. `sort` and `match` didn't move.
+
+- On Linux, `heap_offset` keeps two copies of the heap's offset: one for
+  allocations and one for frees. Each reads zero while a gate bit that path
+  must not pass is set. So the load that finds the heap also asks the gate,
+  and each path drops a byte load and a test (4 to 5 instructions). Every
+  change to the gate or the offset goes through one lock and recomputes both
+  copies. macOS still loads the gate: its heap pointer is per thread, so
+  setting a bit couldn't clear every thread's copy.
+- `str.fromInt` takes a cache hit with no stack frame. A miss is a tail
+  call to a copy that allocates the long way, so a hit saves no registers.
+  That is half of lists' 7.7 points.
+
+`native::alloc_churn` checks that blocks go the right way after a scalar
+index or a scope turns on partway through: long strings sliced in turn must
+not read a dropped string's index, with heap counts matching the heap
+check's. With the free copy left stale, the slices came out wrong.
+`native::number_text` now prints every integer as it ships too, and bounds
+four digits (192 to 183 instructions on macOS stencil).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

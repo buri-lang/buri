@@ -93,13 +93,22 @@ const FLOATS: &[&str] = &[
     "1e+21",
 ];
 
-/// Runs `mode` under the heap check and returns what it printed.
+/// Runs `mode` as it ships and under the heap check, which allocates the long
+/// way round, and returns what it printed, the same both ways.
 fn printed(backend: &str, binary: &std::path::Path, mode: &str) -> String {
-    let ran = ran_command(heap_checked(
-        std::process::Command::new(binary).args([mode, "0"]),
-    ));
-    assert_eq!(ran.status, 0, "{backend} {mode}: {}", ran.stderr);
-    ran.stdout
+    let run = |checked: bool| {
+        let mut cmd = std::process::Command::new(binary);
+        cmd.args([mode, "0"]);
+        if checked {
+            heap_checked(&mut cmd);
+        }
+        let ran = ran_command(&mut cmd);
+        assert_eq!(ran.status, 0, "{backend} {mode}: {}", ran.stderr);
+        ran.stdout
+    };
+    let shipped = run(false);
+    assert_eq!(shipped, run(true), "{backend} {mode}");
+    shipped
 }
 
 /// **A number renders as its text at every length and sign.** For integers,
@@ -131,6 +140,10 @@ fn a_number_renders_as_its_text_at_every_length() {
 /// frees what it renders: four digits went from 236 to 199, and
 /// `0.30000000000000004` from 745 to 596.
 ///
+/// **An integer's text needs no stack frame when the cache has a block for
+/// it.** A miss is a tail call to a second copy that allocates the long way,
+/// so a hit saves no registers. Four digits went from 192 to 183.
+///
 /// Each bound sits about halfway. Only the copy-and-patch backend is bounded,
 /// as in `growing_steps.rs`.
 #[test]
@@ -140,7 +153,7 @@ fn rendering_a_number_copies_its_text_without_a_call() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("number-text-costs", RENDERED);
-        for (mode, width, bound) in [("render", 4, 218), ("render-float", 19, 670)] {
+        for (mode, width, bound) in [("render", 4, 188), ("render-float", 19, 670)] {
             let want = format!("{}\n", width * RENDERS);
             let (n, _) = per_op(backend, &binary, mode, &[&steps], RENDERS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step");

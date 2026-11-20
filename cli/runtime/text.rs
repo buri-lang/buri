@@ -1299,17 +1299,48 @@ pub unsafe extern "C" fn buri_rt_str_from_chars(ptr: *const u8, count: u64, out:
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
-    // The digits go straight into the block: no buffer, no copy.
-    let sign = usize::from(n < 0);
-    let digits = crate::fmt::decimal_len(n.unsigned_abs());
-    let len = sign + digits;
+    let len = int_len(n);
+    // A miss is a tail call, so a hit saves no registers.
+    let Some(base) = crate::memory::alloc_hit(len as u64) else {
+        // SAFETY: forwarded.
+        return unsafe { str_from_int_missed(n, out) };
+    };
+    // SAFETY: `base` is a fresh block of `len` bytes; `out` is forwarded.
+    unsafe { write_int(n, len, base, out) }
+}
+
+/// [`buri_rt_str_from_int`] once the cache had no block of its size.
+///
+/// # Safety
+/// As [`buri_rt_str_from_int`].
+#[inline(never)]
+unsafe fn str_from_int_missed(n: i64, out: *mut BuriStr) {
+    let len = int_len(n);
     let base = buri_rt_alloc(len as u64);
+    // SAFETY: `base` is a fresh block of `len` bytes; `out` is forwarded.
+    unsafe { write_int(n, len, base, out) }
+}
+
+/// The bytes `n` takes in decimal, its sign included.
+#[inline(always)]
+fn int_len(n: i64) -> usize {
+    usize::from(n < 0) + crate::fmt::decimal_len(n.unsigned_abs())
+}
+
+/// Write `n` in decimal into `base`'s `len` bytes, and its `Str` to `out`.
+///
+/// # Safety
+/// `base` is a fresh block of `len` bytes, `len` is `int_len(n)`, and `out`
+/// is writable and aligned for a [`BuriStr`].
+#[inline(always)]
+unsafe fn write_int(n: i64, len: usize, base: *mut u8, out: *mut BuriStr) {
+    // The digits go straight into the block: no buffer, no copy.
     // SAFETY: `base` is a fresh block of `len` bytes: the sign, if there is
     // one, then the digits, which end at its end. `out` is the caller's
     // writable, aligned destination.
     unsafe {
         crate::fmt::write_decimal(n.unsigned_abs(), base.add(len));
-        if sign == 1 {
+        if n < 0 {
             *base = b'-';
         }
         out.write(BuriStr {
