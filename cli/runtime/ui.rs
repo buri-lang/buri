@@ -917,10 +917,11 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_handler(
 
 /// Fires the handler on graph node `id` with a runtime-minted event.
 ///
-/// A handler is not a computation — it writes signals freely — so this sets no
-/// tracking cursor and it fires outside the document lock: the record is read
-/// under the graph lock and let go before the call, because the handler's writes
-/// drain the graph on their way through. A body on the frame-threaded backend
+/// A handler is not a computation — it writes signals freely — so it runs with
+/// no tracking cursor and no owner, and it fires outside the document lock: the
+/// record is read under the graph lock and let go before the call, because the
+/// handler's writes drain the graph on their way through. A body on the
+/// frame-threaded backend
 /// works in a frame the caller sets aside, so this acquires one at `frame_at`
 /// exactly as [`run`] does. The handler is handed the context of `doc`, the
 /// document it was registered in.
@@ -964,10 +965,26 @@ pub(crate) unsafe fn fire_with(id: i64, doc: i64, arg: *const u8) {
     // writes three signals is one pass over the watchers, not three. The
     // JavaScript `$ui_flush` around an event listener, here around the fire.
     buri_rt_ui_flush_begin();
+    // A handler runs as if fired from the page, wherever the runtime fires it
+    // from: a dialog opening inside a watcher's run moves the focus, and the
+    // `onFocus` that move fires must not leave its reads subscribing that
+    // watcher, nor what it creates owned by it.
+    let outer = {
+        let mut g = lock();
+        let saved = (g.current, g.tracking);
+        g.current = -1;
+        g.tracking = -1;
+        saved
+    };
     // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
     // `arg` is the live element the caller promised, and `sink` a live
     // destination a `()`-answering thunk writes nothing to.
     unsafe { (compute.entry)(compute.state, 0, arg, sink.as_mut_ptr()) };
+    {
+        let mut g = lock();
+        g.current = outer.0;
+        g.tracking = outer.1;
+    }
     if !frame.is_null() {
         // SAFETY: this thread acquired it above and the thunk has returned.
         unsafe { buri_rt_stack_release(frame) };

@@ -422,3 +422,136 @@ test "a dialog inside a stack removed from a breakpoint up is modal on the narro
     let _ = page.press("Other");
     assert.equal(presses.get(ctx), 0);
 }
+
+// The `onFocus` a dialog's focus move runs is a handler like any other, run as
+// if fired from the page: what it reads makes nothing re-run when it changes,
+// and what it makes lasts as long as what a press makes.
+
+/// A button named `Open` that opens a dialog holding a button named `Count`,
+/// which counts its presses into `presses`. `Open` writes whether the pointer
+/// is over it to `over`, and `onOpen` and `onCount` are the two buttons'
+/// `onFocus`.
+fn counts<C: Ui>(
+    open: Signal<Bool>,
+    over: Signal<Bool>,
+    presses: Signal<Int>,
+    onOpen: Option<fn(C, Bool) => ()>,
+    onCount: Option<fn(C, Bool) => ()>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+                onHover: .Some(fn(c, on) => over.set(c, on)),
+                onFocus: onOpen,
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Details"),
+                children: [
+                    ui.button({
+                        label: .Const("Count"),
+                        styles: [],
+                        onPress: .Some(fn(c) => presses.update(c, fn(n) => n + 1)),
+                        onFocus: onCount,
+                    }),
+                ],
+                styles: [],
+            }),
+        ],
+    })
+}
+
+test "a press in a dialog counts when the opener's onFocus rewrote what its onHover then changes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let over = signal(ctx, false);
+    let presses = signal(ctx, 0);
+    let page = render(
+        ctx,
+        counts(
+            open,
+            over,
+            presses,
+            .Some(fn(c, _on) => over.update(c, fn(h) => h)),
+            .None,
+        ),
+    );
+    let _ = page.press("Open");
+    let _ = page.press("Count");
+    assert.equal(presses.get(ctx), 1);
+}
+
+test "a press in a dialog counts when its own onFocus rewrote what the opener's onHover then changes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let over = signal(ctx, false);
+    let presses = signal(ctx, 0);
+    let page = render(
+        ctx,
+        counts(
+            open,
+            over,
+            presses,
+            .None,
+            .Some(fn(c, _on) => over.update(c, fn(h) => h)),
+        ),
+    );
+    let _ = page.press("Open");
+    let _ = page.press("Count");
+    assert.equal(presses.get(ctx), 1);
+}
+
+test "a signal the opener's onFocus makes as a dialog shuts outlasts the dialog opening again" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let made: Signal<Option<Signal<Int>>> = signal(ctx, .None);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("Open"),
+                    styles: [],
+                    onPress: .Some(fn(c) => open.set(c, true)),
+                    onFocus: .Some(fn(c, on) => {
+                        if (on) { made.set(c, .Some(signal(c, 42))) } else {}
+                    }),
+                }),
+                ui.dialog({
+                    isOpen: open,
+                    label: .Const("Details"),
+                    children: [
+                        ui.button({
+                            label: .Const("Done"),
+                            styles: [],
+                            onPress: .Some(fn(c) => open.set(c, false)),
+                        }),
+                    ],
+                    styles: [],
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("Open");
+    let _ = page.press("Done");
+    let kept = made.get(ctx);
+    open.set(ctx, true);
+    match (kept) {
+        .Some(s) => assert.equal(s.get(ctx), 42),
+        .None => assert.isTrue(false),
+    }
+}

@@ -294,3 +294,42 @@ test "pressing a button hovers it and runs its onHover" {
     let _ = page.press("Cancel");
     assert.equal(log.recorded(), ["Save in", "Save out", "Cancel in"]);
 }
+
+test "a signal an onFocus makes as hasFocus moves the focus outlasts the focus moving on" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let wants = signal(ctx, false);
+    let made: Signal<Option<Signal<Int>>> = signal(ctx, .None);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("A"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    hasFocus: .Some(wants),
+                }),
+                ui.button({
+                    label: .Const("B"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                    onFocus: .Some(fn(c, on) => {
+                        if (!on) { made.set(c, .Some(signal(c, 42))) } else {}
+                    }),
+                }),
+            ],
+        }),
+    );
+    let _ = page.focus("B");
+    wants.set(ctx, true);
+    let kept = made.get(ctx);
+    let _ = page.focus("B");
+    match (kept) {
+        .Some(s) => assert.equal(s.get(ctx), 42),
+        .None => assert.isTrue(false),
+    }
+}
