@@ -27,7 +27,7 @@
 
 use std::cell::Cell;
 
-use crate::list::{Release, Retain, block, copy_retaining, spare};
+use crate::list::{Release, Retain, block, copy_retaining, copy_small, move_small, spare};
 use crate::memory::{
     buri_rt_alloc, buri_rt_cap, buri_rt_decref, buri_rt_grown_capacity, buri_rt_unique_cap,
 };
@@ -141,8 +141,8 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
             // SAFETY: `[at, n)` moves up by one inside `[0, n + 1)`, which the
             // capacity covers, and the item is a stack slot outside the block.
             unsafe {
-                std::ptr::copy(p.add(at * s), p.add((at + 1) * s), (n - at) * s);
-                std::ptr::copy_nonoverlapping(item, p.add(at * s), s);
+                move_small(p.add(at * s), p.add((at + 1) * s), (n - at) * s);
+                copy_small(item, p.add(at * s), s);
                 out.write(BuriList {
                     ptr: p,
                     len: total as u64,
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
             copy_retaining(f, ptr, at, s, retain);
             copy_retaining(f.add((at + 1) * s), ptr.add(at * s), n - at, s, retain);
         }
-        std::ptr::copy_nonoverlapping(item, f.add(at * s), s);
+        copy_small(item, f.add(at * s), s);
         if unique.is_some() && retain.is_some() {
             let used = total * s;
             let headroom = (buri_rt_cap(f) as usize).saturating_sub(used);
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
         // the element it replaces can let go first; then the bytes move in.
         unsafe {
             release_one(slot, s, release);
-            std::ptr::copy_nonoverlapping(item, slot, s);
+            copy_small(item, slot, s);
             out.write(BuriList {
                 ptr: ptr.cast_mut(),
                 len,
@@ -249,7 +249,7 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     unsafe {
         let f = fresh.ptr;
         copy_retaining(f, ptr, at, s, retain);
-        std::ptr::copy_nonoverlapping(item, f.add(at * s), s);
+        copy_small(item, f.add(at * s), s);
         copy_retaining(
             f.add((at + 1) * s),
             ptr.add((at + 1) * s),
@@ -301,7 +301,7 @@ pub unsafe extern "C" fn buri_rt_map_exchange_at(
         // SAFETY: the item goes back as it came, with its count; the list
         // takes the receiver's.
         unsafe {
-            std::ptr::copy_nonoverlapping(item, old, s);
+            copy_small(item, old, s);
             out.cast::<BuriList>().write(BuriList {
                 ptr: ptr.cast_mut(),
                 len,
@@ -312,13 +312,13 @@ pub unsafe extern "C" fn buri_rt_map_exchange_at(
     // SAFETY: `at` is inside the caller's live block.
     let slot = unsafe { ptr.cast_mut().add(at as usize * s) };
     // SAFETY: as above; `old` is disjoint from the block.
-    unsafe { std::ptr::copy_nonoverlapping(slot, old, s) };
+    unsafe { copy_small(slot, old, s) };
     // SAFETY: the caller promises a live block.
     if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
         // SAFETY: the slot's count went out with its bytes, and the item's
         // moves in with the count the caller handed over.
         unsafe {
-            std::ptr::copy_nonoverlapping(item, slot, s);
+            copy_small(item, slot, s);
             out.cast::<BuriList>().write(BuriList {
                 ptr: ptr.cast_mut(),
                 len,
@@ -396,7 +396,7 @@ pub unsafe extern "C" fn buri_rt_map_remove_at(
         // the copy left there a second time.
         unsafe {
             release_one(p.add(at * s), s, release);
-            std::ptr::copy(p.add((at + 1) * s), p.add(at * s), (total - at) * s);
+            move_small(p.add((at + 1) * s), p.add(at * s), (total - at) * s);
             std::ptr::write_bytes(p.add(total * s), 0, s);
             if total == 0 {
                 give_back(p, s, release);
@@ -481,7 +481,7 @@ pub unsafe extern "C" fn buri_rt_list_slice_owned(
             for i in 0..from {
                 release_one(p.add(i * s), s, release);
             }
-            std::ptr::copy(p.add(from * s), p, total * s);
+            move_small(p.add(from * s), p, total * s);
             std::ptr::write_bytes(p.add(total * s), 0, from * s);
             if total == 0 {
                 give_back(p, s, release);

@@ -71,6 +71,84 @@ pub type Release = Option<unsafe extern "C" fn(*mut u8)>;
 /// `.None` is `Option`'s only non-success arm; see `text.rs`'s `BURI_ABSENT`.
 const BURI_ABSENT: i32 = 0;
 
+/// `copy_nonoverlapping` without a call to `memcpy` for copies of 64 bytes or
+/// less, which most element and short-string copies are.
+///
+/// # Safety
+/// As [`std::ptr::copy_nonoverlapping`].
+#[inline(always)]
+pub(crate) unsafe fn copy_small(src: *const u8, dst: *mut u8, n: usize) {
+    // SAFETY: the caller promises both ranges.
+    unsafe {
+        if n > 64 {
+            std::ptr::copy_nonoverlapping(src, dst, n);
+        } else {
+            up_to_64(src, dst, n);
+        }
+    }
+}
+
+/// [`copy_small`] for ranges that may overlap, as `std::ptr::copy`.
+///
+/// # Safety
+/// As [`std::ptr::copy`].
+#[inline(always)]
+pub(crate) unsafe fn move_small(src: *const u8, dst: *mut u8, n: usize) {
+    // SAFETY: the caller promises both ranges.
+    unsafe {
+        if n > 64 {
+            std::ptr::copy(src, dst, n);
+        } else {
+            up_to_64(src, dst, n);
+        }
+    }
+}
+
+/// Copies `n <= 64` bytes. Each size class reads both ends of the range in
+/// words that may overlap in the middle, and reads everything before it
+/// writes, so the ranges may overlap.
+///
+/// # Safety
+/// As [`std::ptr::copy`], with `n <= 64`.
+#[inline(always)]
+unsafe fn up_to_64(src: *const u8, dst: *mut u8, n: usize) {
+    use std::ptr::{read_unaligned as get, write_unaligned as put};
+    // SAFETY: each read and write stays inside `[0, n)` of its range.
+    unsafe {
+        let (from, to) = (src.add(n), dst.add(n));
+        if n >= 32 {
+            let (a, b) = (get(src.cast::<u128>()), get(src.add(16).cast::<u128>()));
+            let (c, d) = (
+                get(from.sub(32).cast::<u128>()),
+                get(from.sub(16).cast::<u128>()),
+            );
+            put(dst.cast::<u128>(), a);
+            put(dst.add(16).cast::<u128>(), b);
+            put(to.sub(32).cast::<u128>(), c);
+            put(to.sub(16).cast::<u128>(), d);
+        } else if n >= 16 {
+            let (a, b) = (get(src.cast::<u128>()), get(from.sub(16).cast::<u128>()));
+            put(dst.cast::<u128>(), a);
+            put(to.sub(16).cast::<u128>(), b);
+        } else if n >= 8 {
+            let (a, b) = (get(src.cast::<u64>()), get(from.sub(8).cast::<u64>()));
+            put(dst.cast::<u64>(), a);
+            put(to.sub(8).cast::<u64>(), b);
+        } else if n >= 4 {
+            let (a, b) = (get(src.cast::<u32>()), get(from.sub(4).cast::<u32>()));
+            put(dst.cast::<u32>(), a);
+            put(to.sub(4).cast::<u32>(), b);
+        } else if n > 0 {
+            // The middle byte of three, or the last of two.
+            let mid = usize::from(n > 1);
+            let (a, b, c) = (*src, *src.add(mid), *from.sub(1));
+            *dst = a;
+            *dst.add(mid) = b;
+            *to.sub(1) = c;
+        }
+    }
+}
+
 /// Copy `count` elements from `src` to `dst` and take a reference on each.
 ///
 /// # Safety
@@ -87,7 +165,7 @@ pub(crate) unsafe fn copy_retaining(
         return;
     }
     // SAFETY: the caller promises both ranges and that they are disjoint.
-    unsafe { std::ptr::copy_nonoverlapping(src, dst, count.saturating_mul(stride)) };
+    unsafe { copy_small(src, dst, count.saturating_mul(stride)) };
     let Some(retain) = retain else { return };
     for i in 0..count {
         // SAFETY: `i * stride` is inside the destination just written.
@@ -337,7 +415,7 @@ pub unsafe extern "C" fn buri_rt_list_push(
     // one and is a stack slot the caller spilled, so it cannot be inside it.
     unsafe {
         if !result.ptr.is_null() {
-            std::ptr::copy_nonoverlapping(item, result.ptr.add(n.saturating_mul(s)), s);
+            copy_small(item, result.ptr.add(n.saturating_mul(s)), s);
         }
         out.write(result);
     }

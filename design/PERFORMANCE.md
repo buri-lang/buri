@@ -10743,6 +10743,37 @@ compares a 4096-byte and an 8-byte string with themselves and bounds the
 instructions per comparison, and checks slices that share a start still order
 by length.
 
+### 6.165 The runtime copies an element without calling memcpy, 2026-11-19
+
+```text
+                              before      after       change
+kvstore, stencil              1.0235 B    1.0189 B    -0.45%
+maps, stencil                 1.5390 B    1.5327 B    -0.41%
+strings, stencil              2.1313 B    2.1022 B    -1.37%
+floats, stencil               0.6791 B    0.6691 B    -1.47%
+kvstore, release              0.6644 B    0.6620 B    -0.37%
+maps, release                 0.9463 B    0.9399 B    -0.67%
+```
+
+`replaceAt`, `insertAt`, `exchangeAt`, `push` and `str_concat` copy one
+element or one short string at a time, and each copy was a call to `memcpy`
+of 15 to 22 instructions. In dev kvstore, 1.5M calls copied a few words each.
+
+`list.rs`'s `copy_small` and `move_small` copy 64 bytes or less inline: both
+ends of the range as words that may overlap in the middle, every read before
+any write. Longer copies still call `memcpy` or `memmove`.
+
+`native::collections::a_list_spliced_at_every_width_keeps_its_elements`
+splices lists of 1- to 72-byte elements and joins strings of every length up
+to 71. The `run-dev/kvstore` row holds the count.
+
+`glue_counts::storing_a_record_costs_one_retain_and_release_a_field` now
+compares records of three and ten `Str`s, both over 64 bytes. Its records of
+one and eight put one copy on each side of the threshold, which read as 24
+more instructions a field. Every mode measures the same with the new widths
+before and after this change. A `core/map` insert of a record over 64 bytes
+costs 20 more instructions (1.8%), and one of a single `Str` 150 fewer.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

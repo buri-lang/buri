@@ -57,6 +57,7 @@
               it, bounded by its length"
 )]
 
+use crate::list::{copy_small, move_small};
 use crate::memory::{BURI_RT_GROWTH_FLOOR, buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap};
 use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK, BuriList, BuriStr, str_of};
 use crate::{BURI_OK, scalars};
@@ -886,7 +887,7 @@ pub unsafe extern "C" fn buri_rt_str_concat(
             // bytes at `a_ptr + la` are inside it; the ranges may touch, which
             // is what `copy` allows.
             unsafe {
-                std::ptr::copy(b_ptr, a_ptr.cast_mut().add(la), lb);
+                move_small(b_ptr, a_ptr.cast_mut().add(la), lb);
                 buri_rt_incref(a_base);
                 out.write(BuriStr {
                     base: a_base,
@@ -900,8 +901,8 @@ pub unsafe extern "C" fn buri_rt_str_concat(
         // SAFETY: a fresh block of at least `n` bytes, disjoint from both
         // sources, and each source covers its own length.
         unsafe {
-            std::ptr::copy_nonoverlapping(a_ptr, block, la);
-            std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
+            copy_small(a_ptr, block, la);
+            copy_small(b_ptr, block.add(la), lb);
             out.write(BuriStr {
                 base: block,
                 ptr: block,
@@ -913,8 +914,8 @@ pub unsafe extern "C" fn buri_rt_str_concat(
     let block = buri_rt_alloc(n as u64);
     // SAFETY: as above, with a block sized exactly to the result.
     unsafe {
-        std::ptr::copy_nonoverlapping(a_ptr, block, la);
-        std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
+        copy_small(a_ptr, block, la);
+        copy_small(b_ptr, block.add(la), lb);
         out.write(BuriStr {
             base: block,
             ptr: block,

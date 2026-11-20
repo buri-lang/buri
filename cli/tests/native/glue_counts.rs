@@ -246,17 +246,17 @@ const LIMIT: u64 = 56;
 
 const STORES: u64 = 100_000;
 
-/// A record of `Str`s, of one field or eight by the width, stored 100,000
+/// A record of `Str`s, of three fields or ten by the width, stored 100,000
 /// times by `mode`: `map` and `ordered` replace the value of a key that each
 /// stdlib map holds, `push` adds one to a list of 64 and removes it again, and
 /// `list` replaces an element.
-/// `main` takes the mode and the width, 1 or 8.
+/// `main` takes the mode and the width, 3 or 10.
 fn stores() -> String {
     let make = |ty: &str| {
-        let fields: &[&str] = if ty == "One" {
-            &["a"]
+        let fields: &[&str] = if ty == "Three" {
+            &["a", "b", "c"]
         } else {
-            &["a", "b", "c", "d", "e", "f", "g", "h"]
+            &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]
         };
         let made = fields
             .iter()
@@ -308,23 +308,23 @@ from "core/orderedmap" import {{ OrderedMap }};
 from "native" import {{ NativeHost }};
 from "platform/effect" import {{ Allocator, Environment, Stdout }};
 
-struct One {{ a: Str }}
-struct Eight {{ a: Str, b: Str, c: Str, d: Str, e: Str, f: Str, g: Str, h: Str }}
-{one}{eight}
+struct Three {{ a: Str, b: Str, c: Str }}
+struct Ten {{ a: Str, b: Str, c: Str, d: Str, e: Str, f: Str, g: Str, h: Str, i: Str, j: Str }}
+{three}{ten}
 export fn main(host: NativeHost): Result<(), Str> {{
   let ctx = context {{ Allocator: host.alloc, Environment: host.env, Stdout: host.stdout }};
   let args = env.arguments(ctx);
   let s = "s".repeat(ctx, 3);
-  let answer = if (args.get(1) == .Some("8")) {{
-    storedEight(ctx, args.first(), s)
+  let answer = if (args.get(1) == .Some("10")) {{
+    storedTen(ctx, args.first(), s)
   }} else {{
-    storedOne(ctx, args.first(), s)
+    storedThree(ctx, args.first(), s)
   }};
   io.println(ctx, "${{answer}}").mapErr(fn(_e) => "stdout")
 }}
 "#,
-        one = make("One"),
-        eight = make("Eight"),
+        three = make("Three"),
+        ten = make("Ten"),
     )
 }
 
@@ -332,8 +332,14 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// replace a map's `insert` makes, move the record they are handed into the
 /// list they answer. A field is retained as the record is built and released
 /// as the record replaced, or the list, dies. The cost a field is the
-/// difference between a record of eight `Str`s and a record of one, over
+/// difference between a record of ten `Str`s and a record of three, over
 /// seven.
+///
+/// Both records are over the 64 bytes the runtime copies without a call
+/// (`list.rs`'s `copy_small`), so the difference is the fields' and not the
+/// copy's. A record of one `Str` is copied inline and one of eight is not,
+/// which read as 24 more instructions a field on `map` with no change to the
+/// fields' glue.
 #[test]
 fn storing_a_record_costs_one_retain_and_release_a_field() {
     let mut failures = Vec::new();
@@ -342,10 +348,10 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
         let limits = STORED_LIMITS.iter().filter(|(b, _, _)| *b == backend);
         for &(_, mode, limit) in limits {
             let cost = |width: &str| per_op(backend, &binary, mode, &[width], STORES, "64\n").0;
-            let (Some(one), Some(eight)) = (cost("1"), cost("8")) else {
+            let (Some(three), Some(ten)) = (cost("3"), cost("10")) else {
                 continue;
             };
-            let field = eight.saturating_sub(one) / 7;
+            let field = ten.saturating_sub(three) / 7;
             eprintln!("{backend} {mode}: {field} instructions a field to store a record");
             if field > limit {
                 failures.push(format!(
@@ -370,6 +376,10 @@ fn storing_a_record_costs_one_retain_and_release_a_field() {
 /// child's place rather than shifting the children, 201 and 184 once `get`
 /// lent the child it reads, and 150 and 140 once a descent swapped the child
 /// out with `exchangeAt`. Its limits are those plus 10.
+///
+/// Measured with three and ten fields rather than one and eight, every mode
+/// is the same before and after `copy_small`: stencil map 136, ordered 42,
+/// push 43, list 36; llvm map 126, ordered 63, push 31, list 24.
 const STORED_LIMITS: [(&str, &str, u64); 8] = [
     ("stencil", "map", 160),
     ("stencil", "ordered", 56),
