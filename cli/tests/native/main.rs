@@ -393,6 +393,10 @@ mod collection_costs;
 // blocks moved between threads and actors, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod alloc_churn;
+// An integer and a float rendered as text: the text at every length, and what
+// one rendering costs, counted rather than timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod number_text;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

@@ -84,7 +84,7 @@ impl BuriStr {
         let base = buri_rt_alloc(n as u64);
         // SAFETY: `base` is a fresh block of at least `n` payload bytes and
         // cannot overlap `bytes`, which the caller owns.
-        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), base, n) };
+        unsafe { crate::list::copy_small(bytes.as_ptr(), base, n) };
         BuriStr {
             base,
             ptr: base,

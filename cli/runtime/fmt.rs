@@ -77,7 +77,9 @@ impl Buf {
         let end = self.len.saturating_add(b.len()).min(Buf::CAP);
         let n = end - self.len;
         if let (Some(dst), Some(src)) = (self.bytes.get_mut(self.len..end), b.get(..n)) {
-            dst.copy_from_slice(src);
+            // SAFETY: two disjoint ranges of `n` bytes, and `n <= CAP`, so
+            // the copy calls nothing.
+            unsafe { crate::list::copy_small(src.as_ptr(), dst.as_mut_ptr(), n) };
         }
         self.len = end;
     }
@@ -96,7 +98,8 @@ impl Buf {
     pub(crate) fn push_u64(&mut self, v: u64) {
         let end = self.len + decimal_len(v);
         if let Some(dst) = self.bytes.get_mut(self.len..end) {
-            write_decimal(v, dst);
+            // SAFETY: `dst` is the `decimal_len(v)` bytes that end at its end.
+            unsafe { write_decimal(v, dst.as_mut_ptr_range().end) };
             self.len = end;
         }
     }
@@ -151,26 +154,38 @@ pub(crate) fn decimal_len(v: u64) -> usize {
     guess + usize::from(POW10.get(guess).is_some_and(|p| (v | 1) >= *p))
 }
 
-/// Write `v`'s decimal digits into `out`, which is [`decimal_len`]`(v)` long.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "`at` is checked against 2 or 1 before each write below it, and `pair` is at most 198"
-)]
-pub(crate) fn write_decimal(mut v: u64, out: &mut [u8]) {
-    let mut at = out.len();
-    while v >= 100 && at >= 2 {
-        let pair = (v % 100) as usize * 2;
-        v /= 100;
-        at -= 2;
-        out[at] = PAIRS[pair];
-        out[at + 1] = PAIRS[pair + 1];
-    }
-    if v >= 10 && at >= 2 {
-        let pair = v as usize * 2;
-        out[at - 2] = PAIRS[pair];
-        out[at - 1] = PAIRS[pair + 1];
-    } else if at >= 1 {
-        out[at - 1] = b'0' + v as u8;
+/// Write `v`'s decimal digits so they end just before `end`: the
+/// [`decimal_len`]`(v)` bytes below it, and nothing else.
+///
+/// Inline and unchecked, two digits a store. `str.fromInt` and every rendered
+/// integer come here, and a call that checked each byte against its slice cost
+/// more than the digits did.
+///
+/// # Safety
+/// The `decimal_len(v)` bytes below `end` are writable.
+#[inline(always)]
+pub(crate) unsafe fn write_decimal(mut v: u64, end: *mut u8) {
+    let pairs = PAIRS.as_ptr();
+    let mut at = end;
+    // SAFETY: each step writes just below `at`, and the steps write
+    // `decimal_len(v)` bytes in all, which the caller has room for. A pair's
+    // offset is `2 * (v % 100)`, or `2 * v` with `v < 100`: inside the table.
+    unsafe {
+        while v >= 100 {
+            let pair = (v % 100) as usize * 2;
+            v /= 100;
+            at = at.sub(2);
+            at.cast::<[u8; 2]>()
+                .write_unaligned(pairs.add(pair).cast::<[u8; 2]>().read_unaligned());
+        }
+        if v >= 10 {
+            let pair = pairs.add(v as usize * 2).cast::<[u8; 2]>();
+            at.sub(2)
+                .cast::<[u8; 2]>()
+                .write_unaligned(pair.read_unaligned());
+        } else {
+            *at.sub(1) = b'0' + v as u8;
+        }
     }
 }
 

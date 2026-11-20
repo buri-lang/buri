@@ -1265,17 +1265,13 @@ pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
     let digits = crate::fmt::decimal_len(n.unsigned_abs());
     let len = sign + digits;
     let base = buri_rt_alloc(len as u64);
-    // SAFETY: `base` is a fresh block of `len` bytes, and `out` is the
-    // caller's writable, aligned destination.
+    // SAFETY: `base` is a fresh block of `len` bytes: the sign, if there is
+    // one, then the digits, which end at its end. `out` is the caller's
+    // writable, aligned destination.
     unsafe {
-        let bytes = std::slice::from_raw_parts_mut(base, len);
-        if let Some((minus, rest)) = bytes.split_first_mut()
-            && sign == 1
-        {
-            *minus = b'-';
-            crate::fmt::write_decimal(n.unsigned_abs(), rest);
-        } else {
-            crate::fmt::write_decimal(n.unsigned_abs(), bytes);
+        crate::fmt::write_decimal(n.unsigned_abs(), base.add(len));
+        if sign == 1 {
+            *base = b'-';
         }
         out.write(BuriStr {
             base,
