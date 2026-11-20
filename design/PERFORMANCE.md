@@ -11357,14 +11357,14 @@ On the arm64 VM, 2026-11-20:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      2088581988     2124695049     1642073871     1629673879       0.983       1.272
-lists        2713594211     2774440692     1648420622     1639791788       0.978       1.646
-sort         1067394179     1100433370      279513436      316272131       0.970       3.819
-floats        667565222      690558129      575558039      572558243       0.967       1.160
-tree         1612804285     1715040610     1471248502     1471248593       0.940       1.096
-maps         1448295294     1699224637      867608025      866419710       0.852       1.669
-kvstore       947698801     1264437045      627058456      621279096       0.750       1.511
-match        1059302311     1865847930      615666024      615666190       0.568       1.721
+strings      1987846140     2023959197     1541338018     1528938027       0.982       1.290
+lists        2518561997     2579408483     1453388408     1444759574       0.976       1.733
+sort         1067394095     1100433281      279513347      316272042       0.970       3.819
+floats        573127719      596120630      481120540      478120744       0.961       1.191
+tree         1612804189     1715040505     1471248397     1471248488       0.940       1.096
+maps         1415879924     1666809262      835192644      834004330       0.849       1.695
+kvstore       942031570     1262526232      625147648      619368294       0.746       1.507
+match         775302217     1865847825      615665919      615666085       0.416       1.259
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11377,8 +11377,22 @@ match        1059302311     1865847930      615666024      615666190       0.568
 - A record that an `if` or a match inside an arm answers is built in the
   outer match's slot, not built aside and copied there; kvstore ran 1.3% fewer
   instructions and maps 0.6% fewer.
+- A record a tail-recursive loop carries is rebuilt over itself, and a new
+  field is computed straight into its place when nothing later reads the old
+  value; match was 1.72 times `-O1`. Replacing an `Int` field no longer reads
+  the old one just to release it, since there is nothing to release.
 
-This work may not make dev codegen dearer. The register reads above added
+This work may not make dev codegen dearer. Rebuilding a loop's record in
+place left it flat, two runs each on the arm64 VM:
+
+| Row | Main | Record in place |
+| --- | --- | --- |
+| `ci` cost | 61034.7, 60952.6 | 60951.4, 60961.8 |
+| `ci` instructions | 41334.7, 41327.9 | 41333.2, 41321.1 |
+| `monorepo-ci` cost | 23485.9, 23452.6 | 23489.3, 23426.5 |
+| `monorepo-ci` instructions | 17047.4, 17047.2 | 17042.3, 17041.0 |
+
+The register reads above added
 about 120 cost per line to `ci`'s dev codegen row, though they ran fewer
 instructions. The rise was in last-level write misses (about 30,000 more), and
 they were spread over the paths where vectors grow, so the heap was laid out
