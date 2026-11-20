@@ -1,0 +1,19 @@
+# A row of a `ui.each` owns the signal that opens its menu (buri-lang/buri#363).
+# The free `snapshot` walks the tree again, so that signal starts over and a
+# pressed menu paints shut. A `Rendered`'s `snapshot` paints the document the
+# presses went to. Each golden is shared by the rows built open and the rows
+# built shut and then pressed, so both must paint the same picture.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a press inside a row is painted by the rendered page's snapshot"
+
+run {
+  args: ["test", "//lib/menu", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/menu/test/__snapshots__/open.diff.png"  exists: false }
+path { path: "lib/menu/test/__snapshots__/open-phone.diff.png"  exists: false }

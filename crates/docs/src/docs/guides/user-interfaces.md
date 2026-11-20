@@ -1762,6 +1762,19 @@ The rest is short:
   which is how one tree is painted either side of a breakpoint. Only the width
   is stated: the height is still the paint's, because a height a test picks is
   a height that cuts something off.
+- **To paint a page after a press, snapshot what `render` answered:**
+
+  ```text
+  let page = render(ctx, rows());
+  page.press("Open");
+  page.snapshot("rows-open", []);
+  ```
+
+  The free `snapshot` builds its tree again, so a `signal` an `each` row makes
+  starts over and the menu paints shut. `page.snapshot` paints the page the
+  presses, fills and focus moves went to, and `page.snapshotWide(name, themes,
+  width)` does it at another width. Neither takes a state: the page is painted
+  at rest.
 - A snapshot name is a file name: never empty, never holding a path separator.
   It names one file, so two `snapshot` calls with one name share one golden and
   the last `--update` wins. When both fail, the second diff is

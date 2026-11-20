@@ -10,6 +10,7 @@
 //! imports it, and a test names it through `platform/effect/testing`.
 
 from "core/alloc" import * as alloc;
+from "core/str" import * as str;
 from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { headless };
 
@@ -334,6 +335,36 @@ impl Rendered {
     /// that isn't an address, isn't submitted either: the focus moves to that
     /// field instead.
     export fn submit(self, index: Int): ();
+
+    /// Paints the document as it stands now and compares it against
+    /// `test/__snapshots__/<name>.png`, the way the free `snapshot` does.
+    ///
+    /// ```text
+    /// let page = render(ctx, rows());
+    /// page.press("Open");
+    /// page.snapshot("rows-open", []);
+    /// ```
+    ///
+    /// The free `snapshot` walks its tree again, so state a builder makes while
+    /// the tree is drawn — a `signal` in an `each` row or a `computed` — starts
+    /// over there. This paints the document every press, fill and focus so far
+    /// went to.
+    ///
+    /// It takes no state: the page is painted at rest, and a toggle, a disabled
+    /// control and a `hasFocus` element answer for themselves, as in every
+    /// snapshot.
+    export fn snapshot(self, name: Str, themes: [Theme]): () {
+        self.snapshotWide(name, themes, 800)
+    }
+
+    /// `snapshot`, on a page `width` CSS pixels across, the way the free
+    /// `snapshotWide` is.
+    export fn snapshotWide(self, name: Str, themes: [Theme], width: Int): () {
+        let mem = alloc.generalPurpose();
+        let head = ["buri-scene 1", str.format(mem, "viewport ${width} fit")];
+        let _ = installThemes(theme.document(themes));
+        paint(name, head.push(mem, self.markup()).join(mem, "\n"), "rest")
+    }
 
     /// How many elements of this kind the tree holds. The name is the one
     /// `markup` shows.

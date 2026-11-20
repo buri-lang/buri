@@ -1,4 +1,4 @@
-// Eight tests, and the rule must tell them apart.
+// Ten tests, and the rule must tell them apart.
 //
 // The second asserts through a helper, which is how most tests worth writing
 // assert. Read syntactically — "the body contains no `assert`" — the rule would
@@ -18,8 +18,8 @@ from "core/testing/assert" import * as assert;
 from "core/testing/check" import * as check;
 from "platform/effect" import { Allocator, Network, Tasks, Ui };
 from "platform/effect/testing" import {
-    alloc, fetch, fs as disk, headless, net, readFile, snapshot, snapshotWide, task,
-    tasks as scheduler,
+    alloc, fetch, fs as disk, headless, net, readFile, render, snapshot, snapshotWide,
+    task, tasks as scheduler,
 };
 from "ui/node" import * as ui;
 from "//lib/money" import { Cents, fromCents };
@@ -93,4 +93,24 @@ test "every list of prices is short" {
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 5), fn(_c, all) => {
         all.length() <= 5
     });
+}
+
+test "the rendered price paints" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    render(ctx, ui.text({ content: .Const("150c") })).snapshot("price", []);
+}
+
+test "the rendered price paints at phone width" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    render(ctx, ui.text({ content: .Const("150c") })).snapshotWide(
+        "price-phone",
+        [],
+        390,
+    );
 }

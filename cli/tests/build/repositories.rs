@@ -1050,6 +1050,20 @@ fn a_browser_draws_each_style_shape_as_its_twin() {
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
+/// `a_press_inside_a_row_is_painted`'s rows in a browser: pressing each row's
+/// button opens that row's menu, which is what the case's pressed goldens show.
+#[test]
+fn a_press_inside_a_row_opens_its_menu_in_a_browser() {
+    let case = tests_dir().join("repositories/ui/a_press_inside_a_row_is_painted");
+    let open = "Apples | Menu is open | Pears | Menu is open";
+    let shown: Vec<(String, String)> = crate::harness::web_pages::pressed(&case);
+    let expected: Vec<(String, String)> = ["shut", "open", "open-phone"]
+        .iter()
+        .map(|name| (name.to_string(), open.to_string()))
+        .collect();
+    assert_eq!(shown, expected);
+}
+
 /// The `text-wrap` a browser gives `a_pretty_paragraph_ends_on_two_words`'s
 /// description at each snapshot's width: what the painter drew.
 #[test]

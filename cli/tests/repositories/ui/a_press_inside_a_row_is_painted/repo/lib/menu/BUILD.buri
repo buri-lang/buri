@@ -1,0 +1,9 @@
+# No `platforms` here: a snapshot is painted by the native runtime, so this
+# suite has to be the linked binary rather than a JavaScript module.
+library {
+    sources: ["menu.buri"]
+
+    test {
+        sources: ["test/menu.buri"]
+    }
+}

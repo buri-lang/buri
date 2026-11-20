@@ -4542,6 +4542,8 @@ const FAILING_TESTING_FUNCTIONS: &[(&str, &str, &str)] = &[
     ("platform/effect/testing/ui", "", "paint"),
     ("platform/effect/testing/ui", "", "snapshot"),
     ("platform/effect/testing/ui", "", "snapshotWide"),
+    ("platform/effect/testing/ui", "Rendered", "snapshot"),
+    ("platform/effect/testing/ui", "Rendered", "snapshotWide"),
     ("platform/effect/testing/world", "", "addFsFault"),
     ("platform/effect/testing/world", "", "addNetFault"),
     ("platform/effect/testing/world", "", "describeFsPlan"),

@@ -1,0 +1,26 @@
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+/// One row per fruit, each with a button that opens the row's own menu.
+export fn rows<C: Ui>(open: Bool): Node<C> {
+    ui.each(.Const(["Apples", "Pears"]), fn(item) => item, fn(c, item, _i) => {
+        let shown = signal(c, open);
+        ui.stack({
+            styles: [.Layout(.Column), .Padding(.Px(8))],
+            children: [
+                ui.button({
+                    label: .Const(item),
+                    styles: [],
+                    onPress: .Some(fn(c2) => shown.set(c2, true)),
+                }),
+                ui.choose(
+                    .Computed(fn(s) => shown.get(s)),
+                    ui.text({ content: .Const("Menu is open") }),
+                    ui.empty(),
+                ),
+            ],
+        })
+    })
+}

@@ -187,6 +187,13 @@ pub fn laid_out(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, LAID_OUT, "laid out ")
 }
 
+/// The text of each of `case`'s snapshots after a browser clicks every button
+/// in it, in tree order, as `(name, text)` pairs in the order the snapshots
+/// mounted. Each run of text is trimmed, and they are joined by ` | `.
+pub fn pressed(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, PRESSED, "pressed ")
+}
+
 /// Mounts each of `case`'s pages and runs `script` after, answering each line
 /// it prints that starts with `prefix` as a `(name, rest)` pair split at `: `.
 fn read_snapshots(case: &Path, script: &str, prefix: &str) -> Vec<(String, String)> {
@@ -1149,6 +1156,21 @@ for (const { root, name, tree } of snapshots) {
   const outer = tree.find((n) => n.nodeType === 1);
   const shown = boxes(outer).map((box) => box.map((n) => n.textContent).join(""));
   console.log(`laid out ${name}: ${shown.join(" | ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Clicks every button of each snapshot, then prints its text for [`pressed`].
+const PRESSED: &str = r#"
+function* texts(n) {
+  if (n.nodeType === 3 && n.data.trim() !== "") yield n.data.trim();
+  for (const child of n.childNodes) yield* texts(child);
+}
+for (const { name, tree } of snapshots) {
+  const buttons = tree.flatMap((n) => (n.nodeType === 1 ? [...n.querySelectorAll("button")] : []));
+  for (const button of buttons) button.click();
+  await settle();
+  console.log(`pressed ${name}: ${tree.flatMap((n) => [...texts(n)]).join(" | ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

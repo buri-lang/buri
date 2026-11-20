@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a test from which nothing reachable calls assert: test-missing-assertion, and the ones that must not fire — one asserting through a helper, and one for each check `platform/effect/testing` and `core/testing/check` make on their own: `snapshot`, `snapshotWide`, each double's `faults`, `forAll` and `forAllCtx`"
+doc: "a test from which nothing reachable calls assert: test-missing-assertion, and the ones that must not fire — one asserting through a helper, and one for each check `platform/effect/testing` and `core/testing/check` make on their own: `snapshot`, `snapshotWide`, a `Rendered`'s `snapshot` and `snapshotWide`, each double's `faults`, `forAll` and `forAllCtx`"
 
 run {
   args: ["lint", "//lib/money"]
@@ -43,7 +43,7 @@ run {
 # about `platform/effect/testing`.
 edit {
   file: "lib/money/test/cents.buri"
-  replace: "readFile, snapshot, snapshotWide"
+  replace: "readFile, render, snapshot, snapshotWide"
   with: "readFile, render, snapshotWide"
 }
 
