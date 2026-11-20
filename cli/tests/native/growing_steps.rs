@@ -66,12 +66,12 @@ fn kept<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int, acc: Int): Int {
 
 fn pushedWide<C: Allocator>(ctx: C, xs: [Wide], i: Int, n: Int): [Wide] {
   if (i >= n) { xs } else {
-    pushedWide(ctx, xs.push(ctx, Wide { a: i, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7, k: i }), i + 1, n)
+    pushedWide(ctx, xs.push(ctx, Wide { a: i, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7, k: i }).removeAt(ctx, 0), i + 1, n)
   }
 }
 
 fn pushedText<C: Allocator>(ctx: C, xs: [Str], i: Int, n: Int): [Str] {
-  if (i >= n) { xs } else { pushedText(ctx, xs.push(ctx, "ab"), i + 1, n) }
+  if (i >= n) { xs } else { pushedText(ctx, xs.push(ctx, "ab").removeAt(ctx, 0), i + 1, n) }
 }
 
 fn insertedNear<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int): [Int] {
@@ -144,8 +144,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Some("push-shared") => branched(ctx, [], 0, n, 0),
     .Some("replace") => replaced(ctx, list.repeat(ctx, 0, 64), 0, n).sum(),
     .Some("replace-shared") => kept(ctx, list.repeat(ctx, 0, 64), 0, n, 0),
-    .Some("push-wide") => pushedWide(ctx, [], 0, n).fold(fn(acc, w) => acc + w.a + w.k, 0),
-    .Some("push-text") => pushedText(ctx, [], 0, n).fold(fn(acc, s) => acc + s.length(), 0),
+    .Some("push-wide") => pushedWide(ctx, list.repeat(ctx, Wide { a: 0, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7, k: 0 }, 4), 0, n).fold(fn(acc, w) => acc + w.a + w.k, 0),
+    .Some("push-text") => pushedText(ctx, list.repeat(ctx, "a", 4), 0, n).fold(fn(acc, s) => acc + s.length(), 0),
     .Some("insert-near") => insertedNear(ctx, list.repeat(ctx, 0, 4), 0, n).sum(),
     .Some("insert-behind") => insertedBehind(ctx, [], 0, n, 0),
     .Some("push-behind") => pushedBehind(ctx, [], 0, n, 0),
@@ -185,8 +185,9 @@ fn answer(mode: &str, n: u64) -> u64 {
             }
             acc + xs.iter().sum::<u64>()
         }
-        "push-wide" => 2 * (0..n).sum::<u64>(),
-        "push-text" => 2 * n,
+        // A push and a removeAt keep the last four.
+        "push-wide" => 2 * (n.saturating_sub(4)..n).sum::<u64>(),
+        "push-text" => 4 + n.min(4),
         "insert-near" => {
             let mut xs = vec![0u64; 4];
             for i in 0..n {
@@ -294,12 +295,14 @@ fn growing_a_value_answers_the_same_owned_or_shared() {
 /// `replaceAt` over an empty list, which is what an ordered map's descent
 /// leaves in a node's place, no longer calls out to release it; `insertAt`
 /// shifts a short tail inline; and an element's all-zero test reads a few
-/// overlapping words in place of a loop. A push went from 120 to 99, one of
-/// nine words from 332 to 305 and one of a string from 341 to 302, an
+/// overlapping words in place of a loop. A push went from 120 to 99, an
 /// `insertAt` and `removeAt` from 233 to 214, a `replaceAt` from 91 to 82 and
 /// one over an empty list from 127 to 108, and an ordered map's update from
-/// 2332 to 2220. A `replaceAt` over a full list, which releases what it
-/// replaces, read 272 before and 275 after, and is bounded so it stays there.
+/// 2332 to 2220. A push of nine words and of a string each `removeAt` the
+/// first element, so the list stays short and no page faults land in the
+/// count: they went from 341 to 317 and from 341 to 296. A `replaceAt` over a
+/// full list, which releases what it replaces, read 272 before and 275 after,
+/// and is bounded so it stays there.
 ///
 /// Each bound sits about halfway. LLVM open-codes an append and inlines the
 /// rest, so only the copy-and-patch backend is bounded.
@@ -313,8 +316,8 @@ fn an_owned_step_saves_next_to_nothing() {
             ("concat", 140),
             ("push", 110),
             ("replace", 86),
-            ("push-wide", 318),
-            ("push-text", 321),
+            ("push-wide", 329),
+            ("push-text", 318),
             ("insert-near", 223),
             ("replace-emptied", 117),
             ("replace-filled", 285),
