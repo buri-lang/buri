@@ -2247,12 +2247,21 @@ impl<'a> Jit<'a> {
             tmp += 8;
         }
         let mut pending: Vec<(u32, u32, u32)> = Vec::new();
+        // A parameter in a register whose slot is kept in step takes the
+        // slot's copy from the register, which holds it by now: one store
+        // rather than a load and a store. Last, since a frame copy below may
+        // read the slot's old value.
+        let mut late: Vec<(Reg, bool, u32)> = Vec::new();
         for (p, a) in params.iter().zip(t.args.iter()) {
             if let Loc::Reg(k) = st.home(*p) {
                 // Written back above, or not written at all.
                 if !write_through(st, *p) || st.loc(*a) == Loc::Reg(k) {
                     continue;
                 }
+                if st.at(*p) != st.at(*a) {
+                    late.push((k, code.ty_of(*p) == ir::Type::F64, st.at(*p)));
+                }
+                continue;
             }
             let n = self.slot_bytes_of(prog, code.ty_of(*p));
             let (d, s) = (st.at(*p), st.at(*a));
@@ -2271,6 +2280,12 @@ impl<'a> Jit<'a> {
                 }
                 None => self.rotate(st, &mut pending),
             }
+        }
+        for (k, f, d) in late {
+            self.emit(
+                &key![if f { "stwg" } else { "stw" }, "/r", k],
+                &[Lit::D.of(u64::from(d)), Jump::Cont.to(V::Fall)],
+            );
         }
         self.copying.add(CopySite::Edges, self.patched - before);
     }

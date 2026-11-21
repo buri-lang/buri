@@ -86,3 +86,36 @@ test "next values" {
 "#;
     crate::odd_sizes::passes("loop-swaps", test, 1);
 }
+
+/// **A loop's next value is read where it was computed**: `i + 1` read again
+/// before the loop takes it, by arithmetic and by a record, with the loop's
+/// own `i` read once it ends.
+#[test]
+fn a_next_value_read_before_the_loop_takes_it() {
+    let test = r#"
+from "core/testing/assert" import * as assert;
+
+struct R { k: Int, j: Int }
+
+fn step(i: Int, n: Int, acc: Int): Int {
+    if (i >= n) { acc * 7 + i } else {
+        let i1 = i + 1;
+        step(i1, n, acc + i1 * 3 % 11)
+    }
+}
+
+fn kept(i: Int, n: Int, r: R): Int {
+    if (i >= n) { r.k * 5 + r.j + i } else {
+        let i1 = i + 1;
+        kept(i1, n, R { k: i1, j: r.j + i1 % 4 })
+    }
+}
+
+test "next values read again" {
+    assert.equal(step(0, 1000, 0), 36035);
+    assert.equal(step(5, 3, 2), 19);
+    assert.equal(kept(0, 999, R { k: 0, j: 0 }), 7494);
+}
+"#;
+    crate::odd_sizes::passes("loop-next-read", test, 1);
+}

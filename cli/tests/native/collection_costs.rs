@@ -591,6 +591,65 @@ fn sorting_an_ordered_list_costs_a_fraction_of_a_shuffled_one() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// `k` sorts of the same 4,096 shuffled `Int`s. `main` takes `k`.
+const MERGES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn times<C: Allocator>(ctx: C, xs: [Int], k: Int, acc: Int): Int {
+  if (k == 0) { acc } else { times(ctx, xs, k - 1, acc + xs.sort(ctx).get(2047).withDefault(0)) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let xs = list.range(ctx, 0, 4096).map(ctx, fn(i) => (i * 7919) % 4099);
+  io.println(ctx, "${times(ctx, xs, k, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The two counts of sorts [`MERGE_BOUND`] is measured between.
+const MERGE_SORTS: (u64, u64) = (10, 40);
+
+/// What sorting one element of [`MERGES`] costs on the copy-and-patch
+/// backend, in instructions: its share of the insertion sort and of every
+/// merge pass. It measured 321 once each merge step's index stayed in its
+/// register, and 368 before, when every step stored the index and
+/// read it back. The bound sits between the two, so the old code fails it,
+/// with room for the counter's noise of well under 1%.
+const MERGE_BOUND: f64 = 345.0;
+
+/// **A merge step keeps its indexes in registers**: the index a step moves
+/// past is computed into the register the loop holds it in, tested there,
+/// and the test and its branch are one instruction.
+#[test]
+fn a_merge_step_keeps_its_indexes_in_registers() {
+    let (fewer, more) = MERGE_SORTS;
+    let elems = (more - fewer) * 4096;
+    // 4,099 is prime and 7,919 is not a multiple of it, so the keys are 4,096
+    // distinct numbers below 4,099, and the sorted list's middle one is fixed.
+    let mut keys: Vec<u64> = (0..4096u64).map(|i| i * 7919 % 4099).collect();
+    keys.sort_unstable();
+    let middle = keys.get(2047).copied().unwrap_or_default();
+    let answer = |k: u64| format!("{}\n", k * middle);
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-merges", MERGES);
+        let n = steps_cost(backend, &binary, MERGE_SORTS, answer);
+        let each = n.map(|n| n as f64 / elems as f64);
+        eprintln!("{backend}: {each:?} instructions an element");
+        if backend == "stencil" && each.is_some_and(|e| e > MERGE_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions an element, over {MERGE_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Trees built and dropped until about a million nodes have been, `depth`
 /// levels each. `parallel` builds eight a round in a fan-out and drops them in
 /// the caller, so most blocks are freed on a thread that didn't allocate them.

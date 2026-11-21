@@ -1444,11 +1444,13 @@ impl FnLower<'_> {
         self.set_term(Term::Jump(Target::new(merge, vec![lo, mid, lo])));
         self.cur = merge;
         let [li, ri, out] = merge_in;
+        // Before the test, so that the branch follows the comparison it reads
+        // and the two are one instruction.
+        let out1 = self.add_one(out);
         let x = get(self, a, li);
         let y = get(self, a, ri);
         let right_first = self.order(&order, BinOp::Eq, x, y);
         let (take_right, take_left) = self.fork(right_first);
-        let out1 = self.add_one(out);
         for (side, from, end) in [(take_left, li, mid), (take_right, ri, hi)] {
             self.cur = side;
             // Read again rather than kept across the call: the copy-and-patch

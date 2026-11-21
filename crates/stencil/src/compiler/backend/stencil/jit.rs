@@ -3704,7 +3704,7 @@ impl<'a> Jit<'a> {
                     let Some(k) = *out.get(*p) else {
                         continue;
                     };
-                    if p == a || out.get(*a).is_some() || vars.get(*a).uses != 1 {
+                    if p == a || out.get(*a).is_some() {
                         continue;
                     }
                     // `a` has `p`'s type (`ir::verify`), so it reads the same
@@ -3715,6 +3715,24 @@ impl<'a> Jit<'a> {
                     let Some(di) = b.insts.iter().position(|i| i.results().contains(a)) else {
                         continue;
                     };
+                    // Read nowhere but here: by this edge alone, or by
+                    // instructions after it in this block that take a
+                    // register, as the loop's own test of `i + 1` does. A read
+                    // anywhere else would find the slot, which nothing writes.
+                    let mut here = 0;
+                    for i in b.insts.iter().skip(di + 1) {
+                        ops.clear();
+                        i.operands(ops);
+                        let n = ops.iter().filter(|o| **o == *a).count() as u32;
+                        if n != 0 && !reads_register(code, i, *a) {
+                            here = u32::MAX;
+                            break;
+                        }
+                        here += n;
+                    }
+                    if here.saturating_add(1) != vars.get(*a).uses {
+                        continue;
+                    }
                     if !matches!(
                         b.insts.get(di),
                         Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })

@@ -11483,14 +11483,14 @@ On the arm64 VM, 2026-11-20:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1656652452     1694765404     1212144264     1199744273       0.978       1.367
-floats        544630263      567625912      452625862      449626100       0.959       1.203
-lists        2284010788     2428794280     1302774132     1294145324       0.940       1.753
-tree         1409463356     1511699676     1267907568     1267907659       0.932       1.112
-maps         1363124958     1614349104      782732458      781544133       0.844       1.741
-sort          870023308     1100429751      279509865      316268551       0.791       3.113
-kvstore       923889076     1251571738      614193148      608413750       0.738       1.504
-match         611302246     1865847837      615665931      615666128       0.328       0.993
+strings      1656652049     1694765001     1212143862     1199743870       0.978       1.367
+floats        544627740      567623388      452623298      449623529       0.959       1.203
+lists        2283764876     2428450360     1302430212     1293801405       0.940       1.753
+tree         1264270599     1366506886     1122714817     1122714907       0.925       1.126
+maps         1361265580     1612488448      780871821      779683506       0.844       1.743
+kvstore       922471760     1250191306      612812730      607033357       0.738       1.505
+sort          750544042     1100426384      279506498      316265184       0.682       2.685
+match         611302265     1865847811      615665953      615666137       0.328       0.993
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11523,6 +11523,10 @@ match         611302246     1865847837      615665931      615666128       0.328
   variant, it isn't built either. Match was 1.21 times `-O1`, and kvstore ran
   0.6% fewer instructions. The runtime's other changes since moved strings,
   tree and maps.
+- A merge step computes the index it moves past straight into the register
+  the loop keeps it in, and the slot gets a copy only once the register holds
+  it. The test that reads that index sits right before its branch, so the two
+  fuse. Sort was 3.11 times `-O1`.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11548,6 +11552,26 @@ again. Two runs each on the arm64 VM:
 | `ci` instructions | 40671.0, 40672.2 | 40666.9, 40674.3 |
 | `monorepo-ci` cost | 23316.2, 23314.5 | 23349.2, 23360.0 |
 | `monorepo-ci` instructions | 16848.5, 16848.4 | 16855.8, 16855.7 |
+
+Making each helper's symbol once, not once per call, paid back the 15
+instructions a line on `monorepo-ci` that the variant work cost. Two runs each
+on the arm64 VM:
+
+| Row | 1fa72e22b | One symbol a helper |
+| --- | --- | --- |
+| `ci` cost | 60399.2, 60463.7 | 60275.6, 60277.7 |
+| `ci` instructions | 40674.7, 40671.1 | 40631.4, 40628.1 |
+| `monorepo-ci` cost | 23361.7, 23287.5 | 23270.6, 23225.8 |
+| `monorepo-ci` instructions | 16846.7, 16851.0 | 16831.3, 16825.0 |
+
+Keeping a merge step's indexes in registers left it flat:
+
+| Row | Main | Merge in registers |
+| --- | --- | --- |
+| `ci` cost | 60426.1, 60343.5 | 60328.6, 60470.5 |
+| `ci` instructions | 40730.9, 40726.7 | 40729.5, 40743.3 |
+| `monorepo-ci` cost | 23275.6, 23250.8 | 23292.1, 23309.5 |
+| `monorepo-ci` instructions | 16873.9, 16874.0 | 16873.5, 16878.6 |
 
 Rebuilding a loop's record in place left it flat:
 
