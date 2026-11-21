@@ -4,21 +4,21 @@
 # lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
-aarch64 ci check cost                                        7355.1
+aarch64 ci check cost                                        7325.0
 aarch64 ci check instructions                                4297.3
 aarch64 ci dev-codegen cost                                 60188.6
 aarch64 ci dev-codegen instructions                         40752.4
-aarch64 ci parse cost                                        2133.7
-aarch64 ci parse instructions                                1534.4
-aarch64 monorepo-ci check cost                              11253.4
+aarch64 ci parse cost                                        2118.8
+aarch64 ci parse instructions                                1520.8
+aarch64 monorepo-ci check cost                              11227.4
 aarch64 monorepo-ci check instructions                       6736.4
 aarch64 monorepo-ci dev-codegen cost                        23356.5
 aarch64 monorepo-ci dev-codegen instructions                16906.0
-aarch64 monorepo-ci parse cost                               2703.2
-aarch64 monorepo-ci parse instructions                       1965.7
-aarch64 monorepo-ci test-build check cost                   12619.1
+aarch64 monorepo-ci parse cost                               2691.0
+aarch64 monorepo-ci parse instructions                       1953.3
+aarch64 monorepo-ci test-build check cost                   12597.7
 aarch64 monorepo-ci test-build check instructions            7598.7
 aarch64 monorepo-ci test-build dev-codegen cost             25288.4
 aarch64 monorepo-ci test-build dev-codegen instructions     18160.8
-aarch64 monorepo-ci test-build parse cost                    2706.6
-aarch64 monorepo-ci test-build parse instructions            1965.6
+aarch64 monorepo-ci test-build parse cost                    2694.0
+aarch64 monorepo-ci test-build parse instructions            1953.6
