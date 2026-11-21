@@ -7442,7 +7442,11 @@ test "out of the focus order, Tab skips a file picker and hasFocus still focuses
                     hasFocus: .Some(held),
                     isInFocusOrder: .Some(.Const(false)),
                 }),
-                ui.button({ label: .Const("Last"), styles: [], onPress: .Some(fn(_c) => ()) }),
+                ui.button({
+                    label: .Const("Last"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
             ],
         }),
     );
@@ -7488,7 +7492,11 @@ fn section<C: Ui>(open: Signal<Bool>, focus: Signal<Bool>, inOrder: Bool): Node<
                 hasFocus: .Some(focus),
                 isInFocusOrder: .Some(.Const(inOrder)),
             }),
-            ui.button({ label: .Const("Last"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ui.button({
+                label: .Const("Last"),
+                styles: [],
+                onPress: .Some(fn(_c) => ()),
+            }),
         ],
     })
 }
