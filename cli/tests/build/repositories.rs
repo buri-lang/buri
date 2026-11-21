@@ -892,6 +892,39 @@ fn pinned_panels_shift_onto_the_page() {
     assert_eq!(crate::harness::web_pages::places_alone(&case), placed);
 }
 
+/// Where a browser lays out `pinned_panels_shift_onto_the_page`'s red panels
+/// in a window 100px shorter than each page, which scrolls in it. A fixed
+/// panel placed against an anchor slides back inside the whole scrollable
+/// document, not only the window (Blink's `scroll_limit_rect`), so each lands
+/// where the golden shows, as it does in a window the size of the page. The
+/// panel that flips is left out: the room it flips into is the window's.
+#[test]
+fn pinned_panels_shift_inside_the_whole_document() {
+    let case = tests_dir().join("repositories/ui/pinned_panels_shift_onto_the_page");
+    let expected: &[(&str, &str)] = &[
+        ("shift-x", "-100,32 300x80"),
+        ("unshifted", "0,32 300x80"),
+        ("shift-start", "-40,32 300x80"),
+        ("shift-y", "0,0 160x80"),
+        ("shift-both", "-100,0 300x80"),
+        ("shift-centred", "-200,32 400x80"),
+        ("too-wide", "-600,32 900x80"),
+        ("computed", "-100,32 300x80"),
+        ("end-past-page", "-600,32 100x80"),
+        ("start-past-page", "0,120 160x80"),
+    ];
+    let placed: Vec<(String, String)> = expected
+        .iter()
+        .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
+        .collect();
+    let read: Vec<(String, String)> =
+        crate::harness::web_pages::places_in_short_window(&case, 100)
+            .into_iter()
+            .filter(|(name, _)| name != "flip-shift")
+            .collect();
+    assert_eq!(read, placed);
+}
+
 /// Where a browser lays out `pins_measure_from_the_nearest_positioned_box`'s
 /// red boxes, read off happy-dom by CSS's rules for placing a box out of the
 /// flow. Each scene and its twin come out at the same place in the box they

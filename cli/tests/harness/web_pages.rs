@@ -134,16 +134,24 @@ pub fn places(case: &Path) -> Vec<(String, String)> {
 /// So a panel that flips or fits the room the window leaves it does so where
 /// the golden shows.
 pub fn places_alone(case: &Path) -> Vec<(String, String)> {
-    let script = PLACES.replace("  await hovered(state, tree);\n", ALONE);
+    places_in_short_window(case, 0)
+}
+
+/// [`places_alone`], with the window `short` pixels shorter than the page, so
+/// the page scrolls in it.
+pub fn places_in_short_window(case: &Path, short: u32) -> Vec<(String, String)> {
+    let alone = ALONE.replace("SHORT", &short.to_string());
+    let script = PLACES.replace("  await hovered(state, tree);\n", &alone);
     read_snapshots(case, &format!("{COLOURS}{HOVERED}{script}"), "place ")
 }
 
-/// What [`places_alone`] puts before each snapshot is read: every other
-/// snapshot shown as nothing, and the window resized to the page.
+/// What [`places_in_short_window`] puts before each snapshot is read: every
+/// other snapshot shown as nothing, and the window resized to the page, less
+/// `SHORT` pixels down.
 const ALONE: &str = r#"  await hovered(state, tree);
   for (const other of snapshots) other.root.style.display = other.root === root ? "" : "none";
   const outer = tree.find((n) => n.nodeType === 1);
-  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]), sizeOf(outer, "height"));
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]), sizeOf(outer, "height") - SHORT);
 "#;
 
 /// How many boxes cut each of `case`'s snapshots' red boxes out of the flow

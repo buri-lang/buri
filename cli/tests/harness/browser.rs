@@ -661,15 +661,25 @@ function placedAt(element) {
   const against = containingBlock(element);
   const room = (dimension) =>
     against === null ? viewport(dimension) : sizeOf(against, dimension) - (area ? 0 : borders(against, dimension));
-  // What a box may slide inside besides its inset room: the viewport, from
+  // What a box may slide inside besides its inset room: `scrollLimit`, from
   // the anchor's top left, or its containing block.
   const page = (dimension) =>
-    area ? [-offsetOf(anchor, dimension), viewport(dimension) - offsetOf(anchor, dimension)] : [0, room(dimension)];
+    area ? [-offsetOf(anchor, dimension), scrollLimit(element, dimension) - offsetOf(anchor, dimension)] : [0, room(dimension)];
   const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, aligned(s.justifySelf), room("width"), area, page("width"));
   const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, aligned(s.alignSelf), room("height"), area, page("height"));
   return { x, y, width, height };
 }
 const viewport = (dimension) => (dimension === "width" ? window.innerWidth : window.innerHeight);
+// How far along `dimension` a box placed against an anchor may slide back
+// onto the page, from the viewport's start edge. A fixed box may slide
+// anywhere in the viewport's scrollable containing block: the viewport
+// stretched to hold the document's box in the flow, which is Blink's
+// `scroll_limit_rect`. The document's box is as wide as the viewport, and as
+// tall as what it holds in the flow. Any other box keeps to the viewport.
+function scrollLimit(element, dimension) {
+  if (getComputedStyle(element).position !== "fixed" || dimension === "width") return viewport(dimension);
+  return Math.max(viewport(dimension), flowSize(document.documentElement, dimension));
+}
 // A self-alignment as Chromium reads it. happy-dom resolves `var(--v,) start`
 // to `initial start` when `--v` is `initial`, where the empty fallback
 // should apply.
@@ -779,7 +789,7 @@ function placedInArea(element, anchor) {
       else if (self === "end") offset = room - to - size;
       else if (self === "anchor-center") offset = at + (length - size) / 2 - low;
       else throw new Error(`placedAt: self-alignment ${align} in an area`);
-      if (shift) offset = shifted(offset, size, [from, room - to], [-low, far - low]);
+      if (shift) offset = shifted(offset, size, [from, room - to], [-low, scrollLimit(element, dimension) - low]);
       const fits = offset >= from - 0.5 && offset + size <= room - to + 0.5;
       return { at: low + offset - at, size, fits, inside };
     };
