@@ -7373,6 +7373,155 @@ test "a control bound to hasFocus answers for its own focus in the scene" {
     assert.containsText(page.markup(), "focused:true");
 }
 
+/// A button that swaps itself for a file picker, handing the picker the focus
+/// as it goes (#369).
+fn chooser<C: Ui>(picking: Signal<Bool>, focus: Signal<Bool>): Node<C> {
+    ui.choose(
+        .Cell(picking),
+        ui.filePicker({
+            label: .Const("Choose a file"),
+            maxBytes: 1000,
+            onPick: fn(_c, _picked) => (),
+            styles: [],
+            hasFocus: .Some(focus),
+        }),
+        ui.button({
+            label: .Const("Choose a file instead"),
+            styles: [],
+            onPress: .Some(fn(c) => {
+                let _ = focus.set(c, true);
+                picking.set(c, true)
+            }),
+        }),
+    )
+}
+
+test "a file picker that mounts takes the focus its signal hands it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picking = signal(ctx, false);
+    let focus = signal(ctx, false);
+    let page = render(ctx, chooser(picking, focus));
+    let _ = page.press("Choose a file instead");
+    assert.equal(page.focused(), "Choose a file");
+    assert.isTrue(focus.get(ctx));
+}
+
+test "a file picker writes its hasFocus as the focus moves, and writing false takes it away" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picking = signal(ctx, true);
+    let focus = signal(ctx, false);
+    let page = render(ctx, chooser(picking, focus));
+    let _ = page.tab();
+    assert.isTrue(focus.get(ctx));
+    focus.set(ctx, false);
+    assert.equal(page.focused(), "");
+}
+
+test "out of the focus order, Tab skips a file picker and hasFocus still focuses it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let held = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.filePicker({
+                    label: .Const("Choose a file"),
+                    maxBytes: 1000,
+                    onPick: fn(_c, _picked) => (),
+                    styles: [],
+                    hasFocus: .Some(held),
+                    isInFocusOrder: .Some(.Const(false)),
+                }),
+                ui.button({ label: .Const("Last"), styles: [], onPress: .Some(fn(_c) => ()) }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    held.set(ctx, true);
+    assert.equal(page.focused(), "Choose a file");
+}
+
+test "a file picker bound to hasFocus answers for its own focus in the scene" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let held = signal(ctx, true);
+    let tree = rooted(
+        ctx,
+        ui.filePicker({
+            label: .Const("Choose a file"),
+            maxBytes: 1000,
+            onPick: fn(_c, _picked) => (),
+            styles: [.On(.Focus, [.Padding(.Px(9))])],
+            hasFocus: .Some(held),
+        }),
+    );
+    assert.containsText(ui.describe(ctx, tree, .Hover), "focus_p-9");
+    held.set(ctx, false);
+    assert.isFalse(ui.describe(ctx, tree, .Focus).contains("focus_p-9"));
+}
+
+/// A disclosure whose summary is bound to `focus`, out of the order when
+/// `inOrder` says so, and a button after it.
+fn section<C: Ui>(open: Signal<Bool>, focus: Signal<Bool>, inOrder: Bool): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.disclosure({
+                summary: .Const("Details"),
+                isOpen: open,
+                children: [ui.text({ content: .Const("Body") })],
+                styles: [],
+                hasFocus: .Some(focus),
+                isInFocusOrder: .Some(.Const(inOrder)),
+            }),
+            ui.button({ label: .Const("Last"), styles: [], onPress: .Some(fn(_c) => ()) }),
+        ],
+    })
+}
+
+test "writing a disclosure's hasFocus focuses its summary, and the focus writes it back" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let focus = signal(ctx, false);
+    let page = render(ctx, section(open, focus, true));
+    focus.set(ctx, true);
+    assert.equal(page.focused(), "Details");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    assert.isFalse(focus.get(ctx));
+}
+
+test "out of the focus order, Tab skips a disclosure and hasFocus still focuses it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let focus = signal(ctx, false);
+    let page = render(ctx, section(open, focus, false));
+    let _ = page.tab();
+    assert.equal(page.focused(), "Last");
+    focus.set(ctx, true);
+    assert.equal(page.focused(), "Details");
+}
+
 // --- a progress bar --------------------------------------------------------------------
 
 test "a progress bar announces the role, the bounds and how far along it is" {

@@ -1311,7 +1311,8 @@ so it draws the bubble only while they're on the trigger. That's the one place
 `markup()` differs from `describe` in `.Hover`.
 
 **The focus is a two-way signal.** `button`, `link`, `field`, `toggle`,
-`picker`, `slider` and `stack` take a `hasFocus: Signal<Bool>`, the shape
+`picker`, `slider`, `filePicker`, `disclosure` and `stack` take a
+`hasFocus: Signal<Bool>`, the shape
 `Field.selection` has: the platform writes it as the focus moves, and writing
 `true` moves the focus there. That's how a menu hands the focus back to its
 trigger when Escape shuts it:
@@ -1366,7 +1367,7 @@ in an editor too, when a pressed suggestion row unmounts: the row's handler
 writes the editor's signal. An element that unmounts with the focus has its
 signal written `false`. If several signals are written `true` in one update,
 the last one written gets the focus. A picker's is its group's, true while any
-option has the focus.
+option has the focus, and a disclosure's is its summary's.
 
 `isInFocusOrder: Prop<Bool>` says whether Tab reaches an element. Left out, a
 control is in the order and a stack isn't. Out of the order, `hasFocus` still

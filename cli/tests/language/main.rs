@@ -70,6 +70,7 @@ mod js_words;
 mod js_wrapping;
 mod lexing;
 mod named_types;
+mod page_focus;
 mod page_output;
 mod page_pin_containing_box;
 mod page_served_contexts;

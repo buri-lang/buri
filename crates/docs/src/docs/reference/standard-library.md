@@ -1182,13 +1182,13 @@ land on it. `text` is a `Prop<Str>`, so nothing in it can be pressed: a tooltip
 is never interactive. `platform/effect/testing`'s `description(name)` reads the
 text, `focus(name)` and `pointerMove` show it, and `key("Escape")` hides it.
 
-`button`, `link`, `field`, `toggle`, `picker`, `slider` and `stack` take a
-`hasFocus: Option<Signal<Bool>>` and an `isInFocusOrder: Option<Prop<Bool>>`.
+`button`, `link`, `field`, `toggle`, `picker`, `slider`, `filePicker`,
+`disclosure` and `stack` take a `hasFocus: Option<Signal<Bool>>` and an `isInFocusOrder: Option<Prop<Bool>>`.
 The signal is two-way, like `Field.selection`: the platform writes it as the
 focus moves, writing `true` moves the focus there and `false` takes it away. An
 element that unmounts with the focus has it written `false`, and of several
 written `true` in one update the last one gets the focus. A picker's is its
-group's. `isInFocusOrder` is whether Tab reaches the element — left out, a
+group's, and a disclosure's is its summary's. `isInFocusOrder` is whether Tab reaches the element — left out, a
 control is in the order and a stack isn't — and out of the order `hasFocus`
 still focuses it, which is roving focus. On the web they're `focus()`, `blur()`
 and `tabindex`. A control bound to `hasFocus` answers for its own focus in a

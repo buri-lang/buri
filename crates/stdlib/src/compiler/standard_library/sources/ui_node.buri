@@ -324,7 +324,7 @@ enum NodeKind<C> {
     // A modal. The first `[Style]` is the panel's; the second is the scrim's,
     // the widget's own look and then `scrimStyles`.
     Dialog(Signal<Bool>, Prop<Str>, [Style], [Node<C>], [Style], Events<C>),
-    Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>], Events<C>),
+    Disclosure(Prop<Str>, Signal<Bool>, [Style], [Node<C>], Focus, Events<C>),
     // How far a task has come. `value` set → determinate; `.None` → a spinner.
     Progress(Prop<Str>, Option<Prop<Float>>, [Style], [Node<C>], Events<C>),
     When(Prop<Bool>, Node<C>, Node<C>),
@@ -351,7 +351,7 @@ enum NodeKind<C> {
     // refusal, or `""` to read it) and `land` (the offer to the program's
     // `onPick`). Both closures are built from the config in Buri, so every
     // backend applies one rule. Appended last, the order being append-only.
-    FilePicker(Prop<Str>, [Style], Prop<Bool>, [Str], fn(Str, Str, Int) => Str, fn(C, Offer) => (), Events<C>),
+    FilePicker(Prop<Str>, [Style], Prop<Bool>, [Str], fn(Str, Str, Int) => Str, fn(C, Offer) => (), Focus, Events<C>),
     // A description shown while what it wraps is hovered or focused: the text,
     // the bubble's styles, the trigger, and the wrapper's events. Appended last,
     // the order being append-only.
@@ -1586,6 +1586,15 @@ struct FilePicker<C> {
     /// Written only when `true`: takes the button out of the tab order and
     /// opens no chooser.
     export isDisabled: Option<Prop<Bool>>,
+    /// `true` while this element has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus here — the shape
+    /// `Field.selection` has. When the element unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches this element. Left
+    /// out, its default. Out of the order, `hasFocus` still focuses it, which
+    /// is what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -1634,6 +1643,7 @@ export fn filePicker<C>(config: FilePicker<C>): Node<C> {
             accept,
             fn(name, mimeType, size) => refusal(name, mimeType, size, accept, maxBytes),
             fn(c, offer) => onPick(c, verdict(offer, accept, maxBytes)),
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -1798,6 +1808,15 @@ struct Disclosure<C> {
     export children: [Node<C>],
     /// Applied to the `<details>`.
     export styles: [Style],
+    /// `true` while the summary has the focus. The platform writes it as the
+    /// focus moves, and writing `true` moves the focus to the summary — the
+    /// shape `Field.selection` has. When it unmounts with the focus, it is
+    /// written `false`.
+    export hasFocus: Option<Signal<Bool>>,
+    /// Whether moving the focus forward or back reaches the summary. Left
+    /// out, it does. Out of the order, `hasFocus` still focuses it, which is
+    /// what roving focus needs.
+    export isInFocusOrder: Option<Prop<Bool>>,
     /// Runs as the pointer enters this element (`true`) and as it leaves (`false`).
     export onHover: Option<fn(C, Bool) => ()>,
     /// Runs as focus moves into this element (`true`) and as it leaves (`false`).
@@ -1834,6 +1853,7 @@ export fn disclosure<C>(config: Disclosure<C>): Node<C> {
             config.isOpen,
             config.styles,
             config.children,
+            Focus { signal: config.hasFocus, order: config.isInFocusOrder },
             events,
         ),
     )
@@ -2554,7 +2574,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // signal, so the group rebuilds in place on a toggle: the build answers
         // a `details` element holding the summary, and the children after it
         // only while open, as a `.Raw` tree the reconciler walks.
-        .Disclosure(summary, open, styles, children, events) => {
+        .Disclosure(summary, open, styles, children, focus, events) => {
             // The `details` and its `summary` are always drawn, so they are
             // emitted once and kept — the element and its identity survive a
             // toggle, the way a browser's `<details>` does. Only the body comes
@@ -2572,7 +2592,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
             );
             // The summary is the control: it takes the focus, and Enter and
             // Space on it open and shut the disclosure.
-            let _ = attachFocus(builder, focusKey(builder), true);
+            let _ = bindFocus(builder, focusKey(builder), true, focus);
             let _ = registerValue(builder, open.index());
             let _ = emitReactiveText(builder, summary);
             let _ = exitElement(builder);
@@ -2619,10 +2639,10 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
         // button's does. The hidden input is a browser's alone and paints
         // nothing. `pickFile` fires the kept handler, which reads the file the
         // test offered back off the document.
-        .FilePicker(label, styles, disabled, _accept, _admit, land, events) => {
+        .FilePicker(label, styles, disabled, _accept, _admit, land, focus, events) => {
             let key = focusKey(builder);
             let region = enterDynamic(builder);
-            reactive(fn(scope) => {
+            let _ = reactive(fn(scope) => {
                 let inner = alloc.generalPurpose();
                 let _ = beginRegion(builder, region);
                 let _ = emitElement(
@@ -2630,7 +2650,7 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                     "button",
                     widgetBody(
                         inner,
-                        refusing(state, disabled.read(scope)),
+                        answering(scope, state, disabled, focus),
                         [],
                         styles,
                     ),
@@ -2644,7 +2664,8 @@ fn emitNode<C>(ctx: C, builder: Builder, node: Node<C>, state: State): () {
                 let _ = emitText(builder, label.read(scope));
                 let _ = exitElement(builder);
                 endRegion(builder)
-            })
+            });
+            watchFocus(builder, key, focus, false)
         },
         // The wrapper and the trigger are emitted once. The document knows what
         // the pointer and the focus are on, so it is the one that says when the
@@ -4214,7 +4235,7 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The summary is always drawn; the children only when it is open. A
         // browser draws a shut `<details>` as its `<summary>` alone, so the body
         // is the one the document's region shows.
-        .Disclosure(summary, open, styles, children, _events) => {
+        .Disclosure(summary, open, styles, children, _focus, _events) => {
             let head = [
                 styledLine(ctx, plain(state), styles, depth),
                 styledLine(ctx, plain(state), [], depth + 1),
@@ -4243,14 +4264,14 @@ fn nodeLines<C: Allocator>(ctx: C, state: State, node: Node<C>, depth: Int): [St
         // The button a reader presses to choose a file, drawn as a childless
         // button is: the label in the caller's styles. The hidden input a
         // browser opens the chooser through is drawn nowhere.
-        .FilePicker(label, styles, disabled, _accept, _admit, _land, _events) => {
+        .FilePicker(label, styles, disabled, _accept, _admit, _land, focus, _events) => {
             let name = label.read(scope);
             [
                 named(
                     ctx,
                     styledLine(
                         ctx,
-                        refusing(state, disabled.read(scope)),
+                        answering(scope, state, disabled, focus),
                         styles,
                         depth,
                     ),

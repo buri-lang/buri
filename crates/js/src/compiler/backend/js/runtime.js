@@ -7378,6 +7378,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     $tree_styles(element, node[3]);
     const summary = $tree_element(element, "summary", null);
     $tree_text(node[1], summary, null);
+    $tree_focus(summary, node[5], true);
     const sync = () => $tree_host_sync(host, element.open, () => {});
     const host = $tree_host(element, parent, sync);
     for (const child of node[4]) $tree_render(ctx, child, element, null);
@@ -7398,7 +7399,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       if (!ours) $ui_flush(() => $ui_write(cell, element.open));
       sync();
     });
-    $tree_events(ctx, element, node[5]);
+    $tree_events(ctx, element, node[6]);
     return;
   }
   if (tag === 17) {
@@ -7504,7 +7505,8 @@ function $tree_render(ctx, wrapper, parent, anchor) {
         () => $ui_flush(() => land($taskApart(ctx), [name, type, size, undefined])),
       );
     });
-    $tree_events(ctx, button, node[7]);
+    $tree_focus(button, node[7], true);
+    $tree_events(ctx, button, node[8]);
     return;
   }
   if (tag === 24) {
