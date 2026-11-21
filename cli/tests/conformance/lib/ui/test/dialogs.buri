@@ -555,3 +555,73 @@ test "a signal the opener's onFocus makes as a dialog shuts outlasts the dialog 
         .None => assert.isTrue(false),
     }
 }
+
+/// A button named `Open` that opens a dialog holding a button named `Inside`,
+/// and a press outside the dialog shuts it. `Open` writes whether the pointer
+/// is over it to `over`, and `onOpen` and `onInside` are the two buttons'
+/// `onFocus`.
+fn dismissable<C: Ui>(
+    open: Signal<Bool>,
+    over: Signal<Bool>,
+    onOpen: Option<fn(C, Bool) => ()>,
+    onInside: Option<fn(C, Bool) => ()>,
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => open.set(c, true)),
+                onHover: .Some(fn(c, on) => over.set(c, on)),
+                onFocus: onOpen,
+            }),
+            ui.dialog({
+                isOpen: open,
+                label: .Const("Details"),
+                children: [
+                    ui.button({
+                        label: .Const("Inside"),
+                        styles: [],
+                        onPress: .Some(fn(_c) => ()),
+                        onFocus: onInside,
+                    }),
+                ],
+                styles: [],
+                onPressOutside: .Some(fn(c) => open.set(c, false)),
+            }),
+        ],
+    })
+}
+
+test "a press in a dialog is not outside it when the opener's onFocus rewrote what its onHover then changes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let over = signal(ctx, false);
+    let page = render(
+        ctx,
+        dismissable(open, over, .Some(fn(c, _on) => over.update(c, fn(h) => h)), .None),
+    );
+    let _ = page.press("Open");
+    let _ = page.press("Inside");
+    assert.isTrue(open.get(ctx));
+}
+
+test "a press in a dialog is not outside it when its own onFocus rewrote what the opener's onHover then changes" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let over = signal(ctx, false);
+    let page = render(
+        ctx,
+        dismissable(open, over, .None, .Some(fn(c, _on) => over.update(c, fn(h) => h))),
+    );
+    let _ = page.press("Open");
+    let _ = page.press("Inside");
+    assert.isTrue(open.get(ctx));
+}

@@ -4964,11 +4964,16 @@ function $ui_write(cell, v, eq) {
 // promise nobody is holding, and the abort would be a line in a console rather
 // than an error. Rethrowing it from a fresh task is what makes the two behave
 // alike.
+//
+// A handler runs as if fired from the page, wherever the runtime fires it from:
+// a dialog opening inside a watcher's run moves the focus, and the `onFocus`
+// that move fires must not leave its reads subscribing that watcher, nor what
+// it creates owned by it. The native `fire_with`.
 function $ui_flush(f) {
   $ui.depth++;
   let pending;
   try {
-    pending = f();
+    pending = $ui_under(-1, f);
   } finally {
     $ui.depth--;
   }
