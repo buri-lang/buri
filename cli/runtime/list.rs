@@ -71,8 +71,8 @@ pub type Release = Option<unsafe extern "C" fn(*mut u8)>;
 /// `.None` is `Option`'s only non-success arm; see `text.rs`'s `BURI_ABSENT`.
 const BURI_ABSENT: i32 = 0;
 
-/// `copy_nonoverlapping` without a call to `memcpy` for copies of 64 bytes or
-/// less, which most element and short-string copies are.
+/// `copy_nonoverlapping` without a call to `memcpy` for copies of 128 bytes
+/// or less, which most element and short-string copies are.
 ///
 /// # Safety
 /// As [`std::ptr::copy_nonoverlapping`].
@@ -80,10 +80,15 @@ const BURI_ABSENT: i32 = 0;
 pub(crate) unsafe fn copy_small(src: *const u8, dst: *mut u8, n: usize) {
     // SAFETY: the caller promises both ranges.
     unsafe {
-        if n > 64 {
-            std::ptr::copy_nonoverlapping(src, dst, n);
-        } else {
+        if n <= 64 {
             up_to_64(src, dst, n);
+        } else if n <= 128 {
+            // The first and last 64 bytes, which may overlap in the middle.
+            up_to_64(src, dst, 64);
+            let tail = n.wrapping_sub(64);
+            up_to_64(src.add(tail), dst.add(tail), 64);
+        } else {
+            std::ptr::copy_nonoverlapping(src, dst, n);
         }
     }
 }

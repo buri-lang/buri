@@ -11187,6 +11187,25 @@ to 807 and 1,348 to 765 on macOS). Its large literal bound of 737 holds
 only with the inline `retire` check: without it a 1,032-byte step cost
 739.
 
+### 6.180 A copy of up to 128 bytes calls nothing, 2026-11-21
+
+```text
+                              before      after       change
+lists, stencil                1.9917 B    1.9864 B    -0.27%
+lists, release                1.1891 B    1.1838 B    -0.45%
+kvstore, stencil              0.8955 B    0.8941 B    -0.16%
+kvstore, release              0.5937 B    0.5924 B    -0.22%
+```
+
+Counted with aarch64 callgrind. `strings` and `floats` fell by about a
+million instructions on stencil; the other programs moved by under 12,000.
+
+The runtime's own copy moved up to 64 bytes inline and called `memcpy`
+past that. It now copies 65 to 128 bytes as the first and last 64, which
+may overlap in the middle. `native::list_fills` bounds a reversed 96-byte
+record at 30 instructions on every backend (45.3 to 14.3 on macOS
+stencil).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

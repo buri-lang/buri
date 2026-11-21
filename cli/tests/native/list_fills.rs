@@ -288,3 +288,41 @@ fn a_reversed_element_is_a_few_instructions_past_its_copy() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// [`PLAIN_FLIPS`] with records of twelve `Int`s, 96 bytes.
+fn wide_flips() -> String {
+    PLAIN_FLIPS
+        .replace(
+            "f: Int }",
+            "f: Int, g: Int, h: Int, i: Int, j: Int, k: Int, l: Int }",
+        )
+        .replace(
+            "f: i * 3 }",
+            "f: i * 3, g: 0, h: 0, i: 0, j: 0, k: 0, l: 0 }",
+        )
+}
+
+/// **A record of up to 128 bytes is copied without a call.** A reversed
+/// 96-byte record called `memcpy`: 45.3 instructions a record on macOS
+/// stencil, against 14.3 copied as its first and last 64 bytes. The bound
+/// sits about halfway, so it fails if the copy calls `memcpy` again. The copy
+/// is the runtime's, so every backend is bounded.
+#[test]
+fn a_reversed_96_byte_record_is_copied_without_a_call() {
+    const BOUND: u64 = 30;
+    let (fewer, more) = FLIP_COUNTS;
+    let elements = (more - fewer) * 2_000;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-reverse-wide-costs", &wide_flips());
+        let n = steps_cost(backend, &binary, FLIP_COUNTS, plain_flips_answer);
+        let each = n.map(|n| n as f64 / elements as f64);
+        eprintln!("{backend}: {each:?} instructions a reversed 96-byte record");
+        if n.is_some_and(|n| n > BOUND * elements) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a reversed record, over {BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
