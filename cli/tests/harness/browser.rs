@@ -796,8 +796,8 @@ function placedInArea(element, anchor) {
 }
 // Where `element`'s border box starts along `dimension` from the viewport's
 // top left, for a box in the flow: its parent's start, padding and border,
-// and in its parent's main axis every box in the flow before it and the gaps
-// between, then its own margin. Each box starts at its parent's cross start.
+// then where `flexLines` places it in a flex container, or below every box in
+// the flow before it otherwise, then its own margin.
 function offsetOf(element, dimension) {
   const parent = element.parentElement;
   if (parent === null) return 0;
@@ -811,13 +811,12 @@ function offsetOf(element, dimension) {
     at += lengthIn(p[`border${side}Width`], () => 0) ?? 0;
   }
   const flex = /flex/.test(display(parent));
-  const row = flex && p.flexDirection === "row";
-  if (row === (dimension === "width")) {
-    const gap = flex ? p[row ? "columnGap" : "rowGap"] : "normal";
-    const between = gap === "normal" ? 0 : (lengthIn(gap, basis) ?? 0);
+  if (flex) {
+    at += flexLines(parent).places.get(element)[dimension === "width" ? "x" : "y"];
+  } else if (dimension === "height") {
     for (const sibling of inFlow(parent)) {
       if (sibling === element) break;
-      at += sizeOf(sibling, dimension) + between;
+      at += sizeOf(sibling, dimension);
     }
   }
   return at + (lengthIn(s[`margin${side}`], basis) ?? 0);
@@ -890,12 +889,28 @@ function borders(element, dimension) {
   }, 0);
 }
 const sides = (dimension) => (dimension === "width" ? ["Left", "Right"] : ["Top", "Bottom"]);
-// The `dimension` a box with none of its own takes from the flow: its parent's
-// content width, or the heights of its children in the flow added up, or the
+// The `dimension` a box with none of its own takes from the flow: its
+// max-content width in a flex row, else (or when it holds text, which has no
+// width here) its parent's content width, or the heights of its children in the flow added up, or the
 // tallest of them in a table row, whose entries sit side by side, plus its own
-// padding and border.
+// padding and border. A flex container is as tall as `flexLines` lays its
+// lines out.
 function flowSize(element, dimension) {
-  if (dimension === "width") return wrappedLine(element.parentElement) ?? contentOf(element.parentElement, "width");
+  const parent = element.parentElement;
+  if (dimension === "width" && /flex/.test(display(parent)) && getComputedStyle(parent).flexDirection.startsWith("row")) {
+    try {
+      return intrinsicWidths(element)[1];
+    } catch (error) {
+      if (error.message !== "placedAt: the width of text") throw error;
+    }
+  }
+  if (dimension === "width") return wrappedLine(parent) ?? contentOf(parent, "width");
+  const s = getComputedStyle(element);
+  if (/flex/.test(display(element))) {
+    const lines = flexLines(element);
+    const height = s.flexDirection.startsWith("column") ? lines.main : lines.cross;
+    return height + padding(element, "height") + borders(element, "height");
+  }
   const row = display(element) === "table-row";
   let total = 0;
   for (const child of inFlow(element)) {
@@ -920,6 +935,102 @@ function wrappedLine(container) {
     line = Math.max(line, Math.min(most, Math.max(least, room)));
   }
   return line;
+}
+// How a flex container lays out its boxes in the flow, in lines:
+// `{ places, main, cross }`, each box's `{ x, y }` from the top left of the
+// container's content box, and how long and how deep its content box is.
+//
+// A container that wraps breaks a line before the box that would run past its
+// main size, when that is definite (`definiteHeight` for a column), else past
+// its maximum, else never. Its main size is that definite size, else its
+// longest line held to its maximum. Lines stack across it in order, each as
+// deep as its deepest box, or the one line of a container that doesn't wrap as
+// deep as the container when that is definite, and a box sits at its line's start, centre or end
+// as it aligns. A container that runs in reverse lays each line out from its
+// main end. Each box keeps the size `sizeOf` gives it: nothing grows or
+// shrinks.
+function flexLines(container) {
+  const s = getComputedStyle(container);
+  const column = s.flexDirection.startsWith("column");
+  const [main, cross] = column ? ["height", "width"] : ["width", "height"];
+  const edges = (dimension) => padding(container, dimension) + borders(container, dimension);
+  const [mainGap, crossGap] = (column ? ["row", "column"] : ["column", "row"]).map((axis) => gapOf(container, axis));
+  const definite = column ? definiteHeight(container) : sizeOf(container, "width");
+  const room = () => contentOf(container.parentElement, "height");
+  const held = definiteHeight(container.parentElement) !== null;
+  const maximum = column && (s.maxHeight.endsWith("%") ? held : true) ? lengthIn(s.maxHeight, room) : null;
+  const inner = (outer, dimension = main) => (outer === null ? null : outer - edges(dimension));
+  const limit = s.flexWrap !== "wrap" ? Infinity : (inner(definite) ?? inner(maximum) ?? Infinity);
+  const lines = [];
+  for (const item of inFlow(container)) {
+    const box = { item, main: sizeOf(item, main), cross: sizeOf(item, cross) };
+    const line = lines.at(-1);
+    if (line === undefined || line.length + mainGap + box.main > limit) {
+      lines.push({ boxes: [box], length: box.main, depth: box.cross });
+    } else {
+      line.boxes.push(box);
+      line.length += mainGap + box.main;
+      line.depth = Math.max(line.depth, box.cross);
+    }
+  }
+  const depth = s.flexWrap === "wrap" ? null : inner(column ? sizeOf(container, "width") : definiteHeight(container), cross);
+  if (lines.length === 1 && depth !== null) lines[0].depth = depth;
+  const longest = Math.max(0, ...lines.map((line) => line.length));
+  const length = inner(definite) ?? Math.min(longest, inner(maximum) ?? Infinity);
+  const places = new Map();
+  let across = 0;
+  for (const line of lines) {
+    let along = 0;
+    for (const box of line.boxes) {
+      const align = getComputedStyle(box.item).alignSelf;
+      const own = unsetStyle(align) ? s.alignItems : align;
+      const free = line.depth - box.cross;
+      const shift = /end/.test(own) ? free : own === "center" ? free / 2 : 0;
+      const start = s.flexDirection.endsWith("reverse") ? length - along - box.main : along;
+      places.set(box.item, column ? { x: across + shift, y: start } : { x: start, y: across + shift });
+      along += box.main + mainGap;
+    }
+    across += line.depth + crossGap;
+  }
+  return { places, main: length, cross: Math.max(0, across - crossGap) };
+}
+// The height of `element`'s border box when a browser knows it before laying
+// out its content, else `null`: a length of its own; a percentage of a parent
+// whose height is definite; stretched across a flex row of definite height
+// that doesn't wrap; or the one box that grows in a flex column of definite
+// height, with a minimum height of its own or its overflow cut, which takes
+// the room the rest leave. The viewport's is definite; the page's isn't.
+function definiteHeight(element) {
+  const parent = element.parentElement;
+  if (parent === null) return viewport("height");
+  const s = getComputedStyle(element);
+  if (["absolute", "fixed"].includes(s.position)) return null;
+  if (s.height.endsWith("px")) return sizeOf(element, "height");
+  const held = definiteHeight(parent);
+  if (held === null) return null;
+  if (s.height.endsWith("%")) return sizeOf(element, "height");
+  if (!unsetStyle(s.height) || !/flex/.test(display(parent))) return null;
+  const p = getComputedStyle(parent);
+  const room = held - padding(parent, "height") - borders(parent, "height");
+  const align = unsetStyle(s.alignSelf) ? p.alignItems : s.alignSelf;
+  if (p.flexDirection.startsWith("row")) {
+    return p.flexWrap !== "wrap" && (unsetStyle(align) || ["normal", "stretch"].includes(align)) ? room : null;
+  }
+  const grows = (box) => Number(getComputedStyle(box).flexGrow) > 0;
+  const others = inFlow(parent).filter((box) => box !== element);
+  const kept = !unsetStyle(s.minHeight) || ["hidden", "clip", "scroll", "auto"].includes(s.overflowY);
+  if (!grows(element) || !kept || others.some(grows)) return null;
+  const gap = gapOf(parent, "row");
+  return room - others.reduce((sum, box) => sum + sizeOf(box, "height") + gap, 0);
+}
+// The gap between `element`'s rows (`axis` "row") or its columns ("column"),
+// a percentage of `room()`. happy-dom keeps the `gap` shorthand whole, its
+// row gap then its column gap, so this reads it there too.
+function gapOf(element, axis, room = () => contentOf(element, "width")) {
+  const s = getComputedStyle(element);
+  const [rows, columns = rows] = (s.gap ?? "").split(/\s+/);
+  const value = s[`${axis}Gap`] || (axis === "row" ? rows : columns);
+  return unsetStyle(value) || value === "normal" ? 0 : (lengthIn(value, room) ?? 0);
 }
 // `element`'s children in the flow: neither out of it nor shown as nothing.
 const inFlow = (element) =>
@@ -952,7 +1063,7 @@ function intrinsicWidths(element, inside = false) {
   const row = /flex/.test(display(element)) && s.flexDirection === "row";
   const wraps = s.flexWrap === "wrap";
   const children = inFlow(element);
-  const gaps = row ? (lengthIn(s.columnGap === "normal" ? "0" : s.columnGap, () => 0) ?? 0) * Math.max(0, children.length - 1) : 0;
+  const gaps = row ? gapOf(element, "column", () => 0) * Math.max(0, children.length - 1) : 0;
   // An `<input>` is `size` characters wide, 20 unless it says. Half the font
   // size stands in for the average character a browser reads off the font.
   const typed = element.localName === "input" ? (Number(element.getAttribute("size")) || 20) * (lengthIn(s.fontSize, () => 0) ?? 16) / 2 : 0;

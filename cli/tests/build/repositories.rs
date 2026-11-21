@@ -1216,6 +1216,42 @@ fn a_labelled_control_fits_a_narrow_column() {
     );
 }
 
+/// Where a browser lays out the boxes of
+/// `a_wrapping_column_breaks_only_against_a_definite_height` (#162): each
+/// scene where its twin puts them. A column that wraps breaks into a second
+/// track against a definite height or a maximum one, and keeps one track
+/// otherwise.
+#[test]
+fn a_wrapping_column_breaks_only_against_a_definite_height() {
+    let case =
+        tests_dir().join("repositories/ui/a_wrapping_column_breaks_only_against_a_definite_height");
+    let shown: Vec<String> = crate::harness::web_pages::flow_places(&case)
+        .iter()
+        .map(|(name, boxes)| format!("{name}: {boxes}"))
+        .collect();
+    let tracks = "red at 0,0, blue at 0,48, green at 48,0";
+    let one_track = "red at 0,0, blue at 0,48, green at 0,96";
+    let reversed = "red at 0,48, blue at 0,0, green at 48,48";
+    let lines = "red at 0,0, blue at 48,0, green at 0,48";
+    let lines_reversed = "red at 48,0, blue at 0,0, green at 48,48";
+    let expected: Vec<String> = [
+        ("maximum", tracks, 2),
+        ("maximum-reversed", reversed, 2),
+        ("percent", tracks, 2),
+        ("stretched", tracks, 2),
+        ("shrunk", tracks, 2),
+        ("content", one_track, 3),
+        ("grown", one_track, 2),
+        ("maximum-percent", tracks, 2),
+        ("row", lines, 2),
+        ("row-reversed", lines_reversed, 2),
+    ]
+    .iter()
+    .flat_map(|(name, boxes, count)| (0..*count).map(move |_| format!("{name}: {boxes}")))
+    .collect();
+    assert_eq!(shown, expected);
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

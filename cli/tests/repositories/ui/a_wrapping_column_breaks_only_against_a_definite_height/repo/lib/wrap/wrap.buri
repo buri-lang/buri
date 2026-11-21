@@ -1,0 +1,39 @@
+//! A red, a blue and a green box, each 40px square with 8px between: 136px
+//! down in one track. A column of them that wraps against 90px puts two in
+//! its first track and the third in a second, 48px across.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color };
+
+/// The three boxes, for a column to hold.
+export fn boxes<C>(): [Node<C>] {
+    [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255)), square(.Rgb(0, 160, 0))]
+}
+
+/// The boxes laid out the plain way, in two tracks side by side: the red and
+/// the blue box in the first and the green one in the second, which is where
+/// a column that wraps against 90px puts them.
+export fn tracks<C>(): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)],
+        children: [
+            ui.stack({
+                styles: [.Layout(.Column), .Gap(.Px(8))],
+                children: [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255))],
+            }),
+            ui.stack({
+                styles: [.Layout(.Column), .Gap(.Px(8))],
+                children: [square(.Rgb(0, 160, 0))],
+            }),
+        ],
+    })
+}
+
+/// A box 40px square painted `colour`.
+export fn square<C>(colour: Color): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(40)), .Shrink(0), .Background(colour)],
+        children: [],
+    })
+}

@@ -2710,6 +2710,114 @@ fn spacing(len: Len) -> LengthPercentage {
     }
 }
 
+/// Whether a wrapping column's own styles give it a height to break against.
+///
+/// A `flex-direction:column;flex-wrap:wrap` box breaks into side-by-side tracks
+/// only against a *definite* height, or against its `max-height` when its
+/// height is not definite. A browser keeps a grown or content-sized column's
+/// height indefinite and lays its children out in one track, where `taffy`
+/// breaks one against whatever room its parent leaves; so a column grown by
+/// the label reset wrapped where Chrome does not (buri#162).
+///
+/// A pixel height or maximum is one whatever holds the box, and so is a
+/// percentage or a pair of block insets on a box out of the flow, whose
+/// containing block has a size by the time it is laid out.
+fn breaks_alone(c: &Computed) -> bool {
+    definite_alone(c) || matches!(c.max[1], Len::Px(_))
+}
+
+/// Turns `flex-wrap` on for each wrapping column whose height the box holding
+/// it makes definite, where [`breaks_alone`] left it off. A browser breaks
+/// such a column against that height:
+///
+///  * a percentage height, of a parent whose height is definite;
+///  * stretched across a single-line flex row, or a grid, of definite height;
+///  * flexed in a column of definite height, with a minimum height of its own
+///    or a clipped overflow. Its `min-height: auto` otherwise keeps it as tall
+///    as its one track, which never breaks.
+///
+/// And against a maximum height, a pixel one or a percentage of a definite
+/// parent's. Answers the columns that break against a maximum with no
+/// definite height, each after every one inside it, for [`settle_maximums`].
+///
+/// The page itself is not definite: a browser's body grows with its content.
+fn wrap_columns(
+    scene: &Scene,
+    styles: &[Computed],
+    tree: &mut TaffyTree<usize>,
+    ids: &[Option<NodeId>],
+) -> Result<Vec<NodeId>, String> {
+    let mut capped_alone = Vec::new();
+    // Each node beside its parent's style when that parent's height is
+    // definite.
+    let mut stack: Vec<(usize, Option<&Computed>)> =
+        scene.roots.iter().map(|&root| (root, None)).collect();
+    while let Some((index, held)) = stack.pop() {
+        let Some(c) = styles.get(index) else {
+            continue;
+        };
+        let held = held.filter(|_| !c.absolute && !c.fixed);
+        let definite = definite_alone(c) || held.is_some_and(|p| holds_definite(p, c));
+        let capped = match c.max[1] {
+            Len::Px(_) => true,
+            Len::Percent(_) => held.is_some(),
+            Len::Auto => false,
+        };
+        let grows_past = held.is_some_and(|p| {
+            p.flow == Flow::Flex
+                && p.column
+                && c.size[1] == Len::Auto
+                && c.min[1] == Len::Auto
+                && !c.clipped[1]
+        });
+        let id = ids.get(index).copied().flatten();
+        if let Some(id) = id.filter(|_| c.column && c.wrap) {
+            if capped || definite && (definite_alone(c) || !grows_past) {
+                let fail = |e| format!("layout: {e}");
+                let mut style = tree.style(id).map_err(fail)?.clone();
+                style.flex_wrap = FlexWrap::Wrap;
+                tree.set_style(id, style).map_err(fail)?;
+            }
+            if capped && !definite {
+                capped_alone.push(id);
+            }
+        }
+        if let Some(node) = scene.node(index) {
+            let holds = definite.then_some(c);
+            stack.extend(node.children.iter().map(|&child| (child, holds)));
+        }
+    }
+    capped_alone.reverse();
+    Ok(capped_alone)
+}
+
+/// Whether a box's own styles make its height definite: a pixel height, or a
+/// percentage or a pair of block insets on a box out of the flow.
+fn definite_alone(c: &Computed) -> bool {
+    let out = c.absolute || c.fixed;
+    matches!(c.size[1], Len::Px(_))
+        || (out && c.size[1] != Len::Auto)
+        || (out && c.inset[2] != Len::Auto && c.inset[3] != Len::Auto)
+}
+
+/// Whether a parent `p` whose height is definite makes its child `c`'s height
+/// definite too: a percentage of it, a column's flexed item, or an item
+/// stretched across a single-line row or a grid.
+fn holds_definite(p: &Computed, c: &Computed) -> bool {
+    let stretched = matches!(
+        c.align_self.or(p.align_items),
+        None | Some(AlignItems::STRETCH)
+    );
+    match c.size[1] {
+        Len::Px(_) | Len::Percent(_) => true,
+        Len::Auto => match p.flow {
+            Flow::Flex => p.column || (!p.wrap && stretched),
+            Flow::Grid => stretched,
+            Flow::Table | Flow::TableRow => false,
+        },
+    }
+}
+
 fn taffy_style(c: &Computed) -> Style {
     let overflow = |on: bool| {
         if on {
@@ -2729,16 +2837,10 @@ fn taffy_style(c: &Computed) -> Style {
             (false, false) => FlexDirection::Row,
             (false, true) => FlexDirection::RowReverse,
         },
-        // A `flex-direction:column;flex-wrap:wrap` box breaks into side-by-side
-        // tracks only when its height is *definite* and too small for its
-        // content; a browser keeps a grown or content-sized column's height
-        // indefinite and lays its children out in one track. The painter lays a
-        // page out against a settled height, so a column grown by the label
-        // reset used to resolve to a definite figure smaller than its content
-        // and wrap where Chrome does not (buri#162). So a column wraps only when
-        // a pixel height was set on it; a row wraps as it always did, which is
-        // what a label's flow is there for — a wide control below its words.
-        flex_wrap: if c.wrap && (!c.column || matches!(c.size[1], Len::Px(_))) {
+        // A column wraps here only where its own styles give it a height to
+        // break against; [`wrap_columns`] turns it on where the box holding it
+        // does.
+        flex_wrap: if c.wrap && (!c.column || breaks_alone(c)) {
             FlexWrap::Wrap
         } else {
             FlexWrap::NoWrap
@@ -3574,6 +3676,7 @@ fn paint_with(
         fixed,
         mut tables,
     } = built;
+    let capped = wrap_columns(scene, styles, &mut tree, &ids)?;
     measure_tables(&mut tree, &mut tables, scene, styles, fonts)?;
     // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
@@ -3615,6 +3718,18 @@ fn paint_with(
         if !settle_tables(&mut tree, &mut tables)? {
             break;
         }
+    }
+    if !capped.is_empty() {
+        lay_out(
+            &mut tree,
+            root,
+            scene,
+            styles,
+            fonts,
+            across_page,
+            AvailableSpace::MaxContent,
+        )?;
+        settle_maximums(&mut tree, &capped, scene, styles, fonts)?;
     }
     // Each pinned box measured from a box other than its parent, placed there
     // before the page's height is read off the flow, so a pin that hangs below
@@ -3755,6 +3870,46 @@ fn paint_with(
         .collect();
     painter.top_layer(&mut canvas, dialogs);
     Ok(canvas)
+}
+
+/// Holds each column [`wrap_columns`] found breaking against a maximum height
+/// at the height a browser gives it.
+///
+/// A browser breaks a column whose height is not definite against its
+/// maximum, and makes it as tall as its longest track. `taffy` does the same
+/// for a box it lays out with no size handed in, but lays one out in a single
+/// track once a parent whose height is not definite has fixed its size. So
+/// each is laid out on its own, at the width the page gave it, and held at
+/// the height that came to.
+fn settle_maximums(
+    tree: &mut TaffyTree<usize>,
+    columns: &[NodeId],
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut Fonts,
+) -> Result<(), String> {
+    let fail = |e| format!("layout: {e}");
+    for &id in columns {
+        let width = tree.layout(id).map_err(fail)?.size.width;
+        let own = tree.style(id).map_err(fail)?.clone();
+        let mut alone = own.clone();
+        alone.size.width = Dimension::length(width);
+        tree.set_style(id, alone).map_err(fail)?;
+        let across = AvailableSpace::Definite(width);
+        lay_out(
+            tree,
+            id,
+            scene,
+            styles,
+            fonts,
+            across,
+            AvailableSpace::MaxContent,
+        )?;
+        let mut held = own;
+        held.size.height = Dimension::length(tree.layout(id).map_err(fail)?.size.height);
+        tree.set_style(id, held).map_err(fail)?;
+    }
+    Ok(())
 }
 
 /// Runs the layout over `root`, with the shaper answering for every run of
@@ -9871,8 +10026,10 @@ mod tests {
     /// out in one track. The painter lays a page out against a settled height,
     /// so a field's `<label>` grown by the label reset used to resolve to a
     /// definite figure smaller than its content and wrap where Chrome shows one
-    /// column. So a column wraps only when a pixel height was set on it; a row
-    /// wraps as it always did — what a label's flow is there for.
+    /// column. So a column's own style wraps it only when it sets a pixel
+    /// height or maximum height ([`wrap_columns`] wraps one whose parent makes
+    /// its height definite); a row wraps as it always did — what a label's flow
+    /// is there for.
     #[test]
     fn a_wrapping_column_wraps_only_with_a_height_of_its_own() {
         let mut base = Computed::root();
@@ -9890,6 +10047,12 @@ mod tests {
         sized_column.column = true;
         sized_column.size[1] = Len::Px(40.0);
         assert_eq!(taffy_style(&sized_column).flex_wrap, FlexWrap::Wrap);
+
+        // So does one given a pixel maximum height, which it breaks against.
+        let mut capped_column = base.clone();
+        capped_column.column = true;
+        capped_column.max[1] = Len::Px(40.0);
+        assert_eq!(taffy_style(&capped_column).flex_wrap, FlexWrap::Wrap);
 
         // A wrapping row wraps whatever its height — a wide control below its
         // words is what a label's flow is for.

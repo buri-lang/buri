@@ -204,6 +204,17 @@ pub fn widths(case: &Path, tag: &str) -> Vec<(String, String)> {
     read_snapshots(case, &format!("const TAG = {tag:?};\n{WIDTHS}"), "widths ")
 }
 
+/// Where a browser lays out each of `case`'s snapshots' red, blue and green
+/// boxes in the flow, as `(name, boxes)` pairs in the order the snapshots
+/// mounted.
+///
+/// Each page is mounted the way [`computed`] mounts it, at its snapshot's
+/// width. A snapshot's boxes are in tree order, each as `<colour> at <x>,<y>`
+/// from the top left of the snapshot's outermost element, by `offsetOf`.
+pub fn flow_places(case: &Path) -> Vec<(String, String)> {
+    read_snapshots(case, &format!("{COLOURS}{FLOW_PLACES}"), "flow ")
+}
+
 /// The boxes a browser lays out for the outermost element of each of `case`'s
 /// snapshots, as `(name, boxes)` pairs in the order the snapshots mounted.
 ///
@@ -1183,6 +1194,26 @@ for (const { root, name, tree } of snapshots) {
   const found = tree.flatMap((n) => (n.nodeType === 1 ? [n, ...n.querySelectorAll(TAG)] : []));
   const widths = found.filter((e) => e.localName === TAG).map((e) => `${TAG}=${sizeOf(e, "width")}`);
   console.log(`widths ${name}: ${widths.join(" ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints where each snapshot's coloured boxes in the flow sit, one `flow
+/// <name>: <boxes>` line each ([`flow_places`]).
+const FLOW_PLACES: &str = r#"
+for (const { root, name, tree } of snapshots) {
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]));
+  const outer = tree.find((n) => n.nodeType === 1);
+  const boxes = [];
+  for (const element of outer.querySelectorAll("*")) {
+    if (["absolute", "fixed"].includes(getComputedStyle(element).position)) continue;
+    const colour = [];
+    own(element, colour);
+    if (colour.length === 0) continue;
+    const at = (dimension) => offsetOf(element, dimension) - offsetOf(outer, dimension);
+    boxes.push(`${colour[0]} at ${at("width")},${at("height")}`);
+  }
+  console.log(`flow ${name}: ${boxes.join(", ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;
