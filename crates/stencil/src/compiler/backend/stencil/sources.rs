@@ -143,7 +143,7 @@ pub const F32: Sc = Sc {
 };
 
 /// Element widths the indexed load/store family is specialised at. Anything
-/// else goes through `eload/n`, whose size is a hole and whose body is a call.
+/// else goes through `eload/n`, whose size is a hole and whose body a loop.
 pub const ELEM_WIDTHS: [u32; 12] = [1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64];
 
 /// The types arithmetic is generated for.
@@ -464,6 +464,22 @@ static inline float u128_f32(u128_t m) {
   uint64_t top = (uint64_t)(m >> s) | (uint64_t)(((uint64_t)m << (64 - s)) != 0);
   return u64_f32(top) * bits_f32((uint64_t)(127 + s) << 23);
 }
+// A copy whose width is a hole: the `/n` stencils' body. Inline rather than a
+// `memcpy` call, which cost about 33 instructions a copy plus saving the CPS
+// registers around it. Runs of 32 bytes, then one test a power of two below
+// that for the tail, so no byte past `n` is written. The empty `asm` keeps
+// clang's loop-idiom pass from turning the loop back into a call.
+static inline void copy_n(char *d, const char *s, uint64_t n) {
+  for (; n >= 32; n -= 32, d += 32, s += 32) {
+    memcpy(d, s, 32);
+    __asm__ volatile("" : "+r"(d), "+r"(s) :: "memory");
+  }
+  if (n & 16) { memcpy(d, s, 16); d += 16; s += 16; }
+  if (n & 8) { memcpy(d, s, 8); d += 8; s += 8; }
+  if (n & 4) { memcpy(d, s, 4); d += 4; s += 4; }
+  if (n & 2) { memcpy(d, s, 2); d += 2; s += 2; }
+  if (n & 1) { *d = *s; }
+}
 static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K); }
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
 // Float `%`: C's `fmod`, which LLVM's `frem` and JavaScript's `%` both are.
@@ -718,18 +734,17 @@ fn moves(o: &mut Out) {
             );
         }
     }
-    // Any other width: the size is a hole, so this one is a real `memcpy`
-    // call. Rare enough that the call is right.
+    // Any other width: the size is a hole, copied by `copy_n`.
     o.push(
         "eload/n",
-        "void $NAME(ARGS) { memcpy((char *)fp + OFF(_JIT_D), \
+        "void $NAME(ARGS) { copy_n((char *)fp + OFF(_JIT_D), \
          (const char *)(AT(uint64_t, _JIT_A) + AT(uint64_t, _JIT_B) * OFF(_JIT_N)), \
          OFF(_JIT_N)); TAIL; }"
             .into(),
     );
     o.push(
         "estore/n",
-        "void $NAME(ARGS) { memcpy((char *)(AT(uint64_t, _JIT_A) + \
+        "void $NAME(ARGS) { copy_n((char *)(AT(uint64_t, _JIT_A) + \
          AT(uint64_t, _JIT_B) * OFF(_JIT_N)), (const char *)fp + OFF(_JIT_D), \
          OFF(_JIT_N)); TAIL; }"
             .into(),
@@ -795,24 +810,24 @@ fn moves(o: &mut Out) {
             ),
         );
     }
-    // The widths with no fixed stencil: the size is a hole, so these are a
-    // real `memcpy` call, as `eload/n` is.
+    // The widths with no fixed stencil: the size is a hole, copied by
+    // `copy_n`, as `eload/n` is.
     o.push(
         "pload/n",
-        "void $NAME(ARGS) { memcpy((char *)fp + OFF(_JIT_D), \
+        "void $NAME(ARGS) { copy_n((char *)fp + OFF(_JIT_D), \
          (const char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), OFF(_JIT_P)); TAIL; }"
             .into(),
     );
     o.push(
         "pput/n",
-        "void $NAME(ARGS) { memcpy((char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), \
+        "void $NAME(ARGS) { copy_n((char *)(uintptr_t)AT(uint64_t, _JIT_A) + OFF(_JIT_N), \
          (const char *)fp + OFF(_JIT_D), OFF(_JIT_P)); TAIL; }"
             .into(),
     );
     o.push(
         "box/n",
         "void $NAME(ARGS0) { uint64_t p = buri_rt_alloc(OFF(_JIT_N)); \
-         memcpy((void *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), OFF(_JIT_N)); \
+         copy_n((char *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), OFF(_JIT_N)); \
          AT(uint64_t, _JIT_D) = p; TAIL0; }"
             .into(),
     );

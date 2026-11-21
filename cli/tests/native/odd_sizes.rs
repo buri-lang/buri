@@ -826,3 +826,62 @@ test "every type met again in a loop" {
         3,
     );
 }
+
+/// Records of nine and thirteen flags, nine words and a flag, and seventeen
+/// words and three flags: widths no fixed-width copy reads: list elements read by a
+/// pattern and written by `map`, a value a closure captures and reads on every
+/// call, and a record inside a recursive enum, which keeps it in a box.
+#[test]
+fn records_of_widths_no_fixed_copy_reads_survive_lists_captures_and_boxes() {
+    let widths = [(9usize, 0usize), (13, 0), (1, 9), (3, 17)];
+    let mut test = String::from(
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Allocator };\n\
+         from \"platform/effect/testing\" import { alloc };\n",
+    );
+    for (bools, ints) in widths {
+        let name = format!("R{bools}x{ints}");
+        let mut fields = String::new();
+        let mut made = Vec::new();
+        for i in 0..ints {
+            fields.push_str(&format!("    n{i}: Int,\n"));
+            made.push(format!("n{i}: {}", i * 7));
+        }
+        for i in 0..bools {
+            fields.push_str(&format!("    b{i}: Bool,\n"));
+            made.push(format!("b{i}: {}", i % 2 == 0));
+        }
+        let made = made.join(", ");
+        let last = bools - 1;
+        let last_on = last % 2 == 0;
+        let (sum, ints_sum) = if ints == 0 {
+            (String::from("0"), 0)
+        } else {
+            (format!("r.n0 + r.n{}", ints - 1), (ints - 1) * 7)
+        };
+        test.push_str(&format!(
+            "\nderive Equal, Show for {name};\nstruct {name} {{\n{fields}}}\n\n\
+             enum Chain{name} {{\n    End,\n    Link({name}, Chain{name}),\n}}\n\n\
+             fn second{name}(xs: [{name}], none: {name}): {name} {{\n    \
+             match (xs) {{\n        [_, x, ..] => x,\n        _ => none,\n    }}\n}}\n\n\
+             fn count{name}(c: Chain{name}, acc: Int): Int {{\n    \
+             match (c) {{\n        .End => acc,\n        \
+             .Link(r, rest) => count{name}(rest, acc + (if (r.b{last}) {{ 1 }} else {{ 0 }}) + {sum}),\n    }}\n}}\n\n\
+             test \"a record of {bools} flags and {ints} words\" {{\n    \
+             let ctx = context {{ Allocator: alloc() }};\n    \
+             let on = {name} {{ {made} }};\n    \
+             let off = {name} {{ ..on, b{last}: {not_last} }};\n    \
+             let xs = [on, off, on];\n    \
+             assert.equal(second{name}(xs, on), off);\n    \
+             let ys = xs.map(ctx, fn(r) => {name} {{ ..r, b0: !r.b0 }});\n    \
+             assert.equal(second{name}(ys, on), {name} {{ ..off, b0: !off.b0 }});\n    \
+             let f = fn(k: Int) => if (off.b{last} == {not_last}) {{ k }} else {{ 0 - k }};\n    \
+             assert.equal([1, 2, 3].map(ctx, f), [1, 2, 3]);\n    \
+             let c = Chain{name}.Link(on, Chain{name}.Link(off, Chain{name}.Link(on, Chain{name}.End)));\n    \
+             assert.equal(count{name}(c, 0), {count});\n}}\n",
+            not_last = !last_on,
+            count = if last_on { 2 } else { 1 } + 3 * ints_sum,
+        ));
+    }
+    passes("no-fixed-copy-width", &test, widths.len());
+}

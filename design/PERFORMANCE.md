@@ -11680,6 +11680,12 @@ match         611302241     1865847841      615665934      615666118       0.328
 - The glue's element loop steps its pointer and tests it for the end in one
   stencil, not two, so the pointer isn't stored and loaded straight back.
   lists was 1.65 times `-O1`.
+- A copy whose width has no fixed stencil, such as a 72-byte list element or
+  a step's wider argument, is a loop inside the stencil: runs of 32 bytes,
+  then one test for each smaller power of two. It was a `memcpy` call, which
+  cost about 33 instructions a copy, plus the CPS registers saved around the
+  call. kvstore made 572,635 such calls and now makes none, and it ran 1.2%
+  fewer instructions. It was 1.474 times `-O1`.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,

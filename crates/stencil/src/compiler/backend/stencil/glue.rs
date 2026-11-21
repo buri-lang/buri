@@ -53,7 +53,7 @@
 //!
 //! Only a value one fixed-width load copies is copied whole: 64 bytes or
 //! fewer, at a width the library has an `eload` for. Anything else would be a
-//! `memcpy` call before the first count, so it is walked **in place**: each
+//! copy loop before the first count, so it is walked **in place**: each
 //! counted field is loaded on its own, walked, and for a copy written back,
 //! and a field no one load covers goes to its own type's glue through a
 //! pointer. A list's element glue does the same per element. So a glue frame
@@ -730,7 +730,7 @@ impl Jit<'_> {
     }
 
     /// Whether one fixed-width `eload` copies `bytes`. Any other width is
-    /// `eload/n`, a `memcpy` call.
+    /// `eload/n`, a loop whose width is a hole.
     fn one_load(&self, bytes: u32) -> bool {
         self.has(&key!["eload/", bytes])
     }

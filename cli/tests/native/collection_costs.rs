@@ -1124,3 +1124,76 @@ fn a_capturing_step_is_called_directly() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// 1,000 records of nine `Int`s, 72 bytes, a width no fixed copy reads,
+/// mapped `k` times by a lambda that rewrites one field. `main` takes `k`.
+const WIDE: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct W {
+  a: Int,
+  b: Int,
+  c: Int,
+  d: Int,
+  e: Int,
+  f: Int,
+  g: Int,
+  h: Int,
+  i: Int,
+}
+
+fn rounds<C: Allocator>(ctx: C, ws: [W], k: Int, acc: Int): Int {
+  if (k == 0) {
+    acc
+  } else {
+    let next = ws.map(ctx, fn(w) => W { ..w, a: w.i + k });
+    rounds(ctx, ws, k - 1, acc + next.get(999).map(fn(w) => w.a).withDefault(0))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let ws = list.range(ctx, 0, 1000).map(ctx, fn(x) => W { a: x, b: x, c: x, d: x, e: x, f: x, g: x, h: x, i: x });
+  io.println(ctx, "${rounds(ctx, ws, k, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The two counts of rounds [`WIDE_BOUND`] is measured between.
+const WIDE_ROUNDS: (u64, u64) = (100, 400);
+
+/// What mapping one record of [`WIDE`] costs on the copy-and-patch backend,
+/// in instructions: reading the element, building the new one and writing it.
+/// It measured 162.7 when a copy of a width with no fixed stencil called
+/// `memcpy`, and 98.9 with the copy a loop in the stencil. The bound sits
+/// between the two, so the old code fails it, with room for the counter's
+/// noise of well under 1%.
+const WIDE_BOUND: f64 = 130.0;
+
+/// **A copy whose width no fixed stencil has is a loop in the stencil, not a
+/// `memcpy` call**: reading and writing a 72-byte element costs a few
+/// instructions a word, without a call or the registers saved around one.
+#[test]
+fn a_wide_element_is_copied_without_a_call() {
+    let (fewer, more) = WIDE_ROUNDS;
+    let elems = (more - fewer) * 1000;
+    // Round `k` reads element 999's `i + k`.
+    let answer = |k: u64| format!("{}\n", k * 999 + k * (k + 1) / 2);
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-wide", WIDE);
+        let n = steps_cost(backend, &binary, WIDE_ROUNDS, answer);
+        let each = n.map(|n| n as f64 / elems as f64);
+        eprintln!("{backend}: {each:?} instructions an element");
+        if backend == "stencil" && each.is_some_and(|e| e > WIDE_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions an element, over {WIDE_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
