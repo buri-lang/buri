@@ -45,7 +45,12 @@ export fn plain<C: Ui>(width: Int, height: Length): Node<C> {
 /// A green box 40px square, after a field, to show where the field ends.
 export fn after<C: Ui>(): Node<C> {
     ui.stack({
-        styles: [.Width(.Px(40)), .Height(.Px(40)), .Shrink(0), .Background(.Rgb(0, 160, 0))],
+        styles: [
+            .Width(.Px(40)),
+            .Height(.Px(40)),
+            .Shrink(0),
+            .Background(.Rgb(0, 160, 0)),
+        ],
         children: [],
     })
 }

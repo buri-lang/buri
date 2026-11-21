@@ -8,7 +8,10 @@ from "ui/node" import * as ui;
 from "//lib/wrap" import { boxes, square, tracks };
 
 test "a wrapping column with a maximum height breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "maximum",
@@ -28,12 +31,18 @@ test "a wrapping column with a maximum height breaks against it" {
 }
 
 test "the tracks laid out the plain way where the maximum scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(ctx, "maximum", tracks(), .Hover, []);
 }
 
 test "a wrapping column reversed with a maximum height breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "maximum-reversed",
@@ -53,7 +62,10 @@ test "a wrapping column reversed with a maximum height breaks against it" {
 }
 
 test "the tracks laid out the plain way where the reversed scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "maximum-reversed",
@@ -64,7 +76,10 @@ test "the tracks laid out the plain way where the reversed scene puts them" {
                     styles: [.Layout(.ColumnReverse), .Gap(.Px(8))],
                     children: [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255))],
                 }),
-                ui.stack({ styles: [.Layout(.Column)], children: [square(.Rgb(0, 160, 0))] }),
+                ui.stack({
+                    styles: [.Layout(.Column)],
+                    children: [square(.Rgb(0, 160, 0))],
+                }),
             ],
         }),
         .Hover,
@@ -73,7 +88,10 @@ test "the tracks laid out the plain way where the reversed scene puts them" {
 }
 
 test "a wrapping column a whole definite height tall breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "percent",
@@ -98,18 +116,27 @@ test "a wrapping column a whole definite height tall breaks against it" {
 }
 
 test "the tracks laid out the plain way where the percent scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "percent",
-        ui.stack({ styles: [.Layout(.Column), .Height(.Px(90))], children: [tracks()] }),
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(90))],
+            children: [tracks()],
+        }),
         .Hover,
         [],
     );
 }
 
 test "a wrapping column stretched across a row of definite height breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "stretched",
@@ -117,7 +144,12 @@ test "a wrapping column stretched across a row of definite height breaks against
             styles: [.Layout(.Row), .Height(.Px(90))],
             children: [
                 ui.stack({
-                    styles: [.Layout(.Column), .Wrap(true), .Gap(.Px(8)), .Width(.Px(88))],
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .Width(.Px(88)),
+                    ],
                     children: boxes(),
                 }),
             ],
@@ -128,18 +160,27 @@ test "a wrapping column stretched across a row of definite height breaks against
 }
 
 test "the tracks laid out the plain way where the stretched scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "stretched",
-        ui.stack({ styles: [.Layout(.Column), .Height(.Px(90))], children: [tracks()] }),
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(90))],
+            children: [tracks()],
+        }),
         .Hover,
         [],
     );
 }
 
 test "a wrapping column shrunk to a column of definite height breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "shrunk",
@@ -165,18 +206,27 @@ test "a wrapping column shrunk to a column of definite height breaks against it"
 }
 
 test "the tracks laid out the plain way where the shrunk scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "shrunk",
-        ui.stack({ styles: [.Layout(.Column), .Height(.Px(90))], children: [tracks()] }),
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(90))],
+            children: [tracks()],
+        }),
         .Hover,
         [],
     );
 }
 
 test "a wrapping column in a column of definite height keeps one track" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "content",
@@ -184,7 +234,12 @@ test "a wrapping column in a column of definite height keeps one track" {
             styles: [.Layout(.Column), .Height(.Px(90))],
             children: [
                 ui.stack({
-                    styles: [.Layout(.Column), .Wrap(true), .Gap(.Px(8)), .Width(.Px(88))],
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .Width(.Px(88)),
+                    ],
                     children: boxes(),
                 }),
             ],
@@ -195,7 +250,10 @@ test "a wrapping column in a column of definite height keeps one track" {
 }
 
 test "a wrapping column grown in a column of definite height keeps one track" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "content",
@@ -220,13 +278,21 @@ test "a wrapping column grown in a column of definite height keeps one track" {
 }
 
 test "the boxes in one track the plain way where the content scenes put them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "content",
         ui.stack({
             styles: [.Layout(.Column), .Height(.Px(90))],
-            children: [ui.stack({ styles: [.Layout(.Column), .Gap(.Px(8))], children: boxes() })],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Column), .Gap(.Px(8))],
+                    children: boxes(),
+                }),
+            ],
         }),
         .Hover,
         [],
@@ -234,7 +300,10 @@ test "the boxes in one track the plain way where the content scenes put them" {
 }
 
 test "a wrapping column grown in a column of content height keeps one track" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "grown",
@@ -259,7 +328,10 @@ test "a wrapping column grown in a column of content height keeps one track" {
 }
 
 test "the boxes in one track the plain way where the grown scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "grown",
@@ -270,7 +342,10 @@ test "the boxes in one track the plain way where the grown scene puts them" {
 }
 
 test "a wrapping column with a maximum of a definite height breaks against it" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "maximum-percent",
@@ -295,18 +370,27 @@ test "a wrapping column with a maximum of a definite height breaks against it" {
 }
 
 test "the tracks laid out the plain way where the maximum-percent scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "maximum-percent",
-        ui.stack({ styles: [.Layout(.Column), .Height(.Px(90))], children: [tracks()] }),
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(90))],
+            children: [tracks()],
+        }),
         .Hover,
         [],
     );
 }
 
 test "a wrapping row breaks against its width" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row",
@@ -320,7 +404,10 @@ test "a wrapping row breaks against its width" {
 }
 
 test "the lines laid out the plain way where the row scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row",
@@ -331,7 +418,10 @@ test "the lines laid out the plain way where the row scene puts them" {
                     styles: [.Layout(.Row), .Gap(.Px(8))],
                     children: [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255))],
                 }),
-                ui.stack({ styles: [.Layout(.Row)], children: [square(.Rgb(0, 160, 0))] }),
+                ui.stack({
+                    styles: [.Layout(.Row)],
+                    children: [square(.Rgb(0, 160, 0))],
+                }),
             ],
         }),
         .Hover,
@@ -340,7 +430,10 @@ test "the lines laid out the plain way where the row scene puts them" {
 }
 
 test "a wrapping row reversed breaks against its width" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row-reversed",
@@ -354,7 +447,10 @@ test "a wrapping row reversed breaks against its width" {
 }
 
 test "the lines laid out the plain way where the reversed row scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row-reversed",

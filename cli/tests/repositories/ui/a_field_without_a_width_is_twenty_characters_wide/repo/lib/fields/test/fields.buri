@@ -11,7 +11,10 @@ from "ui/style" import { Style };
 from "//lib/fields" import { after, named, plain };
 
 test "a field in a row is twenty characters wide and one line tall" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row",
@@ -25,7 +28,10 @@ test "a field in a row is twenty characters wide and one line tall" {
 }
 
 test "the boxes laid out the plain way where the row scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "row",
@@ -39,7 +45,10 @@ test "the boxes laid out the plain way where the row scene puts them" {
 }
 
 test "each kind of single-line field is twenty characters wide" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     let red: [Style] = [.Background(.Rgb(255, 0, 0))];
     snapshot(
         ctx,
@@ -59,7 +68,10 @@ test "each kind of single-line field is twenty characters wide" {
 }
 
 test "the boxes laid out the plain way where the kinds scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "kinds",
@@ -78,7 +90,10 @@ test "the boxes laid out the plain way where the kinds scene puts them" {
 }
 
 test "a textarea in a row is twenty characters wide and two lines tall" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "multiline",
@@ -92,7 +107,10 @@ test "a textarea in a row is twenty characters wide and two lines tall" {
 }
 
 test "the boxes laid out the plain way where the multiline scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "multiline",
@@ -106,7 +124,10 @@ test "the boxes laid out the plain way where the multiline scene puts them" {
 }
 
 test "a padded field is twenty characters wide inside its padding" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "padded",
@@ -123,7 +144,10 @@ test "a padded field is twenty characters wide inside its padding" {
 }
 
 test "the boxes laid out the plain way where the padded scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "padded",
@@ -137,7 +161,10 @@ test "the boxes laid out the plain way where the padded scene puts them" {
 }
 
 test "a field set larger is twenty of its larger characters wide" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "large",
@@ -154,7 +181,10 @@ test "a field set larger is twenty of its larger characters wide" {
 }
 
 test "the boxes laid out the plain way where the large scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "large",
@@ -168,7 +198,10 @@ test "the boxes laid out the plain way where the large scene puts them" {
 }
 
 test "a bold field is twenty of the bold face's characters wide" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "bold",
@@ -185,7 +218,10 @@ test "a bold field is twenty of the bold face's characters wide" {
 }
 
 test "the boxes laid out the plain way where the bold scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "bold",
@@ -199,7 +235,10 @@ test "the boxes laid out the plain way where the bold scene puts them" {
 }
 
 test "a monospace field is twenty of the fixed face's characters wide" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "mono",
@@ -216,7 +255,10 @@ test "a monospace field is twenty of the fixed face's characters wide" {
 }
 
 test "the boxes laid out the plain way where the mono scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "mono",
@@ -230,7 +272,10 @@ test "the boxes laid out the plain way where the mono scene puts them" {
 }
 
 test "a field in a row too narrow for it keeps its twenty characters" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "narrow",
@@ -244,7 +289,10 @@ test "a field in a row too narrow for it keeps its twenty characters" {
 }
 
 test "the boxes laid out the plain way where the narrow scene puts them" {
-    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
     snapshot(
         ctx,
         "narrow",
