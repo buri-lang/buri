@@ -11571,14 +11571,14 @@ On the arm64 VM, 2026-11-21:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1646652040     1694765001     1212143861     1199743870       0.972       1.358
-floats        544627740      567623388      452623299      449623530       0.959       1.203
-tree         1264270599     1366506886     1122714816     1122714907       0.925       1.126
-lists        1991680877     2281696361     1197706213     1189065403       0.873       1.663
-maps         1338899541     1590458553      758841893      757653577       0.842       1.764
-kvstore       901008145     1239890283      605013274      599238432       0.727       1.489
-sort          750059065     1100041399      279341508      316100203       0.682       2.685
-match         611302265     1865847820      615665953      615666146       0.328       0.993
+strings      1642650487     1694763411     1212142271     1199742280       0.969       1.355
+floats        543625751      567121405      452121315      449121537       0.959       1.202
+tree         1264258952     1366495233     1122703164     1122703255       0.925       1.126
+lists        1971754856     2276426348     1192436201     1183795381       0.866       1.654
+maps         1338289839     1589927181      758310559      757122244       0.842       1.765
+kvstore       896450049     1237789412      600485650      594706281       0.724       1.493
+sort          750339838     1100222176      279302281      316060976       0.682       2.686
+match         611302241     1865847841      615665934      615666118       0.328       0.993
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11639,6 +11639,9 @@ match         611302265     1865847820      615665953      615666146       0.328
   closure a direct step leaves unused saved 0.02% on lists' stencil and `-O1`
   counts, but LLVM's release build then indexed the loop rather than stepping
   a pointer, and lists ran 0.93% more there, so the closure is still built.
+- The glue's element loop steps its pointer and tests it for the end in one
+  stencil, not two, so the pointer isn't stored and loaded straight back.
+  lists was 1.65 times `-O1`.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11712,6 +11715,20 @@ left it flat:
 | `ci` instructions | 40624.5, 40618.6 | 40620.8, 40620.7 |
 | `monorepo-ci` cost | 23320.1, 23247.8 | 23290.3, 23333.0 |
 | `monorepo-ci` instructions | 16870.3, 16873.0 | 16870.9, 16871.3 |
+
+Calling only one-word records directly, and stepping and testing the element
+loop in one stencil, left it flat:
+
+| Row | 03ba63e40 | One stencil a step |
+| --- | --- | --- |
+| `ci` cost | 60121.1, 60153.7, 60045.1 | 59989.5, 60075.5 |
+| `ci` instructions | 40632.7, 40621.8, 40625.9 | 40617.9, 40615.6 |
+| `monorepo-ci` cost | 23263.6, 23197.7, 23183.6 | 23187.9, 23151.5 |
+| `monorepo-ci` instructions | 16856.0, 16857.5, 16855.6 | 16857.3, 16854.8 |
+
+A stencil of its own for a copy of more than a word at offset zero saved
+0.9% on lists and 1.2% on tree, but cost `monorepo-ci` 3 to 9 instructions a
+line, so it isn't in.
 
 The register reads above added
 about 120 cost per line to `ci`'s dev codegen row, though they ran fewer

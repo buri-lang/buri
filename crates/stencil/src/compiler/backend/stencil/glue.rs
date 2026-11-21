@@ -959,16 +959,20 @@ impl Jit<'_> {
         }
         let here = self.region.code_addr();
         st.place(next, here);
+        // The step and the test in one stencil, so the pointer it adds to is
+        // not stored and loaded straight back.
+        let key = self.arm_key(self.lib.known.inc_lt, Jump::F);
         self.emit(
-            "bin/add/u64/fi/f",
+            key,
             &[
                 Lit::D.of(u64::from(G_INDEX)),
                 Lit::A.of(u64::from(G_INDEX)),
-                Word::K.lit(u64::from(stride)),
-                Jump::Cont.to(V::Fall),
+                Lit::N.of(u64::from(stride)),
+                Lit::B.of(u64::from(G_COUNT)),
+                Jump::T.to(V::Blk(body)),
+                Jump::F.to(V::Fall),
             ],
         );
-        self.glue_loop_test(G_INDEX, G_COUNT, V::Blk(body), V::Fall, Jump::F);
         let here = self.region.code_addr();
         st.place(done, here);
         self.emit("ret", &[]);

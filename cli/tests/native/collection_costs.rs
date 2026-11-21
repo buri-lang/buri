@@ -1029,16 +1029,18 @@ export fn main(host: NativeHost): Result<(), Str> {
 const RELEASE_ROUNDS: (u64, u64) = (100, 400);
 
 /// What copying one record of [`RELEASES`] into a fresh list and dropping it
-/// costs on the copy-and-patch backend, in instructions. It measured 78.9
-/// once the release stepped a pointer and its empty-slot test was the branch
-/// past the slot, and 84.6 before, when it multiplied an index, stored the
-/// test's word and compared it again. The bound sits between the two, so the
-/// old code fails it, with room for the counter's noise of well under 1%.
-const RELEASE_BOUND: f64 = 81.5;
+/// costs on the copy-and-patch backend, in instructions. It measured 84.6
+/// when the release multiplied an index, stored the test's word and compared
+/// it again, and 78.9 once it stepped a pointer and its empty-slot test was
+/// the branch past the slot. It measures 77.9 now that the loop's step and
+/// test are one stencil. The bound sits between the last two, so the old
+/// code fails it, with room for the counter's noise of well under 0.5%.
+const RELEASE_BOUND: f64 = 78.4;
 
 /// **A list's release walks its elements by address and skips an empty slot
 /// in one branch**: the walk steps a pointer rather than multiplying an index,
-/// and the test that a slot is empty is the branch past it.
+/// and the test that a slot is empty is the branch past it. Stepping the
+/// pointer and testing it for the end are one step.
 #[test]
 fn a_list_release_walks_its_elements_by_address() {
     let (fewer, more) = RELEASE_ROUNDS;
