@@ -11511,10 +11511,10 @@ again. Two runs each on the arm64 VM:
 
 | Row | Main | Variant past its tests |
 | --- | --- | --- |
-| `ci` cost | 60374.1, 60464.8 | 60315.6, 60302.0 |
-| `ci` instructions | 40671.0, 40672.2 | 40667.3, 40668.3 |
-| `monorepo-ci` cost | 23316.2, 23314.5 | 23318.6, 23379.0 |
-| `monorepo-ci` instructions | 16848.5, 16848.4 | 16852.6, 16859.9 |
+| `ci` cost | 60374.1, 60464.8 | 60345.6, 60399.7 |
+| `ci` instructions | 40671.0, 40672.2 | 40666.9, 40674.3 |
+| `monorepo-ci` cost | 23316.2, 23314.5 | 23349.2, 23360.0 |
+| `monorepo-ci` instructions | 16848.5, 16848.4 | 16855.8, 16855.7 |
 
 Rebuilding a loop's record in place left it flat:
 
