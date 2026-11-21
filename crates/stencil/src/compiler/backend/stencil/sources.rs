@@ -780,14 +780,16 @@ fn moves(o: &mut Out) {
     // `A` and `B` the two operands and `D` the result. A literal has no block,
     // so a result of 1 to 128 bytes is the runtime's path 3 done here: one
     // fresh block of exactly `n` bytes and two copies. The empty result and a
-    // longer one are `buri_rt_str_concat`.
+    // longer one are `buri_rt_str_concat`. The hint is at 0.9, not
+    // `__builtin_expect`'s, or Apple's clang splits the call into a
+    // `.cold.1` function (the shared fork's comment, G2, says why).
     o.push(
         "strcat",
         "void $NAME(ARGS0) { const uint64_t *a = &AT(uint64_t, _JIT_A), \
          *b = &AT(uint64_t, _JIT_B); uint64_t al = a[2], bl = b[2]; \
          uint64_t la = al & 0x7FFFFFFFFFFFFFFFull, lb = bl & 0x7FFFFFFFFFFFFFFFull, \
          n = la + lb; \
-         if (__builtin_expect(n - 1 < 128, 1)) { \
+         if (__builtin_expect_with_probability(n - 1 < 128, 1, 0.9)) { \
            char *p = (char *)(uintptr_t)buri_rt_alloc(n); \
            copy_n(p, (const char *)(uintptr_t)a[1], la); \
            copy_n(p + la, (const char *)(uintptr_t)b[1], lb); \
