@@ -10864,7 +10864,7 @@ maps, release                 0.8679 B    0.8664 B    -0.17%
 `push`, `insertAt` and `replaceAt` on a block the step owns now do their work
 without a call, so they save no registers. A long element's `memcpy` is the
 last statement, which makes it a tail call. Everything else is out of line:
-`push_grown`, `push_exact`, `insert_slow`, `replace_held` and `replace_slow`.
+`push_grown`, `push_fresh`, `insert_slow`, `replace_held` and `replace_slow`.
 
 - `spare`, the test that a slot holds nothing, reads a run of 64 bytes or
   less as at most three overlapping loads.
@@ -11308,6 +11308,28 @@ because only there could a wider space be trimmed. `native::int_text` bounds
 both reads about halfway, and checks the answers for ASCII and other spaces,
 signs, letters and digits that aren't ASCII, and the ends of the 64-bit range,
 under the heap check.
+
+### 6.186 A push onto the empty list leaves room for more, 2026-11-21
+
+```text
+a list of three pushes, macOS, instructions    before      after
+stencil, Int                                   545         371
+stencil, text                                  1,173       915
+LLVM, Int                                      466         296
+LLVM, text                                     775         591
+```
+
+A push onto a list it can't write in place, the empty list among them, made
+a block with room for exactly the result. So the second push onto a list
+built from empty always copied it to a grown block. In a profile of a test
+suite, `push_grown` ran on a third of all pushes, about as often as the push
+onto the empty list, at about 600 instructions each with the old block's
+release: 5.9% of all instructions. That push now makes a block with the room
+a grown one gets, at least 64 bytes, so the next few pushes write in place.
+`native::short_lists` bounds a list of three halfway on each backend, and
+checks lists of 1 to 12 texts and `Int`s, and lists pushed from one prefix,
+from a literal and from a prefix a longer list wrote past, under the heap
+check.
 
 ## 7. Profiling, on this platform
 

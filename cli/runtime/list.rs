@@ -395,11 +395,31 @@ unsafe fn append_grown(
     retain: Retain,
 ) -> BuriList {
     let needed = total.saturating_mul(stride) as u64;
-    let used = n.saturating_mul(stride);
     // SAFETY: the caller claimed it and wrote nothing through it.
     unsafe { buri_rt_unclaim(ptr) };
-    let fresh = buri_rt_alloc(regrown_capacity(needed, cap));
-    // SAFETY: a fresh block of at least `needed` bytes, disjoint from the
+    // SAFETY: forwarded.
+    unsafe { roomy_copy(ptr, n, total, stride, regrown_capacity(needed, cap), retain) }
+}
+
+/// A fresh block of `capacity >= total * stride` bytes holding the `n`
+/// elements at `ptr`, with the bytes past them zeroed where the element type
+/// holds references, so that they are [spare](append_dest#spare-slots).
+///
+/// # Safety
+/// `ptr` covers `n * stride` bytes and is null or a live payload pointer;
+/// `retain`, where non-null, is the element type's retain glue.
+#[inline(always)]
+unsafe fn roomy_copy(
+    ptr: *const u8,
+    n: usize,
+    total: usize,
+    stride: usize,
+    capacity: u64,
+    retain: Retain,
+) -> BuriList {
+    let used = n.saturating_mul(stride);
+    let fresh = buri_rt_alloc(capacity);
+    // SAFETY: a fresh block of at least `total` elements, disjoint from the
     // source, which covers its own `n` elements. The zeroing runs to the
     // capacity the header records, because that is what the walks read.
     unsafe {
@@ -604,7 +624,7 @@ pub unsafe extern "C" fn buri_rt_list_push(
         }
     }
     // SAFETY: forwarded.
-    unsafe { push_exact(ptr, n, item, s, retain, out) }
+    unsafe { push_fresh(ptr, n, item, s, retain, out) }
 }
 
 /// [`buri_rt_list_push`] onto a claimed block with no room: [`append_dest`]'s
@@ -633,12 +653,19 @@ unsafe fn push_grown(
 }
 
 /// [`buri_rt_list_push`] onto a block it can't claim, or none: an empty
-/// element, or [`append_dest`]'s path 3, then the item.
+/// element, or a fresh block, then the item.
+///
+/// The fresh block has the room [`regrown_capacity`] gives a block that had
+/// none, where [`append_dest`]'s path 3 gives exactly what the result needs.
+/// A list built by pushes starts with a push onto the empty list, and an exact
+/// block there had no room for the second push, which copied it to a grown
+/// block. Most lists built that way are short, so that copy came on about a
+/// third of all pushes.
 ///
 /// # Safety
 /// As [`buri_rt_list_push`].
 #[inline(never)]
-unsafe fn push_exact(
+unsafe fn push_fresh(
     ptr: *const u8,
     n: usize,
     item: *const u8,
@@ -657,10 +684,11 @@ unsafe fn push_exact(
         };
         return;
     }
+    let capacity = regrown_capacity(total.saturating_mul(stride) as u64, 0);
     // SAFETY: forwarded; the fresh block has room for `total` elements, and
     // `item` is outside it.
     unsafe {
-        let result = append_exact(ptr, n, total, stride, retain);
+        let result = roomy_copy(ptr, n, total, stride, capacity, retain);
         copy_small(item, result.ptr.add(n.saturating_mul(stride)), stride);
         out.write(result);
     }

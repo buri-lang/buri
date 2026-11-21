@@ -450,8 +450,9 @@ optimizing are the two that build the first two, and both are done:
   runtime and is shared. Three paths: *in place* when the block is uniquely
   owned and `cap >= (len + n) * stride`, writing past the end and taking one
   more reference; *grown* when it is unique and out of capacity, allocating
-  `max(needed * 2, 64)` so the next append is in place; *exact* otherwise. A
-  loop of `n` pushes therefore allocates O(log n) times, which is where
+  `max(needed * 2, 64)` so the next append is in place; *exact* otherwise,
+  except that a push there gets at least 64 bytes too, so the pushes after
+  the first onto an empty list write in place. A loop of `n` pushes therefore allocates O(log n) times, which is where
   VALUE-MODEL.md §4.1's amortized O(1) comes from. A counted element type —
   `[Str]`, `[(Str, Int)]` — takes all three, with two more rules below.
 - **`Str` concatenation — `llvm/emit.rs`'s `concat` and
