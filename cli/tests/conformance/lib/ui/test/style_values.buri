@@ -841,6 +841,7 @@ test "a layout style known only at run time writes itself out" {
         "e 0 class:lay-rowrev",
     );
     assert.equal(painted(ctx, [.Layout(late(ctx, .Layers))]), "e 0 class:lay-layers");
+    assert.equal(painted(ctx, [.Layout(late(ctx, .Flow))]), "e 0 class:lay-flow");
     assert.equal(
         painted(ctx, [
             .Layout(late(ctx, .Grid([.Fraction(2), .Fixed(.Rem(1.5)), .Auto]))),

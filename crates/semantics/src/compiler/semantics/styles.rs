@@ -2054,7 +2054,7 @@ fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
             .collect()
     };
     let values = match variant {
-        6 => enumerated(6)
+        6 => enumerated(7)
             .into_iter()
             .filter(|v| {
                 v.as_variant()
