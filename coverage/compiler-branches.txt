@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16458 16536 99.53%
+total 16468 16546 99.53%
 area cli/build 1780 1782 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
-area crates/middle 2602 2626 99.09%
+area crates/middle 2612 2636 99.09%
 area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
@@ -155,7 +155,7 @@ area crates/syntax 1268 1268 100.00%
 28 28 crates/middle/src/compiler/middle/known_calls.rs
 48 48 crates/middle/src/compiler/middle/layout.rs
 154 154 crates/middle/src/compiler/middle/lower.rs
-80 80 crates/middle/src/compiler/middle/lower/lists.rs
+90 90 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 184 192 crates/middle/src/compiler/middle/monomorphize.rs
 106 106 crates/middle/src/compiler/middle/monomorphize/erase.rs
