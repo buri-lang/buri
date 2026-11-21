@@ -814,7 +814,7 @@ fn alloc_uncached(payload: u64, zeroed: bool) -> *mut u8 {
 /// A kept large block of `payload` bytes, if this thread has one. A small
 /// block is kept in the cache instead, so there is never one here.
 fn kept_big(payload: u64) -> Option<*mut u8> {
-    if payload > CACHE_MAX_PAYLOAD {
+    if payload > PAGED_MAX_PAYLOAD {
         big_take(payload)
     } else {
         None
@@ -940,6 +940,12 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
 /// one sweep in [`CACHE_MID_SWEEP_EVERY`], so walking four times the slots
 /// doesn't cost every program four times the sweep.
 const CACHE_MAX_PAYLOAD: u64 = 1024;
+
+/// The largest payload whose block comes from a page of the installed
+/// allocator. Past the cache, such a block goes straight back to its page,
+/// which takes it again for a few instructions, so only a larger one is kept
+/// in [`BigCache`].
+const PAGED_MAX_PAYLOAD: u64 = (crate::allocator::LARGEST_CLASS - BURI_RT_HEADER) as u64;
 
 /// The slots every sweep visits: payloads up to 256 bytes.
 const CACHE_SMALL_SLOTS: usize = 257;
@@ -1701,7 +1707,7 @@ fn mirror_heap(t: &ThreadHeap) {
 #[inline(always)]
 fn fresh<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
     use crate::allocator::Allocator;
-    if payload > CACHE_MAX_PAYLOAD {
+    if payload > PAGED_MAX_PAYLOAD {
         return fresh_big::<ZEROED>(payload, t);
     }
     // A thread that hasn't kept its heap in `t` yet starts to in `fresh_rest`.
@@ -1748,7 +1754,7 @@ fn fresh_rest<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
     fresh_from(None, payload, ZEROED)
 }
 
-/// [`fresh`] for a block past [`CACHE_MAX_PAYLOAD`]: one `t` kept, or one
+/// [`fresh`] for a block past [`PAGED_MAX_PAYLOAD`]: one `t` kept, or one
 /// from the platform allocator.
 #[inline(never)]
 fn fresh_big<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
@@ -2266,8 +2272,9 @@ fn big_take(payload: u64) -> Option<*mut u8> {
         .flatten()
 }
 
-/// [`cache_push_slow`] for a block past [`CACHE_MAX_PAYLOAD`]: kept if this
-/// thread's cache is open. The free is already in the tally.
+/// [`cache_push_slow`] for a block past [`CACHE_MAX_PAYLOAD`]: kept if it is
+/// past [`PAGED_MAX_PAYLOAD`] too and this thread's cache is open. The free
+/// is already in the tally.
 #[cold]
 #[inline(never)]
 fn big_keep(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
@@ -2281,7 +2288,8 @@ fn big_keep(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
     // A closed or unarmable cache keeps nothing, so nothing outlives the
     // drain that would give it back.
     // SAFETY: this thread's own cell, as above.
-    let kept = cache.limit != 0 && unsafe { &mut *t.big.get() }.keep(p, cap);
+    let kept =
+        cache.limit != 0 && cap > PAGED_MAX_PAYLOAD && unsafe { &mut *t.big.get() }.keep(p, cap);
     cache.tick();
     kept
 }

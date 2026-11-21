@@ -1,5 +1,5 @@
 //! The global allocator of the toolchain and of every program it compiles:
-//! blocks of up to 1 KiB come from per-thread pages of one size class each,
+//! blocks of up to 4 KiB come from per-thread pages of one size class each,
 //! everything else from the system allocator.
 //!
 //! The compiler is millions of small allocations, and so is a program that
@@ -55,8 +55,10 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize};
 const STEP: usize = 16;
 /// 16-byte steps up to here, then four classes to each doubling.
 const LINEAR: usize = 128;
-const MAX_SMALL_SHIFT: u32 = 10;
+const MAX_SMALL_SHIFT: u32 = 12;
 const MAX_SMALL: usize = 1 << MAX_SMALL_SHIFT;
+/// The largest block a size class holds, so the largest that comes from a page.
+pub const LARGEST_CLASS: usize = MAX_SMALL;
 const CLASSES: usize = LINEAR / STEP + 4 * (MAX_SMALL_SHIFT - LINEAR.trailing_zeros()) as usize;
 /// Each class's block size.
 const SIZES: [usize; CLASSES] = {
@@ -1182,7 +1184,11 @@ unsafe fn give_to(heap: *mut Heap, page: *mut Page, p: *mut u8) {
             (*page).free = p;
             (*page).used -= 1;
             if (*page).used == 0 {
-                retire(heap, page);
+                // The page being allocated from stays, so a block that comes
+                // and goes alone there calls nothing.
+                if (*heap).pages[(*page).class] != page {
+                    retire(heap, page);
+                }
             } else if (*page).spent {
                 revive(heap, page);
             }

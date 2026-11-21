@@ -11153,6 +11153,40 @@ bounds a range at 6 instructions an element (12.0 to 1.2 on macOS
 stencil), and a reversed 48-byte record at 15 (28.2 to 11.2; 21.2 with
 only the vector register, 19.2 with only the stepping pointers).
 
+### 6.179 A block of up to 4 KiB comes off a page, 2026-11-21
+
+```text
+                              before      after       change
+kvstore, stencil              0.9168 B    0.9113 B    -0.60%
+kvstore, release              0.6016 B    0.5960 B    -0.92%
+maps, stencil                 1.3392 B    1.3387 B    -0.04%
+maps, release                 0.7577 B    0.7571 B    -0.07%
+```
+
+Counted with aarch64 callgrind. `lists` rose by 0.005%, three
+instructions on each free of a block past 4 KiB; the other programs moved
+by under 2,000 instructions. The compiler, on the same allocator, fell
+too: `ci` check by 0.91% and parse by 0.89%, `monorepo-ci` check by 0.42%
+and parse by 0.69%, and dev-codegen by under 0.1%.
+
+- The allocator's size classes stopped at 1 KiB, so a list of 129 to 500
+  `Int`s came from the platform allocator unless the large-block cache
+  held one of exactly its size. On Linux that was a musl `malloc` of
+  about 800 instructions, and a `free` of 200. The classes now reach
+  4 KiB.
+- Past the 1 KiB cache, a block a class holds goes straight back to its
+  page rather than into the large-block cache, whose misses and evictions
+  cost more than the page does.
+- A free that empties the page being allocated from no longer calls
+  `retire`, which kept that page anyway. A block that comes and goes alone
+  on its page calls nothing.
+
+`native::alloc_churn` bounds a step that slices 1,024 to 3,992 bytes off
+a 500-`Int` list at 1,100 instructions on stencil and 1,060 on LLVM (1,390
+to 807 and 1,348 to 765 on macOS). Its large literal bound of 737 holds
+only with the inline `retire` check: without it a 1,032-byte step cost
+739.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

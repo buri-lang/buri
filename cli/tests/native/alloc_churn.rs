@@ -93,6 +93,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// cache's own thread-local, and the settling is out of line. A large literal
 /// step went from 747 to 728 instructions on stencil.
 ///
+/// **A block alone on the page being allocated from calls nothing when it
+/// goes.** A large literal's block now comes from a page, and each free
+/// emptied it and called `retire`, which kept the page anyway: 739
+/// instructions a step on macOS stencil against 735 without the call.
+///
 /// Each bound sits about halfway.
 #[test]
 fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
@@ -118,6 +123,73 @@ fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
                     "{backend} {mode}: {n} instructions a step, over {bound}"
                 ));
             }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// One slice a step of a 500-`Int` list, 1,024 to 3,992 bytes, its length
+/// moving by seven elements each step through 370 lengths, so a step seldom
+/// makes a block of the size the one before it freed. `main` takes `mid` and
+/// the number of steps.
+const MIDS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn mids<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else { mids(ctx, xs, i + 1, n, acc + xs.slice(ctx, i % 3, 130 + i * 7 % 370).length()) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let args = env.arguments(ctx);
+  let n = args.get(1).andThen(fn(s) => s.toInt()).withDefault(0);
+  let answer = match (args.first()) {
+    .Some("mid") => mids(ctx, list.range(ctx, 0, 500), 0, n, 0),
+    _ => 0,
+  };
+  io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The steps [`MIDS`] takes: work of 160 M instructions or more, ten times
+/// what launching the process costs.
+const MID_STEPS: u64 = 200_000;
+
+/// **A block of one to four kibibytes comes off a page.** Such a block was
+/// past the size classes, so a step whose size the large-block cache didn't
+/// hold took it from the platform allocator and gave it back there: on macOS
+/// stencil a step cost 1,390 instructions, and 1,348 on LLVM. The classes
+/// now reach 4 KiB, and a block they hold goes straight back to its page
+/// rather than through the large-block cache: 807 and 765.
+///
+/// Each bound sits about halfway, so it fails if either block goes back to
+/// the platform allocator, which costs over 500 instructions a pair more
+/// than a page does.
+#[test]
+fn a_block_of_a_few_kibibytes_comes_off_a_page() {
+    let steps = MID_STEPS.to_string();
+    let want = format!(
+        "{}\n",
+        (0..MID_STEPS)
+            .map(|i| 130 + i * 7 % 370 - i % 3)
+            .sum::<u64>()
+    );
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("alloc-mids", MIDS);
+        let (n, blocks) = per_op(backend, &binary, "mid", &[&steps], MID_STEPS, &want);
+        eprintln!("{backend}: {n:?} instructions a step, {blocks} blocks");
+        assert!(
+            blocks >= MID_STEPS,
+            "{backend}: {MID_STEPS} steps made only {blocks} blocks"
+        );
+        let bound = if backend == "llvm" { 1_060 } else { 1_100 };
+        if let Some(n) = n.filter(|&n| n > bound) {
+            failures.push(format!("{backend}: {n} instructions a step, over {bound}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
