@@ -11274,6 +11274,23 @@ Every comparison gives the answer it did, and every diff has the same bytes.
 `native::snapshot_costs` bounds one more compared snapshot at 8 M, and a
 changed snapshot over a matching one at 18 M. Both bounds are about halfway.
 
+### 6.184 A short list's zeroed block is cleared without a call, 2026-11-21
+
+```text
+a map of four Ints, macOS stencil      before      after
+instructions a map                     456         419
+```
+
+A list operation's block comes zeroed, because `filter` leaves the places it
+rejects unwritten and the release walks the whole block. A grown list's room
+past its end is zeroed for the same reason. In a profile of a ui test suite,
+`memset` took 1.4% of the instructions, at about 22 a call from the zeroed
+allocation. A clear of up to 64 bytes is now a few wide stores that may
+overlap in the middle, as the runtime's short copy is. `native::zeroed_blocks`
+bounds one map at 438, about halfway, and checks what `filter` keeps at every
+length from 1 to 10 texts, in blocks that held other text, under the heap
+check.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

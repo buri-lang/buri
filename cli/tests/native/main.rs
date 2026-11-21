@@ -425,6 +425,11 @@ mod snapshot_costs;
 // counted rather than timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod repeat_text;
+// Lists built in a zeroed block: what `filter` keeps at every length, in
+// blocks that held other text, and what mapping a short list costs, counted
+// rather than timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod zeroed_blocks;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

@@ -181,6 +181,46 @@ unsafe fn up_to_64(src: *const u8, dst: *mut u8, n: usize) {
     }
 }
 
+/// `write_bytes(dst, 0, n)` without a call to `memset` for 64 bytes or less,
+/// which most short lists' blocks are. Each size class writes both ends of
+/// the range in words that may overlap in the middle, as [`up_to_64`] does.
+///
+/// # Safety
+/// `dst` covers `n` writable bytes.
+#[inline(always)]
+pub(crate) unsafe fn zero_small(dst: *mut u8, n: usize) {
+    use std::ptr::write_unaligned as put;
+    // SAFETY: each write stays inside `[0, n)`; a `Wide` of zero bytes is a
+    // valid value of every type it names.
+    unsafe {
+        if n > 64 {
+            return std::ptr::write_bytes(dst, 0, n);
+        }
+        let zero: Wide = std::mem::zeroed();
+        let end = dst.add(n);
+        if n >= 32 {
+            put(dst.cast::<Wide>(), zero);
+            put(dst.add(16).cast::<Wide>(), zero);
+            put(end.sub(32).cast::<Wide>(), zero);
+            put(end.sub(16).cast::<Wide>(), zero);
+        } else if n >= 16 {
+            put(dst.cast::<Wide>(), zero);
+            put(end.sub(16).cast::<Wide>(), zero);
+        } else if n >= 8 {
+            put(dst.cast::<u64>(), 0);
+            put(end.sub(8).cast::<u64>(), 0);
+        } else if n >= 4 {
+            put(dst.cast::<u32>(), 0);
+            put(end.sub(4).cast::<u32>(), 0);
+        } else if n > 0 {
+            // The middle byte of three, or the last of two.
+            *dst = 0;
+            *dst.add(usize::from(n > 1)) = 0;
+            *end.sub(1) = 0;
+        }
+    }
+}
+
 /// Copy `count` elements from `src` to `dst` and take a reference on each.
 ///
 /// # Safety
@@ -366,7 +406,7 @@ unsafe fn append_grown(
         copy_retaining(fresh, ptr, n, stride, retain);
         if retain.is_some() {
             let headroom = (buri_rt_cap(fresh) as usize).saturating_sub(used);
-            std::ptr::write_bytes(fresh.add(used), 0, headroom);
+            zero_small(fresh.add(used), headroom);
         }
     }
     BuriList {
@@ -839,6 +879,24 @@ pub type StepEntry = unsafe extern "C" fn(state: *mut u8, index: u64, arg: *cons
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A clear of every length up to past 64 zeroes exactly its range, at
+    /// every alignment, and leaves the bytes either side of it alone.
+    #[test]
+    fn a_clear_zeroes_its_range_and_nothing_either_side() {
+        for at in 0..16 {
+            for len in 0..=80 {
+                let mut buf = vec![0xAB_u8; at + len + 16];
+                // SAFETY: `buf` covers `at + len` bytes.
+                unsafe { zero_small(buf.as_mut_ptr().add(at), len) };
+                let zeroed = buf.iter().enumerate().all(|(i, &b)| {
+                    let inside = (at..at + len).contains(&i);
+                    b == if inside { 0 } else { 0xAB }
+                });
+                assert!(zeroed, "{len} bytes at {at}: {buf:?}");
+            }
+        }
+    }
 
     /// A run is spare only when every byte is zero, at any length and with
     /// the one non-zero byte anywhere in it.

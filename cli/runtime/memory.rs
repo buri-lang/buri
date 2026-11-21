@@ -1623,7 +1623,7 @@ fn alloc_cached<const ZEROED: bool>(payload: u64) -> *mut u8 {
     };
     if ZEROED {
         // SAFETY: `p` has `payload` usable bytes.
-        unsafe { std::ptr::write_bytes(p, 0, payload as usize) };
+        unsafe { crate::list::zero_small(p, payload as usize) };
     }
     // SAFETY: as above.
     unsafe { headed(p, payload) }
