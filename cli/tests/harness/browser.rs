@@ -806,7 +806,7 @@ function offsetOf(element, dimension) {
   const side = dimension === "width" ? "Left" : "Top";
   const p = getComputedStyle(parent);
   const basis = () => contentOf(parent, "width");
-  let at = offsetOf(parent, dimension) + (lengthIn(p[`padding${side}`], basis) ?? 0);
+  let at = offsetOf(parent, dimension) + (lengthIn(paddingSide(p, side), basis) ?? 0);
   if (!unsetStyle(p[`border${side}Style`]) && p[`border${side}Style`] !== "hidden") {
     at += lengthIn(p[`border${side}Width`], () => 0) ?? 0;
   }
@@ -876,7 +876,7 @@ function contentOf(element, dimension) {
 function padding(element, dimension) {
   const s = getComputedStyle(element);
   const basis = () => contentOf(element.parentElement, "width");
-  return sides(dimension).reduce((sum, side) => sum + (lengthIn(s[`padding${side}`], basis) ?? 0), 0);
+  return sides(dimension).reduce((sum, side) => sum + (lengthIn(paddingSide(s, side), basis) ?? 0), 0);
 }
 // The border on both sides of `element` along `dimension`: none on a side
 // whose style is `none` or `hidden`, whatever its width says.
@@ -889,6 +889,16 @@ function borders(element, dimension) {
   }, 0);
 }
 const sides = (dimension) => (dimension === "width" ? ["Left", "Right"] : ["Top", "Bottom"]);
+// The padding on one side of a computed style, `s`. happy-dom keeps the
+// logical `padding-inline` and `padding-block` shorthands unexpanded, so the
+// physical side reads what the reset set under them; a shorthand that is set
+// is the class's, and wins: its first value starts the axis, its last ends it.
+function paddingSide(s, side) {
+  const axis = ["Left", "Right"].includes(side) ? "inline" : "block";
+  const values = s.getPropertyValue(`padding-${axis}`).trim().split(/\s+/);
+  if (values[0] === "") return s[`padding${side}`];
+  return ["Left", "Top"].includes(side) ? values[0] : values[values.length - 1];
+}
 // The `dimension` a box with none of its own takes from the flow: its
 // max-content width in a flex row, else (or when it holds text, which has no
 // width here) its parent's content width, or the heights of its children in the flow added up, or the
@@ -1042,7 +1052,8 @@ const inFlow = (element) =>
 // content overflowing, `[min-content, max-content]`: its own width, or what
 // its children in the flow need, side by side in a flex row and one above
 // another otherwise. A row that wraps needs only its widest child at the
-// narrowest. Text has no width here, so it throws.
+// narrowest. A field is as wide as `editorWidth` says. Text has no width
+// here, so it throws, except a textarea's, which is its value.
 //
 // Each box inside the one being fitted (`inside`) is held between its minimum
 // and maximum width. A percentage there would be of a width that depends on
@@ -1057,25 +1068,42 @@ function intrinsicWidths(element, inside = false) {
     inside ? Math.min(length(s.maxWidth, null) ?? Infinity, Math.max(length(s.minWidth, 0) ?? 0, width)) : width;
   const own = length(s.width, null);
   if (own !== null) return [clamp(own), clamp(own)];
-  if ([...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "")) {
+  const area = element.localName === "textarea";
+  if (!area && [...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "")) {
     throw new Error("placedAt: the width of text");
   }
   const row = /flex/.test(display(element)) && s.flexDirection === "row";
   const wraps = s.flexWrap === "wrap";
   const children = inFlow(element);
   const gaps = row ? gapOf(element, "column", () => 0) * Math.max(0, children.length - 1) : 0;
-  // An `<input>` is `size` characters wide, 20 unless it says. Half the font
-  // size stands in for the average character a browser reads off the font.
-  const typed = element.localName === "input" ? (Number(element.getAttribute("size")) || 20) * (lengthIn(s.fontSize, () => 0) ?? 16) / 2 : 0;
+  const typed = ["input", "textarea"].includes(element.localName) ? editorWidth(element) : 0;
   let [least, most] = [typed, typed];
   for (const child of children) {
     const [l, m] = intrinsicWidths(child, true);
     least = row && !wraps ? least + l : Math.max(least, l);
     most = row ? most + m : Math.max(most, m);
   }
-  const pad = sides("width").reduce((sum, side) => sum + (length(s["padding" + side], 0) ?? 0), 0);
+  const pad = sides("width").reduce((sum, side) => sum + (length(paddingSide(s, side), 0) ?? 0), 0);
   const edges = pad + borders(element, "width");
   return [clamp(least + (row && !wraps ? gaps : 0) + edges), clamp(most + gaps + edges)];
+}
+// How wide a browser makes the editor in a field, `element`, an `<input>` or a
+// `<textarea>`: Chromium's `TextFieldIntrinsicInlineSize`, `size` average
+// characters (20 unless it says), or `TextAreaIntrinsicInlineSize`, `cols` (20
+// unless it says). The average is the face's, rounded only where that rounds
+// it up, and an `<input>` adds what the face's glyph box runs past one,
+// rounded. The face is the one the painter sets the field in, with its OS/2
+// average and its head glyph box in font units, of 2048 per em.
+function editorWidth(element) {
+  const s = getComputedStyle(element);
+  const bold = Number(s.fontWeight) > 500 || s.fontWeight === "bold";
+  const [average, widest] = /monospace/.test(s.fontFamily) ? [1233, 2612]
+    : s.fontStyle === "italic" ? [1042, 2845] : bold ? [1095, 2934] : [1073, 2893];
+  const size = (lengthIn(s.fontSize, () => 0) ?? 16) / 2048;
+  const each = Math.max(average * size, Math.round(average * size));
+  if (element.localName === "textarea") return Math.ceil(each * (Number(element.getAttribute("cols")) || 20));
+  const count = Number(element.getAttribute("size")) || 20;
+  return Math.ceil(each * (count - 1) + Math.round(widest * size));
 }
 
 // The inertness a modal dialog gives the rest of the page, which happy-dom

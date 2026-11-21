@@ -1,0 +1,51 @@
+//! Fields that name no width of their own, each beside the plain boxes a
+//! browser lays it out as.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Length, Style };
+
+/// An empty field labelled "Name", its label a row: the words, then the
+/// field's box, painted red by `styles`.
+export fn named<C: Ui>(ctx: C, kind: FieldKind, styles: [Style]): Node<C> {
+    ui.field({
+        label: .Const("Name"),
+        kind: kind,
+        value: signal(ctx, ""),
+        styles: styles,
+        hint: .None,
+        around: .Some([.Layout(.Row)]),
+        isInvalid: .None,
+        isDisabled: .None,
+    })
+}
+
+/// What `named` lays out: the words, then a red box `width` pixels by
+/// `height`, centred across the row the way a label centres its control.
+export fn plain<C: Ui>(width: Int, height: Length): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .AlignCross(.Center)],
+        children: [
+            ui.text({ content: .Const("Name") }),
+            ui.stack({
+                styles: [
+                    .Width(.Px(width)),
+                    .Height(height),
+                    .Shrink(0),
+                    .Background(.Rgb(255, 0, 0)),
+                ],
+                children: [],
+            }),
+        ],
+    })
+}
+
+/// A green box 40px square, after a field, to show where the field ends.
+export fn after<C: Ui>(): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(40)), .Shrink(0), .Background(.Rgb(0, 160, 0))],
+        children: [],
+    })
+}

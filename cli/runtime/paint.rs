@@ -1467,6 +1467,18 @@ enum Border {
     Dashed,
 }
 
+/// Which editor a field control holds, which a browser sizes by the control's
+/// face whatever is typed into it ([`editor_size`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Editor {
+    /// Not inside a field.
+    None,
+    /// An `<input>`'s: one line.
+    Line,
+    /// A `textarea`'s: two lines, the `rows` a browser gives one by default.
+    Lines,
+}
+
 /// What marks each item of a list — `ui/style`'s `ListMarker`, which is the
 /// only way a list gets one. The reset in the sheet cleared the browser's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1710,6 +1722,10 @@ struct Computed {
     /// nothing. Inherited for the reason the mask is: the declaration is on
     /// the input and the run is a line under it.
     placeholder: Option<String>,
+    /// How the run inside a field control is sized when the control names no
+    /// width of its own, as a browser sizes the control's editor. Inherited for
+    /// the reason the mask is.
+    editor: Editor,
 }
 
 impl Computed {
@@ -1783,6 +1799,7 @@ impl Computed {
             masked: false,
             field: false,
             placeholder: None,
+            editor: Editor::None,
         }
     }
 
@@ -1890,6 +1907,7 @@ impl Computed {
         child.clamp = self.clamp;
         child.masked = self.masked;
         child.placeholder = self.placeholder.clone();
+        child.editor = self.editor;
         child
     }
 
@@ -2360,6 +2378,11 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             style.field = true;
             style.masked = value == "password";
             style.nowrap = value != "multiline";
+            style.editor = if value == "multiline" {
+                Editor::Lines
+            } else {
+                Editor::Line
+            };
         }
         // A slider's bounds and where its thumb sits. Bounds that are not two
         // numbers leave the box a box, which is the rule an unreadable image
@@ -3374,6 +3397,50 @@ fn measured(
     extent
 }
 
+/// The size a browser gives the editor inside a field whose control names no
+/// width, `(width, height)`: Chromium's `TextFieldIntrinsicInlineSize` and
+/// `TextAreaIntrinsicInlineSize`, with `size` and `cols` at their default 20.
+///
+/// The width is twenty of the face's average characters, the average rounded
+/// only where that rounds it up; an `<input>` adds what the face's glyph box
+/// runs past one average character, rounded to a pixel. A textarea's
+/// scrollbar takes no room, because the painter's scrollbars overlay. The
+/// height is one line, or a textarea's two, whatever the value holds.
+///
+/// The face is the one the run is set in: the fixed-pitch one, else the
+/// italic, else the bold for a weight past 500, the way font matching picks
+/// among the faces bundled.
+fn editor_size(style: &Computed) -> (f32, f32) {
+    let [average, widest, units] = if style.mono {
+        MONO_WIDTHS
+    } else if style.italic {
+        ITALIC_WIDTHS
+    } else if style.weight > 500 {
+        BOLD_WIDTHS
+    } else {
+        REGULAR_WIDTHS
+    };
+    let size = style.font_size.max(1.0);
+    let average = average * size / units;
+    let average = average.max(average.round());
+    let leading = (size * style.line_height).max(1.0);
+    match style.editor {
+        Editor::Lines => ((average * 20.0).ceil(), leading * 2.0),
+        _ => (
+            (average * 19.0 + (widest * size / units).round()).ceil(),
+            leading,
+        ),
+    }
+}
+
+/// What a browser reads off each bundled face to size a field, in font
+/// units: the OS/2 table's average character width, the width of the head
+/// table's glyph box, and the units per em. A test reads them off the files.
+const REGULAR_WIDTHS: [f32; 3] = [1073.0, 2893.0, 2048.0];
+const BOLD_WIDTHS: [f32; 3] = [1095.0, 2934.0, 2048.0];
+const ITALIC_WIDTHS: [f32; 3] = [1042.0, 2845.0, 2048.0];
+const MONO_WIDTHS: [f32; 3] = [1233.0, 2612.0, 2048.0];
+
 /// Puts a string in the buffer and shapes it.
 fn lay(
     fonts: &mut FontSystem,
@@ -3966,6 +4033,16 @@ fn lay_out(
                     // `1fr` means, and an automatic minimum of the whole sentence
                     // holds the track open past its share — so `1fr 2fr` painted as
                     // two content-sized tracks and a row that ran off the page.
+                    //
+                    // A field's editor answers all three alike: a browser sizes
+                    // it by its face, whatever is typed into it.
+                    if style.editor != Editor::None {
+                        let (width, height) = editor_size(style);
+                        return Size {
+                            width: known.width.unwrap_or(width),
+                            height: known.height.unwrap_or(height),
+                        };
+                    }
                     let (width, wrap) = match (known.width, available.width) {
                         (Some(w), _) | (None, AvailableSpace::Definite(w)) => {
                             (Some(w), Wrap::WordOrGlyph)
@@ -10147,6 +10224,35 @@ mod tests {
             cell("rgb(0,255,0)"),
             cell("rgb(0,0,255)")
         )
+    }
+
+    /// What a browser reads off `face` to size a field, per em: the OS/2 table's
+    /// average character width and the width of the head table's glyph box.
+    /// `None` for a face missing either table.
+    fn char_widths(face: &[u8]) -> Option<[f32; 3]> {
+        let u16_at = |at: usize| Some(u16::from_be_bytes(face.get(at..at + 2)?.try_into().ok()?));
+        let i16_at = |at: usize| Some(i16::from_be_bytes(face.get(at..at + 2)?.try_into().ok()?));
+        let table = |tag: &[u8]| {
+            (0..usize::from(u16_at(4)?)).find_map(|i| {
+                let record = face.get(12 + 16 * i..28 + 16 * i)?;
+                let offset = u32::from_be_bytes(record.get(8..12)?.try_into().ok()?);
+                (record.get(..4)? == tag).then(|| usize::try_from(offset).ok())?
+            })
+        };
+        let head = table(b"head")?;
+        let units = f32::from(u16_at(head + 18)?);
+        let glyph_box = f32::from(i16_at(head + 40)?) - f32::from(i16_at(head + 36)?);
+        let average = f32::from(i16_at(table(b"OS/2")? + 2)?);
+        Some([average, glyph_box, units])
+    }
+
+    /// The figures [`editor_size`] sizes a field by are the bundled faces' own.
+    #[test]
+    fn a_field_is_sized_by_its_face_s_own_figures() {
+        assert_eq!(char_widths(REGULAR), Some(REGULAR_WIDTHS));
+        assert_eq!(char_widths(BOLD), Some(BOLD_WIDTHS));
+        assert_eq!(char_widths(ITALIC), Some(ITALIC_WIDTHS));
+        assert_eq!(char_widths(MONO), Some(MONO_WIDTHS));
     }
 
     /// Along row `y`: the x each new colour starts at, and the colour.

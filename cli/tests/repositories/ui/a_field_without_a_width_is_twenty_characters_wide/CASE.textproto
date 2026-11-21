@@ -1,0 +1,29 @@
+# Fields that name no width, each beside a twin that lays out a plain box as
+# wide as a browser makes the field. Both tests of a pair compare against one
+# golden. A browser sizes a field's editor by its face, whatever is typed in
+# it: an `<input>` twenty average characters, plus what the face's glyph box
+# runs past one, and one line tall; a textarea twenty average characters and
+# two lines tall. Each single-line kind, padding, a larger size, the bold and
+# the fixed-pitch faces, and a row too narrow for the field are here.
+#
+# `a_field_without_a_width_is_twenty_characters_wide` in build/repositories.rs
+# checks that a browser gives each field the width its twin's box has.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a field with no width is twenty of its face's characters wide and one line tall, a textarea two, in the painter and in a browser"
+
+run {
+  args: ["test", "//lib/fields", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/fields/test/__snapshots__/row.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/kinds.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/multiline.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/padded.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/large.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/bold.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/mono.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/narrow.diff.png"  exists: false }

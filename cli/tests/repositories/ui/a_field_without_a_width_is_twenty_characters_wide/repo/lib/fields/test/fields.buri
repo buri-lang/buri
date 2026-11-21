@@ -1,0 +1,258 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A field that names no width is as wide as a browser makes it:
+// twenty of its face's average characters, and for an `<input>` what the
+// face's glyph box runs past one of them. One line tall, or two for a
+// textarea.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+from "//lib/fields" import { after, named, plain };
+
+test "a field in a row is twenty characters wide and one line tall" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "row",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [named(ctx, .Text, [.Background(.Rgb(255, 0, 0))]), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the row scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "row",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(183, .Rem(1.2)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "each kind of single-line field is twenty characters wide" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    let red: [Style] = [.Background(.Rgb(255, 0, 0))];
+    snapshot(
+        ctx,
+        "kinds",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Password, red),
+                named(ctx, .Email, red),
+                named(ctx, .Number, red),
+                named(ctx, .Search, red),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the kinds scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "kinds",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [
+                plain(183, .Rem(1.2)),
+                plain(183, .Rem(1.2)),
+                plain(183, .Rem(1.2)),
+                plain(183, .Rem(1.2)),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a textarea in a row is twenty characters wide and two lines tall" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "multiline",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [named(ctx, .Multiline, [.Background(.Rgb(255, 0, 0))]), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the multiline scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "multiline",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(168, .Rem(2.4)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a padded field is twenty characters wide inside its padding" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "padded",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Text, [.Background(.Rgb(255, 0, 0)), .PaddingX(.Px(8))]),
+                after(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the padded scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "padded",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(199, .Rem(1.2)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a field set larger is twenty of its larger characters wide" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "large",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Text, [.Background(.Rgb(255, 0, 0)), .FontSize(.Px(24))]),
+                after(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the large scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "large",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(281, .Rem(1.8)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a bold field is twenty of the bold face's characters wide" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "bold",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Text, [.Background(.Rgb(255, 0, 0)), .FontWeight(.Bold)]),
+                after(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the bold scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "bold",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(194, .Rem(1.2)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a monospace field is twenty of the fixed face's characters wide" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "mono",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Text, [.Background(.Rgb(255, 0, 0)), .FontFamily(.Mono)]),
+                after(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the mono scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "mono",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start)],
+            children: [plain(210, .Rem(1.2)), after()],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a field in a row too narrow for it keeps its twenty characters" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "narrow",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start), .Width(.Px(120))],
+            children: [named(ctx, .Text, [.Background(.Rgb(255, 0, 0))])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the narrow scene puts them" {
+    let ctx = context { Allocator: alloc(), Ui: headless() };
+    snapshot(
+        ctx,
+        "narrow",
+        ui.stack({
+            styles: [.Layout(.Row), .AlignCross(.Start), .Width(.Px(120))],
+            children: [plain(183, .Rem(1.2))],
+        }),
+        .Hover,
+        [],
+    );
+}

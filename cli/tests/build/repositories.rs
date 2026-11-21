@@ -1216,6 +1216,36 @@ fn a_labelled_control_fits_a_narrow_column() {
     );
 }
 
+/// How wide a browser makes the fields of
+/// `a_field_without_a_width_is_twenty_characters_wide`: each as wide as its
+/// twin's box, padding included.
+#[test]
+fn a_field_without_a_width_is_twenty_characters_wide() {
+    let case =
+        tests_dir().join("repositories/ui/a_field_without_a_width_is_twenty_characters_wide");
+    let widths = |tag: &str| -> Vec<String> {
+        crate::harness::web_pages::widths(&case, tag)
+            .iter()
+            .filter(|(_, values)| !values.is_empty())
+            .map(|(name, values)| format!("{name}: {values}"))
+            .collect()
+    };
+    let four = "input=183 input=183 input=183 input=183";
+    assert_eq!(
+        widths("input"),
+        [
+            "row: input=183".to_string(),
+            format!("kinds: {four}"),
+            "padded: input=199".to_string(),
+            "large: input=281".to_string(),
+            "bold: input=194".to_string(),
+            "mono: input=210".to_string(),
+            "narrow: input=183".to_string(),
+        ]
+    );
+    assert_eq!(widths("textarea"), ["multiline: textarea=168"]);
+}
+
 /// Where a browser lays out the boxes of
 /// `a_wrapping_column_breaks_only_against_a_definite_height` (#162): each
 /// scene where its twin puts them. A column that wraps breaks into a second
