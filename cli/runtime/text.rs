@@ -882,7 +882,9 @@ fn ascii_int(bytes: &[u8]) -> Option<Option<i64>> {
         .iter()
         .rposition(|b| !space(b))
         .map_or(from, |at| at + 1);
-    let t = &bytes[from..to];
+    // `to` is never under `from`: the last byte that isn't a space is at or
+    // past the first.
+    let t = bytes.get(from..to).unwrap_or_default();
     if t.first().is_some_and(|b| !b.is_ascii()) || t.last().is_some_and(|b| !b.is_ascii()) {
         return None;
     }
