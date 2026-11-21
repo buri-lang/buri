@@ -799,6 +799,16 @@ fn an_object_that_names_no_runtime_symbol_pays_nothing_for_the_archive() {
 // Per-unit object caching
 // ---------------------------------------------------------------------------
 
+/// Held by each test that starts a round. The round is the process's, so one
+/// test's `begin_round` would make another's first build read as an earlier
+/// round's.
+fn rounds() -> std::sync::MutexGuard<'static, ()> {
+    static ROUNDS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ROUNDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn keys(pairs: &[(&str, &str)]) -> Vec<(String, ActionKey)> {
     pairs
         .iter()
@@ -814,6 +824,7 @@ fn keys(pairs: &[(&str, &str)]) -> Vec<(String, ActionKey)> {
 /// call that happened not to be made.
 #[test]
 fn every_unit_cached_never_reaches_the_backend() {
+    let _rounds = rounds();
     let root = workspace("all-cached");
     let cache = Cache::open(&root);
     let keys = keys(&[("lib_answer", "fn answer -> 1"), ("main", "fn main")]);
@@ -852,6 +863,7 @@ fn every_unit_cached_never_reaches_the_backend() {
 /// hash is unchanged is not recompiled" (CODEGEN-STENCIL.md §12.2).
 #[test]
 fn editing_one_unit_re_emits_exactly_that_unit() {
+    let _rounds = rounds();
     let root = workspace("one-unit");
     let cache = Cache::open(&root);
     let before = keys(&[("lib_answer", "fn answer -> 1"), ("main", "fn main")]);
@@ -925,6 +937,7 @@ fn objects(
 /// optimisation rather than something a user cannot get out from under.
 #[test]
 fn force_re_emits_every_unit() {
+    let _rounds = rounds();
     let root = workspace("force");
     let cache = Cache::open(&root);
     let keys = keys(&[("main", "fn main")]);
