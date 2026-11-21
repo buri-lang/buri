@@ -898,11 +898,27 @@ fn int_of(t: &[u8]) -> Option<i64> {
         .strip_prefix(b"+")
         .or_else(|| t.strip_prefix(b"-"))
         .unwrap_or(t);
-    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+    if digits.is_empty() {
         return None;
     }
-    // Rust's own parser takes it from here: it accepts the same optional sign
-    // and refuses anything outside `i64`, which is the whole of the range.
+    // Eighteen digits can't overflow an `i64`, so they are checked and summed
+    // in one pass.
+    if digits.len() <= 18 {
+        let mut n = 0_i64;
+        for d in digits {
+            let d = d.wrapping_sub(b'0');
+            if d > 9 {
+                return None;
+            }
+            n = n * 10 + i64::from(d);
+        }
+        return Some(if t.first() == Some(&b'-') { -n } else { n });
+    }
+    if !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    // Rust's own parser takes the rest: it accepts the same optional sign and
+    // refuses anything outside `i64`, which is the whole of the range.
     std::str::from_utf8(t).ok()?.parse::<i64>().ok()
 }
 

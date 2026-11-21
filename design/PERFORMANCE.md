@@ -11331,6 +11331,23 @@ checks lists of 1 to 12 texts and `Int`s, and lists pushed from one prefix,
 from a literal and from a prefix a longer list wrote past, under the heap
 check.
 
+### 6.187 `toInt` sums up to 18 digits as it checks them, 2026-11-21
+
+```text
+a read, macOS, instructions        before      after
+stencil, "  -12345  "              311         208
+stencil, 13 digits                 412         247
+LLVM, "  -12345  "                 280         178
+LLVM, 13 digits                    381         216
+```
+
+`toInt` checked that every byte was a digit, then handed the text to Rust's
+parser, which checked each byte again and guarded each step against
+overflow. Eighteen digits can't overflow an `i64`, so they are now checked
+and summed in one pass, and only longer numbers go to the parser.
+`native::int_text` bounds both reads halfway on each backend, and its
+answers now cover 18 and 19 digits, a letter after 17 digits, and `-0`.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

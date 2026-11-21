@@ -30,6 +30,12 @@ const TEXTS: &[&str] = &[
     "-9223372036854775808",
     "9223372036854775808",
     "00000000000000000000000000000001",
+    "999999999999999999",
+    "-999999999999999999",
+    "+000000000000000007",
+    "1000000000000000000",
+    "12345678901234567x",
+    "-0",
 ];
 
 /// Prints what `toInt` makes of each of [`TEXTS`], a line each.
@@ -185,3 +191,61 @@ fn to_int_stops_at_the_first_byte_that_cannot_be_a_number() {
 const LETTERS_BOUND: f64 = 2_000.0;
 /// See [`to_int_stops_at_the_first_byte_that_cannot_be_a_number`].
 const NUMBER_BOUND: f64 = 415.0;
+
+/// **`toInt` sums up to 18 digits as it checks them.** It checked that every
+/// byte was a digit, then handed the text to Rust's parser, which checked
+/// each byte again and guarded each step against overflow. Eighteen digits
+/// can't overflow an `i64`, so they are checked and summed in one pass, and
+/// only longer numbers still go to the parser.
+///
+/// The bounds are on the instructions one read costs, the loop's step
+/// included. On macOS:
+///
+/// | backend, text | before | after | bound |
+/// | --- | --- | --- | --- |
+/// | stencil, `"  -12345  "` | 311 | 208 | 260 |
+/// | stencil, 13 digits | 412 | 247 | 330 |
+/// | LLVM, `"  -12345  "` | 280 | 178 | 229 |
+/// | LLVM, 13 digits | 381 | 216 | 298 |
+///
+/// Each bound sits halfway, so the second pass coming back fails it by 19% or
+/// more, and the read has the same room to grow. The read is the runtime's,
+/// so every backend is bounded.
+#[test]
+fn to_int_sums_up_to_18_digits_as_it_checks_them() {
+    let (fewer, more) = READ_COUNTS;
+    let reads = more - fewer;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let llvm = backend == "llvm";
+        for (mode, text, each, bound) in [
+            (
+                "short",
+                "\"  -12345  \"",
+                -12_345,
+                if llvm { 229.0 } else { 260.0 },
+            ),
+            (
+                "long",
+                "\"1234567890123\"",
+                1_234_567_890_123,
+                if llvm { 298.0 } else { 330.0 },
+            ),
+        ] {
+            let binary = build(
+                &format!("int-digits-{mode}"),
+                &READS.replace("TEXT;", &format!("{text};")),
+            );
+            let answer = move |n: u64| format!("{}\n", n as i64 * each);
+            let n = steps_cost(backend, &binary, READ_COUNTS, answer);
+            let per = n.map(|n| n as f64 / reads as f64);
+            eprintln!("{backend}, {mode}: {per:?} instructions a read");
+            if per.is_some_and(|per| per > bound) {
+                failures.push(format!(
+                    "{backend} {mode}: {per:?} instructions a read, over {bound}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
