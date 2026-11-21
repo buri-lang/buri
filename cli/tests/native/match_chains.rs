@@ -119,8 +119,10 @@ fn each_literal_takes_its_own_arm() {
 /// A step's cost on the copy-and-patch backend, in instructions, over the
 /// loop in [`STEPS`]: a match of `i % 8` against seven literals, then of a
 /// byte tag against five variants. Measured at 35 with each value read once
-/// into a register for all its tests.
-const STEP_BOUND: u64 = 38;
+/// into a register for all its tests, and 34 since the remainder is computed
+/// into that register, not stored and then read back. A million steps, so
+/// that the count is not within a fraction of an instruction of the bound.
+const STEP_BOUND: u64 = 34;
 
 /// A step tests `i % 8` against literal after literal and an enum's byte tag
 /// against variant after variant, each value read once for all its tests.
@@ -164,7 +166,7 @@ fn run(acc: Int, i: Int, n: Int): Int {
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let n = match (env.arguments(ctx).first().withDefault("none")) {
-    "steps" => 200000,
+    "steps" => 1000000,
     _ => 0,
   };
   io.println(ctx, "${run(0, 0, n)}").mapErr(fn(_e) => "stdout")
@@ -175,11 +177,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// copy-and-patch backend, the value read once rather than for each test.
 #[test]
 fn a_literal_test_costs_a_compare() {
-    let steps = 200_000;
+    let steps = 1_000_000;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("chain-steps", STEPS);
-        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "1300000\n");
+        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "6500000\n");
         eprintln!("{backend}: {n:?} instructions a step");
         if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND) {
             failures.push(format!(

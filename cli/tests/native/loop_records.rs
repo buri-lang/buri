@@ -184,3 +184,86 @@ test "kept fields" {
 "#;
     crate::match_moves::passes("loop-record-kept", test, 1);
 }
+
+/// **A constant less a value answers the difference**, built by `buri test` on
+/// every backend: less a field a loop carries, less an argument, less a sum
+/// computed just before, and less a value below zero.
+#[test]
+fn a_constant_less_a_value_is_the_difference() {
+    let test = r#"
+struct St { acc: Int, steps: Int, last: Int }
+
+fn flip(s: St, i: Int, n: Int): St {
+    if (i == n) { s } else { flip(St { ..s, acc: 1000003 - s.acc, last: s.acc + i }, i + 1, n) }
+}
+
+fn less(x: Int): Int {
+    7 - x
+}
+
+fn lessSum(x: Int, y: Int): Int {
+    100 - (x + y)
+}
+
+test "constant first" {
+    let s = flip(St { acc: 5, steps: 2, last: 0 }, 0, 7);
+    assert.equal(s.acc, 999998);
+    assert.equal(s.steps, 2);
+    assert.equal(s.last, 11);
+    assert.equal(less(10), -3);
+    assert.equal(less(-9223372036854775800), 9223372036854775807);
+    assert.equal(lessSum(30, 12), 58);
+}
+"#;
+    crate::match_moves::passes("constant-first", test, 1);
+}
+
+/// A step's cost on the copy-and-patch backend, in instructions, over the
+/// loop in [`FLIPS`]. Measured at 14 with the constant an operand of
+/// the subtraction, and 16 when it was put in a frame slot first.
+const FLIP_BOUND: u64 = 15;
+
+/// A step takes a field from a constant, as a `match` arm negating a
+/// value modulo a prime does.
+const FLIPS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct St { acc: Int, steps: Int, last: Int }
+
+fn flip(s: St, i: Int, n: Int): St {
+  if (i == n) { s } else { flip(St { ..s, acc: 1000003 - s.acc, last: s.acc }, i + 1, n) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let n = match (env.arguments(ctx).first().withDefault("none")) {
+    "steps" => 200000,
+    _ => 0,
+  };
+  let s = flip(St { acc: 0, steps: 0, last: 0 }, 0, n);
+  io.println(ctx, "${s.acc + s.last}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A constant less a field costs one subtraction**: the constant is the
+/// stencil's operand rather than a frame slot written each step and read back.
+#[test]
+fn a_constant_less_a_field_costs_one_subtraction() {
+    let steps = 200_000;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("constant-first-steps", FLIPS);
+        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "1000003\n");
+        eprintln!("{backend}: {n:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > FLIP_BOUND) {
+            failures.push(format!(
+                "{backend}: {n:?} instructions a step, over {FLIP_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

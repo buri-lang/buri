@@ -414,6 +414,10 @@ mod match_chains;
 // reads, and what a step costs, counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod loop_records;
+// A function with several loops, each reading what the one before it left:
+// what it answers, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod loop_registers;
 // A match testing variants arm by arm: each variant's arm, at every tag width,
 // and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

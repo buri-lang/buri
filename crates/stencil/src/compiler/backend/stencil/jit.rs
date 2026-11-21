@@ -74,7 +74,7 @@ pub enum V {
     ///
     /// Separate from [`V::Ext`] only because the name is chosen at emission
     /// time and cannot be a `&'static str`; the two are patched identically.
-    Sym(String),
+    Sym(Sym),
     /// The stencil laid out immediately after this one — the paper's "control
     /// is passed directly to the next operation", which costs zero bytes
     /// because the branch is dropped rather than patched.
@@ -105,8 +105,13 @@ pub enum Datum {
     /// A C symbol in this process, as [`V::Ext`].
     Ext(&'static str),
     /// A symbol this unit defines for itself, as [`V::Sym`].
-    Sym(String),
+    Sym(Sym),
 }
+
+/// A name chosen at emission time, as [`Jit::sym`] holds it. A number rather
+/// than the `String`, so that a stencil's binds need nothing dropped.
+#[derive(Clone, Copy, Debug)]
+pub struct Sym(u32);
 
 impl Lit {
     pub fn of(self, x: u64) -> Bind {
@@ -127,7 +132,7 @@ impl Word {
         Bind::Word(self, Datum::Ext(n))
     }
 
-    pub fn sym(self, n: String) -> Bind {
+    pub fn sym(self, n: Sym) -> Bind {
         Bind::Word(self, Datum::Sym(n))
     }
 }
@@ -452,6 +457,8 @@ pub struct Jit<'a> {
     /// Each helper's symbol, and whether it is program-wide
     /// ([`super::glue::shared_symbol`]) rather than this part's own.
     helper_names: Vec<(String, bool)>,
+    /// Every [`Sym`]'s name, by its number.
+    syms: Vec<String>,
     /// Program-wide symbols already registered, so two types with one glue key
     /// share one body.
     shared_ix: HashMap<String, usize>,
@@ -598,6 +605,23 @@ struct Bufs {
     literals: Literals,
     loops: Loops,
     grown: ir::PerValue<bool>,
+    /// [`Jit::promote`]'s facts about each value.
+    vars: ir::PerValue<Var>,
+}
+
+/// What [`Jit::promote`] knows of one value.
+#[derive(Clone, Copy)]
+struct Var {
+    /// The region the value is a loop variable of, numbered from one, or `0`.
+    owner: u32,
+    /// How many times it is read.
+    uses: u32,
+    /// Inside its own region, how many more of its reads take a register than
+    /// take the frame slot. A variable read mostly from its slot is one the
+    /// edges write twice for little.
+    gain: i32,
+    /// Whether every read can take a register: one inside its own region.
+    reg_ok: bool,
 }
 
 /// What every instruction and terminator of one function reads, listed once.
@@ -811,6 +835,7 @@ impl<'a> Jit<'a> {
             by_type: Vec::new(),
             by_enum: Vec::new(),
             helper_names: Vec::new(),
+            syms: Vec::new(),
             shared_ix: HashMap::default(),
             helper_at: Vec::new(),
             asks: None,
@@ -881,6 +906,17 @@ impl<'a> Jit<'a> {
         self.helpers.push(h);
         self.helper_names.push(name.clone());
         name.0
+    }
+
+    /// A name for a [`V::Sym`] or a [`Datum::Sym`].
+    pub(crate) fn sym(&mut self, name: String) -> Sym {
+        self.syms.push(name);
+        Sym(self.syms.len() as u32 - 1)
+    }
+
+    /// The name [`Jit::sym`] gave `s`.
+    fn sym_name(&self, s: Sym) -> String {
+        self.syms.get(s.0 as usize).cloned().unwrap_or_default()
     }
 
     /// Every helper this part generated, in the order it was laid out.
@@ -1213,11 +1249,13 @@ pub(crate) struct Fn2 {
     /// to be kept in step with its register, because something that cannot read
     /// a register reads it.
     pub wt: ir::PerValue<bool>,
-    /// Which values [`Jit::promote`] put in a register. Their register holds
-    /// the value inside [`Fn2::region`] and nowhere else.
-    pub cross: ir::PerValue<bool>,
-    /// The blocks of [`Jit::promote`]'s region.
-    pub region: ir::PerBlock<bool>,
+    /// The region of each value [`Jit::promote`] put in a register, numbered
+    /// from one, or `0`. Its register holds the value inside that region of
+    /// [`Fn2::region`] and nowhere else.
+    pub cross: ir::PerValue<u32>,
+    /// The region of [`Jit::promote`]'s each block is in, numbered from one,
+    /// or `0` for none.
+    pub region: ir::PerBlock<u32>,
     /// The block being emitted.
     pub cur: ir::BlockId,
     /// The literal a value holds, when it is an `Inst::Const` a stencil can
@@ -1234,6 +1272,10 @@ pub(crate) struct Fn2 {
     /// What `r2` holds where the code emitted so far ends, if a test left
     /// something there ([`Carry`]).
     pub carry: Option<Carry>,
+    /// The value the block's last instruction defines and its closing test of
+    /// literals reads first, which the definition writes to `r2` as well as to
+    /// its slot so that the test need not load it (`Jit::chain_test`).
+    pub r2_for: Option<ir::ValueId>,
 }
 
 /// A frame word, or a byte tag, that the last test emitted left in `r2`
@@ -1283,6 +1325,7 @@ impl Fn2 {
             sunk: ir::PerValue::default(),
             npred: ir::PerBlock::default(),
             carry: None,
+            r2_for: None,
         }
     }
 
@@ -1341,7 +1384,8 @@ impl Fn2 {
     /// overwritten, and a `Bool` walk that recursed from two places answered
     /// `true` for every input (buri-lang/buri#47).
     pub fn read_reg(&self, v: ir::ValueId) -> Option<Reg> {
-        if *self.cross.get(v) && !*self.region.get(self.cur) {
+        let n = *self.cross.get(v);
+        if n != 0 && n != *self.region.get(self.cur) {
             return None;
         }
         self.reg_of(v)
@@ -1456,7 +1500,7 @@ impl<I: Copy> Lists<I> {
     }
 }
 
-/// What [`Jit::promote`] looks for its loop with, kept from one function to
+/// What [`Jit::promote`] looks for its loops with, kept from one function to
 /// the next.
 #[derive(Default)]
 struct Loops {
@@ -1466,14 +1510,21 @@ struct Loops {
     stamp: ir::PerBlock<u32>,
     members: Vec<ir::BlockId>,
     stack: Vec<ir::BlockId>,
-    /// The innermost loop's blocks, once [`Loops::innermost`] has found one.
-    best: Vec<ir::BlockId>,
+    /// The back edges into a block with parameters, as `(header, source)`.
+    edges: Vec<(ir::BlockId, ir::BlockId)>,
+    /// Every promotable loop, once [`Loops::promotable`] has found them: its
+    /// header and the range of [`Loops::blocks`] that is its blocks.
+    found: Vec<(ir::BlockId, usize, usize)>,
+    blocks: Vec<ir::BlockId>,
+    /// [`Jit::promote`]'s: the header of each region it takes, and the
+    /// operands of one instruction.
+    headers: Vec<ir::BlockId>,
+    ops: Vec<ir::ValueId>,
 }
 
 impl Loops {
-    /// The header of the innermost promotable loop, with its blocks in
-    /// [`Loops::best`].
-    fn innermost(&mut self, code: &ir::Code) -> Option<ir::BlockId> {
+    /// Every promotable loop, smallest first, in [`Loops::found`].
+    fn promotable(&mut self, code: &ir::Code) {
         let Loops {
             preds,
             dom,
@@ -1481,7 +1532,10 @@ impl Loops {
             stamp,
             members,
             stack,
-            best,
+            edges,
+            found,
+            blocks,
+            ..
         } = self;
         *barrier = code.per_block_in(barrier, false);
         for (id, x) in barrier.iter_mut() {
@@ -1492,72 +1546,79 @@ impl Loops {
             code.iter()
                 .flat_map(|(id, b)| b.term.targets().map(move |t| (Node::Block(t.block), id))),
         );
-        // The innermost promotable loop. A back edge is any edge whose target
-        // is not after its source in layout order; the loop it makes is the
-        // blocks that reach the source without passing the header, and it is a
-        // real, *reducible* loop exactly when every predecessor of every block
-        // in that set is in it too. That test is what makes the region safe
-        // without a dominator tree: control cannot be inside the loop without
-        // having come through the header, so a register filled at the header is
-        // filled everywhere in it.
+        // A loop is a header and every back edge into it. A back edge is any
+        // edge whose target is not after its source in layout order; the loop
+        // is the blocks that reach a source without passing the header, and it
+        // is a real, *reducible* loop exactly when every predecessor of every
+        // block in that set is in it too. That test is what makes the region
+        // safe without a dominator tree: control cannot be inside the loop
+        // without having come through the header, so a register filled at the
+        // header is filled everywhere in it.
         //
-        // The dominator tree is still worth having, as a filter: a candidate
+        // The dominator tree is still worth having, as a filter: a back edge
         // whose header does not dominate its source is one the walk below
         // would abandon, and it would have walked back to the entry to find
         // that out. `lower` puts a `match`'s join block ahead of its arms, so
-        // every arm of a wide `match` is such a candidate, and walking each of
+        // every arm of a wide `match` is such an edge, and walking each of
         // them was quadratic in the width.
         dom.compute(code, preds);
-        // One side table for every candidate, told apart by a stamp, and the
-        // members listed beside it: a table per candidate was the other half
-        // of the quadratic.
-        *stamp = code.per_block_in(stamp, 0);
-        let mut epoch = 0u32;
-        let mut found: Option<ir::BlockId> = None;
+        edges.clear();
         for (p, b) in code.iter() {
             for t in b.term.targets() {
                 let h = t.block;
-                if h > p {
-                    continue;
-                }
-                if code.get(h).params.is_empty() {
-                    continue;
-                }
-                if !dom.may_loop(h, p) {
-                    continue;
-                }
-                // `h` dominates `p`, so the walk back from `p` meets the header
-                // before it could meet the entry, and every predecessor of a
-                // block it takes in is taken in too: the loop is closed by
-                // construction. No block branches to itself (`ir::Code`), so
-                // `p` is not `h`.
-                epoch += 1;
-                let inside = |stamp: &ir::PerBlock<u32>, x: ir::BlockId| *stamp.get(x) == epoch;
-                members.clear();
-                *stamp.get_mut(h) = epoch;
-                *stamp.get_mut(p) = epoch;
-                members.extend([h, p]);
-                stack.clear();
-                stack.push(p);
-                while let Some(x) = stack.pop() {
-                    for q in preds.of(Node::Block(x)).iter().copied() {
-                        if !inside(stamp, q) {
-                            *stamp.get_mut(q) = epoch;
-                            members.push(q);
-                            stack.push(q);
-                        }
-                    }
-                }
-                if members.iter().any(|x| *barrier.get(*x)) {
-                    continue;
-                }
-                if found.is_none() || members.len() < best.len() {
-                    best.clone_from(members);
-                    found = Some(t.block);
+                if h <= p && !code.get(h).params.is_empty() && dom.may_loop(h, p) {
+                    edges.push((h, p));
                 }
             }
         }
-        found
+        edges.sort_unstable();
+        edges.dedup();
+        // One side table for every loop, told apart by a stamp, and the
+        // members listed beside it: a table per loop was the other half of the
+        // quadratic.
+        *stamp = code.per_block_in(stamp, 0);
+        let mut epoch = 0u32;
+        found.clear();
+        blocks.clear();
+        let mut at = 0usize;
+        while let Some(&(h, _)) = edges.get(at) {
+            epoch += 1;
+            let inside = |stamp: &ir::PerBlock<u32>, x: ir::BlockId| *stamp.get(x) == epoch;
+            members.clear();
+            stack.clear();
+            *stamp.get_mut(h) = epoch;
+            members.push(h);
+            // `h` dominates each source, so the walk back from one meets the
+            // header before it could meet the entry, and every predecessor of
+            // a block it takes in is taken in too: the loop is closed by
+            // construction. No block branches to itself (`ir::Code`), so no
+            // source is `h`, and `edges` names each source once.
+            while let Some(&(hh, p)) = edges.get(at) {
+                if hh != h {
+                    break;
+                }
+                at += 1;
+                *stamp.get_mut(p) = epoch;
+                members.push(p);
+                stack.push(p);
+            }
+            while let Some(x) = stack.pop() {
+                for q in preds.of(Node::Block(x)).iter().copied() {
+                    if !inside(stamp, q) {
+                        *stamp.get_mut(q) = epoch;
+                        members.push(q);
+                        stack.push(q);
+                    }
+                }
+            }
+            if members.iter().any(|x| *barrier.get(*x)) {
+                continue;
+            }
+            let lo = blocks.len();
+            blocks.extend_from_slice(members);
+            found.push((h, lo, blocks.len()));
+        }
+        found.sort_unstable_by_key(|(h, lo, hi)| (hi - lo, *h));
     }
 }
 
@@ -1664,8 +1725,8 @@ impl<'a> Jit<'a> {
                 std::mem::swap(&mut st.sunk, &mut self.bufs.sunk);
                 st.reg = code.per_value_in(&mut st.reg, None);
                 st.wt = code.per_value_in(&mut st.wt, true);
-                st.cross = code.per_value_in(&mut st.cross, false);
-                st.region = code.per_block_in(&mut st.region, false);
+                st.cross = code.per_value_in(&mut st.cross, 0);
+                st.region = code.per_block_in(&mut st.region, 0);
                 let taken =
                     self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
@@ -1685,6 +1746,7 @@ impl<'a> Jit<'a> {
                     st.cur = id;
                     let block = code.get(id);
                     let plan = self.plan_block(code, &st, block);
+                    st.r2_for = r2_for(block, &plan);
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
                     for (inst, skip) in block.insts.iter().zip(plan.skip.iter()) {
@@ -1930,7 +1992,8 @@ impl<'a> Jit<'a> {
                         self.branch_reloc(at + *off as u64, Target::Symbol(n.into()));
                     }
                 }
-                V::Sym(ref n) => {
+                V::Sym(n) => {
+                    let n = self.sym_name(n);
                     for off in &h.branches {
                         self.branch_reloc(at + *off as u64, Target::Symbol(n.clone().into()));
                     }
@@ -2074,7 +2137,10 @@ impl<'a> Jit<'a> {
             // A byte inside this section, whose base the linker picks.
             Datum::Ptr(x) => self.region.pool_target(Target::Here(x)),
             Datum::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
-            Datum::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
+            Datum::Sym(n) => {
+                let n = self.sym_name(n);
+                self.region.pool_target(Target::Symbol(n.into()))
+            }
         }
     }
 
@@ -3425,16 +3491,24 @@ impl<'a> Jit<'a> {
     /// them on the way into the loop, and update them on the back edge.
     ///
     /// The constraint that makes it sound without a liveness analysis is the
-    /// **region**: the header and every block up to the furthest back edge, all
-    /// of them free of any stencil with the zero-register prototype, and
-    /// enterable only at the header. Inside that region a register cannot be
-    /// clobbered by anything. Outside it, the value is read from its frame slot,
-    /// which the edge keeps in step — unless every use is provably a register
-    /// one, and then the slot is not written at all.
+    /// **region**: the header and every block that reaches a back edge into it
+    /// without passing it, all of them free of any stencil with the
+    /// zero-register prototype, and enterable only at the header. Inside that
+    /// region a register cannot be clobbered by anything. Outside it, the value
+    /// is read from its frame slot, which the edge keeps in step — unless every
+    /// use is provably a register one, and then the slot is not written at all.
     ///
-    /// Which is why the region comes back out in `region` and the promoted
-    /// values in `cross`: "outside it, from the frame slot" is a rule about a
-    /// *read*, and [`Fn2::loc`] is what states it. Leaving it unsaid was
+    /// Every loop that can be promoted is, smallest first, unless it shares a
+    /// block with one already taken. An inner loop is smaller than the loop
+    /// around it, so the inner one wins; two loops one after the other both
+    /// win, and use the same registers, since each region holds only its own.
+    /// One loop a function used to mean the smallest, which in a lowered
+    /// `sortBy` was a copy that runs once and never the merge.
+    ///
+    /// Which is why each region comes back out in `region`, numbered from one,
+    /// and each promoted value's region number in `cross`: "outside it, from
+    /// the frame slot" is a rule about a *read*, and [`Fn2::loc`] is what
+    /// states it. Leaving it unsaid was
     /// buri-lang/buri#47 — a promoted loop variable read by a comparison one
     /// block past the region, after a call in between had already taken the
     /// register.
@@ -3446,8 +3520,8 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         out: &mut ir::PerValue<Option<Reg>>,
         wt: &mut ir::PerValue<bool>,
-        cross: &mut ir::PerValue<bool>,
-        region: &mut ir::PerBlock<bool>,
+        cross: &mut ir::PerValue<u32>,
+        region: &mut ir::PerBlock<u32>,
     ) -> (usize, usize) {
         // Every register but the last: one has to be left for the expression
         // temporaries the paper's own allocator keeps there, or the arithmetic
@@ -3464,93 +3538,114 @@ impl<'a> Jit<'a> {
             return (0, 0);
         }
         let mut loops = std::mem::take(&mut self.bufs.loops);
-        let found = loops.innermost(code);
-        // `region` has a row per block, every one `false` (`Jit::function`).
-        if found.is_some() {
-            for x in &loops.best {
-                *region.get_mut(*x) = true;
+        loops.promotable(code);
+        // `region` has a row per block, every one `0` (`Jit::function`), and
+        // region `n`'s header is `headers[n - 1]`.
+        let mut headers = std::mem::take(&mut loops.headers);
+        headers.clear();
+        for (h, lo, hi) in &loops.found {
+            let blocks = loops.blocks.get(*lo..*hi).unwrap_or_default();
+            if blocks.iter().any(|x| *region.get(*x) != 0) {
+                continue;
+            }
+            headers.push(*h);
+            let n = headers.len() as u32;
+            for x in blocks {
+                *region.get_mut(*x) = n;
             }
         }
-        self.bufs.loops = loops;
-        let Some(header) = found else {
+        if headers.is_empty() {
+            loops.headers = headers;
+            self.bufs.loops = loops;
             return (0, 0);
+        }
+        let body: &ir::PerBlock<u32> = region;
+        let init = Var {
+            owner: 0,
+            uses: 0,
+            gain: 0,
+            reg_ok: true,
         };
-        let body: &ir::PerBlock<bool> = region;
+        let mut vars = code.per_value_in(&mut self.bufs.vars, init);
+        for (n, h) in (1u32..).zip(headers.iter()) {
+            for p in &code.get(*h).params {
+                vars.get_mut(*p).owner = n;
+            }
+        }
 
         // Where every value is used, and whether every one of those uses can
-        // read a register.
-        let params = code.get(header).params.clone();
-        let mut reg_ok = code.per_value(true);
-        let mut uses = code.per_value(0u32);
-        let mut ops = Vec::new();
+        // read a register: one inside the value's own region.
+        let ops = &mut loops.ops;
         for (bi, b) in code.iter() {
             let inside = *body.get(bi);
+            let mut note = |o: ir::ValueId, ok: bool| {
+                let v = vars.get_mut(o);
+                v.uses += 1;
+                let ours = inside != 0 && v.owner == inside;
+                if ours {
+                    v.gain += if ok { 1 } else { -1 };
+                }
+                v.reg_ok &= ok && ours;
+            };
             for i in &b.insts {
                 ops.clear();
-                i.operands(&mut ops);
-                let ok = inside
-                    && matches!(i, ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
-                    && !matches!(
-                        i,
-                        ir::Inst::Unary {
-                            op: ir::UnOp::FromBool,
-                            ..
-                        }
-                    );
-                for o in &ops {
-                    *uses.get_mut(*o) += 1;
-                    if !ok {
-                        *reg_ok.get_mut(*o) = false;
-                    }
+                i.operands(ops);
+                for o in ops.iter() {
+                    note(*o, reads_register(code, i, *o));
                 }
             }
             ops.clear();
-            b.term.operands(&mut ops);
-            let ok = inside && matches!(b.term, ir::Term::Branch { .. });
-            for o in &ops {
-                *uses.get_mut(*o) += 1;
-                if !ok {
-                    *reg_ok.get_mut(*o) = false;
-                }
+            b.term.operands(ops);
+            let ok = matches!(b.term, ir::Term::Branch { .. });
+            for o in ops.iter() {
+                note(*o, ok);
             }
             // An edge argument is a register use only when it lands in the same
             // register it already sits in, which the edge emitter turns into
-            // nothing at all.
+            // nothing at all: a loop variable handed back to its own header.
             for t in b.term.targets() {
                 for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
-                    *uses.get_mut(*a) += 1;
-                    if !(t.block == header && *p == *a) {
-                        *reg_ok.get_mut(*a) = false;
-                    }
+                    let own = vars.get(*p).owner != 0;
+                    let v = vars.get_mut(*a);
+                    v.uses += 1;
+                    v.reg_ok &= *p == *a && own;
                 }
             }
         }
 
+        // Each region numbers its registers from the first: none is live
+        // outside its own region, so two regions never meet in one.
         let (mut ri, mut rf) = (0usize, 0usize);
-        for p in &params {
-            let ty = code.ty_of(*p);
-            let float = ty == ir::Type::F64;
-            let scalar = matches!(
-                ty,
-                ir::Type::I64
-                    | ir::Type::Ptr
-                    | ir::Type::I1
-                    | ir::Type::I8
-                    | ir::Type::I16
-                    | ir::Type::I32
-                    | ir::Type::F64
-            );
-            if !scalar || *uses.get(*p) == 0 {
-                continue;
+        for (n, h) in (1u32..).zip(headers.iter()) {
+            let (mut ki, mut kf) = (0usize, 0usize);
+            for p in &code.get(*h).params {
+                let ty = code.ty_of(*p);
+                let float = ty == ir::Type::F64;
+                let scalar = matches!(
+                    ty,
+                    ir::Type::I64
+                        | ir::Type::Ptr
+                        | ir::Type::I1
+                        | ir::Type::I8
+                        | ir::Type::I16
+                        | ir::Type::I32
+                        | ir::Type::F64
+                );
+                let v = vars.get(*p);
+                if !scalar || v.uses == 0 || v.gain <= 0 {
+                    continue;
+                }
+                let k = if float { &mut kf } else { &mut ki };
+                let Some(r) = PROMOTABLE.get(*k) else {
+                    continue;
+                };
+                *out.get_mut(*p) = Some(*r);
+                *cross.get_mut(*p) = n;
+                *wt.get_mut(*p) = !v.reg_ok;
+                *k += 1;
             }
-            let k = if float { &mut rf } else { &mut ri };
-            let Some(r) = PROMOTABLE.get(*k) else {
-                continue;
-            };
-            *out.get_mut(*p) = Some(*r);
-            *cross.get_mut(*p) = true;
-            *wt.get_mut(*p) = !*reg_ok.get(*p);
-            *k += 1;
+            ri = ri.max(ki);
+            rf = rf.max(kf);
         }
         // The value the back edge hands the parameter belongs in the parameter's
         // own register, or the loop-carried chain still goes through memory:
@@ -3560,19 +3655,19 @@ impl<'a> Jit<'a> {
         // the frame, because it adds a reload to a chain that already had a
         // store-to-load forward in it.
         for (bi, b) in code.iter() {
-            if !*body.get(bi) {
+            let n = *body.get(bi);
+            let Some(header) = n.checked_sub(1).and_then(|k| headers.get(k as usize)) else {
                 continue;
-            }
+            };
             for t in b.term.targets() {
-                if t.block != header {
+                if t.block != *header {
                     continue;
                 }
-                let ps = code.get(t.block).params.clone();
-                for (p, a) in ps.iter().zip(t.args.iter()) {
+                for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
                     let Some(k) = *out.get(*p) else {
                         continue;
                     };
-                    if p == a || out.get(*a).is_some() || *uses.get(*a) != 1 {
+                    if p == a || out.get(*a).is_some() || vars.get(*a).uses != 1 {
                         continue;
                     }
                     // `a` has `p`'s type (`ir::verify`), so it reads the same
@@ -3595,15 +3690,14 @@ impl<'a> Jit<'a> {
                     ) {
                         continue;
                     }
-                    let mut ops = Vec::new();
                     let mut clash = false;
                     for i in b.insts.iter().skip(di + 1) {
                         ops.clear();
-                        i.operands(&mut ops);
+                        i.operands(ops);
                         clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
                     }
                     ops.clear();
-                    b.term.operands(&mut ops);
+                    b.term.operands(ops);
                     for tt in b.term.targets() {
                         // The hand-over itself, `a` at `p` in `t`, reads no
                         // register: `a` has none yet.
@@ -3614,11 +3708,14 @@ impl<'a> Jit<'a> {
                         continue;
                     }
                     *out.get_mut(*a) = Some(k);
-                    *cross.get_mut(*a) = true;
+                    *cross.get_mut(*a) = n;
                     *wt.get_mut(*a) = false;
                 }
             }
         }
+        self.bufs.vars = vars;
+        loops.headers = headers;
+        self.bufs.loops = loops;
         (ri, rf)
     }
 
@@ -3736,6 +3833,9 @@ impl<'a> Jit<'a> {
                     {
                         (prim.is_float(), *dest)
                     }
+                    ir::Inst::ArrayGet { dest, .. } if code.ty_of(*dest) == ir::Type::I64 => {
+                        (false, *dest)
+                    }
                     _ => continue,
                 };
                 if out.get(dest).is_some() {
@@ -3761,16 +3861,10 @@ impl<'a> Jit<'a> {
                     // copied out of the frame, which a register never filled.
                     matches!(&block.term, ir::Term::Branch { cond, .. } if *cond == dest)
                 } else {
-                    matches!(
-                        block.insts.get(at),
-                        Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
-                    ) && !matches!(
-                        block.insts.get(at),
-                        Some(ir::Inst::Unary {
-                            op: ir::UnOp::FromBool,
-                            ..
-                        })
-                    )
+                    block
+                        .insts
+                        .get(at)
+                        .is_some_and(|i| reads_register(code, i, dest))
                 };
                 if !consumes {
                     continue;
@@ -3812,23 +3906,31 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        // A use is immediate-eligible only as the right operand of a binary
-        // operation whose immediate variant this level has.
+        // A use is immediate-eligible only as an operand of a binary operation
+        // whose immediate variant this level has: the right one, or the left
+        // one of a stencil such as `k - x` whose right operand is no constant.
         let mut imm = code.per_value_in(&mut self.bufs.imm, 0);
         for block in code.blocks() {
             for i in &block.insts {
-                if let ir::Inst::Binary { op, prim, rhs, .. } = i {
+                if let ir::Inst::Binary {
+                    op, prim, lhs, rhs, ..
+                } = i
+                {
                     // A `Str` comparison has no immediate form.
                     let Some(scalar) = prim.scalar() else {
                         continue;
                     };
+                    let (tag, _, _) = super::emit::prim_tag(scalar);
+                    let name = op.name();
                     if let Some(k) = *constants.get(*rhs) {
-                        let (tag, _, _) = super::emit::prim_tag(scalar);
-                        let name = op.name();
                         let key = key!["bin/", name, "/", tag, "/fi/f"];
                         if self.has(&key) && !zero_divisor(name, tag, k) {
                             *imm.get_mut(*rhs) += 1;
                         }
+                    } else if constants.get(*lhs).is_some()
+                        && self.has(&key!["bin/", name, "/", tag, "/if/f"])
+                    {
+                        *imm.get_mut(*lhs) += 1;
                     }
                 }
             }
@@ -3964,6 +4066,27 @@ impl<'a> Jit<'a> {
             *s |= [cmp_at, inc_at, tag_at, tag_test_at].contains(&Some(k));
         }
         p
+    }
+}
+
+/// The value [`Fn2::r2_for`] names: the block ends in a test of a frame word
+/// against a literal, which [`Jit::chain_test`] does by loading the word into
+/// `r2`, and the arithmetic emitted just before it is what defines the word.
+/// `r2` is free there: the test is about to overwrite it, and `promote` keeps
+/// no loop variable in it. `Plan::eqk` holds only for a word the test reads
+/// from its frame slot, so the value is an `Int` or a `UInt` with a slot.
+fn r2_for(block: &ir::Block, plan: &Plan) -> Option<ir::ValueId> {
+    let (lhs, _, _) = plan
+        .cmpbr
+        .filter(|_| plan.eqk.is_some() && plan.tagbr.is_none())?;
+    let last = block
+        .insts
+        .iter()
+        .zip(plan.skip.iter())
+        .rfind(|(_, skip)| !**skip)?;
+    match last.0 {
+        ir::Inst::Binary { dest, .. } if *dest == lhs => Some(lhs),
+        _ => None,
     }
 }
 
@@ -4284,6 +4407,24 @@ fn keeps_callee_frame(i: &ir::Inst, routes: &super::route::Routes<'_>) -> bool {
     }
 }
 
+/// Whether `i` can read its operand `o` from a CPS register: an arithmetic
+/// operand, or an `Int` element's index or the `Int` an element is set to.
+fn reads_register(code: &ir::Code, i: &ir::Inst, o: ir::ValueId) -> bool {
+    match i {
+        ir::Inst::Unary {
+            op: ir::UnOp::FromBool,
+            ..
+        } => false,
+        ir::Inst::Binary { .. } | ir::Inst::Unary { .. } => true,
+        // An array is never its own index or element.
+        ir::Inst::ArrayGet { dest, index, .. } => o == *index && code.ty_of(*dest) == ir::Type::I64,
+        ir::Inst::ArraySet { array, value, .. } => {
+            o != *array && code.ty_of(*value) == ir::Type::I64
+        }
+        _ => false,
+    }
+}
+
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
         ir::Inst::CallIntrinsic { .. } => true,
@@ -4306,11 +4447,8 @@ fn is_barrier(i: &ir::Inst) -> bool {
         | ir::Inst::ShowPrim { .. }
         | ir::Inst::Abort { .. }
         | ir::Inst::MakeArray { .. }
-        | ir::Inst::ArrayGet { .. }
         | ir::Inst::ArraySlice { .. }
         | ir::Inst::ArrayAlloc { .. }
-        | ir::Inst::ArraySet { .. }
-        | ir::Inst::ArrayPrefix { .. }
         | ir::Inst::DecRef { .. } => true,
         _ => false,
     }

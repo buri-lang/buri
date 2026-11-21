@@ -112,14 +112,16 @@ export fn main(host: NativeHost): Result<(), Str> {
 
 /// The most instructions an element [`SORTS`] may cost on the copy-and-patch
 /// backend, either way.
-const SORT_BOUND: u64 = 440;
+const SORT_BOUND: u64 = 360;
 
 /// **A sort's comparisons cost a compare, not a call.** `sort` hands
 /// `sortBy` a comparator, and the copy-and-patch backend called it for every
 /// comparison, then read the `Order` it returned: 546 instructions an
 /// element, and 507 with a lambda of the program's own. Now a comparator
 /// that compares its two integers is that test of them, and the sort's loops
-/// call nothing: 407 and 381.
+/// call nothing: 407 and 381. Every loop of the sort keeps its variables in
+/// registers, not only the smallest, and reads and writes an `Int` element
+/// from one: 335 and 311.
 #[test]
 fn a_sorts_comparator_costs_a_compare() {
     let elems = 2000 * 50;

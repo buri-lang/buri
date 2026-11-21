@@ -445,14 +445,17 @@ impl Jit<'_> {
         });
         for (name, at) in [(glue, 0u32), (copy, ENV_COPY_WORD)] {
             match name {
-                Some(sym) => self.emit(
-                    "imm/64",
-                    &[
-                        Lit::D.of(u64::from(word)),
-                        Word::M.sym(sym),
-                        Jump::Cont.to(V::Fall),
-                    ],
-                ),
+                Some(sym) => {
+                    let sym = self.sym(sym);
+                    self.emit(
+                        "imm/64",
+                        &[
+                            Lit::D.of(u64::from(word)),
+                            Word::M.sym(sym),
+                            Jump::Cont.to(V::Fall),
+                        ],
+                    )
+                }
                 None => self.imm_to(word, 0),
             }
             self.emit(

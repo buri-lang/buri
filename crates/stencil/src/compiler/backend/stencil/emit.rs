@@ -448,6 +448,7 @@ impl<'a> Jit<'a> {
                     func: *func,
                     boxed: env.is_some(),
                 });
+                let thunk = self.sym(thunk);
                 self.emit(
                     "imm/64",
                     &[
@@ -535,6 +536,23 @@ impl<'a> Jit<'a> {
                 ty,
                 index,
             } => {
+                let (li, ld) = (st.loc(*index), st.home(*dest));
+                // `reads_register` lets only an `Int` element's index or
+                // destination be a register. Any other element's index may
+                // still be in one inside a loop, and its frame slot is kept in
+                // step for reads like this one.
+                if code.ty_of(*dest) == ir::Type::I64 && (li != Loc::Frame || ld != Loc::Frame) {
+                    self.emit(
+                        &key!["eload/8/", li.tag(), ld.tag()],
+                        &[
+                            Lit::D.of(u64::from(st.at(*dest))),
+                            Lit::A.of(u64::from(st.at(*array))),
+                            Lit::B.of(u64::from(st.at(*index))),
+                            Jump::Cont.to(V::Fall),
+                        ],
+                    );
+                    return;
+                }
                 let (_, w, _) = self.list_elem(prog, *ty);
                 self.elem_load(st.at(*dest), st.at(*array), st.at(*index), w);
             }
@@ -565,6 +583,19 @@ impl<'a> Jit<'a> {
                 index,
                 value,
             } => {
+                let (li, lv) = (st.loc(*index), st.loc(*value));
+                if code.ty_of(*value) == ir::Type::I64 && (li != Loc::Frame || lv != Loc::Frame) {
+                    self.emit(
+                        &key!["estore/8/", li.tag(), lv.tag()],
+                        &[
+                            Lit::D.of(u64::from(st.at(*value))),
+                            Lit::A.of(u64::from(st.at(*array))),
+                            Lit::B.of(u64::from(st.at(*index))),
+                            Jump::Cont.to(V::Fall),
+                        ],
+                    );
+                    return;
+                }
                 let (_, w, _) = self.list_elem(prog, *ty);
                 self.elem_store(st.at(*value), st.at(*array), st.at(*index), w);
             }
@@ -1133,6 +1164,7 @@ impl<'a> Jit<'a> {
         } else {
             Word::R.lit(0)
         };
+        let glue = glue.map(|g| self.sym(g));
         let [plain, shared, plain_at, shared_at] = keys;
         let key = match (self.shares, field.is_some()) {
             (false, false) => plain,
@@ -1210,6 +1242,11 @@ impl<'a> Jit<'a> {
         // A `Const` every use of which is an immediate lives at `Loc::Imm`.
         let lb = st.loc(rhs);
         let ld = st.home(dest);
+        // A word the block's closing test compares with constants is written
+        // to `r2` as well as its slot, so the first test reads `r2` rather
+        // than loading the slot it was just stored to (`Fn2::r2_for`).
+        let to_r2 = st.r2_for == Some(dest);
+        let ld = if to_r2 { Loc::Reg(Reg::R2) } else { ld };
         let key = key![
             "bin/",
             name,
@@ -1223,7 +1260,9 @@ impl<'a> Jit<'a> {
         ];
         // `sources.rs` generates every operation at every type and location
         // the IR can ask for, so the key is always in the library.
-        let k = constant(st, rhs);
+        // At most one operand is an immediate (`Jit::constants`), and only a
+        // `k - x` has it on the left.
+        let k = constant(st, if la == Loc::Imm { lhs } else { rhs });
         self.emit(
             &key,
             &[
@@ -1241,6 +1280,16 @@ impl<'a> Jit<'a> {
                 Jump::Cont0.to(V::Fall),
             ],
         );
+        if to_r2 {
+            self.emit(
+                &key!["stw/r", Reg::R2],
+                &[Lit::D.of(d as u64), Jump::Cont.to(V::Fall)],
+            );
+            st.carry = Some(Carry {
+                key: Carry::key(d, false),
+                at: self.region.code_addr(),
+            });
+        }
     }
 
     #[allow(
@@ -2137,8 +2186,9 @@ impl<'a> Jit<'a> {
             let src = match st.loc(*a) {
                 Loc::Reg(j) if j == k => {
                     // The definition wrote the register in place; the frame
-                    // slot still needs it when anything reads the slot.
-                    if write_through(st, *p) {
+                    // slot still needs it when anything reads the slot, unless
+                    // the value is the parameter's own, whose slot has it.
+                    if write_through(st, *p) && p != a {
                         self.emit(
                             &key![
                                 if code.ty_of(*p) == ir::Type::F64 {

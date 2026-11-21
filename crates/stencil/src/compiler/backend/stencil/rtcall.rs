@@ -437,7 +437,8 @@ impl Jit<'_> {
             dslot
         };
         // Every row fits a `crt` stencil, which this crate checks as it builds.
-        self.c_call_to(V::Sym(entry.symbol()), st, &ints, &floats, into, kind);
+        let callee = V::Sym(self.sym(entry.symbol()));
+        self.c_call_to(callee, st, &ints, &floats, into, kind);
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -555,7 +556,8 @@ impl Jit<'_> {
     /// name is chosen at emission time and so cannot be a `&'static str`.
     pub(crate) fn c_call_sym<const I: usize>(&mut self, symbol: String, st: &Fn2, ints: &[Src; I]) {
         const { assert!(I <= MAX_INT, "past what a `crt` stencil holds") };
-        self.c_call_to(V::Sym(symbol), st, ints, &[], 0, "v");
+        let callee = V::Sym(self.sym(symbol));
+        self.c_call_to(callee, st, ints, &[], 0, "v");
     }
 
     /// The call itself, for at most `MAX_INT` and `MAX_FLOAT` arguments.
@@ -719,14 +721,17 @@ impl Jit<'_> {
         match src.clone() {
             Src::Word(from) => self.mv(at, from, 8),
             Src::Imm(v) => self.imm_to(at, v),
-            Src::Sym(name) => self.emit(
-                "imm/64",
-                &[
-                    Lit::D.of(u64::from(at)),
-                    Word::M.sym(name),
-                    Jump::Cont.to(V::Fall),
-                ],
-            ),
+            Src::Sym(name) => {
+                let name = self.sym(name);
+                self.emit(
+                    "imm/64",
+                    &[
+                        Lit::D.of(u64::from(at)),
+                        Word::M.sym(name),
+                        Jump::Cont.to(V::Fall),
+                    ],
+                )
+            }
             Src::Addr(from) => self.emit(
                 "lea",
                 &[

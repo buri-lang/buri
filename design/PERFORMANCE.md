@@ -11424,14 +11424,14 @@ On the arm64 VM, 2026-11-20:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1987846140     2023959197     1541338018     1528938027       0.982       1.290
-lists        2518561997     2579408483     1453388408     1444759574       0.976       1.733
-sort         1067394095     1100433281      279513347      316272042       0.970       3.819
-floats        573127719      596120630      481120540      478120744       0.961       1.191
-tree         1612804189     1715040505     1471248397     1471248488       0.940       1.096
-maps         1415879924     1666809262      835192644      834004330       0.849       1.695
-kvstore       942031570     1262526232      625147648      619368294       0.746       1.507
-match         775302217     1865847825      615665919      615666085       0.416       1.259
+strings      1786801235     1824914226     1342293048     1329893056       0.979       1.331
+lists        2284062847     2428845321     1302825251     1294196417       0.940       1.753
+sort          870023393     1100429885      279509950      316268645       0.791       3.113
+floats        544630363      567626078      452625987      449626191       0.959       1.203
+tree         1544548145     1646784465     1402992357     1402992448       0.938       1.101
+maps         1378485714     1629415052      797798425      796610115       0.846       1.728
+kvstore       930301171     1252414783      615036149      609256834       0.743       1.513
+match         747302334     1865847951      615666045      615666212       0.401       1.214
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11448,9 +11448,31 @@ match         775302217     1865847825      615665919      615666085       0.416
   field is computed straight into its place when nothing later reads the old
   value; match was 1.72 times `-O1`. Replacing an `Int` field no longer reads
   the old one just to release it, since there is nothing to release.
+- Every loop in a function keeps its variables in registers, not only the
+  smallest. An `Int` element's index and value can sit in registers too. A
+  variable that is read from its frame slot more often than from its register
+  stays in the frame. Sort was 3.82 times `-O1`; `sortBy`'s smallest loop is a
+  copy that runs once, and the merge loops ran from the frame.
+- `k - x` is one subtraction from an immediate, which is how a match arm
+  negates a payload.
+- A remainder tested against literals is computed into the register the first
+  test reads, so the test doesn't reload the slot the remainder was just
+  stored to; match was 1.25 times `-O1`.
 
-This work may not make dev codegen dearer. Rebuilding a loop's record in
-place left it flat, two runs each on the arm64 VM:
+This work may not make dev codegen dearer. The register work above cost
+codegen about 15 instructions a line on `ci`. That was paid back, and more,
+by giving each name a stencil binds a number in place of a `String`. Bind
+arrays no longer need drop code, and a runtime call doesn't carry its symbol
+around. Two runs each on the arm64 VM:
+
+| Row | Main | This work |
+| --- | --- | --- |
+| `ci` cost | 60934.4, 60957.1 | 60720.6, 60756.3 |
+| `ci` instructions | 41304.8, 41306.5 | 41176.6, 41174.6 |
+| `monorepo-ci` cost | 23393.6, 23481.1 | 23391.2, 23393.7 |
+| `monorepo-ci` instructions | 17036.2, 17034.3 | 16983.2, 16983.3 |
+
+Rebuilding a loop's record in place left it flat:
 
 | Row | Main | Record in place |
 | --- | --- | --- |

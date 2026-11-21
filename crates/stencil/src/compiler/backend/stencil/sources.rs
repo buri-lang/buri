@@ -695,6 +695,29 @@ fn moves(o: &mut Out) {
             ),
         );
     }
+    // An `Int` element whose index, destination or stored value is in a CPS
+    // register: a loop's index, and the element it reads or writes.
+    for b in locs_for() {
+        for d in dsts_for() {
+            if matches!(b, Loc::Imm) || (b == Loc::Frame && d == Loc::Frame) {
+                continue;
+            }
+            let at = format!("(AT(uint64_t, _JIT_A) + {} * 8)", read(U64, b, "B"));
+            // `dsts_for` yields no immediate, the one place `write` refuses.
+            let Ok(load) = write(U64, d, &format!("*(const uint64_t *){at}")) else {
+                continue;
+            };
+            o.push(
+                &format!("eload/8/{}{}", b.tag(), d.tag()),
+                format!("void $NAME(ARGS) {{ {load} TAIL; }}"),
+            );
+            let value = read(U64, d, "D");
+            o.push(
+                &format!("estore/8/{}{}", b.tag(), d.tag()),
+                format!("void $NAME(ARGS) {{ *(uint64_t *){at} = {value}; TAIL; }}"),
+            );
+        }
+    }
     // Any other width: the size is a hole, so this one is a real `memcpy`
     // call. Rare enough that the call is right.
     o.push(
@@ -860,10 +883,14 @@ fn arithmetic(o: &mut Out) -> Result<(), String> {
             }
             for a in &locs {
                 for b in &locs {
-                    if matches!(a, Loc::Imm) {
-                        // A constant left operand is folded by the emitter for
-                        // the commutative operations and is rare otherwise;
-                        // generating it would double the library for nothing.
+                    // A constant left operand is folded by the emitter for
+                    // the commutative operations and is rare otherwise;
+                    // generating it would double the library for nothing. The
+                    // exception is an `Int` taken from a constant, `k - x`,
+                    // which a `match` arm negating a payload spells.
+                    if matches!(a, Loc::Imm)
+                        && !(name == "sub" && t.tag == I64.tag && !matches!(b, Loc::Imm))
+                    {
                         continue;
                     }
                     for d in &dsts {
