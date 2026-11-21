@@ -6,8 +6,8 @@ use crate::collection_costs::per_op;
 use crate::shared::{heap_checked, ran_command};
 
 /// `main` takes the mode and a count. `answers` prints splits and searches;
-/// `split`, `index` and `contains` do one of each a step and print the sum of
-/// what they found.
+/// `split`, `lines`, `index` and `contains` do one of each a step and print
+/// the sum of what they found.
 const SPLIT: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -32,6 +32,11 @@ fn cut<C: Allocator>(ctx: C, s: Str, sep: Str): Str {
   str.format(ctx, "${parts.length()}:${joined(ctx, parts, 0, "")}\n")
 }
 
+fn lined<C: Allocator>(ctx: C, s: Str): Str {
+  let parts = s.lines(ctx);
+  str.format(ctx, "${parts.length()}:${joined(ctx, parts, 0, "")}\n")
+}
+
 fn found<C: Allocator>(ctx: C, s: Str, needle: Str): Str {
   str.format(ctx, "${s.indexOf(needle).withDefault(-1)} ${s.contains(needle)}\n")
 }
@@ -48,6 +53,10 @@ fn answers<C: Allocator>(ctx: C): Str {
     .concat(ctx, cut(ctx, "abcdefg-ijklmno-qrstuvw-", "-"))
     .concat(ctx, cut(ctx, "ä-ö--ü-", "-"))
     .concat(ctx, cut(ctx, "no separator here, at all", "-"))
+    .concat(ctx, lined(ctx, ""))
+    .concat(ctx, lined(ctx, "one\ntwo"))
+    .concat(ctx, lined(ctx, "\n\nx\r\n"))
+    .concat(ctx, lined(ctx, "a line past a word\nand ä second\n"))
     .concat(ctx, found(ctx, "a9 9a 99", "99"))
     .concat(ctx, found(ctx, "a9 9a 9", "99"))
     .concat(ctx, found(ctx, "abcdefghijklmnopqrsX abcdefghijklmnopqrst", long))
@@ -60,6 +69,10 @@ fn answers<C: Allocator>(ctx: C): Str {
 
 fn splits<C: Allocator>(ctx: C, s: Str, i: Int, n: Int, acc: Int): Int {
   if (i >= n) { acc } else { splits(ctx, s, i + 1, n, acc + s.split(ctx, "-").length()) }
+}
+
+fn lineses<C: Allocator>(ctx: C, s: Str, i: Int, n: Int, acc: Int): Int {
+  if (i >= n) { acc } else { lineses(ctx, s, i + 1, n, acc + s.lines(ctx).length()) }
 }
 
 fn indexes(s: Str, i: Int, n: Int, acc: Int): Int {
@@ -83,6 +96,7 @@ export fn main(host: NativeHost): Result<(), Str> {
   let answer = match (args.first()) {
     .Some("answers") => answers(ctx),
     .Some("split") => str.format(ctx, "${splits(ctx, s, 0, n, 0)}"),
+    .Some("lines") => str.format(ctx, "${lineses(ctx, "item\n919293\n949596", 0, n, 0)}"),
     .Some("index") => str.format(ctx, "${indexes(s, 0, n, 0)}"),
     .Some("contains") => str.format(ctx, "${containing(s, 0, n, 0)}"),
     _ => "0",
@@ -118,6 +132,14 @@ fn answers() -> String {
     ] {
         out += &cut(s, "-");
     }
+    for s in [
+        "",
+        "one\ntwo",
+        "\n\nx\r\n",
+        "a line past a word\nand ä second\n",
+    ] {
+        out += &cut(s, "\n");
+    }
     let long = "abcdefghijklmnopqrst";
     for (s, needle) in [
         ("a9 9a 99", "99"),
@@ -140,9 +162,10 @@ fn answers() -> String {
 /// near one.** Up to forty pieces, past the sixteen a split keeps on the
 /// stack; a one-byte separator first, last, repeated, on either side of an
 /// eight-byte boundary, between non-ASCII scalars and absent; a separator
-/// whose first byte recurs; a separator longer than the string; and needles
-/// of 2, 17, 18 and 20 bytes whose first bytes match early and whose ends
-/// don't, and a search past non-ASCII scalars. Under the heap check.
+/// whose first byte recurs; a separator longer than the string; `lines` on
+/// empty text, blank lines, a `\r` it keeps and a line past a word; and
+/// needles of 2, 17, 18 and 20 bytes whose first bytes match early and whose
+/// ends don't, and a search past non-ASCII scalars. Under the heap check.
 #[test]
 fn a_split_cuts_every_piece_and_a_search_finds_the_first_match() {
     for (backend, build) in crate::e2e::probed_backends() {
@@ -174,6 +197,10 @@ fn a_split_cuts_every_piece_and_a_search_finds_the_first_match() {
 /// ASCII `indexOf` saves no registers for counting scalars. A split went from
 /// 561 to 445, and `indexOf("-")` from 131 to 120.
 ///
+/// **`lines` cuts its pieces the same way.** It gathered ranges through
+/// `memchr` and copied them out, as a split did. `lines` on
+/// `item\n919293\n949596` went from 472 to 424.
+///
 /// Each bound sits about halfway. Only the copy-and-patch backend is bounded,
 /// as in `growing_steps.rs`.
 #[test]
@@ -183,7 +210,12 @@ fn a_split_and_a_search_compare_a_short_needle_without_a_call() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("split-text-costs", SPLIT);
-        for (mode, each, bound) in [("split", 3, 503), ("index", 4, 126), ("contains", 2, 343)] {
+        for (mode, each, bound) in [
+            ("split", 3, 503),
+            ("lines", 3, 448),
+            ("index", 4, 126),
+            ("contains", 2, 343),
+        ] {
             let want = format!("{}\n", each * STEPS);
             let (n, _) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step");

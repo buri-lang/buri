@@ -402,6 +402,11 @@ mod number_text;
 // backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod split_text;
+// A string hashed: the number at every length and for text that isn't ASCII,
+// and what one hash costs, counted rather than timed, on every backend built
+// in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod hash_text;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

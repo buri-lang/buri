@@ -1152,6 +1152,25 @@ pub unsafe extern "C" fn buri_rt_str_split(
         // SAFETY: forwarded.
         return unsafe { out.write(split_byte(base, ptr, s, ascii, byte)) };
     }
+    // SAFETY: forwarded.
+    unsafe { split_pieces(base, ptr, len, s, sep, out) }
+}
+
+/// [`buri_rt_str_split`] on an empty separator or a longer one, out of line so
+/// a split on one byte saves no registers for it.
+///
+/// # Safety
+/// As [`buri_rt_str_split`], with `s` the receiver's bytes.
+#[inline(never)]
+unsafe fn split_pieces(
+    base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    s: &[u8],
+    sep: &[u8],
+    out: *mut BuriList,
+) {
+    let ascii = len & BURI_RT_STR_ASCII;
     let mut pieces = Pieces::new();
     if sep.is_empty() {
         // Per scalar, which is `$chars`.
@@ -1230,15 +1249,8 @@ pub unsafe extern "C" fn buri_rt_str_lines(
     // SAFETY: the caller promises `len` readable bytes.
     let s = unsafe { view(ptr, len) };
     let ascii = len & BURI_RT_STR_ASCII;
-    let mut pieces = Pieces::new();
-    let mut start = 0usize;
-    while let Some(at) = memchr(b'\n', s.get(start..).unwrap_or(&[])) {
-        pieces.push((start, start + at));
-        start += at + 1;
-    }
-    pieces.push((start, s.len()));
-    // SAFETY: every range came from `s`.
-    unsafe { out.write(list_of_views(base, ptr, ascii, pieces.as_slice())) }
+    // SAFETY: `s` is the receiver's bytes, inside `base`'s block.
+    unsafe { out.write(split_byte(base, ptr, s, ascii, b'\n')) }
 }
 
 /// `str.replace(self, ctx, needle, replacement) -> Str`.

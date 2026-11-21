@@ -11060,6 +11060,32 @@ pieces longer than a word, and checks each piece's length. Its bounds went
 from 584 to 503 for a three-piece split, and from 138 to 126 for an
 `indexOf` (561 to 445 and 131 to 120 instructions on macOS stencil).
 
+### 6.176 An ASCII hash needs no frame, and lines cut in place, 2026-11-20
+
+```text
+                              before      after       change
+maps, stencil                 1.3768 B    1.3634 B    -0.97%
+maps, release                 0.7949 B    0.7815 B    -1.68%
+strings, stencil              1.6607 B    1.6567 B    -0.24%
+strings, release              1.2037 B    1.1997 B    -0.33%
+```
+
+Counted with aarch64 callgrind. The other programs moved by less than
+0.01%.
+
+- `buri_rt_hash_str` saved two register pairs for its UTF-16 path on every
+  call, and mixed one byte a loop step. That path is out of line now, and
+  ASCII text mixes eight bytes a loop step.
+- A split on a longer separator, or none, moved out of line, so a split on
+  one byte saves fewer registers.
+- `lines` cuts its pieces as a split on one byte does, through the same code.
+  It gathered ranges through `memchr` and copied them out.
+
+`native::hash_text` checks a hash at every length up to 25 bytes and on
+text that isn't ASCII, and bounds a nine-byte key's hash at 107
+instructions (114 to 99 on macOS stencil). `native::split_text` now also
+checks `lines` and bounds it at 448 (472 to 424).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

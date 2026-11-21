@@ -138,11 +138,36 @@ pub unsafe extern "C" fn buri_rt_hash_str(h: u64, _base: *mut u8, ptr: *const u8
     }
     // SAFETY: the caller promises `n` readable bytes.
     let bytes = unsafe { std::slice::from_raw_parts(ptr, n) };
-    // ASCII is one code unit per byte, and so is a run of it in any string.
-    if len & BURI_RT_STR_ASCII != 0 || bytes.is_ascii() {
-        return bytes
-            .iter()
-            .fold(h, |acc, &b| buri_rt_mix(acc, u32::from(b)));
+    if len & BURI_RT_STR_ASCII == 0 {
+        return hash_units(h, bytes);
+    }
+    hash_bytes(h, bytes)
+}
+
+/// One mix per byte of `bytes`, eight bytes a loop step.
+///
+/// ASCII is one code unit per byte, and so is a run of it in any string.
+#[inline(always)]
+fn hash_bytes(h: u64, bytes: &[u8]) -> u64 {
+    let (words, rest) = bytes.as_chunks::<8>();
+    let mut acc = h as u32;
+    for word in words {
+        for &b in word {
+            acc = (acc ^ u32::from(b)).wrapping_mul(PRIME);
+        }
+    }
+    for &b in rest {
+        acc = (acc ^ u32::from(b)).wrapping_mul(PRIME);
+    }
+    u64::from(acc)
+}
+
+/// [`buri_rt_hash_str`] for text not known to be ASCII: one mix per UTF-16
+/// code unit. Out of line, so an ASCII hash saves no registers for it.
+#[inline(never)]
+fn hash_units(h: u64, bytes: &[u8]) -> u64 {
+    if bytes.is_ascii() {
+        return hash_bytes(h, bytes);
     }
     let text = String::from_utf8_lossy(bytes);
     let mut acc = h;
