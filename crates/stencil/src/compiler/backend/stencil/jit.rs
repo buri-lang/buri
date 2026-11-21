@@ -3564,218 +3564,8 @@ impl<'a> Jit<'a> {
         cross: &mut ir::PerValue<u32>,
         region: &mut ir::PerBlock<u32>,
     ) -> (usize, usize) {
-        // Every register but the last: one has to be left for the expression
-        // temporaries the paper's own allocator keeps there, or the arithmetic
-        // inside the loop loses more than the loop variable gains.
-        const PROMOTABLE: [Reg; super::abi::CPS_REGISTER_COUNT - 1] = [Reg::R0, Reg::R1];
-        // Only a back edge into a block with parameters can make a candidate
-        // below, and most functions have none: they skip the tables.
-        let back_edge = code.iter().any(|(p, b)| {
-            b.term
-                .targets()
-                .any(|t| t.block <= p && !code.get(t.block).params.is_empty())
-        });
-        if !back_edge {
-            return (0, 0);
-        }
-        let mut loops = std::mem::take(&mut self.bufs.loops);
-        loops.promotable(code);
-        // `region` has a row per block, every one `0` (`Jit::function`), and
-        // region `n`'s header is `headers[n - 1]`.
-        let mut headers = std::mem::take(&mut loops.headers);
-        headers.clear();
-        for (h, lo, hi) in &loops.found {
-            let blocks = loops.blocks.get(*lo..*hi).unwrap_or_default();
-            if blocks.iter().any(|x| *region.get(*x) != 0) {
-                continue;
-            }
-            headers.push(*h);
-            let n = headers.len() as u32;
-            for x in blocks {
-                *region.get_mut(*x) = n;
-            }
-        }
-        if headers.is_empty() {
-            loops.headers = headers;
-            self.bufs.loops = loops;
-            return (0, 0);
-        }
-        let body: &ir::PerBlock<u32> = region;
-        let init = Var {
-            owner: 0,
-            uses: 0,
-            gain: 0,
-            reg_ok: true,
-        };
-        let mut vars = code.per_value_in(&mut self.bufs.vars, init);
-        for (n, h) in (1u32..).zip(headers.iter()) {
-            for p in &code.get(*h).params {
-                vars.get_mut(*p).owner = n;
-            }
-        }
-
-        // Where every value is used, and whether every one of those uses can
-        // read a register: one inside the value's own region.
-        let ops = &mut loops.ops;
-        for (bi, b) in code.iter() {
-            let inside = *body.get(bi);
-            let mut note = |o: ir::ValueId, ok: bool| {
-                let v = vars.get_mut(o);
-                v.uses += 1;
-                let ours = inside != 0 && v.owner == inside;
-                if ours {
-                    v.gain += if ok { 1 } else { -1 };
-                }
-                v.reg_ok &= ok && ours;
-            };
-            for i in &b.insts {
-                ops.clear();
-                i.operands(ops);
-                for o in ops.iter() {
-                    note(*o, reads_register(code, i, *o));
-                }
-            }
-            ops.clear();
-            b.term.operands(ops);
-            let ok = matches!(b.term, ir::Term::Branch { .. });
-            for o in ops.iter() {
-                note(*o, ok);
-            }
-            // An edge argument is a register use only when it lands in the same
-            // register it already sits in, which the edge emitter turns into
-            // nothing at all: a loop variable handed back to its own header.
-            for t in b.term.targets() {
-                for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
-                    let own = vars.get(*p).owner != 0;
-                    let v = vars.get_mut(*a);
-                    v.uses += 1;
-                    v.reg_ok &= *p == *a && own;
-                }
-            }
-        }
-
-        // Each region numbers its registers from the first: none is live
-        // outside its own region, so two regions never meet in one.
-        let (mut ri, mut rf) = (0usize, 0usize);
-        for (n, h) in (1u32..).zip(headers.iter()) {
-            let (mut ki, mut kf) = (0usize, 0usize);
-            for p in &code.get(*h).params {
-                let ty = code.ty_of(*p);
-                let float = ty == ir::Type::F64;
-                let scalar = matches!(
-                    ty,
-                    ir::Type::I64
-                        | ir::Type::Ptr
-                        | ir::Type::I1
-                        | ir::Type::I8
-                        | ir::Type::I16
-                        | ir::Type::I32
-                        | ir::Type::F64
-                );
-                let v = vars.get(*p);
-                if !scalar || v.uses == 0 || v.gain <= 0 {
-                    continue;
-                }
-                let k = if float { &mut kf } else { &mut ki };
-                let Some(r) = PROMOTABLE.get(*k) else {
-                    continue;
-                };
-                *out.get_mut(*p) = Some(*r);
-                *cross.get_mut(*p) = n;
-                *wt.get_mut(*p) = !v.reg_ok;
-                *k += 1;
-            }
-            ri = ri.max(ki);
-            rf = rf.max(kf);
-        }
-        // The value the back edge hands the parameter belongs in the parameter's
-        // own register, or the loop-carried chain still goes through memory:
-        // `add x8, x2, #2 ; str x8, [fp] ; ldr x2, [fp]` instead of
-        // `add x2, x2, #2`. Measured, this is the whole of the difference —
-        // without it the promotion is 36% *slower* than leaving the variable in
-        // the frame, because it adds a reload to a chain that already had a
-        // store-to-load forward in it.
-        for (bi, b) in code.iter() {
-            let n = *body.get(bi);
-            let Some(header) = n.checked_sub(1).and_then(|k| headers.get(k as usize)) else {
-                continue;
-            };
-            for t in b.term.targets() {
-                if t.block != *header {
-                    continue;
-                }
-                for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
-                    let Some(k) = *out.get(*p) else {
-                        continue;
-                    };
-                    if p == a || out.get(*a).is_some() {
-                        continue;
-                    }
-                    // `a` has `p`'s type (`ir::verify`), so it reads the same
-                    // register file.
-                    // Defined in this block by something with a register
-                    // result, and nothing after it may read the register the
-                    // definition is about to overwrite.
-                    let Some(di) = b.insts.iter().position(|i| i.results().contains(a)) else {
-                        continue;
-                    };
-                    // Read nowhere but here: by this edge alone, or by
-                    // instructions after it in this block that take a
-                    // register, as the loop's own test of `i + 1` does. A read
-                    // anywhere else would find the slot, which nothing writes.
-                    let mut here = 0;
-                    for i in b.insts.iter().skip(di + 1) {
-                        ops.clear();
-                        i.operands(ops);
-                        let n = ops.iter().filter(|o| **o == *a).count() as u32;
-                        if n != 0 && !reads_register(code, i, *a) {
-                            here = u32::MAX;
-                            break;
-                        }
-                        here += n;
-                    }
-                    if here.saturating_add(1) != vars.get(*a).uses {
-                        continue;
-                    }
-                    if !matches!(
-                        b.insts.get(di),
-                        Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
-                    ) || matches!(
-                        b.insts.get(di),
-                        Some(ir::Inst::Unary {
-                            op: ir::UnOp::FromBool,
-                            ..
-                        })
-                    ) {
-                        continue;
-                    }
-                    let mut clash = false;
-                    for i in b.insts.iter().skip(di + 1) {
-                        ops.clear();
-                        i.operands(ops);
-                        clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
-                    }
-                    ops.clear();
-                    b.term.operands(ops);
-                    for tt in b.term.targets() {
-                        // The hand-over itself, `a` at `p` in `t`, reads no
-                        // register: `a` has none yet.
-                        ops.extend_from_slice(&tt.args);
-                    }
-                    clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
-                    if clash {
-                        continue;
-                    }
-                    *out.get_mut(*a) = Some(k);
-                    *cross.get_mut(*a) = n;
-                    *wt.get_mut(*a) = false;
-                }
-            }
-        }
-        self.bufs.vars = vars;
-        loops.headers = headers;
-        self.bufs.loops = loops;
-        (ri, rf)
+        let Bufs { loops, vars, .. } = &mut self.bufs;
+        promote(loops, vars, code, out, wt, cross, region)
     }
 
     /// The CPS register assignment.
@@ -4617,6 +4407,240 @@ impl Dominance {
     }
 }
 
+/// [`Jit::promote`], over the buffers it keeps between functions.
+fn promote(
+    loops_buf: &mut Loops,
+    vars_buf: &mut ir::PerValue<Var>,
+    code: &ir::Code,
+    out: &mut ir::PerValue<Option<Reg>>,
+    wt: &mut ir::PerValue<bool>,
+    cross: &mut ir::PerValue<u32>,
+    region: &mut ir::PerBlock<u32>,
+) -> (usize, usize) {
+    // Every register but the last: one has to be left for the expression
+    // temporaries the paper's own allocator keeps there, or the arithmetic
+    // inside the loop loses more than the loop variable gains.
+    const PROMOTABLE: [Reg; super::abi::CPS_REGISTER_COUNT - 1] = [Reg::R0, Reg::R1];
+    // Only a back edge into a block with parameters can make a candidate
+    // below, and most functions have none: they skip the tables.
+    let back_edge = code.iter().any(|(p, b)| {
+        b.term
+            .targets()
+            .any(|t| t.block <= p && !code.get(t.block).params.is_empty())
+    });
+    if !back_edge {
+        return (0, 0);
+    }
+    let mut loops = std::mem::take(loops_buf);
+    loops.promotable(code);
+    // `region` has a row per block, every one `0` (`Jit::function`), and
+    // region `n`'s header is `headers[n - 1]`.
+    let mut headers = std::mem::take(&mut loops.headers);
+    headers.clear();
+    for (h, lo, hi) in &loops.found {
+        let blocks = loops.blocks.get(*lo..*hi).unwrap_or_default();
+        if blocks.iter().any(|x| *region.get(*x) != 0) {
+            continue;
+        }
+        headers.push(*h);
+        let n = headers.len() as u32;
+        for x in blocks {
+            *region.get_mut(*x) = n;
+        }
+    }
+    if headers.is_empty() {
+        loops.headers = headers;
+        *loops_buf = loops;
+        return (0, 0);
+    }
+    let body: &ir::PerBlock<u32> = region;
+    let init = Var {
+        owner: 0,
+        uses: 0,
+        gain: 0,
+        reg_ok: true,
+    };
+    let mut vars = code.per_value_in(vars_buf, init);
+    for (n, h) in (1u32..).zip(headers.iter()) {
+        for p in &code.get(*h).params {
+            vars.get_mut(*p).owner = n;
+        }
+    }
+
+    // Where every value is used, and whether every one of those uses can
+    // read a register: one inside the value's own region.
+    let ops = &mut loops.ops;
+    for (bi, b) in code.iter() {
+        let inside = *body.get(bi);
+        let mut note = |o: ir::ValueId, ok: bool| {
+            let v = vars.get_mut(o);
+            v.uses += 1;
+            let ours = inside != 0 && v.owner == inside;
+            if ours {
+                v.gain += if ok { 1 } else { -1 };
+            }
+            v.reg_ok &= ok && ours;
+        };
+        for i in &b.insts {
+            ops.clear();
+            i.operands(ops);
+            for o in ops.iter() {
+                note(*o, reads_register(code, i, *o));
+            }
+        }
+        ops.clear();
+        b.term.operands(ops);
+        let ok = matches!(b.term, ir::Term::Branch { .. });
+        for o in ops.iter() {
+            note(*o, ok);
+        }
+        // An edge argument is a register use only when it lands in the same
+        // register it already sits in, which the edge emitter turns into
+        // nothing at all: a loop variable handed back to its own header.
+        for t in b.term.targets() {
+            for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
+                let own = vars.get(*p).owner != 0;
+                let v = vars.get_mut(*a);
+                v.uses += 1;
+                v.reg_ok &= *p == *a && own;
+            }
+        }
+    }
+
+    // Each region numbers its registers from the first: none is live
+    // outside its own region, so two regions never meet in one.
+    let (mut ri, mut rf) = (0usize, 0usize);
+    for (n, h) in (1u32..).zip(headers.iter()) {
+        let (mut ki, mut kf) = (0usize, 0usize);
+        for p in &code.get(*h).params {
+            let ty = code.ty_of(*p);
+            let float = ty == ir::Type::F64;
+            let scalar = matches!(
+                ty,
+                ir::Type::I64
+                    | ir::Type::Ptr
+                    | ir::Type::I1
+                    | ir::Type::I8
+                    | ir::Type::I16
+                    | ir::Type::I32
+                    | ir::Type::F64
+            );
+            let v = vars.get(*p);
+            if !scalar || v.uses == 0 || v.gain <= 0 {
+                continue;
+            }
+            let k = if float { &mut kf } else { &mut ki };
+            let Some(r) = PROMOTABLE.get(*k) else {
+                continue;
+            };
+            *out.get_mut(*p) = Some(*r);
+            *cross.get_mut(*p) = n;
+            *wt.get_mut(*p) = !v.reg_ok;
+            *k += 1;
+        }
+        ri = ri.max(ki);
+        rf = rf.max(kf);
+    }
+    // The value the back edge hands the parameter belongs in the parameter's
+    // own register, or the loop-carried chain still goes through memory:
+    // `add x8, x2, #2 ; str x8, [fp] ; ldr x2, [fp]` instead of
+    // `add x2, x2, #2`. Measured, this is the whole of the difference —
+    // without it the promotion is 36% *slower* than leaving the variable in
+    // the frame, because it adds a reload to a chain that already had a
+    // store-to-load forward in it.
+    for (bi, b) in code.iter() {
+        let n = *body.get(bi);
+        let Some(header) = n.checked_sub(1).and_then(|k| headers.get(k as usize)) else {
+            continue;
+        };
+        // Only where every way on is a back edge or out of the region. The
+        // value takes the parameter's register before the terminator, so a
+        // block of the region past it would read the parameter's register and
+        // find the next value in it; outside, a read is from the frame slot.
+        if b.term
+            .targets()
+            .any(|t| t.block != *header && *body.get(t.block) == n)
+        {
+            continue;
+        }
+        for t in b.term.targets() {
+            if t.block != *header {
+                continue;
+            }
+            for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
+                let Some(k) = *out.get(*p) else {
+                    continue;
+                };
+                if p == a || out.get(*a).is_some() {
+                    continue;
+                }
+                // `a` has `p`'s type (`ir::verify`), so it reads the same
+                // register file.
+                // Defined in this block by something with a register
+                // result, and nothing after it may read the register the
+                // definition is about to overwrite.
+                let Some(di) = b.insts.iter().position(|i| i.results().contains(a)) else {
+                    continue;
+                };
+                // Read nowhere but here: by this edge alone, or by
+                // instructions after it in this block that take a
+                // register, as the loop's own test of `i + 1` does. A read
+                // anywhere else would find the slot, which nothing writes.
+                let mut here = 0;
+                for i in b.insts.iter().skip(di + 1) {
+                    ops.clear();
+                    i.operands(ops);
+                    let n = ops.iter().filter(|o| **o == *a).count() as u32;
+                    if n != 0 && !reads_register(code, i, *a) {
+                        here = u32::MAX;
+                        break;
+                    }
+                    here += n;
+                }
+                if here.saturating_add(1) != vars.get(*a).uses {
+                    continue;
+                }
+                if !matches!(
+                    b.insts.get(di),
+                    Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
+                ) || matches!(
+                    b.insts.get(di),
+                    Some(ir::Inst::Unary {
+                        op: ir::UnOp::FromBool,
+                        ..
+                    })
+                ) {
+                    continue;
+                }
+                let mut clash = false;
+                for i in b.insts.iter().skip(di + 1) {
+                    ops.clear();
+                    i.operands(ops);
+                    clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
+                }
+                ops.clear();
+                b.term.operands(ops);
+                for tt in b.term.targets() {
+                    // The hand-over itself, `a` at `p` in `t`, reads no
+                    // register: `a` has none yet.
+                    ops.extend_from_slice(&tt.args);
+                }
+                clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
+                if clash {
+                    continue;
+                }
+                *out.get_mut(*a) = Some(k);
+                *cross.get_mut(*a) = n;
+                *wt.get_mut(*a) = false;
+            }
+        }
+    }
+    *vars_buf = vars;
+    loops.headers = headers;
+    *loops_buf = loops;
+    (ri, rf)
+}
+
 /// How many times each value of `code` is read: as an instruction's operand, as
 /// a terminator's, and as an edge's argument.
 fn count_uses(
@@ -4773,4 +4797,103 @@ pub const EXTERNALS: [&str; 8] = [
 /// `ir.rs` §"a callee is named by its symbol" gives for the field existing.
 pub fn symbol_of(prog: &ir::Program, f: FuncIdx) -> &str {
     &prog.funcs.get(f).symbol
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compiler::semantics::types::Prim;
+
+    fn bin(
+        code: &mut ir::Code,
+        at: ir::BlockId,
+        op: ir::BinOp,
+        lhs: ir::ValueId,
+        rhs: ir::ValueId,
+    ) -> ir::ValueId {
+        let ty = match op {
+            ir::BinOp::Add => ir::Type::I64,
+            _ => ir::Type::I1,
+        };
+        let dest = code.value(ty);
+        code.get_mut(at).insts.push(ir::Inst::Binary {
+            dest,
+            op,
+            prim: Prim::I64,
+            lhs,
+            rhs,
+        });
+        dest
+    }
+
+    /// A loop over `i` whose block `b2` computes `i + 1` and hands it back to
+    /// the header, or else goes on to `b3`, which reads `i` and, with
+    /// `inside`, goes back to the header too. Answers the register `i` took
+    /// and the one `i + 1` took.
+    fn next_value_registers(inside: bool) -> (Option<Reg>, Option<Reg>) {
+        let mut code = ir::Code::new(&[ir::Type::I64, ir::Type::I64]);
+        let [n, one] = code.entry().params[..] else {
+            panic!("the entry takes two parameters")
+        };
+        let (header, [i, acc]) = code.block_of([ir::Type::I64; 2]);
+        let b2 = code.block(&[]);
+        let b3 = code.block(&[]);
+        let exit = code.block(&[]);
+        code.get_mut(ir::BlockId::ENTRY).term =
+            ir::Term::Jump(ir::Target::new(header, vec![one, one]));
+        let ended = bin(&mut code, header, ir::BinOp::Ge, i, n);
+        code.get_mut(header).term = ir::Term::Branch {
+            cond: ended,
+            then: ir::Target::to(exit),
+            else_: ir::Target::to(b2),
+        };
+        let next = bin(&mut code, b2, ir::BinOp::Add, i, one);
+        let back = bin(&mut code, b2, ir::BinOp::Eq, acc, one);
+        code.get_mut(b2).term = ir::Term::Branch {
+            cond: back,
+            then: ir::Target::new(header, vec![next, acc]),
+            else_: ir::Target::to(b3),
+        };
+        // `b3` reads `i`, and is part of the loop only when it goes back.
+        let i2 = bin(&mut code, b3, ir::BinOp::Add, i, i);
+        let acc2 = bin(&mut code, b3, ir::BinOp::Add, acc, i);
+        code.get_mut(b3).term = if inside {
+            ir::Term::Jump(ir::Target::new(header, vec![i2, acc2]))
+        } else {
+            ir::Term::Return(acc2)
+        };
+        code.get_mut(exit).term = ir::Term::Return(acc);
+        let mut spare = code.per_value(Var {
+            owner: 0,
+            uses: 0,
+            gain: 0,
+            reg_ok: true,
+        });
+        let mut out = code.per_value(None);
+        let mut wt = code.per_value(true);
+        let mut cross = code.per_value(0);
+        let mut region = code.per_block(0);
+        promote(
+            &mut Loops::default(),
+            &mut spare,
+            &code,
+            &mut out,
+            &mut wt,
+            &mut cross,
+            &mut region,
+        );
+        (*out.get(i), *out.get(next))
+    }
+
+    /// The back edge's value takes its parameter's register only when no
+    /// block of the loop past it still reads the parameter there.
+    #[test]
+    fn a_next_value_shares_its_register_only_when_the_loop_reads_no_more() {
+        let (i, next) = next_value_registers(false);
+        assert!(i.is_some());
+        assert_eq!(next, i);
+        let (i, next) = next_value_registers(true);
+        assert!(i.is_some());
+        assert_eq!(next, None);
+    }
 }

@@ -11560,7 +11560,9 @@ match         611302265     1865847811      615665953      615666137       0.328
 - A merge step computes the index it moves past straight into the register
   the loop keeps it in, and the slot gets a copy only once the register holds
   it. The test that reads that index sits right before its branch, so the two
-  fuse. Sort was 3.11 times `-O1`.
+  fuse. Sort was 3.11 times `-O1`. This applies only when the step's block
+  either goes back to the loop's top or leaves the loop, since a block of the
+  loop past it would read the old index from that register.
 - The jump that passes a variant also goes past the blocks between it and the
   tests: an `if`'s join that only passes the variant on, and the `Const`s a
   default defines first. The jump makes their copies and defines the
