@@ -459,6 +459,10 @@ pub struct Jit<'a> {
     helper_names: Vec<(String, bool)>,
     /// Every [`Sym`]'s name, by its number.
     syms: Vec<String>,
+    /// The [`Sym`] of each runtime row's symbol, by the key it runs
+    /// ([`runtime::Entry::runs`]), so a call to a row named before
+    /// neither spells the symbol again nor adds a name.
+    runtime_syms: HashMap<&'static str, Sym>,
     /// Program-wide symbols already registered, so two types with one glue key
     /// share one body.
     shared_ix: HashMap<String, usize>,
@@ -836,6 +840,7 @@ impl<'a> Jit<'a> {
             by_enum: Vec::new(),
             helper_names: Vec::new(),
             syms: Vec::new(),
+            runtime_syms: HashMap::default(),
             shared_ix: HashMap::default(),
             helper_at: Vec::new(),
             asks: None,
@@ -912,6 +917,16 @@ impl<'a> Jit<'a> {
     pub(crate) fn sym(&mut self, name: String) -> Sym {
         self.syms.push(name);
         Sym(self.syms.len() as u32 - 1)
+    }
+
+    /// The [`Sym`] of the runtime symbol `entry` calls.
+    pub(crate) fn runtime_sym(&mut self, entry: &runtime::Entry) -> Sym {
+        if let Some(s) = self.runtime_syms.get(entry.runs) {
+            return *s;
+        }
+        let s = self.sym(entry.symbol());
+        self.runtime_syms.insert(entry.runs, s);
+        s
     }
 
     /// The name [`Jit::sym`] gave `s`.
@@ -1269,6 +1284,9 @@ pub(crate) struct Fn2 {
     pub sunk: ir::PerValue<Option<u32>>,
     /// Each block's count of incoming edges, one more for the entry.
     pub npred: ir::PerBlock<u32>,
+    /// Each block's [`thread`], where it has one. Most functions have none,
+    /// so this is a list, not a row per block.
+    pub threads: Vec<Thread>,
     /// What `r2` holds where the code emitted so far ends, if a test left
     /// something there ([`Carry`]).
     pub carry: Option<Carry>,
@@ -1324,6 +1342,7 @@ impl Fn2 {
             uses: ir::PerValue::default(),
             sunk: ir::PerValue::default(),
             npred: ir::PerBlock::default(),
+            threads: Vec::new(),
             carry: None,
             r2_for: None,
         }
@@ -1733,6 +1752,15 @@ impl<'a> Jit<'a> {
                 self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
                 st.blk = Labels::for_code(&mut st.blk, code);
+                // A block a jump goes to past the tests has that jump as one
+                // more way in, which the layout did not count.
+                st.threads.clear();
+                for (id, _) in code.iter() {
+                    if let Some(t) = thread(code, &st, id) {
+                        *st.npred.get_mut(t.to) += 1;
+                        st.threads.push(t);
+                    }
+                }
                 st.cur = ir::BlockId::ENTRY;
                 let base = self.fixups.len();
                 for (oi, id) in order.iter().copied().enumerate() {
@@ -1745,7 +1773,13 @@ impl<'a> Jit<'a> {
                     // block is on. See [`Fn2::loc`].
                     st.cur = id;
                     let block = code.get(id);
-                    let plan = self.plan_block(code, &st, block);
+                    let mut plan = self.plan_block(code, &st, block);
+                    if let Some(t) = st.threads.iter().find(|t| t.from == id) {
+                        plan.thread = Some(t.to);
+                        if let Some(s) = t.skip.and_then(|k| plan.skip.get_mut(k)) {
+                            *s = true;
+                        }
+                    }
                     st.r2_for = r2_for(block, &plan);
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
@@ -2368,6 +2402,9 @@ pub(crate) struct Plan {
     /// Where [`Plan::cmpbr`] is a 64-bit integer in the frame tested for
     /// equality with a literal: whether the branch is taken where they differ.
     pub eqk: Option<bool>,
+    /// Where the block's jump goes past the tests of the variant it passes
+    /// ([`thread`]).
+    pub thread: Option<ir::BlockId>,
 }
 
 /// A back edge that increments a loop's index and takes the loop's test, as
@@ -3958,6 +3995,7 @@ impl<'a> Jit<'a> {
             tagbr: None,
             incbr: None,
             eqk: None,
+            thread: None,
         };
         // Every `Const` whose uses are all immediates disappears, and so does
         // one the call that reads it writes.
@@ -4115,6 +4153,129 @@ pub(crate) fn copyless_test<'c>(
         return None;
     }
     Some((header, *cond, then, else_))
+}
+
+/// A jump that passes a variant it built, and where it lands once the blocks
+/// that only test that value's tag have chosen ([`thread`]).
+#[derive(Clone, Copy)]
+pub(crate) struct Thread {
+    pub from: ir::BlockId,
+    pub to: ir::BlockId,
+    /// The index of the `MakeEnum` the jump's block can leave out.
+    pub skip: Option<usize>,
+    /// Whether the variant is all the block builds and all the jump passes.
+    pub alone: bool,
+}
+
+/// The [`Thread`] of `from`'s jump: an inlined function answering an enum to a
+/// `match`, whose tag is then neither stored, read back nor tested.
+///
+/// A block passed over has no parameter but the enum's, if it is the first,
+/// and holds nothing but the tag, the literals it is tested against and the
+/// test, each read once, by the test, so nothing past it misses a value it
+/// defines. The jump, the first block and the landing are in one promotion
+/// region, so a register the landing reads holds what the edge left there.
+///
+/// The `MakeEnum` is left out where only the first block's tag reads the
+/// enum, and it is built in that block's parameter's slot, so the edge copies
+/// nothing of it either.
+pub(crate) fn thread(code: &ir::Code, st: &Fn2, from: ir::BlockId) -> Option<Thread> {
+    let a = code.get(from);
+    let ir::Term::Jump(t) = &a.term else {
+        return None;
+    };
+    let first = code.get(t.block);
+    let Some(ir::Inst::GetTag { agg: p, .. }) = first.insts.first() else {
+        return None;
+    };
+    let arg = *first
+        .params
+        .iter()
+        .position(|q| q == p)
+        .and_then(|i| t.args.get(i))?;
+    let made = a.insts.iter().rposition(|i| i.results().contains(&arg))?;
+    let Some(ir::Inst::MakeEnum { variant, .. }) = a.insts.get(made) else {
+        return None;
+    };
+    let v = variant.index() as u64;
+    // A block an edge with no arguments enters has no parameters, so only
+    // the first one has any. Bounded, since nothing else stops a cycle of
+    // tests.
+    let past = tag_test(first, st, *p, v)?;
+    let at = std::iter::successors(Some(past), |b| tag_test(code.get(*b), st, *p, v))
+        .take(64)
+        .last()?;
+    let region = *st.region.get(from);
+    if (*st.region.get(t.block) != region) | (*st.region.get(at) != region) {
+        return None;
+    }
+    let only = (uses(st, arg) == 1) & (uses(st, *p) == 1) & (st.at(arg) == st.at(*p));
+    let skip = only.then_some(made);
+    Some(Thread {
+        from,
+        to: at,
+        skip,
+        alone: (a.insts.len() == 1) & (t.args.len() == 1),
+    })
+}
+
+/// Where a branch to `b` can go instead: past `b` where all it does is the
+/// [`thread`]ed jump of a variant it leaves out, since `b` then runs nothing.
+/// The branch needs no registers loaded on the way: `b` is in no promotion
+/// region or in the branch's, as a region is entered only at its header, and
+/// a header has parameters.
+pub(crate) fn hop(st: &Fn2, b: ir::BlockId) -> ir::BlockId {
+    st.threads
+        .iter()
+        .find(|t| (t.from == b) & t.alone & t.skip.is_some())
+        .map_or(b, |t| t.to)
+}
+
+/// The block a block that only tests `p`'s tag goes to when the tag is `v`.
+fn tag_test(b: &ir::Block, st: &Fn2, p: ir::ValueId, v: u64) -> Option<ir::BlockId> {
+    let (mut tag, mut test, mut ok) = (None, None, true);
+    for i in &b.insts {
+        ok &= i.results().iter().all(|r| uses(st, *r) == 1);
+        match i {
+            ir::Inst::GetTag { dest, agg, .. } => {
+                ok &= (*agg == p) & tag.is_none();
+                tag = Some(*dest);
+            }
+            ir::Inst::Const { .. } => {}
+            ir::Inst::Binary {
+                dest,
+                op: ir::BinOp::Eq,
+                lhs,
+                rhs,
+                ..
+            } => {
+                let k = *st.constants.get(*rhs);
+                ok &= (tag == Some(*lhs)) & test.is_none() & k.is_some();
+                test = Some((*dest, k == Some(v)));
+            }
+            _ => return None,
+        }
+    }
+    let to = match (&b.term, test) {
+        (ir::Term::Switch { on, cases, default }, None) => {
+            ok &= tag == Some(*on);
+            cases
+                .iter()
+                .find(|(k, _)| *k == v)
+                .map(|(_, t)| t)
+                .or(default.as_ref())?
+        }
+        (ir::Term::Branch { cond, then, else_ }, Some((c, taken))) => {
+            ok &= *cond == c;
+            if taken {
+                then
+            } else {
+                else_
+            }
+        }
+        _ => return None,
+    };
+    (ok & to.args.is_empty()).then_some(to.block)
 }
 
 impl Jit<'_> {

@@ -437,7 +437,7 @@ impl Jit<'_> {
             dslot
         };
         // Every row fits a `crt` stencil, which this crate checks as it builds.
-        let callee = V::Sym(self.sym(entry.symbol()));
+        let callee = V::Sym(self.runtime_sym(entry));
         self.c_call_to(callee, st, &ints, &floats, into, kind);
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);

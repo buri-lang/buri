@@ -11450,14 +11450,14 @@ On the arm64 VM, 2026-11-20:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1786801235     1824914226     1342293048     1329893056       0.979       1.331
-lists        2284062847     2428845321     1302825251     1294196417       0.940       1.753
-sort          870023393     1100429885      279509950      316268645       0.791       3.113
-floats        544630363      567626078      452625987      449626191       0.959       1.203
-tree         1544548145     1646784465     1402992357     1402992448       0.938       1.101
-maps         1378485714     1629415052      797798425      796610115       0.846       1.728
-kvstore       930301171     1252414783      615036149      609256834       0.743       1.513
-match         747302334     1865847951      615666045      615666212       0.401       1.214
+strings      1656652452     1694765404     1212144264     1199744273       0.978       1.367
+floats        544630263      567625912      452625862      449626100       0.959       1.203
+lists        2284010788     2428794280     1302774132     1294145324       0.940       1.753
+tree         1409463356     1511699676     1267907568     1267907659       0.932       1.112
+maps         1363124958     1614349104      782732458      781544133       0.844       1.741
+sort          870023308     1100429751      279509865      316268551       0.791       3.113
+kvstore       923889076     1251571738      614193148      608413750       0.738       1.504
+match         611302246     1865847837      615665931      615666128       0.328       0.993
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11484,6 +11484,12 @@ match         747302334     1865847951      615666045      615666212       0.401
 - A remainder tested against literals is computed into the register the first
   test reads, so the test doesn't reload the slot the remainder was just
   stored to; match was 1.25 times `-O1`.
+- Where a function that answers an enum is inlined into a match on its
+  answer, the jump that passes the variant goes straight to that variant's
+  arm, past the blocks that only test its tag. Where nothing else reads the
+  variant, it isn't built either. Match was 1.21 times `-O1`, and kvstore ran
+  0.6% fewer instructions. The runtime's other changes since moved strings,
+  tree and maps.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11497,6 +11503,18 @@ around. Two runs each on the arm64 VM:
 | `ci` instructions | 41304.8, 41306.5 | 41176.6, 41174.6 |
 | `monorepo-ci` cost | 23393.6, 23481.1 | 23391.2, 23393.7 |
 | `monorepo-ci` instructions | 17036.2, 17034.3 | 16983.2, 16983.3 |
+
+Looking for the jumps that pass a variant past its tests cost `ci` about 50
+instructions a line. That was paid back by naming each runtime row's symbol
+once per part: a call to a row named before no longer spells its symbol out
+again. Two runs each on the arm64 VM:
+
+| Row | Main | Variant past its tests |
+| --- | --- | --- |
+| `ci` cost | 60374.1, 60464.8 | 60315.6, 60302.0 |
+| `ci` instructions | 40671.0, 40672.2 | 40667.3, 40668.3 |
+| `monorepo-ci` cost | 23316.2, 23314.5 | 23318.6, 23379.0 |
+| `monorepo-ci` instructions | 16848.5, 16848.4 | 16852.6, 16859.9 |
 
 Rebuilding a loop's record in place left it flat:
 

@@ -6,7 +6,7 @@
 //! register, or the register where another way into the test left something
 //! else there, would show here.
 
-use crate::collection_costs::{per_op, steps_cost};
+use crate::collection_costs::steps_cost;
 use crate::shared::ran_built;
 
 const ANSWERS: &str = r#"
@@ -116,6 +116,125 @@ fn each_literal_takes_its_own_arm() {
     }
 }
 
+/// Functions answering an enum to a `match` in a loop, each called once so
+/// that it is inlined there: arms that read the variant's fields, arms that
+/// read none, guards after the tag, a chain of `if`s building the variant,
+/// and an enum matched twice.
+const VARIANTS: &str = r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+enum Shape { Dot, Line(Int), Box(Int, Int, Int), Empty }
+
+fn pick(i: Int): Shape {
+  match (i % 5) {
+    0 => .Dot,
+    1 => .Line(i),
+    2 => .Box(i, i + 1, i + 2),
+    3 => .Dot,
+    _ => .Empty,
+  }
+}
+
+fn pick2(i: Int): Shape {
+  match (i % 5) {
+    0 => .Dot,
+    1 => .Line(i),
+    2 => .Box(i, i + 1, i + 2),
+    3 => .Dot,
+    _ => .Empty,
+  }
+}
+
+fn read(s: Shape): Int {
+  match (s) {
+    .Dot => 1,
+    .Line(n) => n * 10,
+    .Box(a, b, c) => a + b * c,
+    .Empty => 7,
+  }
+}
+
+fn reads(i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { reads(i + 1, n, acc * 3 + read(pick(i))) }
+}
+
+fn named(i: Int): Shape {
+  if (i % 3 == 0) { .Empty } else if (i % 3 == 1) { .Dot } else { .Line(i) }
+}
+
+fn named2(i: Int): Shape {
+  if (i % 3 == 0) { .Empty } else if (i % 3 == 1) { .Dot } else { .Line(i) }
+}
+
+fn last(s: Shape): Int {
+  match (s) {
+    .Empty => 4,
+    .Box(_a, _b, _c) => 3,
+    .Line(_n) => 2,
+    .Dot => 1,
+  }
+}
+
+fn last2(s: Shape): Int {
+  match (s) {
+    .Empty => 4,
+    .Box(_a, _b, _c) => 3,
+    .Line(_n) => 2,
+    .Dot => 1,
+  }
+}
+
+fn lasts(i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { lasts(i + 1, n, acc * 5 + last(named(i))) }
+}
+
+fn guard(s: Shape, y: Int): Int {
+  match (s) {
+    .Dot if y == 1 => 1,
+    .Line(n) if n > y => 2,
+    _ => 3,
+  }
+}
+
+fn guards(i: Int, n: Int, acc: Int): Int {
+  let y = i % 3;
+  if (i == n) { acc } else { guards(i + 1, n, acc * 4 + guard(pick2(i), y)) }
+}
+
+fn twice(i: Int): Int {
+  let s = named2(i);
+  let a = match (s) { .Dot => 1, _ => 2 };
+  a * 10 + last2(s)
+}
+
+fn twices(i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { twices(i + 1, n, acc * 7 + twice(i)) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let _ = io.println(host.stdout, "${reads(0, 12, 0)}").ignore();
+  let _ = io.println(host.stdout, "${lasts(0, 12, 0)}").ignore();
+  let _ = io.println(host.stdout, "${guards(0, 12, 0)}").ignore();
+  let _ = io.println(host.stdout, "${twices(0, 12, 0)}").ignore();
+  .Ok(())
+}
+"#;
+
+/// **A variant answered to a match takes its own arm** where the function
+/// answering it is inlined into the loop that matches it, and where the
+/// match's tests are passed over because the variant is already known.
+#[test]
+fn a_variant_answered_to_a_match_takes_its_own_arm() {
+    let expected = "1086980\n210669732\n16776182\n51601290000\n";
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("match-variants", VARIANTS);
+        let ran = ran_built(&binary, backend);
+        assert_eq!(ran.status, 0, "{backend}: {}", ran.stderr);
+        assert_eq!(ran.stdout, expected, "{backend}");
+    }
+}
+
 /// A step's cost on the copy-and-patch backend, in instructions, over the
 /// loop in [`STEPS`]: a match of `i % 8` against seven literals, then of a
 /// byte tag against five variants. Measured at 35 with each value read once
@@ -126,8 +245,11 @@ fn each_literal_takes_its_own_arm() {
 /// the cost sat 0.4 under the bound, and a loaded machine's extra kernel work
 /// pushed it over. The figure is now the difference between two counts of
 /// steps, so the setup and the reading of the argument cancel, and it is
-/// compared unrounded with the same limit, 35.
-const STEP_BOUND: u64 = 35;
+/// compared unrounded.
+///
+/// 23.6 since the jump that passes `day`'s variant to `hours` goes straight
+/// to that variant's arm, past the tests, and the variant is not built.
+const STEP_BOUND: u64 = 24;
 
 /// The two counts of steps [`STEP_BOUND`] is measured between: two million
 /// apart, so the noise left in each count is a small part of an instruction a
@@ -208,8 +330,10 @@ fn a_literal_test_costs_a_compare() {
 /// inside a match arm, whose answer is the match's answer.
 /// Measured at 52 with the record built in the match's place, and 58 when
 /// the `if` built it aside and the match copied it; 37 since the match's
-/// place is the loop's own record and each new field is computed in it.
-const NESTED_STEP_BOUND: u64 = 40;
+/// place is the loop's own record and each new field is computed in it; 34.5
+/// since the jump that passes `op`'s `Pair` goes past the test of its tag.
+/// Measured as [`STEP_BOUND`] is.
+const NESTED_STEP_BOUND: u64 = 35;
 
 /// A step matches a `Pair` and builds a record in one of the two branches of
 /// an `if` inside the arm, so the `if`'s answer is passed straight on as the
@@ -246,28 +370,42 @@ fn run(s: St, i: Int, n: Int): St {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
-  let n = match (env.arguments(ctx).first().withDefault("none")) {
-    "steps" => 200000,
-    _ => 0,
-  };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
   let s = run(St { acc: 0, steps: 0, last: 0 }, 0, n);
   io.println(ctx, "${s.acc * 1000000 + s.steps * 100 + s.last}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
+/// What [`NESTED_STEPS`] prints after `n` steps.
+fn nested_answer(n: u64) -> String {
+    let (mut acc, mut steps, mut last) = (0, 0, 0);
+    for i in 0..n {
+        let (a, b) = (i % 7, i % 11);
+        if a > b {
+            acc += a - b;
+        } else {
+            last = a * b;
+            steps += 1;
+        }
+    }
+    format!("{}\n", acc * 1_000_000 + steps * 100 + last)
+}
+
 /// **A record built inside a match arm is built where the match answers** on
 /// the copy-and-patch backend, rather than built aside and then copied there.
 #[test]
 fn a_record_built_inside_an_arm_is_not_copied_out() {
-    let steps = 200_000;
+    let (fewer, more) = STEP_COUNTS;
+    let steps = more - fewer;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("nested-steps", NESTED_STEPS);
-        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "145464545416\n");
-        eprintln!("{backend}: {n:?} instructions a step");
-        if backend == "stencil" && n.is_some_and(|n| n > NESTED_STEP_BOUND) {
+        let n = steps_cost(backend, &binary, STEP_COUNTS, nested_answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > NESTED_STEP_BOUND * steps) {
             failures.push(format!(
-                "{backend}: {n:?} instructions a step, over {NESTED_STEP_BOUND}"
+                "{backend}: {each:?} instructions a step, over {NESTED_STEP_BOUND}"
             ));
         }
     }

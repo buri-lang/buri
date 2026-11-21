@@ -37,7 +37,7 @@ enum RSrc {
 }
 use super::glue::Helper;
 use super::jit::{
-    copyless_test, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V,
+    copyless_test, hop, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V,
 };
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
@@ -1723,6 +1723,11 @@ impl<'a> Jit<'a> {
                     );
                     return;
                 }
+                if let Some(to) = plan.thread {
+                    self.edge(prog, code, st, x);
+                    self.emit("jump", &[Jump::T.to(V::Blk(Label::of(to)))]);
+                    return;
+                }
                 if !fall && self.jump_into_test(code, st, x) {
                     return;
                 }
@@ -1752,12 +1757,12 @@ impl<'a> Jit<'a> {
                     let tv = if ft {
                         V::Fall
                     } else {
-                        V::Blk(Label::of(then.block))
+                        V::Blk(Label::of(hop(st, then.block)))
                     };
                     let fv = if fe {
                         V::Fall
                     } else {
-                        V::Blk(Label::of(else_.block))
+                        V::Blk(Label::of(hop(st, else_.block)))
                     };
                     let fall = if ft { Jump::T } else { Jump::F };
                     let held = self.test(prog, st, *cond, plan, tv, fv, fall);
@@ -1852,7 +1857,7 @@ impl<'a> Jit<'a> {
                         return;
                     }
                     if let Some(byte) = chain {
-                        let case = V::Blk(Label::of(tgt.block));
+                        let case = V::Blk(Label::of(hop(st, tgt.block)));
                         self.chain_test(st, src, byte, *k, case, V::Fall, Jump::F);
                         st.carry = Some(Carry {
                             key: Carry::key(src, byte),
