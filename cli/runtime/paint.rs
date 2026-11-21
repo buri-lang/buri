@@ -538,6 +538,12 @@ pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String
 /// only a translucent pixel is demultiplied.
 fn straight_row(premultiplied: &[u8], out: &mut [u8]) {
     out.copy_from_slice(premultiplied);
+    demultiply(out);
+}
+
+/// Premultiplied RGBA bytes made straight in place. An opaque pixel is the
+/// same four bytes either way, so only a translucent one is touched.
+fn demultiply(out: &mut [u8]) {
     for pixel in out.as_chunks_mut::<4>().0 {
         if pixel[3] != 255 {
             let p = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
@@ -6702,13 +6708,11 @@ fn over(src: [u8; 4], dst: PremultipliedColorU8) -> PremultipliedColorU8 {
 }
 
 /// The canvas as straight (un-premultiplied) RGBA rows, which is what a PNG
-/// holds.
+/// holds: the bytes copied, and only a translucent pixel demultiplied, as
+/// [`straight_row`] does a row.
 fn straight(pixmap: &Pixmap) -> Vec<u8> {
-    let mut out = Vec::with_capacity(pixmap.data().len());
-    for p in pixmap.pixels() {
-        let c = p.demultiply();
-        out.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
-    }
+    let mut out = pixmap.data().to_vec();
+    demultiply(&mut out);
     out
 }
 
@@ -6836,26 +6840,33 @@ fn apply_filter(kind: u8, line: &[u8], previous: &[u8], out: &mut [u8]) {
 /// and no tie to break, so the bytes are the bytes on every host.
 fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let stride = (width as usize).saturating_mul(BPP);
-    let mut out = Vec::with_capacity(rgba.len().saturating_add(height as usize));
-    let mut line = vec![0_u8; stride];
-    let mut previous = vec![0_u8; stride];
-    for row in 0..height as usize {
-        line.fill(0);
-        let start = row.saturating_mul(stride);
-        let source = rgba.get(start..).unwrap_or(&[]);
-        let taken = source.len().min(stride);
-        if let (Some(into), Some(from)) = (line.get_mut(..taken), source.get(..taken)) {
-            into.copy_from_slice(from);
-        }
+    let rows = height as usize;
+    // Rows past the end of `rgba` read as zeroes, so a short buffer is
+    // padded once here and the loop below never asks.
+    let wanted = stride.saturating_mul(rows);
+    let padded: Cow<[u8]> = if rgba.len() >= wanted {
+        Cow::Borrowed(rgba)
+    } else {
+        let mut whole = rgba.to_vec();
+        whole.resize(wanted, 0);
+        Cow::Owned(whole)
+    };
+    let mut out = Vec::with_capacity(wanted.saturating_add(rows));
+    if stride == 0 {
+        out.resize(rows, 2);
+        return out;
+    }
+    let mut previous: &[u8] = &[];
+    for line in padded.chunks_exact(stride).take(rows) {
         // Filter 2, `Up`: each byte less the byte above it, the row above
         // reading as zeroes for the first row.
         out.push(2);
-        for i in 0..stride {
-            let x = line.get(i).copied().unwrap_or(0);
-            let b = previous.get(i).copied().unwrap_or(0);
-            out.push(x.wrapping_sub(b));
+        if previous.is_empty() {
+            out.extend_from_slice(line);
+        } else {
+            out.extend(line.iter().zip(previous).map(|(&x, &b)| x.wrapping_sub(b)));
         }
-        previous.copy_from_slice(&line);
+        previous = line;
     }
     out
 }
@@ -6938,10 +6949,16 @@ const DISTANCES: [(u16, u8); 30] = [
 ];
 
 /// Deflate packs its own fields low bit first and its Huffman codes high bit
-/// first, so this writer offers both and no call site has to remember which.
+/// first. The codes this file writes are the fixed trees', so each is stored
+/// already reversed ([`FIXED`], [`DISTANCE_CODES`]) and everything goes out
+/// through [`BitWriter::bits`], low bit first.
+///
+/// Bits gather in a 64-bit word and leave four bytes at a time, so a symbol
+/// costs a shift and an or rather than a step per bit. The bytes are the ones
+/// a writer that pushed a bit at a time would write.
 struct BitWriter {
     out: Vec<u8>,
-    held: u32,
+    held: u64,
     count: u32,
 }
 
@@ -6954,60 +6971,127 @@ impl BitWriter {
         }
     }
 
-    /// A plain field: the low bit goes out first.
+    /// A field of `width` bits, at most 32, whose bits above `width` are zero:
+    /// the low bit goes out first.
     fn bits(&mut self, value: u32, width: u32) {
-        let mask = if width >= 32 {
-            u32::MAX
-        } else {
-            (1_u32 << width) - 1
-        };
-        self.held |= (value & mask) << self.count;
-        self.count = self.count.saturating_add(width);
-        while self.count >= 8 {
-            self.out.push((self.held & 0xff) as u8);
-            self.held >>= 8;
-            self.count = self.count.saturating_sub(8);
-        }
-    }
-
-    /// A Huffman code: the high bit goes out first.
-    fn code(&mut self, code: u32, width: u32) {
-        for i in (0..width).rev() {
-            self.bits((code >> i) & 1, 1);
+        self.held |= u64::from(value) << self.count;
+        self.count += width;
+        if self.count >= 32 {
+            self.out
+                .extend_from_slice(&(self.held as u32).to_le_bytes());
+            self.held >>= 32;
+            self.count -= 32;
         }
     }
 
     fn finish(mut self) -> Vec<u8> {
-        if self.count > 0 {
-            self.out.push((self.held & 0xff) as u8);
-        }
+        let left = self.count.div_ceil(8) as usize;
+        let bytes = self.held.to_le_bytes();
+        self.out
+            .extend_from_slice(bytes.get(..left).unwrap_or(&bytes));
         self.out
     }
 }
 
+/// `value`'s low `width` bits in the opposite order: a Huffman code as the
+/// low-bit-first field that writes it.
+const fn reversed(value: u32, width: u32) -> u32 {
+    let mut out = 0;
+    let mut i = 0;
+    while i < width {
+        out = (out << 1) | ((value >> i) & 1);
+        i += 1;
+    }
+    out
+}
+
 /// The fixed literal/length tree, RFC 1951 §3.2.6, as `(code, width)`.
-fn fixed_code(symbol: u16) -> (u32, u32) {
+const fn fixed_code(symbol: u16) -> (u32, u32) {
+    let s = symbol as u32;
     match symbol {
-        0..=143 => (0x30 + u32::from(symbol), 8),
-        144..=255 => (0x190 + u32::from(symbol) - 144, 9),
-        256..=279 => (u32::from(symbol) - 256, 7),
-        _ => (0xc0 + u32::from(symbol).saturating_sub(280), 8),
+        0..=143 => (0x30 + s, 8),
+        144..=255 => (0x190 + s - 144, 9),
+        256..=279 => (s - 256, 7),
+        _ => (0xc0 + s - 280, 8),
     }
 }
 
-fn common_prefix(data: &[u8], a: usize, b: usize, limit: usize) -> usize {
+/// Every literal/length symbol's fixed code, reversed for [`BitWriter::bits`],
+/// with its width.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`n` counts to 288, the table's length"
+)]
+const FIXED: [(u16, u8); 288] = {
+    let mut table = [(0_u16, 0_u8); 288];
     let mut n = 0;
-    while n < limit {
-        let (Some(x), Some(y)) = (data.get(a.saturating_add(n)), data.get(b.saturating_add(n)))
-        else {
-            break;
-        };
-        if x != y {
-            break;
-        }
-        n = n.saturating_add(1);
+    while n < 288 {
+        let (code, width) = fixed_code(n as u16);
+        table[n] = (reversed(code, width) as u16, width as u8);
+        n += 1;
     }
-    n
+    table
+};
+
+/// Each distance code's five-bit fixed code, reversed for
+/// [`BitWriter::bits`].
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`n` counts to 30, the table's length"
+)]
+const DISTANCE_CODES: [u8; 30] = {
+    let mut table = [0_u8; 30];
+    let mut n = 0;
+    while n < 30 {
+        table[n] = reversed(n as u32, 5) as u8;
+        n += 1;
+    }
+    table
+};
+
+/// Each match length, 3 to 258, as everything one costs to write: the
+/// length's reversed code with its extra bits above it, and the width of the
+/// two together. Lengths under [`MIN_MATCH`] are never written.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`length` counts to 258 and `index` stays below 29, the tables' lengths"
+)]
+const LENGTH_FIELDS: [(u32, u8); MAX_MATCH + 1] = {
+    let mut table = [(0_u32, 0_u8); MAX_MATCH + 1];
+    let mut length = MIN_MATCH;
+    let mut index = 0;
+    while length <= MAX_MATCH {
+        while index + 1 < LENGTHS.len() && LENGTHS[index + 1].0 as usize <= length {
+            index += 1;
+        }
+        let (base, extra) = LENGTHS[index];
+        let (code, width) = FIXED[257 + index];
+        let field = code as u32 | (((length - base as usize) as u32) << width);
+        table[length] = (field, width + extra);
+        length += 1;
+    }
+    table
+};
+
+/// How many leading bytes the slices share, a word at a time.
+fn common_prefix(x: &[u8], y: &[u8]) -> usize {
+    let (words_x, _) = x.as_chunks::<8>();
+    let (words_y, _) = y.as_chunks::<8>();
+    let mut n = 0;
+    for (a, b) in words_x.iter().zip(words_y) {
+        let differ = u64::from_le_bytes(*a) ^ u64::from_le_bytes(*b);
+        if differ != 0 {
+            return n + (differ.trailing_zeros() / 8) as usize;
+        }
+        n += 8;
+    }
+    let tail_x = x.get(n..).unwrap_or(&[]);
+    let tail_y = y.get(n..).unwrap_or(&[]);
+    n + tail_x
+        .iter()
+        .zip(tail_y)
+        .take_while(|(a, b)| a == b)
+        .count()
 }
 
 /// The longest match at `at` among a **fixed, tiny set of distances**, or
@@ -7037,16 +7121,24 @@ fn longest_match(data: &[u8], at: usize, stride: usize) -> (usize, usize) {
     if limit < MIN_MATCH {
         return (0, 0);
     }
+    let here = data.get(at..at + limit).unwrap_or(&[]);
     let mut best = 0_usize;
     let mut distance = 0_usize;
     for candidate in [1_usize, BPP, stride] {
         if candidate == 0 || candidate > at || candidate > WINDOW {
             continue;
         }
-        let length = common_prefix(data, at.saturating_sub(candidate), at, limit);
+        let from = at - candidate;
+        let there = data.get(from..from + limit).unwrap_or(&[]);
+        let length = common_prefix(there, here);
         if length > best {
             best = length;
             distance = candidate;
+            // Nothing can beat the whole of what is left, and a tie goes to
+            // the nearer distance, which is this one.
+            if best == limit {
+                break;
+            }
         }
     }
     if best >= MIN_MATCH {
@@ -7067,50 +7159,51 @@ fn code_for(table: &[(u16, u8)], value: usize) -> usize {
     found
 }
 
+/// A distance as everything it costs to write: its reversed code with the
+/// extra bits above it, and the width of the two.
+fn distance_field(distance: usize) -> (u32, u32) {
+    let which = code_for(&DISTANCES, distance);
+    let (first, extra) = DISTANCES.get(which).copied().unwrap_or((1, 0));
+    let code = u32::from(DISTANCE_CODES.get(which).copied().unwrap_or(0));
+    let offset = distance.saturating_sub(usize::from(first)) as u32;
+    (code | (offset << 5), 5 + u32::from(extra))
+}
+
 /// One zlib stream: the two-byte header, one fixed-Huffman block, the Adler-32.
 ///
 /// `stride` is the one data-shaped distance [`longest_match`] is allowed to try
 /// — the filtered row length, so a copy can reach the same column one row up.
 /// `0` when the caller has no rows (a bare byte stream in a test).
+///
+/// [`longest_match`] tries three distances only, so each one's field is worked
+/// out once here rather than once a match.
 fn deflate(raw: &[u8], stride: usize) -> Vec<u8> {
     let mut bits = BitWriter::new(raw.len() / 2);
     // The last block, and block type 01.
-    bits.bits(1, 1);
-    bits.bits(1, 2);
+    bits.bits(0b011, 3);
 
+    let fields = [1, BPP, stride].map(|d| (d, distance_field(d)));
     let mut at = 0_usize;
     while at < raw.len() {
         let (length, distance) = longest_match(raw, at, stride);
         if length >= MIN_MATCH {
-            let index = code_for(&LENGTHS, length);
-            let (base, extra) = LENGTHS.get(index).copied().unwrap_or((3, 0));
-            let (code, width) = fixed_code(257_u16.saturating_add(index as u16));
-            bits.code(code, width);
-            if extra > 0 {
-                bits.bits(
-                    length.saturating_sub(usize::from(base)) as u32,
-                    u32::from(extra),
-                );
-            }
-            let which = code_for(&DISTANCES, distance);
-            let (first, dextra) = DISTANCES.get(which).copied().unwrap_or((1, 0));
-            bits.code(which as u32, 5);
-            if dextra > 0 {
-                bits.bits(
-                    distance.saturating_sub(usize::from(first)) as u32,
-                    u32::from(dextra),
-                );
-            }
-            at = at.saturating_add(length);
+            let (field, width) = LENGTH_FIELDS.get(length).copied().unwrap_or((0, 0));
+            bits.bits(field, u32::from(width));
+            let (field, width) = fields
+                .iter()
+                .find(|(d, _)| *d == distance)
+                .map_or_else(|| distance_field(distance), |(_, f)| *f);
+            bits.bits(field, width);
+            at += length;
         } else {
             let byte = raw.get(at).copied().unwrap_or(0);
-            let (code, width) = fixed_code(u16::from(byte));
-            bits.code(code, width);
-            at = at.saturating_add(1);
+            let (code, width) = FIXED.get(usize::from(byte)).copied().unwrap_or((0, 0));
+            bits.bits(u32::from(code), u32::from(width));
+            at += 1;
         }
     }
-    let (code, width) = fixed_code(256);
-    bits.code(code, width);
+    let (code, width) = FIXED.get(256).copied().unwrap_or((0, 0));
+    bits.bits(u32::from(code), u32::from(width));
 
     // `0x78 0x01`: deflate with a 32 KiB window and no preset dictionary. The
     // two bytes read as a big-endian number are a multiple of 31, which is what
@@ -7179,12 +7272,19 @@ fn crc32(parts: [&[u8]; 2]) -> u32 {
 }
 
 /// Adler-32, as zlib's trailer.
+///
+/// The sums are reduced once a block rather than once a byte: 5,552 bytes is
+/// zlib's `NMAX`, the most that can be added before `b` could pass `u32`.
 fn adler32(data: &[u8]) -> u32 {
     let mut a = 1_u32;
     let mut b = 0_u32;
-    for &byte in data {
-        a = (a + u32::from(byte)) % 65521;
-        b = (b + a) % 65521;
+    for block in data.chunks(5552) {
+        for &byte in block {
+            a += u32::from(byte);
+            b += a;
+        }
+        a %= 65521;
+        b %= 65521;
     }
     (b << 16) | a
 }

@@ -11207,6 +11207,30 @@ instructions.
 instructions a byte on every backend, and checks where `fromUtf8` stops on
 each kind of byte that isn't text, under the heap check.
 
+### 6.181 A snapshot's PNG is encoded a word at a time, 2026-11-21
+
+```text
+one more snapshot recorded, macOS stencil    before      after
+1600 by 158 card, painted and encoded        96.2 M      16.1 M
+```
+
+A failing snapshot encodes its diff, and recording encodes the golden. A
+profile of a ui test suite with failing snapshots spent 42.8% of its
+instructions in the encoder. It now:
+
+- compares candidate matches 8 bytes at a time, and stops at the first
+  candidate that matches all the bytes left;
+- writes each code through a 64-bit buffer from tables of reversed fixed
+  codes, rather than a bit at a time;
+- takes the Adler-32 remainders once per 5,552 bytes rather than twice a
+  byte;
+- filters and demultiplies a row at a time.
+
+The bytes are the same, so every golden still matches.
+`native::snapshot_costs` bounds one more recorded snapshot at 56 M, about
+halfway, and checks that each recording writes the same picture and that
+comparing against it passes.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

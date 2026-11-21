@@ -417,6 +417,10 @@ mod list_fills;
 // timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod utf8_reads;
+// A snapshot recorded: the picture each recording writes, and what one more
+// costs, counted rather than timed, on the stencil backend.
+#[cfg(feature = "backend-stencil")]
+mod snapshot_costs;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
