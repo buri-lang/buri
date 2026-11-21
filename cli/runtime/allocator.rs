@@ -937,6 +937,15 @@ impl Allocator {
                     (*page).used += 1;
                     return block;
                 }
+                // A fresh page's blocks come off its bump, here rather than in
+                // `refill`: a program that builds a tree takes most of its
+                // blocks this way, and the call cost more than the bump.
+                let block = (*page).bump;
+                if block < (*page).end {
+                    (*page).bump = block.add(SIZES[c]);
+                    (*page).used += 1;
+                    return block;
+                }
             }
             Self::refill(heap, c, layout.size())
         }
