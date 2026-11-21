@@ -11119,6 +11119,40 @@ step at 737 instructions (747 to 728 on macOS stencil).
 `native::collection_costs` bounds a 2¹⁶-node tree at 502 a node (533 to
 473).
 
+### 6.178 A range fills several elements a step, and a 16-byte word is one register, 2026-11-20
+
+```text
+                              before      after       change
+lists, stencil                2.2838 B    2.1850 B    -4.32%
+lists, release                1.2938 B    1.1950 B    -7.63%
+maps, stencil                 1.3613 B    1.3392 B    -1.62%
+maps, release                 0.7797 B    0.7577 B    -2.83%
+kvstore, stencil              0.9225 B    0.9170 B    -0.60%
+kvstore, release              0.6070 B    0.6016 B    -0.90%
+```
+
+Counted with aarch64 callgrind. `sort` fell by 0.06%; the other programs
+moved by under 10 instructions.
+
+- `list.range` wrote one element a loop step, with a saturating multiply
+  for the offset and a saturating add for the value: 12 instructions an
+  element. `start + i` never passes the end, so the add wraps and the loop
+  fills four elements in seven instructions.
+- `copy_small` moved each 16-byte word as a `u128`, which is two general
+  registers. It moves it through one vector register now. A 48-byte
+  `exchangeAt` went from 47 instructions to 35.
+- `reverse` multiplied out both offsets each element. Its pointers step now.
+
+Dropped: the retain loop in `copy_retaining` stepping its pointer too. It
+saves `kvstore` 0.4%, but only 4 of the 68 instructions a sliced `Str`
+costs on macOS stencil, too close for a bound that holds under load.
+
+`native::list_fills` checks `range` at every length up to 19 and at `Int`'s
+top, and `reverse` and `slice` of three strides, under the heap check. It
+bounds a range at 6 instructions an element (12.0 to 1.2 on macOS
+stencil), and a reversed 48-byte record at 15 (28.2 to 11.2; 21.2 with
+only the vector register, 19.2 with only the stepping pointers).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

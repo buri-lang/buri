@@ -407,6 +407,11 @@ mod split_text;
 // in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod hash_text;
+// Lists `list.range` and `reverse` fill: their elements at every length,
+// stride and end of `Int`, and what an element costs, counted rather than
+// timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod list_fills;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

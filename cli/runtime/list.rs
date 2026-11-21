@@ -126,6 +126,16 @@ pub(crate) unsafe fn shift_up(at: *mut u8, n: usize, by: usize) {
     }
 }
 
+/// Sixteen bytes in one vector register, so that a 16-byte word is one load
+/// and one store. A `u128` is a pair of general registers, and LLVM moves it
+/// as two words.
+#[cfg(target_arch = "aarch64")]
+type Wide = std::arch::aarch64::uint8x16_t;
+#[cfg(target_arch = "x86_64")]
+type Wide = std::arch::x86_64::__m128i;
+#[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+type Wide = u128;
+
 /// Copies `n <= 64` bytes. Each size class reads both ends of the range in
 /// words that may overlap in the middle, and reads everything before it
 /// writes, so the ranges may overlap.
@@ -139,19 +149,19 @@ unsafe fn up_to_64(src: *const u8, dst: *mut u8, n: usize) {
     unsafe {
         let (from, to) = (src.add(n), dst.add(n));
         if n >= 32 {
-            let (a, b) = (get(src.cast::<u128>()), get(src.add(16).cast::<u128>()));
+            let (a, b) = (get(src.cast::<Wide>()), get(src.add(16).cast::<Wide>()));
             let (c, d) = (
-                get(from.sub(32).cast::<u128>()),
-                get(from.sub(16).cast::<u128>()),
+                get(from.sub(32).cast::<Wide>()),
+                get(from.sub(16).cast::<Wide>()),
             );
-            put(dst.cast::<u128>(), a);
-            put(dst.add(16).cast::<u128>(), b);
-            put(to.sub(32).cast::<u128>(), c);
-            put(to.sub(16).cast::<u128>(), d);
+            put(dst.cast::<Wide>(), a);
+            put(dst.add(16).cast::<Wide>(), b);
+            put(to.sub(32).cast::<Wide>(), c);
+            put(to.sub(16).cast::<Wide>(), d);
         } else if n >= 16 {
-            let (a, b) = (get(src.cast::<u128>()), get(from.sub(16).cast::<u128>()));
-            put(dst.cast::<u128>(), a);
-            put(to.sub(16).cast::<u128>(), b);
+            let (a, b) = (get(src.cast::<Wide>()), get(from.sub(16).cast::<Wide>()));
+            put(dst.cast::<Wide>(), a);
+            put(to.sub(16).cast::<Wide>(), b);
         } else if n >= 8 {
             let (a, b) = (get(src.cast::<u64>()), get(from.sub(8).cast::<u64>()));
             put(dst.cast::<u64>(), a);
@@ -631,17 +641,19 @@ pub unsafe extern "C" fn buri_rt_list_reverse(
 ) {
     let (n, s) = (len as usize, stride as usize);
     let result = block(n, s);
-    for i in 0..n {
-        let from = n.saturating_sub(1).saturating_sub(i);
-        // SAFETY: both offsets are inside their own `n`-element blocks.
-        unsafe {
-            copy_retaining(
-                result.ptr.add(i.saturating_mul(s)),
-                ptr.add(from.saturating_mul(s)),
-                1,
-                s,
-                retain,
-            );
+    if !result.ptr.is_null() {
+        // Pointers that step, one down the source and one up the result,
+        // rather than offsets multiplied out each element.
+        let (mut from, mut to) = (
+            ptr.wrapping_add(n.wrapping_sub(1).wrapping_mul(s)),
+            result.ptr,
+        );
+        for _ in 0..n {
+            // SAFETY: `from` and `to` are elements of their own `n`-element
+            // blocks; past the last one they are only stepped, never used.
+            unsafe { copy_retaining(to, from, 1, s, retain) };
+            from = from.wrapping_sub(s);
+            to = to.wrapping_add(s);
         }
     }
     // SAFETY: the caller promises a writable, aligned destination.
@@ -760,15 +772,14 @@ pub unsafe extern "C" fn buri_rt_list_repeat(
 pub unsafe extern "C" fn buri_rt_list_range(start: i64, end: i64, out: *mut BuriList) {
     let count = end.saturating_sub(start).max(0) as usize;
     let result = block(count, 8);
-    for i in 0..count {
-        // SAFETY: `i * 8` is inside the block, and the payload is 16-aligned so
-        // every `i64` slot is aligned.
-        unsafe {
-            result
-                .ptr
-                .add(i.saturating_mul(8))
-                .cast::<i64>()
-                .write(start.saturating_add(i as i64));
+    if count > 0 {
+        // SAFETY: the block holds `count` `i64`s, and the payload is 16-aligned
+        // so every slot is aligned.
+        let slots = unsafe { std::slice::from_raw_parts_mut(result.ptr.cast::<i64>(), count) };
+        // `start + i` stays below `end` for every `i` under `count`, so the
+        // add never wraps, and the loop is free to fill several slots a step.
+        for (i, slot) in slots.iter_mut().enumerate() {
+            *slot = start.wrapping_add(i as i64);
         }
     }
     // SAFETY: the caller promises a writable, aligned destination.
