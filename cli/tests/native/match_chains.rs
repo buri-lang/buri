@@ -6,7 +6,7 @@
 //! register, or the register where another way into the test left something
 //! else there, would show here.
 
-use crate::collection_costs::per_op;
+use crate::collection_costs::{per_op, steps_cost};
 use crate::shared::ran_built;
 
 const ANSWERS: &str = r#"
@@ -119,10 +119,20 @@ fn each_literal_takes_its_own_arm() {
 /// A step's cost on the copy-and-patch backend, in instructions, over the
 /// loop in [`STEPS`]: a match of `i % 8` against seven literals, then of a
 /// byte tag against five variants. Measured at 35 with each value read once
-/// into a register for all its tests, and 34 since the remainder is computed
-/// into that register, not stored and then read back. A million steps, so
-/// that the count is not within a fraction of an instruction of the bound.
-const STEP_BOUND: u64 = 34;
+/// into a register for all its tests, and 34.6 since the remainder is computed
+/// into that register, not stored and then read back.
+///
+/// The check was 34 after rounding down, which a run measuring 35.0 failed:
+/// the cost sat 0.4 under the bound, and a loaded machine's extra kernel work
+/// pushed it over. The figure is now the difference between two counts of
+/// steps, so the setup and the reading of the argument cancel, and it is
+/// compared unrounded with the same limit, 35.
+const STEP_BOUND: u64 = 35;
+
+/// The two counts of steps [`STEP_BOUND`] is measured between: two million
+/// apart, so the noise left in each count is a small part of an instruction a
+/// step.
+const STEP_COUNTS: (u64, u64) = (1_000_000, 3_000_000);
 
 /// A step tests `i % 8` against literal after literal and an enum's byte tag
 /// against variant after variant, each value read once for all its tests.
@@ -165,10 +175,7 @@ fn run(acc: Int, i: Int, n: Int): Int {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
-  let n = match (env.arguments(ctx).first().withDefault("none")) {
-    "steps" => 1000000,
-    _ => 0,
-  };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
   io.println(ctx, "${run(0, 0, n)}").mapErr(fn(_e) => "stdout")
 }
 "#;
@@ -177,15 +184,19 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// copy-and-patch backend, the value read once rather than for each test.
 #[test]
 fn a_literal_test_costs_a_compare() {
-    let steps = 1_000_000;
+    let (fewer, more) = STEP_COUNTS;
+    let steps = more - fewer;
+    // A day of each of the eight remainders is 52 hours.
+    let hours = |n: u64| format!("{}\n", n / 8 * 52);
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("chain-steps", STEPS);
-        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "6500000\n");
-        eprintln!("{backend}: {n:?} instructions a step");
-        if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND) {
+        let n = steps_cost(backend, &binary, STEP_COUNTS, hours);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND * steps) {
             failures.push(format!(
-                "{backend}: {n:?} instructions a step, over {STEP_BOUND}"
+                "{backend}: {each:?} instructions a step, over {STEP_BOUND}"
             ));
         }
     }

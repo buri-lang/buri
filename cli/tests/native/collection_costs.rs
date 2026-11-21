@@ -73,6 +73,38 @@ pub(crate) fn per_op(
     (instructions, busy_blocks.saturating_sub(idle_blocks))
 }
 
+/// The instructions `more - fewer` steps cost, from a run of each, not
+/// rounded. The program takes its count of steps as its argument and prints
+/// `expected` of that count.
+///
+/// Everything the two runs share cancels: launching the process, the setup,
+/// and the reading of the argument, which [`per_op`]'s idle run does along
+/// another path than its busy one.
+pub(crate) fn steps_cost(
+    backend: &str,
+    binary: &Path,
+    (fewer, more): (u64, u64),
+    expected: impl Fn(u64) -> String,
+) -> Option<u64> {
+    let run = |n: u64| {
+        let arg = n.to_string();
+        let (ran, count) = measured(binary, &[&arg]);
+        let checked = ran_command(heap_checked(std::process::Command::new(binary).arg(&arg)));
+        for r in [&ran, &checked] {
+            assert_eq!(r.status, 0, "{backend} {n}: {}", r.stderr);
+            assert_eq!(r.stdout, expected(n), "{backend} {n}: {}", r.stderr);
+        }
+        assert_eq!(
+            probed(&ran.stderr).1,
+            0,
+            "{backend} {n}: blocks still live at exit"
+        );
+        count
+    };
+    let (few, many) = (run(fewer), run(more));
+    few.zip(many).map(|(a, b)| b.saturating_sub(a))
+}
+
 const LOOKUPS: u64 = 100_000;
 
 /// A map of `size` `Int` keys to values of type `Value`, and `mode` asked of it
