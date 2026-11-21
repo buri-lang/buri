@@ -390,6 +390,86 @@ unsafe fn list_of_views(
     }
 }
 
+/// The high bit of each byte of `word` that is `byte`, and no other bit set.
+///
+/// Exact, unlike [`memchr`]'s mask, whose borrow may mark a byte above a match:
+/// a split takes every match in a word from this, not only the first.
+#[inline(always)]
+fn byte_hits(word: &[u8; 8], byte: u8) -> u64 {
+    const LOW7: u64 = 0x7F7F_7F7F_7F7F_7F7F;
+    let x = u64::from_le_bytes(*word) ^ 0x0101_0101_0101_0101u64.wrapping_mul(u64::from(byte));
+    !(((x & LOW7).wrapping_add(LOW7)) | x | LOW7)
+}
+
+/// `s.split(sep)` for a separator of one byte, straight into the list's block.
+///
+/// One pass counts the separators, so the block is allocated at its size, and
+/// a second writes each piece as it finds it. [`list_of_views`] after a
+/// [`Pieces`] pass did the same work through a buffer on the stack and a
+/// second loop over it.
+///
+/// # Safety
+/// `s` is the `len` bytes at `ptr`, inside the block `base` owns.
+#[inline(always)]
+unsafe fn split_byte(base: *mut u8, ptr: *const u8, s: &[u8], ascii: u64, byte: u8) -> BuriList {
+    let (words, rest) = s.as_chunks::<8>();
+    let mut seps = rest.iter().filter(|&&b| b == byte).count();
+    for word in words {
+        seps += byte_hits(word, byte).count_ones() as usize;
+    }
+    let n = seps + 1;
+    let block = buri_rt_alloc((n * size_of::<BuriStr>()) as u64);
+    let mut at = block.cast::<BuriStr>();
+    let mut views = 0u64;
+    let mut from = 0usize;
+    // Writes the piece `from..to` at `at`, and steps past it.
+    let mut put = |from: usize, to: usize| {
+        let element = if to > from {
+            views += 1;
+            BuriStr {
+                base,
+                // SAFETY: `from < to <= s.len()`, inside `ptr`'s bytes.
+                ptr: unsafe { ptr.add(from) },
+                len: (to - from) as u64 | ascii,
+            }
+        } else {
+            BuriStr::empty()
+        };
+        // SAFETY: this pass finds the same separators the count above found,
+        // with the same tests, so it writes exactly `n` pieces into a block of
+        // `n`.
+        unsafe {
+            at.write(element);
+            at = at.add(1);
+        }
+    };
+    let mut offset = 0usize;
+    for word in words {
+        let mut hits = byte_hits(word, byte);
+        while hits != 0 {
+            let to = offset + (hits.trailing_zeros() / 8) as usize;
+            put(from, to);
+            from = to + 1;
+            hits &= hits - 1;
+        }
+        offset += 8;
+    }
+    for (i, &b) in rest.iter().enumerate() {
+        if b == byte {
+            put(from, offset + i);
+            from = offset + i + 1;
+        }
+    }
+    put(from, s.len());
+    // One reference per non-empty view, taken in one update.
+    // SAFETY: `base` is the live block every view points into.
+    unsafe { crate::memory::incref_by(base, views) };
+    BuriList {
+        ptr: block,
+        len: n as u64,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pure: no allocation, and every `Str` result is a view
 // ---------------------------------------------------------------------------
@@ -586,10 +666,25 @@ pub unsafe extern "C" fn buri_rt_str_index_of(
     let Some(at) = find(s, n) else {
         return BURI_ABSENT;
     };
-    let ascii = len & BURI_RT_STR_ASCII != 0;
-    // SAFETY: `base` is the block `s` is a view into; the caller promises a
-    // writable, aligned destination.
-    unsafe { out.write(scalars::scalars_before(base, s, ascii, at) as i64) };
+    if len & BURI_RT_STR_ASCII == 0 {
+        // SAFETY: forwarded.
+        return unsafe { index_of_scalars(base, s, at, out) };
+    }
+    // An ASCII byte offset is its scalar index.
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(at as i64) };
+    BURI_OK
+}
+
+/// [`buri_rt_str_index_of`]'s answer for a non-ASCII `s`, out of line so an
+/// ASCII search saves no registers for the count.
+///
+/// # Safety
+/// `s` is a view into `base`'s block, and `out` is writable and aligned.
+#[inline(never)]
+unsafe fn index_of_scalars(base: *mut u8, s: &[u8], at: usize, out: *mut i64) -> i32 {
+    // SAFETY: forwarded.
+    unsafe { out.write(scalars::scalars_before(base, s, false, at) as i64) };
     BURI_OK
 }
 
@@ -1053,6 +1148,10 @@ pub unsafe extern "C" fn buri_rt_str_split(
     // SAFETY: the caller promises both ranges.
     let (s, sep) = unsafe { (view(ptr, len), view(sptr, slen)) };
     let ascii = len & BURI_RT_STR_ASCII;
+    if let &[byte] = sep {
+        // SAFETY: forwarded.
+        return unsafe { out.write(split_byte(base, ptr, s, ascii, byte)) };
+    }
     let mut pieces = Pieces::new();
     if sep.is_empty() {
         // Per scalar, which is `$chars`.

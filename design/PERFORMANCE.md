@@ -11036,6 +11036,30 @@ Counted with aarch64 callgrind. The other programs moved by less than
 copy-and-patch backend at 567 instructions a node. It went from 602 to 533
 on macOS.
 
+### 6.175 A split on one byte writes its list in place, 2026-11-20
+
+```text
+                              before      after       change
+strings, stencil              1.7868 B    1.6607 B    -7.06%
+strings, release              1.3299 B    1.2037 B    -9.49%
+```
+
+Counted with aarch64 callgrind. The other programs moved by less than
+0.01%.
+
+- A split on a one-byte separator counts the separators a word at a time,
+  allocates the list at its size, then writes each piece into it. It used to
+  gather the ranges in a buffer on the stack and copy them out in a second
+  loop.
+- `indexOf` on ASCII text writes the byte offset, which is the scalar index.
+  The count over scalars moved out of line, so an ASCII search no longer
+  saves registers for it.
+
+`native::split_text` now also splits non-ASCII text, runs of separators and
+pieces longer than a word, and checks each piece's length. Its bounds went
+from 584 to 503 for a three-piece split, and from 138 to 126 for an
+`indexOf` (561 to 445 and 131 to 120 instructions on macOS stencil).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

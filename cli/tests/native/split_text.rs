@@ -19,7 +19,7 @@ from "platform/effect" import { Allocator, Environment, Stdout };
 fn joined<C: Allocator>(ctx: C, xs: [Str], i: Int, acc: Str): Str {
   match (xs[i]) {
     .None => acc,
-    .Some(x) => joined(ctx, xs, i + 1, acc.concat(ctx, "[").concat(ctx, x).concat(ctx, "]")),
+    .Some(x) => joined(ctx, xs, i + 1, acc.concat(ctx, str.format(ctx, "[${x}:${x.length()}]"))),
   }
 }
 
@@ -43,12 +43,19 @@ fn answers<C: Allocator>(ctx: C): Str {
     .concat(ctx, cut(ctx, "a--b-c---d--", "--"))
     .concat(ctx, cut(ctx, "x", "xy"))
     .concat(ctx, cut(ctx, "", ","))
+    .concat(ctx, cut(ctx, "-a-", "-"))
+    .concat(ctx, cut(ctx, "--------x---------", "-"))
+    .concat(ctx, cut(ctx, "abcdefg-ijklmno-qrstuvw-", "-"))
+    .concat(ctx, cut(ctx, "ä-ö--ü-", "-"))
+    .concat(ctx, cut(ctx, "no separator here, at all", "-"))
     .concat(ctx, found(ctx, "a9 9a 99", "99"))
     .concat(ctx, found(ctx, "a9 9a 9", "99"))
     .concat(ctx, found(ctx, "abcdefghijklmnopqrsX abcdefghijklmnopqrst", long))
     .concat(ctx, found(ctx, "abcdefghijklmnopqrsX abcdefghijklmnopqrsT", long))
     .concat(ctx, found(ctx, "abcdefghijklmnopq", "abcdefghijklmnopq"))
     .concat(ctx, found(ctx, "abcdefghijklmnopQ abcdefghijklmnopq.", "abcdefghijklmnopq."))
+    .concat(ctx, found(ctx, "ä-ö-ü", "ö"))
+    .concat(ctx, found(ctx, "ä-ö-ü", "-"))
 }
 
 fn splits<C: Allocator>(ctx: C, s: Str, i: Int, n: Int, acc: Int): Int {
@@ -89,7 +96,10 @@ fn answers() -> String {
     let mut out = String::new();
     let cut = |s: &str, sep: &str| {
         let parts: Vec<&str> = s.split(sep).collect();
-        let joined: String = parts.iter().map(|p| format!("[{p}]")).collect();
+        let joined: String = parts
+            .iter()
+            .map(|p| format!("[{p}:{}]", p.chars().count()))
+            .collect();
         format!("{}:{joined}\n", parts.len())
     };
     for n in 0..41 {
@@ -99,6 +109,15 @@ fn answers() -> String {
     out += &cut("a--b-c---d--", "--");
     out += &cut("x", "xy");
     out += &cut("", ",");
+    for s in [
+        "-a-",
+        "--------x---------",
+        "abcdefg-ijklmno-qrstuvw-",
+        "ä-ö--ü-",
+        "no separator here, at all",
+    ] {
+        out += &cut(s, "-");
+    }
     let long = "abcdefghijklmnopqrst";
     for (s, needle) in [
         ("a9 9a 99", "99"),
@@ -107,19 +126,23 @@ fn answers() -> String {
         ("abcdefghijklmnopqrsX abcdefghijklmnopqrsT", long),
         ("abcdefghijklmnopq", "abcdefghijklmnopq"),
         ("abcdefghijklmnopQ abcdefghijklmnopq.", "abcdefghijklmnopq."),
+        ("ä-ö-ü", "ö"),
+        ("ä-ö-ü", "-"),
     ] {
-        let at = s.find(needle).map_or(-1, |i| i as i64);
+        let at = s.find(needle).map_or(-1, |i| s[..i].chars().count() as i64);
         out += &format!("{at} {}\n", at >= 0);
     }
     out
 }
 
-/// **A split cuts every piece, at any count and separator length, and a
-/// search finds the first whole match past every near one.** Up to forty
-/// pieces, past the sixteen a split keeps on the stack; a separator whose
-/// first byte recurs; a separator longer than the string; and needles of 2,
-/// 17, 18 and 20 bytes whose first bytes match early and whose ends don't.
-/// Under the heap check.
+/// **A split cuts every piece, at any count and separator length, with its
+/// length in scalars, and a search finds the first whole match past every
+/// near one.** Up to forty pieces, past the sixteen a split keeps on the
+/// stack; a one-byte separator first, last, repeated, on either side of an
+/// eight-byte boundary, between non-ASCII scalars and absent; a separator
+/// whose first byte recurs; a separator longer than the string; and needles
+/// of 2, 17, 18 and 20 bytes whose first bytes match early and whose ends
+/// don't, and a search past non-ASCII scalars. Under the heap check.
 #[test]
 fn a_split_cuts_every_piece_and_a_search_finds_the_first_match() {
     for (backend, build) in crate::e2e::probed_backends() {
@@ -145,6 +168,12 @@ fn a_split_cuts_every_piece_and_a_search_finds_the_first_match() {
 /// split of three pieces. Only the seventeenth piece on goes out of line. A
 /// split went from 608 to 561.
 ///
+/// **A split on one byte writes each piece straight into the list.** It
+/// counts the separators first, so the list is allocated at its size, then
+/// writes each piece as it finds it, with no ranges kept on the stack. An
+/// ASCII `indexOf` saves no registers for counting scalars. A split went from
+/// 561 to 445, and `indexOf("-")` from 131 to 120.
+///
 /// Each bound sits about halfway. Only the copy-and-patch backend is bounded,
 /// as in `growing_steps.rs`.
 #[test]
@@ -154,7 +183,7 @@ fn a_split_and_a_search_compare_a_short_needle_without_a_call() {
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("split-text-costs", SPLIT);
-        for (mode, each, bound) in [("split", 3, 584), ("index", 4, 138), ("contains", 2, 343)] {
+        for (mode, each, bound) in [("split", 3, 503), ("index", 4, 126), ("contains", 2, 343)] {
             let want = format!("{}\n", each * STEPS);
             let (n, _) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
             eprintln!("{backend}, {mode}: {n:?} instructions a step");
