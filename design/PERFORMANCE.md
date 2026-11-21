@@ -11291,6 +11291,24 @@ bounds one map at 438, about halfway, and checks what `filter` keeps at every
 length from 1 to 10 texts, in blocks that held other text, under the heap
 check.
 
+### 6.185 `toInt` stops at the first byte that can't be a number, 2026-11-21
+
+```text
+macOS stencil, instructions a read         before      after
+4,000 bytes starting with a letter         4,251       131
+"  -12345  "                               515         319
+```
+
+`toInt` checked the whole text as UTF-8 twice, once to read it and once to
+trim it, before it looked at the first character. In a profile of a ui test
+suite, the trim under `toInt` ran 12.9 million times at about 550 instructions
+a call. The ASCII spaces, the sign and the digits are now read as bytes. The
+text is decoded only where a byte that isn't ASCII sits next to those spaces,
+because only there could a wider space be trimmed. `native::int_text` bounds
+both reads about halfway, and checks the answers for ASCII and other spaces,
+signs, letters and digits that aren't ASCII, and the ends of the 64-bit range,
+under the heap check.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

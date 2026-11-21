@@ -856,23 +856,52 @@ pub unsafe extern "C" fn buri_rt_str_to_int(
     out: *mut i64,
 ) -> i32 {
     // SAFETY: the caller promises `len` readable bytes.
-    let s = unsafe { text(ptr, len) };
-    let (from, to) = trim_range(s.as_bytes(), true, true);
-    let Some(t) = s.get(from..to) else {
-        return BURI_ABSENT;
-    };
-    let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return BURI_ABSENT;
-    }
-    // Rust's own parser takes it from here: it accepts the same optional sign
-    // and refuses anything outside `i64`, which is the whole of the range.
-    let Ok(v) = t.parse::<i64>() else {
+    let read = ascii_int(unsafe { view(ptr, len) }).unwrap_or_else(|| {
+        // SAFETY: as above.
+        let s = unsafe { text(ptr, len) };
+        let (from, to) = trim_range(s.as_bytes(), true, true);
+        s.get(from..to).and_then(|t| int_of(t.as_bytes()))
+    });
+    let Some(v) = read else {
         return BURI_ABSENT;
     };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(v) };
     BURI_OK
+}
+
+/// [`buri_rt_str_to_int`] read from the bytes alone, which stops at the first
+/// byte that can't be part of a number: `None` where the first byte past the
+/// ASCII spaces at either end isn't ASCII, because only there could a space
+/// that isn't ASCII be trimmed. Anywhere else a byte that isn't ASCII isn't a
+/// digit, and the text is no number however it decodes.
+fn ascii_int(bytes: &[u8]) -> Option<Option<i64>> {
+    let space = |b: &u8| matches!(b, b'\t'..=b'\r' | b' ');
+    let from = bytes.iter().position(|b| !space(b)).unwrap_or(bytes.len());
+    let to = bytes
+        .iter()
+        .rposition(|b| !space(b))
+        .map_or(from, |at| at + 1);
+    let t = &bytes[from..to];
+    if t.first().is_some_and(|b| !b.is_ascii()) || t.last().is_some_and(|b| !b.is_ascii()) {
+        return None;
+    }
+    Some(int_of(t))
+}
+
+/// The number trimmed text `t` is: an optional sign and ASCII digits whose
+/// number fits in an `i64`.
+fn int_of(t: &[u8]) -> Option<i64> {
+    let digits = t
+        .strip_prefix(b"+")
+        .or_else(|| t.strip_prefix(b"-"))
+        .unwrap_or(t);
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    // Rust's own parser takes it from here: it accepts the same optional sign
+    // and refuses anything outside `i64`, which is the whole of the range.
+    std::str::from_utf8(t).ok()?.parse::<i64>().ok()
 }
 
 /// `str.toFloat(self) -> Option<Float>` — `$str_toFloat`
