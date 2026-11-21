@@ -550,6 +550,13 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
                 .Both => "both",
             })
         },
+        .Shift(axis) => {
+            .Atom(69, 0, "shift", match (axis) {
+                .X => "x",
+                .Y => "y",
+                .Both => "both",
+            })
+        },
         // `When` and `Computed`, which are decided as the program runs, and
         // classes already made.
         _ => .Unsettled,

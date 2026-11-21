@@ -128,6 +128,8 @@ const STYLE_REMOVED: usize = 63;
 /// `Style::Fallback` and `Style::FitRoom`, which [`popover_reset`] looks for.
 const STYLE_FALLBACK: usize = 67;
 const STYLE_FIT_ROOM: usize = 68;
+/// `Style::Shift`.
+const STYLE_SHIFT: usize = 69;
 
 /// `ui/style`'s `Layout::Grid`, the one layout whose value is open-ended.
 const LAYOUT_GRID: usize = 4;
@@ -312,13 +314,18 @@ const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center
 /// chosen the same way: from the anchor's start edge to the viewport's end
 /// with the start edge pinned, the other way with the end edge pinned, the
 /// anchor's own box with both and the whole viewport with neither.
+///
+/// Each alignment but `stretch`, which can't take one, starts with
+/// `--buri-over-y` (or `-x`): `unsafe` from [`ANCHOR_RESET`], so that a
+/// browser leaves a panel that runs off the page where its pins put it, or
+/// nothing under a [`SHIFTS`] class, so that it slides the panel back.
 const PIN_ALIGNMENT: [&str; 4] = [
     "--buri-pin-y:var(--buri-pin-y-both);--buri-area-y:var(--buri-area-y-both)",
-    "--buri-pin-y-end:end;--buri-pin-y-both:stretch;--buri-area-y-end:span-block-start;\
-     --buri-area-y-both:center",
+    "--buri-pin-y-end:var(--buri-over-y,) end;--buri-pin-y-both:stretch;\
+     --buri-area-y-end:span-block-start;--buri-area-y-both:center",
     "--buri-pin-x:var(--buri-pin-x-both);--buri-area-x:var(--buri-area-x-both)",
-    "--buri-pin-x-end:end;--buri-pin-x-both:stretch;--buri-area-x-end:span-inline-start;\
-     --buri-area-x-both:center",
+    "--buri-pin-x-end:var(--buri-over-x,) end;--buri-pin-x-both:stretch;\
+     --buri-area-x-end:span-inline-start;--buri-area-x-both:center",
 ];
 
 /// The alignment a `PinAnchor` panel with no pin has, which its pins'
@@ -326,10 +333,14 @@ const PIN_ALIGNMENT: [&str; 4] = [
 /// reads. A custom property is inherited, so a panel inside a pinned box
 /// starts from these rather than from the box's. [`TRY_RESET`] goes beside it.
 const ANCHOR_RESET: &str = "--buri-pin-y:var(--buri-pin-y-end);\
-                            --buri-pin-y-end:var(--buri-centre-y);--buri-pin-y-both:start;\
+                            --buri-pin-y-end:var(--buri-centre-y);\
+                            --buri-pin-y-both:var(--buri-over-y,) start;\
                             --buri-pin-x:var(--buri-pin-x-end);\
-                            --buri-pin-x-end:var(--buri-centre-x);--buri-pin-x-both:start;\
-                            --buri-centre-y:center;--buri-centre-x:center;\
+                            --buri-pin-x-end:var(--buri-centre-x);\
+                            --buri-pin-x-both:var(--buri-over-x,) start;\
+                            --buri-centre-y:var(--buri-over-y,) center;\
+                            --buri-centre-x:var(--buri-over-x,) center;\
+                            --buri-over-y:unsafe;--buri-over-x:unsafe;\
                             --buri-area-y:var(--buri-area-y-end);--buri-area-y-end:span-all;\
                             --buri-area-y-both:span-block-end;\
                             --buri-area-x:var(--buri-area-x-end);--buri-area-x-end:span-all;\
@@ -348,7 +359,8 @@ const TRY_RESET: &str = "--buri-try-block-start:initial;--buri-try-block-end:ini
 /// measures a percentage from the anchor still. An axis with no pin is centred
 /// on the anchor across the whole viewport.
 const ANCHOR_ROOM: &str = "position-area:var(--buri-area-y) var(--buri-area-x);\
-                           --buri-centre-y:anchor-center;--buri-centre-x:anchor-center";
+                           --buri-centre-y:var(--buri-over-y,) anchor-center;\
+                           --buri-centre-x:var(--buri-over-x,) anchor-center";
 
 /// [`ANCHOR_ROOM`]'s insets, apart so that a tooltip's reset can give them
 /// the weight of a class.
@@ -385,6 +397,15 @@ const ROOMS: [(&str, &str); 3] = [
          var(--buri-try-block-start,0px) - var(--buri-try-block-end,0px));\
          position-try-order:most-block-size",
     ),
+];
+
+/// What `Shift` writes for each `Axis`: no `unsafe` before the alignment on
+/// that axis ([`PIN_ALIGNMENT`]), which leaves a browser's default: a panel
+/// that runs off the page slides back onto it.
+const SHIFTS: [(&str, &str); 3] = [
+    ("x", "--buri-over-x:initial"),
+    ("y", "--buri-over-y:initial"),
+    ("both", "--buri-over-x:initial;--buri-over-y:initial"),
 ];
 
 /// A pin's length as [`ANCHOR_ROOM`] re-reads it: a percentage of the
@@ -2065,7 +2086,7 @@ fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
         7 | 8 | 9 | 48 => enumerated(7),
         // `Wrap`, `Italic`, `Clip`, `Passthrough` and `Removed`.
         10 | 45 | 57 | 58 | STYLE_REMOVED => vec![Value::Bool(false), Value::Bool(true)],
-        11 | 50 | 54 | 36 | STYLE_FALLBACK | STYLE_FIT_ROOM => enumerated(3),
+        11 | 50 | 54 | 36 | STYLE_FALLBACK | STYLE_FIT_ROOM | STYLE_SHIFT => enumerated(3),
         16 | 44 | 49 | 51 | 53 => enumerated(4),
         64 | 65 => enumerated(2),
         _ => Vec::new(),
@@ -4301,6 +4322,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let (key, room) = *ROOMS.get(which)?;
             let css = format!("{ANCHOR_ROOM};{ROOM_INSETS};{room}");
             Some(("room", key.into(), vec![("", css)]))
+        }
+        STYLE_SHIFT => {
+            let (which, _) = first?.as_variant()?;
+            let (key, css) = *SHIFTS.get(which)?;
+            Some(("shift", key.into(), vec![("", css.to_owned())]))
         }
         _ => None,
     }

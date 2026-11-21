@@ -667,6 +667,11 @@ fn serving_a_page() {
 /// (#365), each scene beside a twin pinned the plain way. The test of the same
 /// name checks where happy-dom puts each in a window the size of its page.
 ///
+/// `pinned_panels_shift_onto_the_page` is a `PinAnchor` panel near the page's
+/// edge with a `Shift` (#365), each scene beside a twin pinned the plain way.
+/// The test of the same name checks where happy-dom puts each in a window the
+/// size of its page.
+///
 /// `pins_measure_from_the_nearest_positioned_box` is a box pinned by an edge
 /// in each axis, both edges, or percentage sizes, inside a positioned parent,
 /// a positioned grandparent, nothing positioned, a table entry, a table row
@@ -693,7 +698,7 @@ fn serving_a_page() {
 /// lays out at each width.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 70);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 71);
 }
 
 /// Every case above that calls `snapshot`, mounted again as a page built for
@@ -702,7 +707,7 @@ fn snapshots() {
 /// says how a test source becomes a page and what the driver checks.
 #[test]
 fn snapshots_render_as_pages() {
-    crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 61);
+    crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 62);
 }
 
 /// The order a browser paints `positioned_boxes_paint_in_tree_order`'s boxes
@@ -848,6 +853,33 @@ fn pinned_panels_flip_and_fit_the_room() {
         ("fit-both", "0,32 200x168"),
         ("fit-flip", "0,-150 160x150"),
         ("tooltip", "0,-80 160x80"),
+    ];
+    let placed: Vec<(String, String)> = expected
+        .iter()
+        .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
+        .collect();
+    assert_eq!(crate::harness::web_pages::places_alone(&case), placed);
+}
+
+/// Where a browser lays out `pinned_panels_shift_onto_the_page`'s red panels
+/// against their blue anchor, read off happy-dom in a window the size of each
+/// page (#365). Each scene and its twin come out at the same place, the place
+/// the shared golden shows: a `Shift` panel slid back onto the page along the
+/// axes it names, one with no `Shift` left running past the edge, one wider
+/// than the page at its start edge, and one that shifts and then flips.
+#[test]
+fn pinned_panels_shift_onto_the_page() {
+    let case = tests_dir().join("repositories/ui/pinned_panels_shift_onto_the_page");
+    let expected: &[(&str, &str)] = &[
+        ("shift-x", "-100,32 300x80"),
+        ("unshifted", "0,32 300x80"),
+        ("shift-start", "-40,32 300x80"),
+        ("shift-y", "0,0 160x80"),
+        ("shift-both", "-100,0 300x80"),
+        ("shift-centred", "-200,32 400x80"),
+        ("too-wide", "-600,32 900x80"),
+        ("flip-shift", "-200,-80 400x80"),
+        ("computed", "-100,32 300x80"),
     ];
     let placed: Vec<(String, String)> = expected
         .iter()

@@ -1548,6 +1548,10 @@ struct Computed {
     /// `position-try-order`: the axis whose room orders the tries, roomiest
     /// first, inline (`0`) or block (`1`).
     try_order: Option<usize>,
+    /// `--buri-over-x` and `--buri-over-y` unset, which `Shift` writes:
+    /// whether an [`escape`](Computed::escape) box that runs off the page
+    /// slides back onto it, inline then block ([`shifted`]).
+    shift: [bool; 2],
     clipped: [bool; 2],
 
     background: Rgba,
@@ -1672,6 +1676,7 @@ impl Computed {
             flips: Flips::None,
             room: [false; 2],
             try_order: None,
+            shift: [false; 2],
             clipped: [false; 2],
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
@@ -2098,6 +2103,13 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
                 "most-inline-size" => Some(0),
                 "most-block-size" => Some(1),
                 _ => None,
+            }
+        }
+        // `Shift` unsets the `unsafe` the sheet puts before a `PinAnchor`
+        // panel's alignment, so a browser slides the panel onto the page.
+        "--buri-over-x" | "--buri-over-y" if value == "initial" => {
+            if let Some(shift) = style.shift.get_mut(usize::from(name == "--buri-over-y")) {
+                *shift = true;
             }
         }
         "aspect-ratio" => style.aspect = value.parse().ok().filter(|r: &f32| *r > 0.0),
@@ -4345,6 +4357,7 @@ fn settle_pins(
             .transpose()
             .map_err(fail)?;
         let inset = tried.as_ref().map_or(style.inset, |t| t.inset);
+        let against = cb;
         let mut basis = [cb[2], cb[3]];
         if let Some(t) = &tried {
             let [left, right, top, bottom] = inset;
@@ -4354,7 +4367,7 @@ fn settle_pins(
                 .zip(t.area)
             {
                 if pinned.iter().filter(|&&len| len != Len::Auto).count() == 1 {
-                    *slot = area;
+                    *slot = area[1] - area[0];
                 }
             }
         }
@@ -4395,19 +4408,57 @@ fn settle_pins(
                 own.max_size.height = LengthPercentageAuto::length(t.room[1]);
             }
         }
-        // Against an anchor, an axis with no pin centres the box on it.
+        // Against an anchor, an axis with no pin centres the box on it, and a
+        // shifted axis slides it onto the page: from where its try put it, or
+        // from its pins.
         if anchored {
             let size = tree.layout(id).map_err(fail)?.size;
-            let centred = |edges: [Len; 2], room: f32, size: f32, before: f32| {
-                (edges == [Len::Auto; 2])
-                    .then(|| LengthPercentageAuto::length((room - size) / 2.0 - before))
+            let [x, y, width, height] = against;
+            let [shift_x, shift_y] = shifts(style, inset);
+            let areas = tried.as_ref().map(|t| t.area);
+            // Only a box that moves is placed again, so a stretched one keeps
+            // both its insets where it stays.
+            let start = |edges: [Len; 2],
+                         anchor: [f32; 2],
+                         area: Option<[f32; 2]>,
+                         size: f32,
+                         shift: bool,
+                         far: f32,
+                         before: f32| {
+                let [from, length] = anchor;
+                let area = area.unwrap_or([from, from + length]);
+                let place = |shift| placed_on_anchor(area, anchor, edges, size, shift, far);
+                let at = place(shift);
+                (edges == [Len::Auto; 2] || (at - place(false)).abs() > 0.01)
+                    .then(|| LengthPercentageAuto::length(at - from - before))
             };
-            let [l, r, t, b] = style.inset;
-            if let Some(left) = centred([l, r], cb[2], size.width, before[0]) {
+            let [l, r, t, b] = inset;
+            let [across, down] = areas.map_or([None, None], |[x, y]| [Some(x), Some(y)]);
+            let left = start(
+                [l, r],
+                [x, width],
+                across,
+                size.width,
+                shift_x,
+                page.0,
+                before[0],
+            );
+            if let Some(left) = left {
                 own.inset.left = left;
+                own.inset.right = LengthPercentageAuto::auto();
             }
-            if let Some(top) = centred([t, b], cb[3], size.height, before[1]) {
+            let top = start(
+                [t, b],
+                [y, height],
+                down,
+                size.height,
+                shift_y,
+                page.1,
+                before[1],
+            );
+            if let Some(top) = top {
                 own.inset.top = top;
+                own.inset.bottom = LengthPercentageAuto::auto();
             }
         }
         if *tree.style(id).map_err(fail)? != own {
@@ -4435,8 +4486,65 @@ struct Tried {
     /// The room the insets leave in the area each axis is placed in, inline
     /// then block: what `FitRoom` caps the box to.
     room: [f32; 2],
-    /// That area's size, which a percentage size along the axis measures.
+    /// That area, start and end on the page, whose size a percentage size
+    /// along the axis measures.
+    area: [[f32; 2]; 2],
+}
+
+/// Whether `style`'s box slides onto the page along each axis, inline then
+/// block: under `Shift`, or pinned at both edges by `inset`, whose `stretch`
+/// takes no `unsafe` in the sheet.
+fn shifts(style: &Computed, inset: [Len; 4]) -> [bool; 2] {
+    let [left, right, top, bottom] = inset;
+    let both = |a: Len, b: Len| a != Len::Auto && b != Len::Auto;
+    [
+        style.shift[0] || both(left, right),
+        style.shift[1] || both(top, bottom),
+    ]
+}
+
+/// Where a box `size` long starts along one axis against an anchor, which
+/// starts at `anchor[0]` and is `anchor[1]` long: at the pinned edge of
+/// `area`, start first, or centred on the anchor with neither edge pinned.
+/// Under `shift` it then slides onto the page, which is `page` long
+/// ([`shifted`]).
+fn placed_on_anchor(
     area: [f32; 2],
+    anchor: [f32; 2],
+    [from, to]: [Len; 2],
+    size: f32,
+    shift: bool,
+    page: f32,
+) -> f32 {
+    let [start, length] = anchor;
+    let [before, after] = [from, to].map(|len| match len {
+        Len::Auto => 0.0,
+        len => resolve_length(len, length),
+    });
+    let [low, high] = [area[0] + before, area[1] - after];
+    let at = match (from != Len::Auto, to != Len::Auto) {
+        (false, true) => high - size,
+        (false, false) => start + (length - size) / 2.0,
+        _ => low,
+    };
+    if shift {
+        shifted(at, size, [low, high.max(low)], [0.0, page])
+    } else {
+        at
+    }
+}
+
+/// Where a box `size` long that starts at `at` slides to, by a browser's
+/// default overflow alignment (CSS Box Alignment 3 §4.4.1.2, as Chromium
+/// does it): inside `room`, its inset-modified containing block, where it fits
+/// there, and otherwise inside `room` and `page` together, start edge first.
+fn shifted(at: f32, size: f32, room: [f32; 2], page: [f32; 2]) -> f32 {
+    let [low, high] = if size <= room[1] - room[0] {
+        room
+    } else {
+        [room[0].min(page[0]), room[1].max(page[1])]
+    };
+    at.min(high - size).max(low)
 }
 
 /// The try a browser places `style`'s box with: its own insets, then each
@@ -4464,33 +4572,53 @@ fn tried(style: &Computed, anchor: [f32; 4], page: (f32, f32), size: [f32; 2]) -
         if down {
             inset.swap(2, 3);
         }
-        // One axis: the room, the area's size, and whether the box fits.
-        let along =
-            |far: f32, start: f32, length: f32, [from, to]: [Len; 2], capped: bool, size: f32| {
-                let (low, high) = match (from != Len::Auto, to != Len::Auto) {
-                    (true, false) => (start, far),
-                    (false, true) => (0.0, start + length),
-                    (true, true) => (start, start + length),
-                    (false, false) => (0.0, far),
-                };
-                let [before, after] = [from, to].map(|len| match len {
-                    Len::Auto => 0.0,
-                    len => resolve_length(len, length),
-                });
-                let room = high - low - before - after;
-                let extent = if capped { size.min(room) } else { size };
-                let at = match (from != Len::Auto, to != Len::Auto) {
-                    (false, true) => high - after - extent,
-                    (false, false) => start + (length - extent) / 2.0,
-                    _ => low + before,
-                };
-                let fits = at >= low + before - 0.5 && at + extent <= high - after + 0.5;
-                (room.max(0.0), high - low, fits)
+        // One axis: the room, the area, and whether the box fits there. A
+        // shifted box is checked where it slides to.
+        let along = |far: f32,
+                     start: f32,
+                     length: f32,
+                     [from, to]: [Len; 2],
+                     capped: bool,
+                     shift: bool,
+                     size: f32| {
+            let area = match (from != Len::Auto, to != Len::Auto) {
+                (true, false) => [start, far],
+                (false, true) => [0.0, start + length],
+                (true, true) => [start, start + length],
+                (false, false) => [0.0, far],
             };
+            let [before, after] = [from, to].map(|len| match len {
+                Len::Auto => 0.0,
+                len => resolve_length(len, length),
+            });
+            let [low, high] = area;
+            let room = high - low - before - after;
+            let extent = if capped { size.min(room) } else { size };
+            let at = placed_on_anchor(area, [start, length], [from, to], extent, shift, far);
+            let fits = at >= low + before - 0.5 && at + extent <= high - after + 0.5;
+            (room.max(0.0), area, fits)
+        };
         let [left, right, top, bottom] = inset;
         let [x, y, width, height] = anchor;
-        let across = along(page.0, x, width, [left, right], style.room[0], size[0]);
-        let down = along(page.1, y, height, [top, bottom], style.room[1], size[1]);
+        let [shift_x, shift_y] = shifts(style, inset);
+        let across = along(
+            page.0,
+            x,
+            width,
+            [left, right],
+            style.room[0],
+            shift_x,
+            size[0],
+        );
+        let down = along(
+            page.1,
+            y,
+            height,
+            [top, bottom],
+            style.room[1],
+            shift_y,
+            size[1],
+        );
         let out = Tried {
             inset,
             room: [across.0, down.0],

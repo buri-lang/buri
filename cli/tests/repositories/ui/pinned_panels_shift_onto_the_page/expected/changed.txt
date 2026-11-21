@@ -1,0 +1,5 @@
+FAIL //lib/shift  test/shift.buri  "the box pinned the plain way where the panel shift-x goes"
+  the snapshot "shift-x" changed: see test/__snapshots__/shift-x.diff.png
+  --> lib/shift/test/shift.buri:29:1
+
+17 passed, 1 failed, 0 skipped (0.0s)

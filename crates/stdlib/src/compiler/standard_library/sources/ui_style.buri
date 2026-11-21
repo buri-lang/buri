@@ -529,6 +529,30 @@ export enum Style {
     /// Percentages along an axis pinned at one edge measure the room, as they
     /// do under a `Fallback`.
     FitRoom(Axis),
+    /// Slides a `PinAnchor` panel along `axis`, just far enough to keep it on
+    /// the page, when its pins would put it past an edge.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// /// Below the trigger, slid back from the page's side edges.
+    /// export fn menu<C>(rows: [Node<C>]): Node<C> {
+    ///     ui.stack({
+    ///         styles: [
+    ///             .Position(.PinAnchor),
+    ///             .Pin(.Top, .Percent(100.0)),
+    ///             .Pin(.Start, .Px(0)),
+    ///             .Shift(.X),
+    ///         ],
+    ///         children: rows,
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// A panel wider or taller than the page sits at its start edge. Shifting
+    /// along the axis the panel hangs on slides it over its anchor.
+    Shift(Axis),
 }
 
 /// Where a `PinAnchor` panel tries next when it doesn't fit.

@@ -1,0 +1,373 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden, so a panel placed anywhere else fails its scene.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
+from "//lib/shift" import { anchored, computed, pinned };
+
+test "a panel that runs past the page's end edge shifts back onto it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-x",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel shift-x goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-x",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-100)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel with no shift runs past the page's end edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "unshifted",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel unshifted goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "unshifted",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel that runs past the page's start edge shifts back onto it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-start",
+        anchored(40, 40, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.End, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel shift-start goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-start",
+        pinned(40, 40, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-40)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel that runs past the page's bottom shifts up over its anchor" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-y",
+        anchored(160, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Shift(.Y),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel shift-y goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-y",
+        pinned(160, 200, [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel in a corner shifts on both axes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-both",
+        anchored(160, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+            .Shift(.Both),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel shift-both goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-both",
+        pinned(160, 600, [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Px(-100)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel centred on its anchor shifts back onto the page" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-centred",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Width(.Px(400)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel shift-centred goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "shift-centred",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-200)),
+            .Width(.Px(400)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel wider than the page shifts to its start edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "too-wide",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(900)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel too-wide goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "too-wide",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-600)),
+            .Width(.Px(900)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel that shifts onto the page can still flip" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-shift",
+        anchored(160, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Width(.Px(400)),
+            .Height(.Px(80)),
+            .Fallback(.FlipBlock),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel flip-shift goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-shift",
+        pinned(160, 600, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(-200)),
+            .Width(.Px(400)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel whose styles are computed shifts as well" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        computed(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel computed goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-100)),
+            .Width(.Px(300)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}

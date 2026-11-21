@@ -446,7 +446,7 @@ export fn contact<C: Ui>(
 
 ## Styling, and the two tiers a style can be in
 
-`ui/style` is 63 properties and five ways of composing them. Every property is
+`ui/style` is 64 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
 there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
 logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
@@ -550,7 +550,8 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 
 /// A menu below its button that opens above it near the bottom of the page,
-/// no taller than the room on the side it opens to.
+/// no taller than the room on the side it opens to, and slid left near the
+/// page's end edge.
 export fn menu<C>(items: [Node<C>]): Node<C> {
     ui.stack({
         styles: [
@@ -559,6 +560,7 @@ export fn menu<C>(items: [Node<C>]): Node<C> {
             .Pin(.Start, .Px(0)),
             .Fallback(.FlipBlock),
             .FitRoom(.Y),
+            .Shift(.X),
             .Scroll(.Y),
         ],
         children: items,
@@ -573,7 +575,9 @@ side and corner. A tooltip's bubble does `.FlipBoth` on its own. `FitRoom(Axis)`
 caps the panel to the room the page leaves on its side, and beside a `Fallback`
 it opens on the roomier side. Under either one, a percentage size along an axis
 pinned at one edge is of that room, so pin both side edges to match the
-anchor's width. Neither shifts a panel along its anchor to keep it in view.
+anchor's width. `Shift(Axis)` slides the panel along that axis, just far
+enough to keep it on the page, so a menu near the end edge moves back past its
+anchor's start. A panel wider than the page sits at its start edge.
 
 `BackdropBlur(Length)` blurs the page behind an element, so a modal scrim
 separates its panel from the page by softening it rather than by hiding it under
@@ -1873,8 +1877,9 @@ The rest is short:
   tooltip's bubble. Its pins place it the way a plain `Pin` would, and an axis
   with no pin is centred on the anchor. With no `Flow` box around it, it is
   measured from the page. A `.Translate` around it, or on its `Flow` box,
-  doesn't move it, and neither does one around an open dialog. A `Fallback` or
-  a `FitRoom` measures the room the page leaves it.
+  doesn't move it, and neither does one around an open dialog. A `Fallback`, a
+  `FitRoom` or a `Shift` measures the room the page leaves it, and the page is
+  the whole picture.
 - A pinned box with no `.Width` and one side pinned shrinks to fit its content
   in the room between that pin and the far side of the box it is measured
   from, as a browser does. It is never narrower than its widest child. A

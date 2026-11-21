@@ -48,7 +48,7 @@
 ///    `containingBlock`, by the inset, size and self-alignment it computes to,
 ///    and under a `position-area` that spans past its anchor, by the area,
 ///    the room the viewport leaves and the first `position-try-fallbacks`
-///    flip that fits;
+///    flip that fits, slid back on the page where its self-alignment lets it;
 ///  * `offsetOf(element, dimension)`, where a browser lays out a box in the
 ///    flow from the viewport's top left, which happy-dom leaves out;
 ///  * `clippedBy(element)`, the ancestors whose `overflow` cuts `element`,
@@ -649,8 +649,10 @@ function movedBy(element) {
 // its padding box, which is where the offsets start too. A box with no width
 // of its own shrinks to fit its content inside the inset room, or fills that
 // room when it stretches; one with no height is as tall as its children in
-// the flow, or the inset room when it stretches. Left to right and top to
-// bottom only.
+// the flow, or the inset room when it stretches. A box with both insets set
+// and a self-alignment that is neither `normal` nor marked `safe` or `unsafe`
+// slides back into its inset room, or onto the viewport under an area, when it
+// runs past it ([`shifted`]). Left to right and top to bottom only.
 function placedAt(element) {
   const s = getComputedStyle(element);
   const anchor = placedAgainst(element);
@@ -659,13 +661,22 @@ function placedAt(element) {
   const against = containingBlock(element);
   const room = (dimension) =>
     against === null ? viewport(dimension) : sizeOf(against, dimension) - (area ? 0 : borders(against, dimension));
-  const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, s.justifySelf, room("width"), area);
-  const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, s.alignSelf, room("height"), area);
+  // What a box may slide inside besides its inset room: the viewport, from
+  // the anchor's top left, or its containing block.
+  const page = (dimension) =>
+    area ? [-offsetOf(anchor, dimension), viewport(dimension) - offsetOf(anchor, dimension)] : [0, room(dimension)];
+  const [x, width] = placedAlong(element, "width", s.insetInlineStart, s.insetInlineEnd, aligned(s.justifySelf), room("width"), area, page("width"));
+  const [y, height] = placedAlong(element, "height", s.insetBlockStart, s.insetBlockEnd, aligned(s.alignSelf), room("height"), area, page("height"));
   return { x, y, width, height };
 }
 const viewport = (dimension) => (dimension === "width" ? window.innerWidth : window.innerHeight);
-// The start and the size of `element` along one axis, inside `room` pixels.
-function placedAlong(element, dimension, start, end, align, room, area) {
+// A self-alignment as Chromium reads it. happy-dom resolves `var(--v,) start`
+// to `initial start` when `--v` is `initial`, where the empty fallback
+// should apply.
+const aligned = (value) => (value ?? "").replace(/^initial /, "");
+// The start and the size of `element` along one axis, inside `room` pixels,
+// slid inside `page` too where `shifts` says.
+function placedAlong(element, dimension, start, end, align, room, area, page) {
   const from = lengthIn(start, () => room);
   const to = lengthIn(end, () => room);
   let size = lengthIn(getComputedStyle(element)[dimension], () => room);
@@ -673,6 +684,7 @@ function placedAlong(element, dimension, start, end, align, room, area) {
   if (self === "" || self === "auto") self = "normal";
   if (["self-start", "flex-start"].includes(self)) self = "start";
   if (["self-end", "flex-end"].includes(self)) self = "end";
+  const shift = shifts(align, self) && (area || (from !== null && to !== null));
   if (!area && from === null && to === null) throw new Error(`placedAt: a static ${dimension} position`);
   let s = from ?? 0;
   let e = to ?? 0;
@@ -693,10 +705,23 @@ function placedAlong(element, dimension, start, end, align, room, area) {
   if (self === "normal") self = area ? "center" : "start";
   if (!area && from === null) return [room - e - size, size];
   if (!area && to === null) return [s, size];
-  if (self === "start") return [s, size];
-  if (self === "end") return [s + inside - size, size];
-  if (self === "center") return [s + (inside - size) / 2, size];
-  throw new Error(`placedAt: self-alignment ${align}`);
+  let at;
+  if (self === "start") at = s;
+  else if (self === "end") at = s + inside - size;
+  else if (self === "center") at = s + (inside - size) / 2;
+  else throw new Error(`placedAt: self-alignment ${align}`);
+  return [shift ? shifted(at, size, [s, s + inside], page) : at, size];
+}
+// Whether a box with both insets set slides back inside its containing block
+// when it runs out of its inset room, by CSS Box Alignment 3: under any
+// self-alignment `self` but `normal`, unless `align` says `safe` or `unsafe`.
+const shifts = (align, self) => !/^(safe|unsafe) /.test(align ?? "") && self !== "normal";
+// Where a box `size` long that starts at `at` slides to, by CSS Box Alignment
+// 3 §4.4.1.2 as Chromium does it: inside `room`, its inset room, where it fits
+// there, and otherwise inside `room` and `page` together, start edge first.
+function shifted(at, size, room, page) {
+  const [low, high] = size <= room[1] - room[0] ? room : [Math.min(room[0], page[0]), Math.max(room[1], page[1])];
+  return Math.max(Math.min(at, high - size), low);
 }
 // Where a browser lays out `element` under a `position-area` other than
 // `center`, as a `Fallback` or a `FitRoom` places a panel, by Anchor
@@ -705,7 +730,8 @@ function placedAlong(element, dimension, start, end, align, room, area) {
 // end edge under `span-*-end`, the other way under `span-*-start`, the whole
 // axis under `span-all`, and the anchor's box under `center`. Its insets,
 // auto ones as 0, leave the room the box must fit in, and an `anchor-center`
-// box is centred on the anchor. The box takes the first of its own place and
+// box is centred on the anchor, then slid back as [`shifts`] says, before the
+// fit is checked. The box takes the first of its own place and
 // each `position-try-fallbacks` flip that fits — ordered by that room where
 // `position-try-order` says so — or its own place where none does. A flip
 // mirrors the axis's insets, area and self-alignment. The anchor is laid out
@@ -720,6 +746,7 @@ function placedInArea(element, anchor) {
     const along = (dimension, axis, area, start, end, align, max) => {
       const mirror = { [`span-${axis}-start`]: `span-${axis}-end`, [`span-${axis}-end`]: `span-${axis}-start` };
       let self = (align ?? "").replace(/^(safe|unsafe) /, "");
+      const shift = shifts(align, self);
       if (flips.includes(`flip-${axis}`)) {
         [start, end] = [end, start];
         area = mirror[area] ?? area;
@@ -752,12 +779,13 @@ function placedInArea(element, anchor) {
       else if (self === "end") offset = room - to - size;
       else if (self === "anchor-center") offset = at + (length - size) / 2 - low;
       else throw new Error(`placedAt: self-alignment ${align} in an area`);
+      if (shift) offset = shifted(offset, size, [from, room - to], [-low, far - low]);
       const fits = offset >= from - 0.5 && offset + size <= room - to + 0.5;
       return { at: low + offset - at, size, fits, inside };
     };
     return {
-      x: along("width", "inline", across, s.insetInlineStart, s.insetInlineEnd, s.justifySelf, s.maxWidth),
-      y: along("height", "block", down, s.insetBlockStart, s.insetBlockEnd, s.alignSelf, s.maxHeight),
+      x: along("width", "inline", across, s.insetInlineStart, s.insetInlineEnd, aligned(s.justifySelf), s.maxWidth),
+      y: along("height", "block", down, s.insetBlockStart, s.insetBlockEnd, aligned(s.alignSelf), s.maxHeight),
     };
   };
   const options = ["", ...tries].map(place);

@@ -389,20 +389,20 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
             break;
           case 4:
             {
-              const tracks_86=layout_9[1];
-              $share(tracks_86);
-              const columns_89=$list_join($list_mapCtx(tracks_86,ctx_0,(c_87,track_88)=>{
-                if(track_88[0]===0){
-                  return $str_format(c_87,$str_fromInt(c_87,track_88[1])+'fr');
-                }else if(track_88[0]===1){
-                  return ui_style_classify$lengthCss$htol58(c_87,track_88[1]);
-                }else if(track_88[0]===2){
+              const tracks_87=layout_9[1];
+              $share(tracks_87);
+              const columns_90=$list_join($list_mapCtx(tracks_87,ctx_0,(c_88,track_89)=>{
+                if(track_89[0]===0){
+                  return $str_format(c_88,$str_fromInt(c_88,track_89[1])+'fr');
+                }else if(track_89[0]===1){
+                  return ui_style_classify$lengthCss$htol58(c_88,track_89[1]);
+                }else if(track_89[0]===2){
                   return 'auto';
                 }else{
                   $abort('no arm matched');
                 }
               }),ctx_0,' ');
-              $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_89));
+              $t4=$str_format(ctx_0,'grid-'+$str_format(ctx_0,'#'+columns_90));
             }
             break;
           case 5:
@@ -771,15 +771,15 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
       }
     case 40:
       {
-        const text_94=ui_style_classify$shadowCss$htol58(ctx_0,style_1[1]);
-        return [0,40n,0n,'sh',$str_format(ctx_0,'#'+text_94)];
+        const text_95=ui_style_classify$shadowCss$htol58(ctx_0,style_1[1]);
+        return [0,40n,0n,'sh',$str_format(ctx_0,'#'+text_95)];
       }
     case 41:
       {
         const layers_50=style_1[1];
         $share(layers_50);
-        const text_96=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$htol58(c_51,layer_52)),ctx_0,',');
-        return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_96)];
+        const text_97=$list_join($list_mapCtx(layers_50,ctx_0,(c_51,layer_52)=>ui_style_classify$shadowCss$htol58(c_51,layer_52)),ctx_0,',');
+        return [0,41n,0n,'sh',$str_format(ctx_0,'#'+text_97)];
       }
     case 42:
       {
@@ -838,8 +838,8 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
             }
             break;
         }
-        const text_98=$t27;
-        return [0,42n,0n,'ff',$str_format(ctx_0,'#'+text_98)];
+        const text_99=$t27;
+        return [0,42n,0n,'ff',$str_format(ctx_0,'#'+text_99)];
       }
     case 43:
       {
@@ -1260,6 +1260,34 @@ function ui_style_classify$declared$htol58(ctx_0,style_1,state_2,screen_3){
             break;
         }
         return [0,68n,0n,'room',$t63];
+      }
+    case 69:
+      {
+        let $t65;
+        const $t66=style_1[1];
+        switch($t66){
+          case 0:
+            {
+              $t65='x';
+            }
+            break;
+          case 1:
+            {
+              $t65='y';
+            }
+            break;
+          case 2:
+            {
+              $t65='both';
+            }
+            break;
+          default:
+            {
+              $abort('no arm matched');
+            }
+            break;
+        }
+        return [0,69n,0n,'shift',$t65];
       }
     default:
       {

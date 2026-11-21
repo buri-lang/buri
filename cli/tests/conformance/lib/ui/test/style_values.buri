@@ -85,6 +85,7 @@ fn kind(s: Style): Str {
         .Order(_) => "Order",
         .Fallback(_) => "Fallback",
         .FitRoom(_) => "FitRoom",
+        .Shift(_) => "Shift",
     }
 }
 
@@ -240,6 +241,7 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.Order(1)), "Order");
     assert.equal(kind(.Fallback(.FlipBlock)), "Fallback");
     assert.equal(kind(.FitRoom(.Y)), "FitRoom");
+    assert.equal(kind(.Shift(.X)), "Shift");
 }
 
 test "a matched static style binds its payload" {
@@ -1884,6 +1886,18 @@ test "a room to fit is a class that caps the panel to it" {
     );
 }
 
+test "a shift is a class, and the last one wins" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.Group([.Shift(.Y), .Shift(.X)]))).markup(),
+        "e 0 class:shift-x",
+    );
+    assert.equal(render(ctx, boxed(.Shift(.Both))).markup(), "e 0 class:shift-both");
+}
+
 test "a fallback known only at run time is its class" {
     let ctx = context {
         Allocator: testAlloc(),
@@ -1895,6 +1909,7 @@ test "a fallback known only at run time is its class" {
         "e 0 class:try-inline",
     );
     assert.equal(painted(ctx, [.FitRoom(late(ctx, .Y))]), "e 0 class:room-y");
+    assert.equal(painted(ctx, [.Shift(late(ctx, .X))]), "e 0 class:shift-x");
 }
 
 test "a pin known only at run time measures a percentage from the anchor for a fallback" {
