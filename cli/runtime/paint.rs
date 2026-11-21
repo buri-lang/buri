@@ -2072,8 +2072,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         // measures and which takes the place of any other.
         "max-width" | "max-height" if value.starts_with("calc(100% -") => {
             let axis = usize::from(name == "max-height");
-            style.room[axis] = true;
-            style.max[axis] = Len::Auto;
+            if let Some(room) = style.room.get_mut(axis) {
+                *room = true;
+            }
+            set_sides(&mut style.max, [axis], Some(Len::Auto));
         }
         "max-width" => set_sides(&mut style.max, [0], limit(value, font_size)),
         "max-height" => set_sides(&mut style.max, [1], limit(value, font_size)),
@@ -4340,10 +4342,14 @@ fn settle_pins(
         let inset = tried.as_ref().map_or(style.inset, |t| t.inset);
         let mut basis = [cb[2], cb[3]];
         if let Some(t) = &tried {
-            for (axis, slot) in basis.iter_mut().enumerate() {
-                let pinned = [inset[axis * 2], inset[axis * 2 + 1]];
+            let [left, right, top, bottom] = inset;
+            for ((slot, pinned), area) in basis
+                .iter_mut()
+                .zip([[left, right], [top, bottom]])
+                .zip(t.area)
+            {
                 if pinned.iter().filter(|&&len| len != Len::Auto).count() == 1 {
-                    *slot = t.area[axis];
+                    *slot = area;
                 }
             }
         }
@@ -4453,45 +4459,44 @@ fn tried(style: &Computed, anchor: [f32; 4], page: (f32, f32), size: [f32; 2]) -
         if down {
             inset.swap(2, 3);
         }
-        let mut out = Tried {
+        // One axis: the room, the area's size, and whether the box fits.
+        let along =
+            |far: f32, start: f32, length: f32, [from, to]: [Len; 2], capped: bool, size: f32| {
+                let (low, high) = match (from != Len::Auto, to != Len::Auto) {
+                    (true, false) => (start, far),
+                    (false, true) => (0.0, start + length),
+                    (true, true) => (start, start + length),
+                    (false, false) => (0.0, far),
+                };
+                let [before, after] = [from, to].map(|len| match len {
+                    Len::Auto => 0.0,
+                    len => resolve_length(len, length),
+                });
+                let room = high - low - before - after;
+                let extent = if capped { size.min(room) } else { size };
+                let at = match (from != Len::Auto, to != Len::Auto) {
+                    (false, true) => high - after - extent,
+                    (false, false) => start + (length - extent) / 2.0,
+                    _ => low + before,
+                };
+                let fits = at >= low + before - 0.5 && at + extent <= high - after + 0.5;
+                (room.max(0.0), high - low, fits)
+            };
+        let [left, right, top, bottom] = inset;
+        let [x, y, width, height] = anchor;
+        let across = along(page.0, x, width, [left, right], style.room[0], size[0]);
+        let down = along(page.1, y, height, [top, bottom], style.room[1], size[1]);
+        let out = Tried {
             inset,
-            room: [0.0; 2],
-            area: [0.0; 2],
+            room: [across.0, down.0],
+            area: [across.1, down.1],
         };
-        let mut fits = true;
-        for (axis, far) in [page.0, page.1].into_iter().enumerate() {
-            let (start, length) = (anchor[axis], anchor[axis + 2]);
-            let [from, to] = [inset[axis * 2], inset[axis * 2 + 1]];
-            let (low, high) = match (from != Len::Auto, to != Len::Auto) {
-                (true, false) => (start, far),
-                (false, true) => (0.0, start + length),
-                (true, true) => (start, start + length),
-                (false, false) => (0.0, far),
-            };
-            let [before, after] = [from, to].map(|len| match len {
-                Len::Auto => 0.0,
-                len => resolve_length(len, length),
-            });
-            let room = high - low - before - after;
-            let extent = if style.room[axis] {
-                size[axis].min(room)
-            } else {
-                size[axis]
-            };
-            let at = match (from != Len::Auto, to != Len::Auto) {
-                (false, true) => high - after - extent,
-                (false, false) => start + (length - extent) / 2.0,
-                _ => low + before,
-            };
-            fits &= at >= low + before - 0.5 && at + extent <= high - after + 0.5;
-            out.room[axis] = room.max(0.0);
-            out.area[axis] = high - low;
-        }
-        (out, fits)
+        (out, across.2 && down.2)
     };
     let mut tries: Vec<(Tried, bool)> = flips.iter().map(place).collect();
     if let Some(axis) = style.try_order {
-        tries.sort_by(|a, b| b.0.room[axis].total_cmp(&a.0.room[axis]));
+        let room = |t: &Tried| t.room.get(axis).copied().unwrap_or(0.0);
+        tries.sort_by(|a, b| room(&b.0).total_cmp(&room(&a.0)));
     }
     match tries.iter().position(|(_, fits)| *fits) {
         Some(at) => tries.swap_remove(at).0,
