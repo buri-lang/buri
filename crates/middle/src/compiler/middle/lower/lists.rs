@@ -18,7 +18,10 @@
 //! `ExprKind::Closure` over it where it captures, so the step is a **direct**
 //! call rather than one through the closure's thunk. A closure's function is
 //! handed the environment record the closure was built from, and retains it
-//! where it owns it, as the thunk does. The intrinsic function
+//! where it owns it, as the thunk does. Only a record of one word is handed
+//! over this way: LLVM doesn't inline the step, so it would keep a wider record
+//! in registers across the loop and move each word in for every call, where
+//! the thunk loads them from the closure in pairs. The intrinsic function
 //! gets the same loop as its own body, for the one caller that cannot see a
 //! step: a function value, called through its thunk.
 //!
@@ -59,8 +62,8 @@ use super::FnLower;
 use crate::compiler::backend::intrinsic_keys::{self, Handoff, Step, Tasks};
 use crate::compiler::backend::runtime_table;
 use crate::compiler::middle::ir::{
-    BinOp, BlockId, Code, Const, EnumTy, Handover, Inst, Kept, Ownership, Parallel, Target, Term,
-    Type, UnOp, ValueId,
+    Agg, BinOp, BlockId, Code, Const, EnumTy, Handover, Inst, Kept, Ownership, Parallel, Target,
+    Term, Type, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::{pairs, rc};
@@ -257,6 +260,16 @@ pub(crate) fn lend_gets(program: &mut Program) {
 }
 
 impl FnLower<'_> {
+    /// Whether a closure's captures `env` make a record of one word: one
+    /// capture, a scalar of at most a word or a list.
+    fn one_word(&mut self, env: &[Expr]) -> bool {
+        let [only] = env else { return false };
+        !matches!(
+            self.type_of(&only.ty),
+            Type::I128 | Type::Unit | Type::Agg(Agg::Record(_) | Agg::Enum(_) | Agg::Fn(_))
+        )
+    }
+
     /// A call of `key`, lowered as its loop.
     pub(super) fn list_call(&mut self, key: &str, args: &[Expr], ret: &Ty) -> ValueId {
         // The step a call site names: a lambda `middle::closures` lifted, a
@@ -277,7 +290,7 @@ impl FnLower<'_> {
                     func: *f,
                     env: None,
                 }),
-                ExprKind::Closure { func, env } => self
+                ExprKind::Closure { func, env } if self.one_word(env) => self
                     .last_closure
                     .filter(|(closure, _)| *closure == v)
                     .map(|(_, record)| Named {

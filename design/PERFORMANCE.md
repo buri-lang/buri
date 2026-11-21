@@ -11649,8 +11649,15 @@ match         611302265     1865847820      615665953      615666146       0.328
   calls its lifted function directly with the closure's record, not through
   the thunk. The record is retained only where the function owns it, as the
   thunk does. lists was 1.66 times `-O1`. sort's `-O1` and release counts
-  rose by 40,000, 0.013%. Its setup `map` captures a `Str` the function
-  borrows, so no count is added; why LLVM runs more is not known yet.
+  rose by 40,000, 0.013%: its setup `map` captures a `Str` and an `Int`, four
+  words. LLVM doesn't inline the step, so it kept the four words in registers
+  across the loop and moved each one in for every call, where the thunk had
+  loaded them from the closure in two pairs. Now only a closure whose record is
+  one word, a scalar or a list, is called this way. A wider record goes
+  through the thunk, which put sort back at its old counts. Not building the
+  closure a direct step leaves unused saved 0.02% on lists' stencil and `-O1`
+  counts, but LLVM's release build then indexed the loop rather than stepping
+  a pointer, and lists ran 0.93% more there, so the closure is still built.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,

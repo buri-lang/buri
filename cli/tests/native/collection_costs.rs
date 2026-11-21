@@ -1059,9 +1059,8 @@ fn a_list_release_walks_its_elements_by_address() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// 1,000 `Int`s mapped `k` times by a lambda that captures the round and a
-/// `Str` it reads, and by one that puts the `Str` in each element. `main`
-/// takes `k`.
+/// 1,000 `Int`s mapped `k` times by a lambda that captures the round, and by
+/// one that puts a `Str` it captures in each element. `main` takes `k`.
 const CAPTURES: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -1074,7 +1073,7 @@ fn rounds<C: Allocator>(ctx: C, xs: [Int], label: Str, k: Int, acc: Int): Int {
   if (k == 0) {
     acc
   } else {
-    let read = xs.map(ctx, fn(x) => x + k + label.length());
+    let read = xs.map(ctx, fn(x) => x + k);
     let held = xs.map(ctx, fn(x) => (x, label));
     let last = held.get(999).map(fn(p) => p.1.length()).withDefault(0);
     rounds(ctx, xs, label, k - 1, acc + read.get(999).withDefault(0) + last)
@@ -1094,21 +1093,21 @@ const CAPTURE_ROUNDS: (u64, u64) = (100, 400);
 
 /// What one element of [`CAPTURES`] costs on the copy-and-patch backend, in
 /// instructions: both maps' steps and the two lists' releases. It measured
-/// 134.2 once each step called the lambda directly, and 164.3 through the
+/// 136.2 with the round's lambda called directly, and 150.3 through its
 /// closure's thunk. The bound sits between the two, so the old code fails it,
 /// with room for the counter's noise of well under 1%.
-const CAPTURE_BOUND: f64 = 149.0;
+const CAPTURE_BOUND: f64 = 143.0;
 
-/// **A list operation calls a lambda that captures directly**: the step is
-/// the lambda's own function, handed the closure's environment, rather than a
-/// call through the closure's thunk. The environment's `Str` is counted where
-/// the lambda keeps it, and released with the closure either way.
+/// **A list operation calls a lambda that captures one word directly**: the
+/// step is the lambda's own function, handed the closure's environment, rather
+/// than a call through the closure's thunk. A wider environment, like the
+/// `Str`, goes through the thunk, and is counted where the lambda keeps it.
 #[test]
 fn a_capturing_step_is_called_directly() {
     let (fewer, more) = CAPTURE_ROUNDS;
     let elems = (more - fewer) * 1000;
-    // Round `k` reads `999 + k + 6` and the held label's 6.
-    let answer = |k: u64| format!("{}\n", k * (999 + 6 + 6) + k * (k + 1) / 2);
+    // Round `k` reads `999 + k` and the held label's 6.
+    let answer = |k: u64| format!("{}\n", k * (999 + 6) + k * (k + 1) / 2);
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("list-captures", CAPTURES);
