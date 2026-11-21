@@ -730,9 +730,9 @@ fn every_job_declares_a_timeout() {
 
 /// The released `buri` keeps the build settings its speed was measured with:
 /// fat LTO, one codegen unit, `panic = "abort"`, and a profile-guided build of
-/// every nightly target. Linux trains and builds in one job. macOS trains in a
-/// job of its own, because both in one lost the free runner, and its build
-/// reads the profile that job uploads.
+/// every nightly target. Linux trains and builds in one job. macOS trains in
+/// three shards on an instrumented compiler a job of its own builds, because
+/// long jobs lost the free runner, and its build merges the shards' profiles.
 #[test]
 fn the_release_build_keeps_its_measured_settings() {
     let read = |path: &str| std::fs::read_to_string(repo_root().join(path)).unwrap();
@@ -778,28 +778,45 @@ fn the_release_build_keeps_its_measured_settings() {
     assert_eq!(
         pgo,
         [
-            "run: sh .github/pgo.sh aarch64-apple-darwin train",
-            "run: sh .github/pgo.sh aarch64-apple-darwin use",
+            "run: sh .github/pgo.sh aarch64-apple-darwin instrument",
+            "run: sh .github/pgo.sh aarch64-apple-darwin train ${{ matrix.shard }}/3",
+            "sh .github/pgo.sh aarch64-apple-darwin use \\",
             "sh .github/pgo.sh \"$TARGET\"",
         ],
-        "every nightly build goes through `.github/pgo.sh`: macOS trains in `pgo-train` and \
-         builds with its profile, and Linux does both in Alpine"
+        "every nightly build goes through `.github/pgo.sh`: macOS instruments in \
+         `pgo-instrument`, trains in three `pgo-train` shards and builds with their profiles, \
+         and Linux does it all in Alpine"
     );
 
     let jobs = jobs(&nightly);
+    let instrument = &jobs["pgo-instrument"];
+    assert!(
+        instrument.contains("runs-on: macos-latest")
+            && instrument.contains("name: buri-instrumented-aarch64-apple-darwin")
+            && instrument.contains("path: target/pgo/buri-instrumented\n"),
+        "nightly.yml's `pgo-instrument` job uploads the instrumented compiler:\n{instrument}"
+    );
     let train = &jobs["pgo-train"];
     assert!(
         train.contains("runs-on: macos-latest")
-            && train.contains("name: profdata-aarch64-apple-darwin")
+            && train.contains("needs: [version, pgo-instrument]")
+            && train.contains("shard: [1, 2, 3]\n")
+            && train.contains("name: buri-instrumented-aarch64-apple-darwin")
+            && train.contains("name: profdata-aarch64-apple-darwin-${{ matrix.shard }}")
             && train.contains("path: target/pgo/buri.profdata"),
-        "nightly.yml's `pgo-train` job trains on macOS and uploads the profile:\n{train}"
+        "nightly.yml's `pgo-train` shards train on macOS, shards 1 to 3 of 3, and each \
+         uploads its profile:\n{train}"
     );
     let build = &jobs["build-macos"];
+    let merged: Vec<String> = (1..=3)
+        .map(|k| format!("target/pgo/shards/profdata-aarch64-apple-darwin-{k}/buri.profdata"))
+        .collect();
     assert!(
         build.contains("needs: [version, pgo-train]")
-            && build.contains("name: profdata-aarch64-apple-darwin")
-            && build.contains("path: target/pgo\n"),
-        "nightly.yml's macOS build downloads the profile `pgo-train` uploads:\n{build}"
+            && build.contains("pattern: profdata-aarch64-apple-darwin-*")
+            && build.contains("path: target/pgo/shards\n")
+            && merged.iter().all(|path| build.contains(path.as_str())),
+        "nightly.yml's macOS build merges the profiles of all three `pgo-train` shards:\n{build}"
     );
     assert!(
         jobs["publish"].contains("needs: [version, build, build-macos]\n"),
@@ -953,13 +970,34 @@ fn the_runner_config_never_kills_retries_or_filters_a_test() {
 /// one of them to finish, so the run gets longer while each job's own time
 /// says nothing about it. A job runs on macOS either by name or through a
 /// matrix `include` row whose `os` is macOS, and a matrix multiplies it by
-/// the length of each of its list dimensions.
+/// the length of each of its list dimensions. The nightly is held to the same
+/// count, since its macOS training runs in three shards beside other jobs.
 #[test]
 fn the_workflow_runs_at_most_five_macos_jobs() {
-    let text = workflow();
+    let nightly = repo_root().join(".github/workflows/nightly.yml");
+    let nightly = std::fs::read_to_string(&nightly).unwrap();
+    for (file, text) in [("ci.yml", workflow()), ("nightly.yml", nightly)] {
+        let (total, counted) = macos_jobs(&text);
+        assert!(
+            total <= 5,
+            "{file} runs {total} macOS jobs, and a free account runs five at once:\n  {}",
+            counted.join("\n  ")
+        );
+        assert!(
+            total >= 3,
+            "only {total} macOS job(s) were counted in {file}, and there were five when this was \
+             written; the reading below has stopped seeing them:\n  {}",
+            counted.join("\n  ")
+        );
+        println!("{file}: {total} macOS job(s): {}", counted.join(", "));
+    }
+}
+
+/// How many macOS jobs a workflow runs, and how many each of its jobs adds.
+fn macos_jobs(text: &str) -> (usize, Vec<String>) {
     let mut counted: Vec<String> = Vec::new();
     let mut total = 0;
-    for (name, body) in jobs(&text) {
+    for (name, body) in jobs(text) {
         let runs_on = body
             .lines()
             .find_map(|line| line.strip_prefix("    runs-on: "))
@@ -992,18 +1030,7 @@ fn the_workflow_runs_at_most_five_macos_jobs() {
             total += jobs;
         }
     }
-    assert!(
-        total <= 5,
-        "ci.yml runs {total} macOS jobs, and a free account runs five at once:\n  {}",
-        counted.join("\n  ")
-    );
-    assert!(
-        total >= 3,
-        "only {total} macOS job(s) were counted, and there were five when this was written; \
-         the reading above has stopped seeing them:\n  {}",
-        counted.join("\n  ")
-    );
-    println!("{total} macOS job(s): {}", counted.join(", "));
+    (total, counted)
 }
 
 /// Every file under `.github/` a workflow runs: the workflows and the

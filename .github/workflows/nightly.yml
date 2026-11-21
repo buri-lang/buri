@@ -97,19 +97,55 @@ jobs:
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "next version: $next"
 
-  # The macOS profile, trained on a runner of its own. Training and the release
-  # build in one job lost the free runner (3 cores, 7 GB, 14 GB of disk) 56 to
-  # 61 minutes in, twice (runs 42387323533 and 42536342333), so this job only
-  # builds the instrumented compiler, runs the training suites, and uploads the
-  # merged profile; `build-macos` downloads it on a fresh runner. The Linux
-  # legs train and build in one job each, inside Alpine.
-  pgo-train:
-    name: pgo-train (aarch64-apple-darwin)
+  # The macOS release takes five jobs on free runners (3 cores, 7 GB, 14 GB of
+  # disk), at most three of them at once, within the free plan's five macOS
+  # jobs:
+  #
+  # - `pgo-instrument` builds the instrumented compiler.
+  # - Three `pgo-train` shards each run a third of the training tests on it and
+  #   upload their profile. `.github/pgo.sh` picks every third test of each
+  #   suite, so the shards run each test once between them.
+  # - `build-macos` merges the three profiles, which sums their counts, and
+  #   builds the release with the sum.
+  #
+  # Long jobs lose the runner: training and the release build in one job did so
+  # 56 to 61 minutes in (runs 42387323533 and 42536342333), and training alone
+  # 54 and 55 minutes in (runs 44670440615 and 44693285711). In run 44893465230
+  # training took 10.5 minutes of tests after a 4-minute build of the suites,
+  # so a shard takes about 10 minutes. The Linux legs train and build in one
+  # job each, inside Alpine.
+  pgo-instrument:
+    name: pgo-instrument (aarch64-apple-darwin)
     needs: version
     runs-on: macos-latest
-    # An instrumented release build, a debug build of six suites, and their run.
-    timeout-minutes: 150
+    # An instrumented release build.
+    timeout-minutes: 60
     # The build's version, so the profile is of the same source.
+    env:
+      BURI_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/macos-toolchain
+      - name: build the instrumented compiler
+        run: sh .github/pgo.sh aarch64-apple-darwin instrument
+      - uses: actions/upload-artifact@v7
+        with:
+          name: buri-instrumented-aarch64-apple-darwin
+          path: target/pgo/buri-instrumented
+          if-no-files-found: error
+          retention-days: 1
+
+  pgo-train:
+    name: pgo-train (aarch64-apple-darwin, ${{ matrix.shard }}/3)
+    needs: [version, pgo-instrument]
+    strategy:
+      # Every shard's profile is needed, so one failing stops the rest.
+      fail-fast: true
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: macos-latest
+    # A debug build of six suites, and a third of their run.
+    timeout-minutes: 60
     env:
       BURI_VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -120,17 +156,21 @@ jobs:
       - uses: ./.github/actions/test-tools
         with:
           llvm: llvm@21
-      - name: train the profile
-        run: sh .github/pgo.sh aarch64-apple-darwin train
+      - uses: actions/download-artifact@v8
+        with:
+          name: buri-instrumented-aarch64-apple-darwin
+          path: target/pgo
+      - name: train shard ${{ matrix.shard }} of 3
+        run: sh .github/pgo.sh aarch64-apple-darwin train ${{ matrix.shard }}/3
       - uses: actions/upload-artifact@v7
         with:
-          name: profdata-aarch64-apple-darwin
+          name: profdata-aarch64-apple-darwin-${{ matrix.shard }}
           path: target/pgo/buri.profdata
           if-no-files-found: error
           retention-days: 3
 
   # macOS arm64, built natively with Homebrew LLVM 21 and the optimizing backend
-  # (not optional here), reading the profile `pgo-train` trained.
+  # (not optional here), reading the sum of the shards' profiles.
   build-macos:
     name: build (aarch64-apple-darwin)
     needs: [version, pgo-train]
@@ -146,12 +186,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: nightly-aarch64-apple-darwin
+      # Each artifact lands in a directory of its own name.
       - uses: actions/download-artifact@v8
         with:
-          name: profdata-aarch64-apple-darwin
-          path: target/pgo
-      - name: build buri --release --features backend-llvm with the trained profile
-        run: sh .github/pgo.sh aarch64-apple-darwin use
+          pattern: profdata-aarch64-apple-darwin-*
+          path: target/pgo/shards
+      - name: build buri --release --features backend-llvm with the shards' profile
+        run: |
+          sh .github/pgo.sh aarch64-apple-darwin use \
+            target/pgo/shards/profdata-aarch64-apple-darwin-1/buri.profdata \
+            target/pgo/shards/profdata-aarch64-apple-darwin-2/buri.profdata \
+            target/pgo/shards/profdata-aarch64-apple-darwin-3/buri.profdata
       - uses: ./.github/actions/release-tarball
         with:
           target: aarch64-apple-darwin
