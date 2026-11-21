@@ -37,7 +37,7 @@ enum RSrc {
 }
 use super::glue::Helper;
 use super::jit::{
-    copyless_test, hop, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, RET, SCRATCH_WORDS, V,
+    copyless_test, hop, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, Sym, RET, SCRATCH_WORDS, V,
 };
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
@@ -448,7 +448,6 @@ impl<'a> Jit<'a> {
                     func: *func,
                     boxed: env.is_some(),
                 });
-                let thunk = self.sym(thunk);
                 self.emit(
                     "imm/64",
                     &[
@@ -624,7 +623,7 @@ impl<'a> Jit<'a> {
             } => {
                 let (stride, _, _) = self.list_elem(prog, *ty);
                 let elem = prog.types.elem(*ty);
-                let glue = |name: Option<String>| name.map_or(Src::Imm(0), Src::Sym);
+                let glue = |name: Option<Sym>| name.map_or(Src::Imm(0), Src::Sym);
                 let retain = glue(self.element_glue(elem));
                 let release = glue(self.value_release(elem));
                 let src = st.at(*array);
@@ -1125,7 +1124,7 @@ impl<'a> Jit<'a> {
         at: u32,
         field: Option<u32>,
         op: Op,
-        glue: Option<String>,
+        glue: Option<Sym>,
     ) {
         let keys = match (op, &glue) {
             (Op::Retain, _) => return self.count_stencil(INCREF, Jump::Cont, at, field, None),
@@ -1157,14 +1156,13 @@ impl<'a> Jit<'a> {
         cont: Jump,
         at: u32,
         field: Option<u32>,
-        glue: Option<String>,
+        glue: Option<Sym>,
     ) {
         let mask = if self.shares {
             Word::R.ext(runtime::SHARED_MASK)
         } else {
             Word::R.lit(0)
         };
-        let glue = glue.map(|g| self.sym(g));
         let [plain, shared, plain_at, shared_at] = keys;
         let key = match (self.shares, field.is_some()) {
             (false, false) => plain,

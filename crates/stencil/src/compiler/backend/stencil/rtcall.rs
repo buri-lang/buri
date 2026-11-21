@@ -49,7 +49,7 @@
 // the stencil library holds, read from `abi.rs` — the one file the library
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
-use super::jit::{Bind, Fn2, Jit, V};
+use super::jit::{Bind, Fn2, Jit, Sym, V};
 use super::runtime::{self, Arg, CScalar, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir::{self, Answer};
@@ -97,7 +97,7 @@ fn round8(n: u32) -> u32 {
 }
 
 /// What goes into one C argument register.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) enum Src {
     /// The word at a frame offset, already whole.
     Word(u32),
@@ -106,7 +106,7 @@ pub(crate) enum Src {
     /// The address of a frame offset.
     Addr(u32),
     /// The address of a function this unit generated (`glue.rs`).
-    Sym(String),
+    Sym(Sym),
 }
 
 /// `Str` is `{ base, ptr, len }` (VALUE-MODEL.md §3), and bit 63 of `len` is
@@ -554,9 +554,9 @@ impl Jit<'_> {
 
     /// [`Jit::c_call`] to a function **this unit generated** (`glue.rs`), whose
     /// name is chosen at emission time and so cannot be a `&'static str`.
-    pub(crate) fn c_call_sym<const I: usize>(&mut self, symbol: String, st: &Fn2, ints: &[Src; I]) {
+    pub(crate) fn c_call_sym<const I: usize>(&mut self, symbol: Sym, st: &Fn2, ints: &[Src; I]) {
         const { assert!(I <= MAX_INT, "past what a `crt` stencil holds") };
-        let callee = V::Sym(self.sym(symbol));
+        let callee = V::Sym(symbol);
         self.c_call_to(callee, st, ints, &[], 0, "v");
     }
 
@@ -679,7 +679,7 @@ impl Jit<'_> {
     /// The per-element retain glue for an element type, or `None` where the
     /// element owns no counted block — which is what `cli/runtime/list.rs`
     /// reads a null pointer as.
-    pub(crate) fn element_glue(&mut self, elem: Ty) -> Option<String> {
+    pub(crate) fn element_glue(&mut self, elem: Ty) -> Option<Sym> {
         self.rc_counted(&elem).then(|| {
             self.helper(super::glue::Helper::Walk {
                 ty: elem,
@@ -694,7 +694,7 @@ impl Jit<'_> {
     /// The same walk `emit.rs` emits for a value going out of scope. It is
     /// reached from here because the runtime is the side that knows *when* a
     /// store ends and this is the side that knows *what* is in it.
-    pub(crate) fn value_release(&mut self, ty: Ty) -> Option<String> {
+    pub(crate) fn value_release(&mut self, ty: Ty) -> Option<Sym> {
         self.rc_counted(&ty).then(|| {
             self.helper(super::glue::Helper::Walk {
                 ty,
@@ -711,27 +711,24 @@ impl Jit<'_> {
     /// The two beside it are walks this backend generates; this one wraps a
     /// function the *middle end* generated, because "are these the same value"
     /// is `==` and `==` is a language question rather than a layout one.
-    fn value_equal(&mut self, prog: &ir::Program, ty: Ty) -> Option<String> {
+    fn value_equal(&mut self, prog: &ir::Program, ty: Ty) -> Option<Sym> {
         let func = prog.cell_equal.get(&ty).copied()?;
         Some(self.helper(super::glue::Helper::Equal { ty, func }))
     }
 
     /// One argument into its place in the scratch area.
     pub(crate) fn marshal(&mut self, at: u32, src: &Src) {
-        match src.clone() {
+        match *src {
             Src::Word(from) => self.mv(at, from, 8),
             Src::Imm(v) => self.imm_to(at, v),
-            Src::Sym(name) => {
-                let name = self.sym(name);
-                self.emit(
-                    "imm/64",
-                    &[
-                        Lit::D.of(u64::from(at)),
-                        Word::M.sym(name),
-                        Jump::Cont.to(V::Fall),
-                    ],
-                )
-            }
+            Src::Sym(name) => self.emit(
+                "imm/64",
+                &[
+                    Lit::D.of(u64::from(at)),
+                    Word::M.sym(name),
+                    Jump::Cont.to(V::Fall),
+                ],
+            ),
             Src::Addr(from) => self.emit(
                 "lea",
                 &[

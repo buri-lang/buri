@@ -445,7 +445,8 @@ pub struct Jit<'a> {
     /// it is only a lookup. `glue.rs` is the set, and its header is the
     /// argument.
     helpers: Vec<super::glue::Helper>,
-    helper_ix: HashMap<super::glue::Helper, usize>,
+    /// Each helper's [`Sym`], so a use neither spells nor copies its name.
+    helper_ix: HashMap<super::glue::Helper, Sym>,
     /// [`Jit::layout_of`]'s answers, by type id. A part is one program's, so
     /// an id names one type for the part's whole life, and a frame slot asks
     /// once per value: an index here instead of hashing the type in
@@ -465,7 +466,7 @@ pub struct Jit<'a> {
     runtime_syms: HashMap<&'static str, Sym>,
     /// Program-wide symbols already registered, so two types with one glue key
     /// share one body.
-    shared_ix: HashMap<String, usize>,
+    shared_ix: HashMap<String, Sym>,
     /// Where each helper starts and ends within the part.
     helper_at: Vec<(u64, u64)>,
     /// The helpers a glue body being emitted for [`super::glue::Glue`] asked
@@ -883,34 +884,33 @@ impl<'a> Jit<'a> {
     /// Drop and copy glue gets its program-wide name
     /// ([`super::glue::shared_symbol`]); everything else is a local symbol of
     /// this part.
-    pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
+    pub(crate) fn helper(&mut self, h: super::glue::Helper) -> Sym {
         if let Some(asks) = &mut self.asks {
             asks.push(h.clone());
         }
-        if let Some(i) = self.helper_ix.get(&h) {
-            return self
-                .helper_names
-                .get(*i)
-                .map(|(n, _)| n.clone())
-                .unwrap_or_default();
+        if let Some(s) = self.helper_ix.get(&h) {
+            return *s;
         }
         let shared = super::glue::shared_symbol(&h, &mut self.layouts);
-        if let Some(i) = shared.as_ref().and_then(|n| self.shared_ix.get(n)).copied() {
-            self.helper_ix.insert(h, i);
-            return shared.unwrap_or_default();
+        if let Some(s) = shared.as_ref().and_then(|n| self.shared_ix.get(n)).copied() {
+            self.helper_ix.insert(h, s);
+            return s;
         }
-        let i = self.helpers.len();
-        let name = match shared {
+        let (s, name) = match shared {
             Some(n) => {
-                self.shared_ix.insert(n.clone(), i);
-                (n, true)
+                let s = self.sym(n.clone());
+                self.shared_ix.insert(n.clone(), s);
+                (s, (n, true))
             }
-            None => (super::glue::symbol(self.part, i), false),
+            None => {
+                let n = super::glue::symbol(self.part, self.helpers.len());
+                (self.sym(n.clone()), (n, false))
+            }
         };
-        self.helper_ix.insert(h.clone(), i);
+        self.helper_ix.insert(h.clone(), s);
         self.helpers.push(h);
-        self.helper_names.push(name.clone());
-        name.0
+        self.helper_names.push(name);
+        s
     }
 
     /// A name for a [`V::Sym`] or a [`Datum::Sym`].
