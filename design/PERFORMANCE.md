@@ -11206,6 +11206,26 @@ may overlap in the middle. `native::list_fills` bounds a reversed 96-byte
 record at 30 instructions on every backend (45.3 to 14.3 on macOS
 stencil).
 
+### 6.181 Text is checked as UTF-8 a word at a time, 2026-11-21
+
+```text
+instructions a byte, macOS stencil     before      after
+bytes.fromUtf8, 4,000 ASCII bytes        36.5       0.95
+toInt, 4,000 bytes that aren't a number  12.1       1.06
+```
+
+`bytes.fromUtf8` decoded a scalar at a time into a fresh string, then
+copied that string, and the runtime read text for `toInt`, `chars`,
+`charAt` and `trim` through `from_utf8_lossy`, which walks every byte.
+Both now ask the standard validator first, which checks ASCII a word at a
+time. Only text that isn't UTF-8 takes the lossy path, so every answer is
+the same. The instructions bench reads no text this way; its programs moved by under ten
+instructions.
+
+`native::utf8_reads` bounds both reads at about halfway, 18 and 6
+instructions a byte on every backend, and checks where `fromUtf8` stops on
+each kind of byte that isn't text, under the heap check.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

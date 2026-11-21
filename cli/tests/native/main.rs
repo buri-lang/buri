@@ -412,6 +412,11 @@ mod hash_text;
 // timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod list_fills;
+// Text read as UTF-8: where `bytes.fromUtf8` stops on bytes that aren't
+// text, and what decoding and `toInt` cost a byte, counted rather than
+// timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod utf8_reads;
 // A sort whose comparator compares integers: its answers at every width and
 // order, and its instructions counted rather than timed, on every backend.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

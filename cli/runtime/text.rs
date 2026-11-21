@@ -94,7 +94,17 @@ unsafe fn view<'a>(ptr: *const u8, len: u64) -> &'a [u8] {
 /// As [`view`].
 unsafe fn text<'a>(ptr: *const u8, len: u64) -> std::borrow::Cow<'a, str> {
     // SAFETY: forwarded.
-    String::from_utf8_lossy(unsafe { view(ptr, len) })
+    as_text(unsafe { view(ptr, len) })
+}
+
+/// `bytes` as text, borrowed when it is valid UTF-8 and lossy otherwise, as
+/// `String::from_utf8_lossy`. The standard validator checks ASCII a word at
+/// a time, where `from_utf8_lossy` walks every byte.
+fn as_text(bytes: &[u8]) -> std::borrow::Cow<'_, str> {
+    match std::str::from_utf8(bytes) {
+        Ok(s) => std::borrow::Cow::Borrowed(s),
+        Err(_) => String::from_utf8_lossy(bytes),
+    }
 }
 
 /// A view of `bytes[from..to]` sharing `base`'s block, with the count taken.
@@ -148,12 +158,7 @@ fn scalar_at(bytes: &[u8], at: usize) -> Option<char> {
     };
     let end = at.saturating_add(width).min(bytes.len());
     let run = bytes.get(at..end).unwrap_or(&[]);
-    Some(
-        String::from_utf8_lossy(run)
-            .chars()
-            .next()
-            .unwrap_or('\u{FFFD}'),
-    )
+    Some(as_text(run).chars().next().unwrap_or('\u{FFFD}'))
 }
 
 /// The first byte offset at which `needle` occurs in `haystack`.
@@ -315,7 +320,7 @@ fn is_js_space(c: char) -> bool {
 
 /// The byte range left after trimming, as `(start, end)`.
 fn trim_range(bytes: &[u8], start: bool, end: bool) -> (usize, usize) {
-    let text = String::from_utf8_lossy(bytes);
+    let text = as_text(bytes);
     let mut from = 0usize;
     let mut to = bytes.len();
     if start {

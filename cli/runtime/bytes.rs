@@ -102,62 +102,22 @@ pub unsafe extern "C" fn buri_rt_bytes_from_utf8(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let b = unsafe { octets(ptr, len) };
-    let mut text = String::with_capacity(b.len());
-    let mut i = 0usize;
-    // `$bytes_fromUtf8`'s loop, byte for byte. The five `return $err([i])` sites
-    // are the five `fail` arms below and they report the same `i`.
-    let fail = |err: *mut i64, at: usize| -> i32 {
-        // SAFETY: the caller promises a writable, aligned word.
-        unsafe { err.write(at as i64) };
-        0
-    };
-    while i < b.len() {
-        let c = *b.get(i).unwrap_or(&0);
-        let (mut cp, n) = if c < 0x80 {
-            (u32::from(c), 0usize)
-        } else if c & 0xE0 == 0xC0 {
-            (u32::from(c & 0x1F), 1)
-        } else if c & 0xF0 == 0xE0 {
-            (u32::from(c & 0x0F), 2)
-        } else if c & 0xF8 == 0xF0 {
-            (u32::from(c & 0x07), 3)
-        } else {
-            return fail(err, i);
-        };
-        // `i + n >= b.length` and not `>`: the continuation bytes are at
-        // `i + 1 ..= i + n`, so the last one has to be *inside* the input.
-        if n > 0 && i.saturating_add(n) >= b.len() {
-            return fail(err, i);
+    // `$bytes_fromUtf8` refuses an invalid lead byte, a sequence cut short,
+    // an overlong form, a surrogate and anything past U+10FFFF, each at the
+    // offset its sequence starts: what the standard validator refuses, and
+    // `valid_up_to` is that offset.
+    match std::str::from_utf8(b) {
+        Ok(text) => {
+            // SAFETY: the caller promises a writable, aligned destination.
+            unsafe { out.write(str_of(text)) };
+            BURI_OK
         }
-        for k in 1..=n {
-            let cc = *b.get(i.saturating_add(k)).unwrap_or(&0);
-            if cc & 0xC0 != 0x80 {
-                return fail(err, i);
-            }
-            cp = (cp << 6) | u32::from(cc & 0x3F);
+        Err(e) => {
+            // SAFETY: the caller promises a writable, aligned word.
+            unsafe { err.write(e.valid_up_to() as i64) };
+            0
         }
-        let min = match n {
-            0 => 0,
-            1 => 0x80,
-            2 => 0x800,
-            _ => 0x1_0000,
-        };
-        if cp < min || cp > 0x10_FFFF || (0xD800..=0xDFFF).contains(&cp) {
-            return fail(err, i);
-        }
-        match core::char::from_u32(cp) {
-            Some(ch) => text.push(ch),
-            // Unreachable: the three tests above are exactly the ones
-            // `from_u32` makes. Reported rather than silently dropped, so a
-            // change to either stays a diagnosable disagreement.
-            None => return fail(err, i),
-        }
-        i = i.saturating_add(n).saturating_add(1);
     }
-    let value = str_of(&text);
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(value) };
-    BURI_OK
 }
 
 /// `bytes.fromUtf8Trusted(ctx, b) -> Str`, `fromUtf8Lossy`'s last step.
