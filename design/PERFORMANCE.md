@@ -11513,18 +11513,18 @@ build of the same program, and ideally no more than `-O1`'s:
 nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions -- --levels
 ```
 
-On the arm64 VM, 2026-11-20:
+On the arm64 VM, 2026-11-21:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1656652049     1694765001     1212143862     1199743870       0.978       1.367
-floats        544627740      567623388      452623298      449623529       0.959       1.203
-lists        2283764876     2428450360     1302430212     1293801405       0.940       1.753
-tree         1264270599     1366506886     1122714817     1122714907       0.925       1.126
-maps         1361265580     1612488448      780871821      779683506       0.844       1.743
-kvstore       922312814     1250191306      612812722      607033357       0.738       1.505
-sort          750544051     1100426384      279506489      316265184       0.682       2.685
-match         611302265     1865847811      615665953      615666137       0.328       0.993
+strings      1646652040     1694765001     1212143861     1199743870       0.972       1.358
+floats        544627740      567623388      452623299      449623530       0.959       1.203
+tree         1264270599     1366506886     1122714816     1122714907       0.925       1.126
+lists        1991680877     2281696361     1197706213     1189065403       0.873       1.663
+maps         1338899541     1590458553      758841893      757653577       0.842       1.764
+kvstore       901008145     1239890283      605013274      599238432       0.727       1.489
+sort          750059065     1100041399      279341508      316100203       0.682       2.685
+match         611302265     1865847820      615665953      615666146       0.328       0.993
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11568,6 +11568,16 @@ match         611302265     1865847811      615665953      615666137       0.328
   default defines first. The jump makes their copies and defines the
   `Const`s itself. A block every jump now goes past isn't emitted. kvstore ran
   0.02% fewer instructions.
+- The glue that releases or copies a list's elements steps a pointer from the
+  first element to the end, not an index it multiplies by the stride. A spare
+  slot is tested with a load and a conditional branch a word. lists was 1.75
+  times `-O1`.
+- A list step that is a closure written at the call, one that captures,
+  calls its lifted function directly with the closure's record, not through
+  the thunk. The record is retained only where the function owns it, as the
+  thunk does. lists was 1.66 times `-O1`. sort's `-O1` and release counts
+  rose by 40,000, 0.013%. Its setup `map` captures a `Str` the function
+  borrows, so no count is added; why LLVM runs more is not known yet.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11631,6 +11641,16 @@ Rebuilding a loop's record in place left it flat:
 | `ci` instructions | 41334.7, 41327.9 | 41333.2, 41321.1 |
 | `monorepo-ci` cost | 23485.9, 23452.6 | 23489.3, 23426.5 |
 | `monorepo-ci` instructions | 17047.4, 17047.2 | 17042.3, 17041.0 |
+
+Walking a list's elements by address and calling a capturing step directly
+left it flat:
+
+| Row | 8a6544984 | Direct steps |
+| --- | --- | --- |
+| `ci` cost | 60230.0, 60094.2 | 60153.8, 60127.4 |
+| `ci` instructions | 40624.5, 40618.6 | 40620.8, 40620.7 |
+| `monorepo-ci` cost | 23320.1, 23247.8 | 23290.3, 23333.0 |
+| `monorepo-ci` instructions | 16870.3, 16873.0 | 16870.9, 16871.3 |
 
 The register reads above added
 about 120 cost per line to `ci`'s dev codegen row, though they ran fewer
