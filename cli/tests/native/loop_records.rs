@@ -3,7 +3,7 @@
 //! copy-and-patch backend builds the new record over the old one, so a field
 //! stored before another field read the old value would show here.
 
-use crate::collection_costs::per_op;
+use crate::collection_costs::steps_cost;
 use crate::shared::ran_built;
 
 const ANSWERS: &str = r#"
@@ -67,6 +67,22 @@ fn each_step_reads_the_record_before_it() {
 /// copied back.
 const STEP_BOUND: u64 = 29;
 
+/// The two counts of steps [`STEPS`] is measured between.
+const STEP_COUNTS: (u64, u64) = (1_000_000, 3_000_000);
+
+/// What [`STEPS`] prints after `n` steps.
+fn steps_answer(n: u64) -> String {
+    let (mut acc, mut steps, mut last) = (0u64, 0u64, 0u64);
+    for i in 0..n {
+        match i % 3 {
+            0 => acc += i % 13,
+            1 => {}
+            _ => (acc, steps, last) = (acc + 1, steps + 1, last + 2),
+        }
+    }
+    format!("{}\n", acc * 1_000_000_000_000 + steps * 1_000_000 + last)
+}
+
 /// A step matches an operation and rebuilds the loop's record, changing one
 /// of its fields, all three, or none.
 const STEPS: &str = r#"
@@ -98,10 +114,7 @@ fn run(s: St, i: Int, n: Int): St {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
-  let n = match (env.arguments(ctx).first().withDefault("none")) {
-    "steps" => 200000,
-    _ => 0,
-  };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
   let s = run(St { acc: 0, steps: 0, last: 0 }, 0, n);
   io.println(ctx, "${s.acc * 1000000000000 + s.steps * 1000000 + s.last}").mapErr(fn(_e) => "stdout")
 }
@@ -112,22 +125,17 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// back each step.
 #[test]
 fn a_loop_record_is_rebuilt_in_place() {
-    let steps = 200_000;
+    let (fewer, more) = STEP_COUNTS;
+    let steps = more - fewer;
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("loop-record-steps", STEPS);
-        let (n, _) = per_op(
-            backend,
-            &binary,
-            "steps",
-            &[],
-            steps,
-            "466659066666133332\n",
-        );
-        eprintln!("{backend}: {n:?} instructions a step");
-        if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND) {
+        let n = steps_cost(backend, &binary, STEP_COUNTS, steps_answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > STEP_BOUND * steps) {
             failures.push(format!(
-                "{backend}: {n:?} instructions a step, over {STEP_BOUND}"
+                "{backend}: {each:?} instructions a step, over {STEP_BOUND}"
             ));
         }
     }
@@ -219,9 +227,16 @@ test "constant first" {
 }
 
 /// A step's cost on the copy-and-patch backend, in instructions, over the
-/// loop in [`FLIPS`]. Measured at 14 with the constant an operand of
-/// the subtraction, and 16 when it was put in a frame slot first.
+/// loop in [`FLIPS`]. Exactly 15 with the constant an operand of the
+/// subtraction, and 16 when it was put in a frame slot first. A step may
+/// cost up to half an instruction more than this, since macOS's counter
+/// reads a little over or under the cost and 15 is the cost itself.
 const FLIP_BOUND: u64 = 15;
+
+/// The two counts of steps [`FLIPS`] is measured between. A run's count
+/// is off by up to about 60,000 instructions on macOS, so ten million steps
+/// put that under a hundredth of an instruction a step.
+const FLIP_COUNTS: (u64, u64) = (5_000_000, 15_000_000);
 
 /// A step takes a field from a constant, as a `match` arm negating a
 /// value modulo a prime does.
@@ -240,10 +255,7 @@ fn flip(s: St, i: Int, n: Int): St {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
-  let n = match (env.arguments(ctx).first().withDefault("none")) {
-    "steps" => 200000,
-    _ => 0,
-  };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
   let s = flip(St { acc: 0, steps: 0, last: 0 }, 0, n);
   io.println(ctx, "${s.acc + s.last}").mapErr(fn(_e) => "stdout")
 }
@@ -253,15 +265,20 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// stencil's operand rather than a frame slot written each step and read back.
 #[test]
 fn a_constant_less_a_field_costs_one_subtraction() {
-    let steps = 200_000;
+    let (fewer, more) = FLIP_COUNTS;
+    let steps = more - fewer;
+    // Each pair of flips puts `acc` back, and `acc + last` is the constant
+    // after any flip.
+    let answer = |n: u64| format!("{}\n", if n == 0 { 0 } else { 1000003 });
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("constant-first-steps", FLIPS);
-        let (n, _) = per_op(backend, &binary, "steps", &[], steps, "1000003\n");
-        eprintln!("{backend}: {n:?} instructions a step");
-        if backend == "stencil" && n.is_some_and(|n| n > FLIP_BOUND) {
+        let n = steps_cost(backend, &binary, FLIP_COUNTS, answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && n.is_some_and(|n| n > FLIP_BOUND * steps + steps / 2) {
             failures.push(format!(
-                "{backend}: {n:?} instructions a step, over {FLIP_BOUND}"
+                "{backend}: {each:?} instructions a step, over {FLIP_BOUND}"
             ));
         }
     }
