@@ -652,7 +652,7 @@ impl Jit<'_> {
     /// `bytes` is at most a word, so a word offset is a multiple of it.
     ///
     /// `x9`–`x11` on arm64 and `rax`, `rdx` on x86-64 are as free between a
-    /// glue body's stencils as [`Jit::first_nonzero_word`]'s register.
+    /// glue body's stencils as [`Jit::all_zero_to`]'s registers.
     fn load_through(&mut self, dst: u32, at: Words, bytes: u32) {
         let offset = at.bytes();
         if !self.target.is_arm64() {
@@ -871,6 +871,10 @@ impl Jit<'_> {
     /// before the divide — a set bit would turn this loop into a walk over
     /// 2^60 elements of a block that holds a handful.
     ///
+    /// The loop runs a pointer rather than an index: `G_INDEX` holds the
+    /// element's address and `G_COUNT` the address one past the last whole
+    /// element, so a step is one add and an element is read with no multiply.
+    ///
     /// A copy stores each element back once it is replaced.
     ///
     /// An element no one load copies is tested where it is
@@ -887,7 +891,7 @@ impl Jit<'_> {
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
         // `cap` lives eight bytes below the payload pointer, so the header
-        // address is formed first and read as an ordinary indexed load.
+        // address is formed first.
         self.emit(
             "bin/sub/u64/fi/f",
             &[
@@ -897,26 +901,44 @@ impl Jit<'_> {
                 Jump::Cont.to(V::Fall),
             ],
         );
-        self.imm_to(G_INDEX, 0);
-        self.elem_load(G_COUNT, G_SPARE, G_INDEX, 8);
+        self.ptr_load(G_COUNT, G_SPARE, 0, 8);
+        // The bytes the block's whole elements fill: `cap` less any part of a
+        // stride past the last one. A power-of-two stride rounds down with the
+        // same mask that clears bit 63.
+        let and = |mask: u64| {
+            [
+                Lit::D.of(u64::from(G_COUNT)),
+                Lit::A.of(u64::from(G_COUNT)),
+                Word::K.lit(mask),
+                Jump::Cont.to(V::Fall),
+            ]
+        };
+        if stride.is_power_of_two() {
+            self.emit("bin/and/u64/fi/f", &and(CAP_MASK & !u64::from(stride - 1)));
+        } else {
+            self.emit("bin/and/u64/fi/f", &and(CAP_MASK));
+            for key in ["bin/div/u64/fi/f", "bin/mul/u64/fi/f"] {
+                self.emit(
+                    key,
+                    &[
+                        Lit::D.of(u64::from(G_COUNT)),
+                        Lit::A.of(u64::from(G_COUNT)),
+                        Word::K.lit(u64::from(stride)),
+                        Jump::Cont.to(V::Fall),
+                    ],
+                );
+            }
+        }
         self.emit(
-            "bin/and/u64/fi/f",
+            "bin/add/u64/ff/f",
             &[
                 Lit::D.of(u64::from(G_COUNT)),
                 Lit::A.of(u64::from(G_COUNT)),
-                Word::K.lit(CAP_MASK),
+                Lit::B.of(u64::from(G_PTR)),
                 Jump::Cont.to(V::Fall),
             ],
         );
-        self.emit(
-            "bin/div/u64/fi/f",
-            &[
-                Lit::D.of(u64::from(G_COUNT)),
-                Lit::A.of(u64::from(G_COUNT)),
-                Word::K.lit(u64::from(stride)),
-                Jump::Cont.to(V::Fall),
-            ],
-        );
+        self.mv(G_INDEX, G_PTR, 8);
         let base = self.fixups_len();
         let body = st.label();
         let done = st.label();
@@ -927,12 +949,12 @@ impl Jit<'_> {
         if wide {
             self.unless_spare_in_place(stride, next);
             let sym = self.helper(Helper::Walk { ty, op });
-            self.c_call_sym(sym, &st, &[Src::Word(G_SPARE)]);
+            self.c_call_sym(sym, &st, &[Src::Word(G_INDEX)]);
         } else {
             self.unless_spare(stride, next);
             self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
             if op == Op::Copy {
-                self.elem_store(G_VALUE, G_PTR, G_INDEX, size);
+                self.ptr_store(G_VALUE, G_INDEX, 0, size);
             }
         }
         let here = self.region.code_addr();
@@ -942,7 +964,7 @@ impl Jit<'_> {
             &[
                 Lit::D.of(u64::from(G_INDEX)),
                 Lit::A.of(u64::from(G_INDEX)),
-                Word::K.lit(1),
+                Word::K.lit(u64::from(stride)),
                 Jump::Cont.to(V::Fall),
             ],
         );
@@ -953,8 +975,8 @@ impl Jit<'_> {
         self.resolve_helper_blocks(base, &st);
     }
 
-    /// Loads element `G_INDEX` of the block into the frame, **all `stride`
-    /// bytes** of it, and branches to `skip` when every one of them is zero.
+    /// Loads the element at `G_INDEX` into the frame, **all `stride` bytes**
+    /// of it, and branches to `skip` when every one of them is zero.
     ///
     /// A `[T]` block's walks run to `cap / stride`, and `cli/runtime/list.rs`'s
     /// `append_dest` grows a block of counted elements with **zeroed headroom**
@@ -970,151 +992,94 @@ impl Jit<'_> {
     /// holds the slot's own bytes rather than whatever the frame held before.
     fn unless_spare(&mut self, stride: u32, skip: Label) {
         // A counted element holds a pointer, so its stride is whole words.
-        let words = stride / 8;
-        self.elem_load(G_VALUE, G_PTR, G_INDEX, stride);
-        let any = if words > 1 {
-            self.first_nonzero_word(words);
-            G_SPARE
-        } else {
-            G_VALUE
-        };
-        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
-        self.emit(
-            key,
-            &[
-                Lit::A.of(u64::from(any)),
-                Word::K.lit(0),
-                Jump::T.to(V::Blk(skip)),
-                Jump::F.to(V::Fall),
-            ],
-        );
+        self.ptr_load(G_VALUE, G_INDEX, 0, stride);
+        self.all_zero_to(None, G_VALUE, (stride / 8).max(1), skip);
     }
 
     /// [`Jit::unless_spare`] for an element no one load copies, read where it
-    /// is rather than copied in: `G_SPARE` is set to the element's address,
-    /// and the first non-zero word of it is written to `G_VALUE` and tested.
+    /// is rather than copied in: the words at `G_INDEX`'s address are tested.
     ///
     /// Only the stride's whole words are read, so the last element's read
     /// stays inside the block. A counted element is word-aligned, so its
     /// stride is whole words anyway.
     fn unless_spare_in_place(&mut self, stride: u32, skip: Label) {
-        self.emit(
-            "bin/mul/u64/fi/f",
-            &[
-                Lit::D.of(u64::from(G_SPARE)),
-                Lit::A.of(u64::from(G_INDEX)),
-                Word::K.lit(u64::from(stride)),
-                Jump::Cont.to(V::Fall),
-            ],
-        );
-        self.emit(
-            "bin/add/u64/ff/f",
-            &[
-                Lit::D.of(u64::from(G_SPARE)),
-                Lit::A.of(u64::from(G_SPARE)),
-                Lit::B.of(u64::from(G_PTR)),
-                Jump::Cont.to(V::Fall),
-            ],
-        );
-        self.first_nonzero_word_at(stride / 8);
-        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
-        self.emit(
-            key,
-            &[
-                Lit::A.of(u64::from(G_VALUE)),
-                Word::K.lit(0),
-                Jump::T.to(V::Blk(skip)),
-                Jump::F.to(V::Fall),
-            ],
-        );
+        self.all_zero_to(Some(G_INDEX), 0, stride / 8, skip);
     }
 
-    /// [`Jit::first_nonzero_word`] over the `words` words at the address in
-    /// `G_SPARE`, answered into `G_VALUE`.
-    ///
-    /// The address goes in a second scratch register, `x10` or `rdx`, which
-    /// is as free as the first between a glue body's stencils. arm64's `ldr`
-    /// reaches 32760 bytes past its base, so the base steps forward every
-    /// 4088 bytes, which one `add` immediate names.
-    fn first_nonzero_word_at(&mut self, words: u32) {
-        if !self.target.is_arm64() {
-            let mut a = X86::new();
-            a.ldr(RDX, RDI, G_SPARE);
-            let mut found = Vec::new();
-            for w in 0..words {
-                a.ldr(RAX, RDX, w * 8);
-                found.push(a.cbnz_x(RAX));
-            }
-            for p in found {
-                a.here(p);
-            }
-            a.str_off(RAX, RDI, G_VALUE);
-            let (bytes, _) = a.finish();
-            self.region.put(&bytes);
-            return;
-        }
-        const STEP: u32 = 4088;
-        let mut a = Asm::new();
-        a.ldr(10, 0, G_SPARE);
-        let mut found = Vec::new();
-        let mut base = 0;
-        for w in 0..words {
-            if w * 8 - base >= STEP {
-                a.add_imm(10, 10, STEP);
-                base += STEP;
-            }
-            a.ldr(9, 10, w * 8 - base);
-            found.push(a.cbnz_x(9));
-        }
-        for p in found {
-            a.here(p);
-        }
-        a.str_off(9, 0, G_VALUE);
-        let (bytes, _) = a.finish();
-        self.region.put(&bytes);
-    }
-
-    /// Writes the first non-zero word of the `words` frame words at `G_VALUE`
-    /// into `G_SPARE`, or zero when every one of them is zero.
+    /// A branch to `skip` when every one of `words` words is zero, and a fall
+    /// through at the first that is not: the words at offset `at` of the
+    /// frame, or of the address in frame word `through`.
     ///
     /// Hand-assembled, a load and a branch per word, because the stencil
     /// spelling of the same test was an `or` per word through a frame slot:
     /// four instructions a word, each waiting on the store before it. A
     /// 792-byte element is ninety-nine words, and in a release glue walking a
     /// list of them that chain was most of the glue's time. Here a live element
-    /// usually stops at its first word.
+    /// usually stops at its first word, and the last word's test is the branch
+    /// to `skip` itself.
     ///
-    /// The one scratch register is `x9` on arm64 and `rax` on x86-64, neither
-    /// of which is a CPS register (`abi::CPS_REGISTER_COUNT`), and nothing
-    /// lives in a register across a glue body's stencils anyway.
-    fn first_nonzero_word(&mut self, words: u32) {
+    /// The scratch registers are `x9` and `x10` on arm64 and `rax` and `rdx`
+    /// on x86-64, none of which is a CPS register (`abi::CPS_REGISTER_COUNT`),
+    /// and nothing lives in a register across a glue body's stencils anyway.
+    /// arm64's `ldr` reaches 32760 bytes past its base, so a base read through
+    /// steps forward every 4088 bytes, which one `add` immediate names.
+    fn all_zero_to(&mut self, through: Option<u32>, at: u32, words: u32, skip: Label) {
+        let start = self.region.code_addr();
         if !self.target.is_arm64() {
             let mut a = X86::new();
+            let base = match through {
+                Some(slot) => {
+                    a.ldr(RDX, RDI, slot);
+                    RDX
+                }
+                None => RDI,
+            };
             let mut found = Vec::new();
-            for w in 0..words {
-                a.ldr(RAX, RDI, G_VALUE + w * 8);
+            for w in 0..words - 1 {
+                a.ldr(RAX, base, at + w * 8);
                 found.push(a.cbnz_x(RAX));
             }
+            a.ldr(RAX, base, at + (words - 1) * 8);
+            let zero = a.cbz_x(RAX);
             for p in found {
                 a.here(p);
             }
-            a.str_off(RAX, RDI, G_SPARE);
             let (bytes, _) = a.finish();
             self.region.put(&bytes);
+            self.cond_to(start + zero.at(), skip);
             return;
         }
+        const STEP: u32 = 4088;
         let mut a = Asm::new();
+        let reg = match through {
+            Some(slot) => {
+                a.ldr(10, 0, slot);
+                10
+            }
+            None => 0,
+        };
         let mut found = Vec::new();
-        for w in 0..words {
-            a.ldr(9, 0, G_VALUE + w * 8);
+        let mut base = 0;
+        let mut load = |a: &mut Asm, w: u32| {
+            let off = at + w * 8;
+            if through.is_some() && off - base >= STEP {
+                a.add_imm(10, 10, STEP);
+                base += STEP;
+            }
+            a.ldr(9, reg, off - base);
+        };
+        for w in 0..words - 1 {
+            load(&mut a, w);
             found.push(a.cbnz_x(9));
         }
+        load(&mut a, words - 1);
+        let zero = a.cbz_x(9);
         for p in found {
             a.here(p);
         }
-        a.str_off(9, 0, G_SPARE);
         let (bytes, _) = a.finish();
         self.region.put(&bytes);
+        self.cond_to(start + zero.at(), skip);
     }
 
     fn glue_loop_test(&mut self, i: u32, n: u32, tv: V, fv: V, fall: Jump) {

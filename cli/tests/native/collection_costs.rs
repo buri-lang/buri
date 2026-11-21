@@ -996,3 +996,65 @@ fn text_equal_to_itself_costs_the_same_at_any_length() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// 1,000 records, each holding a `Str`, copied into a fresh list and dropped
+/// `k` times. `main` takes `k`.
+const RELEASES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+struct P {
+  x: Int,
+  name: Str,
+  y: Int,
+}
+
+fn rounds<C: Allocator>(ctx: C, ps: [P], k: Int, acc: Int): Int {
+  if (k == 0) { acc } else { rounds(ctx, ps, k - 1, acc + ps.map(ctx, fn(p) => P { ..p, y: p.x }).length()) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let ps = list.range(ctx, 0, 1000).mapCtx(ctx, fn(c, i) => P { x: i, name: str.fromInt(c, i), y: 0 });
+  io.println(ctx, "${rounds(ctx, ps, k, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The two counts of rounds [`RELEASE_BOUND`] is measured between.
+const RELEASE_ROUNDS: (u64, u64) = (100, 400);
+
+/// What copying one record of [`RELEASES`] into a fresh list and dropping it
+/// costs on the copy-and-patch backend, in instructions. It measured 78.9
+/// once the release stepped a pointer and its empty-slot test was the branch
+/// past the slot, and 84.6 before, when it multiplied an index, stored the
+/// test's word and compared it again. The bound sits between the two, so the
+/// old code fails it, with room for the counter's noise of well under 1%.
+const RELEASE_BOUND: f64 = 81.5;
+
+/// **A list's release walks its elements by address and skips an empty slot
+/// in one branch**: the walk steps a pointer rather than multiplying an index,
+/// and the test that a slot is empty is the branch past it.
+#[test]
+fn a_list_release_walks_its_elements_by_address() {
+    let (fewer, more) = RELEASE_ROUNDS;
+    let elems = (more - fewer) * 1000;
+    let answer = |k: u64| format!("{}\n", k * 1000);
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-releases", RELEASES);
+        let n = steps_cost(backend, &binary, RELEASE_ROUNDS, answer);
+        let each = n.map(|n| n as f64 / elems as f64);
+        eprintln!("{backend}: {each:?} instructions an element");
+        if backend == "stencil" && each.is_some_and(|e| e > RELEASE_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions an element, over {RELEASE_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

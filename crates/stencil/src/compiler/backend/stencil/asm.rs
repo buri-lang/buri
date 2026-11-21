@@ -156,6 +156,14 @@ pub struct Patch {
     kind: PatchKind,
 }
 
+impl Patch {
+    /// Where the branch is, for one left to the caller to resolve against a
+    /// label of its own rather than to [`Asm::here`].
+    pub fn at(self) -> u64 {
+        self.at
+    }
+}
+
 enum PatchKind {
     /// The 19-bit displacement of a `cbz`/`cbnz`.
     Cond19,
@@ -494,6 +502,13 @@ impl Asm {
 #[must_use]
 pub struct Patch32 {
     at: u64,
+}
+
+impl Patch32 {
+    /// [`Patch::at`]: where the field is.
+    pub fn at(self) -> u64 {
+        self.at
+    }
 }
 
 /// A block of hand-written x86-64 code, with the relocations it needs.

@@ -1827,6 +1827,12 @@ impl<'a> Jit<'a> {
         self.fixups.len()
     }
 
+    /// A hand-assembled conditional branch at `at` whose target is `blk`, to
+    /// be resolved with the stencils' own.
+    pub(crate) fn cond_to(&mut self, at: u64, blk: Label) {
+        self.fixups.push(Fix::BlockCond { at, blk });
+    }
+
     /// [`Jit::resolve_blocks`] for one of `glue.rs`'s generated bodies.
     pub(crate) fn resolve_helper_blocks(&mut self, base: usize, st: &Fn2) {
         self.resolve_blocks(base, &st.blk);
