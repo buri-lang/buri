@@ -37,7 +37,8 @@ enum RSrc {
 }
 use super::glue::Helper;
 use super::jit::{
-    copyless_test, hop, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, Sym, RET, SCRATCH_WORDS, V,
+    copyless_test, dropped, forward, hop, Bind, Carry, CopySite, Fn2, Jit, Label, Plan, Sym, RET,
+    SCRATCH_WORDS, V,
 };
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS, STR_LEN, STR_PTR};
@@ -1721,9 +1722,24 @@ impl<'a> Jit<'a> {
                     );
                     return;
                 }
-                if let Some(to) = plan.thread {
+                if let Some(th) = plan.thread {
+                    // The copies of each block on the way, then the
+                    // `Const`s the first test's block defines, as running
+                    // those blocks would have made them.
                     self.edge(prog, code, st, x);
-                    self.emit("jump", &[Jump::T.to(V::Blk(Label::of(to)))]);
+                    let on = std::iter::successors(forward(code.get(x.block)), |e| {
+                        forward(code.get(e.block))
+                    });
+                    for e in on.take(th.hops) {
+                        self.edge(prog, code, st, e);
+                    }
+                    let defs: Vec<&Inst> = (code.get(th.first).insts.iter().take(th.prefix))
+                        .filter(|i| i.results().iter().all(|d| !dropped(st, *d)))
+                        .collect();
+                    for inst in defs {
+                        self.inst(prog, code, st, inst);
+                    }
+                    self.emit("jump", &[Jump::T.to(V::Blk(Label::of(th.to)))]);
                     return;
                 }
                 if !fall && self.jump_into_test(code, st, x) {

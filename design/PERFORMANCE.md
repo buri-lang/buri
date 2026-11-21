@@ -11488,8 +11488,8 @@ floats        544627740      567623388      452623298      449623529       0.959
 lists        2283764876     2428450360     1302430212     1293801405       0.940       1.753
 tree         1264270599     1366506886     1122714817     1122714907       0.925       1.126
 maps         1361265580     1612488448      780871821      779683506       0.844       1.743
-kvstore       922471760     1250191306      612812730      607033357       0.738       1.505
-sort          750544042     1100426384      279506498      316265184       0.682       2.685
+kvstore       922312814     1250191306      612812722      607033357       0.738       1.505
+sort          750544051     1100426384      279506489      316265184       0.682       2.685
 match         611302265     1865847811      615665953      615666137       0.328       0.993
 ```
 
@@ -11527,6 +11527,11 @@ match         611302265     1865847811      615665953      615666137       0.328
   the loop keeps it in, and the slot gets a copy only once the register holds
   it. The test that reads that index sits right before its branch, so the two
   fuse. Sort was 3.11 times `-O1`.
+- The jump that passes a variant also goes past the blocks between it and the
+  tests: an `if`'s join that only passes the variant on, and the `Const`s a
+  default defines first. The jump makes their copies and defines the
+  `Const`s itself. A block every jump now goes past isn't emitted. kvstore ran
+  0.02% fewer instructions.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11572,6 +11577,15 @@ Keeping a merge step's indexes in registers left it flat:
 | `ci` instructions | 40730.9, 40726.7 | 40729.5, 40743.3 |
 | `monorepo-ci` cost | 23275.6, 23250.8 | 23292.1, 23309.5 |
 | `monorepo-ci` instructions | 16873.9, 16874.0 | 16873.5, 16878.6 |
+
+Passing a variant past joins and defaults left it flat:
+
+| Row | Main | Past joins |
+| --- | --- | --- |
+| `ci` cost | 60426.4, 60417.0 | 60318.6, 60351.2 |
+| `ci` instructions | 40736.2, 40733.7 | 40713.7, 40705.3 |
+| `monorepo-ci` cost | 23327.7, 23297.5 | 23335.2, 23311.2 |
+| `monorepo-ci` instructions | 16873.4, 16876.3 | 16878.7, 16877.0 |
 
 Rebuilding a loop's record in place left it flat:
 

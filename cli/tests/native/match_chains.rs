@@ -411,3 +411,130 @@ fn a_record_built_inside_an_arm_is_not_copied_out() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A step's cost on the copy-and-patch backend, in instructions, over the
+/// loop in [`JOINED_STEPS`]. Measured at 60.2 when the jumps that pass each
+/// variant went through the `if`'s join and the default's `Const` to the
+/// match's tests, and 53.8 since they go straight to the variant's arm. The
+/// bound sits between the two, so the old code fails it, with room for a
+/// tenth of the saving to go to the counter's noise, which is far less.
+/// Measured as [`STEP_BOUND`] is.
+const JOINED_STEP_BOUND: f64 = 57.0;
+
+/// A step matches a variant an `if` chain answers through its join, and an
+/// `Option` a list read answers to a default.
+const JOINED_STEPS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+enum Shape { Dot, Line(Int), Empty }
+
+fn named(i: Int): Shape {
+  if (i % 3 == 0) { .Empty } else if (i % 3 == 1) { .Dot } else { .Line(i) }
+}
+
+fn last(s: Shape): Int {
+  match (s) {
+    .Empty => 4,
+    .Line(n) => n % 5,
+    .Dot => 1,
+  }
+}
+
+fn run(xs: [Int], i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else {
+    run(xs, i + 1, n, acc + last(named(i)) * 10 + xs.get(i % 8).withDefault(6))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let xs = list.range(ctx, 1, 6);
+  io.println(ctx, "${run(xs, 0, n, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// What [`JOINED_STEPS`] prints after `n` steps.
+fn joined_answer(n: u64) -> String {
+    let total: u64 = (0..n)
+        .map(|i| {
+            let shape = match i % 3 {
+                0 => 4,
+                1 => 1,
+                _ => i % 5,
+            };
+            let read = if i % 8 < 5 { i % 8 + 1 } else { 6 };
+            shape * 10 + read
+        })
+        .sum();
+    format!("{total}\n")
+}
+
+/// **A variant passed on by a join takes its own arm** on the copy-and-patch
+/// backend: the jump that passes it goes past the join and the default the
+/// match's block defines, straight to the variant's arm.
+#[test]
+fn a_variant_passed_on_by_a_join_takes_its_own_arm() {
+    let (fewer, more) = STEP_COUNTS;
+    let steps = more - fewer;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("joined-steps", JOINED_STEPS);
+        let n = steps_cost(backend, &binary, STEP_COUNTS, joined_answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && each.is_some_and(|e| e > JOINED_STEP_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a step, over {JOINED_STEP_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// **Each variant passed on by joins takes its own arm**: a chain of `if`s,
+/// whose joins each pass the variant on, answers a match, and an `Option`
+/// answers a default that the match's block defines.
+#[test]
+fn each_variant_passed_on_by_joins_takes_its_own_arm() {
+    let test = r#"
+from "core/testing/assert" import * as assert;
+
+enum Shape { Dot, Line(Int), Box(Int, Int), Empty }
+
+fn deep(i: Int): Shape {
+  if (i % 4 == 0) { .Empty } else if (i % 4 == 1) { .Dot } else if (i % 4 == 2) { .Line(i) } else { .Box(i, i + 1) }
+}
+
+fn area(s: Shape): Int {
+  match (s) {
+    .Empty => 3,
+    .Dot => 1,
+    .Line(n) => n * 2,
+    .Box(a, b) => a * b,
+  }
+}
+
+fn areas(i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { areas(i + 1, n, acc * 3 % 1000003 + area(deep(i))) }
+}
+
+fn find(i: Int): Option<Int> {
+  if (i % 3 == 0) { .None } else { .Some(i) }
+}
+
+fn finds(i: Int, n: Int, acc: Int): Int {
+  if (i == n) { acc } else { finds(i + 1, n, acc * 7 % 1000003 + find(i).withDefault(5)) }
+}
+
+test "variants passed on by joins" {
+    assert.equal(areas(0, 40, 0), 899197);
+    assert.equal(finds(0, 30, 0), 691894);
+}
+"#;
+    crate::odd_sizes::passes("joined-variants", test, 1);
+}

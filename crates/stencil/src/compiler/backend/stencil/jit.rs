@@ -1737,7 +1737,7 @@ impl<'a> Jit<'a> {
                 let mut opnd = std::mem::take(&mut self.bufs.opnd);
                 opnd.fill(code);
                 st.uses = count_uses(code, &opnd, &mut st.uses);
-                let order = self.layout(code);
+                let mut order = self.layout(code);
                 std::mem::swap(&mut st.npred, &mut self.bufs.seen);
                 st.carry = None;
                 st.scratch = self.slots(prog, code, frame, &st.uses, &opnd, &order, &mut st.slot);
@@ -1761,6 +1761,10 @@ impl<'a> Jit<'a> {
                         st.threads.push(t);
                     }
                 }
+                if !st.threads.is_empty() {
+                    let live = live(code, &st);
+                    order.retain(|b| *live.get(*b));
+                }
                 st.cur = ir::BlockId::ENTRY;
                 let base = self.fixups.len();
                 for (oi, id) in order.iter().copied().enumerate() {
@@ -1775,7 +1779,7 @@ impl<'a> Jit<'a> {
                     let block = code.get(id);
                     let mut plan = self.plan_block(code, &st, block);
                     if let Some(t) = st.threads.iter().find(|t| t.from == id) {
-                        plan.thread = Some(t.to);
+                        plan.thread = Some(*t);
                         if let Some(s) = t.skip.and_then(|k| plan.skip.get_mut(k)) {
                             *s = true;
                         }
@@ -2404,7 +2408,7 @@ pub(crate) struct Plan {
     pub eqk: Option<bool>,
     /// Where the block's jump goes past the tests of the variant it passes
     /// ([`thread`]).
-    pub thread: Option<ir::BlockId>,
+    pub thread: Option<Thread>,
 }
 
 /// A back edge that increments a loop's index and takes the loop's test, as
@@ -4019,7 +4023,7 @@ impl<'a> Jit<'a> {
         // one the call that reads it writes.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
-                if matches!(st.home(*dest), Loc::Imm) || st.sunk.get(*dest).is_some() {
+                if dropped(st, *dest) {
                     *skip = true;
                 }
             }
@@ -4125,6 +4129,12 @@ impl<'a> Jit<'a> {
     }
 }
 
+/// Whether a `Const` defining `dest` is emitted as nothing: every use of it
+/// is an immediate, or the call that reads it writes it.
+pub(crate) fn dropped(st: &Fn2, dest: ir::ValueId) -> bool {
+    matches!(st.home(dest), Loc::Imm) || st.sunk.get(dest).is_some()
+}
+
 /// The value [`Fn2::r2_for`] names: the block ends in a test of a frame word
 /// against a literal, which [`Jit::chain_test`] does by loading the word into
 /// `r2`, and the arithmetic emitted just before it is what defines the word.
@@ -4179,62 +4189,138 @@ pub(crate) fn copyless_test<'c>(
 pub(crate) struct Thread {
     pub from: ir::BlockId,
     pub to: ir::BlockId,
+    /// The block whose tag the jump reads first: its target, or the block
+    /// past those that only pass their arguments on.
+    pub first: ir::BlockId,
+    /// How many of those blocks there are.
+    pub hops: usize,
+    /// How many `Const`s that block defines before it reads the tag, which
+    /// the jump defines in its place.
+    pub prefix: usize,
     /// The index of the `MakeEnum` the jump's block can leave out.
     pub skip: Option<usize>,
-    /// Whether the variant is all the block builds and all the jump passes.
+    /// Whether the variant is all the block builds and all the jump passes,
+    /// straight to a block that reads the tag first.
     pub alone: bool,
+}
+
+/// The target of a block that holds nothing and only jumps.
+pub(crate) fn forward(b: &ir::Block) -> Option<&ir::Target> {
+    match &b.term {
+        ir::Term::Jump(t) if b.insts.is_empty() => Some(t),
+        _ => None,
+    }
 }
 
 /// The [`Thread`] of `from`'s jump: an inlined function answering an enum to a
 /// `match`, whose tag is then neither stored, read back nor tested.
 ///
-/// A block passed over has no parameter but the enum's, if it is the first,
-/// and holds nothing but the tag, the literals it is tested against and the
-/// test, each read once, by the test, so nothing past it misses a value it
-/// defines. The jump, the first block and the landing are in one promotion
-/// region, so a register the landing reads holds what the edge left there.
+/// The jump may reach the first test through blocks that hold nothing and
+/// pass their arguments on, as an `if`'s join does, and that block may define
+/// `Const`s before it reads the tag, as a default does. The jump makes those
+/// blocks' copies and defines those `Const`s itself.
+///
+/// A block passed over after the first has no parameter, and holds nothing
+/// but the tag, the literals it is tested against and the test, each read
+/// once, by the test, so nothing past it misses a value it defines. The jump,
+/// every block it passes and the landing are in one promotion region, so a
+/// register the landing reads holds what the edges left there.
 ///
 /// The `MakeEnum` is left out where only the first block's tag reads the
-/// enum, and it is built in that block's parameter's slot, so the edge copies
-/// nothing of it either.
+/// enum, and every edge passes it in the one slot, so they copy nothing of it
+/// either.
 pub(crate) fn thread(code: &ir::Code, st: &Fn2, from: ir::BlockId) -> Option<Thread> {
     let a = code.get(from);
     let ir::Term::Jump(t) = &a.term else {
         return None;
     };
-    let first = code.get(t.block);
-    let Some(ir::Inst::GetTag { agg: p, .. }) = first.insts.first() else {
+    // The block past those that only pass their arguments on. Bounded, since
+    // nothing else stops a cycle of empty blocks.
+    let (mut last, mut hops) = (t, 0);
+    while let Some(n) = forward(code.get(last.block)) {
+        hops += 1;
+        if hops > 8 {
+            return None;
+        }
+        last = n;
+    }
+    let first = last.block;
+    let fb = code.get(first);
+    let prefix = fb
+        .insts
+        .iter()
+        .position(|i| !matches!(i, ir::Inst::Const { .. }))?;
+    let Some(ir::Inst::GetTag { agg: p, .. }) = fb.insts.get(prefix) else {
         return None;
     };
-    let arg = *first
-        .params
-        .iter()
-        .position(|q| q == p)
-        .and_then(|i| t.args.get(i))?;
+    // Back from the first block to the jump: the value each edge passes as
+    // the parameter the next one passes on, and the tag reads at the end.
+    // Each edge is found again from the jump, as there are seldom any.
+    let region = *st.region.get(from);
+    let (mut arg, mut only, mut apart) = (*p, uses(st, *p) == 1, false);
+    for k in (0..=hops).rev() {
+        let mut e = t;
+        for _ in 0..k {
+            e = forward(code.get(e.block))?;
+        }
+        apart |= *st.region.get(e.block) != region;
+        let i = code.get(e.block).params.iter().position(|q| *q == arg)?;
+        arg = *e.args.get(i)?;
+        only &= (uses(st, arg) == 1) & (st.at(arg) == st.at(*p));
+    }
     let made = a.insts.iter().rposition(|i| i.results().contains(&arg))?;
     let Some(ir::Inst::MakeEnum { variant, .. }) = a.insts.get(made) else {
         return None;
     };
     let v = variant.index() as u64;
     // A block an edge with no arguments enters has no parameters, so only
-    // the first one has any. Bounded, since nothing else stops a cycle of
-    // tests.
-    let past = tag_test(first, st, *p, v)?;
-    let at = std::iter::successors(Some(past), |b| tag_test(code.get(*b), st, *p, v))
-        .take(64)
-        .last()?;
-    let region = *st.region.get(from);
-    if (*st.region.get(t.block) != region) | (*st.region.get(at) != region) {
+    // the first one has any.
+    let past = tag_test(fb.insts.get(prefix..)?, &fb.term, st, *p, v)?;
+    let to = std::iter::successors(Some(past), |b| {
+        let b = code.get(*b);
+        tag_test(&b.insts, &b.term, st, *p, v)
+    })
+    .take(64)
+    .last()?;
+    if apart | (*st.region.get(to) != region) {
         return None;
     }
-    let only = (uses(st, arg) == 1) & (uses(st, *p) == 1) & (st.at(arg) == st.at(*p));
-    let skip = only.then_some(made);
     Some(Thread {
         from,
-        to: at,
-        skip,
-        alone: (a.insts.len() == 1) & (t.args.len() == 1),
+        to,
+        first,
+        hops,
+        prefix,
+        skip: only.then_some(made),
+        alone: (a.insts.len() == 1) & (t.args.len() == 1) & (hops == 0) & (prefix == 0),
     })
+}
+
+/// The blocks a jump or branch still goes to once each [`thread`]ed jump goes
+/// past its tests, which are the blocks emitted: one every way into which a
+/// thread passes runs nothing. A branch counts as going both to its target
+/// and to where [`hop`] sends it, since not every way of emitting one hops.
+fn live(code: &ir::Code, st: &Fn2) -> ir::PerBlock<bool> {
+    let mut live = code.per_block(false);
+    let mut stack = vec![ir::BlockId::ENTRY];
+    *live.get_mut(ir::BlockId::ENTRY) = true;
+    while let Some(b) = stack.pop() {
+        let mut go = |to: ir::BlockId| {
+            if !*live.get(to) {
+                *live.get_mut(to) = true;
+                stack.push(to);
+            }
+        };
+        if let Some(t) = st.threads.iter().find(|t| t.from == b) {
+            go(t.to);
+            continue;
+        }
+        for t in code.get(b).term.targets() {
+            go(t.block);
+            go(hop(st, t.block));
+        }
+    }
+    live
 }
 
 /// Where a branch to `b` can go instead: past `b` where all it does is the
@@ -4250,9 +4336,15 @@ pub(crate) fn hop(st: &Fn2, b: ir::BlockId) -> ir::BlockId {
 }
 
 /// The block a block that only tests `p`'s tag goes to when the tag is `v`.
-fn tag_test(b: &ir::Block, st: &Fn2, p: ir::ValueId, v: u64) -> Option<ir::BlockId> {
+fn tag_test(
+    insts: &[ir::Inst],
+    term: &ir::Term,
+    st: &Fn2,
+    p: ir::ValueId,
+    v: u64,
+) -> Option<ir::BlockId> {
     let (mut tag, mut test, mut ok) = (None, None, true);
-    for i in &b.insts {
+    for i in insts {
         ok &= i.results().iter().all(|r| uses(st, *r) == 1);
         match i {
             ir::Inst::GetTag { dest, agg, .. } => {
@@ -4274,7 +4366,7 @@ fn tag_test(b: &ir::Block, st: &Fn2, p: ir::ValueId, v: u64) -> Option<ir::Block
             _ => return None,
         }
     }
-    let to = match (&b.term, test) {
+    let to = match (term, test) {
         (ir::Term::Switch { on, cases, default }, None) => {
             ok &= tag == Some(*on);
             cases
