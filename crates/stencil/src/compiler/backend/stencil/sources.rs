@@ -146,6 +146,13 @@ pub const F32: Sc = Sc {
 /// else goes through `eload/n`, whose size is a hole and whose body a loop.
 pub const ELEM_WIDTHS: [u32; 12] = [1, 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64];
 
+/// `buri_rt_fieldless`'s shape, as `runtime_table::FIELDLESS` gives it: the
+/// payload bytes each block has, the header in front of it, and the bytes
+/// from one block to the next.
+const FIELDLESS_BYTES: u32 = 112;
+const FIELDLESS_HEADER: u32 = 16;
+const FIELDLESS_STRIDE: u32 = FIELDLESS_HEADER + FIELDLESS_BYTES;
+
 /// The types arithmetic is generated for.
 const CORE_TYPES: [Sc; 4] = [I64, U64, F64, F32];
 /// The narrow widths arithmetic is generated for besides.
@@ -859,6 +866,42 @@ fn moves(o: &mut Out) {
          AT(uint64_t, _JIT_D) = p; TAIL0; }"
             .into(),
     );
+    // A box of an enum with fieldless variants (`emit::box_into`): bit `t` of
+    // the `P` hole says variant `t` has no fields, and such a value is
+    // `buri_rt_fieldless`'s `IMMORTAL` block for tag `t`, whose address is
+    // the `R` hole plus a stride a tag. The tag is the value's first byte,
+    // because a tagged enum's tag is at offset 0 and the variants this takes
+    // are fewer than 64. The 0.9 hint keeps the allocating side whole (see
+    // the count stencils' note on Apple's clang).
+    for (key, size, copy) in ELEM_WIDTHS
+        .iter()
+        .filter(|n| (8..=FIELDLESS_BYTES).contains(*n))
+        .map(|n| {
+            (
+                format!("box/fl/{n}"),
+                n.to_string(),
+                format!("memcpy((void *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), {n});"),
+            )
+        })
+        .chain(std::iter::once((
+            String::from("box/fl/n"),
+            String::from("OFF(_JIT_N)"),
+            String::from(
+                "copy_n((char *)(uintptr_t)p, (const char *)fp + OFF(_JIT_A), OFF(_JIT_N));",
+            ),
+        )))
+    {
+        o.push(
+            &key,
+            format!(
+                "void $NAME(ARGS0) {{ uint64_t t = *((const uint8_t *)fp + OFF(_JIT_A)); uint64_t p; \
+                 if (__builtin_expect_with_probability((OFF(_JIT_P) >> t) & 1, 0, 0.9)) {{ \
+                 p = (uint64_t)(uintptr_t)_JIT_R + {FIELDLESS_HEADER} + t * {FIELDLESS_STRIDE}; \
+                 }} else {{ p = buri_rt_alloc({size}); {copy} }} \
+                 AT(uint64_t, _JIT_D) = p; TAIL0; }}"
+            ),
+        );
+    }
     // The discriminant of a niche-encoded enum: VALUE-MODEL.md §6's second
     // niche, where `.None` is a null pointer and the tag is a comparison.
     o.push(

@@ -2254,6 +2254,22 @@ pub const VALUES_MAY_CROSS_TASKS: &str = "buri_rt_values_may_cross_tasks";
 /// a block allocated before sharing began counts as marked after it.
 pub const SHARED_MASK: &str = "buri_rt_shared_mask";
 
+/// `buri_rt_fieldless` — one `IMMORTAL` block per tag below
+/// [`FIELDLESS_TAGS`], each 128 bytes from the next: a 16-byte header, the
+/// tag in the first payload word and zeros to [`FIELDLESS_BYTES`]. A data
+/// symbol, not a function. The stencil library's `box/fl` sources spell the
+/// same numbers, because the build script that compiles them can't read this
+/// file.
+///
+/// The development backend points a boxed field at one when the value boxed
+/// is a variant with no fields, rather than allocating a block for its tag
+/// (`stencil::emit::box_into`).
+pub const FIELDLESS: &str = "buri_rt_fieldless";
+/// How many tags [`FIELDLESS`] has a block for.
+pub const FIELDLESS_TAGS: u32 = 16;
+/// Bytes of payload each [`FIELDLESS`] block has.
+pub const FIELDLESS_BYTES: u32 = 112;
+
 /// The intrinsic keys that can run Buri code on a second thread: the runtime's
 /// two fan-outs, `Tasks.parallel` and a scope running its tasks beside its
 /// body. Every other key in `middle::rc::crosses_tasks` hands a value to a

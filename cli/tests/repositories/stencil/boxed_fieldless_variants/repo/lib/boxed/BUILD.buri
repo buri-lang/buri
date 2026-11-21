@@ -1,0 +1,8 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/boxed.buri"]
+        backends: [NATIVE, JS]
+    }
+}

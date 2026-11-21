@@ -399,7 +399,7 @@ impl<'a> Jit<'a> {
                     }
                     let off = at.bytes();
                     if self.boxes(owner, t) {
-                        self.box_into(d + off, st.at(*f), w);
+                        self.box_into(d + off, st.at(*f), w, t);
                         continue;
                     }
                     self.store_w(d + off, st.at(*f), w);
@@ -714,7 +714,7 @@ impl<'a> Jit<'a> {
             for ((f, o), t) in fields.iter().zip(offs.iter().copied()).zip(ftys) {
                 let w = s.width_of(prog, code.ty_of(*f));
                 if s.boxes(owner, t) {
-                    s.box_into(d + o.bytes(), st.at(*f), w);
+                    s.box_into(d + o.bytes(), st.at(*f), w, t);
                     continue;
                 }
                 s.store_w(d + o.bytes(), st.at(*f), w);
@@ -836,28 +836,59 @@ impl<'a> Jit<'a> {
     /// be, for the field that would otherwise make the owner recursive
     /// (`Layouts::boxes`). So writing one is an allocation, a copy and a store
     /// of the pointer — the shape a boxed `counts::Field` releases.
-    fn box_into(&mut self, dest: u32, src: u32, size: u32) {
-        let key = key!["box/", size];
-        if self.has(&key) {
-            self.emit(
-                &key,
-                &[
-                    Lit::D.of(u64::from(dest)),
-                    Lit::A.of(u64::from(src)),
-                    Jump::Cont0.to(V::Fall),
-                ],
-            );
+    ///
+    /// When `ty` is an enum with variants that have no fields, a value of one
+    /// of them is `buri_rt_fieldless`'s `IMMORTAL` block for its tag instead
+    /// ([`Self::fieldless_mask`]): a tree's `.Leaf` was half its allocations.
+    fn box_into(&mut self, dest: u32, src: u32, size: u32, ty: &Ty) {
+        let mask = self.fieldless_mask(ty, size);
+        let (fixed, sized) = if mask == 0 {
+            (key!["box/", size], "box/n")
+        } else {
+            (key!["box/fl/", size], "box/fl/n")
+        };
+        let mut holes = vec![
+            Lit::D.of(u64::from(dest)),
+            Lit::A.of(u64::from(src)),
+            Jump::Cont0.to(V::Fall),
+        ];
+        if mask != 0 {
+            holes.push(Lit::P.of(mask));
+            holes.push(Word::R.ext(runtime::FIELDLESS));
+        }
+        if self.has(&fixed) {
+            self.emit(&fixed, &holes);
             return;
         }
-        self.emit(
-            "box/n",
-            &[
-                Lit::D.of(u64::from(dest)),
-                Lit::A.of(u64::from(src)),
-                Lit::N.of(u64::from(size)),
-                Jump::Cont0.to(V::Fall),
-            ],
-        );
+        holes.push(Lit::N.of(u64::from(size)));
+        self.emit(sized, &holes);
+    }
+
+    /// Bit `t` set for each variant `t` of `ty` that has no fields and a
+    /// `buri_rt_fieldless` block, or `0` when `ty` isn't a tagged enum with
+    /// one, or a box of `size` bytes is wider than the blocks. The variants
+    /// are fewer than 64, so the stencil's shift by the tag stays in range.
+    fn fieldless_mask(&mut self, ty: &Ty, size: u32) -> u64 {
+        if size > runtime::FIELDLESS_BYTES {
+            return 0;
+        }
+        let l = self.layout_shared(ty);
+        let Repr::Enum {
+            repr: EnumRepr::Tagged { .. },
+            variants,
+        } = &l.repr
+        else {
+            return 0;
+        };
+        if variants.len() > 64 {
+            return 0;
+        }
+        variants
+            .iter()
+            .take(runtime::FIELDLESS_TAGS as usize)
+            .enumerate()
+            .filter(|(_, fields)| fields.is_empty())
+            .fold(0, |m, (t, _)| m | 1 << t)
     }
 
     /// Reading one back: the field holds the block's pointer, and the value is

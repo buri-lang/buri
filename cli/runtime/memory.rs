@@ -95,6 +95,55 @@ pub const BURI_RT_HEADER: usize = 16;
 /// The alignment every payload is guaranteed. VALUE-MODEL.md §2.
 pub const BURI_RT_ALIGN: usize = 16;
 
+/// How many variants [`FIELDLESS`] holds a block for: tags `0` to `15`.
+pub const BURI_RT_FIELDLESS_TAGS: usize = 16;
+
+/// Bytes of payload each [`FIELDLESS`] block has: the widest boxed enum that
+/// shares one.
+pub const BURI_RT_FIELDLESS_BYTES: usize = 112;
+
+/// Words from one [`FIELDLESS`] block's header to the next one's.
+const FIELDLESS_STRIDE: usize = (BURI_RT_HEADER + BURI_RT_FIELDLESS_BYTES) / 8;
+
+/// One `IMMORTAL` block per tag, for a boxed enum value whose variant has no
+/// fields.
+///
+/// A recursive enum's boxed field holds a pointer, so a tree's `.Leaf` child
+/// used to be an allocation, a copy and a free of a block that holds only
+/// its tag. The development backend's `box/fl` stencils point the field at
+/// block `tag` here instead. Each block is a header, `rc` [`BURI_RT_IMMORTAL`]
+/// and `cap` [`BURI_RT_FIELDLESS_BYTES`], then the tag in the first word and
+/// zeros after it, so a read of the whole value finds the variant's tag and
+/// nothing else.
+///
+/// Atomics because a count stencil's unshared arm stores the saturated count
+/// back, which writes `IMMORTAL` over itself. The static has to be writable,
+/// and an `AtomicU64` is `Sync` without a lock.
+#[unsafe(export_name = "buri_rt_fieldless")]
+pub static FIELDLESS: Fieldless = Fieldless(fieldless_blocks());
+
+/// [`FIELDLESS`]'s storage, aligned as a payload is.
+#[repr(C, align(16))]
+pub struct Fieldless([AtomicU64; BURI_RT_FIELDLESS_TAGS * FIELDLESS_STRIDE]);
+
+/// The blocks [`FIELDLESS`] starts with.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "constant evaluation: every index is below its bound, checked at compile time"
+)]
+const fn fieldless_blocks() -> [AtomicU64; BURI_RT_FIELDLESS_TAGS * FIELDLESS_STRIDE] {
+    let mut words = [const { AtomicU64::new(0) }; BURI_RT_FIELDLESS_TAGS * FIELDLESS_STRIDE];
+    let mut tag = 0;
+    while tag < BURI_RT_FIELDLESS_TAGS {
+        let at = tag * FIELDLESS_STRIDE;
+        words[at] = AtomicU64::new(BURI_RT_IMMORTAL);
+        words[at + 1] = AtomicU64::new(BURI_RT_FIELDLESS_BYTES as u64);
+        words[at + 2] = AtomicU64::new(tag as u64);
+        tag += 1;
+    }
+    words
+}
+
 /// Bit 63 of `cap`: the multi-threaded mark. **Set means "this block may be
 /// reached from more than one thread"** — the question `incref`/`decref`
 /// branch on to choose an atomic count, and the question

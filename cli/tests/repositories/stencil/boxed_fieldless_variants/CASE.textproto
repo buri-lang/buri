@@ -1,0 +1,14 @@
+# Recursive enums whose boxed fields hold variants with no fields: a tree's
+# `Leaf`, and an enum of seventy such variants, more than a 64-bit mask has
+# bits for, wrapped twice. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "fieldless variants in boxed fields read back as built on both backends"
+
+run {
+  args: ["test", "//lib/boxed", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

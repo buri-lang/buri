@@ -503,3 +503,7 @@ mod system_library;
     any(feature = "backend-llvm", feature = "backend-stencil")
 ))]
 mod core_dump;
+// A recursive enum's fieldless variants in boxed fields: what they answer on
+// every backend built in, and how many blocks a tree costs.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod fieldless_boxes;
