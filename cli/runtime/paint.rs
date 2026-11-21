@@ -4833,7 +4833,7 @@ fn placed_on_anchor(
         _ => low,
     };
     if shift {
-        shifted(at, size, [low, high.max(low)], [0.0, page])
+        shifted(at, size, [low, high], [0.0, page])
     } else {
         at
     }
@@ -4843,6 +4843,8 @@ fn placed_on_anchor(
 /// default overflow alignment (CSS Box Alignment 3 §4.4.1.2, as Chromium
 /// does it): inside `room`, its inset-modified containing block, where it fits
 /// there, and otherwise inside `room` and `page` together, start edge first.
+/// `room` is the insets as written: where they cross, its end is before its
+/// start and nothing fits in it, which is how Blink's `ComputeInsets` reads it.
 fn shifted(at: f32, size: f32, room: [f32; 2], page: [f32; 2]) -> f32 {
     let [low, high] = if size <= room[1] - room[0] {
         room

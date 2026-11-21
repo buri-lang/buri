@@ -866,7 +866,9 @@ fn pinned_panels_flip_and_fit_the_room() {
 /// page (#365). Each scene and its twin come out at the same place, the place
 /// the shared golden shows: a `Shift` panel slid back onto the page along the
 /// axes it names, one with no `Shift` left running past the edge, one wider
-/// than the page at its start edge, and one that shifts and then flips.
+/// than the page at its start edge, one that shifts and then flips, and two
+/// whose pin runs past the anchor's far edge and off the page, which slide
+/// back to the page's edge as Blink's `ComputeInsets` slides them.
 #[test]
 fn pinned_panels_shift_onto_the_page() {
     let case = tests_dir().join("repositories/ui/pinned_panels_shift_onto_the_page");
@@ -880,6 +882,8 @@ fn pinned_panels_shift_onto_the_page() {
         ("too-wide", "-600,32 900x80"),
         ("flip-shift", "-200,-80 400x80"),
         ("computed", "-100,32 300x80"),
+        ("end-past-page", "-600,32 100x80"),
+        ("start-past-page", "0,120 160x80"),
     ];
     let placed: Vec<(String, String)> = expected
         .iter()

@@ -4,8 +4,9 @@
 # golden with a twin that pins a plain box where the panel should land: a
 # `Shift` panel slid back from the end edge, from the start edge, up from the
 # bottom, on both axes, centred on its anchor, and wider than the page; one
-# with no `Shift` that runs past the edge; one that shifts and then flips; and
-# one whose styles are computed.
+# with no `Shift` that runs past the edge; one that shifts and then flips; two
+# whose pin runs past the anchor and off the page; and one whose styles are
+# computed.
 #
 # The last step moves the shifted panel's twin back to its anchor's start
 # edge, and that test fails.

@@ -371,3 +371,85 @@ test "the box pinned the plain way where the panel computed goes" {
         [],
     );
 }
+
+test "a panel pinned at its end past the page's start edge shifts to that edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "end-past-page",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.End, .Px(800)),
+            .Width(.Px(100)),
+            .Height(.Px(80)),
+            .Shift(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel end-past-page goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "end-past-page",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(-600)),
+            .Width(.Px(100)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel pinned at its start past the page's bottom shifts up to it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "start-past-page",
+        anchored(40, 200, [
+            .Pin(.Top, .Px(300)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Shift(.Y),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel start-past-page goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "start-past-page",
+        pinned(40, 200, [
+            .Pin(.Top, .Px(120)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}

@@ -686,14 +686,12 @@ function placedAlong(element, dimension, start, end, align, room, area, page) {
   if (["self-end", "flex-end"].includes(self)) self = "end";
   const shift = shifts(align, self) && (area || (from !== null && to !== null));
   if (!area && from === null && to === null) throw new Error(`placedAt: a static ${dimension} position`);
-  let s = from ?? 0;
-  let e = to ?? 0;
-  // Never below zero: the weaker inset gives way, the auto one if only one
-  // is auto and the end one otherwise.
-  const over = s + e - room;
-  if (over > 0 && from === null) s -= over;
-  else if (over > 0) e -= over;
-  const inside = room - s - e;
+  const s = from ?? 0;
+  const e = to ?? 0;
+  // The room the insets leave sizes the box, never below zero. Blink places
+  // the box from the insets as they are, so where they cross, the weaker one
+  // gives way only as the alignment below says.
+  const inside = Math.max(0, room - s - e);
   const stretches = self === "stretch" || (self === "normal" && !area && from !== null && to !== null);
   if (size === null && stretches) size = inside;
   if (size === null && dimension === "width") {
@@ -707,10 +705,10 @@ function placedAlong(element, dimension, start, end, align, room, area, page) {
   if (!area && to === null) return [s, size];
   let at;
   if (self === "start") at = s;
-  else if (self === "end") at = s + inside - size;
-  else if (self === "center") at = s + (inside - size) / 2;
+  else if (self === "end") at = room - e - size;
+  else if (self === "center") at = s + (room - s - e - size) / 2;
   else throw new Error(`placedAt: self-alignment ${align}`);
-  return [shift ? shifted(at, size, [s, s + inside], page) : at, size];
+  return [shift ? shifted(at, size, [s, room - e], page) : at, size];
 }
 // Whether a box with both insets set slides back inside its containing block
 // when it runs out of its inset room, by CSS Box Alignment 3: under any
@@ -719,6 +717,8 @@ const shifts = (align, self) => !/^(safe|unsafe) /.test(align ?? "") && self !==
 // Where a box `size` long that starts at `at` slides to, by CSS Box Alignment
 // 3 §4.4.1.2 as Chromium does it: inside `room`, its inset room, where it fits
 // there, and otherwise inside `room` and `page` together, start edge first.
+// `room` is the insets as written, so where they cross, its end is before its
+// start, and the box never fits it.
 function shifted(at, size, room, page) {
   const [low, high] = size <= room[1] - room[0] ? room : [Math.min(room[0], page[0]), Math.max(room[1], page[1])];
   return Math.max(Math.min(at, high - size), low);
