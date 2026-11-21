@@ -11086,6 +11086,39 @@ text that isn't ASCII, and bounds a nine-byte key's hash at 107
 instructions (114 to 99 on macOS stencil). `native::split_text` now also
 checks `lines` and bounds it at 448 (472 to 424).
 
+### 6.177 A cache miss calls nothing, and a sweep frees a list in one pass, 2026-11-20
+
+```text
+                              before      after       change
+tree, stencil                 1.4095 B    1.2643 B    -10.30%
+tree, release                 1.2679 B    1.1227 B    -11.45%
+maps, release                 0.7815 B    0.7797 B    -0.24%
+kvstore, release              0.6084 B    0.6070 B    -0.23%
+```
+
+Counted with aarch64 callgrind. `maps` and `kvstore` fell by 0.15% on
+stencil and `lists` by 0.03%; the other programs moved by under 20
+instructions.
+
+- `alloc_missed` takes a small block off the first page of its class
+  itself, through the allocator's heap that the cache's thread-local now
+  keeps a copy of. It used to look the heap up in a second thread-local
+  behind a call. The tally's rare settling moved out of line, so a miss
+  saves no registers.
+- A large block comes from the cache's own thread-local, which the miss
+  already has, rather than through a second lookup.
+- A sweep hands each size's free list to the allocator in one pass:
+  `Allocator::give_each` looks up the class, the range and the heap once
+  for the lot rather than once a block.
+- The copy of the heap starts as null, so the cache's thread-local stays
+  zero and a new thread copies none of it in.
+
+`native::alloc_churn` now checks that blocks a sweep gives back are used
+again intact, on one thread and across tasks, and bounds a large literal
+step at 737 instructions (747 to 728 on macOS stencil).
+`native::collection_costs` bounds a 2¹⁶-node tree at 502 a node (533 to
+473).
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

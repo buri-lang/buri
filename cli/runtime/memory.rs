@@ -48,6 +48,31 @@ unsafe fn dealloc(p: *mut u8, layout: Layout) {
     unsafe { BLOCKS.dealloc(p, layout) }
 }
 
+/// [`dealloc`] of each block `next` yields until it yields null, every one
+/// of `layout`.
+#[inline(always)]
+unsafe fn dealloc_each(layout: Layout, next: impl FnMut() -> *mut u8) {
+    #[cfg(not(test))]
+    {
+        use crate::allocator::Allocator;
+        // SAFETY: the caller's contract, passed through, and the heap is this
+        // thread's.
+        unsafe { Allocator::give_each(Allocator::heap(), layout.size(), next) }
+    }
+    #[cfg(test)]
+    {
+        let mut next = next;
+        loop {
+            let p = next();
+            if p.is_null() {
+                return;
+            }
+            // SAFETY: the caller's contract, passed through.
+            unsafe { dealloc(p, layout) }
+        }
+    }
+}
+
 #[inline(always)]
 unsafe fn realloc(p: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
     // SAFETY: the caller's contract, passed through.
@@ -1242,20 +1267,24 @@ impl Cache {
         let Some(slot) = self.slots.get_mut(idx) else {
             return;
         };
-        loop {
-            let p = slot.head;
+        let mut p = std::mem::replace(&mut slot.head, std::ptr::null_mut());
+        let mut given = 0;
+        let next = || {
             if p.is_null() {
-                return;
+                return p;
             }
+            let raw = p.wrapping_sub(BURI_RT_HEADER);
             // SAFETY: every pointer in a slot is a dead block this file freed,
             // of exactly `payload` usable bytes, whose `rc` holds the next one.
-            slot.head = unsafe { (*header(p)).rc as *mut u8 };
-            self.room += bytes;
-            // SAFETY: `p - 16` is the allocation and `layout` is the layout it
-            // was created with — the slot index *is* the capacity, which is
-            // the whole point of keying on exact sizes.
-            unsafe { dealloc(p.sub(BURI_RT_HEADER), layout) }
-        }
+            p = unsafe { (*header(p)).rc as *mut u8 };
+            given += 1;
+            raw
+        };
+        // SAFETY: each `p - 16` is an allocation and `layout` is the layout
+        // it was created with — the slot index *is* the capacity, which is
+        // the whole point of keying on exact sizes.
+        unsafe { dealloc_each(layout, next) };
+        self.room += given * bytes;
     }
 }
 
@@ -1313,6 +1342,12 @@ struct ThreadHeap {
     /// Last, so the two fields above keep the offsets every allocation
     /// reads them at.
     big: std::cell::UnsafeCell<BigCache>,
+    /// The allocator's heap for this thread, kept here by
+    /// [`Allocator::mirror`](crate::allocator::Allocator::mirror) so that
+    /// [`alloc_missed`] reads it from the address it already has. It starts
+    /// as none, so the whole thread-local stays zero until the thread uses
+    /// it and a new thread copies none of it in.
+    heap: std::cell::Cell<crate::allocator::HeapRef>,
 }
 
 thread_local! {
@@ -1345,6 +1380,7 @@ thread_local! {
                 held: 0,
                 published: 0,
             }),
+            heap: std::cell::Cell::new(crate::allocator::HeapRef::NONE),
         }
     };
 
@@ -1631,9 +1667,101 @@ fn alloc_missed<const ZEROED: bool>(payload: u64, t: *const ThreadHeap) -> *mut 
     };
     t.tally.add(&allocated(payload));
     if t.tally.state.get() != TALLY_OPEN {
-        settle_allocated(&t.tally, payload);
+        return settled_fresh::<ZEROED>(payload, t);
     }
-    let raw = raw_block(kept_big(payload), payload, ZEROED);
+    fresh::<ZEROED>(payload, t)
+}
+
+/// [`alloc_missed`] where the tally needs settling, out of line, so the miss
+/// calls nothing but in tail position and needs no stack frame.
+#[cold]
+#[inline(never)]
+fn settled_fresh<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
+    settle_allocated(&t.tally, payload);
+    fresh::<ZEROED>(payload, t)
+}
+
+/// Keep the allocator's heap for this thread in `t` from now on.
+fn mirror_heap(t: &ThreadHeap) {
+    #[cfg(not(test))]
+    // SAFETY: `t` is this thread's, and lasts as long as the thread.
+    unsafe {
+        crate::allocator::Allocator::mirror(&raw const t.heap);
+    }
+    #[cfg(test)]
+    let _ = t;
+}
+
+/// A fresh block of `payload` bytes for [`alloc_missed`], with its header.
+///
+/// A small one comes off the first page of its class with nothing called on
+/// the way, so `alloc_missed` needs no stack frame for it. A large one goes
+/// on in [`fresh_big`], and anything else in [`fresh_rest`].
+#[cfg(not(test))]
+#[inline(always)]
+fn fresh<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
+    use crate::allocator::Allocator;
+    if payload > CACHE_MAX_PAYLOAD {
+        return fresh_big::<ZEROED>(payload, t);
+    }
+    // A thread that hasn't kept its heap in `t` yet starts to in `fresh_rest`.
+    let heap = t.heap.get();
+    if heap.is_none() {
+        return fresh_rest::<ZEROED>(payload, t);
+    }
+    let size = payload as usize + BURI_RT_HEADER;
+    // SAFETY: `size` is at least the header, and the heap is this thread's.
+    let raw = unsafe { Allocator::take_first(heap, size) };
+    if raw.is_null() {
+        return fresh_rest::<ZEROED>(payload, t);
+    }
+    // SAFETY: `raw` is a block of `size` bytes that nothing holds, so its
+    // payload starts one past the header.
+    unsafe {
+        let p = raw.add(BURI_RT_HEADER);
+        if ZEROED {
+            std::ptr::write_bytes(p, 0, payload as usize);
+        }
+        headed(p, payload)
+    }
+}
+
+/// [`fresh`] where the installed allocator is the system's.
+#[cfg(test)]
+#[inline(always)]
+fn fresh<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
+    if payload > CACHE_MAX_PAYLOAD {
+        return fresh_big::<ZEROED>(payload, t);
+    }
+    fresh_rest::<ZEROED>(payload, t)
+}
+
+/// [`fresh`] past the first page of a small block's class: one from the
+/// installed allocator. Until `t` names the thread's started heap, each
+/// visit here looks it up again.
+#[cold]
+#[inline(never)]
+fn fresh_rest<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
+    if !t.heap.get().started() {
+        mirror_heap(t);
+    }
+    fresh_from(None, payload, ZEROED)
+}
+
+/// [`fresh`] for a block past [`CACHE_MAX_PAYLOAD`]: one `t` kept, or one
+/// from the platform allocator.
+#[inline(never)]
+fn fresh_big<const ZEROED: bool>(payload: u64, t: &ThreadHeap) -> *mut u8 {
+    // SAFETY: `t` is this thread's, and no other reference to its big blocks
+    // is live.
+    let kept = unsafe { &mut *t.big.get() }.take(payload);
+    fresh_from(kept, payload, ZEROED)
+}
+
+/// [`raw_block`] with its header, for [`fresh`].
+#[inline(always)]
+fn fresh_from(kept: Option<*mut u8>, payload: u64, zeroed: bool) -> *mut u8 {
+    let raw = raw_block(kept, payload, zeroed);
     if raw.is_null() {
         buri_rt_abort_oom(payload);
     }

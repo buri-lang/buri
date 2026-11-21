@@ -192,6 +192,9 @@ thread_local! {
     /// `UNSTARTED` until the thread's first small allocation, then its heap or `SYSTEM`.
     static HEAP: Cell<*mut Heap> = const { Cell::new(UNSTARTED) };
     static EXIT: Exit = const { Exit };
+    /// A copy of [`HEAP`] its user keeps beside its own thread-local, which
+    /// [`Exit`] points at the system, or null ([`Allocator::mirror`]).
+    static MIRROR: Cell<*const Cell<HeapRef>> = const { Cell::new(ptr::null()) };
 }
 
 /// [`HEAP`] again, where a thread-local read is a call: in a pthread key read
@@ -308,6 +311,13 @@ impl Drop for Exit {
     fn drop(&mut self) {
         let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
         set_heap(SYSTEM);
+        let _ = MIRROR.try_with(|m| {
+            let copy = m.get();
+            if !copy.is_null() {
+                // SAFETY: `mirror`'s caller promised the copy for the thread's life.
+                unsafe { (*copy).set(HeapRef(SYSTEM)) };
+            }
+        });
         if heap != SYSTEM && heap != UNSTARTED {
             let _held = lock(&ABANDONED_LOCK);
             // SAFETY: the heap left this thread above, and the lock is held.
@@ -926,29 +936,13 @@ impl Allocator {
             return unsafe { Self::take_large(layout) };
         };
         let heap = this_heap::<FRAMES_MOVE>();
-        // SAFETY: this thread's heap, or an empty one, and its page; the list
-        // holds free blocks of class `c`.
-        unsafe {
-            let page = (*heap).pages[c];
-            if !page.is_null() {
-                let block = (*page).free;
-                if !block.is_null() {
-                    (*page).free = block.cast::<*mut u8>().read();
-                    (*page).used += 1;
-                    return block;
-                }
-                // A fresh page's blocks come off its bump, here rather than in
-                // `refill`: a program that builds a tree takes most of its
-                // blocks this way, and the call cost more than the bump.
-                let block = (*page).bump;
-                if block < (*page).end {
-                    (*page).bump = block.add(SIZES[c]);
-                    (*page).used += 1;
-                    return block;
-                }
-            }
-            Self::refill(heap, c, layout.size())
+        // SAFETY: this thread's heap, or an empty one.
+        let block = unsafe { first_page_block(heap, c) };
+        if !block.is_null() {
+            return block;
         }
+        // SAFETY: as above.
+        unsafe { Self::refill(heap, c, layout.size()) }
     }
 
     /// A block past the size classes, from the system.
@@ -971,22 +965,8 @@ impl Allocator {
             // SAFETY: a small block outside the range came from the system at its class's layout.
             return unsafe { system_dealloc(p, class_layout(c)) };
         };
-        let heap = this_heap::<FRAMES_MOVE>();
-        // SAFETY: `p` is a free block of `page`, whose `owner` never changes.
-        unsafe {
-            if (*page).owner == heap {
-                p.cast::<*mut u8>().write((*page).free);
-                (*page).free = p;
-                (*page).used -= 1;
-                if (*page).used == 0 {
-                    retire(heap, page);
-                } else if (*page).spent {
-                    revive(heap, page);
-                }
-                return;
-            }
-            Self::give_remote(p, page);
-        }
+        // SAFETY: `p` is a free block of `page`.
+        unsafe { give_to(this_heap::<FRAMES_MOVE>(), page, p) }
     }
 
     /// Frees `p` into `page`, which another thread's heap owns.
@@ -1022,6 +1002,87 @@ impl Allocator {
             }
             // Last: once the owner counts this, nothing here touches the page again.
             remote.freed.fetch_add(1, Release);
+        }
+    }
+
+    /// The calling thread's heap, read where the frame stands, for
+    /// [`Allocator::take_first`] and [`Allocator::give_each`]. A frame that
+    /// may move between threads must not keep it across a call.
+    #[inline(always)]
+    pub fn heap() -> HeapRef {
+        HeapRef(heap_inline())
+    }
+
+    /// Sets `copy` to the calling thread's heap, and to the system when the
+    /// thread exits, so a caller with a thread-local of its own finds the heap
+    /// there rather than with a second lookup. A heap that starts later
+    /// leaves `copy` unstarted ([`HeapRef::started`]), and the caller mirrors
+    /// again then.
+    ///
+    /// # Safety
+    /// `copy` lasts as long as the calling thread, and no other thread uses it.
+    pub unsafe fn mirror(copy: *const Cell<HeapRef>) {
+        if MIRROR.try_with(|m| m.set(copy)).is_ok() {
+            let heap = HEAP.try_with(Cell::get).unwrap_or(SYSTEM);
+            // SAFETY: the caller's contract.
+            unsafe { (*copy).set(HeapRef(heap)) };
+        }
+    }
+
+    /// The block [`GlobalAlloc::alloc`] would give for `size` bytes at
+    /// 16-byte alignment, if the first page of its class on `heap` has one,
+    /// and null otherwise, where `alloc` itself goes on to find one. A size
+    /// past the largest class is null too.
+    ///
+    /// # Safety
+    /// `size` is at least 1, and `heap` is the calling thread's.
+    #[inline(always)]
+    pub unsafe fn take_first(heap: HeapRef, size: usize) -> *mut u8 {
+        match CLASS_OF.get(size.div_ceil(STEP)) {
+            // SAFETY: the caller's contract, and `c` is a class.
+            Some(&c) => unsafe { first_page_block(heap.0, c as usize) },
+            None => null_mut(),
+        }
+    }
+
+    /// [`GlobalAlloc::dealloc`] of each block `next` yields until it yields
+    /// null, every one of `size` bytes at 16-byte alignment.
+    ///
+    /// For a free list of one size: the class, the range and the heap are
+    /// looked up once for the lot rather than once a block.
+    ///
+    /// # Safety
+    /// Each block is one [`GlobalAlloc::alloc`] gave for `size` bytes at
+    /// 16-byte alignment, and `heap` is the calling thread's.
+    #[inline(always)]
+    pub unsafe fn give_each(heap: HeapRef, size: usize, mut next: impl FnMut() -> *mut u8) {
+        // SAFETY: the caller's contract makes this a valid layout.
+        let layout = unsafe { Layout::from_size_align_unchecked(size, STEP) };
+        let Some(c) = class(layout) else {
+            loop {
+                let p = next();
+                if p.is_null() {
+                    return;
+                }
+                // SAFETY: the caller's contract, passed through.
+                unsafe { system_dealloc(p, layout) };
+            }
+        };
+        // Once: the range is reserved at most once, before any block in it
+        // is handed out.
+        let base = BASE.load(Relaxed).addr();
+        loop {
+            let p = next();
+            if p.is_null() {
+                return;
+            }
+            if p.addr().wrapping_sub(base) >= RANGE {
+                // SAFETY: as in `give`.
+                unsafe { system_dealloc(p, class_layout(c)) };
+                continue;
+            }
+            // SAFETY: `p` is a free block of the page it lies in.
+            unsafe { give_to(heap.0, p.map_addr(|a| a & !(PAGE - 1)).cast::<Page>(), p) };
         }
     }
 
@@ -1073,6 +1134,82 @@ impl Allocator {
                 q
             }
         }
+    }
+}
+
+/// A block from the first page of class `c` on `heap`: off its free list, or
+/// off its bump, or null where it has neither.
+///
+/// # Safety
+/// `heap` is the calling thread's, or an empty one, and `c` is below `CLASSES`.
+#[inline(always)]
+unsafe fn first_page_block(heap: *mut Heap, c: usize) -> *mut u8 {
+    // SAFETY: the caller's contract; the list holds free blocks of class `c`.
+    unsafe {
+        let page = (*heap).pages[c];
+        if !page.is_null() {
+            let block = (*page).free;
+            if !block.is_null() {
+                (*page).free = block.cast::<*mut u8>().read();
+                (*page).used += 1;
+                return block;
+            }
+            // A fresh page's blocks come off its bump, here rather than in
+            // `refill`: a program that builds a tree takes most of its
+            // blocks this way, and the call cost more than the bump.
+            let block = (*page).bump;
+            if block < (*page).end {
+                (*page).bump = block.add(SIZES[c]);
+                (*page).used += 1;
+                return block;
+            }
+        }
+    }
+    null_mut()
+}
+
+/// Frees `p` into `page`, on `heap`'s list if `heap` owns it and through its
+/// remote stack otherwise.
+///
+/// # Safety
+/// `p` is a free block of `page`, and `heap` is the calling thread's.
+#[inline(always)]
+unsafe fn give_to(heap: *mut Heap, page: *mut Page, p: *mut u8) {
+    // SAFETY: the caller's contract; `page`'s `owner` never changes.
+    unsafe {
+        if (*page).owner == heap {
+            p.cast::<*mut u8>().write((*page).free);
+            (*page).free = p;
+            (*page).used -= 1;
+            if (*page).used == 0 {
+                retire(heap, page);
+            } else if (*page).spent {
+                revive(heap, page);
+            }
+            return;
+        }
+        Allocator::give_remote(p, page);
+    }
+}
+
+/// A thread's heap, as [`Allocator::heap`] found it.
+#[derive(Clone, Copy)]
+pub struct HeapRef(*mut Heap);
+
+impl HeapRef {
+    /// No heap, which [`Allocator::take_first`] must never be given. All
+    /// zero, so a thread-local that starts with it needs no copying in.
+    pub const NONE: HeapRef = HeapRef(null_mut());
+
+    /// [`HeapRef::NONE`].
+    pub fn is_none(self) -> bool {
+        self.0.is_null()
+    }
+
+    /// Neither [`HeapRef::NONE`] nor the heap of a thread that hasn't
+    /// allocated a small block yet.
+    pub fn started(self) -> bool {
+        !self.0.is_null() && self.0 != UNSTARTED
     }
 }
 

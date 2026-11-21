@@ -87,6 +87,12 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// 180 instructions on stencil, a list literal step from 177 to 170 and a
 /// large literal step from 756 to 747.
 ///
+/// **A miss calls nothing on its way.** Past the cache, a large block came
+/// from a second thread-local lookup behind a call, and every miss saved
+/// registers for the tally's rare settling. The block now comes from the
+/// cache's own thread-local, and the settling is out of line. A large literal
+/// step went from 747 to 728 instructions on stencil.
+///
 /// Each bound sits about halfway.
 #[test]
 fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
@@ -97,7 +103,7 @@ fn allocating_and_freeing_a_block_costs_a_few_dozen_instructions() {
         for (mode, length, stencil, llvm) in [
             ("range", 2, 183, 159),
             ("literal", 2, 173, 104),
-            ("large", LARGE, 751, 258),
+            ("large", LARGE, 737, 258),
         ] {
             let want = format!("{}\n", STEPS * length);
             let (n, blocks) = per_op(backend, &binary, mode, &[&steps], STEPS, &want);
@@ -336,6 +342,99 @@ fn blocks_go_the_right_way_after_an_index_or_a_scope_turns_on_partway() {
     let want = format!("38880 {picked} 38880 38930 38880\n");
     for (backend, build) in crate::e2e::probed_builds(&probe) {
         let binary = build("alloc-latches", LATCHES);
+        let counts = |checked: bool| {
+            let mut cmd = std::process::Command::new(&binary);
+            if checked {
+                heap_checked(&mut cmd);
+            }
+            let r = ran_command(&mut cmd);
+            assert_eq!(r.status, 0, "{backend} checked={checked}: {}", r.stderr);
+            assert_eq!(r.stdout, want, "{backend} checked={checked}");
+            r.stderr
+                .lines()
+                .find_map(|l| l.strip_prefix("counts="))
+                .unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr))
+                .to_string()
+        };
+        let (shipped, checked) = (counts(false), counts(true));
+        assert_eq!(
+            shipped, checked,
+            "{backend}: total blocks, bytes, live blocks, bytes"
+        );
+        assert!(
+            shipped.ends_with(" 0 0"),
+            "{backend}: {shipped} still live at exit"
+        );
+    }
+}
+
+/// Rounds of 400 lists of `Int`s, 0 to 140 elements long, so each round's
+/// lists fill cache slots up to 1,120 bytes: a size of a page's class, one
+/// past the classes but in the cache, or past both. Each round's sizes differ
+/// from the last's, so the cache's sweeps give back the slots that went idle.
+/// `fanned` builds four batches a round on other threads and sums them here,
+/// so a swept block is often one another thread's page owns. The answer is
+/// both sums.
+const SWEPT: &str = r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout, Tasks };
+
+fn batch<C: Allocator>(ctx: C, r: Int): [[Int]] {
+  list.range(ctx, 0, 400).mapCtx(ctx, fn(c, i) => list.range(c, i, i + (i * 37 + r * 11) % 141))
+}
+
+fn total(xss: [[Int]]): Int {
+  xss.fold(fn(a, xs) => a + xs.fold(fn(b, x) => b + x, 0), 0)
+}
+
+fn rounds<C: Allocator>(ctx: C, r: Int, n: Int, acc: Int): Int {
+  if (r >= n) { acc } else { rounds(ctx, r + 1, n, acc + total(batch(ctx, r))) }
+}
+
+fn fanned<C: Allocator + Tasks>(ctx: C, r: Int, n: Int, acc: Int): Int {
+  if (r >= n) {
+    acc
+  } else {
+    let made = tasks.parallel(ctx, list.range(ctx, 0, 4), fn(c, _i, x) => batch(c, r * 4 + x));
+    fanned(ctx, r + 1, n, acc + made.fold(fn(a, xss) => a + total(xss), 0))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  io.println(ctx, "${rounds(ctx, 0, 200, 0)} ${fanned(ctx, 0, 50, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// [`SWEPT`]'s answer: the sum of every list's elements, a batch `r` at a time.
+fn swept_answer() -> String {
+    let batch = |r: u64| -> u64 {
+        (0..400u64)
+            .map(|i| (i..i + (i * 37 + r * 11) % 141).sum::<u64>())
+            .sum()
+    };
+    let rounds: u64 = (0..200).map(batch).sum();
+    let fanned: u64 = (0..200).map(batch).sum();
+    format!("{rounds} {fanned}\n")
+}
+
+/// **Blocks the cache's sweep gives back are used again intact, at every size
+/// the cache keeps.** A sweep hands a slot's whole list to the allocator at
+/// once, which finds the size's class and the thread's heap once for the lot.
+/// Lists of 127 and 128 elements are cached but past the allocator's classes,
+/// so those go to the system, and blocks from other threads' pages go back to
+/// those pages. A block given back to the wrong place would turn up in two
+/// lists and change a sum. The counts must match the heap check's, which
+/// never uses the cache, with nothing live at exit.
+#[test]
+fn blocks_a_sweep_gives_back_are_used_again_intact() {
+    let probe = counts_probe();
+    let want = swept_answer();
+    for (backend, build) in crate::e2e::probed_builds(&probe) {
+        let binary = build("alloc-swept", SWEPT);
         let counts = |checked: bool| {
             let mut cmd = std::process::Command::new(&binary);
             if checked {

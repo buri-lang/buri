@@ -652,6 +652,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// A fresh page's blocks now come off its bump in the allocator's fast path,
 /// without a call. A 2¹⁶-node tree went from 602 to 533 instructions a node on
 /// the copy-and-patch backend.
+///
+/// A miss now takes a small block off its page with no call and no stack
+/// frame, and a sweep gives a free list back to the allocator in one pass:
+/// 533 to 471. The bound sits about halfway.
 #[test]
 fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
     let total = |depth: u32| {
@@ -696,9 +700,9 @@ fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
         if big * 10 > small * 18 {
             failures.push(format!("{backend}: a 2^16-node tree is {big} instructions a node against {small} for 63 nodes"));
         }
-        if backend == "stencil" && big > 567 {
+        if backend == "stencil" && big > 502 {
             failures.push(format!(
-                "{backend}: a 2^16-node tree is {big} instructions a node, over 567"
+                "{backend}: a 2^16-node tree is {big} instructions a node, over 502"
             ));
         }
     }
