@@ -11015,6 +11015,27 @@ Counted with aarch64 callgrind. The other programs moved by less than
 Its bound on a three-piece split went from 638 to 584 (608 to 561
 instructions on macOS stencil).
 
+### 6.174 A fresh page's block comes off its bump without a call, 2026-11-20
+
+```text
+                              before      after       change
+tree, stencil                 1.5445 B    1.4095 B    -8.75%
+tree, release                 1.4030 B    1.2679 B    -9.63%
+maps, release                 0.7966 B    0.7949 B    -0.22%
+```
+
+Counted with aarch64 callgrind. The other programs moved by less than
+0.15%.
+
+- A tree too big for the block cache takes most of its blocks from fresh
+  pages. Each went through `refill`, a call that saved registers to bump
+  one pointer. `Allocator::take` now bumps the page itself, after the free
+  list, and calls `refill` only when the page is full.
+
+`native::collection_costs` now also bounds a 2¹⁶-node tree on the
+copy-and-patch backend at 567 instructions a node. It went from 602 to 533
+on macOS.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

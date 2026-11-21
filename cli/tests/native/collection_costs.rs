@@ -616,6 +616,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// 2.71 times a 63-node one a node on LLVM, and 2.16 times on the
 /// copy-and-patch backend. Blocks up to 1 KiB now come from the runtime's own
 /// pages, and that's 1.47 and 1.37.
+///
+/// A fresh page's blocks now come off its bump in the allocator's fast path,
+/// without a call. A 2¹⁶-node tree went from 602 to 533 instructions a node on
+/// the copy-and-patch backend.
 #[test]
 fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
     let total = |depth: u32| {
@@ -659,6 +663,11 @@ fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
         };
         if big * 10 > small * 18 {
             failures.push(format!("{backend}: a 2^16-node tree is {big} instructions a node against {small} for 63 nodes"));
+        }
+        if backend == "stencil" && big > 567 {
+            failures.push(format!(
+                "{backend}: a 2^16-node tree is {big} instructions a node, over 567"
+            ));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
