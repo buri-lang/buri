@@ -9479,6 +9479,22 @@ function $host_testing_Rendered_press(self, label) {
   return 0;
 }
 
+// A press on the scrim around the open dialog `label` names, outside its panel.
+// Only the dialog on top is reached, the one Escape shuts, and one `Removed`
+// takes out of the page is drawn nowhere. The native `rendered_press_outside`.
+function $host_testing_Rendered_pressOutside(self, label) {
+  const doc = $scene_of(self);
+  const dialog = $scene_labelled(doc, "dialog", label);
+  if (dialog < 0) $abort('this tree has no open dialog labelled "' + label + '"');
+  const dialogs = $scene_elements(doc, "dialog");
+  if ($scene_removed(doc, dialog) || dialogs[dialogs.length - 1] !== dialog) return 0;
+  const scrim = doc.records[dialog].parent;
+  for (const entry of doc.outside.slice()) {
+    if (entry.alive && !$scene_within(doc, entry.elem, scrim)) entry.fire();
+  }
+  return 0;
+}
+
 // A button's activation — what a click on it does, and what Enter and Space on
 // it do: its handler runs, and a submit button submits its form. A disabled
 // button does nothing. The native `activate`.

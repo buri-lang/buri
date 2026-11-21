@@ -207,6 +207,23 @@ impl Rendered {
     /// `fill`, `flip` and `submit` follow the same rule.
     export fn press(self, label: Str): ();
 
+    /// Presses the scrim around the open `dialog` labelled `label`, outside
+    /// its panel — what a reader clicking the page behind a dialog does.
+    ///
+    /// ```text
+    /// page.pressOutside("Details");
+    /// ```
+    ///
+    /// The press reaches the dialog's `onPressOutside`, and the
+    /// `onPressOutside` of every element the dialog is not inside, as `press`
+    /// does. Nothing else hears it, and the focus stays where it is.
+    ///
+    /// Only the dialog on top can be pressed outside, the one Escape shuts, so
+    /// nothing runs for a dialog with another open over it. Nothing runs
+    /// either for a dialog inside what a `Removed` takes out of the page.
+    /// Aborts when no open dialog carries that label.
+    export fn pressOutside(self, label: Str): ();
+
     /// Follows the `web.routeLink` labelled `label` with a plain left-click.
     ///
     /// Addressed by the text it shows, the way a reader addresses a link, and it

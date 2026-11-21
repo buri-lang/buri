@@ -2096,6 +2096,47 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     activate(handle, button);
 }
 
+/// `Rendered.pressOutside(label)` — press the scrim around the open dialog the
+/// label names, outside its panel. Only the dialog on top is reached, the one
+/// Escape shuts, and one `Removed` takes out of the page is drawn nowhere.
+///
+/// # Safety
+/// `label` is a readable UTF-8 range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_rendered_press_outside(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let label = unsafe { text_of(ptr, len) };
+    let Some(dialog) = with_doc(handle, |doc| doc.labelled("dialog", &label)).flatten() else {
+        crate::abort::die(&[
+            b"this tree has no open dialog labelled \"",
+            label.as_bytes(),
+            b"\"",
+        ])
+    };
+    let outside: Vec<i64> = with_doc(handle, |doc| {
+        let top = doc.elements("dialog").last() == Some(&dialog);
+        let scrim = doc.records[dialog]
+            .parent
+            .filter(|_| top && !doc.removed(dialog));
+        scrim.map_or_else(Vec::new, |scrim| {
+            doc.outside
+                .iter()
+                .filter(|(_, elem)| !doc.within(*elem, scrim))
+                .map(|(node, _)| *node)
+                .collect()
+        })
+    })
+    .unwrap_or_default();
+    for node in outside {
+        crate::ui::fire(node, handle);
+    }
+}
+
 /// A button's activation — what a click on it does, and what Enter and Space
 /// on it do: its handler runs, and a submit button submits its form. A
 /// disabled button does nothing.

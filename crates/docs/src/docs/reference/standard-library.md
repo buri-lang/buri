@@ -1209,6 +1209,8 @@ element does not fire it, which is what lets the one press that dismisses the
 overlay also act on what it landed on. It adds no element of its own, and a
 native painter, having no pointer, leaves it inert. There is deliberately no
 generic `onTap`: activating something is a `button`'s or a `link`'s job.
+`platform/effect/testing`'s `press` and `pointerDown` reach it, and
+`pressOutside(label)` presses the scrim around an open `dialog`.
 
 `onPointerDown`, `onPointerMove` and `onPointerUp` are how a row is dragged and
 dropped. Each takes `fn(C, PointerAt) => ()`. The press captures the pointer, so

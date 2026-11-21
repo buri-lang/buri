@@ -1166,6 +1166,40 @@ leaves the page alone, and it opens again when the stack comes back. Its
 `isOpen` stays `true` the whole time. Nothing else hides a dialog: it sits above
 every box, so a `VisuallyHidden`, see-through or clipped stack still shows it.
 
+A test presses outside an open dialog with `pressOutside(label)`. `press` can't
+do it, because everything behind the dialog is inert:
+
+```buri role=test
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Ui, Watch };
+from "platform/effect/testing" import { headless, observer, render };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+
+test "a press outside the dialog shuts it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let page = render(
+        ctx,
+        ui.dialog({
+            isOpen: open,
+            label: .Const("Details"),
+            children: [],
+            styles: [],
+            onPressOutside: .Some(fn(c) => open.set(c, false)),
+        }),
+    );
+    let _ = page.pressOutside("Details");
+    assert.isFalse(open.get(ctx));
+}
+```
+
+It presses the scrim, so it reaches only the dialog on top, the one Escape
+shuts.
+
 **An overlay that is not modal dismisses itself with `onPressOutside`.** A
 dialog gets Escape and a backdrop press from the platform, but a menu, a popover
 or a select does not — nothing watches for a press that lands elsewhere.

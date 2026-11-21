@@ -2078,6 +2078,12 @@ pub const ENTRIES: &[Entry] = &[
     // `fill` and `flip` write the bound signal, `submit` fires the form's handler
     // under the implicit-submission rule. All answer `()`.
     e("host_testing.Rendered.press", &[Scalar, Str], Ret::Void),
+    // `pressOutside` presses the scrim around the open dialog the label names.
+    e(
+        "host_testing.Rendered.pressOutside",
+        &[Scalar, Str],
+        Ret::Void,
+    ),
     // `follow` fires a route link's kept handler with its destination, and
     // `openInNewTab` resolves the anchor and fires nothing.
     e("host_testing.Rendered.follow", &[Scalar, Str], Ret::Void),

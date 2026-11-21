@@ -625,3 +625,114 @@ test "a press in a dialog is not outside it when its own onFocus rewrote what th
     let _ = page.press("Inside");
     assert.isTrue(open.get(ctx));
 }
+
+// `pressOutside` presses the scrim around an open dialog's panel, the way a
+// reader clicks the page behind it.
+
+/// A dialog labelled `Details`, open while `open` holds, inside a stack styled
+/// `around`, whose `onPressOutside` counts into `shut`. Beside it, a stack whose
+/// `onPressOutside` counts into `beside`.
+fn dismissing<C: Ui>(
+    open: Signal<Bool>,
+    shut: Signal<Int>,
+    beside: Signal<Int>,
+    around: [Style],
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.stack({
+                styles: [],
+                children: [idle("Menu", false)],
+                onPressOutside: .Some(fn(c) => beside.update(c, fn(n) => n + 1)),
+            }),
+            ui.stack({
+                styles: around,
+                children: [
+                    ui.dialog({
+                        isOpen: open,
+                        label: .Const("Details"),
+                        children: [idle("Inside", false)],
+                        styles: [],
+                        onPressOutside: .Some(fn(c) => shut.update(c, fn(n) => n + 1)),
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+test "a press outside an open dialog runs its onPressOutside and the one beside it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let shut = signal(ctx, 0);
+    let beside = signal(ctx, 0);
+    let page = render(ctx, dismissing(open, shut, beside, []));
+    let _ = page.pressOutside("Details");
+    assert.equal(shut.get(ctx), 1);
+    assert.equal(beside.get(ctx), 1);
+    assert.equal(page.focused(), "Inside");
+}
+
+test "a press outside a dialog inside a removed stack runs nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, true);
+    let shut = signal(ctx, 0);
+    let beside = signal(ctx, 0);
+    let page = render(ctx, dismissing(open, shut, beside, [.Removed(true)]));
+    let _ = page.pressOutside("Details");
+    assert.equal(shut.get(ctx), 0);
+    assert.equal(beside.get(ctx), 0);
+}
+
+/// A dialog labelled `Outer` holding a dialog labelled `Inner`, both open, each
+/// of whose `onPressOutside` counts into its own signal.
+fn stacked<C: Ui>(ctx: C, outer: Signal<Int>, inner: Signal<Int>): Node<C> {
+    ui.dialog({
+        isOpen: signal(ctx, true),
+        label: .Const("Outer"),
+        children: [
+            ui.dialog({
+                isOpen: signal(ctx, true),
+                label: .Const("Inner"),
+                children: [idle("Deep", false)],
+                styles: [],
+                onPressOutside: .Some(fn(c) => inner.update(c, fn(n) => n + 1)),
+            }),
+        ],
+        styles: [],
+        onPressOutside: .Some(fn(c) => outer.update(c, fn(n) => n + 1)),
+    })
+}
+
+test "a press outside the dialog on top does not reach the dialog holding it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let outer = signal(ctx, 0);
+    let inner = signal(ctx, 0);
+    let page = render(ctx, stacked(ctx, outer, inner));
+    let _ = page.pressOutside("Inner");
+    assert.equal(inner.get(ctx), 1);
+    assert.equal(outer.get(ctx), 0);
+}
+
+test "a press outside a dialog with another open over it runs nothing" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let outer = signal(ctx, 0);
+    let inner = signal(ctx, 0);
+    let page = render(ctx, stacked(ctx, outer, inner));
+    let _ = page.pressOutside("Outer");
+    assert.equal(inner.get(ctx), 0);
+    assert.equal(outer.get(ctx), 0);
+}
