@@ -90,12 +90,19 @@ fn recorded(binary: &Path, dir: &Path, block: usize, update: bool) -> Option<u64
             Some(seen) => seen.zip(count).map(|(a, b)| a.min(b)),
         });
     }
-    let checked = ran_command(heap_checked(&mut command()));
-    assert_eq!(
-        checked.status, 0,
-        "block {block} under the heap check: {}",
-        checked.stderr
-    );
+    // On arm64, Memcheck reads the paint runtime's optimized code as branching
+    // on unset values, which `memcheck.yml` says why ("arm64 runs `paint::` at
+    // opt-level 0"). There the heap check runs outside Valgrind, and the
+    // encoder's own unit tests are the ones Memcheck checks.
+    let (status, stderr) = if cfg!(target_arch = "aarch64") {
+        let out = heap_checked(&mut command()).output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        (out.status.code().unwrap_or(-1), stderr)
+    } else {
+        let ran = ran_command(heap_checked(&mut command()));
+        (ran.status, ran.stderr)
+    };
+    assert_eq!(status, 0, "block {block} under the heap check: {stderr}");
     fewest.flatten()
 }
 
