@@ -2785,6 +2785,28 @@ impl Document {
         self.focused.filter(|&k| self.stop_record(k).is_some())
     }
 
+    /// The `hasFocus` signal of what has the focus, its own or else a group's
+    /// around it, or `-1`.
+    fn holder(&self) -> i64 {
+        let Some(k) = self.focus_now() else { return -1 };
+        if let Some(own) = self.stops.get(k)
+            && own.signal >= 0
+            && !own.within
+        {
+            return own.signal;
+        }
+        let Some(at) = self.stop_record(k) else {
+            return -1;
+        };
+        (0..self.stops.len())
+            .filter(|&g| self.stops[g].within && self.stops[g].signal >= 0)
+            .find(|&g| {
+                self.stop_record(g)
+                    .is_some_and(|group| self.within(group, at))
+            })
+            .map_or(-1, |g| self.stops[g].signal)
+    }
+
     /// Whether a reader can focus stop `key`: an element in the tree, enabled,
     /// not behind an open dialog, and either a control or a link or something
     /// the program gave a focus. A group's signal is the group's, and the
@@ -3010,6 +3032,16 @@ pub extern "C" fn buri_rt_ui_node_request_focus(handle: i64, key: i64, on: u8) {
         Nothing,
         Move(Option<usize>),
         Refuse(i64),
+    }
+    // Written before what has the focus in this update, it lets that keep it.
+    // Asked outside the document's lock, since the stamps are the graph's.
+    let (signal, holder) = with_doc(handle, |doc| {
+        (doc.stops.get(key).map_or(-1, |s| s.signal), doc.holder())
+    })
+    .unwrap_or((-1, -1));
+    if on != 0 && signal >= 0 && crate::ui::focus_outranked(signal, holder) {
+        write_focus(&[(signal, false)]);
+        return;
     }
     let asked = with_doc(handle, |doc| {
         let Some(stop) = doc.stops.get(key) else {

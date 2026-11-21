@@ -313,3 +313,125 @@ fn a_plain_button_keeps_the_focus_while_the_window_is_away() {
          back Plain bound:false picker:false\n"
     );
 }
+
+/// Buttons A and B, bound to `a` and `b`, and a button "Open", bound to
+/// `trigger`, whose press runs `writes` and then opens a group named "Panel",
+/// bound to `panel`, holding a button "Row", bound to `row`. "Arm" writes `row`
+/// alone. Runs `script`, then answers what has the focus and what the signals
+/// hold.
+fn opening(writes: &str, script: &str) -> String {
+    let helpers = format!(
+        r#"fn bound<C: Ui>(label: Str, focus: Signal<Bool>): Node<C> {{
+    ui.button({{ label: .Const(label), styles: [], onPress: .None, hasFocus: .Some(focus) }})
+}}
+
+fn opening<C: Ui>(ctx: C): Node<C> {{
+    let open = signal(ctx, false);
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let panel = signal(ctx, false);
+    let row = signal(ctx, false);
+    ui.stack({{
+        styles: [],
+        children: [
+            bound("A", a),
+            bound("B", b),
+            ui.button({{
+                label: .Const("Arm"),
+                styles: [],
+                onPress: .Some(fn(c) => row.set(c, true)),
+            }}),
+            ui.button({{
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => {{
+                    {writes}
+                    open.set(c, true)
+                }}),
+                hasFocus: .Some(trigger),
+            }}),
+            ui.choose(
+                .Cell(open),
+                ui.stack({{
+                    styles: [],
+                    role: .Some(.Group),
+                    label: .Some(.Const("Panel")),
+                    hasFocus: .Some(panel),
+                    isInFocusOrder: .Some(.Const(false)),
+                    children: [bound("Row", row)],
+                }}),
+                ui.empty(),
+            ),
+            ui.text({{
+                content: .Computed(fn(s) => str.format(
+                    s,
+                    "a:${{a.get(s)}} b:${{b.get(s)}} trigger:${{trigger.get(s)}} panel:${{panel.get(s)}} row:${{row.get(s)}}",
+                )),
+            }}),
+        ],
+    }})
+}}"#
+    );
+    drive(
+        "focus-opening",
+        &page(&helpers, "opening(ctx)"),
+        &format!(
+            r#"{FOCUSED}
+const said = () => body.firstChild.lastChild.textContent;
+{script}
+console.log(`${{focused()}} ${{said()}}`);
+"#
+        ),
+    )
+}
+
+/// Presses "Open", whose handler runs `writes` before it opens the panel.
+fn press_open(writes: &str) -> String {
+    opening(
+        writes,
+        r#"const open = labelled("Open");
+open.focus();
+open.click();"#,
+    )
+}
+
+#[test]
+fn a_signal_written_false_and_then_true_again_is_the_last_one_written() {
+    assert_eq!(
+        press_open(
+            "let _ = a.set(c, true); let _ = b.set(c, true); let _ = a.set(c, false); let _ = a.set(c, true);"
+        ),
+        "A a:true b:false trigger:false panel:false row:false\n"
+    );
+}
+
+#[test]
+fn in_a_panel_that_mounts_the_signal_written_last_gets_the_focus() {
+    assert_eq!(
+        press_open("let _ = row.set(c, true); let _ = panel.set(c, true);"),
+        "Panel a:false b:false trigger:false panel:true row:false\n"
+    );
+}
+
+#[test]
+fn an_element_shown_written_after_one_in_a_panel_that_mounts_gets_the_focus() {
+    assert_eq!(
+        press_open("let _ = row.set(c, true); let _ = trigger.set(c, true);"),
+        "Open a:false b:false trigger:true panel:false row:false\n"
+    );
+}
+
+#[test]
+fn a_row_written_before_its_panel_mounts_gets_the_focus_though_the_focus_moved() {
+    assert_eq!(
+        opening(
+            "",
+            r#"labelled("Arm").click();
+const open = labelled("Open");
+open.focus();
+open.click();"#,
+        ),
+        "Row a:false b:false trigger:false panel:false row:true\n"
+    );
+}

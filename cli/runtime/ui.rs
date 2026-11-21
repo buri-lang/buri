@@ -198,6 +198,8 @@ struct Node {
     queued: bool,
     disposed: bool,
     children: Vec<i64>,
+    /// When the program last wrote this cell, from [`Graph::stamp`], or 0.
+    stamp: u64,
 }
 
 /// The whole graph — one per process, as `$ui` is one per artifact.
@@ -216,6 +218,10 @@ struct Graph {
     depth: i64,
     /// Whether a pass is running. A write during one joins it.
     draining: bool,
+    /// The last program write's stamp, and the first stamp of the update now
+    /// running, for [`focus_outranked`].
+    stamp: u64,
+    update: u64,
 }
 
 impl Graph {
@@ -227,6 +233,8 @@ impl Graph {
             queue: Vec::new(),
             depth: 0,
             draining: false,
+            stamp: 0,
+            update: 1,
         }
     }
 
@@ -270,6 +278,7 @@ impl Graph {
             queued: false,
             disposed: false,
             children: Vec::new(),
+            stamp: 0,
         });
         // Disposal is keyed on which computation was executing when the node
         // was created, so a nested computation dies with the run that made it.
@@ -635,8 +644,41 @@ pub unsafe extern "C" fn buri_rt_ui_read(id: i64, stride: usize, out: *mut u8) {
 /// `value` points at `stride` readable bytes, or is null with a zero stride.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_write(id: i64, value: *const u8, stride: usize) {
+    stamp(id);
     // SAFETY: forwarded to the caller's promise.
     unsafe { write_changed(id, value, stride) };
+    ended();
+}
+
+/// Stamps a program's write to `id` for [`focus_outranked`], equal or not. The
+/// platform writes unstamped, so the focus it echoes outranks nothing.
+fn stamp(id: i64) {
+    let mut g = lock();
+    g.stamp = g.stamp.saturating_add(1);
+    let at = g.stamp;
+    if let Some(n) = g.get_mut(id) {
+        n.stamp = at;
+    }
+}
+
+/// Ends the update when no batch is open and no pass is running.
+fn ended() {
+    let mut g = lock();
+    if g.depth == 0 && !g.draining {
+        g.update = g.stamp.saturating_add(1);
+    }
+}
+
+/// Whether `cell`, written `true`, loses the focus to `holder`, the signal of
+/// what has it, because the program wrote `holder` later in this update.
+pub(crate) fn focus_outranked(cell: i64, holder: i64) -> bool {
+    if holder < 0 || holder == cell {
+        return false;
+    }
+    let g = lock();
+    let Some(h) = g.get(holder) else { return false };
+    let at = h.stamp;
+    h.value.first() == Some(&1) && at >= g.update && at > g.get(cell).map_or(0, |n| n.stamp)
 }
 
 /// [`buri_rt_ui_write`], answering whether the bytes were new.
@@ -807,6 +849,7 @@ pub extern "C" fn buri_rt_ui_flush_end() {
     };
     if closed {
         settle();
+        ended();
     }
 }
 
@@ -1626,6 +1669,24 @@ pub unsafe extern "C" fn buri_rt_host_testing_headless_read(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_headless_write(
     _self: i64,
+    id: i64,
+    value: *const u8,
+    stride: usize,
+    glue: Retain,
+    drop: Release,
+    same: Equal,
+) {
+    stamp(id);
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { write_typed(id, value, stride, glue, drop, same) };
+    ended();
+}
+
+/// [`buri_rt_host_testing_headless_write`]'s write, unstamped.
+///
+/// # Safety
+/// As [`buri_rt_host_testing_headless_signal`].
+unsafe fn write_typed(
     id: i64,
     value: *const u8,
     stride: usize,

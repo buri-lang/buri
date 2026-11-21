@@ -4710,6 +4710,10 @@ const $ui = {
   // What runs after every drain, or null: `$dom_settle` once a page has a
   // dialog, so a program without one carries none of it.
   settle: null,
+  // The last program write's stamp, and the first stamp of the update now
+  // running: a node's `stamp` is when the program last wrote it.
+  stamp: 0,
+  update: 1,
 };
 
 // A runaway is a program whose watchers write what they read. The limit is not
@@ -4978,6 +4982,7 @@ function $ui_flush(f) {
     $ui.depth--;
   }
   if ($ui.depth === 0) $ui_drain();
+  $ui_ended();
   if (pending !== null && typeof pending === "object" && typeof pending.then === "function") {
     pending.then(undefined, (e) => {
       setTimeout(() => {
@@ -4996,8 +5001,28 @@ function $host_HostUi_read(self, id) {
   return $ui_read(id);
 }
 
+// A program's write, stamped for `$ui_outranked`, equal or not. The platform
+// writes unstamped, so the focus it echoes outranks nothing.
 function $host_HostUi_write(self, id, value) {
-  return $ui_write(id, value);
+  $ui_at(Number(id)).stamp = ++$ui.stamp;
+  $ui_write(id, value);
+  $ui_ended();
+  return 0;
+}
+
+// Ends the update when no batch is open and no pass is running.
+function $ui_ended() {
+  if ($ui.depth === 0 && !$ui.draining) $ui.update = $ui.stamp + 1;
+}
+
+// Whether `cell`, written `true`, loses the focus to `holder`, the signal of
+// what has it, because the program wrote `holder` later in this update.
+function $ui_outranked(cell, holder) {
+  if (holder === undefined || holder === cell) return false;
+  const h = $ui.nodes[Number(holder)];
+  if (h === undefined || h.value !== true) return false;
+  const at = h.stamp ?? 0;
+  return at >= $ui.update && at > ($ui.nodes[Number(cell)].stamp ?? 0);
 }
 
 function $host_HostUi_memo(self, compute) {
@@ -6816,6 +6841,7 @@ function $tree_focus(element, focus, natural) {
   if (signal === undefined || element.$shim) return;
   const cell = signal[0];
   let away = false;
+  element.$focusCell = cell;
   $dom_listen(element, "focus", () => $ui_flush(() => $ui_write(cell, true)));
   $dom_listen(element, "blur", () => {
     away = element.ownerDocument.activeElement === element;
@@ -6825,8 +6851,13 @@ function $tree_focus(element, focus, natural) {
   $tree_bind([1, signal], (on) => {
     const document = element.ownerDocument;
     if (on && document.activeElement !== element) {
-      element.focus();
-      $tree_refused(element, cell);
+      // Inside an update, which is when a later write can outrank this one,
+      // so the `false` joins it.
+      if ($ui_outranked(cell, document.activeElement?.$focusCell)) $ui_write(cell, false);
+      else {
+        element.focus();
+        $tree_refused(element, cell);
+      }
     } else if (!on && document.activeElement === element && !away) {
       element.blur();
     }
@@ -6853,6 +6884,7 @@ function $tree_focusWithin(group, radios, focus) {
   if (signal === undefined || group.$shim) return;
   const cell = signal[0];
   let away = false;
+  for (const radio of radios) radio.$focusCell = cell;
   const within = () => {
     const at = group.ownerDocument.activeElement;
     return at !== null && $dom_within(group, at);
@@ -6871,7 +6903,8 @@ function $tree_focusWithin(group, radios, focus) {
     const inside = within();
     if (on && !inside) {
       const target = radios.find((r) => r.checked) || radios.find((r) => !r.disabled);
-      if (target !== undefined) {
+      if ($ui_outranked(cell, document.activeElement?.$focusCell)) $ui_write(cell, false);
+      else if (target !== undefined) {
         target.focus();
         $tree_refused(target, cell);
       }
@@ -8993,6 +9026,22 @@ function $scene_focusNow(doc) {
   return doc.focused >= 0 && $scene_stopRecord(doc, doc.focused) >= 0 ? doc.focused : -1;
 }
 
+// The `hasFocus` signal of what has the focus, its own or else a group's
+// around it, or `undefined` — the native `Document::holder`.
+function $scene_holder(doc) {
+  const k = $scene_focusNow(doc);
+  if (k < 0) return undefined;
+  const own = doc.stops[k];
+  if (own.signal >= 0 && !own.within) return own.signal;
+  const at = $scene_stopRecord(doc, k);
+  for (let g = 0; g < doc.stops.length; g++) {
+    const stop = doc.stops[g];
+    const group = stop.within && stop.signal >= 0 ? $scene_stopRecord(doc, g) : -1;
+    if (group >= 0 && $scene_within(doc, group, at)) return stop.signal;
+  }
+  return undefined;
+}
+
 // Whether a reader can focus stop `key` — the native `Document::focusable`.
 function $scene_focusable(doc, key) {
   const stop = doc.stops[key];
@@ -9152,6 +9201,10 @@ function $ui_node_requestFocus(builder, key, on) {
     return;
   }
   if (here) return;
+  if ($ui_outranked(stop.signal, $scene_holder(doc))) {
+    $scene_writeFocus([[stop.signal, false]]);
+    return;
+  }
   let target = -1;
   const group = $scene_stopRecord(doc, k);
   if (stop.within && group >= 0) {

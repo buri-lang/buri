@@ -6642,6 +6642,142 @@ test "of several writes in one update, the last one written gets the focus" {
     assert.isFalse(b.get(ctx));
 }
 
+test "a signal written false and then true again is the last one written" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let a = signal(ctx, false);
+    let b = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                pair(a, b),
+                ui.button({
+                    label: .Const("A, B, then A again"),
+                    styles: [],
+                    onPress: .Some(fn(c) => {
+                        let _ = a.set(c, true);
+                        let _ = b.set(c, true);
+                        let _ = a.set(c, false);
+                        a.set(c, true)
+                    }),
+                }),
+            ],
+        }),
+    );
+    let _ = page.press("A, B, then A again");
+    assert.equal(page.focused(), "A");
+    assert.isFalse(b.get(ctx));
+}
+
+/// A button, its own `hasFocus` `trigger`, that opens a panel whose own
+/// `hasFocus` is `panel` and whose row's is `row`. `write` is what the press
+/// writes before it opens the panel.
+fn opening<C: Ui>(
+    open: Signal<Bool>,
+    trigger: Signal<Bool>,
+    panel: Signal<Bool>,
+    row: Signal<Bool>,
+    write: fn(C) => (),
+): Node<C> {
+    ui.stack({
+        styles: [],
+        children: [
+            ui.button({
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => {
+                    write(c);
+                    open.set(c, true)
+                }),
+                hasFocus: .Some(trigger),
+            }),
+            ui.choose(
+                .Cell(open),
+                ui.stack({
+                    styles: [],
+                    role: .Some(.Group),
+                    label: .Some(.Const("Panel")),
+                    hasFocus: .Some(panel),
+                    children: [
+                        ui.button({
+                            label: .Const("Row"),
+                            styles: [],
+                            onPress: .Some(fn(_c) => ()),
+                            hasFocus: .Some(row),
+                        }),
+                    ],
+                }),
+                ui.empty(),
+            ),
+        ],
+    })
+}
+
+test "in a panel that mounts, the signal written last gets the focus, not the one deepest in the tree" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let panel = signal(ctx, false);
+    let row = signal(ctx, false);
+    let page = render(
+        ctx,
+        opening(open, trigger, panel, row, fn(c) => {
+            let _ = row.set(c, true);
+            panel.set(c, true)
+        }),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Panel");
+    assert.isTrue(panel.get(ctx));
+    assert.isFalse(row.get(ctx));
+}
+
+test "an element already shown, written after one in a panel that mounts, gets the focus" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let panel = signal(ctx, false);
+    let row = signal(ctx, false);
+    let page = render(
+        ctx,
+        opening(open, trigger, panel, row, fn(c) => {
+            let _ = row.set(c, true);
+            trigger.set(c, true)
+        }),
+    );
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Open");
+    assert.isTrue(trigger.get(ctx));
+    assert.isFalse(row.get(ctx));
+}
+
+test "a row written before its panel mounts gets the focus as it mounts, though the focus moved since" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let open = signal(ctx, false);
+    let trigger = signal(ctx, false);
+    let panel = signal(ctx, false);
+    let row = signal(ctx, false);
+    let page = render(ctx, opening(open, trigger, panel, row, fn(_c) => ()));
+    row.set(ctx, true);
+    let _ = page.focus("Open");
+    let _ = page.press("Open");
+    assert.equal(page.focused(), "Row");
+    assert.isFalse(trigger.get(ctx));
+}
+
 /// A menu button and the menu it opens: opening it puts the focus on its first
 /// item, and Escape shuts it and hands the focus back to the button.
 fn actions<C: Ui>(
