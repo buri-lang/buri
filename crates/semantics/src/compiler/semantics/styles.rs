@@ -292,7 +292,8 @@ const FLOW_ANCHOR: &str = "relative;anchor-name:--buri-flow;anchor-scope:--buri-
 ///
 /// That area also centres the panel in each axis, pinned or not, so the
 /// alignment in each axis comes from the pins the panel has (#360): see
-/// [`PIN_ALIGNMENT`].
+/// [`PIN_ALIGNMENT`]. A `Fallback` or a `FitRoom` swaps the area for the room
+/// past the anchor ([`ANCHOR_ROOM`]), which a browser needs to try a flip in.
 const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center;\
                           align-self:var(--buri-pin-y);justify-self:var(--buri-pin-x)";
 
