@@ -57,7 +57,10 @@ fn narrow<C>(control: Node<C>): Node<C> {
     ui.stack({
         styles: [.Layout(.Row), .Width(.Px(300))],
         children: [
-            ui.stack({ styles: [.Grow(1), .Background(.Rgb(220, 220, 240))], children: [] }),
+            ui.stack({
+                styles: [.Grow(1), .Background(.Rgb(220, 220, 240))],
+                children: [],
+            }),
             ui.stack({
                 styles: [.Layout(.Column), .Width(.Px(112)), .Shrink(0)],
                 children: [control],

@@ -3967,7 +3967,9 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     );
     // The wrap is the wrapper's `Flow` class, so a caller's layout replaces it.
     assert.isTrue(
-        stylesheet().contains(".lay-flow{display:flex;flex-direction:row;flex-wrap:wrap}"),
+        stylesheet().contains(
+            ".lay-flow{display:flex;flex-direction:row;flex-wrap:wrap}",
+        ),
     );
 }
 

@@ -25,7 +25,10 @@ test "a toggle laid out as a column keeps its words in the column" {
         Ui: headless(),
     };
     let tree = toggleColumn(ctx);
-    assert.containsText(ui.describe(ctx, tree, .Hover), "e 2 class:lay-col ac-stretch\n");
+    assert.containsText(
+        ui.describe(ctx, tree, .Hover),
+        "e 2 class:lay-col ac-stretch\n",
+    );
     snapshotWide(ctx, "toggle-column", tree, .Hover, [], 300);
 }
 
@@ -35,6 +38,9 @@ test "a toggle's words that don't fit beside its box take a line of their own" {
         Ui: headless(),
     };
     let tree = toggleRow(ctx);
-    assert.containsText(ui.describe(ctx, tree, .Hover), "e 2 class:lay-flow ac-center\n");
+    assert.containsText(
+        ui.describe(ctx, tree, .Hover),
+        "e 2 class:lay-flow ac-center\n",
+    );
     snapshotWide(ctx, "toggle-row", tree, .Hover, [], 300);
 }

@@ -233,7 +233,7 @@ test "every kind of node renders" {
             (),
             ui.field({ label: .Const("name"), kind: .Text, value: typed, styles: [] }),
         ),
-        "<label><span>name</span><input type=\"text\" value=\"ada\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>name</span><input type=\"text\" value=\"ada\" /></label>",
     );
     // What is typed into a `textarea` is its text rather than an attribute.
     assert.equal(
@@ -246,7 +246,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<label><span>story</span><textarea>ada</textarea></label>",
+        "<label class=\"lay-flow ac-center\"><span>story</span><textarea>ada</textarea></label>",
     );
     // A range carries the three numbers a slider is, so the markup a worker
     // sends is a working slider before any of this program's code runs on the
@@ -264,7 +264,7 @@ test "every kind of node renders" {
                 step: .Some(5.0),
             }),
         ),
-        "<label><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>Volume</span><input type=\"range\" min=\"0.0\" max=\"100.0\" step=\"5.0\" value=\"40\" /></label>",
     );
     // A slider with no step is a continuous track. A browser's default step
     // is one, which would snap 0.5 to an end, so the markup says `any`.
@@ -279,7 +279,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<label><span>Mix</span><input type=\"range\" min=\"0.0\" max=\"1.0\" step=\"any\" value=\"0.5\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>Mix</span><input type=\"range\" min=\"0.0\" max=\"1.0\" step=\"any\" value=\"0.5\" /></label>",
     );
     // A number field holds any number, so a fraction is no step mismatch.
     assert.equal(
@@ -292,7 +292,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<label><span>Amount</span><input type=\"number\" step=\"any\" value=\"1.5\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>Amount</span><input type=\"number\" step=\"any\" value=\"1.5\" /></label>",
     );
     // A hint crosses as the attribute, so the search line a reader lands on
     // already says what goes in it before a byte of script has run — and the
@@ -308,7 +308,7 @@ test "every kind of node renders" {
                 hint: .Some(.Const("Type a command")),
             }),
         ),
-        "<label><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>Search</span><input type=\"search\" placeholder=\"Type a command\" /></label>",
     );
     // `checked` is a boolean attribute: it is written with no value at all,
     // which is how HTML spells one.
@@ -322,7 +322,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<label><input type=\"checkbox\" checked /><span>done</span></label>",
+        "<label class=\"lay-flow ac-center\"><input type=\"checkbox\" checked /><span>done</span></label>",
     );
     // `disabled` is the other boolean attribute this vocabulary writes, and it
     // has to cross: a page that resumes on markup without it hands the reader a
@@ -338,7 +338,7 @@ test "every kind of node renders" {
                 isDisabled: .Some(.Const(true)),
             }),
         ),
-        "<label><input type=\"checkbox\" checked disabled /><span>done</span></label>",
+        "<label class=\"lay-flow ac-center\"><input type=\"checkbox\" checked disabled /><span>done</span></label>",
     );
     assert.equal(
         web.render(
@@ -351,7 +351,7 @@ test "every kind of node renders" {
                 isDisabled: .Some(.Const(true)),
             }),
         ),
-        "<label><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
+        "<label class=\"lay-flow ac-center\"><span>name</span><input type=\"text\" value=\"ada\" disabled /></label>",
     );
     // A picture's styles are the picture's, so they cross as a class on the
     // `<img>` itself rather than on anything around it.
@@ -378,7 +378,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<label><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
+        "<label class=\"lay-flow ac-center\"><input type=\"checkbox\" role=\"switch\" checked /><span>email</span></label>",
     );
     // A radio group is a working radio group before a byte of this program's
     // code runs on the page: real `<input type="radio">` sharing one `name`
@@ -398,7 +398,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label class=\"lay-flow ac-center\"><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label class=\"lay-flow ac-center\"><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
     );
     // Another shape keeps the accessible model: the same radios, the same
     // group.
@@ -416,7 +416,7 @@ test "every kind of node renders" {
                 style: .Some(.Dropdown),
             }),
         ),
-        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label class=\"lay-flow ac-center\"><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" /><span>Free</span></label><label class=\"lay-flow ac-center\"><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked /><span>Pro</span></label></div>",
     );
     // A button holding a mark and a word is one element, and the label the
     // markup carries is what a reader is announced rather than the glyphs.
@@ -456,7 +456,7 @@ test "every kind of node renders" {
                 styles: [],
             }),
         ),
-        "<form><label><span>Email</span><input type=\"email\" value=\"ada\" /></label><button type=\"submit\" aria-label=\"Send\">Send</button></form>",
+        "<form><label class=\"lay-flow ac-center\"><span>Email</span><input type=\"email\" value=\"ada\" /></label><button type=\"submit\" aria-label=\"Send\">Send</button></form>",
     );
     // The three that decide what to render resolve rather than register: a
     // condition is read once, a computation is run once, and a list renders the
@@ -961,7 +961,7 @@ test "a failing control crosses the worker already saying so" {
     });
     assert.equal(
         web.render((), failing),
-        "<label><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
+        "<label class=\"lay-flow ac-center\"><span>Email</span><input type=\"email\" aria-invalid=\"true\" class=\"invalid_bc-dc2626\" value=\"ada\" /></label>",
     );
     // A control that is not failing writes no attribute, so the markup is the
     // markup every other test here asserts.
@@ -975,7 +975,7 @@ test "a failing control crosses the worker already saying so" {
                 styles: [],
             }),
         ),
-        "<label><input type=\"checkbox\" /><span>done</span></label>",
+        "<label class=\"lay-flow ac-center\"><input type=\"checkbox\" /><span>done</span></label>",
     );
 }
 
