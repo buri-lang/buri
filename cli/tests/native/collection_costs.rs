@@ -997,45 +997,50 @@ fn text_equal_to_itself_costs_the_same_at_any_length() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// 1,000 records, each holding a `Str`, copied into a fresh list and dropped
-/// `k` times. `main` takes `k`.
+/// A full list of 1,000 empty callback slots, and `k` rounds that each push
+/// one more `.None` onto it and drop the result. `main` takes `k`.
+///
+/// The list is full, so each push copies it into a block with twice its room,
+/// zeroed past the copy. Dropping that block walks all 2,000 of its slots, and
+/// every one is empty: 1,001 `.None`s and 999 of headroom. So half of each
+/// round is the release's loop over empty slots, which is what
+/// [`a_list_release_walks_its_elements_by_address`] measures.
 const RELEASES: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
 from "core/list" import * as list;
-from "core/str" import * as str;
 from "native" import { NativeHost };
 from "platform/effect" import { Allocator, Environment, Stdout };
 
-struct P {
-  x: Int,
-  name: Str,
-  y: Int,
-}
-
-fn rounds<C: Allocator>(ctx: C, ps: [P], k: Int, acc: Int): Int {
-  if (k == 0) { acc } else { rounds(ctx, ps, k - 1, acc + ps.map(ctx, fn(p) => P { ..p, y: p.x }).length()) }
+fn rounds<C: Allocator>(ctx: C, slots: [Option<fn(Int) => Int>], k: Int, acc: Int): Int {
+  if (k == 0) { acc } else { rounds(ctx, slots, k - 1, acc + slots.push(ctx, .None).length()) }
 }
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
-  let ps = list.range(ctx, 0, 1000).mapCtx(ctx, fn(c, i) => P { x: i, name: str.fromInt(c, i), y: 0 });
-  io.println(ctx, "${rounds(ctx, ps, k, 0)}").mapErr(fn(_e) => "stdout")
+  let empty: Option<fn(Int) => Int> = .None;
+  io.println(ctx, "${rounds(ctx, list.repeat(ctx, empty, 1000), k, 0)}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
 /// The two counts of rounds [`RELEASE_BOUND`] is measured between.
-const RELEASE_ROUNDS: (u64, u64) = (100, 400);
+///
+/// Thousands, because each counted run carries up to about a million
+/// instructions of kernel work that doesn't grow with the rounds. Between 100
+/// and 400 rounds that moved the figure by up to 2.6% on a loaded machine;
+/// between these it moves it by under 0.4%.
+const RELEASE_ROUNDS: (u64, u64) = (1000, 5000);
 
-/// What copying one record of [`RELEASES`] into a fresh list and dropping it
-/// costs on the copy-and-patch backend, in instructions. It measured 84.6
-/// when the release multiplied an index, stored the test's word and compared
-/// it again, and 78.9 once it stepped a pointer and its empty-slot test was
-/// the branch past the slot. It measures 77.9 now that the loop's step and
-/// test are one stencil. The bound sits between the last two, so the old
-/// code fails it, with room for the counter's noise of well under 0.5%.
-const RELEASE_BOUND: f64 = 78.4;
+/// What pushing one element of [`RELEASES`] costs on the copy-and-patch
+/// backend, in instructions: its share of the copy and of the release.
+///
+/// It measures 54.6 to 54.7, and 56.6 with the loop's step and test as two
+/// stencils (664af09a6 reverted): one instruction more for each of the two
+/// slots an element's share of the walk covers. The bound sits halfway, so
+/// each side has one instruction of room, 1.8%, against the 0.4% the figure
+/// moves under load.
+const RELEASE_BOUND: f64 = 55.6;
 
 /// **A list's release walks its elements by address and skips an empty slot
 /// in one branch**: the walk steps a pointer rather than multiplying an index,
@@ -1044,8 +1049,8 @@ const RELEASE_BOUND: f64 = 78.4;
 #[test]
 fn a_list_release_walks_its_elements_by_address() {
     let (fewer, more) = RELEASE_ROUNDS;
-    let elems = (more - fewer) * 1000;
-    let answer = |k: u64| format!("{}\n", k * 1000);
+    let elems = (more - fewer) * 1001;
+    let answer = |k: u64| format!("{}\n", k * 1001);
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("list-releases", RELEASES);

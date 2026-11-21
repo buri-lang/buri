@@ -11380,6 +11380,12 @@ Instructions aren't exact, for two reasons:
   reaps the child with `wait4` and takes 11 k instructions off for each
   involuntary switch. `alloc_churn`'s large literal read 771–790 M under load,
   and 771–772 M after that.
+- **A short counted run still carries kernel work that more rounds don't
+  add.** At load 20, single runs of one program read up to a million
+  instructions apart, however little its rounds did. So a guard that takes the
+  difference of two round counts needs that difference in the hundreds of
+  millions: `collection_costs`' release guard read 3.6% high between 100 and
+  400 rounds, and moves under 0.4% between 1,000 and 5,000.
 - **A compiled program's large blocks used to move with the machine.** macOS's
   `malloc` keeps a freed block past a few KB until the kernel reclaims it, on
   the kernel's schedule. A loop that dropped and remade a 288 KB list then got
