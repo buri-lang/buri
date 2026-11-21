@@ -1523,6 +1523,13 @@ impl<'a> Jit<'a> {
                 let strs = Self::concat_strs(args.len()).map(at);
                 self.str_concat(st, strs, d, true);
             }
+            // `core/bits`: each stencil reads its operands before it writes
+            // the answer, so the answer may share a slot with either.
+            route::Body::Bits {
+                stem,
+                width,
+                counted,
+            } => self.bits_at(st, stem, width, counted, d, at(0), at(1)),
             route::Body::Number(num, op) => {
                 let reads_first = match (op, answer) {
                     (route::Number::Convert(_), ir::Answer::InlineRes(_)) => false,

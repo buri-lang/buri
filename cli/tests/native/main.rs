@@ -464,6 +464,10 @@ mod field_moves;
 // instructions counted rather than timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod checksum_costs;
+// `core/bits` in a loop: what it answers and what a step costs, counted, on
+// every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod bits_costs;
 // The programs the fast paths are for, at the size they're for: fan-outs of
 // every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
 // long sorts, on JavaScript and every backend built in, under the heap check.
