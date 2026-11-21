@@ -1,0 +1,295 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A field shows only what fits in it. An `<input>`'s value is cut
+// off at the end of its editor: its content box, less what a number field's
+// spin button and a search field's clear button take at the end. A
+// textarea's is cut off at its edges.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "ui/style" import { Style };
+from "//lib/fields" import { filled, line, lines };
+
+fn red(): [Style] {
+    [.Background(.Rgb(255, 0, 0))]
+}
+
+// A green column 120px tall under a textarea, which any line the textarea did
+// not cut off would paint over.
+fn ground(): [Style] {
+    [
+        .Layout(.Column),
+        .AlignCross(.Start),
+        .Height(.Px(120)),
+        .Background(.Rgb(0, 160, 0)),
+    ]
+}
+
+fn digits(): Str {
+    "12345678901234567890123456789"
+}
+
+fn query(): Str {
+    "find every word in this long query"
+}
+
+fn words(): Str {
+    "a value longer than its box"
+}
+
+fn paragraph(): Str {
+    "one two three four five six seven eight nine ten eleven twelve thirteen fourteen"
+}
+
+test "a number field cuts its value off where its spin button starts" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "number",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [filled(ctx, .Number, digits(), red())],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the number scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "number",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [line(183, .Rem(1.2), 0, 168, digits(), [])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a search field cuts its value off where its clear button starts" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "search",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [
+                filled(ctx, .Search, query(), [.Group(red()), .FontSize(.Px(24))]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the search scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "search",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [line(281, .Rem(1.8), 0, 260, query(), [.FontSize(.Px(24))])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a text field cuts its value off at its edge" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "text",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [filled(ctx, .Text, words(), [.Group(red()), .Width(.Px(120))])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the text scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "text",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [line(120, .Rem(1.2), 0, 120, words(), [])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a padded text field cuts its value off inside its padding" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [
+                filled(ctx, .Text, words(), [
+                    .Group(red()),
+                    .Width(.Px(120)),
+                    .PaddingX(.Px(8)),
+                ]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the padded scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [line(120, .Rem(1.2), 8, 104, words(), [])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a textarea cuts off the lines past its two" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "multiline",
+        ui.stack({
+            styles: ground(),
+            children: [filled(ctx, .Multiline, paragraph(), red())],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the multiline scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "multiline",
+        ui.stack({
+            styles: ground(),
+            children: [lines(168, .Rem(2.4), paragraph(), [])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a textarea shows as much of a line as its height leaves room for" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "tall",
+        ui.stack({
+            styles: ground(),
+            children: [
+                filled(ctx, .Multiline, paragraph(), [.Group(red()), .Height(.Px(50))]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the tall scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "tall",
+        ui.stack({
+            styles: ground(),
+            children: [lines(168, .Px(50), paragraph(), [])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a padded textarea runs its lines into its padding" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-area",
+        ui.stack({
+            styles: ground(),
+            children: [
+                filled(ctx, .Multiline, paragraph(), [
+                    .Group(red()),
+                    .PaddingY(.Px(6)),
+                ]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the padded-area scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "padded-area",
+        ui.stack({
+            styles: ground(),
+            children: [lines(168, .Rem(3.15), paragraph(), [.PaddingY(.Px(6))])],
+        }),
+        .Hover,
+        [],
+    );
+}

@@ -1479,6 +1479,20 @@ enum Editor {
     Lines,
 }
 
+/// The button a browser puts at the end of a single-line field's editor,
+/// which takes its room from the editor whether or not it shows: it shows
+/// only while the field is hovered or focused, but a browser lays it out all
+/// the same ([`button_room`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FieldButton {
+    /// None: every kind but these two.
+    None,
+    /// A number field's spin button.
+    Spin,
+    /// A search field's clear button.
+    Clear,
+}
+
 /// What marks each item of a list — `ui/style`'s `ListMarker`, which is the
 /// only way a list gets one. The reset in the sheet cleared the browser's.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1726,6 +1740,9 @@ struct Computed {
     /// width of its own, as a browser sizes the control's editor. Inherited for
     /// the reason the mask is.
     editor: Editor,
+    /// The button at the end of a single-line field's editor. Inherited for
+    /// the reason the mask is.
+    button: FieldButton,
 }
 
 impl Computed {
@@ -1800,6 +1817,7 @@ impl Computed {
             field: false,
             placeholder: None,
             editor: Editor::None,
+            button: FieldButton::None,
         }
     }
 
@@ -1908,6 +1926,18 @@ impl Computed {
         child.masked = self.masked;
         child.placeholder = self.placeholder.clone();
         child.editor = self.editor;
+        child.button = self.button;
+        // A single-line field's editor never sets its line tighter than its
+        // type: where the line height is no taller than the font size, Blink
+        // gives the editor `line-height: normal`
+        // (`TextControlInnerEditorElement::CustomStyleForLayoutObject`), and
+        // the field is that line tall.
+        if self.field
+            && self.editor == Editor::Line
+            && (self.font_size * self.line_height).floor() <= self.font_size
+        {
+            child.line_height = normal_line(self) / self.font_size.max(1.0);
+        }
         child
     }
 
@@ -2237,9 +2267,11 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
         "inset-block-start" => set_sides(&mut style.inset, [2], len(value)),
         "inset-block-end" => set_sides(&mut style.inset, [3], len(value)),
-        "overflow" => style.clipped = [value != "visible"; 2],
-        "overflow-x" => style.clipped[0] = value != "visible",
-        "overflow-y" => style.clipped[1] = value != "visible",
+        // A textarea reads `visible` as `auto`, so it always clips: Blink's
+        // `StyleAdjuster` makes it a scroll container whatever it was given.
+        "overflow" => style.clipped = [value != "visible" || scrolls(style); 2],
+        "overflow-x" => style.clipped[0] = value != "visible" || scrolls(style),
+        "overflow-y" => style.clipped[1] = value != "visible" || scrolls(style),
 
         "background-color" => {
             style.background = match colour(value) {
@@ -2383,6 +2415,15 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             } else {
                 Editor::Line
             };
+            style.button = match value {
+                "number" => FieldButton::Spin,
+                "search" => FieldButton::Clear,
+                _ => FieldButton::None,
+            };
+            // A textarea scrolls: it cuts its lines off at its padding box.
+            if scrolls(style) {
+                style.clipped = [true; 2];
+            }
         }
         // A slider's bounds and where its thumb sits. Bounds that are not two
         // numbers leave the box a box, which is the rule an unreadable image
@@ -2909,9 +2950,15 @@ fn taffy_style(c: &Computed) -> Style {
         // A margin the vocabulary writes is a `Bleed`, so it is negative:
         // the child reaches past its parent's edge and overlaps whatever it
         // finds there.
+        // The run in a single-line field is its editor, which stops short of
+        // the field's button ([`button_room`]).
         margin: Rect {
             left: dimension_auto(c.margin[0]),
-            right: dimension_auto(c.margin[1]),
+            right: if !c.field && c.editor == Editor::Line && c.button != FieldButton::None {
+                LengthPercentageAuto::length(button_room(c))
+            } else {
+                dimension_auto(c.margin[1])
+            },
             top: dimension_auto(c.margin[2]),
             bottom: dimension_auto(c.margin[3]),
         },
@@ -3410,6 +3457,11 @@ fn measured(
 /// The face is the one the run is set in: the fixed-pitch one, else the
 /// italic, else the bold for a weight past 500, the way font matching picks
 /// among the faces bundled.
+///
+/// The run is the editor, so a single-line field's leaves room at its end for
+/// the field's button ([`button_room`]), which a browser counts inside those
+/// twenty characters: `TextFieldIntrinsicInlineSize` adds the spin button only
+/// for a number field with a `min` and a `max`, which no field here has.
 fn editor_size(style: &Computed) -> (f32, f32) {
     let [average, widest, units] = if style.mono {
         MONO_WIDTHS
@@ -3427,11 +3479,51 @@ fn editor_size(style: &Computed) -> (f32, f32) {
     match style.editor {
         Editor::Lines => ((average * 20.0).ceil(), leading * 2.0),
         _ => (
-            (average * 19.0 + (widest * size / units).round()).ceil(),
+            ((average * 19.0 + (widest * size / units).round()).ceil() - button_room(style))
+                .max(0.0),
             leading,
         ),
     }
 }
+
+/// Whether `style` is a textarea's, which a browser makes a scroll container
+/// whatever its `overflow`: it cuts its lines off at its padding box, and as
+/// a flex item it has no automatic minimum size.
+fn scrolls(style: &Computed) -> bool {
+    style.field && style.editor == Editor::Lines
+}
+
+/// The room a single-line field's button takes at the end of its editor, in
+/// pixels, from Chromium. A spin button is as wide as the native theme's
+/// `kInnerSpinButton` part, 15px. A clear button is 9px at 13px type, scaled
+/// with the type, rounded and held to 5 to 21 (`LayoutThemeDefault`), with
+/// the 1px and 3px margins the user-agent sheet gives it on either side.
+fn button_room(style: &Computed) -> f32 {
+    match style.button {
+        FieldButton::None => 0.0,
+        FieldButton::Spin => 15.0,
+        FieldButton::Clear => (9.0 * style.font_size / 13.0).clamp(5.0, 21.0).round() + 4.0,
+    }
+}
+
+/// `line-height: normal` for `style`'s face and size, in pixels: Blink's
+/// line spacing, the face's `hhea` ascender, descender and line gap each
+/// scaled and rounded to a pixel (`SimpleFontData`). No bundled face sets
+/// `USE_TYPO_METRICS`, so the `hhea` figures are the ones a browser reads.
+fn normal_line(style: &Computed) -> f32 {
+    let [ascender, descender, gap, units] = if style.mono { MONO_LINE } else { ROBOTO_LINE };
+    let size = style.font_size.max(1.0);
+    [ascender, descender, gap]
+        .iter()
+        .map(|figure| (figure * size / units).round())
+        .sum()
+}
+
+/// The bundled faces' `hhea` ascender, descender (as a depth) and line gap,
+/// and their units per em: one set for Roboto's three faces, which share
+/// them, and one for the fixed-pitch face. A test reads them off the files.
+const ROBOTO_LINE: [f32; 4] = [1900.0, 500.0, 0.0, 2048.0];
+const MONO_LINE: [f32; 4] = [1901.0, 483.0, 0.0, 2048.0];
 
 /// What a browser reads off each bundled face to size a field, in font
 /// units: the OS/2 table's average character width, the width of the head
@@ -5415,6 +5507,16 @@ impl Painter<'_> {
         };
 
         if let Some(text) = node.text.as_deref() {
+            // The run in a single-line field is its editor, which a browser
+            // scrolls, so its value is cut off at the editor's edges: inside
+            // the padding, and short of the field's button.
+            let owned;
+            let clip = if style.editor == Editor::Line {
+                owned = clipped(clip, box_, [[0.0; 2]; 4], canvas.width(), canvas.height());
+                owned.as_deref()
+            } else {
+                clip
+            };
             // The *unrounded* width, because that is the one the measure pass
             // wrapped against; a pixel less would wrap the last word again.
             self.text(canvas, text, style, box_, layout.size.width, clip);
@@ -5489,8 +5591,16 @@ impl Painter<'_> {
         // makes an avatar round rather than a round box with a square picture
         // sitting in it.
         let rounds = node.picture.is_some() && radii.iter().flatten().any(|r| *r > 0.0);
+        // An `<input>` clips what is in it whatever its `overflow`, which the
+        // user-agent sheet sets to `clip !important`: an editor taller than a
+        // short field is cut off at the field's edges. That `clip` makes no
+        // scroll container, so it leaves the layout alone.
         let owned;
-        let inner = if style.clipped[0] || style.clipped[1] || rounds {
+        let inner = if style.clipped[0]
+            || style.clipped[1]
+            || rounds
+            || (style.field && style.editor == Editor::Line)
+        {
             owned = clipped(clip, box_, radii, canvas.width(), canvas.height());
             owned.as_deref()
         } else {
@@ -10255,6 +10365,40 @@ mod tests {
         assert_eq!(char_widths(BOLD), Some(BOLD_WIDTHS));
         assert_eq!(char_widths(ITALIC), Some(ITALIC_WIDTHS));
         assert_eq!(char_widths(MONO), Some(MONO_WIDTHS));
+    }
+
+    /// A face's `hhea` ascender, descender as a depth, and line gap, and its
+    /// units per em, and whether its `OS/2` table sets `USE_TYPO_METRICS`.
+    fn line_figures(face: &[u8]) -> Option<([f32; 4], bool)> {
+        let u16_at = |at: usize| Some(u16::from_be_bytes(face.get(at..at + 2)?.try_into().ok()?));
+        let i16_at = |at: usize| Some(i16::from_be_bytes(face.get(at..at + 2)?.try_into().ok()?));
+        let table = |tag: &[u8]| {
+            (0..usize::from(u16_at(4)?)).find_map(|i| {
+                let record = face.get(12 + 16 * i..28 + 16 * i)?;
+                let offset = u32::from_be_bytes(record.get(8..12)?.try_into().ok()?);
+                (record.get(..4)? == tag).then(|| usize::try_from(offset).ok())?
+            })
+        };
+        let units = f32::from(u16_at(table(b"head")? + 18)?);
+        let hhea = table(b"hhea")?;
+        let figures = [
+            f32::from(i16_at(hhea + 4)?),
+            -f32::from(i16_at(hhea + 6)?),
+            f32::from(i16_at(hhea + 8)?),
+            units,
+        ];
+        let typo = u16_at(table(b"OS/2")? + 62)? & 0x80 != 0;
+        Some((figures, typo))
+    }
+
+    /// The figures [`normal_line`] sets a field's editor by are the bundled
+    /// faces' own, and none of them asks for its typographic ones instead.
+    #[test]
+    fn a_normal_line_is_the_face_s_own() {
+        for face in [REGULAR, BOLD, ITALIC] {
+            assert_eq!(line_figures(face), Some((ROBOTO_LINE, false)));
+        }
+        assert_eq!(line_figures(MONO), Some((MONO_LINE, false)));
     }
 
     /// Along row `y`: the x each new colour starts at, and the colour.

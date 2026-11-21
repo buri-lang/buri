@@ -304,3 +304,42 @@ test "the boxes laid out the plain way where the narrow scene puts them" {
         [],
     );
 }
+
+test "a field set tighter than its type is a normal line tall" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let red: [Style] = [.Background(.Rgb(255, 0, 0))];
+    snapshot(
+        ctx,
+        "tight",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [
+                named(ctx, .Text, [.Group(red), .LineHeight(0.8)]),
+                named(ctx, .Text, [.Group(red), .LineHeight(1.0)]),
+                named(ctx, .Text, [.Group(red), .LineHeight(1.0), .FontFamily(.Mono)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the tight scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "tight",
+        ui.stack({
+            styles: [.Layout(.Column), .AlignCross(.Start)],
+            children: [plain(183, .Px(19)), plain(183, .Px(19)), plain(210, .Px(19))],
+        }),
+        .Hover,
+        [],
+    );
+}

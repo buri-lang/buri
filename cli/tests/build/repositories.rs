@@ -917,11 +917,10 @@ fn pinned_panels_shift_inside_the_whole_document() {
         .iter()
         .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
         .collect();
-    let read: Vec<(String, String)> =
-        crate::harness::web_pages::places_in_short_window(&case, 100)
-            .into_iter()
-            .filter(|(name, _)| name != "flip-shift")
-            .collect();
+    let read: Vec<(String, String)> = crate::harness::web_pages::places_in_short_window(&case, 100)
+        .into_iter()
+        .filter(|(name, _)| name != "flip-shift")
+        .collect();
     assert_eq!(read, placed);
 }
 
@@ -1278,9 +1277,44 @@ fn a_field_without_a_width_is_twenty_characters_wide() {
             "bold: input=194".to_string(),
             "mono: input=210".to_string(),
             "narrow: input=183".to_string(),
+            "tight: input=183 input=183 input=210".to_string(),
         ]
     );
     assert_eq!(widths("textarea"), ["multiline: textarea=168"]);
+}
+
+/// How wide a browser lays out the fields of
+/// `a_field_clips_its_value_to_its_editor`: each as wide as its twin's box,
+/// so the painter cuts each value off inside a box the browser agrees on. A
+/// number field's spin button and a search field's clear button take their
+/// room from inside the field, never add to it.
+#[test]
+fn a_field_clips_its_value_to_its_editor() {
+    let case = tests_dir().join("repositories/ui/a_field_clips_its_value_to_its_editor");
+    let widths = |tag: &str| -> Vec<String> {
+        crate::harness::web_pages::widths(&case, tag)
+            .iter()
+            .filter(|(_, values)| !values.is_empty())
+            .map(|(name, values)| format!("{name}: {values}"))
+            .collect()
+    };
+    assert_eq!(
+        widths("input"),
+        [
+            "number: input=183",
+            "search: input=281",
+            "text: input=120",
+            "padded: input=120",
+        ]
+    );
+    assert_eq!(
+        widths("textarea"),
+        [
+            "multiline: textarea=168",
+            "tall: textarea=168",
+            "padded-area: textarea=168",
+        ]
+    );
 }
 
 /// Where a browser lays out the boxes of

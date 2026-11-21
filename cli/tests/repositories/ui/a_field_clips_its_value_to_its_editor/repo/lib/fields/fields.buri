@@ -1,0 +1,95 @@
+//! Fields holding more than they show, each beside the plain boxes a browser
+//! lays it out as.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { FieldKind, Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Length, Style };
+
+/// A field labelled "Name" holding `value`, its label a row: the words, then
+/// the field's box, painted red by `styles`.
+export fn filled<C: Ui>(ctx: C, kind: FieldKind, value: Str, styles: [Style]): Node<C> {
+    ui.field({
+        label: .Const("Name"),
+        kind: kind,
+        value: signal(ctx, value),
+        styles: styles,
+        hint: .None,
+        around: .Some([.Layout(.Row)]),
+        isInvalid: .None,
+        isDisabled: .None,
+    })
+}
+
+/// What `filled` lays out for a single-line field: the words, then a red box
+/// `width` pixels by `height`, centred across the row the way a label centres
+/// its control, with `value` on one line down its middle, cut off `shown`
+/// pixels in, past `padding` on either side, and set in `text`.
+export fn line<C: Ui>(
+    width: Int,
+    height: Length,
+    padding: Int,
+    shown: Int,
+    value: Str,
+    text: [Style],
+): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .AlignCross(.Center)],
+        children: [
+            ui.text({ content: .Const("Name") }),
+            ui.stack({
+                styles: [
+                    .Layout(.Column),
+                    .AlignMain(.Center),
+                    .AlignCross(.Start),
+                    .Width(.Px(width)),
+                    .Height(height),
+                    .PaddingX(.Px(padding)),
+                    .Shrink(0),
+                    .Background(.Rgb(255, 0, 0)),
+                ],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Group(text),
+                            .Width(.Px(shown)),
+                            .Clip(true),
+                            .TextWrap(.NoWrap),
+                        ],
+                        children: [ui.text({ content: .Const(value) })],
+                    }),
+                ],
+            }),
+        ],
+    })
+}
+
+/// What `filled` lays out for a textarea: the words, then a red box `width`
+/// pixels by `height`, centred across the row, with `value` wrapped inside it
+/// from the top, past any padding `extra` gives the box, and cut off at its
+/// edges.
+export fn lines<C: Ui>(
+    width: Int,
+    height: Length,
+    value: Str,
+    extra: [Style],
+): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .AlignCross(.Center)],
+        children: [
+            ui.text({ content: .Const("Name") }),
+            ui.stack({
+                styles: [
+                    .Width(.Px(width)),
+                    .Height(height),
+                    .Shrink(0),
+                    .Clip(true),
+                    .Group(extra),
+                    .Background(.Rgb(255, 0, 0)),
+                ],
+                children: [ui.text({ content: .Const(value) })],
+            }),
+        ],
+    })
+}
