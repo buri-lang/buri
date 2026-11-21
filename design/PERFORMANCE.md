@@ -11695,6 +11695,12 @@ match         611302241     1865847841      615665934      615666118       0.328
   other strings still calls the runtime. maps ran 1.25% fewer instructions
   and strings 0.9% fewer. maps went from 1.765 to 1.743 times `-O1`, and
   strings from 1.356 to 1.344.
+- A `core/bits` operation, such as `popCountU64` or `shiftLeftU64`, is its
+  stencil in the caller. It was a call to a function holding only that
+  stencil, which cost a frame switch and two moves around one or two machine
+  instructions. maps' `hasSlot`, `indexOf` and hash steps are made of these,
+  and maps ran 11% fewer instructions. It went from 1.743 to 1.551 times
+  `-O1`.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,
@@ -11782,6 +11788,16 @@ loop in one stencil, left it flat:
 A stencil of its own for a copy of more than a word at offset zero saved
 0.9% on lists and 1.2% on tree, but cost `monorepo-ci` 3 to 9 instructions a
 line, so it isn't in.
+
+Making a literal join in the stencil and putting `core/bits` in the caller
+left it flat:
+
+| Row | 64b29341d | Bits in the caller |
+| --- | --- | --- |
+| `ci` cost | 60060.4 | 60178.1 |
+| `ci` instructions | 40610.8 | 40620.7 |
+| `monorepo-ci` cost | 23209.3 | 23260.7 |
+| `monorepo-ci` instructions | 16853.7 | 16854.3 |
 
 The register reads above added
 about 120 cost per line to `ci`'s dev codegen row, though they ran fewer
