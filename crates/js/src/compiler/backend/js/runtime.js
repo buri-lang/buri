@@ -5791,6 +5791,15 @@ function $tree_font(family) {
 // that a change re-picks the classes and re-serialises the inline half; a list
 // holding neither is applied once and registers nothing at all. That is the
 // whole cost difference between the two tiers.
+// The arrangement the runtime gives a control's `<label>`: `ui/node`'s
+// `wrapper`, as the classes `describe` names, so a layout in `around` replaces
+// its wrap along with its row (#367).
+const $TREE_LABEL = [5, [[[1200n, "lay-flow"], [1600n, "ac-center"]]]];
+
+function $tree_label(wrapper, around) {
+  $tree_styles(wrapper, [$TREE_LABEL, [0, around]]);
+}
+
 function $tree_styles(element, styles) {
   if ($tree_style_static(styles)) {
     $tree_style_apply(element, styles, null);
@@ -7105,7 +7114,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const wrapper = $tree_element(parent, "label", anchor);
     // `around` is the label's, because the label is the box a surrounding row
     // lays out and nothing on the input can reach it.
-    $tree_styles(wrapper, node[5]);
+    $tree_label(wrapper, node[5]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     // `FieldKind` carries no payload any more, so it lowers to a bare tag rather
     // than an array — read it with no unwrap.
@@ -7181,7 +7190,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     const wrapper = $tree_element(parent, "label", anchor);
     // `around` is the label's, the box a surrounding row lays out — the same
     // rule a `field`'s and a `toggle`'s wrapper follows.
-    $tree_styles(wrapper, node[7]);
+    $tree_label(wrapper, node[7]);
     $tree_text(node[1], $tree_element(wrapper, "span", null), null);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "range");
@@ -7211,7 +7220,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
   }
   if (tag === 11) {
     const wrapper = $tree_element(parent, "label", anchor);
-    $tree_styles(wrapper, node[4]);
+    $tree_label(wrapper, node[4]);
     const element = $tree_element(wrapper, "input", null);
     $dom_attribute(element, "type", "checkbox");
     // A switch is the same control with a different mark and a different
@@ -7253,6 +7262,7 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     for (const option of node[2]) {
       const key = option[0];
       const wrapper = $tree_element(group, "label", null);
+      $tree_label(wrapper, []);
       const input = $tree_element(wrapper, "input", null);
       radios.push(input);
       $dom_attribute(input, "type", "radio");

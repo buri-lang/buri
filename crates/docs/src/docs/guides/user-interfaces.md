@@ -470,8 +470,9 @@ write it in place or it arrives at run time:
 - `.Span(0)` covers one track, a negative `.Grow`, `.Shrink` or track fraction
   is zero, and an `.AspectRatio` of zero or less keeps no proportion.
 
-`Layout` is `.Column`, `.Row`, `.ColumnReverse`, `.RowReverse`, `.Grid` and
-`.Layers`. A reversed stack paints its children backwards and leaves the
+`Layout` is `.Column`, `.Row`, `.ColumnReverse`, `.RowReverse`, `.Grid`,
+`.Layers` and `.Flow`. A flow is a row that wraps, the way words do, and a
+caller's `Layout` replaces the wrap along with the row. A reversed stack paints its children backwards and leaves the
 document's order alone — the order the caller wrote, and the order a screen
 reader and the tab ring read — so a toaster grows from the bottom and a dialog
 footer puts the confirming action on top without the caller reordering anything.
@@ -1556,7 +1557,7 @@ border on a separator, the baseline a picture or an icon sits on — so your
 styles are all there is. Those rules are `:where(...)`, which weighs nothing in
 the cascade,
 and only the elements the program actually builds get one. The same rules lay a
-labelled control's `<label>` out as a wrapping row, give a checkbox its box and
+labelled control's `<label>` out as a row, give a checkbox its box and
 its mark, and give a range its track, its bar and its thumb, and a class on any
 of them beats them.
 

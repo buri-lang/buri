@@ -4392,14 +4392,18 @@ fn scrim(): [Style] {
 /// The `<label>` a field and a toggle are wrapped in: the arrangement the
 /// runtime gives it, and then the caller's own.
 ///
-/// The wrapper is the runtime's element rather than the program's, and the
-/// sheet's reset lays it out as a wrapping row: the control and its text sit on
-/// one line, and a control as wide as the line takes one of its own. That
-/// arrangement is written here in the vocabulary rather than as declarations,
-/// so `around` overrides it the way a later entry overrides an earlier one —
-/// which is the same rule that lets a caller's `Layout` beat `row`'s.
+/// The wrapper is the runtime's element rather than the program's, and it is a
+/// flow: the control and its text sit on one line, and a control as wide as the
+/// line takes one of its own. That arrangement is written here in the
+/// vocabulary rather than as declarations, so `around` overrides it the way a
+/// later entry overrides an earlier one — which is the same rule that lets a
+/// caller's `Layout` beat `row`'s.
+///
+/// The wrap is part of the `Flow`, not a `Wrap` of its own, so a caller's
+/// column doesn't keep it (#367): a browser stretches a wrapping column's input
+/// only to the input's own width, past a narrow column.
 fn wrapper(around: [Style]): [Style] {
-    [.Layout(.Row), .Wrap(true), .AlignCross(.Center), .Group(around)]
+    [.Layout(.Flow), .AlignCross(.Center), .Group(around)]
 }
 
 /// A toggle's box: the arrangement that puts its mark where the mark goes, and

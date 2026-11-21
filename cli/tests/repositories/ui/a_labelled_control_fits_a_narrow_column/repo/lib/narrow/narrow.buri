@@ -1,0 +1,67 @@
+//! A labelled control in a column 112px wide, beside a box that takes the rest
+//! of a 300px row (#367).
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+
+/// A field whose label is a column: its words above its box, and the box as
+/// wide as the column.
+export fn fieldColumn<C: Ui>(ctx: C): Node<C> {
+    narrow(
+        ui.field({
+            label: .Const("Amount"),
+            kind: .Text,
+            value: signal(ctx, ""),
+            styles: [
+                .MinWidth(.Px(0)),
+                .PaddingX(.Px(10)),
+                .BorderWidth(.Px(1)),
+                .BorderColor(.Rgb(120, 120, 120)),
+            ],
+            hint: .None,
+            around: .Some([.Layout(.Column), .AlignCross(.Stretch), .MinWidth(.Px(0))]),
+            isInvalid: .None,
+            isDisabled: .None,
+        }),
+    )
+}
+
+/// A toggle whose label is a column: its box above its words.
+export fn toggleColumn<C: Ui>(ctx: C): Node<C> {
+    narrow(
+        ui.toggle({
+            label: .Const("Email me when it ships"),
+            kind: .Checkbox,
+            isOn: signal(ctx, true),
+            styles: [.BorderWidth(.Px(1)), .BorderColor(.Rgb(120, 120, 120))],
+            around: .Some([.Layout(.Column), .AlignCross(.Stretch)]),
+        }),
+    )
+}
+
+/// A toggle left a row: its words beside its box, wrapping there.
+export fn toggleRow<C: Ui>(ctx: C): Node<C> {
+    narrow(
+        ui.toggle({
+            label: .Const("Email me when it ships"),
+            kind: .Checkbox,
+            isOn: signal(ctx, true),
+            styles: [.BorderWidth(.Px(1)), .BorderColor(.Rgb(120, 120, 120))],
+        }),
+    )
+}
+
+fn narrow<C>(control: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Row), .Width(.Px(300))],
+        children: [
+            ui.stack({ styles: [.Grow(1), .Background(.Rgb(220, 220, 240))], children: [] }),
+            ui.stack({
+                styles: [.Layout(.Column), .Width(.Px(112)), .Shrink(0)],
+                children: [control],
+            }),
+        ],
+    })
+}

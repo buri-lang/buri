@@ -3526,13 +3526,11 @@ impl Reset {
             // The `<label>` wrapping a control and its text. A browser lays it
             // out as an inline box, which is not a box a surrounding row can
             // measure and not a box the headless painter has any flow for. One
-            // wrapping row says the same thing to both, and `around` beats it
-            // — every class does. A radio group's options are labels of this
-            // shape too.
-            out.push_str(
-                ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;\
-                 align-items:center}\n",
-            );
+            // row says the same thing to both, and `around` beats it — every
+            // class does. A radio group's options are labels of this shape too.
+            // The wrap comes with the wrapper's `Flow` class, so a caller's
+            // layout replaces it; here it would outlive a column (#367).
+            out.push_str(":where(label){display:flex;flex-direction:row;align-items:center}\n");
         }
         if self.toggle {
             // The box the widget draws its mark in. It is a row that centres
@@ -3813,6 +3811,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                         one("display", &format!("grid;grid-template-columns:{columns}")),
                     ))
                 }
+                6 => Some((
+                    "lay",
+                    "flow".into(),
+                    one("display", "flex;flex-direction:row;flex-wrap:wrap"),
+                )),
                 _ => Some((
                     "lay",
                     "layers".into(),

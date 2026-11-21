@@ -31,7 +31,7 @@ test "what a row can do to a labelled control" {
         }),
         .Hover,
     );
-    assert.containsText(scene, "e 0 class:lay-row wrap-wrap ac-center grow-1");
+    assert.containsText(scene, "e 0 class:lay-flow ac-center grow-1");
     assert.containsText(scene, "e 1 class:r-4;field:text");
     snapshot(ctx, "wrapper-row", rowPage(ctx), .Hover, []);
 }
@@ -63,7 +63,7 @@ test "the label as a box of its own" {
             }),
             .Hover,
         ),
-        "e 0 class:wrap-wrap ac-center lay-col",
+        "e 0 class:ac-center lay-col",
     );
     snapshot(ctx, "wrapper-inside", insidePage(ctx), .Hover, []);
 }

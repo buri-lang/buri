@@ -1,0 +1,40 @@
+// A labelled control in a narrow column draws inside it (#367).
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshotWide };
+from "ui/node" import * as ui;
+from "//lib/narrow" import { fieldColumn, toggleColumn, toggleRow };
+
+test "a field laid out as a column keeps its box in the column" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = fieldColumn(ctx);
+    assert.containsText(
+        ui.describe(ctx, tree, .Hover),
+        "e 2 class:lay-col ac-stretch minw-0\n",
+    );
+    snapshotWide(ctx, "field-column", tree, .Hover, [], 300);
+}
+
+test "a toggle laid out as a column keeps its words in the column" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = toggleColumn(ctx);
+    assert.containsText(ui.describe(ctx, tree, .Hover), "e 2 class:lay-col ac-stretch\n");
+    snapshotWide(ctx, "toggle-column", tree, .Hover, [], 300);
+}
+
+test "a toggle's words that don't fit beside its box take a line of their own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let tree = toggleRow(ctx);
+    assert.containsText(ui.describe(ctx, tree, .Hover), "e 2 class:lay-flow ac-center\n");
+    snapshotWide(ctx, "toggle-row", tree, .Hover, [], 300);
+}

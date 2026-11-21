@@ -570,6 +570,9 @@ export enum Layout {
     /// Children share one space, later ones over earlier ones. There is no
     /// depth number to get wrong: they stack in the order you write them.
     Layers,
+    /// Children run along the page and onto the next line when one fills, the
+    /// way words do. A caller's `Layout` replaces the wrap along with the row.
+    Flow,
 }
 
 /// One column of a `Grid`.

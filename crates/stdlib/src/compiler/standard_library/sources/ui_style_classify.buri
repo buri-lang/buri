@@ -576,6 +576,7 @@ fn layoutKey<C: Allocator>(ctx: C, layout: Layout): Str {
             str.format(ctx, "grid-${digest(ctx, columns)}")
         },
         .Layers => "layers",
+        .Flow => "flow",
     }
 }
 

@@ -1,0 +1,22 @@
+# A field and a toggle in a column 112px wide (#367). A label is a plain row or
+# column, never a wrapping one, so a browser lays it out the way the painter
+# does: a column label stretches its box to the column, and a row label keeps
+# its words beside its box.
+#
+# `a_labelled_control_fits_a_narrow_column` in build/repositories.rs checks
+# that a browser wraps nothing here and gives the field's box the column's
+# width.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a field and a toggle in a narrow column, as a column and as a row, draw inside the column in the painter and in a browser"
+
+run {
+  args: ["test", "//lib/narrow", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/narrow/test/__snapshots__/field-column.diff.png"  exists: false }
+path { path: "lib/narrow/test/__snapshots__/toggle-column.diff.png"  exists: false }
+path { path: "lib/narrow/test/__snapshots__/toggle-row.diff.png"  exists: false }

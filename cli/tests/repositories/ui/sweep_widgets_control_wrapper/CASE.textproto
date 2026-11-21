@@ -18,9 +18,9 @@
 # arrangement the sheet's reset gives it being beaten by the caller's own — the
 # rule a `row`'s `Layout` already follows.
 #
-# The reset lays that wrapper out as a wrapping row rather than leaving it a
-# browser's inline box, because a flex item is blockified: an inline `<label>`
-# given `Grow` would have stacked its text and its input. `describe` writes the
+# The wrapper is a flow, a row that wraps, rather than a browser's inline box,
+# because a flex item is blockified: an inline `<label>` given `Grow` would have
+# stacked its text and its input. `describe` writes the
 # same arrangement in the vocabulary, so the two renderers agree property by
 # property and a class on `around` beats either.
 #

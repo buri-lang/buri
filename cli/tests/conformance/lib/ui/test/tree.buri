@@ -1493,7 +1493,7 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
+        "e 0 class:lay-flow ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
     );
     let sheet = stylesheet();
     // The attribute is the source of truth, so the rule asks about the
@@ -1509,7 +1509,7 @@ test "a failing control announces so, and the ring hangs off the attribute" {
     let _ = failing.set(ctx, false);
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
+        "e 0 class:lay-flow ac-center\nt 1 Email\ne 1 field:email\nt 2 ada",
     );
 }
 
@@ -1531,7 +1531,7 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 terms",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 terms",
     );
     // A control that is not failing carries nothing at all, which is what
     // every field and toggle in this suite already says.
@@ -1541,7 +1541,7 @@ test "a toggle says it is failing the same way, and a valid one says nothing" {
     );
     assert.equal(
         quiet.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
     );
 }
 
@@ -1571,7 +1571,7 @@ test "a radio group is a radiogroup of real radios sharing one name" {
     // Space from there.
     assert.equal(
         page.markup(),
-        "e 0 label:Size\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Small\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Large",
+        "e 0 label:Size\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Small\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Medium\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Large",
     );
     // One input per option, and nothing shared with a second group: a page of
     // two groups numbers them apart, which is what makes the browser's model
@@ -1629,13 +1629,13 @@ test "picking a radio writes its key, and the checked one follows the signal" {
     assert.equal(choice.get(ctx), "b");
     assert.equal(
         page.markup(),
-        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Banana",
+        "e 0 label:Pick\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Apple\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Banana",
     );
     // Writing the signal from elsewhere checks the matching input too.
     let _ = choice.set(ctx, "a");
     assert.containsText(
         page.markup(),
-        "e 0 label:Pick\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
+        "e 0 label:Pick\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:true\ne 3 mark:dot;width:50%;height:50%\nt 2 Apple\ne 1 class:lay-flow ac-center\ne 2 class:lay-row am-center ac-center w-r1 h-r1 shrink-0 r-full bw-1;checked:false\nt 2 Banana",
     );
 }
 
@@ -3647,7 +3647,7 @@ test "a field is labelled, and what is typed into it is in its signal" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
+        "e 0 class:lay-flow ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
     );
     let _ = page.fill("name", "grace");
     assert.equal(name.get(ctx), "grace");
@@ -3665,7 +3665,7 @@ test "a field follows its signal when something else writes it" {
     let _ = name.set(ctx, "grace");
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 grace",
+        "e 0 class:lay-flow ac-center\nt 1 name\ne 1 field:text\nt 2 grace",
     );
 }
 
@@ -3714,7 +3714,7 @@ test "a field kind is what the field accepts" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 story\ne 2 field:multiline\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 secret\ne 2 field:password\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 address\ne 2 field:email\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 how many\ne 2 field:number\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 query\ne 2 field:search\nt 3 ",
+        "e 0 \ne 1 class:lay-flow ac-center\nt 2 story\ne 2 field:multiline\nt 3 \ne 1 class:lay-flow ac-center\nt 2 secret\ne 2 field:password\nt 3 \ne 1 class:lay-flow ac-center\nt 2 address\ne 2 field:email\nt 3 \ne 1 class:lay-flow ac-center\nt 2 how many\ne 2 field:number\nt 3 \ne 1 class:lay-flow ac-center\nt 2 query\ne 2 field:search\nt 3 ",
     );
 }
 
@@ -3739,7 +3739,7 @@ test "a field takes a hint, and it is the placeholder inside its box" {
     // and still first.
     assert.equal(
         render(ctx, line).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 ",
+        "e 0 class:lay-flow ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 ",
     );
     // The scene carries it beside the kind, which is what the painter draws
     // the hint from.
@@ -3770,7 +3770,7 @@ test "a hint outlives the value in the markup, the way the attribute does" {
     // and `sweep_widgets_hint` is where that is a picture.
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 open",
+        "e 0 class:lay-flow ac-center\nt 1 Search\ne 1 field:search;placeholder:Type a command\nt 2 open",
     );
 }
 
@@ -3788,7 +3788,7 @@ test "no hint is no placeholder at all" {
     // "decorative", so a field that wants none carries no markup for one.
     assert.equal(
         render(ctx, plain).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
+        "e 0 class:lay-flow ac-center\nt 1 name\ne 1 field:text\nt 2 ada",
     );
     assert.isFalse(ui.describe(ctx, plain, .Hover).contains("placeholder"));
 }
@@ -3811,13 +3811,13 @@ test "a hint may vary" {
     let _ = hint.set(ctx, "Search the docs");
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search;placeholder:Search the docs\nt 2 ",
+        "e 0 class:lay-flow ac-center\nt 1 Search\ne 1 field:search;placeholder:Search the docs\nt 2 ",
     );
     // Emptied, the attribute goes rather than staying on as `placeholder=""`.
     let _ = hint.set(ctx, "");
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Search\ne 1 field:search\nt 2 ",
+        "e 0 class:lay-flow ac-center\nt 1 Search\ne 1 field:search\nt 2 ",
     );
 }
 
@@ -3843,7 +3843,7 @@ test "every kind that holds text takes a hint, and a range takes none" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:text;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:multiline;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:password;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:email;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:number;placeholder:hint\nt 3 \ne 1 class:lay-row wrap-wrap ac-center\nt 2 what\ne 2 field:search;placeholder:hint\nt 3 ",
+        "e 0 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:text;placeholder:hint\nt 3 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:multiline;placeholder:hint\nt 3 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:password;placeholder:hint\nt 3 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:email;placeholder:hint\nt 3 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:number;placeholder:hint\nt 3 \ne 1 class:lay-flow ac-center\nt 2 what\ne 2 field:search;placeholder:hint\nt 3 ",
     );
     // A slider has no box to put a word in, and HTML's own `placeholder`
     // applies to the types that hold text and to nothing else. The hint is
@@ -3861,7 +3861,7 @@ test "every kind that holds text takes a hint, and a range takes none" {
     );
     assert.equal(
         render(ctx, slider).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40.0",
+        "e 0 class:lay-flow ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40.0",
     );
     assert.isFalse(ui.describe(ctx, slider, .Hover).contains("placeholder"));
 }
@@ -3887,7 +3887,7 @@ test "a hint neither ends the declaration nor the line it is on" {
     );
     assert.equal(
         scene,
-        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-row wrap-wrap ac-center\nt 1 Note\ne 1 field:text;placeholder:a\\; b c\nt 2 ",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-flow ac-center\nt 1 Note\ne 1 field:text;placeholder:a\\; b c\nt 2 ",
     );
 }
 
@@ -3903,13 +3903,13 @@ test "a toggle is two states and a label" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false\nt 1 done",
     );
     let _ = page.flip("done");
     assert.isTrue(done.get(ctx));
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:tick;width:100%;height:100%\nt 1 done",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:tick;width:100%;height:100%\nt 1 done",
     );
     let _ = page.flip("done");
     assert.isFalse(done.get(ctx));
@@ -3922,12 +3922,12 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     };
     let name = signal(ctx, "ada");
     let done = signal(ctx, false);
-    // The wrapper is the runtime's element rather than the program's, and the
-    // sheet's reset lays it out as a wrapping row: the control and its text sit
-    // on one line, and a control as wide as the line takes one of its own. The
+    // The wrapper is the runtime's element rather than the program's, and it
+    // is a flow: the control and its text sit on one line, and a control as
+    // wide as the line takes one of its own. The
     // painter has no inline flow, so the scene says what that comes to in the
     // vocabulary it does have — and the two renderers agree only while it does.
-    let inline = "class:lay-row wrap-wrap ac-center";
+    let inline = "class:lay-flow ac-center";
     let box = "class:lay-row ac-center w-r1 h-r1 shrink-0 am-start";
     assert.equal(
         ui.describe(
@@ -3962,8 +3962,12 @@ test "the label a field and a toggle are wrapped in flows on one line" {
     // the wrapper beats it.
     assert.isTrue(
         stylesheet().contains(
-            ":where(label){display:flex;flex-direction:row;flex-wrap:wrap;align-items:center}",
+            ":where(label){display:flex;flex-direction:row;align-items:center}",
         ),
+    );
+    // The wrap is the wrapper's `Flow` class, so a caller's layout replaces it.
+    assert.isTrue(
+        stylesheet().contains(".lay-flow{display:flex;flex-direction:row;flex-wrap:wrap}"),
     );
 }
 
@@ -3989,13 +3993,13 @@ test "a labelled control takes styles for the box around it" {
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
+        "e 0 class:lay-flow ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
     );
     // The scene says the same: the wrapper carries the caller's class beside
     // the arrangement it is given, and the input carries its own.
     assert.equal(
         ui.describe(ctx, tree, .Hover),
-        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-row wrap-wrap ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
+        "buri-scene 1\nviewport 800 fit\ne 0 class:lay-flow ac-center grow-1\nt 1 Site\ne 1 class:w-full;field:text\nt 2 ",
     );
     // A style the caller puts on the wrapper beats the arrangement the runtime
     // gave it, which is the rule a `row`'s own `Layout` follows.
@@ -4011,7 +4015,7 @@ test "a labelled control takes styles for the box around it" {
             }),
             .Hover,
         ),
-        "e 0 class:wrap-wrap ac-center lay-col",
+        "e 0 class:ac-center lay-col",
     );
 }
 
@@ -4359,7 +4363,7 @@ test "a toggle draws its own mark" {
             ctx,
             ui.toggle({ label: .Const("email"), kind: .Switch, isOn: on, styles: [] }),
         ).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 email",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 email",
     );
     let sheet = stylesheet();
     assert.containsText(
@@ -4490,15 +4494,15 @@ test "a disabled control says so in its markup" {
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-flow ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-flow ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-flow ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-flow ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
     assert.containsText(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
+        "e 0 \ne 1 disabled:true;label:save\nt 2 save\ne 1 class:lay-flow ac-center\nt 2 name\ne 2 field:text;disabled:true\nt 3 ada\ne 1 class:lay-flow ac-center\ne 2 class:lay-row ac-center w-r1 h-r1 shrink-0 am-start;checked:false;disabled:true\nt 2 done",
     );
 }
 
@@ -4754,7 +4758,7 @@ test "a range field is a slider, and the browser drives it" {
     );
     assert.equal(
         page.markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40.0",
+        "e 0 class:lay-flow ac-center\nt 1 Volume\ne 1 class:w-r12 h-r1 shrink-0;field:range;range:0.0 100.0 40.0",
     );
     // A slider binds a `Signal<Float>`: where the reader drags lands in the
     // signal, and the signal lands back on the input. Writing the signal is that
@@ -4773,7 +4777,7 @@ test "a slider takes styles for the box around it, the way a field and a toggle 
     // `around` lands on the slider's `<label>` wrapper — the box a surrounding
     // stack lays out — so the words can sit above the track in a stretched
     // column, exactly as a labelled field's do. Without it the wrapper was the
-    // widget's own `lay-row wrap-wrap ac-center` and nothing else.
+    // widget's own `lay-flow ac-center` and nothing else.
     let tree = rooted(
         ctx,
         ui.slider({
@@ -4794,12 +4798,12 @@ test "a slider takes styles for the box around it, the way a field and a toggle 
     // `around` beats its wrapper's row.
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:wrap-wrap lay-col ac-stretch grow-1 gap-8\nt 1 Volume\ne 1 class:shrink-0 w-full h-16;field:range;range:0.0 100.0 50.0",
+        "e 0 class:lay-col ac-stretch grow-1 gap-8\nt 1 Volume\ne 1 class:shrink-0 w-full h-16;field:range;range:0.0 100.0 50.0",
     );
     // The scene the painter reads carries the same wrapper.
     assert.containsText(
         ui.describe(ctx, tree, .Hover),
-        "e 0 class:wrap-wrap lay-col ac-stretch grow-1 gap-8",
+        "e 0 class:lay-col ac-stretch grow-1 gap-8",
     );
     // A slider given no `around` keeps the widget's own default wrapper.
     assert.containsText(
@@ -4813,7 +4817,7 @@ test "a slider takes styles for the box around it, the way a field and a toggle 
                 styles: [],
             }),
         ).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center",
+        "e 0 class:lay-flow ac-center",
     );
 }
 
@@ -4861,7 +4865,7 @@ test "a range's bounds are in the scene, and its value is not a run of text" {
         Ui: headless(),
     };
     let volume = signal(ctx, 40.0);
-    let inline = "class:lay-row wrap-wrap ac-center";
+    let inline = "class:lay-flow ac-center";
     let track = "class:w-r12 h-r1 shrink-0";
     // The painter places the thumb, so it is told the bounds and the value the
     // thumb sits at. It is not told the step: what an arrow key moves by is
@@ -4944,7 +4948,7 @@ test "a range field's styles land on the input, and compose the way a control's 
     );
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 10.0",
+        "e 0 class:lay-flow ac-center\nt 1 Volume\ne 1 class:h-r1 shrink-0 pe-start-8 pe-end-4 w-160 hover_op-0_9 pos-sticky;field:range;range:0.0 10.0 10.0",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
     // The caller's `Width` is last in the scene too, so the track's own twelve
@@ -4998,7 +5002,7 @@ test "a control takes styles of its own, and they land on the control" {
     // is hovered, focused or disabled.
     assert.equal(
         render(ctx, tree).markup(),
-        "e 0 \ne 1 class:p-12 hover_op-0_9;label:go\nt 2 go\ne 1 class:fg-090909\ne 1 class:lay-row wrap-wrap ac-center\nt 2 name\ne 2 class:r-4;field:text\nt 3 ada\ne 1 class:lay-row wrap-wrap ac-center\ne 2 class:lay-row ac-center h-r1 shrink-0 am-start w-20;checked:false\nt 2 done",
+        "e 0 \ne 1 class:p-12 hover_op-0_9;label:go\nt 2 go\ne 1 class:fg-090909\ne 1 class:lay-flow ac-center\nt 2 name\ne 2 class:r-4;field:text\nt 3 ada\ne 1 class:lay-flow ac-center\ne 2 class:lay-row ac-center h-r1 shrink-0 am-start w-20;checked:false\nt 2 done",
     );
     assert.isTrue(stylesheet().contains(".hover_op-0_9:hover{opacity:0.9}"));
 }
@@ -5276,7 +5280,7 @@ test "a toggle's own styles paint, because the reset takes the native control aw
                 styles: styles,
             }),
         ).markup(),
-        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center shrink-0 am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 Email me",
+        "e 0 class:lay-flow ac-center\ne 1 class:lay-row ac-center shrink-0 am-end w-32 h-18 r-9999 bg-dcdcdc checked_bg-141414;checked:true\ne 2 mark:thumb;height:100%;aspect-ratio:1\nt 1 Email me",
     );
 
     let sheet = stylesheet();

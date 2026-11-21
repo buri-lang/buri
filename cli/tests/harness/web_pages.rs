@@ -194,6 +194,16 @@ pub fn computed(case: &Path, property: &str, initial: &str) -> Vec<(String, Stri
     read_snapshots(case, &script, "computed ")
 }
 
+/// How wide a browser lays out each `tag` element of each of `case`'s
+/// snapshots, as `(name, widths)` pairs in the order the snapshots mounted.
+///
+/// Each page is mounted the way [`computed`] mounts it. A snapshot's widths are
+/// its `tag` elements' border boxes by `sizeOf`, in tree order, each as
+/// `<tag>=<px>`.
+pub fn widths(case: &Path, tag: &str) -> Vec<(String, String)> {
+    read_snapshots(case, &format!("const TAG = {tag:?};\n{WIDTHS}"), "widths ")
+}
+
 /// The boxes a browser lays out for the outermost element of each of `case`'s
 /// snapshots, as `(name, boxes)` pairs in the order the snapshots mounted.
 ///
@@ -1161,6 +1171,18 @@ for (const { root, name, tree } of snapshots) {
     .filter(([, value]) => value !== "" && value !== INITIAL)
     .map(([element, value]) => `${element.localName}=${value}`);
   console.log(`computed ${name}: ${values.join(" ")}`);
+}
+console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
+"#;
+
+/// Prints the widths of each snapshot's `TAG` elements for [`widths`], at the
+/// snapshot's width.
+const WIDTHS: &str = r#"
+for (const { root, name, tree } of snapshots) {
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]));
+  const found = tree.flatMap((n) => (n.nodeType === 1 ? [n, ...n.querySelectorAll(TAG)] : []));
+  const widths = found.filter((e) => e.localName === TAG).map((e) => `${TAG}=${sizeOf(e, "width")}`);
+  console.log(`widths ${name}: ${widths.join(" ")}`);
 }
 console.log(problems.length === 0 ? "every snapshot rendered" : problems.join("\n"));
 "#;

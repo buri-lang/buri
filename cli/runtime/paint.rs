@@ -2646,8 +2646,7 @@ fn taffy_style(c: &Computed) -> Style {
         // reset used to resolve to a definite figure smaller than its content
         // and wrap where Chrome does not (buri#162). So a column wraps only when
         // a pixel height was set on it; a row wraps as it always did, which is
-        // the wrap the label reset is there for — a wide control below its
-        // words.
+        // what a label's flow is there for — a wide control below its words.
         flex_wrap: if c.wrap && (!c.column || matches!(c.size[1], Len::Px(_))) {
             FlexWrap::Wrap
         } else {
@@ -9515,7 +9514,7 @@ mod tests {
     /// so a field's `<label>` grown by the label reset used to resolve to a
     /// definite figure smaller than its content and wrap where Chrome shows one
     /// column. So a column wraps only when a pixel height was set on it; a row
-    /// wraps as it always did — the wrap the label reset is there for.
+    /// wraps as it always did — what a label's flow is there for.
     #[test]
     fn a_wrapping_column_wraps_only_with_a_height_of_its_own() {
         let mut base = Computed::root();
@@ -9535,7 +9534,7 @@ mod tests {
         assert_eq!(taffy_style(&sized_column).flex_wrap, FlexWrap::Wrap);
 
         // A wrapping row wraps whatever its height — a wide control below its
-        // words is what the label reset's wrap is for.
+        // words is what a label's flow is for.
         let mut row = base;
         row.column = false;
         assert_eq!(taffy_style(&row).flex_wrap, FlexWrap::Wrap);

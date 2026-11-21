@@ -1152,6 +1152,38 @@ fn a_chart_follows_its_form_on_a_phone() {
     );
 }
 
+/// What a browser does with `a_labelled_control_fits_a_narrow_column`'s
+/// labels (#367): a label made a column doesn't wrap, and the field's box is
+/// the column's 112px, as the painter draws it.
+#[test]
+fn a_labelled_control_fits_a_narrow_column() {
+    let case = tests_dir().join("repositories/ui/a_labelled_control_fits_a_narrow_column");
+    let shown = |found: Vec<(String, String)>| -> Vec<String> {
+        found
+            .iter()
+            .map(|(name, values)| format!("{name}: {values}"))
+            .collect()
+    };
+    let widths = crate::harness::web_pages::widths(&case, "input");
+    assert_eq!(
+        shown(widths),
+        [
+            "field-column: input=112",
+            "toggle-column: input=16",
+            "toggle-row: input=16"
+        ]
+    );
+    let wraps = crate::harness::web_pages::computed(&case, "flex-wrap", "nowrap");
+    assert_eq!(
+        shown(wraps),
+        [
+            "field-column: ",
+            "toggle-column: ",
+            "toggle-row: label=wrap"
+        ]
+    );
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.

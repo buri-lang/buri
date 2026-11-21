@@ -867,7 +867,7 @@ const sides = (dimension) => (dimension === "width" ? ["Left", "Right"] : ["Top"
 // tallest of them in a table row, whose entries sit side by side, plus its own
 // padding and border.
 function flowSize(element, dimension) {
-  if (dimension === "width") return contentOf(element.parentElement, "width");
+  if (dimension === "width") return wrappedLine(element.parentElement) ?? contentOf(element.parentElement, "width");
   const row = display(element) === "table-row";
   let total = 0;
   for (const child of inFlow(element)) {
@@ -875,6 +875,23 @@ function flowSize(element, dimension) {
     total = row ? Math.max(total, height) : total + height;
   }
   return total + padding(element, "height") + borders(element, "height");
+}
+// How wide the line is that `container`'s children stretch across, when it is
+// a flex column that wraps, else `null`. Its height is never definite here, so
+// it has one line, but a wrapping container sizes that line by its items: the
+// widest fit-content width among them, never narrower than the container. A
+// box holding text wraps the text to fit, so it doesn't widen the line.
+function wrappedLine(container) {
+  const s = getComputedStyle(container);
+  if (!/flex/.test(display(container)) || !s.flexDirection.startsWith("column") || s.flexWrap !== "wrap") return null;
+  const room = contentOf(container, "width");
+  let line = room;
+  for (const child of inFlow(container)) {
+    if (child.textContent.trim() !== "") continue;
+    const [least, most] = intrinsicWidths(child);
+    line = Math.max(line, Math.min(most, Math.max(least, room)));
+  }
+  return line;
 }
 // `element`'s children in the flow: neither out of it nor shown as nothing.
 const inFlow = (element) =>
@@ -908,7 +925,10 @@ function intrinsicWidths(element, inside = false) {
   const wraps = s.flexWrap === "wrap";
   const children = inFlow(element);
   const gaps = row ? (lengthIn(s.columnGap === "normal" ? "0" : s.columnGap, () => 0) ?? 0) * Math.max(0, children.length - 1) : 0;
-  let [least, most] = [0, 0];
+  // An `<input>` is `size` characters wide, 20 unless it says. Half the font
+  // size stands in for the average character a browser reads off the font.
+  const typed = element.localName === "input" ? (Number(element.getAttribute("size")) || 20) * (lengthIn(s.fontSize, () => 0) ?? 16) / 2 : 0;
+  let [least, most] = [typed, typed];
   for (const child of children) {
     const [l, m] = intrinsicWidths(child, true);
     least = row && !wraps ? least + l : Math.max(least, l);
