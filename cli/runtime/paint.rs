@@ -542,8 +542,19 @@ fn straight_row(premultiplied: &[u8], out: &mut [u8]) {
 }
 
 /// Premultiplied RGBA bytes made straight in place. An opaque pixel is the
-/// same four bytes either way, so only a translucent one is touched.
+/// same four bytes either way, so only a translucent one is touched, and a run
+/// of opaque pixels is passed over without looking at each one.
 fn demultiply(out: &mut [u8]) {
+    // Sixteen pixels at a time: one test of all their alphas, which is the
+    // whole of the work where a picture is opaque.
+    for run in out.chunks_mut(BPP * 16) {
+        if !opaque(run) {
+            demultiply_each(run);
+        }
+    }
+}
+
+fn demultiply_each(out: &mut [u8]) {
     for pixel in out.as_chunks_mut::<4>().0 {
         if pixel[3] != 255 {
             let p = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
@@ -552,6 +563,28 @@ fn demultiply(out: &mut [u8]) {
                 });
             pixel.copy_from_slice(&[p.red(), p.green(), p.blue(), p.alpha()]);
         }
+    }
+}
+
+/// Whether every pixel of RGBA bytes has an alpha of 255: the alphas folded
+/// together with no branch, so the test is a few vector instructions a row.
+fn opaque(rgba: &[u8]) -> bool {
+    let all = rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .fold(u32::MAX, |all, pixel| all & u32::from_le_bytes(*pixel));
+    all >> 24 == 255
+}
+
+/// The straight bytes of one premultiplied row: the row itself where it is
+/// opaque, which is most rows, and otherwise demultiplied into `scratch`.
+fn straight_or<'a>(line: &'a [u8], scratch: &'a mut [u8]) -> &'a [u8] {
+    if opaque(line) {
+        line
+    } else {
+        straight_row(line, scratch);
+        scratch
     }
 }
 
@@ -564,21 +597,24 @@ fn same_pixels(rgba: &[u8], pixmap: &Pixmap) -> bool {
     let mut row = vec![0_u8; stride];
     rgba.chunks_exact(stride)
         .zip(pixmap.data().chunks_exact(stride))
-        .all(|(want, line)| {
-            straight_row(line, &mut row);
-            row == want
-        })
+        .all(|(want, line)| straight_or(line, &mut row) == want)
 }
 
 /// Whether a golden's inflated rows — a filter byte and the row, each — are
 /// the raster's pixels behind the `Up` filter [`filter_rows`] writes: every
 /// filter byte `2`, and every byte the difference from the byte above it.
+///
+/// An opaque row is compared as it stands in the raster, with no copy; only a
+/// translucent one is made straight first, into one of two rows kept for it.
 fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
     let stride = pixmap.width() as usize * BPP;
     if rows.len() != (stride + 1) * pixmap.height() as usize || stride == 0 {
         return false;
     }
-    let (mut above, mut here) = (vec![0_u8; stride], vec![0_u8; stride]);
+    // The straight row above, when it was translucent; `above` borrows the
+    // raster's own row when it was opaque. The first row's is zeroes.
+    let (mut kept, mut scratch) = (vec![0_u8; stride], vec![0_u8; stride]);
+    let mut above_line: Option<&[u8]> = None;
     for (filtered, line) in rows
         .chunks_exact(stride + 1)
         .zip(pixmap.data().chunks_exact(stride))
@@ -587,21 +623,45 @@ fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
         if kind != [2] {
             return false;
         }
-        straight_row(line, &mut here);
-        // Every byte's disagreement folded into one, so the row is read
-        // without a branch per byte.
-        let differs = filtered
-            .iter()
-            .zip(here.iter().zip(&above))
-            .fold(0_u8, |seen, (&f, (&x, &up))| {
-                seen | (f ^ x.wrapping_sub(up))
-            });
-        if differs != 0 {
+        let here_opaque = opaque(line);
+        if !here_opaque {
+            straight_row(line, &mut scratch);
+        }
+        let here: &[u8] = if here_opaque { line } else { &scratch };
+        let above: &[u8] = above_line.unwrap_or(&kept);
+        if !same_up(filtered, here, above) {
             return false;
         }
-        std::mem::swap(&mut above, &mut here);
+        if here_opaque {
+            above_line = Some(line);
+        } else {
+            std::mem::swap(&mut kept, &mut scratch);
+            above_line = None;
+        }
     }
     true
+}
+
+/// Whether `filtered` is `here` less `above`, byte by byte. Every byte's
+/// disagreement in a block is folded into one, so the rows are read with
+/// vector instructions and a branch a block rather than a byte.
+fn same_up(filtered: &[u8], here: &[u8], above: &[u8]) -> bool {
+    const BLOCK: usize = 128;
+    let differs = |f: &[u8], x: &[u8], up: &[u8]| {
+        f.iter()
+            .zip(x.iter().zip(up))
+            .fold(0_u8, |seen, (&f, (&x, &up))| {
+                seen | (f ^ x.wrapping_sub(up))
+            })
+    };
+    let (f_blocks, f_rest) = filtered.as_chunks::<BLOCK>();
+    let (x_blocks, x_rest) = here.as_chunks::<BLOCK>();
+    let (up_blocks, up_rest) = above.as_chunks::<BLOCK>();
+    f_blocks
+        .iter()
+        .zip(x_blocks.iter().zip(up_blocks))
+        .all(|(f, (x, up))| differs(f, x, up) == 0)
+        && differs(f_rest, x_rest, up_rest) == 0
 }
 
 /// The custom properties a `:root` block declares, each name without its
@@ -798,17 +858,30 @@ pub fn diff(golden: &[u8], actual: &[u8]) -> Result<Option<Vec<u8>>, String> {
 fn diff_image(a: &image::Image, b: &image::Image) -> Result<Vec<u8>, String> {
     let width = a.width.max(b.width);
     let height = a.height.max(b.height);
-    let mut out = Vec::with_capacity(pixel_bytes(width, height)?);
-    for y in 0..height {
-        for x in 0..width {
-            match (a.pixel(x, y), b.pixel(x, y)) {
-                (Some(g), Some(n)) if g == n => out.extend_from_slice(&faded(g)),
-                _ => out.extend_from_slice(&[255, 0, 255, 255]),
-            }
+    let mut out = vec![0_u8; pixel_bytes(width, height)?];
+    let stride = width as usize * 4;
+    if stride == 0 {
+        return Ok(encode(width, height, &out));
+    }
+    // A row at a time: each image's pixels on row `y`, as many as it has
+    // there, and every pixel of the diff's row decided from the two.
+    for (y, row) in (0_u32..).zip(out.chunks_exact_mut(stride)) {
+        let golden = a.row(y);
+        let fresh = b.row(y);
+        let row = row.as_chunks_mut::<4>().0;
+        for (pixel, (g, n)) in row.iter_mut().zip(golden.iter().zip(fresh)) {
+            *pixel = if g == n { faded(*g) } else { MAGENTA };
         }
+        // Past the end of the narrower image's row, only one image has a
+        // pixel, or neither does.
+        let both = golden.len().min(fresh.len());
+        row.iter_mut().skip(both).for_each(|pixel| *pixel = MAGENTA);
     }
     Ok(encode(width, height, &out))
 }
+
+/// A pixel that differs, or that only one image has.
+const MAGENTA: [u8; 4] = [255, 0, 255, 255];
 
 /// A matching pixel, greyed and lightened, so the magenta reads as the subject.
 fn faded(p: [u8; 4]) -> [u8; 4] {
@@ -7407,10 +7480,20 @@ fn adler32(data: &[u8]) -> u32 {
     let mut a = 1_u32;
     let mut b = 0_u32;
     for block in data.chunks(5552) {
-        for &byte in block {
-            a += u32::from(byte);
-            b += a;
-        }
+        // A byte at a time, `a` gains the byte and `b` gains `a`. Over the
+        // block, that is `a` gaining the bytes' sum, and `b` gaining `a` once
+        // for each byte plus each byte once for each sum it is in: `n` for the
+        // first, down to 1 for the last. Neither sum chains one byte to the
+        // next, so both are vector work.
+        let n = block.len() as u32;
+        let sum: u32 = block.iter().map(|&byte| u32::from(byte)).sum();
+        let weighted: u32 = block
+            .iter()
+            .enumerate()
+            .map(|(j, &byte)| (n - j as u32) * u32::from(byte))
+            .sum();
+        b += n * a + weighted;
+        a += sum;
         a %= 65521;
         b %= 65521;
     }
@@ -9387,6 +9470,32 @@ mod tests {
         assert_eq!(adler32(b"abc"), 0x024d_0127);
     }
 
+    /// Adler-32 over inputs longer than a block, against the definition a byte
+    /// at a time: every byte 255, which brings `b` closest to overflowing
+    /// between remainders, and bytes that change.
+    #[test]
+    fn the_adler_checksum_of_long_input_is_the_one_a_byte_at_a_time_gives() {
+        let by_definition = |data: &[u8]| {
+            let (mut a, mut b) = (1_u32, 0_u32);
+            for &byte in data {
+                a = (a + u32::from(byte)) % 65521;
+                b = (b + a) % 65521;
+            }
+            (b << 16) | a
+        };
+        let full = vec![255_u8; 5552 * 3 + 17];
+        let mixed: Vec<u8> = (0..40_000_u32).map(|i| (i * 7919 % 251) as u8).collect();
+        for data in [
+            &full[..],
+            &full[..5552],
+            &full[..5553],
+            &mixed[..],
+            &mixed[..31],
+        ] {
+            assert_eq!(adler32(data), by_definition(data), "{} bytes", data.len());
+        }
+    }
+
     #[test]
     fn a_box_mean_multiplies_to_the_quotient_a_divide_gives() {
         for size in (1..5000_u32).chain([65535]) {
@@ -9612,6 +9721,27 @@ mod tests {
         // The matching pixel is grey and lighter than the golden's white.
         let [r, g, b, a] = image.pixel(0, 0).unwrap();
         assert_eq!((r, g, b, a), (255, 255, 255, 255));
+    }
+
+    /// The diff of a golden one row shorter and one column narrower than the
+    /// fresh picture: magenta down the extra column and across the extra row,
+    /// and every pixel the two share decided pixel by pixel.
+    #[test]
+    fn diff_paints_magenta_down_and_across_what_only_one_image_has() {
+        let grey = |v: u8| [v, v, v, 255];
+        let golden = encode(2, 1, &[grey(0), grey(9)].concat());
+        let actual = encode(
+            3,
+            2,
+            &[grey(0), grey(8), grey(0), grey(0), grey(0), grey(0)].concat(),
+        );
+        let image = decode(&diff(&golden, &actual).unwrap().unwrap()).unwrap();
+        assert_eq!((image.width, image.height), (3, 2));
+        let magenta = Some([255, 0, 255, 255]);
+        assert_eq!(image.pixel(0, 0), Some(faded(grey(0))));
+        for (x, y) in [(1, 0), (2, 0), (0, 1), (1, 1), (2, 1)] {
+            assert_eq!(image.pixel(x, y), magenta, "({x}, {y})");
+        }
     }
 
     #[test]

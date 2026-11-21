@@ -229,6 +229,20 @@ impl Image {
             *slice.get(3)?,
         ])
     }
+
+    /// The pixels of row `y`, as many of the row's `width` as the bytes hold;
+    /// none past the last row. Pixel `x` of the row is [`Self::pixel`]`(x, y)`.
+    pub(super) fn row(&self, y: u32) -> &[[u8; 4]] {
+        if y >= self.height {
+            return &[];
+        }
+        let stride = self.width as usize * 4;
+        let start = (y as usize).saturating_mul(stride);
+        let end = start.saturating_add(stride).min(self.rgba.len());
+        self.rgba
+            .get(start..end)
+            .map_or(&[], |row| row.as_chunks::<4>().0)
+    }
 }
 
 pub(super) fn pixel_bytes(width: u32, height: u32) -> Result<usize, String> {
@@ -777,7 +791,22 @@ impl<'a> BitReader<'a> {
     }
 
     /// Tops `held` up to at least 57 bits, or to the end of the data.
+    ///
+    /// Eight bytes at a time while eight are left: the whole word goes in at
+    /// once, and `at` moves past only the bytes that fitted, so the rest are
+    /// read again next time. Near the end, a byte at a time.
+    #[inline]
     fn refill(&mut self) {
+        if let Some(word) = self
+            .data
+            .get(self.at..)
+            .and_then(|rest| rest.first_chunk::<8>())
+        {
+            self.held |= u64::from_le_bytes(*word) << self.count;
+            self.at += ((63 - self.count) >> 3) as usize;
+            self.count |= 56;
+            return;
+        }
         while self.count <= 56 {
             let Some(&byte) = self.data.get(self.at) else {
                 return;
@@ -790,6 +819,7 @@ impl<'a> BitReader<'a> {
 
     /// The next `width` bits without taking them, and how many of them are
     /// real: fewer than `width` only at the end of the data.
+    #[inline]
     fn peek(&mut self, width: u32) -> (u32, u32) {
         if self.count < width {
             self.refill();
@@ -800,11 +830,13 @@ impl<'a> BitReader<'a> {
         )
     }
 
+    #[inline]
     fn consume(&mut self, width: u32) {
         self.held >>= width;
         self.count -= width;
     }
 
+    #[inline]
     fn bits(&mut self, width: u32) -> Option<u32> {
         let (value, real) = self.peek(width);
         if real < width {
@@ -884,6 +916,7 @@ impl Huffman {
         Some(Self { longest, table })
     }
 
+    #[inline]
     fn decode(&self, reader: &mut BitReader) -> Option<u16> {
         let (bits, real) = reader.peek(self.longest);
         let entry = *self.table.get(bits as usize)?;
@@ -1047,6 +1080,11 @@ fn block(
     loop {
         if out.len() > cap {
             return Err(bad("writes more than the header says the image holds"));
+        }
+        // One refill holds a whole symbol: a length code, its extra bits, a
+        // distance code and its extra bits are at most 15 + 5 + 15 + 13 bits.
+        if reader.count < 48 {
+            reader.refill();
         }
         let symbol = literals
             .decode(reader)

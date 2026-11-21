@@ -11245,6 +11245,35 @@ then copies what is already there after itself until the string is full, so
 a repeat of `n` takes about log2 `n` copies. `native::repeat_text` bounds the
 cost at 8 instructions a byte, about halfway.
 
+### 6.183 A snapshot is compared a block of bytes at a time, 2026-11-21
+
+```text
+1600 by 158 card, macOS stencil              before      after
+one more snapshot compared                    8.81 M      7.09 M
+a changed snapshot over a matching one       25.6 M      11.8 M
+```
+
+The first row includes about 4.5 M of painting, which did not change.
+
+`buri test` compares each snapshot against its golden. Comparing it:
+
+- skips the straight copy of an opaque row, which is every row of most
+  pictures, and compares it against the golden 128 bytes a step;
+- tells an opaque row by folding its pixels as words, rather than looking at
+  each alpha;
+- inflates the golden reading 8 bytes of input at a time, rather than a byte.
+
+A snapshot that changed draws its diff:
+
+- from the two pictures' rows, rather than reading each pixel through a call
+  that checks its coordinates;
+- with an Adler-32 that sums each 5,552-byte block, with weights, in a form
+  that vectorizes, rather than a byte at a time.
+
+Every comparison gives the answer it did, and every diff has the same bytes.
+`native::snapshot_costs` bounds one more compared snapshot at 8 M, and a
+changed snapshot over a matching one at 18 M. Both bounds are about halfway.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
