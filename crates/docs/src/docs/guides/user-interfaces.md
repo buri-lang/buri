@@ -1373,7 +1373,9 @@ option has the focus, and a disclosure's is its summary's.
 control is in the order and a stack isn't. Out of the order, `hasFocus` still
 focuses it, which is roving focus: one tab, menu item or listbox option is in
 the order, and the arrow keys write the next one's `hasFocus`. On the web
-they're `tabindex`, `focus()` and `blur()`.
+they're `tabindex`, `focus()` and `blur()`. When the window loses the focus,
+the signal turns `false` but the element keeps it, so the focus comes back
+with the window.
 
 A snapshot reads the signal as the control's answer, the way a toggle's is for
 `checked`: a field whose `hasFocus` is `true` paints its `On(.Focus, ...)` in

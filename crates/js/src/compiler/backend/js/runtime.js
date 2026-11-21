@@ -6799,6 +6799,10 @@ function $tree_bubble(wrapper, bubble) {
 // `natural` says the element takes the focus by itself, as a control and a link
 // do. The order is `tabindex`. The signal is written by `focus` and `blur`, and
 // writing it calls `focus()` or `blur()`, so it follows the focus both ways.
+// A window or a tab that loses the focus blurs the element but leaves it the
+// document's active element, so the focus comes back to it with the window:
+// that `blur` writes the signal `false` and calls no `blur()`, which would
+// send the focus to the body for good (#371).
 // The substitute document has no focus, so it carries the attributes only.
 function $tree_focus(element, focus, natural) {
   const signal = focus[0];
@@ -6811,14 +6815,19 @@ function $tree_focus(element, focus, natural) {
   }
   if (signal === undefined || element.$shim) return;
   const cell = signal[0];
+  let away = false;
   $dom_listen(element, "focus", () => $ui_flush(() => $ui_write(cell, true)));
-  $dom_listen(element, "blur", () => $ui_flush(() => $ui_write(cell, false)));
+  $dom_listen(element, "blur", () => {
+    away = element.ownerDocument.activeElement === element;
+    $ui_flush(() => $ui_write(cell, false));
+    away = false;
+  });
   $tree_bind([1, signal], (on) => {
     const document = element.ownerDocument;
     if (on && document.activeElement !== element) {
       element.focus();
       $tree_refused(element, cell);
-    } else if (!on && document.activeElement === element) {
+    } else if (!on && document.activeElement === element && !away) {
       element.blur();
     }
   });
@@ -6828,6 +6837,7 @@ function $tree_focus(element, focus, natural) {
 // A radio group's `hasFocus`, true while any of its options has the focus, and
 // its `isInFocusOrder`, which takes every option out of the order or puts them
 // back. Writing `true` focuses the checked option, or the first enabled one.
+// A window that loses the focus leaves it inside, as `$tree_focus` says.
 function $tree_focusWithin(group, radios, focus) {
   const signal = focus[0];
   const order = focus[1];
@@ -6842,23 +6852,30 @@ function $tree_focusWithin(group, radios, focus) {
   }
   if (signal === undefined || group.$shim) return;
   const cell = signal[0];
+  let away = false;
+  const within = () => {
+    const at = group.ownerDocument.activeElement;
+    return at !== null && $dom_within(group, at);
+  };
   $dom_listen(group, "focusin", () => $ui_flush(() => $ui_write(cell, true)));
   $dom_listen(group, "focusout", (event) => {
     // Focus moving from one option to the next stays inside.
     const next = event === undefined ? null : event.relatedTarget;
     if (next !== null && next !== undefined && $dom_within(group, next)) return;
+    away = within();
     $ui_flush(() => $ui_write(cell, false));
+    away = false;
   });
   $tree_bind([1, signal], (on) => {
     const document = group.ownerDocument;
-    const inside = document.activeElement !== null && $dom_within(group, document.activeElement);
+    const inside = within();
     if (on && !inside) {
       const target = radios.find((r) => r.checked) || radios.find((r) => !r.disabled);
       if (target !== undefined) {
         target.focus();
         $tree_refused(target, cell);
       }
-    } else if (!on && inside) {
+    } else if (!on && inside && !away) {
       document.activeElement.blur();
     }
   });

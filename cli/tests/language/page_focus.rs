@@ -219,3 +219,97 @@ fn the_row_written_last_takes_the_focus_from_a_stack_in_the_flow() {
 fn the_row_written_last_takes_the_focus_from_a_pinned_stack() {
     assert_eq!(menu(".PinAnchor", false), "Row outer:false inner:true\n");
 }
+
+/// A button bound to `hasFocus`, a picker bound to one too, a plain button,
+/// and a line saying what the two signals hold (#371).
+const BOUND: &str = r#"fn bound<C: Ui>(ctx: C): Node<C> {
+    let focused = signal(ctx, false);
+    let picking = signal(ctx, false);
+    ui.stack({
+        styles: [.Layout(.Column)],
+        children: [
+            ui.button({
+                label: .Const("Bound"),
+                styles: [],
+                onPress: .None,
+                hasFocus: .Some(focused),
+            }),
+            ui.picker({
+                label: .Const("Size"),
+                options: [("s", ui.text({ content: .Const("Small") })), ("l", ui.text({ content: .Const("Large") }))],
+                value: signal(ctx, "s"),
+                styles: [],
+                hasFocus: .Some(picking),
+            }),
+            ui.button({ label: .Const("Plain"), styles: [], onPress: .None }),
+            ui.text({
+                content: .Computed(fn(s) => str.format(s, "bound:${focused.get(s)} picker:${picking.get(s)}")),
+            }),
+        ],
+    })
+}"#;
+
+/// What a browser does as the window loses the focus and gets it back while
+/// `element` has it: `blur` and `focusout` on the element, which stays the
+/// document's active element, then `focus` and `focusin` on it again. Prints
+/// what has the focus before, while the window is away, and once it is back.
+const AWAY_AND_BACK: &str = r#"
+const said = () => body.firstChild.lastChild.textContent;
+const awayAndBack = (element) => {
+  element.focus();
+  console.log(`${focused()} ${said()}`);
+  element.dispatchEvent(new FocusEvent("blur"));
+  element.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  console.log(`away ${focused()} ${said()}`);
+  element.dispatchEvent(new FocusEvent("focus"));
+  element.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+  console.log(`back ${focused()} ${said()}`);
+};
+"#;
+
+#[test]
+fn a_button_bound_to_has_focus_keeps_the_focus_while_the_window_is_away() {
+    let printed = drive(
+        "focus-window-button",
+        &page(BOUND, "bound(ctx)"),
+        &format!("{FOCUSED}{AWAY_AND_BACK}awayAndBack(labelled(\"Bound\"));\n"),
+    );
+    assert_eq!(
+        printed,
+        "Bound bound:true picker:false\n\
+         away Bound bound:false picker:false\n\
+         back Bound bound:true picker:false\n"
+    );
+}
+
+#[test]
+fn a_picker_bound_to_has_focus_keeps_the_focus_while_the_window_is_away() {
+    let printed = drive(
+        "focus-window-picker",
+        &page(BOUND, "bound(ctx)"),
+        &format!(
+            "{FOCUSED}{AWAY_AND_BACK}awayAndBack(document.querySelector(\"input[value=s]\"));\n"
+        ),
+    );
+    assert_eq!(
+        printed,
+        "Small bound:false picker:true\n\
+         away Small bound:false picker:false\n\
+         back Small bound:false picker:true\n"
+    );
+}
+
+#[test]
+fn a_plain_button_keeps_the_focus_while_the_window_is_away() {
+    let printed = drive(
+        "focus-window-plain",
+        &page(BOUND, "bound(ctx)"),
+        &format!("{FOCUSED}{AWAY_AND_BACK}awayAndBack(labelled(\"Plain\"));\n"),
+    );
+    assert_eq!(
+        printed,
+        "Plain bound:false picker:false\n\
+         away Plain bound:false picker:false\n\
+         back Plain bound:false picker:false\n"
+    );
+}
