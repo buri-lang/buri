@@ -1058,3 +1058,68 @@ fn a_list_release_walks_its_elements_by_address() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// 1,000 `Int`s mapped `k` times by a lambda that captures the round and a
+/// `Str` it reads, and by one that puts the `Str` in each element. `main`
+/// takes `k`.
+const CAPTURES: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn rounds<C: Allocator>(ctx: C, xs: [Int], label: Str, k: Int, acc: Int): Int {
+  if (k == 0) {
+    acc
+  } else {
+    let read = xs.map(ctx, fn(x) => x + k + label.length());
+    let held = xs.map(ctx, fn(x) => (x, label));
+    let last = held.get(999).map(fn(p) => p.1.length()).withDefault(0);
+    rounds(ctx, xs, label, k - 1, acc + read.get(999).withDefault(0) + last)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let label = str.fromInt(ctx, 123456);
+  io.println(ctx, "${rounds(ctx, list.range(ctx, 0, 1000), label, k, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The two counts of rounds [`CAPTURE_BOUND`] is measured between.
+const CAPTURE_ROUNDS: (u64, u64) = (100, 400);
+
+/// What one element of [`CAPTURES`] costs on the copy-and-patch backend, in
+/// instructions: both maps' steps and the two lists' releases. It measured
+/// 134.2 once each step called the lambda directly, and 164.3 through the
+/// closure's thunk. The bound sits between the two, so the old code fails it,
+/// with room for the counter's noise of well under 1%.
+const CAPTURE_BOUND: f64 = 149.0;
+
+/// **A list operation calls a lambda that captures directly**: the step is
+/// the lambda's own function, handed the closure's environment, rather than a
+/// call through the closure's thunk. The environment's `Str` is counted where
+/// the lambda keeps it, and released with the closure either way.
+#[test]
+fn a_capturing_step_is_called_directly() {
+    let (fewer, more) = CAPTURE_ROUNDS;
+    let elems = (more - fewer) * 1000;
+    // Round `k` reads `999 + k + 6` and the held label's 6.
+    let answer = |k: u64| format!("{}\n", k * (999 + 6 + 6) + k * (k + 1) / 2);
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-captures", CAPTURES);
+        let n = steps_cost(backend, &binary, CAPTURE_ROUNDS, answer);
+        let each = n.map(|n| n as f64 / elems as f64);
+        eprintln!("{backend}: {each:?} instructions an element");
+        if backend == "stencil" && each.is_some_and(|e| e > CAPTURE_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions an element, over {CAPTURE_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

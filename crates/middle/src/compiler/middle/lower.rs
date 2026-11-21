@@ -293,6 +293,7 @@ fn lower_one(
                 sites: Sites::of(fplan, body),
                 node_values: HashMap::default(),
                 literals: Vec::new(),
+                last_closure: None,
                 unit_of,
                 unit: *unit_of.get(i),
                 #[cfg(debug_assertions)]
@@ -892,6 +893,10 @@ struct FnLower<'a> {
     /// (VALUE-MODEL.md §3) and the rest own nothing, so [`FnLower::push`]
     /// drops a reference operation on one.
     literals: Vec<ValueId>,
+    /// The closure lowered last and the environment record it holds, for a
+    /// `core/list` loop that calls a closure's function directly
+    /// (`lists.rs`, `FnLower::callee`).
+    last_closure: Option<(ValueId, ValueId)>,
     /// Each function's codegen unit, and this function's. A unit's
     /// fingerprint covers its own members' bodies and no other unit's, so a
     /// lowering may read only those (`lists.rs`, [`FnLower::int_comparator`]).
@@ -1716,14 +1721,16 @@ impl FnLower<'_> {
                     ty: rec,
                     fields,
                 });
-                self.emit(ty, |dest| Inst::MakeClosure {
+                let closure = self.emit(ty, |dest| Inst::MakeClosure {
                     dest,
                     func,
                     env: Some(ir::Env {
                         value: env,
                         ty: rec,
                     }),
-                })
+                });
+                self.last_closure = Some((closure, env));
+                closure
             }
             // A lambda `middle::closures` did not lift. Lifting it here would
             // be closure conversion written a second time, in the file that

@@ -14,8 +14,11 @@
 //! At the call site, whichever way the key arrives: an `ExprKind::Intrinsic`, or
 //! a call to the `FuncKind::Intrinsic` function a method resolves to. There the
 //! step is usually a lambda written at the call, which `middle::closures` left
-//! as an `ExprKind::FuncRef` to the lifted function, so the step is a **direct**
-//! call rather than one through the closure's thunk. The intrinsic function
+//! as an `ExprKind::FuncRef` to the lifted function, or as an
+//! `ExprKind::Closure` over it where it captures, so the step is a **direct**
+//! call rather than one through the closure's thunk. A closure's function is
+//! handed the environment record the closure was built from, and retains it
+//! where it owns it, as the thunk does. The intrinsic function
 //! gets the same loop as its own body, for the one caller that cannot see a
 //! step: a function value, called through its thunk.
 //!
@@ -136,13 +139,27 @@ impl<'p> Counts<'p> {
     }
 }
 
+/// The function a call site names as the step, and the environment record a
+/// closure holds, with its type.
+#[derive(Clone, Copy)]
+pub(super) struct Named {
+    func: FuncIdx,
+    env: Option<(ValueId, Ty)>,
+}
+
 /// The step, resolved once before the loop.
 enum Via {
-    /// A lifted lambda or a named function the call site names: a direct call.
+    /// A lifted lambda, a closure or a named function the call site names: a
+    /// direct call.
     Direct {
         func: FuncIdx,
-        /// The empty environment a lifted lambda still takes first.
+        /// The environment a lifted lambda takes first: a closure's record,
+        /// or the empty one a lambda that captured nothing still takes.
         env: Option<ValueId>,
+        /// A closure's record where it carries counts and the callee owns
+        /// it: retained before each call, because the record's counts are
+        /// the closure's, as a thunk retains it.
+        retain_env: Option<ValueId>,
         /// The callee's ownership of each value parameter.
         own: Vec<Ownership>,
     },
@@ -242,16 +259,35 @@ pub(crate) fn lend_gets(program: &mut Program) {
 impl FnLower<'_> {
     /// A call of `key`, lowered as its loop.
     pub(super) fn list_call(&mut self, key: &str, args: &[Expr], ret: &Ty) -> ValueId {
-        let vals = self.exprs(args);
-        let tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
-        // The step a call site names: a lambda `middle::closures` lifted, or a
-        // function passed by name.
-        let step = step_at(key)
-            .and_then(|at| args.get(at))
-            .and_then(|a| match &a.kind {
-                ExprKind::FuncRef(f) => Some(*f),
+        // The step a call site names: a lambda `middle::closures` lifted, a
+        // function passed by name, or a closure, whose environment record is
+        // the one its function is handed.
+        let at = step_at(key);
+        let mut step = None;
+        let mut vals = Vec::with_capacity(args.len());
+        for (i, a) in args.iter().enumerate() {
+            self.last_closure = None;
+            let v = self.expr(a);
+            vals.push(v);
+            if Some(i) != at {
+                continue;
+            }
+            step = match &a.kind {
+                ExprKind::FuncRef(f) => Some(Named {
+                    func: *f,
+                    env: None,
+                }),
+                ExprKind::Closure { func, env } => self
+                    .last_closure
+                    .filter(|(closure, _)| *closure == v)
+                    .map(|(_, record)| Named {
+                        func: *func,
+                        env: Some((record, Ty::tuple(env.iter().map(|e| e.ty)))),
+                    }),
                 _ => None,
-            });
+            };
+        }
+        let tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
         match self.list_loop(key, &vals, &tys, step, ret) {
             Some(v) => v,
             None => self.abort("a `core/list` call whose operands are not the types it declares"),
@@ -350,7 +386,7 @@ impl FnLower<'_> {
         key: &str,
         vals: &[ValueId],
         tys: &[Ty],
-        step: Option<FuncIdx>,
+        step: Option<Named>,
         ret: &Ty,
     ) -> Option<ValueId> {
         match key {
@@ -871,7 +907,7 @@ impl FnLower<'_> {
         equal: bool,
         vals: &[ValueId],
         tys: &[Ty],
-        step: Option<FuncIdx>,
+        step: Option<Named>,
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &ys, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
@@ -1018,7 +1054,7 @@ impl FnLower<'_> {
         &mut self,
         vals: &[ValueId],
         tys: &[Ty],
-        step: Option<FuncIdx>,
+        step: Option<Named>,
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&h, &xs, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
@@ -1062,7 +1098,7 @@ impl FnLower<'_> {
         &mut self,
         vals: &[ValueId],
         tys: &[Ty],
-        step: Option<FuncIdx>,
+        step: Option<Named>,
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &f) = (vals.first()?, vals.get(1)?);
@@ -1681,9 +1717,11 @@ impl FnLower<'_> {
 
     /// How the loop calls its step: directly where the call site names a
     /// function this lowering can call, through the thunk otherwise.
-    fn callee(&mut self, f: ValueId, step: Option<FuncIdx>, want: usize) -> Via {
+    fn callee(&mut self, f: ValueId, step: Option<Named>, want: usize) -> Via {
         let thunk = Via::Thunk(f);
-        let Some(func) = step else { return thunk };
+        let Some(Named { func, env: record }) = step else {
+            return thunk;
+        };
         let g = self.program.funcs.get(func);
         // An intrinsic has no body to call. A step named by reference is never
         // a merged tail-call group, which only its members' forwarders call.
@@ -1694,7 +1732,14 @@ impl FnLower<'_> {
         // `middle::closures` lifted captured nothing, or it would be a closure
         // rather than a reference, and still takes its environment first, as
         // an empty tuple.
-        let env = if g.params.len() == want {
+        let plan = &self.plan.func(func).params;
+        let mut retain_env = None;
+        let env = if let Some((record, ty)) = record {
+            if plan.first() == Some(&Ownership::Own) && self.counts.counted(&ty) {
+                retain_env = Some(record);
+            }
+            Some(record)
+        } else if g.params.len() == want {
             None
         } else {
             let env_t = self.type_of(&Ty::tuple([]));
@@ -1708,7 +1753,12 @@ impl FnLower<'_> {
         // The column `lower::facts` copies onto the callee.
         let own = self.plan.func(func).params.clone();
         let own = own.into_iter().skip(usize::from(env.is_some())).collect();
-        Via::Direct { func, env, own }
+        Via::Direct {
+            func,
+            env,
+            retain_env,
+            own,
+        }
     }
 
     /// One call of the step, with the counts its convention needs on each side.
@@ -1727,6 +1777,13 @@ impl FnLower<'_> {
                 (Ownership::Borrow, true) => release.push(a.value),
                 _ => {}
             }
+        }
+        if let Via::Direct {
+            retain_env: Some(value),
+            ..
+        } = callee
+        {
+            self.push(Inst::IncRef { value: *value });
         }
         let values: Vec<ValueId> = args.iter().map(|a| a.value).collect();
         let r = match callee {
