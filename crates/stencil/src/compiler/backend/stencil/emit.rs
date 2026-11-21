@@ -124,6 +124,20 @@ fn constant(st: &Fn2, v: ir::ValueId) -> u64 {
     st.constants.get(v).unwrap_or(0)
 }
 
+/// Whether `v` is a `Str` literal defined in the block being emitted, which is
+/// where a template puts its text: `str.concat` asks it of its left side
+/// (`rtcall.rs::str_concat`). Asked only at a concatenation, so the function's
+/// other code pays nothing; a literal from another block is answered `false`,
+/// which only costs the call.
+fn str_literal(code: &ir::Code, st: &Fn2, v: Option<&ir::ValueId>) -> bool {
+    v.is_some_and(|v| {
+        code.get(st.cur)
+            .insts
+            .iter()
+            .any(|i| matches!(i, Inst::Const { dest, value: ir::Const::Str(_) } if dest == v))
+    })
+}
+
 /// Whether a register-promoted `v` also needs its frame slot kept in step.
 fn write_through(st: &Fn2, v: ir::ValueId) -> bool {
     *st.wt.get(v)
@@ -1503,6 +1517,12 @@ impl<'a> Jit<'a> {
             }
             route::Body::Alloc => self.imm_to(d, 0),
             route::Body::Allocate => self.mv(d, at(1), 8),
+            // `"text".concat(ctx, s)`: the `strcat` stencil, which needs to
+            // know the left side is a literal, and only the caller knows.
+            route::Body::Concat if str_literal(code, st, args.first()) => {
+                let strs = Self::concat_strs(args.len()).map(at);
+                self.str_concat(st, strs, d, true);
+            }
             route::Body::Number(num, op) => {
                 let reads_first = match (op, answer) {
                     (route::Number::Convert(_), ir::Answer::InlineRes(_)) => false,
@@ -1655,7 +1675,8 @@ impl<'a> Jit<'a> {
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
             (route::Call::Concat, _) => {
                 let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
-                self.str_concat(st, strs, d);
+                let literal = str_literal(code, st, args.first());
+                self.str_concat(st, strs, d, literal);
             }
             // `middle::derives` names each leaf by its primitive's type.
             (route::Call::Derive(Leaf::Hash, prim), _) => {
@@ -2470,7 +2491,7 @@ impl<'a> Jit<'a> {
             } => self.bits_at(st, stem, width, counted, ret0, p(0), p(1)),
             route::Body::Concat => {
                 let argc = prog.funcs.get(fi).sig.params.len();
-                self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
+                self.str_concat(st, Self::concat_strs(argc).map(p), ret0, false);
             }
         }
         self.emit("ret", &[]);

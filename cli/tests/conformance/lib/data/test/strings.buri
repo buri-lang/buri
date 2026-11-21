@@ -472,6 +472,62 @@ test "concat of two empty strings is empty" {
     assert.equal("".concat(ctx, ""), "");
 }
 
+// A literal has no block to grow in place, so joining one to a string makes a
+// fresh block of both lengths. Each right side here is a different length, so
+// every size of the copies' tails is written, and its bytes all differ.
+fn keeps(left: Str, right: Str, s: Str): Bool {
+    let k = left.length();
+    let n = right.length();
+    s.length() == k + n && s.slice(0, k) == left && s.slice(k, k + n) == right
+}
+
+/// 143 bytes, no two neighbours alike.
+fn differing(): Str {
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZzyxwvutsrqponmlkjihgfedcbaZYXWVUTSRQPONMLKJIHGFEDCBA9876543210-+*/=<>()[]{}.,;:!?"
+}
+
+fn joinedKeepsBytes<C: Allocator>(ctx: C, n: Int): Bool {
+    if (n < 0) {
+        true
+    } else {
+        let right = differing().slice(0, n);
+        keeps("", right, "".concat(ctx, right))
+            && keeps("a", right, "a".concat(ctx, right))
+            && keeps(
+                "abcdefghijklmnopq",
+                right,
+                str.format(ctx, "abcdefghijklmnopq${right}"),
+            )
+            && keeps(
+                "abcdefghijklmnopqrstuvwxyz01234",
+                right,
+                "abcdefghijklmnopqrstuvwxyz01234".concat(ctx, right),
+            )
+            && joinedKeepsBytes(ctx, n - 1)
+    }
+}
+
+test "a literal joined to a string keeps both sides' bytes at every short length" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.isTrue(joinedKeepsBytes(ctx, 140));
+}
+
+test "a literal joined to a string counts characters when either side is not ASCII" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let x = "x";
+    let e = "é";
+    assert.equal("é".concat(ctx, x).length(), 2);
+    assert.equal("x".concat(ctx, e).length(), 2);
+    assert.equal(str.format(ctx, "é${x}").length(), 2);
+    assert.equal(str.format(ctx, "x${e}").length(), 2);
+    assert.equal("ab".concat(ctx, "cd").length(), 4);
+    assert.equal(assert.some("x".concat(ctx, "🎉").charAt(1)), '🎉');
+}
+
 // --- split / splitAny / lines -------------------------------------------------
 
 test "split cuts on every occurrence" {

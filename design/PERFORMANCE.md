@@ -11685,7 +11685,16 @@ match         611302241     1865847841      615665934      615666118       0.328
   then one test for each smaller power of two. It was a `memcpy` call, which
   cost about 33 instructions a copy, plus the CPS registers saved around the
   call. kvstore made 572,635 such calls and now makes none, and it ran 1.2%
-  fewer instructions. It was 1.474 times `-O1`.
+  fewer instructions. kvstore went from 1.492 to 1.474 times `-O1`.
+- A literal joined to a string, such as a template's text before its first
+  hole or `"text".concat(ctx, s)`, is made by the `strcat` stencil when the
+  result is 1 to 128 bytes. A literal has no block to grow, so the result is
+  a fresh block of both lengths: the stencil allocates it and copies both
+  sides. It used to call the runtime, which went to its out-of-line path.
+  Only the caller can tell the left side is a literal, so a join of two
+  other strings still calls the runtime. maps ran 1.25% fewer instructions
+  and strings 0.9% fewer. maps went from 1.765 to 1.743 times `-O1`, and
+  strings from 1.356 to 1.344.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,

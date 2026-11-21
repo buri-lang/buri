@@ -1517,7 +1517,23 @@ impl Jit<'_> {
     /// input to a concatenation rather than a tag to be stripped — the answer
     /// is ASCII exactly when both halves are — and the callee masks what it
     /// needs as a count.
-    pub(crate) fn str_concat(&mut self, st: &Fn2, [a, b]: [u32; 2], dest: u32) {
+    ///
+    /// A `literal` left side, a template's text before its first hole, has no
+    /// block to grow in place, so the answer is a fresh block of both lengths:
+    /// the `strcat` stencil allocates a short one and copies both sides
+    /// itself, and makes the call only for the rest.
+    pub(crate) fn str_concat(&mut self, st: &Fn2, [a, b]: [u32; 2], dest: u32, literal: bool) {
+        if literal {
+            return self.emit(
+                "strcat",
+                &[
+                    Lit::A.of(u64::from(a)),
+                    Lit::B.of(u64::from(b)),
+                    Lit::D.of(u64::from(dest)),
+                    Jump::Cont0.to(V::Fall),
+                ],
+            );
+        }
         self.c_call(
             "buri_rt_str_concat",
             st,

@@ -314,6 +314,9 @@ uint64_t buri_rt_alloc_zeroed(uint64_t);
 // The scalar count of a `Str` whose length word lacks the ASCII flag; the
 // runtime masks the flag off itself.
 uint64_t buri_rt_str_scalar_len(uint64_t, uint64_t);
+// `str.concat`, for every case the `strcat` stencil leaves to it.
+void buri_rt_str_concat(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                        void *);
 // 128-bit division, which is a call on every backend: clang would otherwise
 // reach compiler-rt's `__divti3`, and a Buri artifact links `libburi_rt.a` and
 // the C library and nothing else. The runtime's entry also owns the
@@ -771,6 +774,29 @@ fn moves(o: &mut Out) {
          AT(uint64_t, _JIT_D) = __builtin_expect((int64_t)n < 0, 1) \
          ? n & 0x7FFFFFFFFFFFFFFFull : buri_rt_str_scalar_len(AT(uint64_t, _JIT_B), n); \
          TAIL0; }"
+            .into(),
+    );
+    // `str.concat` of a literal and a string (`rtcall.rs::str_concat`), with
+    // `A` and `B` the two operands and `D` the result. A literal has no block,
+    // so a result of 1 to 128 bytes is the runtime's path 3 done here: one
+    // fresh block of exactly `n` bytes and two copies. The empty result and a
+    // longer one are `buri_rt_str_concat`.
+    o.push(
+        "strcat",
+        "void $NAME(ARGS0) { const uint64_t *a = &AT(uint64_t, _JIT_A), \
+         *b = &AT(uint64_t, _JIT_B); uint64_t al = a[2], bl = b[2]; \
+         uint64_t la = al & 0x7FFFFFFFFFFFFFFFull, lb = bl & 0x7FFFFFFFFFFFFFFFull, \
+         n = la + lb; \
+         if (__builtin_expect(n - 1 < 128, 1)) { \
+           char *p = (char *)(uintptr_t)buri_rt_alloc(n); \
+           copy_n(p, (const char *)(uintptr_t)a[1], la); \
+           copy_n(p + la, (const char *)(uintptr_t)b[1], lb); \
+           uint64_t *d = &AT(uint64_t, _JIT_D); \
+           d[0] = (uint64_t)(uintptr_t)p; d[1] = (uint64_t)(uintptr_t)p; \
+           d[2] = n | (al & bl & 0x8000000000000000ull); \
+         } else { \
+           buri_rt_str_concat(a[0], a[1], al, b[0], b[1], bl, &AT(uint64_t, _JIT_D)); \
+         } TAIL0; }"
             .into(),
     );
     // A box (`emit::box_into`): a block of exactly the value's width, written

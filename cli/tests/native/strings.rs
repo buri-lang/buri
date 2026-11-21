@@ -445,3 +445,67 @@ fn strings_order_by_their_bytes_at_every_length_and_start() {
         );
     }
 }
+
+/// A literal joined to one of two short strings `k` times, the length of each
+/// result summed: by `concat` on even rounds and by a template on odd ones.
+/// `main` takes `k`.
+const PREFIXED: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn rounds<C: Allocator>(ctx: C, parts: [Str], i: Int, n: Int, acc: Int): Int {
+  if (i >= n) {
+    acc
+  } else {
+    let part = parts[i % 2].withDefault("");
+    let s = if (i % 2 == 0) { "key-".concat(ctx, part) } else { str.format(ctx, "key-${part}") };
+    rounds(ctx, parts, i + 1, n, acc + s.length())
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let parts = ["alpha", "beta"];
+  io.println(ctx, "${rounds(ctx, parts, 0, k, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// The two counts of joins [`PREFIXED_BOUND`] is measured between.
+const PREFIXED_ROUNDS: (u64, u64) = (100_000, 400_000);
+
+/// What one join of [`PREFIXED`] costs on the copy-and-patch backend, in
+/// instructions, the round's recursion, `length` and freeing the result
+/// included. It measured 298.5 when every join called the runtime, and 265.6
+/// with the stencil making a short one itself. The bound sits between the
+/// two, so the old code fails it, with room for the counter's noise of well
+/// under 1%.
+const PREFIXED_BOUND: f64 = 282.0;
+
+/// **Joining a literal and a short string allocates and copies without a
+/// runtime call.** A literal has no block to grow in place, so the answer is
+/// a fresh block of both lengths; the stencil makes it and copies both sides
+/// itself instead of calling the runtime's out-of-line path for it.
+#[test]
+fn a_literal_joined_to_a_short_string_is_made_without_a_call() {
+    let (fewer, more) = PREFIXED_ROUNDS;
+    let joins = more - fewer;
+    // Even joins add "alpha", nine scalars with the prefix; odd add "beta".
+    let answer = |k: u64| format!("{}\n", k / 2 * 17 + k % 2 * 9);
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("str-prefixed", PREFIXED);
+        let n = crate::collection_costs::steps_cost(backend, &binary, PREFIXED_ROUNDS, answer);
+        let each = n.map(|n| n as f64 / joins as f64);
+        eprintln!("{backend}: {each:?} instructions a join");
+        if backend == "stencil" && each.is_some_and(|e| e > PREFIXED_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a join, over {PREFIXED_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
