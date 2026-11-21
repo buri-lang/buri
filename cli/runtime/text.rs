@@ -1317,12 +1317,34 @@ pub unsafe extern "C" fn buri_rt_str_repeat(
     // SAFETY: the caller promises `len` readable bytes.
     let s = unsafe { view(ptr, len) };
     let n = times.max(0) as usize;
-    let mut built: Vec<u8> = Vec::with_capacity(s.len().saturating_mul(n));
-    for _ in 0..n {
-        built.extend_from_slice(s);
+    let total = match s.len().checked_mul(n) {
+        Some(0) => {
+            // SAFETY: the caller promises a writable, aligned destination.
+            unsafe { out.write(BuriStr::empty()) };
+            return;
+        }
+        Some(total) => total,
+        None => crate::abort::die(&[b"str.repeat: the text would not fit in memory"]),
+    };
+    // One block of the whole length: the text copied in once, then what is
+    // already there copied after itself, doubling each time.
+    let base = buri_rt_alloc(total as u64);
+    // SAFETY: `base` is a fresh block of `total` bytes, `s` lies outside it,
+    // and each step copies from the filled front into the empty rest.
+    unsafe {
+        copy_small(s.as_ptr(), base, s.len());
+        let mut filled = s.len();
+        while filled < total {
+            let step = filled.min(total - filled);
+            copy_small(base, base.add(filled), step);
+            filled += step;
+        }
+        out.write(BuriStr {
+            base,
+            ptr: base,
+            len: total as u64 | (len & BURI_RT_STR_ASCII),
+        });
     }
-    // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriStr::copy_from(&built)) }
 }
 
 /// `str.toUpper(self, ctx) -> Str` — full Unicode case mapping, as

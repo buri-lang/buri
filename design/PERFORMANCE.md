@@ -11231,6 +11231,20 @@ The bytes are the same, so every golden still matches.
 halfway, and checks that each recording writes the same picture and that
 comparing against it passes.
 
+### 6.182 A repeat doubles what it has copied, 2026-11-21
+
+```text
+"ab".repeat(2000), macOS stencil      before      after
+instructions a byte                   17.0        0.33
+```
+
+`str.repeat` appended the text a time to a growing buffer, a `memcpy` call
+for each copy of a short text, then copied the buffer into a new string. It
+now allocates the string once at its full length, copies the text in, and
+then copies what is already there after itself until the string is full, so
+a repeat of `n` takes about log2 `n` copies. `native::repeat_text` bounds the
+cost at 8 instructions a byte, about halfway.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
