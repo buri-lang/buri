@@ -5,8 +5,9 @@
 use crate::collection_costs::steps_cost;
 use crate::shared::{heap_checked, ran_command};
 
-/// For each length from 1 to 12, a list of that many texts and one of that
-/// many `Int`s, each pushed one at a time onto the empty list. Then two lists
+/// For each length from 1 to 12, a list of that many texts, one of that many
+/// `Int`s and one of that many records of a text and four `Int`s, each pushed
+/// one at a time onto the empty list. Then two lists
 /// pushed from one shared prefix, one from a list literal, and one from a
 /// prefix whose longer list died first. Prints each list.
 const BUILT: &str = r#"
@@ -23,13 +24,25 @@ fn ints<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Int]): [Int] {
   if (i == n) { acc } else { ints(ctx, i + 1, n, acc.push(ctx, i * 7)) }
 }
 
+struct Rec { name: Str, a: Int, b: Int, c: Int, d: Int }
+
+fn recs<C: Allocator>(ctx: C, i: Int, n: Int, acc: [Rec]): [Rec] {
+  if (i == n) { acc } else {
+    recs(ctx, i + 1, n, acc.push(ctx, Rec { name: str.format(ctx, "r${i}"), a: i, b: i, c: i, d: i }))
+  }
+}
+
 fn shownInts<C: Allocator>(ctx: C, xs: [Int]): Str {
   xs.foldCtx(ctx, fn(c, acc: Str, i) => acc.concat(c, str.format(c, "${i},")), "")
 }
 
+fn shownRecs<C: Allocator>(ctx: C, xs: [Rec]): Str {
+  xs.foldCtx(ctx, fn(c, acc: Str, r) => acc.concat(c, str.format(c, "${r.name}=${r.a + r.b + r.c + r.d},")), "")
+}
+
 fn lines<C: Allocator>(ctx: C, n: Int, acc: Str): Str {
   if (n > 12) { acc } else {
-    let line = str.format(ctx, "${n}: ${words(ctx, 0, n, []).join(ctx, ",")} ${shownInts(ctx, ints(ctx, 0, n, []))}\n");
+    let line = str.format(ctx, "${n}: ${words(ctx, 0, n, []).join(ctx, ",")} ${shownInts(ctx, ints(ctx, 0, n, []))} ${shownRecs(ctx, recs(ctx, 0, n, []))}\n");
     lines(ctx, n + 1, acc.concat(ctx, line))
   }
 }
@@ -57,7 +70,8 @@ fn built() -> String {
     let line = |n: usize| {
         let words: Vec<String> = (0..n).map(|i| format!("w{i}")).collect();
         let ints: String = (0..n).map(|i| format!("{},", i * 7)).collect();
-        format!("{n}: {} {ints}\n", words.join(","))
+        let recs: String = (0..n).map(|i| format!("r{i}={},", i * 4)).collect();
+        format!("{n}: {} {ints} {recs}\n", words.join(","))
     };
     let lines: String = (1..=12).map(line).collect();
     format!("{lines}w0,w1,left w0,w1,right w0,w1 a,b,c 2 w0,kept\n")
@@ -65,8 +79,8 @@ fn built() -> String {
 
 /// **A list built by pushes holds what was pushed, at every length.** The
 /// first push onto the empty list leaves room for more, so the next few
-/// pushes write in place. Texts and `Int`s, lengths 1 to 12, cover a block's
-/// first room and past it, and the lists from one prefix, a literal and a
+/// pushes write in place. Texts, `Int`s and records, lengths 1 to 12, cover a
+/// block's first room and past it, and the lists from one prefix, a literal and a
 /// prefix a longer list wrote past each keep their own elements. Under the
 /// heap check, so a text left in a block's room would be released twice.
 #[test]
@@ -110,22 +124,27 @@ const THREE_COUNTS: (u64, u64) = (20_000, 120_000);
 /// **A short list built by pushes is copied once, not twice.** The first push
 /// onto the empty list made a block with room for exactly one element, so the
 /// second push copied it to a bigger block, and a third of the pushes that
-/// build short lists were copies. Now the first block has the room a grown
-/// one gets, and the second and third pushes write in place.
+/// build short lists were copies. Then the first block got 64 bytes, which
+/// hold one element of 48, so a list of three of those was still copied
+/// twice. Now the first block has twice the room it needs, and at least 64
+/// bytes.
 ///
 /// The bounds are on the instructions one list of three costs, the loop's
-/// step and the frees included. On macOS:
+/// step and the frees included. On macOS, with an exact first block, then
+/// one of 64 bytes, then the room it has now:
 ///
-/// | backend, element | before | after | bound |
-/// | --- | --- | --- | --- |
-/// | stencil, `Int` | 545 | 371 | 458 |
-/// | stencil, text | 1,173 | 915 | 1,044 |
-/// | LLVM, `Int` | 466 | 296 | 381 |
-/// | LLVM, text | 775 | 591 | 683 |
+/// | backend, element | exact | 64 bytes | now | bound |
+/// | --- | --- | --- | --- | --- |
+/// | stencil, `Int` | 545 | 371 | 376 | 458 |
+/// | stencil, text | 1,173 | 915 | 919 | 1,044 |
+/// | stencil, six `Int`s | | 760 | 599 | 680 |
+/// | LLVM, `Int` | 466 | 296 | 300 | 381 |
+/// | LLVM, text | 775 | 591 | 595 | 683 |
+/// | LLVM, six `Int`s | | 650 | 493 | 571 |
 ///
-/// Each bound sits halfway, so the second copy coming back fails it by 12% or
-/// more, and the rest has the same room to grow. The pushes are the
-/// runtime's, so every backend is bounded.
+/// Each bound sits halfway between the last two figures that differ, so a
+/// copy coming back fails it by 11% or more, and the rest has the same room
+/// to grow. The pushes are the runtime's, so every backend is bounded.
 #[test]
 fn a_short_list_built_by_pushes_is_copied_once() {
     let (fewer, more) = THREE_COUNTS;
@@ -136,6 +155,11 @@ fn a_short_list_built_by_pushes_is_copied_once() {
         for (mode, element, bound) in [
             ("ints", "k", if llvm { 381.0 } else { 458.0 }),
             ("texts", "\"t\"", if llvm { 683.0 } else { 1_044.0 }),
+            (
+                "records",
+                "(k, k, k, k, k, k)",
+                if llvm { 571.0 } else { 680.0 },
+            ),
         ] {
             let binary = build(
                 &format!("short-lists-{mode}"),

@@ -11348,6 +11348,25 @@ and summed in one pass, and only longer numbers go to the parser.
 `native::int_text` bounds both reads halfway on each backend, and its
 answers now cover 18 and 19 digits, a letter after 17 digits, and `-0`.
 
+### 6.188 A push onto the empty list leaves room for a second element, 2026-11-21
+
+```text
+a list of three, macOS, instructions    64 bytes    now
+stencil, six Ints                       760         599
+LLVM, six Ints                          650         493
+stencil, Int                            371         376
+```
+
+§6.186 gave the block a push makes 64 bytes, which hold one element of 48
+or more. A list of three of those was copied twice: at the second push to
+128 bytes and at the third to 256. A profile of a test suite after §6.186
+still had `push_grown` on half as many pushes as the push onto the empty
+list. The block now gets twice what the result needs, and at least 64
+bytes, as a block grown from an exact one would. A list of short elements
+pays about 4 instructions more. `native::short_lists` bounds a list of
+three six-`Int` records halfway on each backend, and its answers now cover
+records of a text and four `Int`s.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

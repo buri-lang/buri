@@ -655,12 +655,14 @@ unsafe fn push_grown(
 /// [`buri_rt_list_push`] onto a block it can't claim, or none: an empty
 /// element, or a fresh block, then the item.
 ///
-/// The fresh block has the room [`regrown_capacity`] gives a block that had
-/// none, where [`append_dest`]'s path 3 gives exactly what the result needs.
-/// A list built by pushes starts with a push onto the empty list, and an exact
-/// block there had no room for the second push, which copied it to a grown
-/// block. Most lists built that way are short, so that copy came on about a
-/// third of all pushes.
+/// The fresh block has twice the room the result needs, and at least 64
+/// bytes, as a block grown from one exactly that size would; [`append_dest`]'s
+/// path 3 gives exactly what the result needs. A list built by pushes starts
+/// with a push onto the empty list, and an exact block there had no room for
+/// the second push, which copied it to a grown block. Most lists built that
+/// way are short, so that copy came on about a third of all pushes. Twice the
+/// room rather than 64 bytes alone, because 64 bytes hold one element of 48:
+/// a list of three of those was copied twice.
 ///
 /// # Safety
 /// As [`buri_rt_list_push`].
@@ -684,7 +686,8 @@ unsafe fn push_fresh(
         };
         return;
     }
-    let capacity = regrown_capacity(total.saturating_mul(stride) as u64, 0);
+    let needed = total.saturating_mul(stride) as u64;
+    let capacity = buri_rt_grown_capacity(needed, needed);
     // SAFETY: forwarded; the fresh block has room for `total` elements, and
     // `item` is outside it.
     unsafe {
