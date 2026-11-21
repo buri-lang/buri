@@ -5855,8 +5855,18 @@ function $tree_style_collect(styles, scope, slots, inline) {
       if (tag === 52 && !(style[1] > 0)) {
         slots.set(slot, "trunc-0");
       } else {
-        inline.set("--buri-" + name, $tree_declare_hook(style));
+        const value = $tree_declare_hook(style);
+        inline.set("--buri-" + name, value);
         slots.set(slot, name + "-var");
+        // A pin as a `Fallback` or a `FitRoom` re-reads it:
+        // `styles.rs::anchored`.
+        if (tag === 15) {
+          const side = style[1] < 2 ? "height" : "width";
+          const tried = value.endsWith("%")
+            ? "calc(anchor-size(" + side + ", 100%) * " + value.slice(0, -1) + " / 100)"
+            : value;
+          inline.set("--buri-try-" + keys[style[1]], tried);
+        }
       }
     } else {
       // The compiler said no style here could reach the inline tier, so it

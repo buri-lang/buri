@@ -129,6 +129,23 @@ pub fn places(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, &format!("{COLOURS}{HOVERED}{PLACES}"), "place ")
 }
 
+/// [`places`], with each snapshot read alone in a window the size of the page
+/// its golden paints: the snapshot's width, and as tall as its outermost box.
+/// So a panel that flips or fits the room the window leaves it does so where
+/// the golden shows.
+pub fn places_alone(case: &Path) -> Vec<(String, String)> {
+    let script = PLACES.replace("  await hovered(state, tree);\n", ALONE);
+    read_snapshots(case, &format!("{COLOURS}{HOVERED}{script}"), "place ")
+}
+
+/// What [`places_alone`] puts before each snapshot is read: every other
+/// snapshot shown as nothing, and the window resized to the page.
+const ALONE: &str = r#"  await hovered(state, tree);
+  for (const other of snapshots) other.root.style.display = other.root === root ? "" : "none";
+  const outer = tree.find((n) => n.nodeType === 1);
+  resize(Number(/\nviewport (\d+) /.exec(root.firstChild.textContent)[1]), sizeOf(outer, "height"));
+"#;
+
 /// How many boxes cut each of `case`'s snapshots' red boxes out of the flow
 /// in a browser, as `(name, boxes)` pairs in the order the snapshots mounted.
 ///

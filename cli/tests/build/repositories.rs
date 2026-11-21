@@ -662,6 +662,11 @@ fn serving_a_page() {
 /// beside a twin pinned the plain way. The test of the same name checks where
 /// happy-dom's computed styles put each.
 ///
+/// `pinned_panels_flip_and_fit_the_room` is a `PinAnchor` panel near the
+/// page's edge with a `Fallback`, a `FitRoom` or both, and a tooltip's bubble
+/// (#365), each scene beside a twin pinned the plain way. The test of the same
+/// name checks where happy-dom puts each in a window the size of its page.
+///
 /// `pins_measure_from_the_nearest_positioned_box` is a box pinned by an edge
 /// in each axis, both edges, or percentage sizes, inside a positioned parent,
 /// a positioned grandparent, nothing positioned, a table entry, a table row
@@ -688,7 +693,7 @@ fn serving_a_page() {
 /// lays out at each width.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 69);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 70);
 }
 
 /// Every case above that calls `snapshot`, mounted again as a page built for
@@ -697,7 +702,7 @@ fn snapshots() {
 /// says how a test source becomes a page and what the driver checks.
 #[test]
 fn snapshots_render_as_pages() {
-    crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 60);
+    crate::harness::web_pages::render_corpus(&tests_dir().join("repositories/ui"), 61);
 }
 
 /// The order a browser paints `positioned_boxes_paint_in_tree_order`'s boxes
@@ -792,7 +797,8 @@ fn pinned_panels_are_in_the_top_layer_against_their_trigger() {
 /// flow (#360). Each scene and its twin come out at the same place against
 /// their blue anchor, the place the shared golden shows: a pinned edge
 /// measured from the anchor's edge, an axis pinned at both edges stretched
-/// between them, and an axis pinned at neither centred on the anchor.
+/// between them, and an axis pinned at neither centred on the anchor. Each is
+/// read in a window the size of its page, which leaves a tooltip room below.
 #[test]
 fn pinned_panels_sit_where_their_pins_put_them() {
     let case = tests_dir().join("repositories/ui/pinned_panels_sit_where_their_pins_put_them");
@@ -818,7 +824,36 @@ fn pinned_panels_sit_where_their_pins_put_them() {
         .iter()
         .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
         .collect();
-    assert_eq!(crate::harness::web_pages::places(&case), placed);
+    assert_eq!(crate::harness::web_pages::places_alone(&case), placed);
+}
+
+/// Where a browser lays out `pinned_panels_flip_and_fit_the_room`'s red panels
+/// against their blue anchor, read off happy-dom in a window the size of each
+/// page (#365). Each scene and its twin come out at the same place, the place
+/// the shared golden shows: a `Fallback` panel mirrored across its anchor
+/// where it runs off the page and left where it fits, a `FitRoom` panel cut to
+/// the room past its pins, one with both on the roomier side, and a tooltip's
+/// bubble flipped above its trigger.
+#[test]
+fn pinned_panels_flip_and_fit_the_room() {
+    let case = tests_dir().join("repositories/ui/pinned_panels_flip_and_fit_the_room");
+    let expected: &[(&str, &str)] = &[
+        ("flip-block", "0,-80 160x80"),
+        ("stays-below", "0,32 160x80"),
+        ("flip-inline", "-160,0 160x80"),
+        ("flip-both", "-160,-80 160x80"),
+        ("computed", "0,-80 160x80"),
+        ("fit-down", "0,32 160x168"),
+        ("fit-across", "0,32 200x80"),
+        ("fit-both", "0,32 200x168"),
+        ("fit-flip", "0,-150 160x150"),
+        ("tooltip", "0,-80 160x80"),
+    ];
+    let placed: Vec<(String, String)> = expected
+        .iter()
+        .flat_map(|(name, at)| vec![(name.to_string(), format!("red at {at}")); 2])
+        .collect();
+    assert_eq!(crate::harness::web_pages::places_alone(&case), placed);
 }
 
 /// Where a browser lays out `pins_measure_from_the_nearest_positioned_box`'s

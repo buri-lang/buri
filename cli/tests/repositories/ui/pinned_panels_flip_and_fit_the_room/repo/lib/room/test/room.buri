@@ -1,0 +1,411 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden, so a panel placed anywhere else fails its scene.
+
+from "platform/effect" import { Allocator, Ui, Watch };
+from "platform/effect/testing" import { alloc, headless, observer, snapshot };
+from "//lib/room" import { anchored, computed, pinned, tip, tipTwin };
+
+test "a panel with no room below its anchor flips above it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-block",
+        anchored(160, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Fallback(.FlipBlock),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel flip-block goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-block",
+        pinned(160, 200, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel with room below its anchor stays below it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "stays-below",
+        anchored(40, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Fallback(.FlipBlock),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel stays-below goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "stays-below",
+        pinned(40, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel with no room past its anchor flips before it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-inline",
+        anchored(40, 600, [
+            .Pin(.Top, .Px(0)),
+            .Pin(.Start, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Fallback(.FlipInline),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel flip-inline goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-inline",
+        pinned(40, 600, [
+            .Pin(.Top, .Px(0)),
+            .Pin(.End, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel in a corner flips on both axes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-both",
+        anchored(160, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Fallback(.FlipBoth),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel flip-both goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "flip-both",
+        pinned(160, 600, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.End, .Percent(100.0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel whose styles are computed flips as well" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        computed(160, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+            .Fallback(.FlipBlock),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel computed goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "computed",
+        pinned(160, 200, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel too tall for the room below its anchor is cut to it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-down",
+        anchored(40, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(300)),
+            .FitRoom(.Y),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel fit-down goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-down",
+        pinned(40, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(168)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel too wide for the room past its anchor is cut to it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-across",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(400)),
+            .Height(.Px(80)),
+            .FitRoom(.X),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel fit-across goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-across",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(200)),
+            .Height(.Px(80)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel too large for its corner is cut on both axes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-both",
+        anchored(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(400)),
+            .Height(.Px(300)),
+            .FitRoom(.Both),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel fit-both goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-both",
+        pinned(40, 600, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(200)),
+            .Height(.Px(168)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a panel that fits and flips opens on the roomier side, cut to it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-flip",
+        anchored(150, 200, [
+            .Pin(.Top, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(300)),
+            .FitRoom(.Y),
+            .Fallback(.FlipBlock),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the panel fit-flip goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "fit-flip",
+        pinned(150, 200, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(150)),
+        ]),
+        .Checked,
+        [],
+    );
+}
+
+test "a tooltip's bubble with no room below its trigger flips above it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "tooltip",
+        tip(160, [.Width(.Px(160)), .Height(.Px(80))]),
+        .Hover,
+        [],
+    );
+}
+
+test "the box pinned the plain way where the tooltip goes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    snapshot(
+        ctx,
+        "tooltip",
+        tipTwin(160, [
+            .Pin(.Bottom, .Percent(100.0)),
+            .Pin(.Start, .Px(0)),
+            .Width(.Px(160)),
+            .Height(.Px(80)),
+        ]),
+        .Hover,
+        [],
+    );
+}

@@ -45,7 +45,12 @@
 ///    (only the last two for a fixed box), or `null` for the viewport;
 ///  * `placedAt(element)`, where a browser lays out an out-of-flow box,
 ///    which happy-dom leaves out: its offset and size within its
-///    `containingBlock`, by the inset, size and self-alignment it computes to;
+///    `containingBlock`, by the inset, size and self-alignment it computes to,
+///    and under a `position-area` that spans past its anchor, by the area,
+///    the room the viewport leaves and the first `position-try-fallbacks`
+///    flip that fits;
+///  * `offsetOf(element, dimension)`, where a browser lays out a box in the
+///    flow from the viewport's top left, which happy-dom leaves out;
 ///  * `clippedBy(element)`, the ancestors whose `overflow` cuts `element`,
 ///    nearest first, which happy-dom paints none of;
 ///  * `movedBy(element)`, how far the translates a browser draws `element`
@@ -55,7 +60,8 @@
 ///    dialog, a shut disclosure's body or a `hidden` element, and the focus
 ///    leaving a shut dialog that gives it back to such an element;
 ///  * nothing a style gives `display: none` taking the focus either;
-///  * `resize(width)`, which makes the window that wide and restyles the page
+///  * `resize(width, height)`, which makes the window that wide, and that tall
+///    where a height is given, and restyles the page
 ///    for it, which happy-dom leaves out, before any of the page's `resize`
 ///    listeners run;
 ///  * `display(element)`, the `display` a browser gives `element`, from the
@@ -98,8 +104,9 @@ window.addEventListener("error", () => {
 window.addEventListener("resize", () => {
   document.adoptedStyleSheets = document.adoptedStyleSheets;
 });
-// The window `width` CSS pixels across, as a reader resizing it leaves it.
-const resize = (width) => happyDOM.setViewport({ width });
+// The window `width` CSS pixels across, and `height` down, as a reader
+// resizing it leaves it.
+const resize = (width, height = innerHeight) => happyDOM.setViewport({ width, height });
 
 const body = document.body;
 const showing = () => body.innerHTML.replace(/<!--.*?-->/gs, "");
@@ -646,7 +653,9 @@ function movedBy(element) {
 // bottom only.
 function placedAt(element) {
   const s = getComputedStyle(element);
-  const area = placedAgainst(element) !== null;
+  const anchor = placedAgainst(element);
+  if (anchor !== null && !/^center( center)?$/.test(s.positionArea)) return placedInArea(element, anchor);
+  const area = anchor !== null;
   const against = containingBlock(element);
   const room = (dimension) =>
     against === null ? viewport(dimension) : sizeOf(against, dimension) - (area ? 0 : borders(against, dimension));
@@ -689,11 +698,134 @@ function placedAlong(element, dimension, start, end, align, room, area) {
   if (self === "center") return [s + (inside - size) / 2, size];
   throw new Error(`placedAt: self-alignment ${align}`);
 }
+// Where a browser lays out `element` under a `position-area` other than
+// `center`, as a `Fallback` or a `FitRoom` places a panel, by Anchor
+// Positioning 1, from the top left of its anchor's box. Each axis is placed
+// in an area of the viewport: from the anchor's start edge to the viewport's
+// end edge under `span-*-end`, the other way under `span-*-start`, the whole
+// axis under `span-all`, and the anchor's box under `center`. Its insets,
+// auto ones as 0, leave the room the box must fit in, and an `anchor-center`
+// box is centred on the anchor. The box takes the first of its own place and
+// each `position-try-fallbacks` flip that fits — ordered by that room where
+// `position-try-order` says so — or its own place where none does. A flip
+// mirrors the axis's insets, area and self-alignment. The anchor is laid out
+// in the flow ([`offsetOf`]).
+function placedInArea(element, anchor) {
+  const s = getComputedStyle(element);
+  const [down, across = down] = s.positionArea.split(" ");
+  const sizes = { width: sizeOf(anchor, "width"), height: sizeOf(anchor, "height") };
+  const tries = unsetStyle(s.positionTryFallbacks) ? [] : s.positionTryFallbacks.split(",");
+  const place = (tactics) => {
+    const flips = tactics.trim().split(/\s+/);
+    const along = (dimension, axis, area, start, end, align, max) => {
+      const mirror = { [`span-${axis}-start`]: `span-${axis}-end`, [`span-${axis}-end`]: `span-${axis}-start` };
+      let self = (align ?? "").replace(/^(safe|unsafe) /, "");
+      if (flips.includes(`flip-${axis}`)) {
+        [start, end] = [end, start];
+        area = mirror[area] ?? area;
+        self = { start: "end", end: "start" }[self] ?? self;
+      }
+      const at = offsetOf(anchor, dimension);
+      const length = sizes[dimension];
+      const far = viewport(dimension);
+      const [low, high] = {
+        center: [at, at + length],
+        "span-all": [0, far],
+        [`span-${axis}-start`]: [0, at + length],
+        [`span-${axis}-end`]: [at, far],
+      }[area] ?? [null, null];
+      if (low === null) throw new Error(`placedAt: the area ${area}`);
+      const room = high - low;
+      const from = lengthIn(start, () => room, sizes) ?? 0;
+      const to = lengthIn(end, () => room, sizes) ?? 0;
+      const inside = room - from - to;
+      let size = lengthIn(getComputedStyle(element)[dimension], () => room, sizes);
+      if (size === null && self === "stretch") size = inside;
+      if (size === null && dimension === "width") {
+        const [least, most] = intrinsicWidths(element);
+        size = Math.min(most, Math.max(least, inside));
+      }
+      if (size === null) size = flowSize(element, dimension);
+      size = Math.min(size, lengthIn(max, () => room, sizes) ?? Infinity);
+      let offset;
+      if (self === "start" || self === "stretch") offset = from;
+      else if (self === "end") offset = room - to - size;
+      else if (self === "anchor-center") offset = at + (length - size) / 2 - low;
+      else throw new Error(`placedAt: self-alignment ${align} in an area`);
+      const fits = offset >= from - 0.5 && offset + size <= room - to + 0.5;
+      return { at: low + offset - at, size, fits, inside };
+    };
+    return {
+      x: along("width", "inline", across, s.insetInlineStart, s.insetInlineEnd, s.justifySelf, s.maxWidth),
+      y: along("height", "block", down, s.insetBlockStart, s.insetBlockEnd, s.alignSelf, s.maxHeight),
+    };
+  };
+  const options = ["", ...tries].map(place);
+  const order = { "most-inline-size": "x", "most-block-size": "y" }[s.positionTryOrder];
+  if (order !== undefined) options.sort((a, b) => b[order].inside - a[order].inside);
+  const { x, y } = options.find((o) => o.x.fits && o.y.fits) ?? place("");
+  return { x: x.at, y: y.at, width: x.size, height: y.size };
+}
+// Where `element`'s border box starts along `dimension` from the viewport's
+// top left, for a box in the flow: its parent's start, padding and border,
+// and in its parent's main axis every box in the flow before it and the gaps
+// between, then its own margin. Each box starts at its parent's cross start.
+function offsetOf(element, dimension) {
+  const parent = element.parentElement;
+  if (parent === null) return 0;
+  const s = getComputedStyle(element);
+  if (["absolute", "fixed"].includes(s.position)) throw new Error("offsetOf: a box out of the flow");
+  const side = dimension === "width" ? "Left" : "Top";
+  const p = getComputedStyle(parent);
+  const basis = () => contentOf(parent, "width");
+  let at = offsetOf(parent, dimension) + (lengthIn(p[`padding${side}`], basis) ?? 0);
+  if (!unsetStyle(p[`border${side}Style`]) && p[`border${side}Style`] !== "hidden") {
+    at += lengthIn(p[`border${side}Width`], () => 0) ?? 0;
+  }
+  const flex = /flex/.test(display(parent));
+  const row = flex && p.flexDirection === "row";
+  if (row === (dimension === "width")) {
+    const gap = flex ? p[row ? "columnGap" : "rowGap"] : "normal";
+    const between = gap === "normal" ? 0 : (lengthIn(gap, basis) ?? 0);
+    for (const sibling of inFlow(parent)) {
+      if (sibling === element) break;
+      at += sizeOf(sibling, dimension) + between;
+    }
+  }
+  return at + (lengthIn(s[`margin${side}`], basis) ?? 0);
+}
 // A computed length in pixels: a percentage of `room()`, or `null` for auto.
-function lengthIn(value, room) {
-  if (unsetStyle(value)) return null;
+// With `anchor`, the anchor's `{ width, height }`, it reads a `calc()` of
+// lengths added and taken away too, each a length, a `calc()` or a fraction
+// of the anchor's size, as `FitRoom` and a `Fallback`'s pins write them. A
+// custom property left `initial` is a guaranteed-invalid value, which a
+// browser reads as `auto` for an inset and as its fallback inside a `var()`;
+// happy-dom reads it as the word, so this reads it as auto, or 0 in a sum.
+function lengthIn(value, room, anchor = null) {
+  if (unsetStyle(value) || value === "initial") return null;
   if (value.endsWith("%")) return (room() * Number(value.slice(0, -1))) / 100;
   if (value === "0" || value.endsWith("px")) return Number.parseFloat(value);
+  const sized = /^calc\(anchor-size\((width|height), 100%\) \* ([\d.]+) \/ 100\)$/.exec(value);
+  if (anchor !== null && sized !== null) return (anchor[sized[1]] * Number(sized[2])) / 100;
+  if (anchor !== null && value.startsWith("calc(") && value.endsWith(")")) {
+    let [sum, depth, term, sign] = [0, 0, "", 1];
+    const add = () => {
+      sum += sign * (lengthIn(term.trim(), room, anchor) ?? 0);
+      term = "";
+    };
+    for (const token of value.slice(5, -1).split(/( [+-] |[()])/)) {
+      if (depth === 0 && /^ [+-] $/.test(token)) {
+        add();
+        sign = token.trim() === "-" ? -1 : 1;
+        continue;
+      }
+      if (token === "(") depth++;
+      if (token === ")") depth--;
+      term += token;
+    }
+    add();
+    return sum;
+  }
   throw new Error(`placedAt: the length ${value}`);
 }
 // The `dimension` of `element`'s border box: where `placedAt` lays it out

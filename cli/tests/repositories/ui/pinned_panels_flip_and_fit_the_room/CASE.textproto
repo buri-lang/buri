@@ -1,0 +1,34 @@
+# A pinned panel flips and fits the room the page leaves it (#365).
+#
+# A `PinAnchor` panel near the page's edge used to run past it. Each scene
+# shares a golden with a twin that pins a plain box where the panel should
+# land: a `Fallback` panel flipped above, before, and to the far corner of
+# its anchor, one with room that stays put, one whose styles are computed,
+# a `FitRoom` panel cut to the room below, past, and on both axes, one that
+# both fits and flips and so opens on the roomier side, and a tooltip's
+# bubble, which flips on its own.
+#
+# The last step moves the flipped panel's twin back below its anchor, and
+# that test fails.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a pinned panel flips to the side of its anchor with room and fits the room it has, each scene beside a twin pinned the plain way, and a twin left unflipped fails the golden"
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+edit {
+  file: "lib/room/test/room.buri"
+  replace: "pinned(160, 200, [\n            .Pin(.Bottom, .Percent(100.0)),"
+  with: "pinned(160, 200, [\n            .Pin(.Top, .Percent(100.0)),"
+}
+
+run {
+  args: ["test", "//lib/room", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}

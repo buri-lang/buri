@@ -1531,6 +1531,17 @@ struct Computed {
     /// drawing the one clipped pixel it would otherwise leave (#188).
     hidden: bool,
     inset: [Len; 4],
+    /// `position-try-fallbacks`, which `Fallback` writes: whether an
+    /// [`escape`](Computed::escape) box that runs off the page is tried
+    /// mirrored across its anchor in the block axis, the inline axis, or
+    /// both ([`tried`]).
+    flips: Flips,
+    /// A `max-width` or `max-height` of the room left past the pins, which
+    /// `FitRoom` writes, inline then block ([`tried`]).
+    room: [bool; 2],
+    /// `position-try-order`: the axis whose room orders the tries, roomiest
+    /// first, inline (`0`) or block (`1`).
+    try_order: Option<usize>,
     clipped: [bool; 2],
 
     background: Rgba,
@@ -1652,6 +1663,9 @@ impl Computed {
             anchor: false,
             hidden: false,
             inset: [Len::Auto; 4],
+            flips: Flips::None,
+            room: [false; 2],
+            try_order: None,
             clipped: [false; 2],
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
@@ -1811,12 +1825,16 @@ impl Computed {
 /// Where a tooltip's bubble sits until a class says otherwise, as the sheet's
 /// `[role=tooltip]` reset places it in a browser: below its trigger at the
 /// start edge, against the trigger's `Flow` box, on one line.
-const TOOLTIP: [(&str, &str); 5] = [
+const TOOLTIP: [(&str, &str); 6] = [
     ("position", "fixed"),
     ("position-anchor", "--buri-flow"),
     ("inset-block-start", "100%"),
     ("inset-inline-start", "0"),
     ("text-wrap", "nowrap"),
+    (
+        "position-try-fallbacks",
+        "flip-block,flip-inline,flip-block flip-inline",
+    ),
 ];
 
 /// Resolves every node's style: matching class rules in sheet order, then the
@@ -2050,8 +2068,30 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "min-width" => set_sides(&mut style.min, [0], len(value)),
         "min-height" => set_sides(&mut style.min, [1], len(value)),
         // `none`, no limit, is what a maximum of `Auto` writes.
+        // `FitRoom`'s maximum is the room past the pins, which [`tried`]
+        // measures and which takes the place of any other.
+        "max-width" | "max-height" if value.starts_with("calc(100% -") => {
+            let axis = usize::from(name == "max-height");
+            style.room[axis] = true;
+            style.max[axis] = Len::Auto;
+        }
         "max-width" => set_sides(&mut style.max, [0], limit(value, font_size)),
         "max-height" => set_sides(&mut style.max, [1], limit(value, font_size)),
+        "position-try-fallbacks" => {
+            style.flips = match value {
+                "flip-block" => Flips::Block,
+                "flip-inline" => Flips::Inline,
+                "none" => Flips::None,
+                _ => Flips::Both,
+            }
+        }
+        "position-try-order" => {
+            style.try_order = match value {
+                "most-inline-size" => Some(0),
+                "most-block-size" => Some(1),
+                _ => None,
+            }
+        }
         "aspect-ratio" => style.aspect = value.parse().ok().filter(|r: &f32| *r > 0.0),
         "position" => {
             style.fixed = value == "fixed";
@@ -2326,6 +2366,15 @@ fn length(value: &str, font_size: f32) -> Option<Len> {
         return n.parse::<f32>().ok().map(|n| Len::Px(n * font_size));
     }
     if let Some(n) = value.strip_suffix('%') {
+        return n.parse().ok().map(Len::Percent);
+    }
+    // A pin's percentage as a `Fallback` or a `FitRoom` re-reads it, of the
+    // anchor's size: the anchor is the box a percentage is measured from here.
+    if let Some(n) = value
+        .strip_prefix("calc(anchor-size(")
+        .and_then(|rest| rest.split_once(", 100%) * "))
+        .and_then(|(_, n)| n.strip_suffix(" / 100)"))
+    {
         return n.parse().ok().map(Len::Percent);
     }
     value.parse().ok().map(Len::Px)
@@ -4278,19 +4327,41 @@ fn settle_pins(
             len => len,
         };
         let mut own = tree.style(id).map_err(fail)?.clone();
+        // A `Fallback` or a `FitRoom` box flips where its try says, and an axis
+        // pinned at one edge measures its size's percentages from the area.
+        let anchored = pin.against.is_some() && style.escape;
+        let tried = (anchored && (style.flips != Flips::None || style.room != [false; 2]))
+            .then(|| {
+                let laid = tree.layout(id).map(|l| l.size);
+                laid.map(|s| tried(style, cb, page, [s.width, s.height]))
+            })
+            .transpose()
+            .map_err(fail)?;
+        let inset = tried.as_ref().map_or(style.inset, |t| t.inset);
+        let mut basis = [cb[2], cb[3]];
+        if let Some(t) = &tried {
+            for (axis, slot) in basis.iter_mut().enumerate() {
+                let pinned = [inset[axis * 2], inset[axis * 2 + 1]];
+                if pinned.iter().filter(|&&len| len != Len::Auto).count() == 1 {
+                    *slot = t.area[axis];
+                }
+            }
+        }
         own.inset = Rect {
-            left: edge(style.inset[0], cb[2], before[0]),
-            right: edge(style.inset[1], cb[2], after[0]),
-            top: edge(style.inset[2], cb[3], before[1]),
-            bottom: edge(style.inset[3], cb[3], after[1]),
+            left: edge(inset[0], cb[2], before[0]),
+            right: edge(inset[1], cb[2], after[0]),
+            top: edge(inset[2], cb[3], before[1]),
+            bottom: edge(inset[3], cb[3], after[1]),
         };
+        let cb = [cb[0], cb[1], basis[0], basis[1]];
         let mut width = length(style.size[0], cb[2]);
         // Shrunk to fit the room beside its insets: never wider than its
         // widest content, nor narrower than its narrowest.
         if let Some(&Some((least, most))) = fits.get(at) {
-            let room = cb[2]
-                - resolve_length(style.inset[0], cb[2])
-                - resolve_length(style.inset[1], cb[2]);
+            let room = tried.as_ref().map_or_else(
+                || cb[2] - resolve_length(inset[0], cb[2]) - resolve_length(inset[1], cb[2]),
+                |t| t.room[0],
+            );
             width = Len::Px(most.min(least.max(room)));
         }
         own.size = Size {
@@ -4305,8 +4376,16 @@ fn settle_pins(
             width: dimension_auto(length(style.max[0], cb[2])),
             height: dimension_auto(length(style.max[1], cb[3])),
         };
+        if let Some(t) = &tried {
+            if style.room[0] {
+                own.max_size.width = LengthPercentageAuto::length(t.room[0]);
+            }
+            if style.room[1] {
+                own.max_size.height = LengthPercentageAuto::length(t.room[1]);
+            }
+        }
         // Against an anchor, an axis with no pin centres the box on it.
-        if pin.against.is_some() && style.escape {
+        if anchored {
             let size = tree.layout(id).map_err(fail)?.size;
             let centred = |edges: [Len; 2], room: f32, size: f32, before: f32| {
                 (edges == [Len::Auto; 2])
@@ -4326,6 +4405,98 @@ fn settle_pins(
         }
     }
     Ok(changed)
+}
+
+/// `position-try-fallbacks`, as `Fallback` and a tooltip's bubble write it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Flips {
+    None,
+    Block,
+    Inline,
+    Both,
+}
+
+/// Where a box placed against an anchor with a `Fallback` or a `FitRoom` goes,
+/// as [`tried`] chooses it.
+struct Tried {
+    /// The insets, mirrored across the anchor where a try flipped them.
+    inset: [Len; 4],
+    /// The room the insets leave in the area each axis is placed in, inline
+    /// then block: what `FitRoom` caps the box to.
+    room: [f32; 2],
+    /// That area's size, which a percentage size along the axis measures.
+    area: [f32; 2],
+}
+
+/// The try a browser places `style`'s box with: its own insets, then each
+/// `position-try-fallbacks` flip in order — ordered by `position-try-order`'s
+/// room where there is one — and the first whose box fits in the room its
+/// area leaves, or its own insets where none does.
+///
+/// The sheet places such a box in the area its pins face (`ANCHOR_ROOM` in
+/// `styles.rs`): from the anchor's edge at the pinned edge to the page's far
+/// edge, the anchor's own box with both edges pinned, or the whole page with
+/// neither. `anchor` and `size` are the anchor's and the box's, and `page` is
+/// the page's width and height.
+fn tried(style: &Computed, anchor: [f32; 4], page: (f32, f32), size: [f32; 2]) -> Tried {
+    let flips: &[(bool, bool)] = match style.flips {
+        Flips::None => &[(false, false)],
+        Flips::Block => &[(false, false), (false, true)],
+        Flips::Inline => &[(false, false), (true, false)],
+        Flips::Both => &[(false, false), (false, true), (true, false), (true, true)],
+    };
+    let place = |&(across, down): &(bool, bool)| {
+        let mut inset = style.inset;
+        if across {
+            inset.swap(0, 1);
+        }
+        if down {
+            inset.swap(2, 3);
+        }
+        let mut out = Tried {
+            inset,
+            room: [0.0; 2],
+            area: [0.0; 2],
+        };
+        let mut fits = true;
+        for (axis, far) in [page.0, page.1].into_iter().enumerate() {
+            let (start, length) = (anchor[axis], anchor[axis + 2]);
+            let [from, to] = [inset[axis * 2], inset[axis * 2 + 1]];
+            let (low, high) = match (from != Len::Auto, to != Len::Auto) {
+                (true, false) => (start, far),
+                (false, true) => (0.0, start + length),
+                (true, true) => (start, start + length),
+                (false, false) => (0.0, far),
+            };
+            let [before, after] = [from, to].map(|len| match len {
+                Len::Auto => 0.0,
+                len => resolve_length(len, length),
+            });
+            let room = high - low - before - after;
+            let extent = if style.room[axis] {
+                size[axis].min(room)
+            } else {
+                size[axis]
+            };
+            let at = match (from != Len::Auto, to != Len::Auto) {
+                (false, true) => high - after - extent,
+                (false, false) => start + (length - extent) / 2.0,
+                _ => low + before,
+            };
+            fits &= at >= low + before - 0.5 && at + extent <= high - after + 0.5;
+            out.room[axis] = room.max(0.0);
+            out.area[axis] = high - low;
+        }
+        (out, fits)
+    };
+    let mut tries: Vec<(Tried, bool)> = flips.iter().map(place).collect();
+    if let Some(axis) = style.try_order {
+        tries.sort_by(|a, b| b.0.room[axis].total_cmp(&a.0.room[axis]));
+    }
+    match tries.iter().position(|(_, fits)| *fits) {
+        Some(at) => tries.swap_remove(at).0,
+        None => place(&(false, false)).0,
+    }
 }
 
 /// Lays `root` out until no pin in `pins` moves, as [`settle_pins`] says.

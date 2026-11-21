@@ -125,6 +125,9 @@ const STYLE_ANIMATION: usize = 62;
 /// `Removed(Bool)`, whose unconditional rules `stylesheet` writes as width
 /// ranges rather than one rule per class.
 const STYLE_REMOVED: usize = 63;
+/// `Style::Fallback` and `Style::FitRoom`, which [`popover_reset`] looks for.
+const STYLE_FALLBACK: usize = 67;
+const STYLE_FIT_ROOM: usize = 68;
 
 /// `ui/style`'s `Layout::Grid`, the one layout whose value is open-ended.
 const LAYOUT_GRID: usize = 4;
@@ -303,19 +306,100 @@ const PIN_ANCHOR: &str = "fixed;position-anchor:--buri-flow;position-area:center
 /// unless the end edge is pinned too. [`ANCHOR_RESET`] sets the unpinned
 /// values, under every class. A stretch of a box with a size is placed at the
 /// start, as a box pinned at both edges is.
+///
+/// `--buri-area-y` (or `-x`) is the area [`ANCHOR_ROOM`] places the panel in,
+/// chosen the same way: from the anchor's start edge to the viewport's end
+/// with the start edge pinned, the other way with the end edge pinned, the
+/// anchor's own box with both and the whole viewport with neither.
 const PIN_ALIGNMENT: [&str; 4] = [
-    "--buri-pin-y:var(--buri-pin-y-both)",
-    "--buri-pin-y-end:end;--buri-pin-y-both:stretch",
-    "--buri-pin-x:var(--buri-pin-x-both)",
-    "--buri-pin-x-end:end;--buri-pin-x-both:stretch",
+    "--buri-pin-y:var(--buri-pin-y-both);--buri-area-y:var(--buri-area-y-both)",
+    "--buri-pin-y-end:end;--buri-pin-y-both:stretch;--buri-area-y-end:span-block-start;\
+     --buri-area-y-both:center",
+    "--buri-pin-x:var(--buri-pin-x-both);--buri-area-x:var(--buri-area-x-both)",
+    "--buri-pin-x-end:end;--buri-pin-x-both:stretch;--buri-area-x-end:span-inline-start;\
+     --buri-area-x-both:center",
 ];
 
 /// The alignment a `PinAnchor` panel with no pin has, which its pins'
-/// [`PIN_ALIGNMENT`] overrides. A custom property is inherited, so a panel
-/// inside a pinned box starts from these rather than from the box's.
-const ANCHOR_RESET: &str = "--buri-pin-y:var(--buri-pin-y-end);--buri-pin-y-end:center;\
-                            --buri-pin-y-both:start;--buri-pin-x:var(--buri-pin-x-end);\
-                            --buri-pin-x-end:center;--buri-pin-x-both:start";
+/// [`PIN_ALIGNMENT`] overrides, and the area and pin lengths [`ANCHOR_ROOM`]
+/// reads. A custom property is inherited, so a panel inside a pinned box
+/// starts from these rather than from the box's. [`TRY_RESET`] goes beside it.
+const ANCHOR_RESET: &str = "--buri-pin-y:var(--buri-pin-y-end);\
+                            --buri-pin-y-end:var(--buri-centre-y);--buri-pin-y-both:start;\
+                            --buri-pin-x:var(--buri-pin-x-end);\
+                            --buri-pin-x-end:var(--buri-centre-x);--buri-pin-x-both:start;\
+                            --buri-centre-y:center;--buri-centre-x:center;\
+                            --buri-area-y:var(--buri-area-y-end);--buri-area-y-end:span-all;\
+                            --buri-area-y-both:span-block-end;\
+                            --buri-area-x:var(--buri-area-x-end);--buri-area-x-end:span-all;\
+                            --buri-area-x-both:span-inline-end";
+
+/// Leaves each edge's `--buri-try-…` unset, for [`ANCHOR_RESET`] and for a box
+/// with a `Fallback` or a `FitRoom` that isn't a `PinAnchor` panel.
+const TRY_RESET: &str = "--buri-try-block-start:initial;--buri-try-block-end:initial;\
+                         --buri-try-inline-start:initial;--buri-try-inline-end:initial";
+
+/// What `Fallback` and `FitRoom` write: the panel placed in the area its pins
+/// choose ([`PIN_ALIGNMENT`]) rather than in its anchor's box, so its inset
+/// containing block is the room the viewport leaves on that side. That room is
+/// what a browser checks a fallback against and what `FitRoom` measures. Each
+/// inset is re-read from the pin's `--buri-try-…` ([`anchored`]), which
+/// measures a percentage from the anchor still. An axis with no pin is centred
+/// on the anchor across the whole viewport.
+const ANCHOR_ROOM: &str = "position-area:var(--buri-area-y) var(--buri-area-x);\
+                           --buri-centre-y:anchor-center;--buri-centre-x:anchor-center";
+
+/// [`ANCHOR_ROOM`]'s insets, apart so that a tooltip's reset can give them
+/// the weight of a class.
+const ROOM_INSETS: &str = "inset-block-start:var(--buri-try-block-start);\
+                           inset-block-end:var(--buri-try-block-end);\
+                           inset-inline-start:var(--buri-try-inline-start);\
+                           inset-inline-end:var(--buri-try-inline-end)";
+
+/// What each `Fallback` adds to [`ANCHOR_ROOM`], in declaration order.
+const FALLBACKS: [(&str, &str); 3] = [
+    ("block", "flip-block"),
+    ("inline", "flip-inline"),
+    ("both", "flip-block,flip-inline,flip-block flip-inline"),
+];
+
+/// What `FitRoom` adds to [`ANCHOR_ROOM`] for each `Axis`: a maximum of the
+/// room its area leaves past its pins, and, beside a `Fallback`, the side with
+/// more of it first.
+const ROOMS: [(&str, &str); 3] = [
+    (
+        "x",
+        "max-width:calc(100% - var(--buri-try-inline-start,0px) - \
+         var(--buri-try-inline-end,0px));position-try-order:most-inline-size",
+    ),
+    (
+        "y",
+        "max-height:calc(100% - var(--buri-try-block-start,0px) - \
+         var(--buri-try-block-end,0px));position-try-order:most-block-size",
+    ),
+    (
+        "both",
+        "max-width:calc(100% - var(--buri-try-inline-start,0px) - \
+         var(--buri-try-inline-end,0px));max-height:calc(100% - \
+         var(--buri-try-block-start,0px) - var(--buri-try-block-end,0px));\
+         position-try-order:most-block-size",
+    ),
+];
+
+/// A pin's length as [`ANCHOR_ROOM`] re-reads it: a percentage of the
+/// anchor's size, `down` it or across it, whatever area the panel is placed
+/// in, or of the containing block's where no anchor holds the box. Any other
+/// length is as written. `ui_node.buri`'s `pinned` and `runtime.js`'s
+/// `$tree_style_collect` write the same for a pin the compiler didn't fold.
+fn anchored(length: &str, down: bool) -> String {
+    match length.strip_suffix('%') {
+        Some(n) => {
+            let side = if down { "height" } else { "width" };
+            format!("calc(anchor-size({side}, 100%) * {n} / 100)")
+        }
+        None => length.to_owned(),
+    }
+}
 
 /// The conflict slot: the property, the sub-key where the property has one,
 /// and the condition, packed into one number the runtime compares for equality.
@@ -1980,7 +2064,7 @@ fn every_value(variant: usize) -> Vec<(Atom, StyleRule)> {
         7 | 8 | 9 | 48 => enumerated(7),
         // `Wrap`, `Italic`, `Clip`, `Passthrough` and `Removed`.
         10 | 45 | 57 | 58 | STYLE_REMOVED => vec![Value::Bool(false), Value::Bool(true)],
-        11 | 50 | 54 | 36 => enumerated(3),
+        11 | 50 | 54 | 36 | STYLE_FALLBACK | STYLE_FIT_ROOM => enumerated(3),
         16 | 44 | 49 | 51 | 53 => enumerated(4),
         64 | 65 => enumerated(2),
         _ => Vec::new(),
@@ -3132,17 +3216,29 @@ fn popover_reset(rules: &[&StyleRule], reset: Reset) -> String {
     let anchored = rules
         .iter()
         .any(|r| r.property as usize == STYLE_POSITION && r.class.ends_with("pos-anchor"));
-    if !anchored && !reset.tooltip {
-        return String::new();
+    // A box with a `Fallback` or a `FitRoom` reads each edge's `--buri-try-…`,
+    // which it would otherwise inherit from a pinned box around it.
+    let rooms: Vec<String> = rules
+        .iter()
+        .filter(|r| matches!(r.property as usize, STYLE_FALLBACK | STYLE_FIT_ROOM))
+        .map(|r| format!(".{}", r.class))
+        .collect();
+    let mut out = String::new();
+    if !rooms.is_empty() {
+        out.push_str(&format!(":where({}){{{TRY_RESET}}}\n", rooms.join(",")));
     }
-    let mut out = ":where([popover]){inset:auto;margin:0;border:0;padding:0;width:auto;\
-                   height:auto;overflow:visible;color:inherit;background:none}\n"
-        .to_owned();
+    if !anchored && !reset.tooltip {
+        return out;
+    }
+    out.push_str(
+        ":where([popover]){inset:auto;margin:0;border:0;padding:0;width:auto;\
+         height:auto;overflow:visible;color:inherit;background:none}\n",
+    );
     // A tooltip's bubble starts pinned below its trigger, which the tooltip
     // reset says, even when a class makes it a `PinAnchor` panel too.
     if anchored {
         out.push_str(&format!(
-            ":where([class*=pos-anchor]:not([role=tooltip])){{{ANCHOR_RESET}}}\n"
+            ":where([class*=pos-anchor]:not([role=tooltip])){{{ANCHOR_RESET};{TRY_RESET}}}\n"
         ));
     }
     out
@@ -3541,11 +3637,19 @@ impl Reset {
                 ":where(:has(>[role=tooltip])){{position:{FLOW_ANCHOR}}}\n"
             ));
             // Its two pins align it the way a `Pin` class's would, and a
-            // caller's `Pin` class overrides either.
+            // caller's `Pin` class overrides either. It flips to whichever
+            // side of its trigger fits, as a `Fallback(.FlipBoth)` panel does.
+            // Its insets have a class's weight, so they re-read a caller's pin
+            // from the anchor as well as its own.
             let [top, _, start, _] = PIN_ALIGNMENT;
+            let (_, flips) = FALLBACKS[2];
             out.push_str(&format!(
-                ":where([role=tooltip]){{position:{PIN_ANCHOR};inset-block-start:100%;\
-                 inset-inline-start:0;text-wrap:nowrap;{ANCHOR_RESET};{top};{start}}}\n"
+                ":where([role=tooltip]){{position:{PIN_ANCHOR};text-wrap:nowrap;\
+                 {ANCHOR_RESET};{TRY_RESET};{top};{start};{ANCHOR_ROOM};\
+                 --buri-try-block-start:{};--buri-try-inline-start:0;\
+                 position-try-fallbacks:{flips}}}\n\
+                 [role=tooltip][role]{{{ROOM_INSETS}}}\n",
+                anchored("100%", true)
             ));
             // Hidden is hidden whatever a class says its `display` is.
             out.push_str("[role=tooltip][hidden]{display:none!important}\n");
@@ -3760,7 +3864,13 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let (property, edge) = edge_property("inset", first?)?;
             let (length, key) = length(args.get(1)?, AS_WRITTEN)?;
             let (which, _) = first?.as_variant()?;
-            let aligned = format!("{length};{}", PIN_ALIGNMENT.get(which)?);
+            // `--buri-try-…` is the inset as `ANCHOR_ROOM` re-reads it.
+            let aligned = format!(
+                "{length};{};--buri-try{}:{}",
+                PIN_ALIGNMENT.get(which)?,
+                property.strip_prefix("inset")?,
+                anchored(&length, which < 2)
+            );
             Some(("pin", format!("{edge}-{key}"), one(&property, &aligned)))
         }
         16 => {
@@ -4173,6 +4283,20 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         66 => {
             let n = first?.as_int()?;
             Some(("order", integer_key(n), one("order", &n.to_string())))
+        }
+        // Placed in the room its pins face, and tried on the other side of
+        // its anchor when it doesn't fit there.
+        STYLE_FALLBACK => {
+            let (which, _) = first?.as_variant()?;
+            let (key, flips) = *FALLBACKS.get(which)?;
+            let css = format!("{ANCHOR_ROOM};{ROOM_INSETS};position-try-fallbacks:{flips}");
+            Some(("try", key.into(), vec![("", css)]))
+        }
+        STYLE_FIT_ROOM => {
+            let (which, _) = first?.as_variant()?;
+            let (key, room) = *ROOMS.get(which)?;
+            let css = format!("{ANCHOR_ROOM};{ROOM_INSETS};{room}");
+            Some(("room", key.into(), vec![("", css)]))
         }
         _ => None,
     }

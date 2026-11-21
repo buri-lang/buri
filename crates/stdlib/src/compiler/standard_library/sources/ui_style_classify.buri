@@ -536,6 +536,20 @@ fn declared<C: Allocator>(ctx: C, style: Style, state: Int, screen: Int): Declar
             })
         },
         .Order(n) => .Atom(66, 0, "order", integerKey(ctx, n)),
+        .Fallback(fallback) => {
+            .Atom(67, 0, "try", match (fallback) {
+                .FlipBlock => "block",
+                .FlipInline => "inline",
+                .FlipBoth => "both",
+            })
+        },
+        .FitRoom(axis) => {
+            .Atom(68, 0, "room", match (axis) {
+                .X => "x",
+                .Y => "y",
+                .Both => "both",
+            })
+        },
         // `When` and `Computed`, which are decided as the program runs, and
         // classes already made.
         _ => .Unsettled,

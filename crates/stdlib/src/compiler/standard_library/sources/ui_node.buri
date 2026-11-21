@@ -5096,7 +5096,7 @@ fn variable<C: Allocator>(ctx: C, style: Style): Option<(Int, Str, [Str])> {
         .Grow(n) => readBy(ctx, 2400, "grow", str.fromInt(ctx, atLeast(n, 0))),
         .Shrink(n) => readBy(ctx, 2600, "shrink", str.fromInt(ctx, atLeast(n, 0))),
         .Span(n) => readBy(ctx, 2800, "span", str.format(ctx, "span ${atLeast(n, 1)}")),
-        .Pin(edge, length) => edged(ctx, 3000, "pin", edge, lengthCss(ctx, length)),
+        .Pin(edge, length) => pinned(ctx, edge, length),
         .Gap(length) => readBy(ctx, 3400, "gap", spaceCss(ctx, length)),
         .GapX(length) => readBy(ctx, 3600, "gapx", spaceCss(ctx, length)),
         .GapY(length) => readBy(ctx, 3800, "gapy", spaceCss(ctx, length)),
@@ -5217,6 +5217,39 @@ fn edged<C: Allocator>(
         .End => (3, "inline-end"),
     };
     readBy(ctx, slot + sub * 40, str.format(ctx, "${abbreviation}-${name}"), value)
+}
+
+/// `variable` for a `Pin`, with the `--buri-try-…` a `Fallback` or a `FitRoom`
+/// re-reads it from: a percentage of the anchor's size, as
+/// `styles.rs::anchored` writes it.
+fn pinned<C: Allocator>(ctx: C, edge: Edge, length: Length): Option<(Int, Str, [Str])> {
+    let (sub, name, side) = match (edge) {
+        .Top => (0, "block-start", "height"),
+        .Bottom => (1, "block-end", "height"),
+        .Start => (2, "inline-start", "width"),
+        .End => (3, "inline-end", "width"),
+    };
+    let css = lengthCss(ctx, length);
+    let tried = match (length) {
+        .Percent(n) => {
+            str.format(
+                ctx,
+                "calc(anchor-size(${side}, 100%) * ${cssNumber(ctx, n)} / 100)",
+            )
+        },
+        .Full => str.format(ctx, "calc(anchor-size(${side}, 100%) * 100 / 100)"),
+        _ => css,
+    };
+    .Some(
+        (
+            3000 + sub * 40,
+            str.format(ctx, "pin-${name}-var"),
+            [
+                str.format(ctx, "--buri-pin-${name}:${css}"),
+                str.format(ctx, "--buri-try-${name}:${tried}"),
+            ],
+        ),
+    )
 }
 
 /// One `name:value` pair.

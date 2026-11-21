@@ -1,0 +1,5 @@
+FAIL //lib/room  test/room.buri  "the box pinned the plain way where the panel flip-block goes"
+  the snapshot "flip-block" changed: see test/__snapshots__/flip-block.diff.png
+  --> lib/room/test/room.buri:29:1
+
+19 passed, 1 failed, 0 skipped (0.0s)

@@ -495,6 +495,51 @@ export enum Style {
     /// }
     /// ```
     Order(Int),
+    /// Where a `PinAnchor` panel goes when it doesn't fit where its pins put
+    /// it: mirrored to the other side of its anchor, if it fits there.
+    ///
+    /// ```buri
+    /// from "ui/node" import * as ui;
+    /// from "ui/node" import { Node };
+    ///
+    /// /// Below the trigger, or above it near the bottom of the viewport.
+    /// export fn menu<C>(rows: [Node<C>]): Node<C> {
+    ///     ui.stack({
+    ///         styles: [
+    ///             .Position(.PinAnchor),
+    ///             .Pin(.Top, .Percent(100.0)),
+    ///             .Pin(.Start, .Px(0)),
+    ///             .Fallback(.FlipBlock),
+    ///         ],
+    ///         children: rows,
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// The panel flips only on an axis pinned at one edge, and only when the
+    /// whole of it fits on the other side. A percentage size along such an
+    /// axis is of the room on that side of the anchor, not of the anchor, so a
+    /// panel as wide as its anchor pins both side edges.
+    Fallback(Fallback),
+    /// No larger, along `axis`, than the room the viewport leaves on the side
+    /// of its anchor a `PinAnchor` panel hangs on. Add `Scroll` to reach what
+    /// it cuts. It takes the place of a `MaxHeight` or `MaxWidth` beside it.
+    ///
+    /// With a `Fallback`, the panel opens on whichever side has more room.
+    /// Percentages along an axis pinned at one edge measure the room, as they
+    /// do under a `Fallback`.
+    FitRoom(Axis),
+}
+
+/// Where a `PinAnchor` panel tries next when it doesn't fit.
+export enum Fallback {
+    /// Above its anchor instead of below, or below instead of above.
+    FlipBlock,
+    /// Past the other side edge of its anchor: a panel held to the anchor's
+    /// start edge is held to its end edge instead.
+    FlipInline,
+    /// Flipped down the page, then across it, then both, whichever fits first.
+    FlipBoth,
 }
 
 /// How an element moves. Each one runs forever.

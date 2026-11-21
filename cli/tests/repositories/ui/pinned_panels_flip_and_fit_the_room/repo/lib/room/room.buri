@@ -1,0 +1,82 @@
+//! A red panel placed against a blue anchor near the page's edges, each scene
+//! beside a twin.
+//!
+//! A `Fallback` panel that runs past the page goes to the other side of its
+//! anchor, and a `FitRoom` panel is no larger than the room its side leaves.
+//! Each scene's twin pins a plain box inside the same anchor where the panel
+//! should land, so a panel placed any other way fails its scene.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+fn box<C>(styles: [Style], children: [Node<C>]): Node<C> {
+    ui.stack({ styles: styles, children: children })
+}
+
+/// The blue anchor, 160 by 32, holding `panel`, `top` down a page 800 by 240
+/// and `start` in from its start edge.
+fn page<C>(top: Int, start: Int, panel: Node<C>): Node<C> {
+    box([.Width(.Px(800)), .Height(.Px(240))], [
+        box([.Height(.Px(top))], []),
+        box([.Layout(.Row)], [
+            box([.Width(.Px(start)), .Height(.Px(32))], []),
+            box(
+                [
+                    .Position(.Flow),
+                    .Width(.Px(160)),
+                    .Height(.Px(32)),
+                    .Background(.Rgb(0, 0, 255)),
+                ],
+                [panel],
+            ),
+        ]),
+    ])
+}
+
+fn red(): Style {
+    .Background(.Rgb(255, 0, 0))
+}
+
+/// A red `PinAnchor` panel styled `styles`, against the anchor.
+export fn anchored<C>(top: Int, start: Int, styles: [Style]): Node<C> {
+    page(top, start, box([.Position(.PinAnchor), red(), .Group(styles)], []))
+}
+
+/// A red box pinned the plain way, styled `styles`, inside the anchor.
+export fn pinned<C>(top: Int, start: Int, styles: [Style]): Node<C> {
+    page(top, start, box([red(), .Group(styles)], []))
+}
+
+/// A red `PinAnchor` panel whose styles a style computes as the page runs.
+export fn computed<C>(top: Int, start: Int, styles: [Style]): Node<C> {
+    page(
+        top,
+        start,
+        box([.Position(.PinAnchor), red(), .Computed(fn(_scope) => styles)], []),
+    )
+}
+
+/// A tooltip on a blue trigger 400 by 32, `top` down a page 400 by 240, with
+/// a red bubble styled `styles`.
+export fn tip<C>(top: Int, styles: [Style]): Node<C> {
+    box([.Width(.Px(400)), .Height(.Px(240))], [
+        box([.Height(.Px(top))], []),
+        ui.tooltip({
+            text: .Const(""),
+            styles: [red(), .Group(styles)],
+            children: [box([.Height(.Px(32)), .Background(.Rgb(0, 0, 255))], [])],
+        }),
+    ])
+}
+
+/// The red box a tooltip's bubble styled `styles` should be, pinned the plain
+/// way inside the same trigger.
+export fn tipTwin<C>(top: Int, styles: [Style]): Node<C> {
+    box([.Width(.Px(400)), .Height(.Px(240))], [
+        box([.Height(.Px(top))], []),
+        box([.Position(.Flow), .Height(.Px(32)), .Background(.Rgb(0, 0, 255))], [
+            box([red(), .Group(styles)], []),
+        ]),
+    ])
+}

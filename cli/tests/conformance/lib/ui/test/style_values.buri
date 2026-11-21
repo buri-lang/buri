@@ -83,6 +83,8 @@ fn kind(s: Style): Str {
         .Figures(_) => "Figures",
         .Overscroll(_) => "Overscroll",
         .Order(_) => "Order",
+        .Fallback(_) => "Fallback",
+        .FitRoom(_) => "FitRoom",
     }
 }
 
@@ -236,6 +238,8 @@ test "a static text or behavior style takes the arm that names it" {
     assert.equal(kind(.Figures(.Tabular)), "Figures");
     assert.equal(kind(.Overscroll(.Contain)), "Overscroll");
     assert.equal(kind(.Order(1)), "Order");
+    assert.equal(kind(.Fallback(.FlipBlock)), "Fallback");
+    assert.equal(kind(.FitRoom(.Y)), "FitRoom");
 }
 
 test "a matched static style binds its payload" {
@@ -906,19 +910,19 @@ test "a position known only at run time writes itself out" {
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Top), .Px(1))]),
-        "e 0 class:pin-block-start-var;--buri-pin-block-start:1px",
+        "e 0 class:pin-block-start-var;--buri-pin-block-start:1px;--buri-try-block-start:1px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Bottom), .Px(2))]),
-        "e 0 class:pin-block-end-var;--buri-pin-block-end:2px",
+        "e 0 class:pin-block-end-var;--buri-pin-block-end:2px;--buri-try-block-end:2px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Start), .Px(3))]),
-        "e 0 class:pin-inline-start-var;--buri-pin-inline-start:3px",
+        "e 0 class:pin-inline-start-var;--buri-pin-inline-start:3px;--buri-try-inline-start:3px",
     );
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .End), .Px(4))]),
-        "e 0 class:pin-inline-end-var;--buri-pin-inline-end:4px",
+        "e 0 class:pin-inline-end-var;--buri-pin-inline-end:4px;--buri-try-inline-end:4px",
     );
     assert.equal(
         painted(ctx, [.PaddingEdge(late(ctx, .Top), .Em(1.0))]),
@@ -1073,7 +1077,7 @@ test "a value known only at run time that a property can't take is the nearest i
     // A pin takes every length, `Auto` included.
     assert.equal(
         painted(ctx, [.Pin(late(ctx, .Top), .Auto)]),
-        "e 0 class:pin-block-start-var;--buri-pin-block-start:auto",
+        "e 0 class:pin-block-start-var;--buri-pin-block-start:auto;--buri-try-block-start:auto",
     );
     // A translate and a letter spacing go either way: only `Auto` is none.
     assert.equal(
@@ -1832,5 +1836,78 @@ test "an order known only at run time writes itself out" {
     assert.equal(
         painted(ctx, [.Order(late(ctx, -1))]),
         "e 0 class:order-var;--buri-order:-1",
+    );
+}
+
+test "a fallback is a class that flips the panel where it doesn't fit" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(
+            ctx,
+            boxed(.Group([.Fallback(.FlipBlock), .At(.Large, [.Fallback(.FlipBoth)])])),
+        ).markup(),
+        "e 0 class:try-block lg_try-both",
+    );
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains("position-try-fallbacks:flip-block}"));
+    assert.isTrue(
+        sheet.contains(
+            "position-try-fallbacks:flip-block,flip-inline,flip-block flip-inline}",
+        ),
+    );
+    assert.isTrue(
+        sheet.contains(
+            ".try-block{position-area:var(--buri-area-y) var(--buri-area-x);",
+        ),
+    );
+}
+
+test "a room to fit is a class that caps the panel to it" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.Group([.FitRoom(.Y), .FitRoom(.X)]))).markup(),
+        "e 0 class:room-x",
+    );
+    assert.equal(render(ctx, boxed(.FitRoom(.Both))).markup(), "e 0 class:room-both");
+    let sheet = stylesheet();
+    assert.isTrue(
+        sheet.contains(
+            "max-width:calc(100% - var(--buri-try-inline-start,0px) - var(--buri-try-inline-end,0px));position-try-order:most-inline-size}",
+        ),
+    );
+}
+
+test "a fallback known only at run time is its class" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Fallback(late(ctx, .FlipInline))]),
+        "e 0 class:try-inline",
+    );
+    assert.equal(painted(ctx, [.FitRoom(late(ctx, .Y))]), "e 0 class:room-y");
+}
+
+test "a pin known only at run time measures a percentage from the anchor for a fallback" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Pin(.Top, late(ctx, .Percent(50.0)))]),
+        "e 0 class:pin-block-start-var;--buri-pin-block-start:50%;--buri-try-block-start:calc(anchor-size(height, 100%) * 50 / 100)",
+    );
+    assert.equal(
+        painted(ctx, [.Pin(.End, late(ctx, .Full))]),
+        "e 0 class:pin-inline-end-var;--buri-pin-inline-end:100%;--buri-try-inline-end:calc(anchor-size(width, 100%) * 100 / 100)",
     );
 }
