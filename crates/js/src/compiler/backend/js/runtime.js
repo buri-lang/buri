@@ -6971,8 +6971,12 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // Decorative: the subtree form of an icon's `aria-hidden`, so a separator
     // glyph or a repeated caption is drawn and never read out.
     if (node[4]) $dom_attribute(element, "aria-hidden", "true");
-    $tree_children(ctx, element, node[1], node[2]);
+    // Its own focus before its children's, as `ui/node` binds them, so of two
+    // signals written in one update the one inside wins as it does headless
+    // (#370). After the styles, which may say it can't take the focus.
+    $tree_styles(element, node[1]);
     $tree_focus(element, node[5], false);
+    for (const child of node[2]) $tree_render(ctx, child, element, null);
     $tree_events(ctx, element, node[6]);
     return;
   }
@@ -6989,13 +6993,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // two landmarks this one is.
     if (node[5] !== undefined) $tree_bind(node[5], (label) => $dom_attribute(element, "aria-label", label));
     $tree_styles(element, node[2]);
+    // Before the children's, the way a stack's is.
+    $tree_focus(element, node[6], false);
     // A table's rows go in a `<tbody>`, which a parser puts in a served
     // `<table>` whether it was written or not.
     const rows = role[0] === "table" ? $tree_element(element, "tbody", null) : element;
     if (role[0] === "table") rows.$table = true;
     if (role[0] === "tr") rows.$row = true;
     for (const child of node[3]) $tree_render(ctx, child, rows, null);
-    $tree_focus(element, node[6], false);
     $tree_events(ctx, element, node[7]);
     return;
   }
@@ -7009,16 +7014,11 @@ function $tree_render(ctx, wrapper, parent, anchor) {
     // an attribute rather than the glyphs: a button holding an icon and a word
     // is still announced as the one thing the program named it.
     $tree_bind(node[1], (label) => $dom_attribute(element, "aria-label", label));
-    // The styles go through `$tree_styles`, the same reactive path `stack`
-    // reaches through `$tree_children` (issue #164): a `.When`/`.Computed` class
+    // The styles go through `$tree_styles`, the same reactive path `stack`'s
+    // go through (issue #164): a `.When`/`.Computed` class
     // swap on a button is watched and updates live rather than being applied
     // once.
     $tree_styles(element, node[2]);
-    const children = node[3];
-    // A button with no children shows its label. That is the only place the
-    // name and the glyphs are the same string.
-    if (children.length === 0) $tree_text(node[1], element, null);
-    else for (const child of children) $tree_render(ctx, child, element, null);
     $tree_disabled(element, node[5]);
     // A button that opens a menu, a popover or a select says so, and says
     // whether it is open. Written only when it is `true`, the way `aria-invalid`
@@ -7033,7 +7033,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
       // one pass over the watchers rather than three.
       $ui_flush(() => onPress($taskApart(ctx), [0])),
     );
+    // Before the children's, the way a stack's is, and once `disabled` says
+    // whether it can take the focus.
     $tree_focus(element, node[8], true);
+    const children = node[3];
+    // A button with no children shows its label. That is the only place the
+    // name and the glyphs are the same string.
+    if (children.length === 0) $tree_text(node[1], element, null);
+    else for (const child of children) $tree_render(ctx, child, element, null);
     $tree_events(ctx, element, node[9]);
     return;
   }
@@ -7070,12 +7077,14 @@ function $tree_render(ctx, wrapper, parent, anchor) {
         $ui_flush(() => onFollow($taskApart(ctx), dest));
       });
     }
-    // Styles and children the reactive way `stack` does them (issue #164), so a
-    // `.When`/`.Computed` class swap on a link — plain or routing — updates live.
-    $tree_children(ctx, element, node[2], node[3]);
     // The current page, written only when it is `true`, the way a button's is.
     $tree_bind(node[5], (current) => $dom_flag(element, "aria-current", current));
+    // Styles and children the reactive way `stack` does them (issue #164), so a
+    // `.When`/`.Computed` class swap on a link — plain or routing — updates live.
+    // Its own focus goes between them, the way a stack's does.
+    $tree_styles(element, node[2]);
     $tree_focus(element, node[6], true);
+    for (const child of node[3]) $tree_render(ctx, child, element, null);
     $tree_events(ctx, element, node[7]);
     return;
   }

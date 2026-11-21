@@ -131,3 +131,91 @@ console.log(`${{focused()}} ${{said()}}`);
         "Details focus:true\norder -1\nGo to details focus:false\n"
     );
 }
+
+/// A button that opens a panel, writing first the panel's `hasFocus` and then
+/// its row's, as a menu that takes the focus as it opens and hands it to its
+/// ticked row does (#370). `position` is the panel's, and `named` makes it a
+/// group named "Panel" or leaves it a plain stack. Answers what has the focus
+/// once it opens, and what the two signals hold.
+fn menu(position: &str, named: bool) -> String {
+    let group = if named {
+        r#"role: .Some(.Group), label: .Some(.Const("Panel")),"#
+    } else {
+        ""
+    };
+    let helpers = format!(
+        r#"fn menu<C: Ui>(ctx: C): Node<C> {{
+    let open = signal(ctx, false);
+    let outer = signal(ctx, false);
+    let inner = signal(ctx, false);
+    ui.stack({{
+        styles: [.Layout(.Column), .Position(.Flow)],
+        children: [
+            ui.button({{
+                label: .Const("Open"),
+                styles: [],
+                onPress: .Some(fn(c) => {{
+                    let _ = outer.set(c, true);
+                    let _ = inner.set(c, true);
+                    open.set(c, true)
+                }}),
+            }}),
+            ui.choose(
+                .Cell(open),
+                ui.stack({{
+                    styles: [.Layout(.Column), .Position({position})],
+                    {group}
+                    hasFocus: .Some(outer),
+                    isInFocusOrder: .Some(.Const(false)),
+                    children: [
+                        ui.button({{
+                            label: .Const("Row"),
+                            styles: [],
+                            onPress: .None,
+                            hasFocus: .Some(inner),
+                        }}),
+                    ],
+                }}),
+                ui.empty(),
+            ),
+            ui.text({{
+                content: .Computed(fn(s) => str.format(s, "outer:${{outer.get(s)}} inner:${{inner.get(s)}}")),
+            }}),
+        ],
+    }})
+}}"#
+    );
+    drive(
+        "focus-menu",
+        &page(&helpers, "menu(ctx)"),
+        &format!(
+            r#"{FOCUSED}
+const said = () => body.firstChild.lastChild.textContent;
+const open = labelled("Open");
+open.focus();
+open.click();
+console.log(`${{focused()}} ${{said()}}`);
+"#
+        ),
+    )
+}
+
+#[test]
+fn the_row_written_last_takes_the_focus_from_a_group_in_the_flow() {
+    assert_eq!(menu(".Flow", true), "Row outer:false inner:true\n");
+}
+
+#[test]
+fn the_row_written_last_takes_the_focus_from_a_pinned_group() {
+    assert_eq!(menu(".PinAnchor", true), "Row outer:false inner:true\n");
+}
+
+#[test]
+fn the_row_written_last_takes_the_focus_from_a_stack_in_the_flow() {
+    assert_eq!(menu(".Flow", false), "Row outer:false inner:true\n");
+}
+
+#[test]
+fn the_row_written_last_takes_the_focus_from_a_pinned_stack() {
+    assert_eq!(menu(".PinAnchor", false), "Row outer:false inner:true\n");
+}
