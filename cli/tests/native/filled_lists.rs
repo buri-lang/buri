@@ -76,6 +76,67 @@ fn every_way_of_making_a_list_holds_what_it_was_given() {
     }
 }
 
+/// Maps four numbers to records of each shape a record can be stored into its
+/// element in: whole words, a text, a float and a record among its fields; a
+/// narrow field; a field behind a pointer; and a field made for the record
+/// alone. Prints each list's records.
+const RECORDS: &str = r#"
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+struct Pair { a: Int, b: Int }
+struct Wide { n: Int, i: Int, name: Str, f: Float, p: Pair }
+struct Flag { n: Int, on: Bool }
+struct Node { v: Int, next: Option<Node> }
+struct Twice { a: Int, b: Int }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let ns = list.range(ctx, 0, 4);
+  let name = str.format(ctx, "n${ns.length()}");
+  let f = 1.5;
+  let p = Pair { a: 7, b: ns.length() };
+  let on = ns.length() > 2;
+  let wide = ns.map(ctx, fn(x) => Wide { n: x, i: x, name: name, f: f, p: p });
+  let flags = ns.map(ctx, fn(x) => Flag { n: x, on: on });
+  let nodes = ns.map(ctx, fn(x) => Node { v: x, next: .None });
+  let twice = ns.map(ctx, fn(x) => Twice { a: x * 2, b: x });
+  let lines = [
+    wide.mapCtx(ctx, fn(c, w) => str.format(c, "${w.n}${w.i}${w.name}${w.f}${w.p.a}${w.p.b}")).join(ctx, ","),
+    flags.mapCtx(ctx, fn(c, r) => str.format(c, "${r.n}${r.on}")).join(ctx, ","),
+    nodes.mapCtx(ctx, fn(c, r) => str.format(c, "${r.v}${r.next.isSome()}")).join(ctx, ","),
+    twice.mapCtx(ctx, fn(c, r) => str.format(c, "${r.a}${r.b}")).join(ctx, ","),
+  ];
+  io.println(ctx, lines.join(ctx, "\n")).mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A record made for each element holds every field**, whichever way its
+/// step reaches the element: called, or written out in the loop, where a
+/// record with a narrow field, a boxed one or one made for it alone is built
+/// in the frame and copied in. Under the heap check, so the text each record
+/// holds is counted once per element.
+#[test]
+fn a_record_made_for_each_element_holds_every_field() {
+    let want = [
+        "00n41.574,11n41.574,22n41.574,33n41.574",
+        "0true,1true,2true,3true",
+        "0false,1false,2false,3false",
+        "00,21,42,63",
+    ]
+    .join("\n")
+        + "\n";
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("filled-records", RECORDS);
+        let ran = ran_command(heap_checked(&mut std::process::Command::new(&binary)));
+        assert_eq!(ran.status, 0, "{backend}: {}", ran.stderr);
+        assert_eq!(ran.stdout, want, "{backend}");
+    }
+}
+
 /// `main` takes a count `n` and maps a list of 64 numbers `n` times, each
 /// element to `MADE`: a record of eight numbers, or the number itself. It
 /// prints the sum of the answers' lengths.
@@ -107,10 +168,15 @@ const STEP_COUNTS: (u64, u64) = (20_000, 420_000);
 /// **Mapping to a wide record isn't cleared first.** A `map`'s block was
 /// cleared before the loop stored every element over it. In instructions, a
 /// step of 64 records of eight numbers costs this much more than a step of 64
-/// numbers on macOS copy-and-patch: 1,406 before, 1,126 now. The bound is
-/// halfway, 140 from each, so it fails if the clearing comes back, and leaves
-/// the stores about 12% to grow. The noise a difference of 400,000 steps
-/// carries is under one a step.
+/// numbers on macOS copy-and-patch: 1,406 before, 1,126 after. Each `map`
+/// now writes its step out in its loop, which took 960 off a step of numbers,
+/// and stores each record's fields straight into its element, where it built
+/// the record in the frame and copied it in. Together they take 1,344 off a
+/// step of records, so the difference is still 1,126. Without the straight
+/// stores it is 1,510, and with the clearing back it is 1,406. The bound is
+/// halfway between 1,126 and 1,406, 140 from each, so it fails if either
+/// comes back, and leaves the stores about 12% to grow. The noise a
+/// difference of 400,000 steps carries is under one a step.
 #[test]
 fn mapping_to_a_wide_record_does_not_clear_its_block_first() {
     let (fewer, more) = STEP_COUNTS;

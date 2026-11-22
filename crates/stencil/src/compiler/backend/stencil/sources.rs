@@ -770,6 +770,22 @@ fn moves(o: &mut Out) {
             );
         }
     }
+    // A record built straight into its element (`Jit::make_into`): `r2` takes
+    // the element's address, the stride a hole, and each word of a field is
+    // stored through it at the field's offset.
+    for b in dsts_for() {
+        o.push(
+            &format!("eaddr/{}", b.tag()),
+            format!(
+                "void $NAME(ARGS) {{ r2 = AT(uint64_t, _JIT_A) + {} * OFF(_JIT_N); TAIL; }}",
+                read(U64, b, "B")
+            ),
+        );
+    }
+    o.push(
+        "rput/8",
+        "void $NAME(ARGS) { *(uint64_t *)(r2 + OFF(_JIT_N)) = AT(uint64_t, _JIT_A); TAIL; }".into(),
+    );
     // Any other width: the size is a hole, copied by `copy_n`.
     o.push(
         "eload/n",

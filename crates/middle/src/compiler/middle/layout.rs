@@ -745,6 +745,7 @@ impl<'a> Layouts<'a> {
 
     /// Whether `owner` is in a cycle, so that some field of it may be boxed:
     /// [`Layouts::boxes`] is `false` for every field of any other type.
+    #[inline]
     pub fn recursive(&self, owner: &Ty) -> bool {
         owner
             .head()

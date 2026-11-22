@@ -76,6 +76,7 @@ pub mod monomorphize;
 pub mod pairs;
 pub mod rc;
 pub mod slices;
+pub mod steps;
 pub mod tail_calls;
 pub mod vacate;
 

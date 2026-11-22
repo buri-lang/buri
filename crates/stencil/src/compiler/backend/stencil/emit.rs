@@ -622,7 +622,17 @@ impl<'a> Jit<'a> {
                     return;
                 }
                 let (_, w, _) = self.list_elem(prog, *ty);
-                self.elem_store(st.at(*value), st.at(*array), st.at(*index), w);
+                // `reads_register` lets any element's index be a register,
+                // which the frame-to-element copy takes from scratch.
+                let mut at = st.at(*index);
+                if let Loc::Reg(r) = li {
+                    at = st.scratch;
+                    self.emit(
+                        &key!["stw/r", r],
+                        &[Lit::D.of(u64::from(at)), Jump::Cont.to(V::Fall)],
+                    );
+                }
+                self.elem_store(st.at(*value), st.at(*array), at, w);
             }
             // `elemalloc` zeroes the block, so the elements past `len` are the
             // spare slots the drop glue skips, and the block is kept.
@@ -704,6 +714,111 @@ impl<'a> Jit<'a> {
                 self.show_prim(st, *prim, a, d, false);
             }
         }
+    }
+
+    /// The `MakeStruct` at `k`, where the `ArraySet` after it is the record's
+    /// one use, no field is made here for it alone, and every field is whole
+    /// frame words, not boxed:
+    /// `(fields, record, array, list, index)`. A narrower field leaves padding
+    /// a copy of the whole record would have written, and a boxed one is a
+    /// block `box_into` makes in the frame.
+    pub(crate) fn element_record<'c>(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        insts: &'c [Inst],
+        k: usize,
+        uses: &ir::PerValue<u32>,
+    ) -> Option<(
+        &'c [ir::ValueId],
+        ir::RecTy,
+        ir::ValueId,
+        ir::ListTy,
+        ir::ValueId,
+    )> {
+        let (
+            Some(Inst::MakeStruct { dest, ty, fields }),
+            Some(Inst::ArraySet {
+                array,
+                ty: list,
+                index,
+                value,
+            }),
+        ) = (insts.get(k), insts.get(k + 1))
+        else {
+            return None;
+        };
+        if value != dest || *uses.get(*dest) != 1 {
+            return None;
+        }
+        // A field a load or arithmetic defines here for the record alone is
+        // written into the frame temp where it is defined (`alias_parts`), and
+        // building into the element would load it again, which costs more
+        // than the copy of a record of such fields saves.
+        let made = |f: &ir::ValueId| {
+            *uses.get(*f) == 1
+                && insts.iter().take(k).any(|i| {
+                    matches!(
+                        i,
+                        Inst::ArrayGet { .. } | Inst::Binary { .. } | Inst::Unary { .. }
+                    ) && i.results().contains(f)
+                })
+        };
+        if fields.iter().any(made) {
+            return None;
+        }
+        let owner = &prog.type_info(ty.id()).ty;
+        let ftys = prog.types.fields(*ty);
+        let words = fields.iter().zip(ftys.iter()).all(|(f, t)| {
+            self.width_of(prog, code.ty_of(*f)).is_multiple_of(8) && !self.boxes(owner, t)
+        });
+        words.then_some((fields.as_slice(), *ty, *array, *list, *index))
+    }
+
+    /// The record a `MakeStruct` at `k` makes, built straight into the element
+    /// the `ArraySet` after it stores it in ([`Jit::element_record`]). `eaddr`
+    /// puts the element's address in `r2`, which `regalloc` keeps free there,
+    /// and each word of each field is stored through it, where a frame temp
+    /// and a copy of the whole record were. Answers whether it did, so the
+    /// store is passed over.
+    pub(crate) fn make_into(
+        &mut self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &Fn2,
+        block: &ir::Block,
+        k: usize,
+    ) -> bool {
+        let Some((fields, ty, array, list, index)) =
+            self.element_record(prog, code, &block.insts, k, &st.uses)
+        else {
+            return false;
+        };
+        let stride = self.list_elem(prog, list).0;
+        self.emit(
+            &key!["eaddr/", st.loc(index).tag()],
+            &[
+                Lit::A.of(u64::from(st.at(array))),
+                Lit::B.of(u64::from(st.at(index))),
+                Lit::N.of(u64::from(stride)),
+                Jump::Cont.to(V::Fall),
+            ],
+        );
+        let l = self.layout_id_shared(prog, ty.id());
+        for (f, at) in fields.iter().zip(l.fields.iter()) {
+            let w = self.width_of(prog, code.ty_of(*f));
+            for word in (0..w).step_by(8) {
+                self.emit(
+                    "rput/8",
+                    &[
+                        Lit::A.of(u64::from(st.at(*f) + word)),
+                        Lit::N.of(u64::from(at.bytes() + word)),
+                        Jump::Cont.to(V::Fall),
+                    ],
+                );
+            }
+        }
+        true
     }
 
     #[allow(

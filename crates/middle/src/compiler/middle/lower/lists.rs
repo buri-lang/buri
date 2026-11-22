@@ -23,7 +23,9 @@
 //! in registers across the loop and move each word in for every call, where
 //! the thunk loads them from the closure in pairs. The intrinsic function
 //! gets the same loop as its own body, for the one caller that cannot see a
-//! step: a function value, called through its thunk.
+//! step: a function value, called through its thunk. Once every function is
+//! lowered, `middle::steps` writes a step whose body is one short block out in
+//! the loop in place of the call.
 //!
 //! # The counts
 //!
@@ -1812,11 +1814,13 @@ impl FnLower<'_> {
                 let mut all: Vec<ValueId> = env.iter().copied().collect();
                 all.extend(values);
                 let func = *func;
-                self.emit(ret, |dest| Inst::Call {
+                let v = self.emit(ret, |dest| Inst::Call {
                     dest,
                     func,
                     args: all,
-                })
+                });
+                self.steps.push(v);
+                v
             }
             Via::Thunk(f) => {
                 let callee = *f;

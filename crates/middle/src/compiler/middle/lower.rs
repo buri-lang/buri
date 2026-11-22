@@ -86,7 +86,7 @@ use crate::compiler::middle::ir::{
 };
 use crate::compiler::middle::layout::{self, EnumHead};
 use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
-use crate::compiler::middle::{edge_values, pairs, rc, slices};
+use crate::compiler::middle::{edge_values, pairs, rc, slices, steps};
 use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, NumberLit, OptionOrResult, PatKind,
@@ -179,6 +179,7 @@ pub fn run_with(
     let items: Vec<_> = program.funcs.entries().collect();
     let mut types = Types::named();
     let mut keys = Keys::default();
+    let mut sites: Dense<FuncIdx, Vec<ValueId>> = Dense::with_capacity(items.len());
     let mut funcs: Dense<FuncIdx, Func> = Dense::with_capacity(items.len());
     crate::parallel::fold_items(
         &items,
@@ -186,19 +187,21 @@ pub fn run_with(
             let mut types = Types::default();
             let mut keys = Keys::default();
             let body = f.body().filter(|_| built(i));
-            let func = lower_one(
+            let (func, steps) = lower_one(
                 program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types, &mut keys,
                 i, f, body,
             );
-            (func, types.list, keys)
+            (func, types.list, keys, steps)
         },
-        |(mut func, local, local_keys): (Func, TypeList, Keys)| {
+        |(mut func, local, local_keys, steps): (Func, TypeList, Keys, Vec<ValueId>)| {
             let remap = types.adopt(tables, local);
             remap_func_types(&mut func, &remap);
             keys.adopt(&mut func, &local_keys, &remap);
+            sites.push(steps);
             funcs.push(func);
         },
     );
+    steps::inline(&mut funcs, &sites);
     let roots = match &program.roots {
         ProgramRoots::Main(root) => ir::Roots::Main(ir::Main {
             root: *root,
@@ -246,7 +249,7 @@ fn lower_one(
     i: FuncIdx,
     f: &crate::compiler::middle::monomorphize::Func,
     body: Option<&Expr>,
-) -> Func {
+) -> (Func, Vec<ValueId>) {
     let dispatch = *entries.get(i) > 1;
     let mut params = Vec::new();
     if dispatch {
@@ -264,6 +267,7 @@ fn lower_one(
     };
 
     let fplan = plan.func(i);
+    let mut steps = Vec::new();
     let body = match &f.kind {
         FuncKind::Intrinsic(key) if !lists::handles(key) => {
             let key = bounded_key(tables, key, &ret);
@@ -294,6 +298,7 @@ fn lower_one(
                 node_values: HashMap::default(),
                 literals: Vec::new(),
                 last_closure: None,
+                steps: &mut steps,
                 unit_of,
                 unit: *unit_of.get(i),
                 #[cfg(debug_assertions)]
@@ -311,7 +316,7 @@ fn lower_one(
         }
     };
 
-    Func {
+    let func = Func {
         facts: facts(fplan, dispatch, &sig),
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
@@ -320,7 +325,8 @@ fn lower_one(
         unit: *unit_of.get(i),
         body,
         span: f.span,
-    }
+    };
+    (func, steps)
 }
 
 /// Rewrites a function's local `TypeId`s to the whole-program ones. Covers every
@@ -897,6 +903,9 @@ struct FnLower<'a> {
     /// `core/list` loop that calls a closure's function directly
     /// (`lists.rs`, `FnLower::callee`).
     last_closure: Option<(ValueId, ValueId)>,
+    /// The answer of each direct call a `core/list` loop made to its step,
+    /// for [`steps::inline`] to write out once the step is lowered too.
+    steps: &'a mut Vec<ValueId>,
     /// Each function's codegen unit, and this function's. A unit's
     /// fingerprint covers its own members' bodies and no other unit's, so a
     /// lowering may read only those (`lists.rs`, [`FnLower::int_comparator`]).

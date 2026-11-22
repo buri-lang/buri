@@ -1076,7 +1076,12 @@ impl Inst {
 
     /// Reads `to` wherever this instruction read `old`.
     pub fn rename(&mut self, old: ValueId, to: ValueId) {
-        let swap = renamer(old, to);
+        self.operands_mut(renamer(old, to));
+    }
+
+    /// Calls `swap` on each value this instruction reads, to change in place.
+    pub fn operands_mut(&mut self, mut swap: impl FnMut(&mut ValueId)) {
+        let swap = &mut swap;
         match self {
             Inst::Const { .. } | Inst::Abort { .. } => {}
             Inst::Unary { arg: v, .. }
@@ -1121,6 +1126,37 @@ impl Inst {
                 swap(callee);
                 args.iter_mut().for_each(swap);
             }
+        }
+    }
+
+    /// [`Inst::results`], to change in place.
+    pub fn results_mut(&mut self) -> Option<&mut ValueId> {
+        match self {
+            Inst::Const { dest, .. }
+            | Inst::Unary { dest, .. }
+            | Inst::Binary { dest, .. }
+            | Inst::MakeStruct { dest, .. }
+            | Inst::MakeEnum { dest, .. }
+            | Inst::MakeArray { dest, .. }
+            | Inst::MakeClosure { dest, .. }
+            | Inst::GetField { dest, .. }
+            | Inst::GetPayload { dest, .. }
+            | Inst::GetTag { dest, .. }
+            | Inst::ArrayLen { dest, .. }
+            | Inst::ArrayGet { dest, .. }
+            | Inst::ArraySlice { dest, .. }
+            | Inst::ArrayAlloc { dest, .. }
+            | Inst::ArrayPrefix { dest, .. }
+            | Inst::ShowPrim { dest, .. }
+            | Inst::Call { dest, .. }
+            | Inst::CallIndirect { dest, .. }
+            | Inst::CallIntrinsic { dest, .. } => Some(dest),
+            Inst::Parallel(p) => Some(&mut p.dest),
+            Inst::Handover(h) => Some(&mut h.dest),
+            Inst::IncRef { .. }
+            | Inst::DecRef { .. }
+            | Inst::Abort { .. }
+            | Inst::ArraySet { .. } => None,
         }
     }
 }
@@ -1756,6 +1792,14 @@ pub struct Func {
 impl Func {
     pub fn code(&self) -> Option<&Code> {
         match &self.body {
+            Body::Code(c) => Some(c),
+            Body::Runtime(_) => None,
+        }
+    }
+
+    /// [`Func::code`], to change in place.
+    pub fn code_mut(&mut self) -> Option<&mut Code> {
+        match &mut self.body {
             Body::Code(c) => Some(c),
             Body::Runtime(_) => None,
         }

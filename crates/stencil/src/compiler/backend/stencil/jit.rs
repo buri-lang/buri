@@ -599,8 +599,8 @@ struct Bufs {
     defs: ir::PerValue<Option<(ir::BlockId, usize)>>,
     kept: Vec<usize>,
     block_uses: ir::PerValue<BlockUses>,
-    /// [`Jit::mark_calls`]'s flag per instruction, in block order.
-    calls: Vec<bool>,
+    /// [`Jit::mark_calls`]'s flags per instruction, in block order.
+    calls: Vec<u8>,
     imm: ir::PerValue<u32>,
     /// [`Jit::layout`]'s visited marks, which are also each block's count
     /// of incoming edges; [`Fn2::npred`] between the layout and the emitter.
@@ -1567,8 +1567,8 @@ struct Loops {
 impl Loops {
     /// Every promotable loop, smallest first, in [`Loops::found`].
     ///
-    /// `calls` is [`Jit::mark_calls`]'s flag per instruction, in block order.
-    fn promotable(&mut self, code: &ir::Code, calls: &[bool]) {
+    /// `calls` is [`Jit::mark_calls`]'s flags per instruction, in block order.
+    fn promotable(&mut self, code: &ir::Code, calls: &[u8]) {
         let Loops {
             preds,
             dom,
@@ -1585,7 +1585,8 @@ impl Loops {
         let mut at = 0;
         for (id, x) in barrier.iter_mut() {
             let n = code.get(id).insts.len();
-            *x = calls.get(at..at + n).unwrap_or_default().contains(&true);
+            let flags = calls.get(at..at + n).unwrap_or_default();
+            *x = flags.iter().any(|f| f & CALLS != 0);
             at += n;
         }
         preds.fill(
@@ -1774,7 +1775,7 @@ impl<'a> Jit<'a> {
                 st.wt = code.per_value_in(&mut st.wt, true);
                 st.cross = code.per_value_in(&mut st.cross, 0);
                 st.region = code.per_block_in(&mut st.region, 0);
-                self.mark_calls(prog, code);
+                self.mark_calls(prog, code, &st.uses);
                 let taken = self.promote(
                     code,
                     &opnd,
@@ -1825,15 +1826,22 @@ impl<'a> Jit<'a> {
                     self.spill(code, &st, id);
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
-                    for (inst, skip) in block.insts.iter().zip(plan.skip.iter()) {
-                        if *skip {
+                    // A record built into an element stores it as well, so
+                    // the `ArraySet` after it is passed over.
+                    let mut stored = false;
+                    for (k, (inst, skip)) in block.insts.iter().zip(plan.skip.iter()).enumerate() {
+                        if *skip || std::mem::take(&mut stored) {
                             continue;
                         }
                         #[cfg(debug_assertions)]
                         {
                             self.may_call = self.calls_out(prog, code, inst);
                         }
-                        self.inst(prog, code, &mut st, inst);
+                        stored = maybe_element_record(&block.insts, k)
+                            && self.make_into(prog, code, &st, block, k);
+                        if !stored {
+                            self.inst(prog, code, &mut st, inst);
+                        }
                         #[cfg(debug_assertions)]
                         {
                             self.may_call = true;
@@ -2696,6 +2704,12 @@ impl<'a> Jit<'a> {
                 }
                 // The fields' declared types, which say which of them is boxed.
                 let (dest, fields, id, variant, ftys) = match i {
+                    // Its fields are stored into the element where they are.
+                    ir::Inst::MakeStruct { .. }
+                        if self.element_record(prog, code, &b.insts, j, uses).is_some() =>
+                    {
+                        continue;
+                    }
                     ir::Inst::MakeStruct { dest, ty, fields } => (
                         *dest,
                         fields,
@@ -3656,13 +3670,24 @@ impl<'a> Jit<'a> {
     /// and they are the barriers of the loop promotion and the local
     /// allocator alike. `Jit::emit` checks, in a debug build, that no
     /// zero-register stencil is copied for an instruction this leaves out.
-    fn mark_calls(&mut self, prog: &ir::Program, code: &ir::Code) {
+    ///
+    /// [`TAKES_R2`] marks a record built into an element, which takes `r2`
+    /// for the element's address (`Jit::make_into`): a barrier to the local
+    /// allocator alone.
+    fn mark_calls(&mut self, prog: &ir::Program, code: &ir::Code, total: &ir::PerValue<u32>) {
         let mut calls = std::mem::take(&mut self.bufs.calls);
         calls.clear();
         for (_, block) in code.iter() {
-            for i in &block.insts {
-                let c = self.calls_out(prog, code, i);
-                calls.push(c);
+            for (k, i) in block.insts.iter().enumerate() {
+                let mut f = u8::from(self.calls_out(prog, code, i));
+                if maybe_element_record(&block.insts, k)
+                    && self
+                        .element_record(prog, code, &block.insts, k, total)
+                        .is_some()
+                {
+                    f |= TAKES_R2;
+                }
+                calls.push(f);
             }
         }
         self.bufs.calls = calls;
@@ -3764,7 +3789,7 @@ impl<'a> Jit<'a> {
                         }
                     }
                 }
-                if ent(barrier, k, false) {
+                if ent(barrier, k, 0) != 0 {
                     // Nothing survives a zero-register stencil, except the
                     // promoted values, which are not the local allocator's and
                     // whose regions contain no barrier.
@@ -3819,7 +3844,7 @@ impl<'a> Jit<'a> {
                 // first use is past `k`, and `barrier` runs from the block's
                 // first instruction to one past its last.
                 let at = u.first;
-                if barrier.iter().take(at.min(n) + 1).skip(k).any(|b| *b) {
+                if barrier.iter().take(at.min(n) + 1).skip(k).any(|b| *b != 0) {
                     continue;
                 }
                 // The consumer has to be able to read a register operand.
@@ -4562,7 +4587,7 @@ fn promote(
     loops_buf: &mut Loops,
     vars_buf: &mut ir::PerValue<Var>,
     tables: Reads<'_>,
-    calls: &[bool],
+    calls: &[u8],
     out: &mut ir::PerValue<Option<Reg>>,
     wt: &mut ir::PerValue<bool>,
     cross: &mut ir::PerValue<u32>,
@@ -4949,7 +4974,8 @@ fn keeps_callee_frame(i: &ir::Inst, routes: &super::route::Routes<'_>) -> bool {
 }
 
 /// Whether `i` can read its operand `o` from a CPS register: an arithmetic
-/// operand, or an `Int` element's index or the `Int` an element is set to.
+/// operand, an `Int` element's index, any element's index a store writes, or
+/// the `Int` an element is set to.
 fn reads_register(code: &ir::Code, i: &ir::Inst, o: ir::ValueId) -> bool {
     match i {
         ir::Inst::Unary {
@@ -4959,9 +4985,12 @@ fn reads_register(code: &ir::Code, i: &ir::Inst, o: ir::ValueId) -> bool {
         ir::Inst::Binary { .. } | ir::Inst::Unary { .. } => true,
         // An array is never its own index or element.
         ir::Inst::ArrayGet { dest, index, .. } => o == *index && code.ty_of(*dest) == ir::Type::I64,
-        ir::Inst::ArraySet { array, value, .. } => {
-            o != *array && code.ty_of(*value) == ir::Type::I64
-        }
+        ir::Inst::ArraySet {
+            array,
+            index,
+            value,
+            ..
+        } => o == *index || (o != *array && code.ty_of(*value) == ir::Type::I64),
         _ => false,
     }
 }
@@ -4969,6 +4998,7 @@ fn reads_register(code: &ir::Code, i: &ir::Inst, o: ir::ValueId) -> bool {
 /// Whether `i` builds a record or variant with a field behind a pointer, whose
 /// `box/*` stencil allocates it: a call, so as much a barrier as
 /// [`is_barrier`]'s.
+#[inline]
 fn boxes_a_field(prog: &ir::Program, tables: &Tables, layouts: &Layouts<'_>, i: &ir::Inst) -> bool {
     match i {
         ir::Inst::MakeStruct { ty, .. } => {
@@ -4995,6 +5025,25 @@ fn boxes_a_field(prog: &ir::Program, tables: &Tables, layouts: &Layouts<'_>, i: 
         _ => false,
     }
 }
+
+/// Whether the instruction at `k` is a `MakeStruct` the `ArraySet` after it
+/// stores, which is the shape [`Jit::element_record`] asks the rest about. Every
+/// instruction asks this, and few are one.
+#[inline]
+fn maybe_element_record(insts: &[ir::Inst], k: usize) -> bool {
+    matches!(
+        (insts.get(k), insts.get(k + 1)),
+        (
+            Some(ir::Inst::MakeStruct { .. }),
+            Some(ir::Inst::ArraySet { .. })
+        )
+    )
+}
+
+/// [`Jit::mark_calls`]'s flag for an instruction that calls.
+const CALLS: u8 = 1;
+/// [`Jit::mark_calls`]'s flag for a record built into an element.
+const TAKES_R2: u8 = 2;
 
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
@@ -5172,9 +5221,9 @@ mod tests {
             opnd: &opnd,
             uses: &uses,
         };
-        let calls: Vec<bool> = code
+        let calls: Vec<u8> = code
             .iter()
-            .flat_map(|(_, b)| b.insts.iter().map(is_barrier))
+            .flat_map(|(_, b)| b.insts.iter().map(|i| u8::from(is_barrier(i))))
             .collect();
         promote(
             &mut Loops::default(),

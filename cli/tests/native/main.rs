@@ -525,6 +525,10 @@ mod one_field_derives;
 // comparing the fields by hand.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod small_derives;
+// A list loop's step written every way: what each answers, and what an
+// element of a `map` through a small lambda costs.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod list_steps;
 // Lists made every way, those that store every element and those that keep
 // some: what each holds, and what mapping to a wide record costs.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
