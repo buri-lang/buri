@@ -1,0 +1,57 @@
+//! A clear box 64px square with corners `round`, ringed in black 8px wide,
+//! drawn two ways: with a spread shadow, and as a black box holding a white
+//! one. A shadow never shows under its own box, so the white page shows
+//! through the clear one.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Length };
+
+/// The clear box with a black shadow spread 8px round it, unblurred, with
+/// room round it for the shadow.
+export fn ringed<C>(round: Length): Node<C> {
+    ui.stack({
+        styles: [.Padding(.Px(8)), .AlignCross(.Start)],
+        children: [
+            ui.stack({
+                styles: [
+                    .Width(.Px(64)),
+                    .Height(.Px(64)),
+                    .Radius(round),
+                    .Shadow({
+                        x: .Px(0),
+                        y: .Px(0),
+                        blur: .Px(0),
+                        spread: .Px(8),
+                        color: .Rgb(0, 0, 0),
+                    }),
+                ],
+                children: [],
+            }),
+        ],
+    })
+}
+
+/// A white box with corners `round` on a black box 8px larger all round
+/// with corners `outer`.
+export fn behind<C>(round: Length, outer: Length): Node<C> {
+    ui.stack({
+        styles: [.AlignCross(.Start)],
+        children: [
+            ui.stack({
+                styles: [.Padding(.Px(8)), .Background(.Rgb(0, 0, 0)), .Radius(outer)],
+                children: [
+                    ui.stack({
+                        styles: [
+                            .Width(.Px(64)),
+                            .Height(.Px(64)),
+                            .Background(.Rgb(255, 255, 255)),
+                            .Radius(round),
+                        ],
+                        children: [],
+                    }),
+                ],
+            }),
+        ],
+    })
+}

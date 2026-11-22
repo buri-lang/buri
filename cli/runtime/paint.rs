@@ -5646,7 +5646,7 @@ impl Painter<'_> {
             // the ones after it, so the last is laid down first.
             for shadow in style.shadow.iter().rev().copied() {
                 let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
-                let corner = radii.map(|corner| corner.map(|r| r + shadow.spread));
+                let corner = spread_radii(radii, box_, shadow.spread);
                 if shadow.blur > 0.0 {
                     cast_blurred(canvas, cast, corner, shadow, &outside);
                 } else if let Some(under) = outside.within(canvas, cast.on_device()) {
@@ -6388,6 +6388,32 @@ fn inner_radii(radii: Radii, box_: Box2, widths: [f32; 4]) -> Radii {
         pull(bl, widths[0], widths[3]),
         pull(br, widths[1], widths[3]),
     ]
+}
+
+/// The corners of a shadow cast from `box_` and spread by `spread`, as CSS
+/// shapes them (CSS Backgrounds 3 §7.1.1): a square corner stays square, a
+/// radius larger than the spread, or on a corner covering more than half its
+/// box, grows by the spread, and a smaller one grows by less, so a ring
+/// round a nearly square box is nearly square. A negative spread takes the
+/// spread off every radius, and none below zero.
+fn spread_radii(radii: Radii, box_: Box2, spread: f32) -> Radii {
+    let size = [(box_.r - box_.l) as f32, (box_.b - box_.t) as f32];
+    let corners = clamp_radii(radii, size[0], size[1]);
+    corners.map(|[x, y]| {
+        if x <= 0.0 && y <= 0.0 {
+            return [0.0, 0.0];
+        }
+        let coverage = 2.0 * (x / size[0]).min(y / size[1]);
+        [x, y].map(|r| {
+            if spread <= 0.0 || r > spread || coverage > 1.0 {
+                (r + spread).max(0.0)
+            } else {
+                let ratio = r / spread;
+                let (gap, cover) = (1.0 - ratio, coverage * coverage * coverage);
+                r + spread * (1.0 - gap * gap * gap * (1.0 - cover))
+            }
+        })
+    })
 }
 
 fn clamp_radii(radii: Radii, width: f32, height: f32) -> Radii {

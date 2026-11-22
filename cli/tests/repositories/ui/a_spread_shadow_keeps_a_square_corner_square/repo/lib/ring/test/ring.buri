@@ -1,0 +1,40 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A spread shadow keeps a square corner square, and grows a radius
+// smaller than the spread by less than the spread.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/ring" import { behind, ringed };
+
+test "a spread shadow round a square box is square" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "square", ringed(.Px(0)), .Hover, []);
+}
+
+test "a white box on a square black box where the square scene's shadow is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "square", behind(.Px(0), .Px(0)), .Hover, []);
+}
+
+test "a shadow spread 8px round corners 4px round grows them by about 7px" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "round", ringed(.Px(4)), .Hover, []);
+}
+
+test "a white box on a black box with corners where the round scene's shadow has them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    // 4 + 8 × (1 − (1 − 4/8)³ × (1 − (2 × 4/64)³)) = 11.001953125px.
+    snapshot(ctx, "round", behind(.Px(4), .Rem(0.6876220703125)), .Hover, []);
+}

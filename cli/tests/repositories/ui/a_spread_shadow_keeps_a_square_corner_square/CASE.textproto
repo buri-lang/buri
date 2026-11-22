@@ -1,0 +1,20 @@
+# A shadow's spread keeps a square corner square, each scene beside a twin
+# that draws the shadow as a box of its own. Both tests of a pair compare
+# against one golden. A browser grows a spread shadow's corners by the
+# spread only where the box's own corner is round: a corner with no radius
+# stays square, and a radius smaller than the spread grows by less (CSS
+# Backgrounds 3 §7.1.1, corner shaping), so a focus ring round a square
+# button is square.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a spread shadow keeps a square corner square and grows a round one by the spread, in the painter"
+
+run {
+  args: ["test", "//lib/ring", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/ring/test/__snapshots__/square.diff.png"  exists: false }
+path { path: "lib/ring/test/__snapshots__/round.diff.png"  exists: false }
