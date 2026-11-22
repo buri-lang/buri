@@ -4635,9 +4635,6 @@ fn promote(
             continue;
         }
         for t in b.term.targets() {
-            if t.block != *header {
-                continue;
-            }
             for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
                 let Some(k) = *out.get(*p) else {
                     continue;
