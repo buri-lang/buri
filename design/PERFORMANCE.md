@@ -11829,6 +11829,20 @@ match         611302241     1865847841      615665934      615666118       0.328
   instructions. maps' `hasSlot`, `indexOf` and hash steps are made of these,
   and maps ran 11% fewer instructions. It went from 1.743 to 1.551 times
   `-O1`.
+- A boxed value whose variant has no fields, such as a tree's `.Leaf`,
+  points at the runtime's `buri_rt_fieldless` block for its tag, which is
+  `IMMORTAL`, in place of a fresh block. That covers the first 16 variants of
+  an enum of at most 64, boxed in up to 112 bytes. A tree of depth 10 costs
+  2,044 blocks, not 4,092. tree went from 1.126 to 0.826 times `-O1`: LLVM
+  still allocates each leaf.
+- `==`, the orderings and `compare` at `Str`, written or derived, are the
+  `streq` and `strcmp` stencils. They compare eight bytes at a time and
+  never call the runtime, where each was a call of six arguments with the
+  registers saved around it. A step of five 13-byte comparisons went from
+  456 to 378 instructions on macOS, and maps ran 1.1% fewer.
+- Rewriting maps' `hasSlot` as `(bitmap & bit) != 0` took its stencil count
+  down 2.1% on top of the `core/bits` change, but `-O1` and release rose
+  0.37%, so it isn't in. `== bit` does the same.
 
 This work may not make dev codegen dearer. The register work above cost
 codegen about 15 instructions a line on `ci`. That was paid back, and more,

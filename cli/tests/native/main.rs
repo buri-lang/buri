@@ -507,3 +507,7 @@ mod core_dump;
 // every backend built in, and how many blocks a tree costs.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod fieldless_boxes;
+// Two texts compared every way a program asks, at every length that takes
+// its own path, and what a step of comparisons costs.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod text_compares;

@@ -1242,19 +1242,18 @@ impl<'a> Jit<'a> {
         let d = st.at(dest);
         let (a, b) = (st.at(lhs), st.at(rhs));
         let raw = st.scratch + super::rtcall::RAW_WORD * 8;
-        // `buri_rt_str_equal` answers the equality directly; every ordering is a
-        // test of `buri_rt_str_compare`'s three-way answer, whose variants are
-        // `Less`, `Equal`, `Greater` in that order (`core/order`).
-        let (symbol, want): (&'static str, &[u64]) = match op {
-            BinOp::Eq => ("buri_rt_str_equal", &[]),
-            BinOp::Ne => ("buri_rt_str_equal", &[]),
-            BinOp::Lt => ("buri_rt_str_compare", &[LESS]),
-            BinOp::Le => ("buri_rt_str_compare", &[LESS, EQUAL]),
-            BinOp::Gt => ("buri_rt_str_compare", &[GREATER]),
-            BinOp::Ge => ("buri_rt_str_compare", &[GREATER, EQUAL]),
+        // `Equal` answers the equality directly; every ordering is a test of
+        // `compare`'s three-way answer, whose variants are `Less`, `Equal`,
+        // `Greater` in that order (`core/order`).
+        let (equal, want): (bool, &[u64]) = match op {
+            BinOp::Eq | BinOp::Ne => (true, &[]),
+            BinOp::Lt => (false, &[LESS]),
+            BinOp::Le => (false, &[LESS, EQUAL]),
+            BinOp::Gt => (false, &[GREATER]),
+            BinOp::Ge => (false, &[GREATER, EQUAL]),
             other => crate::diagnostics::ice(&format!("stencil: Binary {other:?} at Str")),
         };
-        self.str_compare(st, symbol, a, b, raw);
+        self.str_order(equal, a, b, raw);
         self.order_test(st, raw, d, op, want);
     }
 
@@ -1270,8 +1269,8 @@ impl<'a> Jit<'a> {
         rhs: ir::ValueId,
     ) {
         // `Str` has no arithmetic and no `bin/*` stencil: a comparison of two
-        // is a length-and-bytes question the runtime answers, which is what
-        // `buri_rt_str_equal` and `buri_rt_str_compare` are on the native side.
+        // is a length-and-bytes question, which the `streq` and `strcmp`
+        // stencils answer.
         let Some(scalar) = prim.scalar() else {
             return self.str_binary(st, dest, op, lhs, rhs);
         };

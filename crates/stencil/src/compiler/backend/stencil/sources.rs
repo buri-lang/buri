@@ -490,6 +490,32 @@ static inline void copy_n(char *d, const char *s, uint64_t n) {
   if (n & 2) { memcpy(d, s, 2); d += 2; s += 2; }
   if (n & 1) { *d = *s; }
 }
+// The order of the `n` bytes at `p` against the `n` at `q`: negative, zero or
+// positive, as `cli/runtime/text.rs`'s `prefix_order` answers. Eight bytes at a
+// time as big-endian words, whose order is the bytes' order, then the last
+// eight again, overlapping. Under eight, two overlapping four-byte words, or
+// the first, middle and last byte, which cover one to three bytes. No byte
+// outside either range is read.
+static inline uint64_t be8(const char *p) { uint64_t x; memcpy(&x, p, 8); return __builtin_bswap64(x); }
+static inline uint64_t be4(const char *p) { uint32_t x; memcpy(&x, p, 4); return __builtin_bswap32(x); }
+static inline int bytes_order(const char *p, const char *q, uint64_t n) {
+  uint64_t x, y;
+  if (n >= 8) {
+    for (uint64_t i = 0; i + 8 < n; i += 8) {
+      x = be8(p + i); y = be8(q + i);
+      if (x != y) return x < y ? -1 : 1;
+    }
+    x = be8(p + n - 8); y = be8(q + n - 8);
+  } else if (n >= 4) {
+    x = be4(p) << 32 | be4(p + n - 4); y = be4(q) << 32 | be4(q + n - 4);
+  } else if (n) {
+    x = (uint64_t)(uint8_t)p[0] << 16 | (uint64_t)(uint8_t)p[n >> 1] << 8 | (uint8_t)p[n - 1];
+    y = (uint64_t)(uint8_t)q[0] << 16 | (uint64_t)(uint8_t)q[n >> 1] << 8 | (uint8_t)q[n - 1];
+  } else {
+    return 0;
+  }
+  return (x > y) - (x < y);
+}
 static inline double imm_f64(void) { return bits_f64((uint64_t)(uintptr_t)_JIT_K); }
 static inline float imm_f32(void) { return bits_f32((uint64_t)(uintptr_t)_JIT_K); }
 // Float `%`: C's `fmod`, which LLVM's `frem` and JavaScript's `%` both are.
@@ -806,6 +832,33 @@ fn moves(o: &mut Out) {
          } else { \
            buri_rt_str_concat(a[0], a[1], al, b[0], b[1], bl, &AT(uint64_t, _JIT_D)); \
          } TAIL0; }"
+            .into(),
+    );
+    // `Equal` and `compare` at `Str` (`rtcall.rs::str_order`), with `A` and
+    // `B` the two operands and `D` the answer: `Bool`, and `Order`'s tag. The
+    // bytes are compared here and the runtime is never called, which was a
+    // call of six arguments for what is a few words of most texts. Two
+    // lengths that differ are unequal unread, and so are the ASCII flags
+    // left out of them. Two views of the same bytes are equal unread, as in
+    // `buri_rt_str_equal`.
+    o.push(
+        "streq",
+        "void $NAME(ARGS0) { const uint64_t *a = &AT(uint64_t, _JIT_A), \
+         *b = &AT(uint64_t, _JIT_B); const char *p = (const char *)(uintptr_t)a[1], \
+         *q = (const char *)(uintptr_t)b[1]; \
+         AT(uint64_t, _JIT_D) = ((a[2] ^ b[2]) << 1) == 0 \
+           && (p == q || bytes_order(p, q, a[2] & 0x7FFFFFFFFFFFFFFFull) == 0); TAIL0; }"
+            .into(),
+    );
+    o.push(
+        "strcmp",
+        "void $NAME(ARGS0) { const uint64_t *a = &AT(uint64_t, _JIT_A), \
+         *b = &AT(uint64_t, _JIT_B); const char *p = (const char *)(uintptr_t)a[1], \
+         *q = (const char *)(uintptr_t)b[1]; \
+         uint64_t la = a[2] & 0x7FFFFFFFFFFFFFFFull, lb = b[2] & 0x7FFFFFFFFFFFFFFFull; \
+         int c = p == q && la == lb ? 0 : bytes_order(p, q, la < lb ? la : lb); \
+         if (!c) c = (la > lb) - (la < lb); \
+         AT(uint64_t, _JIT_D) = (uint64_t)(c + 1); TAIL0; }"
             .into(),
     );
     // A box (`emit::box_into`): a block of exactly the value's width, written

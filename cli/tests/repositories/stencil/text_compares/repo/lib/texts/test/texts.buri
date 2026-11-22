@@ -1,0 +1,74 @@
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+
+derive Equal, Ordered for Id;
+struct Id(Str);
+
+fn sign(o: Order): Str {
+    match (o) {
+        .Less => "<",
+        .Equal => "=",
+        .Greater => ">",
+    }
+}
+
+fn eq(a: Str, b: Str): Bool {
+    a == b
+}
+
+fn ne(a: Str, b: Str): Bool {
+    a != b
+}
+
+fn lt(a: Str, b: Str): Bool {
+    a < b
+}
+
+fn le(a: Str, b: Str): Bool {
+    a <= b
+}
+
+fn gt(a: Str, b: Str): Bool {
+    a > b
+}
+
+fn ge(a: Str, b: Str): Bool {
+    a >= b
+}
+
+fn order(a: Str, b: Str): Str {
+    sign(a.compare(b))
+}
+
+fn idEq(a: Str, b: Str): Bool {
+    Id(a) == Id(b)
+}
+
+fn idOrder(a: Str, b: Str): Str {
+    sign(Id(a).compare(Id(b)))
+}
+
+test "operators" {
+    assert.isTrue(eq("abc", "abc"));
+    assert.isTrue(ne("abc", "abd"));
+    assert.isTrue(lt("abcdefgh", "abcdefgi"));
+    assert.isTrue(le("abcdefghijklmnopq", "abcdefghijklmnopq"));
+    assert.isTrue(gt("é", "z"));
+    assert.isTrue(ge("ab", "a"));
+    assert.isFalse(eq("", "a"));
+}
+
+test "compare and derived" {
+    assert.equal(order("abcd", "abce"), "<");
+    assert.equal(
+        order(
+            "abcdefghijklmnopqrstuvwxyz0123456789",
+            "abcdefghijklmnopqrstuvwxyz0123456788",
+        ),
+        ">",
+    );
+    assert.equal(order("é€", "é€"), "=");
+    assert.isTrue(idEq("abcdefghi", "abcdefghi"));
+    assert.isFalse(idEq("abcdefghi", "abcdefghj"));
+    assert.equal(idOrder("abc", "abcd"), "<");
+}

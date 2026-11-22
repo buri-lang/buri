@@ -1,0 +1,14 @@
+# Two texts compared every way a program asks: the six operators, `compare`,
+# and a struct of one text's derived `Equal` and `Ordered`, at lengths that
+# take each of the comparison's paths. Both backends run every block.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "texts compare by their bytes whichever way a program asks, on both backends"
+
+run {
+  args: ["test", "//lib/texts", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

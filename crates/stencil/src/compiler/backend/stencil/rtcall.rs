@@ -437,8 +437,13 @@ impl Jit<'_> {
             dslot
         };
         // Every row fits a `crt` stencil, which this crate checks as it builds.
-        let callee = V::Sym(self.runtime_sym(entry));
-        self.c_call_to(callee, st, &ints, &floats, into, kind);
+        if matches!(entry.key, "str.equal" | "str.compare") {
+            let at = |i: usize| args.get(i).map_or(0, |a| a.0);
+            self.str_order(entry.key == "str.equal", at(0), at(1), into);
+        } else {
+            let callee = V::Sym(self.runtime_sym(entry));
+            self.c_call_to(callee, st, &ints, &floats, into, kind);
+        }
         if let Some(o) = opt {
             self.store_option_tag(st, dslot, &o);
         }
@@ -1182,50 +1187,35 @@ pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
 
 /// `core/order`'s three variants, in declaration order, which is what
 /// `middle::layout` gives a three-variant enum as a bare tag and what
-/// `buri_rt_str_compare` returns.
+/// `strcmp` answers.
 pub(crate) const LESS: u64 = 0;
 pub(crate) const EQUAL: u64 = 1;
 pub(crate) const GREATER: u64 = 2;
 
 impl Jit<'_> {
-    /// `buri_rt_str_equal` or `buri_rt_str_compare`, with the answer in `dest`.
+    /// `Equal` or `compare` at `Str`, with the answer in `dest`: the `Bool`,
+    /// or `Order`'s tag as a whole word.
     ///
-    /// **Six** arguments, not four: `lib.rs` §2 rule 1 flattens a `Str` to all
-    /// three of its words, and both entries take two of them — the `base` each
-    /// ignores is still a parameter, and passing four slid every argument one
-    /// register down. The length words go across **unmasked**, because every
-    /// entry in `cli/runtime/text.rs` takes the stored word and masks the ASCII
-    /// flag off itself.
-    pub(crate) fn str_compare(
-        &mut self,
-        st: &Fn2,
-        symbol: &'static str,
-        a: u32,
-        b: u32,
-        dest: u32,
-    ) {
-        let args = [
-            Src::Word(a),
-            Src::Word(a + STR_PTR),
-            Src::Word(a + STR_LEN),
-            Src::Word(b),
-            Src::Word(b + STR_PTR),
-            Src::Word(b + STR_LEN),
-        ];
-        // `buri_rt_str_equal` answers a `u8` and `buri_rt_str_compare` a C `int`,
-        // and both psABIs leave the rest of the register unspecified in both
-        // cases: the result shape has to be the **declared** width, not the
-        // register's, and not the wider of the two either. One shape for both
-        // was a `Bool` read out of the top three bytes of an `int` on SysV.
-        let kind = if symbol == "buri_rt_str_equal" {
-            "b"
-        } else {
-            "w"
-        };
-        self.c_call(symbol, st, &args, &[], dest, kind);
+    /// One stencil and no call. `streq` and `strcmp` compare the bytes
+    /// themselves, a word at a time, as `cli/runtime/text.rs`'s
+    /// `buri_rt_str_equal` and `buri_rt_str_compare` do. The call they replace
+    /// cost six arguments and the CPS registers saved around it, more than
+    /// the comparison of most texts. Every route a program asks by comes
+    /// here: an operator ([`Jit::order_test`] tests the answer), a call of
+    /// `equal` or `compare`, and a derived leaf ([`Jit::rt_call`]).
+    pub(crate) fn str_order(&mut self, equal: bool, a: u32, b: u32, dest: u32) {
+        self.emit(
+            if equal { "streq" } else { "strcmp" },
+            &[
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(b)),
+                Lit::D.of(u64::from(dest)),
+                Jump::Cont0.to(V::Fall),
+            ],
+        );
     }
 
-    /// Turns `buri_rt_str_compare`'s three-way answer into the boolean an
+    /// Turns `strcmp`'s three-way answer into the boolean an
     /// ordering operator wants.
     ///
     /// `raw` is the answer and `dest` is where the boolean goes, and they are
@@ -1234,7 +1224,7 @@ impl Jit<'_> {
     /// answer would leave the second comparing a boolean.
     ///
     /// `want` empty means the answer is already the boolean, which is
-    /// `buri_rt_str_equal`'s; `BinOp::Ne` is that answer inverted.
+    /// `streq`'s; `BinOp::Ne` is that answer inverted.
     pub(crate) fn order_test(
         &mut self,
         st: &Fn2,
