@@ -3591,9 +3591,12 @@ fn rewrite(
     crate::profile::work(crate::profile::Work::BodiesRewrittenForDerives, users.len());
     let mut kept = crate::hash::Set::default();
     for i in users {
-        let body = program.funcs.get_mut(*i).body_mut();
-        body.into_iter()
-            .for_each(|b| rewrite_expr(b, routed, hash_ty, forwards, &mut kept));
+        let f = program.funcs.get_mut(*i);
+        let mut locals = std::mem::take(&mut f.locals);
+        f.body_mut()
+            .into_iter()
+            .for_each(|b| rewrite_expr(b, routed, hash_ty, forwards, &mut locals, &mut kept));
+        f.locals = locals;
     }
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
@@ -3739,16 +3742,19 @@ pub const REPORT_SHOWN: &str = "testing_assert.reportShown";
 pub const EXPECTED_SHOWN: &str = "testing_assert.failExpectedShown";
 
 /// `kept` gathers each function that only forwards and that a call site still
-/// calls, because its arguments weren't cheap to project ([`projects_cheaply`]).
+/// calls, past [`FORWARDS_MAX`] forwards.
 fn rewrite_expr(
     e: &mut Expr,
     routed: &HashMap<(Op, usize), FuncIdx>,
     hash_ty: &Ty,
     forwards: &HashMap<FuncIdx, Forward>,
+    locals: &mut typed::Locals,
     kept: &mut crate::hash::Set<FuncIdx>,
 ) {
     // Children first: an argument may itself be a structural call.
-    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, hash_ty, forwards, kept));
+    typed::children_mut(e, &mut |c| {
+        rewrite_expr(c, routed, hash_ty, forwards, locals, kept)
+    });
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -3777,7 +3783,7 @@ fn rewrite_expr(
     };
     if let Some(kind) = replacement {
         e.kind = kind;
-        expand(e, forwards);
+        expand(e, forwards, locals);
         if let ExprKind::CallFunc { func, .. } = &e.kind {
             kept.insert(*func);
         }
@@ -3858,12 +3864,40 @@ fn root(e: &Expr) -> Option<LocalId> {
 ///
 /// A field of anything else, say a call's answer, keeps the field and drops
 /// the rest, and the copy-and-patch backend writes that out as a retain and a
-/// release the call never made.
+/// release the call never made. So [`expand`] names such an argument first.
 fn projects_cheaply(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::StructLit { fields, .. } => fields.len() == 1,
         _ => Generator::duplicable(e),
     }
+}
+
+/// Binds each of `args` that isn't a name or a literal to a new local, in
+/// order, and puts the local in its place, so that every argument projects
+/// cheaply. The `let`s evaluate the arguments as the call did, once each,
+/// first to last, and a name or a literal reads nothing that changes, so
+/// where it is read doesn't matter.
+fn name_arguments(args: &mut [Expr], locals: &mut typed::Locals) -> Vec<typed::Stmt> {
+    let mut stmts = Vec::new();
+    for arg in args.iter_mut().filter(|a| !Generator::duplicable(a)) {
+        let (ty, span) = (arg.ty, arg.span);
+        let local = locals.push(typed::Local {
+            name: Name::new("forwarded"),
+            ty,
+            span,
+        });
+        let value = std::mem::replace(arg, Expr::new(ExprKind::Local(local), ty, span));
+        stmts.push(typed::Stmt::Let {
+            pattern: Pattern {
+                kind: PatKind::Bind { local, sub: None },
+                ty,
+                span,
+            },
+            value,
+            span,
+        });
+    }
+    stmts
 }
 
 /// The chain of projections with `value` in place of the local it reads.
@@ -3887,7 +3921,12 @@ fn graft(chain: &mut Expr, value: Expr) {
 
 /// Writes out `e`, a call whose arguments are already rewritten, while it is a
 /// call to a function that only forwards.
-fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
+///
+/// An argument that doesn't project cheaply, such as a call's answer, is
+/// named first ([`name_arguments`]): `pick(xs, 0) == pick(xs, 1)` becomes a
+/// block that binds each answer and compares their fields, and each answer
+/// is released once, at the block's end.
+fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed::Locals) {
     for _ in 0..FORWARDS_MAX {
         let ExprKind::CallFunc { func, args } = &mut e.kind else {
             return;
@@ -3895,9 +3934,11 @@ fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
         let Some(forward) = forwards.get(func) else {
             return;
         };
-        if !args.iter().all(projects_cheaply) {
-            return;
-        }
+        let stmts = if args.iter().all(projects_cheaply) {
+            Vec::new()
+        } else {
+            name_arguments(args, locals)
+        };
         let args = std::mem::take(args);
         let mut body = forward.body.clone();
         let parts = operands_mut(&mut body).or_ice("a forward's body has two operands");
@@ -3905,7 +3946,16 @@ fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
             graft(part, value);
         }
         body.span = e.span;
-        *e = body;
+        if stmts.is_empty() {
+            *e = body;
+            continue;
+        }
+        // Every argument is a name now, so the tail binds nothing more.
+        expand(&mut body, forwards, locals);
+        let (ty, span) = (body.ty, e.span);
+        let tail = Some(Box::new(body));
+        *e = Expr::new(ExprKind::Block { stmts, tail }, ty, span);
+        return;
     }
 }
 
@@ -3928,9 +3978,10 @@ fn fold_forwards(
     named.extend(program.cell_equal.values().copied());
     let generated: Vec<FuncIdx> = program.funcs.ids().skip(base).collect();
     for i in generated {
-        if let Some(body) = program.funcs.get_mut(i).body_mut() {
+        let Func { kind, locals, .. } = program.funcs.get_mut(i);
+        if let FuncKind::Body(body) = kind {
             if compares.contains(&i) {
-                inline_forwards(body, forwards);
+                inline_forwards(body, forwards, locals);
                 names(body, &mut named);
             }
         }
@@ -3942,9 +3993,9 @@ fn fold_forwards(
     }
 }
 
-fn inline_forwards(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
-    typed::children_mut(e, &mut |c| inline_forwards(c, forwards));
-    expand(e, forwards);
+fn inline_forwards(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed::Locals) {
+    typed::children_mut(e, &mut |c| inline_forwards(c, forwards, locals));
+    expand(e, forwards, locals);
 }
 
 /// Every function `e` calls or takes the address of.

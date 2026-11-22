@@ -11456,6 +11456,23 @@ own return address, so the glue returns straight to its caller. LLVM's
 counts don't move. `native::shared_splices` bounds both text splices halfway
 between the two figures.
 
+### 6.194 A call's answer is named before its field is compared, 2026-11-21
+
+```text
+two compares of calls' Id(Str) answers, a step, stencil    before    after
+macOS                                                        432       421
+arm64 Linux                                                  459       449
+the answers named first, macOS                               421
+```
+
+§6.190 left a call's answer as an argument to the derived call. Now
+`derives` binds each operand that isn't a name, or a struct of one name, to
+a new local first, in order, and writes the body out over the locals. The
+field is read with no count of its own and each answer is released once.
+`-O0` dropped from 645 to 604 a step on arm64 Linux, and LLVM release
+doesn't move. `native::one_field_derives` checks the operands are evaluated
+once and in order, and bounds the step at 5 over the named one.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
