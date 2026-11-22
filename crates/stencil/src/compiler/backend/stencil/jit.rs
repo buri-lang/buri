@@ -3518,6 +3518,34 @@ impl<'a> Jit<'a> {
 
     /// Whether nothing in `root`'s class is read or written from instruction
     /// `from` of the block, the first after `a`'s definition, to its end.
+    ///
+    /// It looks no further than the block, which is enough because of a
+    /// rule about edges that carry arguments: **a branch or switch never
+    /// hands a block that comes before it, in a loop, a value its own block
+    /// defines and reads nowhere else**. Merging `a` writes the class's slot
+    /// at `a`'s definition, on every way out of the block, not only the edge
+    /// that passes it. The only member of the class alive past the block is
+    /// `root`, a parameter, and it is alive there only where its block comes
+    /// first on every path to this one: a loop around the edge back to it.
+    /// Then the terminator's other target may read `root`, and would read
+    /// `a`. A `Jump` has no other target, so only a branch's or a switch's
+    /// edges are in question. On 2026-11-22 the rule held:
+    ///
+    ///  * `middle::lower` builds every branch and switch of a program's own
+    ///    code with edges that carry nothing, and nothing after it threads
+    ///    an edge through a block: `edge_values::sink` only writes a value
+    ///    out again before the terminator that already passes it, and gives
+    ///    a block past it that copy too, so the copy has two reads.
+    ///    `slices` adds arguments only to a program's own loops, whose way
+    ///    back is a `Jump`.
+    ///  * `lower::lists` alone builds branches that carry values. Only two
+    ///    go back round a loop. A sort's merge passes `from1`, which its
+    ///    test reads too, and `out1`, which the run's `tail` reads as well.
+    ///    A sort's copy passes `after` back to `to`, which the way on,
+    ///    `next_run`, never reads before the copy loop sets it again.
+    ///
+    /// A new branch that goes back round a loop with such a value must keep
+    /// to that, or this question must ask about the other targets too.
     #[allow(clippy::too_many_arguments, reason = "one question about one block")]
     fn merge_is_safe(
         &self,

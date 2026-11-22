@@ -18,7 +18,7 @@ aarch64 monorepo-ci parse cost                               2684.8
 aarch64 monorepo-ci parse instructions                       1952.7
 aarch64 monorepo-ci test-build check cost                   12597.7
 aarch64 monorepo-ci test-build check instructions            7598.7
-aarch64 monorepo-ci test-build dev-codegen cost             25259.6
+aarch64 monorepo-ci test-build dev-codegen cost             25186.3
 aarch64 monorepo-ci test-build dev-codegen instructions     18160.8
 aarch64 monorepo-ci test-build parse cost                    2688.3
 aarch64 monorepo-ci test-build parse instructions            1953.1
