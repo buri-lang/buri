@@ -1358,8 +1358,16 @@ fn a_wrapping_column_breaks_only_against_a_definite_height() {
         ("row-reversed", lines_reversed, 2),
         ("capped-shrunk", row, 2),
         ("maximum-shrunk", row, 2),
-        ("sibling", "red at 0,50 40x40, blue at 0,98 40x40, green at 48,50 40x40", 2),
-        ("percent-in-maximum", "red at 0,0 40x20, blue at 0,20 40x20, green at 0,48 40x40", 2),
+        (
+            "sibling",
+            "red at 0,50 40x40, blue at 0,98 40x40, green at 48,50 40x40",
+            2,
+        ),
+        (
+            "percent-in-maximum",
+            "red at 0,0 40x20, blue at 0,20 40x20, green at 0,48 40x40",
+            2,
+        ),
         ("intrinsic", row, 2),
     ]
     .iter()
@@ -1382,7 +1390,10 @@ fn boxes_grow_and_shrink_as_a_browser_flexes_them() {
         .collect();
     let shrunk_column = "red at 0,0 40x36, blue at 0,36 40x24";
     let expected: Vec<String> = [
-        ("grow", "red at 0,0 60x40, blue at 60,0 100x40, green at 160,0 40x40"),
+        (
+            "grow",
+            "red at 0,0 60x40, blue at 60,0 100x40, green at 160,0 40x40",
+        ),
         ("grow-maximum", "red at 0,0 50x40, blue at 50,0 150x40"),
         ("shrink", "red at 0,0 72x40, blue at 72,0 28x40"),
         ("shrink-minimum", "red at 0,0 70x40, blue at 70,0 30x40"),
