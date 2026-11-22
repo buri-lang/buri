@@ -1838,23 +1838,30 @@ impl Text {
             })
             .collect();
         let owned = Owned::of(m);
-        let mut used = crate::hash::Set::default();
         let mut undeclared = Vec::new();
-        let mut seen: crate::hash::Set<&str> = crate::hash::Set::default();
+        // Each name once, with whether it is written outside an import and
+        // whether it has its token in `undeclared`: one lookup an identifier.
+        let mut names: crate::hash::Map<&str, (bool, bool)> = crate::hash::Map::default();
         for at in idents.iter().copied() {
             let name = source.get(at.start as usize..at.end as usize).unwrap_or("");
-            if !imports
-                .iter()
-                .any(|i| at.start >= i.start && at.end <= i.end)
-                && !used.contains(name)
+            let (used, seen) = names.entry(name).or_default();
+            if !*used
+                && !imports
+                    .iter()
+                    .any(|i| at.start >= i.start && at.end <= i.end)
             {
-                used.insert(name.to_string());
+                *used = true;
             }
-            if !seen.contains(name) && !owned.declares(name, at) {
-                seen.insert(name);
+            if !*seen && !owned.declares(name, at) {
+                *seen = true;
                 undeclared.push(at);
             }
         }
+        let used = names
+            .into_iter()
+            .filter(|(_, (used, _))| *used)
+            .map(|(name, _)| name.to_string())
+            .collect();
         let read = std::rc::Rc::new(Text {
             length: source.len(),
             hash,
