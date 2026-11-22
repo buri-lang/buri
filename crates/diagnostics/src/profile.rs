@@ -207,6 +207,8 @@ pub enum Work {
     JsFunctionsFolded,
     /// Functions monomorphization instantiated (`monomorphize.rs`).
     FunctionsInstantiated,
+    /// Functions monomorphization's table moved to grow (`monomorphize.rs`).
+    FunctionRowsMoved,
     /// Function bodies walked to replace structural calls (`derives.rs`).
     BodiesRewrittenForDerives,
     /// Function bodies walked for the parameters they consume (`rc.rs`).
@@ -271,6 +273,7 @@ const WORK_NAMES: [&str; WORKS] = [
     "javascript functions declared",
     "javascript functions folded",
     "functions instantiated",
+    "function rows moved",
     "bodies rewritten for derives",
     "bodies walked for consuming uses",
     "bodies walked for calls and effects",

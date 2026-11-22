@@ -797,7 +797,9 @@ fn run_on(
         checked,
         extracted,
         diags,
-        funcs: Dense::new(),
+        // Room for every declared function, which a program rarely
+        // instantiates more of: growing moved every function to fresh memory.
+        funcs: Dense::with_capacity(checked.tables.fns.len()),
         index: HashMap::default(),
         queue: Vec::new(),
         descriptors: std::collections::BTreeMap::new(),
@@ -1265,6 +1267,9 @@ impl<'a> Monomorphizer<'a> {
 
     /// Puts `key`'s head in the table and queues it to be built.
     fn enqueue(&mut self, key: Key, head: Func) -> FuncIdx {
+        if self.funcs.len() == self.funcs.capacity() {
+            crate::profile::work(crate::profile::Work::FunctionRowsMoved, self.funcs.len());
+        }
         let slot = self.funcs.push(head);
         self.index.insert(key.clone(), slot);
         self.queue.push((key, slot));

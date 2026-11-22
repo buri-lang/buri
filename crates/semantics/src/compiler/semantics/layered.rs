@@ -283,6 +283,19 @@ impl<I, T> Dense<I, T> {
             id: std::marker::PhantomData,
         }
     }
+
+    /// An empty table that holds `n` rows before it moves them to grow.
+    pub fn with_capacity(n: usize) -> Self {
+        Dense {
+            rows: Vec::with_capacity(n),
+            id: std::marker::PhantomData,
+        }
+    }
+
+    /// The rows it holds before it moves them to grow.
+    pub fn capacity(&self) -> usize {
+        self.rows.capacity()
+    }
 }
 
 impl<I, T> Default for Dense<I, T> {

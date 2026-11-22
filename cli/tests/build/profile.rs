@@ -443,6 +443,35 @@ fn a_unit_is_joined_without_copying_its_first_part() {
     assert!(copied(600) > 0.0, "a unit of two parts joins them");
 }
 
+/// **The table of instantiated functions moves none of them as it fills.** It
+/// started empty and doubled, and each doubling copied every function it held
+/// to fresh memory, the dearest copy in a debug build. Now it starts with room
+/// for every declared function, which a program's instantiations rarely
+/// outnumber. Doubling moved 1,020 functions for the 604 this build makes,
+/// more than one for each, so a quarter of one for each is a bound four times
+/// clear of it. The program runs.
+#[test]
+fn the_function_table_moves_no_function_as_it_fills() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let (items, body) = many_recursive(600);
+    let scratch = large_shape("native", &items, &body);
+    let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    let binary = scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()));
+    let ran = std::process::Command::new(binary).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&ran.stdout), "180300\n");
+    let report = run.all();
+    let moved = work_count(&report, "function rows moved").unwrap();
+    let made = work_count(&report, "functions instantiated").unwrap();
+    assert!(
+        moved * 4.0 < made,
+        "{moved} functions moved for {made} made"
+    );
+}
+
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 ///

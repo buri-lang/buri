@@ -11504,6 +11504,24 @@ is at most 40 nodes, with each operand that isn't a name named first.
 `native::small_derives` checks every way of writing an operand under the
 heap check, and bounds the derived step at 32 over the hand-written one.
 
+### 6.197 The table of instantiated functions is made once, 2026-11-22
+
+```text
+ci, dev codegen, aarch64 Linux, a line    cost       instructions
+before                                    60145.5    40648.3
+after                                     59938.3    40619.4
+```
+
+Monomorphization's table of functions started empty and doubled as it
+filled. Each doubling copied every function to fresh memory, and those
+copies were 37,600 last-level write misses on `ci`, the second-largest
+`memcpy` of the build. The table now starts with room for every declared
+function, which a program rarely instantiates more of. The profile counts
+`function rows moved`, and
+`profile::the_function_table_moves_no_function_as_it_fills` bounds it at a
+quarter of the functions made: a program of 600 functions moved 1,020 of
+them before.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
