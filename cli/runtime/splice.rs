@@ -25,29 +25,12 @@
               allocated for `len * stride` bytes"
 )]
 
-use std::cell::Cell;
-
 use crate::list::{
     Release, Retain, block, copy_retaining, copy_small, move_small, regrown_capacity, shift_up,
     spare,
 };
-use crate::memory::{buri_rt_alloc, buri_rt_cap, buri_rt_decref, buri_rt_free, buri_rt_unique_cap};
+use crate::memory::{buri_rt_alloc, buri_rt_cap, buri_rt_free, buri_rt_unique_cap, decref_dies};
 use crate::value::BuriList;
-
-thread_local! {
-    /// The stride and release glue [`release_elements`] walks a dying block
-    /// with, because a drop glue takes the block and nothing else.
-    static RELEASING: Cell<(usize, Release)> = const { Cell::new((1, None)) };
-}
-
-/// The drop glue of a `[T]` block, from the stride and release in
-/// [`RELEASING`]: every element of the block's capacity that isn't all zero,
-/// which is the walk the backends' own list glue makes.
-extern "C" fn release_elements(p: *mut u8) {
-    let (stride, release) = RELEASING.get();
-    // SAFETY: `buri_rt_decref` hands its glue a live payload pointer.
-    unsafe { release_from(p, 0, stride, release) }
-}
 
 /// Releases each element of the block at `p` from index `from` to the end of
 /// its capacity, skipping those that hold nothing.
@@ -76,9 +59,8 @@ unsafe fn release_from(p: *mut u8, from: usize, stride: usize, release: Release)
 /// descriptor put there. The moved slots are neither zeroed nor read.
 ///
 /// # Safety
-/// `p` is a live payload pointer of a `[T]` block that
-/// [`buri_rt_unique_cap`] answered for, and the caller holds its count;
-/// `release` is `T`'s release glue.
+/// `p` is a live payload pointer of a `[T]` block whose only count the
+/// caller holds, or gave back as the last; `release` is `T`'s release glue.
 unsafe fn free_held(p: *mut u8, moved: usize, stride: usize, release: Release) {
     // SAFETY: the caller promises the block and its only count.
     unsafe {
@@ -89,30 +71,18 @@ unsafe fn free_held(p: *mut u8, moved: usize, stride: usize, release: Release) {
 
 /// Gives back the receiver's count, releasing its elements if it was the last.
 ///
-/// A block held once dies here, and the walk over its elements is this
-/// call's own. Only a block that may live on goes through `buri_rt_decref`,
-/// whose glue takes the block alone, so that path alone sets [`RELEASING`].
+/// The walk over a dying block's elements is this call's own, so the count
+/// alone goes through the runtime's `decref`.
 ///
 /// # Safety
 /// `ptr` is null or a live payload pointer of a `[T]` block this call owns a
 /// count of; `release` is `T`'s release glue.
 unsafe fn give_back(ptr: *const u8, stride: usize, release: Release) {
-    // SAFETY: the caller promises a live block or null.
-    if unsafe { buri_rt_unique_cap(ptr) }.is_some() {
-        // SAFETY: the count is the caller's, and the only one.
-        return unsafe { free_held(ptr.cast_mut(), 0, stride, release) };
+    // SAFETY: the caller promises a live block, and owns the count given back.
+    if !ptr.is_null() && unsafe { decref_dies(ptr.cast_mut()) } {
+        // SAFETY: that was the last count, so the block is this call's.
+        unsafe { free_held(ptr.cast_mut(), 0, stride, release) }
     }
-    if ptr.is_null() {
-        return;
-    }
-    let glue: Option<extern "C" fn(*mut u8)> = if release.is_some() {
-        RELEASING.set((stride, release));
-        Some(release_elements)
-    } else {
-        None
-    };
-    // SAFETY: the caller owns a count of the live block.
-    unsafe { buri_rt_decref(ptr.cast_mut(), glue) };
 }
 
 /// Releases the element at `at`, unless it holds nothing.
@@ -418,17 +388,20 @@ unsafe fn replace_slow(
     let at = at as usize;
     let fresh = block(n, s);
     // SAFETY: the fresh block covers `n` elements, disjoint from the source.
+    // The whole list is one copy, and every element but the one at `at`
+    // takes a count; the item moves in over that one.
     unsafe {
         let f = fresh.ptr;
-        copy_retaining(f, ptr, at, s, retain);
+        copy_small(ptr, f, n * s);
+        if let Some(retain) = retain {
+            for i in 0..at {
+                retain(f.add(i * s));
+            }
+            for i in at + 1..n {
+                retain(f.add(i * s));
+            }
+        }
         copy_small(item, f.add(at * s), s);
-        copy_retaining(
-            f.add((at + 1) * s),
-            ptr.add((at + 1) * s),
-            n - at - 1,
-            s,
-            retain,
-        );
         give_back(ptr, s, release);
         out.write(fresh);
     }
@@ -734,6 +707,7 @@ pub unsafe extern "C" fn buri_rt_list_slice_owned(
 mod tests {
     use super::*;
     use crate::memory::{buri_rt_free, buri_rt_incref, buri_rt_rc};
+    use std::cell::Cell;
 
     /// A block of `xs` as `i64`s, with room for `cap` of them.
     fn ints(xs: &[i64], cap: usize) -> BuriList {

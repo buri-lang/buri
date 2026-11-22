@@ -511,3 +511,8 @@ mod fieldless_boxes;
 // its own path, and what a step of comparisons costs.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod text_compares;
+// `replaceAt` and `insertAt` on a list something else holds: what each answer
+// holds, and what the copy costs, counted rather than timed, on every backend
+// built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod shared_splices;

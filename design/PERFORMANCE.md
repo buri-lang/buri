@@ -11367,6 +11367,27 @@ pays about 4 instructions more. `native::short_lists` bounds a list of
 three six-`Int` records halfway on each backend, and its answers now cover
 records of a text and four `Int`s.
 
+### 6.189 A splice of a shared list is one copy, 2026-11-21
+
+```text
+a step, macOS, instructions    before    after
+stencil, replace Ints          352       315
+stencil, replace texts         1,447     1,321
+stencil, insert texts          1,531     1,493
+LLVM, replace Ints             287       250
+LLVM, replace texts            935       809
+LLVM, insert texts             997       960
+```
+
+`replaceAt` on a list something else holds copied it element by element,
+retaining each, then gave its count back through `decref`. When that count
+was the last, the drop glue walked the elements a second time. Now the list
+is one copy, every element but the replaced one takes a count after it, and
+the splice gives its count back with the runtime's own count check, so a
+dying list is walked once. `insertAt` on a shared list gives its count back
+the same way. `native::shared_splices` checks both on `Int`s and texts
+under the heap check, and bounds a step halfway on each backend.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

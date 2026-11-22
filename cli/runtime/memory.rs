@@ -2716,13 +2716,32 @@ pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C"
     if p.is_null() {
         return;
     }
+    // SAFETY: forwarded.
+    if unsafe { decref_dies(p) } {
+        if let Some(glue) = drop_glue {
+            glue(p);
+        }
+        // SAFETY: the count reached zero, so no other reference exists.
+        unsafe { buri_rt_free(p) }
+    }
+}
+
+/// [`buri_rt_decref`]'s count alone: gives back one reference to the block
+/// at `p`, and answers whether that was the last, so that the block is the
+/// caller's to release and free. For a caller in this crate that walks a
+/// dying block itself, where a drop glue would take nothing but the block.
+///
+/// # Safety
+/// `p` is a live payload pointer, not null, and the caller owns a reference.
+#[inline(always)]
+pub(crate) unsafe fn decref_dies(p: *mut u8) -> bool {
     // SAFETY: the caller promises a live payload pointer, and a quarantined
     // block's header is readable too.
     if unsafe { is_quarantined(p) } {
         heap_use_after_free(b"decref");
     }
     // SAFETY: the caller promises a live payload pointer.
-    let dead = unsafe {
+    unsafe {
         let h = header(p);
         if is_shared(h) {
             // The atomic arm answers the count *before* the subtraction, so
@@ -2752,20 +2771,13 @@ pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C"
         } else {
             let rc = (*h).rc;
             if rc == BURI_RT_IMMORTAL {
-                return;
+                return false;
             }
             if rc > 1 {
                 (*h).rc = rc - 1;
             }
             rc <= 1
         }
-    };
-    if dead {
-        if let Some(glue) = drop_glue {
-            glue(p);
-        }
-        // SAFETY: the count reached zero, so no other reference exists.
-        unsafe { buri_rt_free(p) }
     }
 }
 
