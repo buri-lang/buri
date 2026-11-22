@@ -520,6 +520,11 @@ mod shared_splices;
 // written: what each answers, and what a step costs next to the field itself.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod one_field_derives;
+// A small struct of several fields compared through its derives: what each
+// way of writing the operands answers, and what a step costs next to
+// comparing the fields by hand.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod small_derives;
 // Lists made every way, those that store every element and those that keep
 // some: what each holds, and what mapping to a wide record costs.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

@@ -3742,7 +3742,8 @@ pub const REPORT_SHOWN: &str = "testing_assert.reportShown";
 pub const EXPECTED_SHOWN: &str = "testing_assert.failExpectedShown";
 
 /// `kept` gathers each function that only forwards and that a call site still
-/// calls, past [`FORWARDS_MAX`] forwards.
+/// calls, past [`FORWARDS_MAX`] forwards or from inside a [`Shared`] body
+/// written out there.
 fn rewrite_expr(
     e: &mut Expr,
     routed: &HashMap<(Op, usize), FuncIdx>,
@@ -3783,10 +3784,9 @@ fn rewrite_expr(
     };
     if let Some(kind) = replacement {
         e.kind = kind;
-        expand(e, forwards, locals);
-        if let ExprKind::CallFunc { func, .. } = &e.kind {
-            kept.insert(*func);
-        }
+        expand(e, forwards, locals, true);
+        // A body written out here may call its fields' comparisons.
+        names(e, kept);
     }
 }
 
@@ -3802,9 +3802,30 @@ fn rewrite_expr(
 ///
 /// Each operand appears in the body exactly once and in order, so writing the
 /// body out evaluates the arguments as the call did, once each, first to last.
+///
+/// A small struct of several fields is written out too, `a.name == b.name &&
+/// a.n == b.n`, with [`Shared`]: its body reads each operand more than once,
+/// so each argument is a name or a literal by then, which reads the same
+/// every time.
 struct Forward {
     body: Expr,
+    shared: Option<Shared>,
 }
+
+/// What writing out a body that reads its operands more than once needs: the
+/// two parameters, and the function's locals, which the body's own bindings,
+/// such as the `c` a field's order is bound to, get fresh copies of.
+struct Shared {
+    params: [LocalId; 2],
+    locals: typed::Locals,
+}
+
+/// The most nodes a body that reads its operands more than once may be and
+/// still be written out at each call. Comparing a struct of a text and a
+/// number, the brief's `Key`, is 25 nodes as an `Ordered` and 11 as an
+/// `Equal`; three such fields still fit. Past that the call costs little next
+/// to the body.
+const SMALL_BODY_MAX: usize = 40;
 
 /// The most forwarding calls one call site is written out through: a struct of
 /// one field whose field is another such struct forwards twice. The bound is
@@ -3825,11 +3846,53 @@ fn forwards(built: &Built) -> HashMap<FuncIdx, Forward> {
 
 fn forward_of(f: &Func) -> Option<Forward> {
     let body = f.body()?;
-    let [a, b] = operands(body)? else {
-        return None;
-    };
-    let params = [f.params.first().copied(), f.params.get(1).copied()];
-    ([root(a), root(b)] == params).then(|| Forward { body: body.clone() })
+    // `Generator::body` gives an `Equal` and an `Ordered` the two operands.
+    let params = [0, 1].map(|i| *f.params.get(i).or_ice("a comparison has two parameters"));
+    if let Some([a, b]) = operands(body) {
+        // An operation of two operands at the top of a comparison is handed
+        // the parameters or their fields (`Generator::eq`, `Generator::at`).
+        ([root(a), root(b)] == params.map(Some))
+            .then_some(())
+            .or_ice("a comparison reads its parameters in order");
+        let body = body.clone();
+        return Some(Forward { body, shared: None });
+    }
+    (nodes(body) <= SMALL_BODY_MAX && through_fields(body, &params, false)).then(|| Forward {
+        body: body.clone(),
+        shared: Some(Shared {
+            params,
+            locals: f.locals.clone(),
+        }),
+    })
+}
+
+/// Whether `e` reads `params` only through their fields, `a.name`, and never
+/// whole, as a match on an enum or an array's walk does: a struct's or a
+/// tuple's comparison. `projected` says whether `e` is the base of a field.
+fn through_fields(e: &Expr, params: &[LocalId; 2], projected: bool) -> bool {
+    match &e.kind {
+        ExprKind::Local(l) => projected || !params.contains(l),
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => {
+            through_fields(base, params, true)
+        }
+        _ => {
+            let mut only = true;
+            typed::children(e, &mut |c| only = only && through_fields(c, params, false));
+            only
+        }
+    }
+}
+
+/// `e` with each of `args` in place of the parameter it is passed for.
+fn put(e: &mut Expr, params: &[LocalId; 2], args: &[Expr]) {
+    if let ExprKind::Local(l) = &e.kind {
+        let at = params.iter().position(|p| p == l);
+        if let Some(arg) = at.and_then(|i| args.get(i)) {
+            *e = arg.clone();
+        }
+        return;
+    }
+    typed::children_mut(e, &mut |c| put(c, params, args));
 }
 
 /// The two operands of a primitive operation or a call.
@@ -3926,7 +3989,16 @@ fn graft(chain: &mut Expr, value: Expr) {
 /// named first ([`name_arguments`]): `pick(xs, 0) == pick(xs, 1)` becomes a
 /// block that binds each answer and compares their fields, and each answer
 /// is released once, at the block's end.
-fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed::Locals) {
+///
+/// A [`Shared`] body is written out only where `shared` says, which is
+/// outside every other one: the calls it makes to its fields' comparisons stay
+/// calls, so a struct of structs grows by one body, not by a body per level.
+fn expand(
+    e: &mut Expr,
+    forwards: &HashMap<FuncIdx, Forward>,
+    locals: &mut typed::Locals,
+    shared: bool,
+) {
     for _ in 0..FORWARDS_MAX {
         let ExprKind::CallFunc { func, args } = &mut e.kind else {
             return;
@@ -3934,16 +4006,30 @@ fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed
         let Some(forward) = forwards.get(func) else {
             return;
         };
-        let stmts = if args.iter().all(projects_cheaply) {
+        if forward.shared.is_some() && !shared {
+            return;
+        }
+        let cheap = |a: &Expr| match forward.shared {
+            Some(_) => Generator::duplicable(a),
+            None => projects_cheaply(a),
+        };
+        let stmts = if args.iter().all(cheap) {
             Vec::new()
         } else {
             name_arguments(args, locals)
         };
         let args = std::mem::take(args);
         let mut body = forward.body.clone();
-        let parts = operands_mut(&mut body).or_ice("a forward's body has two operands");
-        for (part, value) in parts.iter_mut().zip(args) {
-            graft(part, value);
+        if let Some(s) = &forward.shared {
+            let shift = locals.append(&s.locals);
+            crate::compiler::middle::inline::shift_expr(&mut body, &shift);
+            put(&mut body, &s.params.map(|p| shift.of(p)), &args);
+            inline_forwards(&mut body, forwards, locals, false);
+        } else {
+            let parts = operands_mut(&mut body).or_ice("a forward's body has two operands");
+            for (part, value) in parts.iter_mut().zip(args) {
+                graft(part, value);
+            }
         }
         body.span = e.span;
         if stmts.is_empty() {
@@ -3951,7 +4037,7 @@ fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed
             continue;
         }
         // Every argument is a name now, so the tail binds nothing more.
-        expand(&mut body, forwards, locals);
+        expand(&mut body, forwards, locals, shared);
         let (ty, span) = (body.ty, e.span);
         let tail = Some(Box::new(body));
         *e = Expr::new(ExprKind::Block { stmts, tail }, ty, span);
@@ -3981,7 +4067,7 @@ fn fold_forwards(
         let Func { kind, locals, .. } = program.funcs.get_mut(i);
         if let FuncKind::Body(body) = kind {
             if compares.contains(&i) {
-                inline_forwards(body, forwards, locals);
+                inline_forwards(body, forwards, locals, true);
                 names(body, &mut named);
             }
         }
@@ -3993,9 +4079,14 @@ fn fold_forwards(
     }
 }
 
-fn inline_forwards(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>, locals: &mut typed::Locals) {
-    typed::children_mut(e, &mut |c| inline_forwards(c, forwards, locals));
-    expand(e, forwards, locals);
+fn inline_forwards(
+    e: &mut Expr,
+    forwards: &HashMap<FuncIdx, Forward>,
+    locals: &mut typed::Locals,
+    shared: bool,
+) {
+    typed::children_mut(e, &mut |c| inline_forwards(c, forwards, locals, shared));
+    expand(e, forwards, locals, shared);
 }
 
 /// Every function `e` calls or takes the address of.

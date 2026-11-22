@@ -3,7 +3,7 @@
 //! compiles through `driver`, which is in `buri`.
 
 use crate::compiler::middle::derives::*;
-use crate::compiler::middle::monomorphize::{self, Program};
+use crate::compiler::middle::monomorphize::{self, FuncKind, Program};
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, PatKind, Pattern, Stmt, TemplatePart,
 };
@@ -56,6 +56,8 @@ from "core/io" import * as io;
 
 struct P { x: Int, y: Str }
 derive Equal, Ordered, Show, Hash for P;
+struct Q { ps: [P] }
+derive Ordered for Q;
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
@@ -66,6 +68,8 @@ export fn main(host: NodeHost): Result<(), Str> {
   let _ = io.println(ctx, "${a.hash()}").ignore();
   let o = a.compare(b);
   let _ = io.println(ctx, "${o == .Less}").ignore();
+  let _ = io.println(ctx, "${[a] == [b]}").ignore();
+  let _ = io.println(ctx, "${Q { ps: [a] }.compare(Q { ps: [b] }) == .Greater}").ignore();
   .Ok(())
 }
 "#;
@@ -244,10 +248,18 @@ fn calls(program: &Program, out: &Derives, op: Op) -> Vec<FuncIdx> {
     found
 }
 
+/// Whether `f` was dropped: nothing calls it or takes its address any more.
+fn dropped(program: &Program, f: FuncIdx) -> bool {
+    matches!(program.funcs.get(f).kind, FuncKind::Dropped)
+}
+
+/// The generated functions of `op` the program keeps. One written out at
+/// every call, as a small struct's comparison is, is dropped, so a program
+/// that wants one printed passes it by reference too, as a list's does.
 fn printed(program: &Program, out: &Derives, op: Op) -> Vec<String> {
     out.instances
         .iter()
-        .filter(|i| i.op == op)
+        .filter(|i| i.op == op && !dropped(program, i.func))
         .map(|i| print(program, i.func))
         .collect()
 }
@@ -267,7 +279,7 @@ fn every_derive_call_site_becomes_a_direct_call() {
         .map(|op| calls(&program, &out, op).len())
         .sum();
     assert!(direct >= 4, "four operations at least: {direct}");
-    for i in &out.instances {
+    for i in out.instances.iter().filter(|i| !dropped(&program, i.func)) {
         let f = program.funcs.get(i.func);
         assert!(f.body().is_some(), "{} has no body", f.symbol);
     }
@@ -288,6 +300,9 @@ fn equality_is_a_fold_over_the_fields() {
             "$derive$eq$Order(l0, l1) = match l0 { .v0 => match l1 { .v0 => true, _ => false }, \
              .v1 => match l1 { .v1 => true, _ => false }, \
              .v2 => match l1 { .v2 => true, _ => false } }",
+            // A list's, which keeps `P`'s, written out at the call, by taking
+            // its address.
+            "$derive$eq$list(l0, l1) = deriveArrayEq(l0, l1, &$derive$eq$P)",
         ]
     );
 }
@@ -308,6 +323,7 @@ fn ordering_is_lexicographic() {
             "$derive$cmp$P(l0, l1) = match if Lt<I64>(l0.0, l1.0) { .v0 } \
              else { if Gt<I64>(l0.0, l1.0) { .v2 } else { .v1 } } \
              { .v1 => str.compare(l0.1, l1.1), l2 => l2 }",
+            "$derive$cmp$list(l0, l1) = deriveArrayCompare(l0, l1, &$derive$cmp$P)",
         ]
     );
 }
@@ -463,9 +479,8 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 
 /// Two types with the same layout share the operations that do not print a
-/// name, and do not share the ones that do. Two fields each, because a call
-/// to the comparison of a struct of one field is written out where it is
-/// made.
+/// name, and do not share the ones that do. Enums, because a call to the
+/// comparison of a small struct is written out where it is made.
 #[test]
 fn layout_identical_types_share_the_operations_that_read_no_names() {
     let src = r#"
@@ -473,17 +488,17 @@ from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 
-struct Meters { v: Int, w: Int }
-struct Seconds { v: Int, w: Int }
+enum Meters { M(Int), Unknown }
+enum Seconds { S(Int), Unknown }
 derive Equal, Show for Meters;
 derive Equal, Show for Seconds;
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let a = Meters { v: 1, w: 0 };
-  let b = Seconds { v: 1, w: 0 };
-  let _ = io.println(ctx, "${a == Meters { v: 2, w: 0 }}").ignore();
-  let _ = io.println(ctx, "${b == Seconds { v: 2, w: 0 }}").ignore();
+  let a = Meters.M(1);
+  let b = Seconds.S(1);
+  let _ = io.println(ctx, "${a == Meters.M(2)}").ignore();
+  let _ = io.println(ctx, "${b == Seconds.S(2)}").ignore();
   let _ = io.println(ctx, a.show(ctx)).ignore();
   let _ = io.println(ctx, b.show(ctx)).ignore();
   .Ok(())
@@ -592,7 +607,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// A derive inside a tail-recursive body is inside an `ExprKind::Loop` by
 /// the time this pass runs, and the rewrite has to reach it: one left
 /// behind arrives at `lower`, which stops the build there, because this pass
-/// was supposed to have replaced it. Two fields, so that the derive stays a
+/// was supposed to have replaced it. An enum, so that the derive stays a
 /// call rather than being written out.
 #[test]
 fn a_call_site_inside_a_loop_is_rewritten_too() {
@@ -601,13 +616,13 @@ from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 
-struct P { x: Int, y: Int }
+enum P { X(Int), Y }
 derive Equal, Show for P;
 
 export fn seek(n: Int, needle: P): Int {
   if (n <= 0) {
 0
-  } else if (P { x: n, y: 0 } == needle) {
+  } else if (P.X(n) == needle) {
 n
   } else {
 seek(n - 1, needle)
@@ -616,7 +631,7 @@ seek(n - 1, needle)
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${seek(3, P { x: 2, y: 0 })}").ignore();
+  let _ = io.println(ctx, "${seek(3, P.X(2))}").ignore();
   .Ok(())
 }
 "#;

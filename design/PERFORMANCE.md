@@ -11490,6 +11490,20 @@ finding them costs no extra pass. `native::loop_registers` checks the
 totals read after loops of every shape, and bounds the extra cost a step at
 0.5.
 
+### 6.196 A small struct's comparison is written out where it is made, 2026-11-22
+
+```text
+four compares of (Str, Int), a step, stencil, macOS    derived    by hand
+before                                                 305        241
+after                                                  234        242
+```
+
+§6.190 wrote out the derives of a struct of one field. Now `derives` also
+writes out the `==`, `compare` and orderings of a struct whose derived body
+is at most 40 nodes, with each operand that isn't a name named first.
+`native::small_derives` checks every way of writing an operand under the
+heap check, and bounds the derived step at 32 over the hand-written one.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
