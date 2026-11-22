@@ -3,11 +3,11 @@
 # how to run it and re-bless; never edit a count by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); LLVM 21.1.7; clang version 21.1.7; valgrind-3.26.0; glibc 2.40
-aarch64 run-dev/kvstore      878042737
+aarch64 run-dev/kvstore      875975710
 
 toolchain x86_64 rustc 1.99.0 (b940084d7 2026-09-28); LLVM 21.1.7; clang version 21.1.7; valgrind-3.26.0; glibc 2.40
-x86_64 build/mixed-10k      275213963
-x86_64 build/programs        82707201
+x86_64 build/mixed-10k      275204277
+x86_64 build/programs        82686693
 x86_64 lint/mixed-10k       128473820
 x86_64 run/floats           533887732
 x86_64 run/lists           1293994782
