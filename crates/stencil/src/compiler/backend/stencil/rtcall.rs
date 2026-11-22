@@ -295,10 +295,14 @@ impl Jit<'_> {
                 Some(o)
             }
             Answer::Out => {
-                // Every `Ret::Out` row answers a `Str` or a list, which has
-                // bytes to write.
-                let width = self.width_of(prog, dty);
-                self.clear_slot(dslot, width);
+                // A `Str` or a list fills its slot: every row that answers one
+                // writes each of its words on every path that returns, the
+                // way LLVM's `call_out` already relies on. Any other type may
+                // be a generic row's, which can return without writing.
+                if !self.fills_slot(prog, dty) {
+                    let width = self.width_of(prog, dty);
+                    self.clear_slot(dslot, width);
+                }
                 ints.push(Src::Addr(dslot));
                 None
             }
@@ -846,6 +850,14 @@ impl Jit<'_> {
             Src::Imm(u64::from(in_stride)),
             Src::Imm(u64::from(out_stride)),
         ]
+    }
+
+    /// Whether a value of type `t` is a `Str` or a list: words a runtime row
+    /// writes whole, so the slot it lands in needs no clearing first.
+    fn fills_slot(&mut self, prog: &ir::Program, t: ir::Type) -> bool {
+        let ir::Type::Agg(agg) = t else { return false };
+        let ty = prog.type_info(agg.id()).ty;
+        matches!(self.layouts_of(ty).repr, Repr::Str | Repr::List)
     }
 
     /// Zeroes the whole of the frame slot a `width`-byte result is about to be

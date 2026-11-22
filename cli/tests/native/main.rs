@@ -483,6 +483,10 @@ mod checksum_costs;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod bits_costs;
+// A `Str` or a list a runtime function answers: what the program prints and
+// what a step costs, counted, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod answer_slots;
 // The programs the fast paths are for, at the size they're for: fan-outs of
 // every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
 // long sorts, on JavaScript and every backend built in, under the heap check.
