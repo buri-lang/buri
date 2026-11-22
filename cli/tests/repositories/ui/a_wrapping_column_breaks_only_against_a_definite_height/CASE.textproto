@@ -3,7 +3,11 @@
 # wrapping column into a second track only against a definite height (its own
 # percentage of a definite parent's, stretched across a row of definite
 # height, or flexed in a column of definite height below its content) or a
-# maximum height, and keeps one track otherwise. Wrapping rows, and both
+# maximum height, and keeps one track otherwise. One flexed in a column
+# breaks against the height it shrinks to, even where that column's height
+# isn't definite, as Blink fixes a flex item's height before laying it out.
+# A percentage height inside one under a maximum is its content's, and one of
+# no width is as wide as its tracks side by side. Wrapping rows, and both
 # directions reversed, are here too.
 #
 # `a_wrapping_column_breaks_only_against_a_definite_height` in
@@ -30,3 +34,8 @@ path { path: "lib/wrap/test/__snapshots__/grown.diff.png"  exists: false }
 path { path: "lib/wrap/test/__snapshots__/maximum-percent.diff.png"  exists: false }
 path { path: "lib/wrap/test/__snapshots__/row.diff.png"  exists: false }
 path { path: "lib/wrap/test/__snapshots__/row-reversed.diff.png"  exists: false }
+path { path: "lib/wrap/test/__snapshots__/capped-shrunk.diff.png"  exists: false }
+path { path: "lib/wrap/test/__snapshots__/maximum-shrunk.diff.png"  exists: false }
+path { path: "lib/wrap/test/__snapshots__/sibling.diff.png"  exists: false }
+path { path: "lib/wrap/test/__snapshots__/percent-in-maximum.diff.png"  exists: false }
+path { path: "lib/wrap/test/__snapshots__/intrinsic.diff.png"  exists: false }

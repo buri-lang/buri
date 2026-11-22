@@ -5,6 +5,8 @@
 from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
 from "//lib/wrap" import { boxes, square, tracks };
 
 test "a wrapping column with a maximum height breaks against it" {
@@ -467,6 +469,246 @@ test "the lines laid out the plain way where the reversed row scene puts them" {
                 }),
             ],
         }),
+        .Hover,
+        [],
+    );
+}
+
+// A box 40px wide and 20px tall painted `colour`, with `extra` styles.
+fn half<C>(colour: Color, extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(20)), .Group(extra), .Background(colour)],
+        children: [],
+    })
+}
+
+test "a wrapping column under a maximum shrinks in a column of definite height and breaks against what it gets" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "capped-shrunk",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(60))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .Width(.Px(136)),
+                        .MaxHeight(.Px(90)),
+                        .MinHeight(.Px(0)),
+                    ],
+                    children: boxes(),
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes in a row the plain way where the capped-shrunk scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "capped-shrunk",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(60))],
+            children: [ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() })],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a wrapping column shrinks in a column with a maximum height and breaks against what it gets" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "maximum-shrunk",
+        ui.stack({
+            styles: [.Layout(.Column), .MaxHeight(.Px(60))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .Width(.Px(136)),
+                        .MinHeight(.Px(0)),
+                    ],
+                    children: boxes(),
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes in a row the plain way where the maximum-shrunk scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "maximum-shrunk",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(60))],
+            children: [ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() })],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a wrapping column shrinks beside a box that doesn't and breaks against what it gets" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "sibling",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(150))],
+            children: [
+                ui.stack({ styles: [.Height(.Px(50)), .Shrink(0)], children: [] }),
+                ui.stack({
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .Width(.Px(88)),
+                        .MinHeight(.Px(0)),
+                    ],
+                    children: boxes(),
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the tracks laid out the plain way where the sibling scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "sibling",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(150))],
+            children: [
+                ui.stack({ styles: [.Height(.Px(50)), .Shrink(0)], children: [] }),
+                tracks(),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a percentage height inside a wrapping column under a maximum is its content's" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "percent-in-maximum",
+        ui.stack({
+            styles: [
+                .Layout(.Column),
+                .Wrap(true),
+                .Gap(.Px(8)),
+                .Width(.Px(88)),
+                .MaxHeight(.Px(90)),
+            ],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Column), .Height(.Percent(100.0)), .Shrink(0)],
+                    children: [
+                        half(.Rgb(255, 0, 0), [.Grow(1)]),
+                        half(.Rgb(0, 0, 255), []),
+                    ],
+                }),
+                square(.Rgb(0, 160, 0)),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes laid out the plain way where the percent-in-maximum scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "percent-in-maximum",
+        ui.stack({
+            styles: [.Layout(.Column), .Gap(.Px(8))],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Column)],
+                    children: [half(.Rgb(255, 0, 0), []), half(.Rgb(0, 0, 255), [])],
+                }),
+                square(.Rgb(0, 160, 0)),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a wrapping column of no width is as wide as its tracks" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "intrinsic",
+        ui.stack({
+            styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)],
+            children: [
+                ui.stack({
+                    styles: [.Layout(.Column), .Wrap(true), .Gap(.Px(8)), .MaxHeight(.Px(50))],
+                    children: [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255))],
+                }),
+                square(.Rgb(0, 160, 0)),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the boxes in a row the plain way where the intrinsic scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "intrinsic",
+        ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() }),
         .Hover,
         [],
     );

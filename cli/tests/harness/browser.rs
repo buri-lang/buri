@@ -1063,6 +1063,11 @@ function layoutAnswer(name, question) {
 // column), else past its maximum, else never. Its main size is that definite
 // size, else its longest line held between its minimum and maximum. Each line
 // then grows or shrinks its boxes to that size ([`flexed`]).
+//
+// A column flexed in a flex column has the height it flexed to once its
+// parent has laid it out, even where that isn't definite for a percentage
+// inside it: Blink fixes each box's main size before laying it out, so it
+// breaks lines against that height.
 function flexMain(container) {
   flexing.set(container, (flexing.get(container) ?? 0) + 1);
   try {
@@ -1077,7 +1082,10 @@ function flexMain(container) {
     const bound = (value) => (!column || (value.endsWith("%") && held === null) ? null : lengthIn(value, () => held));
     const inner = (value) => (value === null ? null : value - edges);
     const [minimum, maximum] = [inner(bound(s.minHeight)), inner(bound(s.maxHeight))];
-    const limit = s.flexWrap !== "wrap" ? Infinity : (definite ?? maximum ?? Infinity);
+    const parent = container.parentElement;
+    const placed = column && definite === null && mainAxis(parent) === "height" && !flexing.has(parent);
+    const fixed = placed ? sizeOf(container, "height") - edges : null;
+    const limit = s.flexWrap !== "wrap" ? Infinity : (definite ?? fixed ?? maximum ?? Infinity);
     const lines = [];
     for (const item of inFlow(container)) {
       const box = flexItem(item, main, definite);
@@ -1087,7 +1095,7 @@ function flexMain(container) {
       else line.push(box);
     }
     const longest = Math.max(0, ...lines.map((line) => line.reduce((sum, b) => sum + b.hypothetical + gap, -gap)));
-    const length = definite ?? Math.max(Math.min(longest, maximum ?? Infinity), minimum ?? 0);
+    const length = definite ?? fixed ?? Math.max(Math.min(longest, maximum ?? Infinity), minimum ?? 0);
     const sizes = new Map();
     const flexedLines = lines.map((line) => {
       const sized = flexed(line, length, gap);
@@ -1106,7 +1114,8 @@ function flexMain(container) {
 // content box is `definite` long along it or indefinite (`null`): its flex
 // basis, its minimum and maximum, the size the basis comes to between them,
 // and its grow and shrink factors. A percentage of an indefinite length is
-// none.
+// none: a maximum of none, and a minimum of zero, which isn't `auto`, so it
+// gives no automatic minimum (Blink's `ResolveMinBlockLength`).
 //
 // With no minimum of its own, a box's automatic minimum is none when it is a
 // scroll container (`overflow` hidden, scroll or auto, or a textarea, which
@@ -1121,7 +1130,8 @@ function flexItem(item, main, definite) {
   const basis = hypothetical(item, main);
   const max = length(s[`max${capital}`]) ?? Infinity;
   const text = holdsText(item);
-  let min = length(s[`min${capital}`]);
+  const least = s[`min${capital}`];
+  let min = least.endsWith("%") && definite === null ? 0 : length(least);
   if (min === null) {
     const overflows = [s.overflowX, s.overflowY].map((o) => o || s.overflow || "visible");
     const scrolls = item.localName === "textarea" || overflows.some((o) => ["hidden", "scroll", "auto"].includes(o));
@@ -1144,14 +1154,17 @@ function flexItem(item, main, definite) {
 }
 // How tall `element`'s content is, whatever its own height says: its
 // children in the flow one above another, or side by side in a flex row, each
-// at its own height or its content's, with its padding and borders.
+// at its own height or its content's, with its padding and borders. A column
+// that wraps is as tall as its lines.
 function contentHeight(element) {
+  const edges = padding(element, "height") + borders(element, "height");
+  if (mainAxis(element) === "height" && getComputedStyle(element).flexWrap === "wrap") return flexMain(element).length + edges;
   const children = inFlow(element);
   const heights = children.map((child) => hypothetical(child, "height"));
   const row = mainAxis(element) === "width";
   const gaps = mainAxis(element) === "height" ? gapOf(element, "row") * Math.max(0, children.length - 1) : 0;
   const content = row ? Math.max(0, ...heights) : heights.reduce((sum, h) => sum + h, gaps);
-  return content + padding(element, "height") + borders(element, "height");
+  return content + edges;
 }
 // Whether text shows inside `element`, other than a textarea's value. Text has
 // no size here, so a line holding it isn't flexed.
@@ -1249,8 +1262,11 @@ const inFlow = (element) =>
 // content overflowing, `[min-content, max-content]`: its own width, or what
 // its children in the flow need, side by side in a flex row and one above
 // another otherwise. A row that wraps needs only its widest child at the
-// narrowest. A field is as wide as `editorWidth` says. Text has no width
-// here, so it throws, except a textarea's, which is its value.
+// narrowest. A column that wraps needs its lines side by side at the widest,
+// each as wide as its widest box (Blink's
+// `ComputeMinMaxSizeOfMultilineColumnContainer`). A field is as wide as
+// `editorWidth` says. Text has no width here, so it throws, except a
+// textarea's, which is its value.
 //
 // Each box inside the one being fitted (`inside`) is held between its minimum
 // and maximum width. A percentage there would be of a width that depends on
@@ -1282,6 +1298,11 @@ function intrinsicWidths(element, inside = false, sized = true) {
     const [l, m] = intrinsicWidths(child, true);
     least = row && !wraps ? least + l : Math.max(least, l);
     most = row ? most + m : Math.max(most, m);
+  }
+  if (mainAxis(element) === "height" && wraps) {
+    const { lines } = flexMain(element);
+    const widest = (line) => Math.max(0, ...line.map((box) => intrinsicWidths(box.item, true)[1]));
+    most = typed + lines.reduce((sum, line) => sum + widest(line), gapOf(element, "column", () => 0) * (lines.length - 1));
   }
   const pad = sides("width").reduce((sum, side) => sum + (length(paddingSide(s, side), 0) ?? 0), 0);
   const edges = pad + borders(element, "width");

@@ -2796,13 +2796,26 @@ fn breaks_alone(c: &Computed) -> bool {
 ///
 ///  * a percentage height, of a parent whose height is definite;
 ///  * stretched across a single-line flex row, or a grid, of definite height;
-///  * flexed in a column of definite height, with a minimum height of its own
-///    or a clipped overflow. Its `min-height: auto` otherwise keeps it as tall
-///    as its one track, which never breaks.
+///  * flexed in a column, with a minimum height of its own or a clipped
+///    overflow. Blink fixes a flex item's main size before laying it out, so
+///    it breaks against the height it flexed to even where the column's
+///    height is not definite. Its `min-height: auto` otherwise keeps it as
+///    tall as its one track, which never breaks.
 ///
 /// And against a maximum height, a pixel one or a percentage of a definite
 /// parent's. Answers the columns that break against a maximum with no
-/// definite height, each after every one inside it, for [`settle_maximums`].
+/// definite height, each after every one inside it, for [`settle_maximums`],
+/// and the columns flexed in a column whose height is not definite, which
+/// `taffy` breaks only once their height is, for [`hold_flexed`].
+///
+/// Also drops each percentage height, minimum or maximum of a box whose
+/// parent is flexed in a column with a height that is not definite, or is
+/// held by [`settle_maximums`]: a height becomes `auto`, a minimum zero and a
+/// maximum none, as Blink resolves a percentage of an indefinite height. Such
+/// a parent's height is not definite in a browser (Blink's
+/// `is_initial_block_size_indefinite`: neither the column's height nor the
+/// parent's flex basis is), where `taffy` resolves a percentage against the
+/// height it flexed to.
 ///
 /// The page itself is not definite: a browser's body grows with its content.
 fn wrap_columns(
@@ -2810,49 +2823,76 @@ fn wrap_columns(
     styles: &[Computed],
     tree: &mut TaffyTree<usize>,
     ids: &[Option<NodeId>],
-) -> Result<Vec<NodeId>, String> {
+) -> Result<(Vec<NodeId>, Vec<NodeId>), String> {
+    let fail = |e| format!("layout: {e}");
     let mut capped_alone = Vec::new();
-    // Each node beside its parent's style when that parent's height is
-    // definite.
-    let mut stack: Vec<(usize, Option<&Computed>)> =
-        scene.roots.iter().map(|&root| (root, None)).collect();
-    while let Some((index, held)) = stack.pop() {
+    let mut flexed = Vec::new();
+    // Each node beside its parent's style, or `None` for the page, an
+    // unstyled column; whether that parent's height is definite; and whether
+    // it is a flex item of a column whose height is not definite.
+    let mut stack: Vec<(usize, Option<&Computed>, bool, bool)> = scene
+        .roots
+        .iter()
+        .map(|&root| (root, None, false, false))
+        .collect();
+    while let Some((index, parent, held, loose)) = stack.pop() {
         let Some(c) = styles.get(index) else {
             continue;
         };
-        let held = held.filter(|_| !c.absolute && !c.fixed);
-        let definite = definite_alone(c) || held.is_some_and(|p| holds_definite(p, c));
+        let out = c.absolute || c.fixed;
+        let held = held && !out;
+        let definite = definite_alone(c) || held && parent.is_some_and(|p| holds_definite(p, c));
         let capped = match c.max[1] {
             Len::Px(_) => true,
-            Len::Percent(_) => held.is_some(),
+            Len::Percent(_) => held,
             Len::Auto => false,
         };
-        let grows_past = held.is_some_and(|p| {
-            p.flow == Flow::Flex
-                && p.column
-                && c.size[1] == Len::Auto
-                && c.min[1] == Len::Auto
-                && !c.clipped[1]
-        });
+        let in_column = !out && parent.is_none_or(|p| p.flow == Flow::Flex && p.column);
+        let auto = match c.size[1] {
+            Len::Auto => true,
+            Len::Percent(_) => !held && !out,
+            Len::Px(_) => false,
+        };
+        let grows_past = in_column && auto && c.min[1] == Len::Auto && !c.clipped[1];
         let id = ids.get(index).copied().flatten();
+        let percent = |len: Len| matches!(len, Len::Percent(_));
+        let resolves = percent(c.size[1]) || percent(c.min[1]) || percent(c.max[1]);
+        if let Some(id) = id.filter(|_| loose && !out && resolves) {
+            let mut style = tree.style(id).map_err(fail)?.clone();
+            if percent(c.size[1]) {
+                style.size.height = Dimension::auto();
+            }
+            if percent(c.min[1]) {
+                style.min_size.height = LengthPercentageAuto::length(0.0);
+            }
+            if percent(c.max[1]) {
+                style.max_size.height = LengthPercentageAuto::auto();
+            }
+            tree.set_style(id, style).map_err(fail)?;
+        }
         if let Some(id) = id.filter(|_| c.column && c.wrap) {
-            if capped || definite && (definite_alone(c) || !grows_past) {
-                let fail = |e| format!("layout: {e}");
+            if capped || definite_alone(c) || (definite || in_column) && !grows_past {
                 let mut style = tree.style(id).map_err(fail)?.clone();
                 style.flex_wrap = FlexWrap::Wrap;
                 tree.set_style(id, style).map_err(fail)?;
             }
             if capped && !definite {
                 capped_alone.push(id);
+            } else if !definite && in_column && !grows_past {
+                flexed.push(id);
             }
         }
         if let Some(node) = scene.node(index) {
-            let holds = definite.then_some(c);
-            stack.extend(node.children.iter().map(|&child| (child, holds)));
+            let loose = !definite && (in_column || capped);
+            stack.extend(
+                node.children
+                    .iter()
+                    .map(|&child| (child, Some(c), definite, loose)),
+            );
         }
     }
     capped_alone.reverse();
-    Ok(capped_alone)
+    Ok((capped_alone, flexed))
 }
 
 /// Whether a box's own styles make its height definite: a pixel height, or a
@@ -3835,7 +3875,7 @@ fn paint_with(
         fixed,
         mut tables,
     } = built;
-    let capped = wrap_columns(scene, styles, &mut tree, &ids)?;
+    let (capped, flexed) = wrap_columns(scene, styles, &mut tree, &ids)?;
     measure_tables(&mut tree, &mut tables, scene, styles, fonts)?;
     // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
@@ -3878,7 +3918,7 @@ fn paint_with(
             break;
         }
     }
-    if !capped.is_empty() {
+    if !capped.is_empty() || !flexed.is_empty() {
         lay_out(
             &mut tree,
             root,
@@ -3888,6 +3928,7 @@ fn paint_with(
             across_page,
             AvailableSpace::MaxContent,
         )?;
+        hold_flexed(&mut tree, &flexed)?;
         settle_maximums(&mut tree, &capped, scene, styles, fonts)?;
     }
     // Each pinned box measured from a box other than its parent, placed there
@@ -4029,6 +4070,23 @@ fn paint_with(
         .collect();
     painter.top_layer(&mut canvas, dialogs);
     Ok(canvas)
+}
+
+/// Holds each column [`wrap_columns`] found flexed in a column whose height is
+/// not definite at the height it flexed to.
+///
+/// Blink fixes a flex item's main size before laying it out, so a wrapping
+/// column breaks against the height it flexed to. `taffy` breaks one only
+/// when that height is definite, which it is not while the page's height is
+/// open, so it would measure the page with the column in one track.
+fn hold_flexed(tree: &mut TaffyTree<usize>, columns: &[NodeId]) -> Result<(), String> {
+    let fail = |e| format!("layout: {e}");
+    for &id in columns {
+        let mut held = tree.style(id).map_err(fail)?.clone();
+        held.size.height = Dimension::length(tree.layout(id).map_err(fail)?.size.height);
+        tree.set_style(id, held).map_err(fail)?;
+    }
+    Ok(())
 }
 
 /// Holds each column [`wrap_columns`] found breaking against a maximum height

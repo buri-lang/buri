@@ -1320,8 +1320,9 @@ fn a_field_clips_its_value_to_its_editor() {
 /// Where a browser lays out the boxes of
 /// `a_wrapping_column_breaks_only_against_a_definite_height` (#162): each
 /// scene where its twin puts them. A column that wraps breaks into a second
-/// track against a definite height or a maximum one, and keeps one track
-/// otherwise.
+/// track against a definite height or a maximum one, or the height it is
+/// flexed to, and keeps one track otherwise. One of no width is as wide as
+/// its tracks.
 #[test]
 fn a_wrapping_column_breaks_only_against_a_definite_height() {
     let case =
@@ -1335,6 +1336,7 @@ fn a_wrapping_column_breaks_only_against_a_definite_height() {
     let reversed = "red at 0,48 40x40, blue at 0,0 40x40, green at 48,48 40x40";
     let lines = "red at 0,0 40x40, blue at 48,0 40x40, green at 0,48 40x40";
     let lines_reversed = "red at 48,0 40x40, blue at 0,0 40x40, green at 48,48 40x40";
+    let row = "red at 0,0 40x40, blue at 48,0 40x40, green at 96,0 40x40";
     let expected: Vec<String> = [
         ("maximum", tracks, 2),
         ("maximum-reversed", reversed, 2),
@@ -1346,6 +1348,11 @@ fn a_wrapping_column_breaks_only_against_a_definite_height() {
         ("maximum-percent", tracks, 2),
         ("row", lines, 2),
         ("row-reversed", lines_reversed, 2),
+        ("capped-shrunk", row, 2),
+        ("maximum-shrunk", row, 2),
+        ("sibling", "red at 0,50 40x40, blue at 0,98 40x40, green at 48,50 40x40", 2),
+        ("percent-in-maximum", "red at 0,0 40x20, blue at 0,20 40x20, green at 0,48 40x40", 2),
+        ("intrinsic", row, 2),
     ]
     .iter()
     .flat_map(|(name, boxes, count)| (0..*count).map(move |_| format!("{name}: {boxes}")))
