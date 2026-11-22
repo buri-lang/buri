@@ -700,10 +700,11 @@ fn remove(
 /// they are not parameters of the callee and it has proved them dead. On a
 /// runtime call that was **five instructions** after the `bl`, on every call,
 /// and they are strippable for a reason this backend states rather than
-/// inherits: `jit.rs` (`is_barrier`, `boxes_a_field`) already treats every
-/// zero-register stencil as clobbering the whole CPS register file, so nothing
-/// downstream may read `x1`–`x7` across one. The zeroes are dead by the convention, not merely by
-/// LLVM's analysis of one function.
+/// inherits: `jit.rs` (`Jit::calls_out`) already treats every zero-register
+/// stencil as clobbering the whole CPS register file, and checks in a debug
+/// build that it misses none, so nothing downstream may read `x1`–`x7` across
+/// one. The zeroes are dead by the convention, not merely by LLVM's analysis
+/// of one function.
 ///
 /// The narrower rule for a stencil that continues to `_JIT_CONT` is kept, and
 /// it has to be: there `x1`–`x3` *are* the continuation's `r0`–`r2`, so a

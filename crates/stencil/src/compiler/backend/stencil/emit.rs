@@ -74,7 +74,7 @@ const RC_LIGHT: u32 = 4;
 /// is a test per counted variant and an operation per counted field, and a
 /// function makes a reference operation per arm or per field it reads, so
 /// writing each one out made a match over `n` counted variants `n²` code.
-const RC_OUT_OF_LINE: u32 = 16;
+pub(crate) const RC_OUT_OF_LINE: u32 = 16;
 
 /// The narrowest copy [`Jit::mv`] makes with `mov/128n`'s loop rather than a
 /// run of `mov/128`s.
@@ -1124,6 +1124,26 @@ impl<'a> Jit<'a> {
             return self.walk_out_of_line(st, f.ty, at, op);
         }
         self.walk_rc(st, &f.ty, at, op, depth + 1)
+    }
+
+    /// Whether [`Jit::walk_rc`]'s retain of a `ty`, `depth` levels into the
+    /// walk, reaches a field that goes through its type's glue, which is a
+    /// call. A retain of a block is the `incref` stencil, which calls nothing.
+    pub(crate) fn retain_calls(&mut self, ty: &Ty, depth: u32) -> bool {
+        let sites = self.rc_sites(ty);
+        sites.iter().any(|site| match site {
+            Site::Block { .. } => false,
+            Site::Field(f) => self.retain_field_calls(f, depth),
+            Site::Tagged { arms, .. } => arms
+                .iter()
+                .any(|arm| arm.fields.iter().any(|f| self.retain_field_calls(f, depth))),
+            Site::Guarded { ty, .. } => self.retain_calls(ty, depth + 1),
+        })
+    }
+
+    /// [`Jit::retain_calls`] for one field, as [`Jit::walk_field`] retains it.
+    fn retain_field_calls(&mut self, f: &Field, depth: u32) -> bool {
+        !f.boxed && (self.field_out_of_line(&f.ty, depth) || self.retain_calls(&f.ty, depth + 1))
     }
 
     /// Whether an unboxed field of `ty`, `depth` levels into a walk, goes

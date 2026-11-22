@@ -571,3 +571,35 @@ test "a 128-bit divide and remainder" {
 "#;
     crate::odd_sizes::passes("loop-runtime-calls", test, 3);
 }
+
+/// **A value held in a register across a closure that captures survives
+/// it**: the closure's environment is a block the runtime allocates, so the
+/// product computed before it and read after it has to be somewhere the call
+/// leaves alone.
+#[test]
+fn a_value_computed_before_a_capturing_closure_is_read_after_it() {
+    let test = r#"
+from "core/testing/assert" import * as assert;
+
+fn apply(f: fn(Int) => Int, x: Int, k: Int): Int {
+    if (k == 0) { x } else { apply(f, f(x), k - 1) }
+}
+
+fn step(i: Int): Int {
+    let a = i * 7;
+    let f = fn(x: Int) => x + i;
+    let b = a + 1;
+    apply(f, b, 1)
+}
+
+fn steps(i: Int, n: Int, acc: Int): Int {
+    if (i == n) { acc } else { steps(i + 1, n, acc + step(i)) }
+}
+
+test "a capturing closure" {
+    assert.equal(step(5), 41);
+    assert.equal(steps(0, 10, 0), 370);
+}
+"#;
+    crate::odd_sizes::passes("loop-closure-env", test, 1);
+}

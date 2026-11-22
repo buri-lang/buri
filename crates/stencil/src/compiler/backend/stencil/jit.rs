@@ -490,6 +490,11 @@ pub struct Jit<'a> {
     /// Holes this part's stencils patched, added to [`HOLES_PATCHED`] when
     /// the part is done rather than once per hole.
     pub(crate) patched: u64,
+    /// Whether the code being emitted may call: `false` only while an
+    /// instruction [`Jit::calls_out`] says calls nothing is, checked by
+    /// [`Jit::emit`] in a debug build.
+    #[cfg(debug_assertions)]
+    may_call: bool,
     /// Of those, the ones each [`CopySite`] patched, added to
     /// [`HOLES_COPYING`] with them.
     pub(crate) copying: Copying,
@@ -594,7 +599,8 @@ struct Bufs {
     defs: ir::PerValue<Option<(ir::BlockId, usize)>>,
     kept: Vec<usize>,
     block_uses: ir::PerValue<BlockUses>,
-    barrier: Vec<bool>,
+    /// [`Jit::mark_calls`]'s flag per instruction, in block order.
+    calls: Vec<bool>,
     imm: ir::PerValue<u32>,
     /// [`Jit::layout`]'s visited marks, which are also each block's count
     /// of incoming edges; [`Fn2::npred`] between the layout and the emitter.
@@ -853,6 +859,8 @@ impl<'a> Jit<'a> {
             part,
             shares: false,
             patched: 0,
+            #[cfg(debug_assertions)]
+            may_call: true,
             copying: Copying::default(),
         }
     }
@@ -1558,7 +1566,9 @@ struct Loops {
 
 impl Loops {
     /// Every promotable loop, smallest first, in [`Loops::found`].
-    fn promotable(&mut self, code: &ir::Code, calls: &dyn Fn(&ir::Inst) -> bool) {
+    ///
+    /// `calls` is [`Jit::mark_calls`]'s flag per instruction, in block order.
+    fn promotable(&mut self, code: &ir::Code, calls: &[bool]) {
         let Loops {
             preds,
             dom,
@@ -1572,8 +1582,11 @@ impl Loops {
             ..
         } = self;
         *barrier = code.per_block_in(barrier, false);
+        let mut at = 0;
         for (id, x) in barrier.iter_mut() {
-            *x = code.get(id).insts.iter().any(calls);
+            let n = code.get(id).insts.len();
+            *x = calls.get(at..at + n).unwrap_or_default().contains(&true);
+            at += n;
         }
         preds.fill(
             code,
@@ -1761,8 +1774,8 @@ impl<'a> Jit<'a> {
                 st.wt = code.per_value_in(&mut st.wt, true);
                 st.cross = code.per_value_in(&mut st.cross, 0);
                 st.region = code.per_block_in(&mut st.region, 0);
+                self.mark_calls(prog, code);
                 let taken = self.promote(
-                    prog,
                     code,
                     &opnd,
                     &st.uses,
@@ -1772,7 +1785,7 @@ impl<'a> Jit<'a> {
                     &mut st.region,
                     &mut st.spills,
                 );
-                self.regalloc(prog, code, &mut st.reg, taken, &st.uses, &opnd);
+                self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
                 st.blk = Labels::for_code(&mut st.blk, code);
@@ -1816,13 +1829,29 @@ impl<'a> Jit<'a> {
                         if *skip {
                             continue;
                         }
+                        #[cfg(debug_assertions)]
+                        {
+                            self.may_call = self.calls_out(prog, code, inst);
+                        }
                         self.inst(prog, code, &mut st, inst);
+                        #[cfg(debug_assertions)]
+                        {
+                            self.may_call = true;
+                        }
                     }
                     let next = order.get(oi + 1).copied();
                     // An `Abort` does not come back, so the terminator behind
                     // one is dead code.
                     if !matches!(block.insts.last(), Some(ir::Inst::Abort { .. })) {
+                        #[cfg(debug_assertions)]
+                        {
+                            self.may_call = false;
+                        }
                         self.term(prog, code, &mut st, next, &block.term, &plan);
+                        #[cfg(debug_assertions)]
+                        {
+                            self.may_call = true;
+                        }
                     }
                     self.bufs.skip = plan.skip;
                 }
@@ -1913,6 +1942,18 @@ impl<'a> Jit<'a> {
                 lib.config
             )),
         };
+        // A stencil that calls has the zero-register prototype, so it goes on
+        // to `_JIT_CONT0`, whether or not that branch is its last word. One
+        // that does implies `may_call`: `calls <= may_call`.
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            s.holes
+                .iter()
+                .any(|h| h.name == HoleName::Slot(Slot::Jump(Jump::Cont0)))
+                <= self.may_call,
+            "stencil: {} calls, for an instruction `Jit::calls_out` says does not",
+            s.name.as_str()
+        );
         let key = s.name.as_str();
         // The folded twins, most specific first: every offset or literal a twin
         // would put in an `imm12` field has to be a multiple of the field's
@@ -3593,7 +3634,6 @@ impl<'a> Jit<'a> {
     )]
     fn promote(
         &mut self,
-        prog: &ir::Program,
         code: &ir::Code,
         opnd: &Operands,
         uses: &ir::PerValue<u32>,
@@ -3603,11 +3643,49 @@ impl<'a> Jit<'a> {
         region: &mut ir::PerBlock<u32>,
         spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
     ) -> (usize, usize) {
-        let Bufs { loops, vars, .. } = &mut self.bufs;
+        let Bufs {
+            loops, vars, calls, ..
+        } = &mut self.bufs;
         let tables = Reads { code, opnd, uses };
-        let (types, layouts) = (self.tables, &self.layouts);
-        let calls = |i: &ir::Inst| is_barrier(i) || boxes_a_field(prog, types, layouts, i);
-        promote(loops, vars, tables, &calls, out, wt, cross, region, spills)
+        promote(loops, vars, tables, calls, out, wt, cross, region, spills)
+    }
+
+    /// Which instructions of `code` call out, into [`Bufs::calls`]: one flag
+    /// per instruction, in block order. Every stencil that calls has the
+    /// zero-register prototype, so each of these clobbers the CPS registers,
+    /// and they are the barriers of the loop promotion and the local
+    /// allocator alike. `Jit::emit` checks, in a debug build, that no
+    /// zero-register stencil is copied for an instruction this leaves out.
+    fn mark_calls(&mut self, prog: &ir::Program, code: &ir::Code) {
+        let mut calls = std::mem::take(&mut self.bufs.calls);
+        calls.clear();
+        for (_, block) in code.iter() {
+            for i in &block.insts {
+                let c = self.calls_out(prog, code, i);
+                calls.push(c);
+            }
+        }
+        self.bufs.calls = calls;
+    }
+
+    /// Whether `i`'s code calls a function on some path: the runtime, a
+    /// generated glue body or a Buri function.
+    pub(crate) fn calls_out(&mut self, prog: &ir::Program, code: &ir::Code, i: &ir::Inst) -> bool {
+        match i {
+            ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. } => {
+                boxes_a_field(prog, self.tables, &self.layouts, i)
+            }
+            // The environment is a block `elemalloc` allocates.
+            ir::Inst::MakeClosure { env, .. } => env.is_some(),
+            ir::Inst::IncRef { value } => match code.ty_of(*value) {
+                ir::Type::Agg(agg) => {
+                    let ty = prog.type_info(agg.id()).ty;
+                    self.rc_weight(&ty) > super::emit::RC_OUT_OF_LINE || self.retain_calls(&ty, 0)
+                }
+                _ => false,
+            },
+            _ => is_barrier(i),
+        }
     }
 
     /// The CPS register assignment.
@@ -3623,7 +3701,6 @@ impl<'a> Jit<'a> {
     /// that crosses a call or a block boundary stays in the frame.
     fn regalloc(
         &mut self,
-        prog: &ir::Program,
         code: &ir::Code,
         out: &mut ir::PerValue<Option<Reg>>,
         taken: (usize, usize),
@@ -3640,7 +3717,8 @@ impl<'a> Jit<'a> {
         // first and last. One entry per value of the function, stamped with
         // the block it describes, so moving to the next block resets nothing.
         let mut uses = code.per_value_in(&mut self.bufs.block_uses, BlockUses::default());
-        let mut barrier = std::mem::take(&mut self.bufs.barrier);
+        let calls = std::mem::take(&mut self.bufs.calls);
+        let mut at = 0;
         // The registers cross-block promotion took are not the local
         // allocator's to hand out.
         let register_count = super::abi::CPS_REGISTER_COUNT;
@@ -3648,17 +3726,15 @@ impl<'a> Jit<'a> {
         let mut busyf: Vec<Option<Held>> = vec![None; register_count];
         for (bi, block) in code.iter() {
             let n = block.insts.len();
-            // Where the barriers are. A barrier is an instruction whose
-            // stencil has the zero-register prototype and therefore clobbers
-            // the file.
-            barrier.clear();
-            for (k, i) in block.insts.iter().enumerate() {
+            // Where the barriers are: [`Jit::mark_calls`]'s instructions,
+            // whose code clobbers the file.
+            let barrier = calls.get(at..at + n).unwrap_or_default();
+            at += n;
+            for k in 0..n {
                 for o in opnd.inst(bi, k) {
                     note_use(&mut uses, bi, *o, k);
                 }
-                barrier.push(is_barrier(i) || boxes_a_field(prog, self.tables, &self.layouts, i));
             }
-            barrier.push(false);
             for o in opnd.term(code, bi) {
                 note_use(&mut uses, bi, *o, n);
             }
@@ -3688,7 +3764,7 @@ impl<'a> Jit<'a> {
                         }
                     }
                 }
-                if ent(&barrier, k, false) {
+                if ent(barrier, k, false) {
                     // Nothing survives a zero-register stencil, except the
                     // promoted values, which are not the local allocator's and
                     // whose regions contain no barrier.
@@ -3774,7 +3850,7 @@ impl<'a> Jit<'a> {
             }
         }
         self.bufs.block_uses = uses;
-        self.bufs.barrier = barrier;
+        self.bufs.calls = calls;
     }
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
@@ -4486,7 +4562,7 @@ fn promote(
     loops_buf: &mut Loops,
     vars_buf: &mut ir::PerValue<Var>,
     tables: Reads<'_>,
-    calls: &dyn Fn(&ir::Inst) -> bool,
+    calls: &[bool],
     out: &mut ir::PerValue<Option<Reg>>,
     wt: &mut ir::PerValue<bool>,
     cross: &mut ir::PerValue<u32>,
@@ -5096,11 +5172,15 @@ mod tests {
             opnd: &opnd,
             uses: &uses,
         };
+        let calls: Vec<bool> = code
+            .iter()
+            .flat_map(|(_, b)| b.insts.iter().map(is_barrier))
+            .collect();
         promote(
             &mut Loops::default(),
             &mut spare,
             tables,
-            &is_barrier,
+            &calls,
             &mut out,
             &mut wt,
             &mut cross,
