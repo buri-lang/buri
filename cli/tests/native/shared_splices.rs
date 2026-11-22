@@ -101,7 +101,7 @@ fn a_splice_of_a_held_list_copies_it() {
     for (backend, build) in crate::e2e::probed_backends() {
         for mode in MODES {
             let binary = build(
-                &format!("shared-splices-{mode}"),
+                &format!("shared-splices-held-{mode}"),
                 &SPLICED.replace("MODE", mode),
             );
             let ran = crate::shared::ran_command(crate::shared::heap_checked(
@@ -157,7 +157,7 @@ fn a_splice_of_a_held_list_costs_one_copy() {
             ("insert-texts", if llvm { 978.0 } else { 1_512.0 }),
         ] {
             let binary = build(
-                &format!("shared-splices-{mode}"),
+                &format!("shared-splices-cost-{mode}"),
                 &SPLICED.replace("MODE", mode),
             );
             let n = steps_cost(backend, &binary, SPLICE_COUNTS, |k| spliced(mode, k));
