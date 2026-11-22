@@ -520,3 +520,7 @@ mod shared_splices;
 // written: what each answers, and what a step costs next to the field itself.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod one_field_derives;
+// Lists made every way, those that store every element and those that keep
+// some: what each holds, and what mapping to a wide record costs.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod filled_lists;

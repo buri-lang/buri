@@ -498,13 +498,14 @@ impl<'a> Jit<'a> {
                 let stride = u64::from(self.list_elem(prog, *ty).0);
                 // One block of `n * stride` bytes with VALUE-MODEL.md §2's
                 // header, and the count beside it; the elements are stored
-                // below. `elemalloc` is `buri_rt_alloc` behind the
+                // below. `elemalloc/raw` is `buri_rt_alloc` behind the
                 // null-for-empty rule, which is the same block
-                // `buri_rt_list_new` would have answered.
+                // `buri_rt_list_new` would have answered. Every element is
+                // stored, so the block isn't cleared first.
                 let n = st.scratch;
                 self.imm_to(n, elems.len() as u64);
                 self.emit(
-                    "elemalloc",
+                    "elemalloc/raw",
                     &[
                         Lit::D.of(d0 as u64),
                         Lit::A.of(n as u64),
@@ -576,12 +577,21 @@ impl<'a> Jit<'a> {
             }
             // The count goes through scratch first, because the destination's
             // slot may be the one the count dies in.
-            Inst::ArrayAlloc { dest, ty, len } => {
+            Inst::ArrayAlloc {
+                dest,
+                ty,
+                len,
+                partial,
+            } => {
                 let stride = u64::from(self.list_elem(prog, *ty).0);
                 let (d, n) = (st.at(*dest), st.scratch);
                 self.mv(n, st.at(*len), 8);
                 self.emit(
-                    "elemalloc",
+                    if *partial {
+                        "elemalloc"
+                    } else {
+                        "elemalloc/raw"
+                    },
                     &[
                         Lit::D.of(u64::from(d)),
                         Lit::A.of(u64::from(n)),

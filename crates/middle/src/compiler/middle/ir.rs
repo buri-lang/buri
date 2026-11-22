@@ -768,10 +768,15 @@ pub enum Inst {
     /// (`lower/lists.rs`).
     ///
     /// No elements is no allocation, as for [`Inst::MakeArray`].
+    ///
+    /// `partial` is set where the loop may store fewer than `len` and ends in
+    /// an [`Inst::ArrayPrefix`]. Otherwise every element is stored before the
+    /// block is read or released, so a backend need not clear it.
     ArrayAlloc {
         dest: ValueId,
         ty: ListTy,
         len: ValueId,
+        partial: bool,
     },
     /// Stores `value` as element `index` of a block an [`Inst::ArrayAlloc`]
     /// in this function made, which nothing else holds yet. The value's counts

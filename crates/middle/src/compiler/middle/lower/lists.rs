@@ -477,6 +477,7 @@ impl FnLower<'_> {
                     dest,
                     ty: out_l,
                     len: n,
+                    partial: false,
                 });
                 let w = self.walk(n, &[]);
                 let e = element(self, w.i);
@@ -497,6 +498,7 @@ impl FnLower<'_> {
                     dest,
                     ty: out_l,
                     len: n,
+                    partial: true,
                 });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
@@ -548,6 +550,7 @@ impl FnLower<'_> {
                     dest,
                     ty: out_l,
                     len: n,
+                    partial: true,
                 });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
@@ -803,6 +806,7 @@ impl FnLower<'_> {
             dest,
             ty: out_l,
             len: n,
+            partial: false,
         });
         let w = self.walk(n, &[]);
         let t = self.list_of(a);
@@ -872,6 +876,7 @@ impl FnLower<'_> {
             dest,
             ty: out_l,
             len: total,
+            partial: false,
         });
         let zero = self.int(Type::I64, 0);
         let outer = self.walk(n, &[zero]);
@@ -1126,6 +1131,7 @@ impl FnLower<'_> {
             dest,
             ty: out_l,
             len: n,
+            partial: false,
         });
         let w = self.walk(n, &[]);
         let t = self.list_of(elem);
@@ -1264,11 +1270,13 @@ impl FnLower<'_> {
             dest,
             ty: list,
             len: n,
+            partial: false,
         });
         let b0 = self.emit(list_t, |dest| Inst::ArrayAlloc {
             dest,
             ty: list,
             len: n,
+            partial: false,
         });
         // A descending list is copied from its end.
         let descending = self.bin(BinOp::Eq, Prim::I64, shape, two);

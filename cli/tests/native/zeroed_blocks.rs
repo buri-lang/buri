@@ -86,13 +86,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 const MAP_COUNTS: (u64, u64) = (100_000, 400_000);
 
 /// **A short list's zeroed block is cleared without a call.** Each map of
-/// four `Int`s allocates zeroed blocks, the list's 32 bytes among them, which
-/// the allocator cleared with a call to `memset`. Now a block of up to 64
-/// bytes is cleared with a few wide stores.
+/// four `Int`s allocated zeroed blocks, the list's 32 bytes among them, which
+/// the allocator cleared with a call to `memset`. Then a block of up to 64
+/// bytes was cleared with a few wide stores. Now the list's block, whose
+/// every element the map stores, isn't cleared at all; the closure's still
+/// is.
 ///
 /// The bound is on the instructions one map costs: the allocations, their
 /// clearing, four elements, the frees and a step of the loop. On macOS
-/// stencil, 456 to 419. The bound sits about halfway, so it fails if the
+/// stencil, 456 to 419, and 405 once the list's block wasn't cleared. The bound sits about halfway, so it fails if the
 /// clearing goes back to a call, and leaves the rest about 4% to grow.
 #[test]
 fn a_short_lists_zeroed_block_is_cleared_without_a_call() {

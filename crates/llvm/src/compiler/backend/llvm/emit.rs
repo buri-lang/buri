@@ -1030,7 +1030,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 from,
                 owned: true,
             } => self.array_slice_owned(state, code, *dest, (*array, *ty), *from),
-            ir::Inst::ArrayAlloc { dest, ty, len } => self.array_alloc(state, *dest, *ty, *len),
+            ir::Inst::ArrayAlloc { dest, ty, len, .. } => self.array_alloc(state, *dest, *ty, *len),
             ir::Inst::ArraySet {
                 array,
                 ty,

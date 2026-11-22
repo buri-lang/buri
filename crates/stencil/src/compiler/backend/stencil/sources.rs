@@ -789,15 +789,26 @@ fn moves(o: &mut Out) {
     // bytes with VALUE-MODEL.md §2's header, or a null block for an empty
     // list, which is what `buri_rt_list_new` answers. Once per list operation,
     // not once per element — so it stays a call.
-    // Zeroed, not raw: the release glue walks a block's whole capacity and
-    // skips null entries, and `filter` leaves its rejected slots unwritten.
-    o.push(
-        "elemalloc",
-        "void $NAME(ARGS0) { uint64_t n = AT(uint64_t, _JIT_A); \
-         AT(uint64_t, _JIT_D) = n ? (uint64_t)(uintptr_t)buri_rt_alloc_zeroed(n * (uint64_t)OFF(_JIT_P)) \
-         : (uint64_t)0; TAIL0; }"
-            .into(),
-    );
+    // Zeroed where the loop may store fewer elements than the block holds
+    // (`filter`): the release glue walks a block's whole capacity and skips
+    // null entries. `elemalloc/raw` is for a block every element of which is
+    // stored before anything reads or releases it, such as `map`'s or a list
+    // literal's, where clearing it first is wasted.
+    // The hint is at 0.9, as `strcat`'s is, so Apple's clang keeps the call inline.
+    for (key, alloc) in [
+        ("elemalloc", "buri_rt_alloc_zeroed"),
+        ("elemalloc/raw", "buri_rt_alloc"),
+    ] {
+        o.push(
+            key,
+            format!(
+                "void $NAME(ARGS0) {{ uint64_t n = AT(uint64_t, _JIT_A); \
+                 AT(uint64_t, _JIT_D) = __builtin_expect_with_probability(n != 0, 1, 0.9) \
+                 ? (uint64_t)(uintptr_t){alloc}(n * (uint64_t)OFF(_JIT_P)) \
+                 : (uint64_t)0; TAIL0; }}"
+            ),
+        );
+    }
     // `str.length` (`emit.rs::call`), with `A` the `Str`'s length word and `B`
     // its pointer word: the byte count where the ASCII flag, bit 63, is set,
     // and the runtime's scalar count only where it is not.

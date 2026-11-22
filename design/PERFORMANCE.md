@@ -11415,6 +11415,26 @@ the clock and the driver. Whether `realloc` moved it depended on the heap,
 and a move copied the bundle again: the `test-build` dev-codegen cost rose
 0.33% on d2535dba8 with no codegen change. The script is now sized once.
 
+### 6.192 A list every element of which is stored isn't cleared first, 2026-11-21
+
+```text
+a step, stencil, instructions                       before    after
+arm64 Linux, map of 64 Ints                         1,919     1,854
+arm64 Linux, map of 64 records of four Ints         2,519     2,357
+arm64 Linux, a literal of 16 Ints                   160       126
+macOS, 64 records of eight Ints over 64 Ints        1,406     1,126
+```
+
+The stencil backend allocated every list block zeroed, because `filter`
+leaves the slots it rejects unwritten and the release glue walks the whole
+block. A list literal, `map`, `zip`, `flatten`, a list's `show` and `sort`'s
+buffers store every element before anything reads the block, so they now
+take a raw block. `ArrayAlloc` carries `partial` for the two loops that end
+in `ArrayPrefix`, `filter` and `filterMap`, which still clear theirs. LLVM
+never cleared, so its counts don't move. `native::filled_lists` checks every
+way of making a list under the heap check, and bounds the extra cost of a
+wide record's step halfway between the two.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
