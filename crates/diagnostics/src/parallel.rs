@@ -177,6 +177,26 @@ where
     map_items_with(items, || (), |(), i, item| f(i, item))
 }
 
+/// `f` over each of `items` and its index, in parallel, with each result
+/// handed to `fold` in index order.
+///
+/// On one thread each result is folded as soon as it is made, while what `f`
+/// wrote is still in the cache. Collecting every result first wrote each into
+/// memory nothing had touched, and the fold then read it back from there.
+pub fn fold_items<T, R, F, G>(items: &[T], f: F, mut fold: G)
+where
+    T: Sync,
+    R: Send,
+    F: Fn(usize, &T) -> R + Sync,
+    G: FnMut(R),
+{
+    if width(items.len()) <= 1 {
+        items.iter().enumerate().for_each(|(i, item)| fold(f(i, item)));
+    } else {
+        map_items(items, f).into_iter().for_each(fold);
+    }
+}
+
 /// The same, where each worker needs a scratch table of its own.
 ///
 /// `init` runs once per worker rather than once per item, because the tables

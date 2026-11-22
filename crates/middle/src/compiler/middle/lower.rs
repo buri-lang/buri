@@ -168,37 +168,37 @@ pub fn run_with(
 
     // Lower every function across the cores. Each gets a type interner of its
     // own — the one piece of cross-function state — and its `TypeId`s are made
-    // whole-program below. `parallel::map` returns the results in index order,
-    // so `funcs` is the same vector the serial loop built.
-    let funcs: Vec<_> = program.funcs.entries().collect();
-    let lowered: Vec<(Func, TypeList, Keys)> = crate::parallel::map_items(&funcs, |_, &(i, f)| {
-        let mut types = Types::default();
-        let mut keys = Keys::default();
-        let body = f.body().filter(|_| built(i));
-        let func = lower_one(
-            program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types, &mut keys, i,
-            f, body,
-        );
-        (func, types.list, keys)
-    });
-
-    // Fold the per-function type tables into one, in function order, and remap
-    // each function's `TypeId`s onto it. The global interner meets function 0's
-    // types first, then function 1's new ones, and so on — which is the exact
-    // order a single shared interner met them in, so the emitted type table and
-    // every id in it are byte-for-byte the serial ones. The intrinsic keys
-    // fold the same way, for the same reason.
+    // whole-program in the fold.
+    //
+    // The fold takes the per-function type tables into one, in function order,
+    // and remaps each function's `TypeId`s onto it. The global interner meets
+    // function 0's types first, then function 1's new ones, and so on — which
+    // is the exact order a single shared interner met them in, so the emitted
+    // type table and every id in it are byte-for-byte the serial ones. The
+    // intrinsic keys fold the same way, for the same reason.
+    let items: Vec<_> = program.funcs.entries().collect();
     let mut types = Types::named();
     let mut keys = Keys::default();
-    let funcs: Dense<FuncIdx, Func> = lowered
-        .into_iter()
-        .map(|(mut func, local, local_keys)| {
+    let mut funcs: Dense<FuncIdx, Func> = Dense::with_capacity(items.len());
+    crate::parallel::fold_items(
+        &items,
+        |_, &(i, f)| {
+            let mut types = Types::default();
+            let mut keys = Keys::default();
+            let body = f.body().filter(|_| built(i));
+            let func = lower_one(
+                program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types,
+                &mut keys, i, f, body,
+            );
+            (func, types.list, keys)
+        },
+        |(mut func, local, local_keys): (Func, TypeList, Keys)| {
             let remap = types.adopt(tables, local);
             remap_func_types(&mut func, &remap);
             keys.adopt(&mut func, &local_keys, &remap);
-            func
-        })
-        .collect();
+            funcs.push(func);
+        },
+    );
     let roots = match &program.roots {
         ProgramRoots::Main(root) => ir::Roots::Main(ir::Main {
             root: *root,
