@@ -2411,6 +2411,22 @@ impl<'a> Jit<'a> {
         }
     }
 
+    /// The slots [`Fn2::spills`] has written at the start of block `b`, from
+    /// the registers their loop left them in.
+    pub(crate) fn spill(&mut self, code: &ir::Code, st: &Fn2, b: ir::BlockId) {
+        let at = st.spills.partition_point(|(y, _)| *y < b);
+        for (_, p) in st.spills.iter().skip(at).take_while(|(y, _)| *y == b) {
+            let Some(k) = *st.reg.get(*p) else {
+                continue;
+            };
+            let g = code.ty_of(*p) == ir::Type::F64;
+            self.emit(
+                &key![if g { "stwg" } else { "stw" }, "/r", k],
+                &[Lit::D.of(u64::from(st.at(*p))), Jump::Cont.to(V::Fall)],
+            );
+        }
+    }
+
     fn reg_move(&mut self, k: Reg, float: bool, src: RSrc) {
         match src {
             RSrc::Reg(j) => self.emit(

@@ -627,6 +627,10 @@ struct Var {
     gain: i32,
     /// Whether every read can take a register: one inside its own region.
     reg_ok: bool,
+    /// Whether a read inside its own region takes the frame slot.
+    slot_inside: bool,
+    /// Whether it is read outside its own region.
+    outside: bool,
 }
 
 /// What every instruction and terminator of one function reads, listed once.
@@ -1294,6 +1298,10 @@ pub(crate) struct Fn2 {
     /// literals reads first, which the definition writes to `r2` as well as to
     /// its slot so that the test need not load it (`Jit::chain_test`).
     pub r2_for: Option<ir::ValueId>,
+    /// The loop variables whose slots are written where their loop is left
+    /// (`exit_spills`), each beside the block whose start writes it, in
+    /// block order.
+    pub spills: Vec<(ir::BlockId, ir::ValueId)>,
 }
 
 /// A frame word, or a byte tag, that the last test emitted left in `r2`
@@ -1345,6 +1353,7 @@ impl Fn2 {
             threads: Vec::new(),
             carry: None,
             r2_for: None,
+            spills: Vec::new(),
         }
     }
 
@@ -1412,6 +1421,13 @@ impl Fn2 {
 
     fn reg_of(&self, v: ir::ValueId) -> Option<Reg> {
         *self.reg.get(v)
+    }
+
+    /// Whether the start of block `b` writes a loop variable's slot
+    /// ([`Fn2::spills`]), so that nothing may run `b`'s work in its place.
+    pub fn spills_at(&self, b: ir::BlockId) -> bool {
+        let at = self.spills.partition_point(|(y, _)| *y < b);
+        self.spills.get(at).is_some_and(|(y, _)| *y == b)
     }
 
     fn is_imm(&self, v: ir::ValueId) -> bool {
@@ -1746,8 +1762,14 @@ impl<'a> Jit<'a> {
                 st.wt = code.per_value_in(&mut st.wt, true);
                 st.cross = code.per_value_in(&mut st.cross, 0);
                 st.region = code.per_block_in(&mut st.region, 0);
-                let taken =
-                    self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
+                let taken = self.promote(
+                    code,
+                    &mut st.reg,
+                    &mut st.wt,
+                    &mut st.cross,
+                    &mut st.region,
+                    &mut st.spills,
+                );
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
@@ -1785,6 +1807,7 @@ impl<'a> Jit<'a> {
                         }
                     }
                     st.r2_for = r2_for(block, &plan);
+                    self.spill(code, &st, id);
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
                     for (inst, skip) in block.insts.iter().zip(plan.skip.iter()) {
@@ -3569,9 +3592,10 @@ impl<'a> Jit<'a> {
         wt: &mut ir::PerValue<bool>,
         cross: &mut ir::PerValue<u32>,
         region: &mut ir::PerBlock<u32>,
+        spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
     ) -> (usize, usize) {
         let Bufs { loops, vars, .. } = &mut self.bufs;
-        promote(loops, vars, code, out, wt, cross, region)
+        promote(loops, vars, code, out, wt, cross, region, spills)
     }
 
     /// The CPS register assignment.
@@ -3964,7 +3988,11 @@ pub(crate) fn copyless_test<'c>(
     let ir::Term::Branch { cond, then, else_ } = &header.term else {
         return None;
     };
-    if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
+    if st.spills_at(t.block)
+        || header.insts.len() != 1
+        || !then.args.is_empty()
+        || !else_.args.is_empty()
+    {
         return None;
     }
     let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
@@ -4026,6 +4054,9 @@ pub(crate) fn forward(b: &ir::Block) -> Option<&ir::Target> {
 /// enum, and every edge passes it in the one slot, so they copy nothing of it
 /// either.
 pub(crate) fn thread(code: &ir::Code, st: &Fn2, from: ir::BlockId) -> Option<Thread> {
+    if st.spills_at(from) {
+        return None;
+    }
     let a = code.get(from);
     let ir::Term::Jump(t) = &a.term else {
         return None;
@@ -4391,6 +4422,18 @@ impl Dominance {
         }
     }
 
+    /// Whether every way from the root to `b` passes `a`, both being blocks
+    /// some way in reaches.
+    fn dominates(&self, a: ir::BlockId, b: ir::BlockId) -> bool {
+        match (
+            *self.range.get(Node::Block(a)),
+            *self.range.get(Node::Block(b)),
+        ) {
+            (Some((lo, hi)), Some((at, _))) => lo <= at && at < hi,
+            _ => false,
+        }
+    }
+
     /// Whether [`Jit::promote`]'s walk could accept the back edge from `p` to
     /// `h`. A `false` is certain; a `true` is for the walk to decide.
     ///
@@ -4414,6 +4457,10 @@ impl Dominance {
 }
 
 /// [`Jit::promote`], over the buffers it keeps between functions.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the buffers `Jit` keeps between functions, each filled here"
+)]
 fn promote(
     loops_buf: &mut Loops,
     vars_buf: &mut ir::PerValue<Var>,
@@ -4422,7 +4469,9 @@ fn promote(
     wt: &mut ir::PerValue<bool>,
     cross: &mut ir::PerValue<u32>,
     region: &mut ir::PerBlock<u32>,
+    spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
 ) -> (usize, usize) {
+    spills.clear();
     // Every register but the last: one has to be left for the expression
     // temporaries the paper's own allocator keeps there, or the arithmetic
     // inside the loop loses more than the loop variable gains.
@@ -4465,6 +4514,8 @@ fn promote(
         uses: 0,
         gain: 0,
         reg_ok: true,
+        slot_inside: false,
+        outside: false,
     };
     let mut vars = code.per_value_in(vars_buf, init);
     for (n, h) in (1u32..).zip(headers.iter()) {
@@ -4485,6 +4536,8 @@ fn promote(
             if ours {
                 v.gain += if ok { 1 } else { -1 };
             }
+            v.slot_inside |= ours && !ok;
+            v.outside |= !ours;
             v.reg_ok &= ok && ours;
         };
         for i in &b.insts {
@@ -4508,6 +4561,9 @@ fn promote(
                 let own = vars.get(*p).owner != 0;
                 let v = vars.get_mut(*a);
                 v.uses += 1;
+                let ours = inside != 0 && v.owner == inside;
+                v.slot_inside |= ours && !(*p == *a && own);
+                v.outside |= !ours;
                 v.reg_ok &= *p == *a && own;
             }
         }
@@ -4641,10 +4697,118 @@ fn promote(
             }
         }
     }
+    for (n, h) in (1u32..).zip(headers.iter()) {
+        exit_spills(&loops, &vars, code, body, n, *h, out, cross, wt, spills);
+    }
+    spills.sort_unstable();
     *vars_buf = vars;
     loops.headers = headers;
     *loops_buf = loops;
     (ri, rf)
+}
+
+/// The loop variables of region `n`, headed by `h`, that are read outside the
+/// region but only from their registers inside it. Each one's slot is written
+/// where the loop is left rather than on every way back: once, at the start of
+/// each block outside the region that a read of it is past, where `wt` had
+/// the edges write it on each step.
+///
+/// A block the loop is left into has the block it is left from as its only
+/// way in, and a read past it is past nothing but that way out since the
+/// last time the loop ran: the loop is entered only at its header, so getting
+/// back to the block means leaving through it again. So its register still
+/// holds the variable there, unless the block left from has written the
+/// variable's next value into it. A variable some read of which is past no
+/// such block keeps `wt`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the tables `promote` has just filled"
+)]
+fn exit_spills(
+    loops: &Loops,
+    vars: &ir::PerValue<Var>,
+    code: &ir::Code,
+    body: &ir::PerBlock<u32>,
+    n: u32,
+    h: ir::BlockId,
+    out: &ir::PerValue<Option<Reg>>,
+    cross: &ir::PerValue<u32>,
+    wt: &mut ir::PerValue<bool>,
+    spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
+) {
+    let wanted = |p: ir::ValueId| {
+        let v = vars.get(p);
+        out.get(p).is_some() && *wt.get(p) && v.outside && !v.slot_inside
+    };
+    let wanted: Vec<ir::ValueId> = code
+        .get(h)
+        .params
+        .iter()
+        .copied()
+        .filter(|p| wanted(*p))
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    // The ways out of the region, `(from, into)`, into a block nothing else
+    // enters.
+    let mut exits: Vec<(ir::BlockId, ir::BlockId)> = Vec::new();
+    for (x, b) in code.iter() {
+        if *body.get(x) != n {
+            continue;
+        }
+        for t in b.term.targets() {
+            let y = t.block;
+            let only = loops.preds.of(Node::Block(y)).iter().all(|p| *p == x);
+            if *body.get(y) != n && only {
+                exits.push((x, y));
+            }
+        }
+    }
+    let mut ops = Vec::new();
+    for p in wanted {
+        let k = *out.get(p);
+        // Whether the block left from still holds `p` in its register.
+        let holds = |x: ir::BlockId| {
+            !code.get(x).insts.iter().any(|i| {
+                i.results()
+                    .iter()
+                    .any(|r| *out.get(*r) == k && *cross.get(*r) == n)
+            })
+        };
+        let start = spills.len();
+        let mut every = true;
+        for (z, b) in code.iter() {
+            if *body.get(z) == n {
+                continue;
+            }
+            ops.clear();
+            for i in &b.insts {
+                i.operands(&mut ops);
+            }
+            b.term.operands(&mut ops);
+            ops.extend(b.term.targets().flat_map(|t| t.args.iter().copied()));
+            if !ops.contains(&p) {
+                continue;
+            }
+            let past = exits
+                .iter()
+                .find(|(x, y)| loops.dom.dominates(*y, z) && holds(*x));
+            match past {
+                Some((_, y)) => spills.push((*y, p)),
+                None => {
+                    every = false;
+                    break;
+                }
+            }
+        }
+        if every {
+            *wt.get_mut(p) = false;
+        } else {
+            spills.truncate(start);
+        }
+    }
+    spills.dedup();
 }
 
 /// How many times each value of `code` is read: as an instruction's operand, as
@@ -4874,6 +5038,8 @@ mod tests {
             uses: 0,
             gain: 0,
             reg_ok: true,
+            slot_inside: false,
+            outside: false,
         });
         let mut out = code.per_value(None);
         let mut wt = code.per_value(true);
@@ -4887,6 +5053,7 @@ mod tests {
             &mut wt,
             &mut cross,
             &mut region,
+            &mut Vec::new(),
         );
         (*out.get(i), *out.get(next))
     }
