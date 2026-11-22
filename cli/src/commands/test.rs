@@ -2329,12 +2329,7 @@ fn start_js(suite: JsSuite, shared: &Shared) -> Done {
 /// The bundle is the whole program: a test program is never split into
 /// `core/lazy` chunks (`middle::chunks`), and its stylesheet is inside it.
 fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnostics> {
-    let mut source = bundle.to_string();
-    // The order `anyOrder()` schedules with, and the action's clock, spliced in
-    // after the runtime is defined and before a test could reach either.
-    source.push_str(&format!("\n$t.seed={}n;\n", seed_of(&run.key)));
-    source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
-    source.push_str(driver);
+    let source = bundle_source(bundle, seed_of(&run.key), driver);
     // A file already holding these bytes is left alone, as `place_from` leaves a runner.
     let path = &run.path.file;
     let holds = std::fs::metadata(path).is_ok_and(|m| m.len() == source.len() as u64)
@@ -2351,6 +2346,22 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
         );
         d.at_run()
     })
+}
+
+/// The bundle, then the order `anyOrder()` schedules with and the action's
+/// clock, spliced in after the runtime is defined and before a test could
+/// reach either, then `driver`.
+///
+/// Sized once: a bundle is the whole program, and growing a copy of it to fit
+/// the rest could copy all of it again.
+fn bundle_source(bundle: &str, seed: u128, driver: &str) -> String {
+    let seed = format!("\n$t.seed={seed}n;\n");
+    let clock = crate::build::spawn::FIXED_CLOCK_JS;
+    let mut source = String::with_capacity(bundle.len() + seed.len() + clock.len() + driver.len());
+    for part in [bundle, &seed, clock, driver] {
+        source.push_str(part);
+    }
+    source
 }
 
 fn cannot_run(why: &str) -> Diagnostics {
@@ -6360,6 +6371,20 @@ fn report_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A suite's bundle is copied once into the script that runs it: the
+    /// script is sized for the bundle, the seed line, the clock and the
+    /// driver before any of them goes in, so none of them grows it. Growing
+    /// it copied the whole bundle again, on a heap where it couldn't grow in
+    /// place. The whole-run half is every JavaScript suite `buri test` runs.
+    #[test]
+    fn a_bundle_is_copied_once_into_its_script() {
+        let bundle = "x".repeat(100_000);
+        let script = bundle_source(&bundle, 7, "driver();");
+        let clock = crate::build::spawn::FIXED_CLOCK_JS;
+        assert_eq!(script, format!("{bundle}\n$t.seed=7n;\n{clock}driver();"));
+        assert_eq!(script.capacity(), script.len());
+    }
 
     /// A recorded span read back after a comment edit: an end in a token moves
     /// with it, an end between tokens moves with it while the text there stays
