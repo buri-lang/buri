@@ -1,0 +1,80 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A field taller than its line height, or with a percentage height,
+// sets its value on a `normal` line, as a field whose line height is its
+// type's does.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/tall" import { filled, three };
+
+test "fields 40px tall set their values on a normal line, not their own" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "fixed",
+        three(
+            filled(ctx, [.Height(.Px(40)), .LineHeight(1.25)]),
+            filled(ctx, [.Height(.Px(40)), .LineHeight(1.5)]),
+            filled(ctx, [.Height(.Px(40)), .LineHeight(2.0)]),
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "fields 40px tall set their values on a normal line as their type's" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "fixed",
+        three(
+            filled(ctx, [.Height(.Px(40)), .LineHeight(1.0)]),
+            filled(ctx, [.Height(.Px(40)), .LineHeight(1.0)]),
+            filled(ctx, [.Height(.Px(40)), .LineHeight(1.0)]),
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "fields with a percentage height that comes to nothing are a normal line tall" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "percent",
+        three(
+            filled(ctx, [.Height(.Percent(50.0)), .LineHeight(1.25)]),
+            filled(ctx, [.Height(.Percent(50.0)), .LineHeight(1.5)]),
+            filled(ctx, [.Height(.Percent(50.0)), .LineHeight(2.0)]),
+        ),
+        .Hover,
+        [],
+    );
+}
+
+test "fields whose line height is their type's are a normal line tall" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "percent",
+        three(
+            filled(ctx, [.LineHeight(1.0)]),
+            filled(ctx, [.LineHeight(1.0)]),
+            filled(ctx, [.LineHeight(1.0)]),
+        ),
+        .Hover,
+        [],
+    );
+}

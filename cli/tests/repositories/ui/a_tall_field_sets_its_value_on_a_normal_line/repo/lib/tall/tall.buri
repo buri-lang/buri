@@ -1,0 +1,29 @@
+//! Fields holding "Ada" at line heights a browser sets on a `normal` line.
+
+from "platform/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { signal };
+from "ui/style" import { Style };
+
+/// A text field labelled "Name" holding "Ada", with `styles`.
+export fn filled<C: Ui>(ctx: C, styles: [Style]): Node<C> {
+    ui.field({
+        label: .Const("Name"),
+        kind: .Text,
+        value: signal(ctx, "Ada"),
+        styles: styles,
+        hint: .None,
+        around: .Some([.Layout(.Row)]),
+        isInvalid: .None,
+        isDisabled: .None,
+    })
+}
+
+/// Three fields, one under another: `first`, `second` and `third`.
+export fn three<C: Ui>(first: Node<C>, second: Node<C>, third: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Layout(.Column), .AlignCross(.Start), .Gap(.Px(4))],
+        children: [first, second, third],
+    })
+}

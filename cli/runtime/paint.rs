@@ -1933,13 +1933,18 @@ impl Computed {
         child.editor = self.editor;
         child.button = self.button;
         // A single-line field's editor never sets its line tighter than its
-        // type: where the line height is no taller than the font size, Blink
-        // gives the editor `line-height: normal`
+        // type: where the line height, cut to a whole pixel, is no taller
+        // than the font size, Blink gives the editor `line-height: normal`
         // (`TextControlInnerEditorElement::CustomStyleForLayoutObject`), and
-        // the field is that line tall.
+        // the field is that line tall. It does the same where the field's
+        // height is a percentage, or a length taller than that line, which
+        // moves the value to where a `normal` line centres it.
+        let line = (self.font_size * self.line_height).floor();
         if self.field
             && self.editor == Editor::Line
-            && (self.font_size * self.line_height).floor() <= self.font_size
+            && (line <= self.font_size
+                || matches!(self.size[1], Len::Percent(_))
+                || matches!(self.size[1], Len::Px(height) if height > line))
         {
             child.line_height = normal_line(self) / self.font_size.max(1.0);
         }

@@ -1,0 +1,21 @@
+# A field taller than its line sets its value on a `normal` line, each scene
+# beside a twin whose line height is its type's, which a browser also sets
+# on a `normal` line. Both tests of a pair compare against one golden. Blink
+# gives a single-line field's editor `line-height: normal` when the field's
+# height is a percentage, or a length taller than the field's line height cut
+# to a whole pixel (`TextControlInnerEditorElement`), so the value sits where
+# a `normal` line centres it, and a field whose percentage height comes to
+# nothing is a `normal` line tall.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a field taller than its line, or with a percentage height, sets its value on a normal line, in the painter"
+
+run {
+  args: ["test", "//lib/tall", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/tall/test/__snapshots__/fixed.diff.png"  exists: false }
+path { path: "lib/tall/test/__snapshots__/percent.diff.png"  exists: false }
