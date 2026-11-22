@@ -4981,11 +4981,21 @@ mod tests {
         dest
     }
 
+    /// Where the block `b2` of [`next_value_registers`] goes.
+    #[derive(Clone, Copy)]
+    enum Way {
+        /// Back to the header, and nowhere else.
+        Back,
+        /// Back to the header, or on to a block of the loop that reads `i`.
+        Inside,
+        /// Back to the header, or out of the loop to a block that reads `i`.
+        Out,
+    }
+
     /// A loop over `i` whose block `b2` computes `i + 1` and hands it back to
-    /// the header, or else goes on to `b3`, which reads `i` and, with
-    /// `inside`, goes back to the header too. Answers the register `i` took
-    /// and the one `i + 1` took.
-    fn next_value_registers(inside: bool) -> (Option<Reg>, Option<Reg>) {
+    /// the header, going on as `way` says to `b3`, which reads `i`. Answers
+    /// the register `i` took and the one `i + 1` took.
+    fn next_value_registers(way: Way) -> (Option<Reg>, Option<Reg>) {
         let mut code = ir::Code::new(&[ir::Type::I64, ir::Type::I64]);
         let [n, one] = code.entry().params[..] else {
             panic!("the entry takes two parameters")
@@ -5004,18 +5014,21 @@ mod tests {
         };
         let next = bin(&mut code, b2, ir::BinOp::Add, i, one);
         let back = bin(&mut code, b2, ir::BinOp::Eq, acc, one);
-        code.get_mut(b2).term = ir::Term::Branch {
-            cond: back,
-            then: ir::Target::new(header, vec![next, acc]),
-            else_: ir::Target::to(b3),
+        let again = ir::Target::new(header, vec![next, acc]);
+        code.get_mut(b2).term = match way {
+            Way::Back => ir::Term::Jump(again),
+            Way::Inside | Way::Out => ir::Term::Branch {
+                cond: back,
+                then: again,
+                else_: ir::Target::to(b3),
+            },
         };
         // `b3` reads `i`, and is part of the loop only when it goes back.
         let i2 = bin(&mut code, b3, ir::BinOp::Add, i, i);
         let acc2 = bin(&mut code, b3, ir::BinOp::Add, acc, i);
-        code.get_mut(b3).term = if inside {
-            ir::Term::Jump(ir::Target::new(header, vec![i2, acc2]))
-        } else {
-            ir::Term::Return(acc2)
+        code.get_mut(b3).term = match way {
+            Way::Inside => ir::Term::Jump(ir::Target::new(header, vec![i2, acc2])),
+            Way::Back | Way::Out => ir::Term::Return(acc2),
         };
         code.get_mut(exit).term = ir::Term::Return(acc);
         let mut spare = code.per_value(Var {
@@ -5043,15 +5056,18 @@ mod tests {
         (*out.get(i), *out.get(next))
     }
 
-    /// The back edge's value takes its parameter's register only when no
-    /// block of the loop past it still reads the parameter there.
+    /// The back edge's value takes its parameter's register only where every
+    /// way on is back to the header: a block past it, in the loop or out of
+    /// it, would read the parameter there.
     #[test]
     fn a_next_value_shares_its_register_only_when_the_loop_reads_no_more() {
-        let (i, next) = next_value_registers(false);
+        let (i, next) = next_value_registers(Way::Back);
         assert!(i.is_some());
         assert_eq!(next, i);
-        let (i, next) = next_value_registers(true);
-        assert!(i.is_some());
-        assert_eq!(next, None);
+        for way in [Way::Inside, Way::Out] {
+            let (i, next) = next_value_registers(way);
+            assert!(i.is_some());
+            assert_eq!(next, None);
+        }
     }
 }
