@@ -1,0 +1,45 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A rounded border wider at the sides than at the top rounds its
+// inside less across than down.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "//lib/ring" import { bordered, filled };
+
+test "a border wider at the sides rounds its inside 10px across and 16px down" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sides", bordered(.Px(22), .Px(20)), .Hover, []);
+}
+
+test "a white box with corners 10px across and 16px down inside a blue one" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "sides", filled(.Px(22), .Px(20), .Percent(25.0)), .Hover, []);
+}
+
+test "a pill-shaped border wider at the sides keeps a pill inside" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "corner", bordered(.Percent(50.0), .Percent(50.0)), .Hover, []);
+}
+
+test "a white pill inside a blue one where that border's inside edge is" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "corner",
+        filled(.Percent(50.0), .Percent(50.0), .Percent(50.0)),
+        .Hover,
+        [],
+    );
+}

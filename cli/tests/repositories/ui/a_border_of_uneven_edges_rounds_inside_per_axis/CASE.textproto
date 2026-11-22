@@ -1,0 +1,20 @@
+# A rounded border whose edges are different widths turns on an ellipse
+# inside, each scene beside a twin that draws the same ring another way, both
+# seen through one rounded window that hides their outside edges. Both tests
+# of a pair compare against one golden. A browser's padding box takes
+# each corner's across radius less the side edge and its down radius less the
+# top or bottom edge (CSS Backgrounds 3 §5.2), so a border wide at the sides
+# and thin at the top rounds less across than down inside.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a rounded border of uneven edges rounds its inside by each edge on its own axis, in the painter"
+
+run {
+  args: ["test", "//lib/ring", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/ring/test/__snapshots__/sides.diff.png"  exists: false }
+path { path: "lib/ring/test/__snapshots__/corner.diff.png"  exists: false }

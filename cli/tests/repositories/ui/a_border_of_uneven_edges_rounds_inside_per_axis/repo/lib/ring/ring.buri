@@ -1,0 +1,69 @@
+//! A box 64px wide and 76px tall with corners `round`, drawn two ways: as a
+//! blue border 12px at the sides and 6px at the top and bottom, and as a blue
+//! box with a white one inside. Each is seen through a window 2px smaller all
+//! round, with corners 2px smaller, so both share the window's outside edge.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Length };
+
+/// The box with a blue border 12px wide at the sides and 6px at the top and
+/// bottom, in a window with corners `window`.
+export fn bordered<C>(round: Length, window: Length): Node<C> {
+    framed(
+        window,
+        ui.stack({
+            styles: [
+                .Width(.Px(64)),
+                .Height(.Px(76)),
+                .BorderWidth(.Px(6)),
+                .BorderEdge(.Start, .Px(12)),
+                .BorderEdge(.End, .Px(12)),
+                .BorderColor(.Rgb(0, 0, 255)),
+                .Radius(round),
+            ],
+            children: [],
+        }),
+    )
+}
+
+/// The box filled blue, holding a white box 40px wide and 64px tall with
+/// corners `inside` where the border's inside edge is, in a window with
+/// corners `window`.
+export fn filled<C>(round: Length, window: Length, inside: Length): Node<C> {
+    framed(
+        window,
+        ui.stack({
+            styles: [
+                .Width(.Px(64)),
+                .Height(.Px(76)),
+                .PaddingX(.Px(12)),
+                .PaddingY(.Px(6)),
+                .Background(.Rgb(0, 0, 255)),
+                .Radius(round),
+            ],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Width(.Px(40)),
+                        .Height(.Px(64)),
+                        .Background(.Rgb(255, 255, 255)),
+                        .Radius(inside),
+                    ],
+                    children: [],
+                }),
+            ],
+        }),
+    )
+}
+
+/// `box` moved 2px up and left into a window 60px wide and 72px tall with
+/// corners `window`, which cuts off its outside edge.
+fn framed<C>(window: Length, box: Node<C>): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(60)), .Height(.Px(72)), .Radius(window), .Clip(true)],
+        children: [
+            ui.stack({ styles: [.Translate(.Px(-2), .Px(-2))], children: [box] }),
+        ],
+    })
+}

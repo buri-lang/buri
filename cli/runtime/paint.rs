@@ -6561,22 +6561,15 @@ fn stroke_edges(
     };
     ring.fill_path(&outer, FillRule::Winding, true, to_device());
     let [l, t, r, b] = [box_.l as f32, box_.t as f32, box_.r as f32, box_.b as f32];
-    // Each corner pulls in by the mean of the two edges that meet at it, on
-    // both of its axes, so the ring keeps an even thickness round a corner
-    // whose two edges are different widths.
-    let pull = |corner: [f32; 2], by: f32| corner.map(|r| (r - by).max(0.0));
-    let inner_radii = [
-        pull(radii[0], (widths[0] + widths[2]) / 2.0),
-        pull(radii[1], (widths[1] + widths[2]) / 2.0),
-        pull(radii[2], (widths[0] + widths[3]) / 2.0),
-        pull(radii[3], (widths[1] + widths[3]) / 2.0),
-    ];
+    // Each corner's across radius pulls in by the side edge and its down
+    // radius by the top or bottom edge, as a browser's padding box does, so a
+    // corner whose two edges are different widths turns on an ellipse.
     let inner = rounded(
         l + widths[0],
         t + widths[2],
         r - widths[1],
         b - widths[3],
-        inner_radii,
+        inner_radii(radii, box_, widths),
     );
     // The ring is zero outside the border box, so cutting the hole and meeting
     // the clip only need the rows and columns the box reaches.
