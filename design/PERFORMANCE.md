@@ -11473,6 +11473,23 @@ field is read with no count of its own and each answer is released once.
 doesn't move. `native::one_field_derives` checks the operands are evaluated
 once and in order, and bounds the step at 5 over the named one.
 
+### 6.195 A loop variable read after the loop is written once, 2026-11-22
+
+```text
+a step, stencil, macOS, instructions               before    after
+a loop whose totals are read after it               13.0      12.0
+the same loop, totals not read after                12.0      12.0
+```
+
+The stencil backend wrote each loop variable that code after the loop reads
+to its frame slot on every way back. Now `promote` writes it once, at the
+start of each block outside the loop that a read of it is past, as long as
+the block the loop is left from still holds it in its register. The reads
+outside a loop are noted in the same walk that counts each value's uses, so
+finding them costs no extra pass. `native::loop_registers` checks the
+totals read after loops of every shape, and bounds the extra cost a step at
+0.5.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
