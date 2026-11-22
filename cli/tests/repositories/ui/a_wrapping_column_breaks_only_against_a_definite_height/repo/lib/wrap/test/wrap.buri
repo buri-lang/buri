@@ -521,7 +521,9 @@ test "the boxes in a row the plain way where the capped-shrunk scene puts them" 
         "capped-shrunk",
         ui.stack({
             styles: [.Layout(.Column), .Height(.Px(60))],
-            children: [ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() })],
+            children: [
+                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() }),
+            ],
         }),
         .Hover,
         [],
@@ -566,7 +568,9 @@ test "the boxes in a row the plain way where the maximum-shrunk scene puts them"
         "maximum-shrunk",
         ui.stack({
             styles: [.Layout(.Column), .Height(.Px(60))],
-            children: [ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() })],
+            children: [
+                ui.stack({ styles: [.Layout(.Row), .Gap(.Px(8))], children: boxes() }),
+            ],
         }),
         .Hover,
         [],
@@ -689,7 +693,12 @@ test "a wrapping column of no width is as wide as its tracks" {
             styles: [.Layout(.Row), .Gap(.Px(8)), .AlignCross(.Start)],
             children: [
                 ui.stack({
-                    styles: [.Layout(.Column), .Wrap(true), .Gap(.Px(8)), .MaxHeight(.Px(50))],
+                    styles: [
+                        .Layout(.Column),
+                        .Wrap(true),
+                        .Gap(.Px(8)),
+                        .MaxHeight(.Px(50)),
+                    ],
                     children: [square(.Rgb(255, 0, 0)), square(.Rgb(0, 0, 255))],
                 }),
                 square(.Rgb(0, 160, 0)),
