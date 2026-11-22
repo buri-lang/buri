@@ -866,15 +866,44 @@ function lengthIn(value, room, anchor = null) {
   throw new Error(`placedAt: the length ${value}`);
 }
 // The `dimension` of `element`'s border box: where `placedAt` lays it out
-// when it is out of the flow, else its own, never less than its padding and
-// border, else what it takes from the flow.
+// when it is out of the flow, else where `flexMain` flexes it along its flex
+// container's main axis, else its `hypothetical` size.
 function sizeOf(element, dimension) {
   if (element.parentElement === null) return viewport(dimension);
   const s = getComputedStyle(element);
   if (["absolute", "fixed"].includes(s.position)) return placedAt(element)[dimension];
-  const own = lengthIn(s[dimension], () => contentOf(element.parentElement, dimension));
+  if (mainAxis(element.parentElement) === dimension) return flexMain(element.parentElement).sizes.get(element);
+  return hypothetical(element, dimension);
+}
+// The `dimension` of `element`'s border box before any flexing: its own,
+// never less than its padding and border, else what it takes from the flow.
+function hypothetical(element, dimension) {
+  const own = ownLength(element, dimension);
   if (own !== null) return Math.max(own, padding(element, dimension) + borders(element, dimension));
   return flowSize(element, dimension);
+}
+// `element`'s own width or height in pixels, or `null` for auto. A percentage
+// height of a parent whose height isn't definite is auto, by CSS 2 §10.5.
+function ownLength(element, dimension) {
+  const value = getComputedStyle(element)[dimension];
+  if (dimension === "height" && value.endsWith("%")) {
+    const held = heldHeight(element.parentElement);
+    return held === null ? null : lengthIn(value, () => held);
+  }
+  return lengthIn(value, () => contentOf(element.parentElement, dimension));
+}
+// The height of `element`'s content box when `definiteHeight` knows it, which
+// a percentage height inside it is of, else `null`.
+function heldHeight(element) {
+  const held = definiteHeight(element);
+  if (held === null || element.parentElement === null) return held;
+  return held - padding(element, "height") - borders(element, "height");
+}
+// The axis a flex container lays its boxes along, "width" or "height", or
+// `null` for a box that isn't one.
+function mainAxis(element) {
+  if (!/flex/.test(display(element))) return null;
+  return getComputedStyle(element).flexDirection.startsWith("column") ? "height" : "width";
 }
 // The `dimension` of `element`'s content box, which its children in the flow
 // are laid out in.
@@ -926,7 +955,7 @@ function flowSize(element, dimension) {
   }
   if (dimension === "width") return wrappedLine(parent) ?? contentOf(parent, "width");
   const s = getComputedStyle(element);
-  if (/flex/.test(display(element))) {
+  if (mainAxis(element) !== null) {
     const lines = flexLines(element);
     const height = s.flexDirection.startsWith("column") ? lines.main : lines.cross;
     return height + padding(element, "height") + borders(element, "height");
@@ -960,89 +989,247 @@ function wrappedLine(container) {
 // `{ places, main, cross }`, each box's `{ x, y }` from the top left of the
 // container's content box, and how long and how deep its content box is.
 //
-// A container that wraps breaks a line before the box that would run past its
-// main size, when that is definite (`definiteHeight` for a column), else past
-// its maximum, else never. Its main size is that definite size, else its
-// longest line held to its maximum. Lines stack across it in order, each as
-// deep as its deepest box, or the one line of a container that doesn't wrap as
-// deep as the container when that is definite, and a box sits at its line's start, centre or end
-// as it aligns. A container that runs in reverse lays each line out from its
-// main end. Each box keeps the size `sizeOf` gives it: nothing grows or
-// shrinks.
+// `flexMain` breaks the lines and sizes each box along them. Lines stack
+// across the container in order, each as deep as its deepest box, or the one
+// line of a container that doesn't wrap as deep as the container when that is
+// definite, and a box sits at its line's start, centre or end as it aligns. A
+// container that runs in reverse lays each line out from its main end.
 function flexLines(container) {
   const s = getComputedStyle(container);
-  const column = s.flexDirection.startsWith("column");
-  const [main, cross] = column ? ["height", "width"] : ["width", "height"];
-  const edges = (dimension) => padding(container, dimension) + borders(container, dimension);
+  const { lines, length, column } = flexMain(container);
+  const cross = column ? "width" : "height";
+  const edges = padding(container, cross) + borders(container, cross);
   const [mainGap, crossGap] = (column ? ["row", "column"] : ["column", "row"]).map((axis) => gapOf(container, axis));
-  const definite = column ? definiteHeight(container) : sizeOf(container, "width");
-  const room = () => contentOf(container.parentElement, "height");
-  const held = definiteHeight(container.parentElement) !== null;
-  const maximum = column && (s.maxHeight.endsWith("%") ? held : true) ? lengthIn(s.maxHeight, room) : null;
-  const inner = (outer, dimension = main) => (outer === null ? null : outer - edges(dimension));
-  const limit = s.flexWrap !== "wrap" ? Infinity : (inner(definite) ?? inner(maximum) ?? Infinity);
-  const lines = [];
-  for (const item of inFlow(container)) {
-    const box = { item, main: sizeOf(item, main), cross: sizeOf(item, cross) };
-    const line = lines.at(-1);
-    if (line === undefined || line.length + mainGap + box.main > limit) {
-      lines.push({ boxes: [box], length: box.main, depth: box.cross });
-    } else {
-      line.boxes.push(box);
-      line.length += mainGap + box.main;
-      line.depth = Math.max(line.depth, box.cross);
-    }
-  }
-  const depth = s.flexWrap === "wrap" ? null : inner(column ? sizeOf(container, "width") : definiteHeight(container), cross);
-  if (lines.length === 1 && depth !== null) lines[0].depth = depth;
-  const longest = Math.max(0, ...lines.map((line) => line.length));
-  const length = inner(definite) ?? Math.min(longest, inner(maximum) ?? Infinity);
+  const deep = lines.map((line) => Math.max(0, ...line.map((box) => sizeOf(box.item, cross))));
+  const outer = s.flexWrap === "wrap" ? null : column ? sizeOf(container, "width") : definiteHeight(container);
+  if (lines.length === 1 && outer !== null) deep[0] = outer - edges;
   const places = new Map();
   let across = 0;
-  for (const line of lines) {
+  lines.forEach((line, at) => {
     let along = 0;
-    for (const box of line.boxes) {
-      const align = getComputedStyle(box.item).alignSelf;
+    for (const { item, main } of line) {
+      const align = getComputedStyle(item).alignSelf;
       const own = unsetStyle(align) ? s.alignItems : align;
-      const free = line.depth - box.cross;
+      const free = deep[at] - sizeOf(item, cross);
       const shift = /end/.test(own) ? free : own === "center" ? free / 2 : 0;
-      const start = s.flexDirection.endsWith("reverse") ? length - along - box.main : along;
-      places.set(box.item, column ? { x: across + shift, y: start } : { x: start, y: across + shift });
-      along += box.main + mainGap;
+      const start = s.flexDirection.endsWith("reverse") ? length - along - main : along;
+      places.set(item, column ? { x: across + shift, y: start } : { x: start, y: across + shift });
+      along += main + mainGap;
     }
-    across += line.depth + crossGap;
-  }
+    across += deep[at] + crossGap;
+  });
   return { places, main: length, cross: Math.max(0, across - crossGap) };
+}
+// The containers `flexMain` is flexing, each with how many times over. While
+// one is, its boxes' heights are not yet definite ([`definiteHeight`]).
+const flexing = new Map();
+// The layout's answers, kept while one question about it is being answered:
+// the page can't change in the middle of one, and without them a box's size
+// would flex its whole container again for each box in it. An answer is kept
+// for the containers being flexed when it was asked, since those change it.
+let layoutAsking = 0;
+let layoutKept = new Map();
+const layoutNames = new WeakMap();
+let layoutCount = 0;
+const layoutNameOf = (element) => {
+  if (!layoutNames.has(element)) layoutNames.set(element, layoutCount++);
+  return layoutNames.get(element);
+};
+function layoutQuestion(question) {
+  return function (...args) {
+    if (layoutAsking++ === 0) layoutKept = new Map();
+    try {
+      return question(...args);
+    } finally {
+      layoutAsking--;
+    }
+  };
+}
+function layoutAnswer(name, question) {
+  return layoutQuestion((element, ...rest) => {
+    const context = [...flexing.keys()].map(layoutNameOf).sort().join(",");
+    const key = `${name} ${layoutNameOf(element)} ${rest.join(" ")} ${context}`;
+    if (!layoutKept.has(key)) layoutKept.set(key, question(element, ...rest));
+    return layoutKept.get(key);
+  });
+}
+// How a flex container breaks its boxes in the flow into lines and sizes them
+// along its main axis, by CSS Flexbox 1 §9: `{ lines, length, sizes, column }`,
+// each line its boxes' `{ item, main }`, the length of its content box, and
+// each box's flexed border-box size.
+//
+// A container that wraps breaks a line before the box whose hypothetical size
+// would run past its main size, when that is definite (`definiteHeight` for a
+// column), else past its maximum, else never. Its main size is that definite
+// size, else its longest line held between its minimum and maximum. Each line
+// then grows or shrinks its boxes to that size ([`flexed`]).
+function flexMain(container) {
+  flexing.set(container, (flexing.get(container) ?? 0) + 1);
+  try {
+    const s = getComputedStyle(container);
+    const main = mainAxis(container);
+    const column = main === "height";
+    const edges = padding(container, main) + borders(container, main);
+    const gap = gapOf(container, column ? "row" : "column");
+    const outer = column ? definiteHeight(container) : sizeOf(container, "width");
+    const definite = outer === null ? null : outer - edges;
+    const held = column ? heldHeight(container.parentElement) : null;
+    const bound = (value) => (!column || (value.endsWith("%") && held === null) ? null : lengthIn(value, () => held));
+    const inner = (value) => (value === null ? null : value - edges);
+    const [minimum, maximum] = [inner(bound(s.minHeight)), inner(bound(s.maxHeight))];
+    const limit = s.flexWrap !== "wrap" ? Infinity : (definite ?? maximum ?? Infinity);
+    const lines = [];
+    for (const item of inFlow(container)) {
+      const box = flexItem(item, main, definite);
+      const line = lines.at(-1);
+      const used = line === undefined ? 0 : line.reduce((sum, b) => sum + b.hypothetical + gap, 0);
+      if (line === undefined || used + box.hypothetical > limit) lines.push([box]);
+      else line.push(box);
+    }
+    const longest = Math.max(0, ...lines.map((line) => line.reduce((sum, b) => sum + b.hypothetical + gap, -gap)));
+    const length = definite ?? Math.max(Math.min(longest, maximum ?? Infinity), minimum ?? 0);
+    const sizes = new Map();
+    const flexedLines = lines.map((line) => {
+      const sized = flexed(line, length, gap);
+      return line.map((box, at) => {
+        sizes.set(box.item, sized[at]);
+        return { item: box.item, main: sized[at] };
+      });
+    });
+    return { lines: flexedLines, length, sizes, column };
+  } finally {
+    flexing.set(container, flexing.get(container) - 1);
+    if (flexing.get(container) === 0) flexing.delete(container);
+  }
+}
+// What flexing needs of a box, `item`, along `main`, in a container whose
+// content box is `definite` long along it or indefinite (`null`): its flex
+// basis, its minimum and maximum, the size the basis comes to between them,
+// and its grow and shrink factors. A percentage of an indefinite length is
+// none.
+//
+// With no minimum of its own, a box's automatic minimum is none when it is a
+// scroll container (`overflow` hidden, scroll or auto, or a textarea, which
+// Blink makes one), and otherwise its content's minimum: its min-content
+// width, or its content's height, no more than its own size or its maximum.
+// `overflow: clip` isn't a scroll container, so it keeps the automatic
+// minimum.
+function flexItem(item, main, definite) {
+  const s = getComputedStyle(item);
+  const length = (value) => (value.endsWith("%") && definite === null ? null : lengthIn(value, () => definite));
+  const capital = main === "width" ? "Width" : "Height";
+  const basis = hypothetical(item, main);
+  const max = length(s[`max${capital}`]) ?? Infinity;
+  const text = holdsText(item);
+  let min = length(s[`min${capital}`]);
+  if (min === null) {
+    const overflows = [s.overflowX, s.overflowY].map((o) => o || s.overflow || "visible");
+    const scrolls = item.localName === "textarea" || overflows.some((o) => ["hidden", "scroll", "auto"].includes(o));
+    const content = text ? basis : main === "height" ? contentHeight(item) : intrinsicWidths(item, false, false)[0];
+    min = scrolls ? 0 : Math.min(content, ownLength(item, main) ?? Infinity, max);
+  }
+  const edges = padding(item, main) + borders(item, main);
+  min = Math.max(min, edges);
+  return {
+    item,
+    text,
+    basis,
+    inner: basis - edges,
+    min,
+    max,
+    hypothetical: Math.max(min, Math.min(max, basis)),
+    grow: Number(s.flexGrow) || 0,
+    shrink: s.flexShrink === "" ? 1 : Number(s.flexShrink),
+  };
+}
+// How tall `element`'s content is, whatever its own height says: its
+// children in the flow one above another, or side by side in a flex row, each
+// at its own height or its content's, with its padding and borders.
+function contentHeight(element) {
+  const children = inFlow(element);
+  const heights = children.map((child) => hypothetical(child, "height"));
+  const row = mainAxis(element) === "width";
+  const gaps = mainAxis(element) === "height" ? gapOf(element, "row") * Math.max(0, children.length - 1) : 0;
+  const content = row ? Math.max(0, ...heights) : heights.reduce((sum, h) => sum + h, gaps);
+  return content + padding(element, "height") + borders(element, "height");
+}
+// Whether text shows inside `element`, other than a textarea's value. Text has
+// no size here, so a line holding it isn't flexed.
+const holdsText = (element) =>
+  element.localName !== "textarea" &&
+  ([...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "") || [...element.children].some(holdsText));
+// The sizes a line's boxes, `line`, flex to in `room` with `gap` between, by
+// CSS Flexbox 1 §9.7: each box grows by its share of the free space where the
+// boxes' hypothetical sizes leave some, by `flex-grow`, or shrinks where they
+// run past it, by `flex-shrink` times its inner flex basis; a box held at its
+// minimum or maximum is frozen there and the rest share what is left.
+function flexed(line, room, gap) {
+  if (line.some((b) => b.text)) return line.map((b) => b.hypothetical);
+  const gaps = gap * Math.max(0, line.length - 1);
+  const growing = line.reduce((sum, b) => sum + b.hypothetical, gaps) < room;
+  const factor = (b) => (growing ? b.grow : b.shrink);
+  const scaled = (b) => (growing ? b.grow : b.shrink * b.inner);
+  const target = line.map((b) => b.hypothetical);
+  const frozen = line.map((b) => factor(b) === 0 || (growing ? b.basis > b.hypothetical : b.basis < b.hypothetical));
+  const free = () => room - line.reduce((sum, b, i) => sum + (frozen[i] ? target[i] : b.basis), gaps);
+  const initial = free();
+  while (frozen.includes(false)) {
+    const open = line.flatMap((b, i) => (frozen[i] ? [] : [i]));
+    const factors = open.reduce((sum, i) => sum + factor(line[i]), 0);
+    let left = free();
+    if (factors < 1 && Math.abs(initial * factors) < Math.abs(left)) left = initial * factors;
+    const total = open.reduce((sum, i) => sum + scaled(line[i]), 0);
+    let violation = 0;
+    const wanted = new Map();
+    for (const i of open) {
+      const b = line[i];
+      const want = total === 0 ? b.basis : b.basis + (left * scaled(b)) / total;
+      target[i] = Math.max(b.min, Math.min(b.max, want));
+      wanted.set(i, want);
+      violation += target[i] - want;
+    }
+    for (const i of open) {
+      const off = target[i] - wanted.get(i);
+      if (Math.abs(violation) < 1e-9 || (violation > 0 ? off > 1e-9 : off < -1e-9)) frozen[i] = true;
+    }
+  }
+  return target;
 }
 // The height of `element`'s border box when a browser knows it before laying
 // out its content, else `null`: a length of its own; a percentage of a parent
 // whose height is definite; stretched across a flex row of definite height
-// that doesn't wrap; or the one box that grows in a flex column of definite
-// height, with a minimum height of its own or its overflow cut, which takes
-// the room the rest leave. The viewport's is definite; the page's isn't.
+// that doesn't wrap; or its flexed height in a flex column whose height is
+// definite, or where its own height is (Blink's
+// `is_initial_block_size_indefinite`). While the column flexes, its boxes'
+// heights are not yet definite. The viewport's is definite; the page's isn't.
 function definiteHeight(element) {
   const parent = element.parentElement;
   if (parent === null) return viewport("height");
   const s = getComputedStyle(element);
   if (["absolute", "fixed"].includes(s.position)) return null;
-  if (s.height.endsWith("px")) return sizeOf(element, "height");
+  const column = mainAxis(parent) === "height";
+  if (s.height.endsWith("px") && !column) return hypothetical(element, "height");
   const held = definiteHeight(parent);
+  if (column && !flexing.has(parent)) {
+    const own = s.height.endsWith("px") || (s.height.endsWith("%") && held !== null);
+    return held !== null || own ? sizeOf(element, "height") : null;
+  }
+  if (s.height.endsWith("px")) return hypothetical(element, "height");
   if (held === null) return null;
-  if (s.height.endsWith("%")) return sizeOf(element, "height");
-  if (!unsetStyle(s.height) || !/flex/.test(display(parent))) return null;
+  if (s.height.endsWith("%")) return hypothetical(element, "height");
+  if (!unsetStyle(s.height) || mainAxis(parent) !== "width") return null;
   const p = getComputedStyle(parent);
   const room = held - padding(parent, "height") - borders(parent, "height");
   const align = unsetStyle(s.alignSelf) ? p.alignItems : s.alignSelf;
-  if (p.flexDirection.startsWith("row")) {
-    return p.flexWrap !== "wrap" && (unsetStyle(align) || ["normal", "stretch"].includes(align)) ? room : null;
-  }
-  const grows = (box) => Number(getComputedStyle(box).flexGrow) > 0;
-  const others = inFlow(parent).filter((box) => box !== element);
-  const kept = !unsetStyle(s.minHeight) || ["hidden", "clip", "scroll", "auto"].includes(s.overflowY);
-  if (!grows(element) || !kept || others.some(grows)) return null;
-  const gap = gapOf(parent, "row");
-  return room - others.reduce((sum, box) => sum + sizeOf(box, "height") + gap, 0);
+  return p.flexWrap !== "wrap" && (unsetStyle(align) || ["normal", "stretch"].includes(align)) ? room : null;
 }
+sizeOf = layoutAnswer("sizeOf", sizeOf);
+flexMain = layoutAnswer("flexMain", flexMain);
+flexLines = layoutAnswer("flexLines", flexLines);
+definiteHeight = layoutAnswer("definiteHeight", definiteHeight);
+intrinsicWidths = layoutAnswer("intrinsicWidths", intrinsicWidths);
+offsetOf = layoutQuestion(offsetOf);
+placedAt = layoutQuestion(placedAt);
 // The gap between `element`'s rows (`axis` "row") or its columns ("column"),
 // a percentage of `room()`. happy-dom keeps the `gap` shorthand whole, its
 // row gap then its column gap, so this reads it there too.
@@ -1070,13 +1257,16 @@ const inFlow = (element) =>
 // it, so CSS Sizing 3 counts it as none while the box is fitted: a width or a
 // maximum as `auto`, and a minimum or a padding as zero. Safari 26 fits a box
 // that way, and only then resolves each percentage against the width it got.
-function intrinsicWidths(element, inside = false) {
+//
+// Unless `sized`, its own width doesn't count, which gives the min-content
+// size of its content that a flex box's automatic minimum is.
+function intrinsicWidths(element, inside = false, sized = true) {
   const s = getComputedStyle(element);
   const length = (value, none) =>
     inside && value.endsWith("%") ? none : lengthIn(value, () => contentOf(element.parentElement, "width"));
   const clamp = (width) =>
     inside ? Math.min(length(s.maxWidth, null) ?? Infinity, Math.max(length(s.minWidth, 0) ?? 0, width)) : width;
-  const own = length(s.width, null);
+  const own = sized ? length(s.width, null) : null;
   if (own !== null) return [clamp(own), clamp(own)];
   const area = element.localName === "textarea";
   if (!area && [...element.childNodes].some((n) => n.nodeType === 3 && n.data.trim() !== "")) {

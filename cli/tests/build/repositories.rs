@@ -1330,11 +1330,11 @@ fn a_wrapping_column_breaks_only_against_a_definite_height() {
         .iter()
         .map(|(name, boxes)| format!("{name}: {boxes}"))
         .collect();
-    let tracks = "red at 0,0, blue at 0,48, green at 48,0";
-    let one_track = "red at 0,0, blue at 0,48, green at 0,96";
-    let reversed = "red at 0,48, blue at 0,0, green at 48,48";
-    let lines = "red at 0,0, blue at 48,0, green at 0,48";
-    let lines_reversed = "red at 48,0, blue at 0,0, green at 48,48";
+    let tracks = "red at 0,0 40x40, blue at 0,48 40x40, green at 48,0 40x40";
+    let one_track = "red at 0,0 40x40, blue at 0,48 40x40, green at 0,96 40x40";
+    let reversed = "red at 0,48 40x40, blue at 0,0 40x40, green at 48,48 40x40";
+    let lines = "red at 0,0 40x40, blue at 48,0 40x40, green at 0,48 40x40";
+    let lines_reversed = "red at 48,0 40x40, blue at 0,0 40x40, green at 48,48 40x40";
     let expected: Vec<String> = [
         ("maximum", tracks, 2),
         ("maximum-reversed", reversed, 2),
@@ -1349,6 +1349,34 @@ fn a_wrapping_column_breaks_only_against_a_definite_height() {
     ]
     .iter()
     .flat_map(|(name, boxes, count)| (0..*count).map(move |_| format!("{name}: {boxes}")))
+    .collect();
+    assert_eq!(shown, expected);
+}
+
+/// Where a browser lays out the boxes of
+/// `boxes_grow_and_shrink_as_a_browser_flexes_them`: each scene's boxes at
+/// the places and sizes its twin gives them. Boxes grow by their factors and
+/// shrink by their factors times their sizes, held at their minimum and
+/// maximum, and a column with a maximum height shrinks them under it.
+#[test]
+fn boxes_grow_and_shrink_as_a_browser_flexes_them() {
+    let case = tests_dir().join("repositories/ui/boxes_grow_and_shrink_as_a_browser_flexes_them");
+    let shown: Vec<String> = crate::harness::web_pages::flow_places(&case)
+        .iter()
+        .map(|(name, boxes)| format!("{name}: {boxes}"))
+        .collect();
+    let shrunk_column = "red at 0,0 40x36, blue at 0,36 40x24";
+    let expected: Vec<String> = [
+        ("grow", "red at 0,0 60x40, blue at 60,0 100x40, green at 160,0 40x40"),
+        ("grow-maximum", "red at 0,0 50x40, blue at 50,0 150x40"),
+        ("shrink", "red at 0,0 72x40, blue at 72,0 28x40"),
+        ("shrink-minimum", "red at 0,0 70x40, blue at 70,0 30x40"),
+        ("column-grow", "red at 0,0 40x60, blue at 0,60 40x40"),
+        ("column-shrink", shrunk_column),
+        ("column-maximum", shrunk_column),
+    ]
+    .iter()
+    .flat_map(|(name, boxes)| (0..2).map(move |_| format!("{name}: {boxes}")))
     .collect();
     assert_eq!(shown, expected);
 }

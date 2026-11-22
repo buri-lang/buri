@@ -1,0 +1,290 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. Boxes grow into the room a flex container leaves and shrink where
+// they run past it, as a browser flexes them.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/flex" import { bar, pillar };
+
+test "boxes in a row grow by their factors into the room left" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grow",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(200))],
+            children: [
+                bar(.Rgb(255, 0, 0), 40, [.Grow(1)]),
+                bar(.Rgb(0, 0, 255), 40, [.Grow(3)]),
+                bar(.Rgb(0, 160, 0), 40, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the grow scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grow",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(200))],
+            children: [
+                bar(.Rgb(255, 0, 0), 60, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 100, [.Shrink(0)]),
+                bar(.Rgb(0, 160, 0), 40, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a box held at its maximum leaves the rest of the room to the others" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grow-maximum",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(200))],
+            children: [
+                bar(.Rgb(255, 0, 0), 40, [.Grow(1), .MaxWidth(.Px(50))]),
+                bar(.Rgb(0, 0, 255), 40, [.Grow(1)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the grow-maximum scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "grow-maximum",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(200))],
+            children: [
+                bar(.Rgb(255, 0, 0), 50, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 150, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "boxes in a row shrink by their factors times their sizes" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 80, []),
+                bar(.Rgb(0, 0, 255), 40, [.Shrink(3)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the shrink scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 72, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 28, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a box held at its minimum leaves the rest of the shrinking to the others" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-minimum",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 80, [.MinWidth(.Px(70))]),
+                bar(.Rgb(0, 0, 255), 80, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the shrink-minimum scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-minimum",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 70, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 30, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "boxes in a column of definite height grow into the room left" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-grow",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(100))],
+            children: [
+                pillar(.Rgb(255, 0, 0), 40, [.Grow(1)]),
+                pillar(.Rgb(0, 0, 255), 20, [.Grow(1)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the pillars laid out the plain way where the column-grow scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-grow",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(100))],
+            children: [
+                pillar(.Rgb(255, 0, 0), 60, [.Shrink(0)]),
+                pillar(.Rgb(0, 0, 255), 40, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "boxes in a column of definite height shrink to fit it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-shrink",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(60))],
+            children: [
+                pillar(.Rgb(255, 0, 0), 60, []),
+                pillar(.Rgb(0, 0, 255), 40, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the pillars laid out the plain way where the column-shrink scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-shrink",
+        ui.stack({
+            styles: [.Layout(.Column), .Height(.Px(60))],
+            children: [
+                pillar(.Rgb(255, 0, 0), 36, [.Shrink(0)]),
+                pillar(.Rgb(0, 0, 255), 24, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "boxes in a column with a maximum height shrink to fit it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-maximum",
+        ui.stack({
+            styles: [.Layout(.Column), .MaxHeight(.Px(60))],
+            children: [
+                pillar(.Rgb(255, 0, 0), 60, []),
+                pillar(.Rgb(0, 0, 255), 40, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the pillars laid out the plain way where the column-maximum scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "column-maximum",
+        ui.stack({
+            styles: [.Layout(.Column)],
+            children: [
+                pillar(.Rgb(255, 0, 0), 36, [.Shrink(0)]),
+                pillar(.Rgb(0, 0, 255), 24, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}

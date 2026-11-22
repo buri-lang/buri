@@ -1,0 +1,29 @@
+# Boxes that grow and shrink in a flex container, each scene beside a twin
+# that lays out plain boxes at the sizes a browser flexes them to. Both tests
+# of a pair compare against one golden. A browser shares the room a container
+# leaves by each box's grow factor, and what its boxes run past it by each
+# box's shrink factor times its size, and holds a box at its minimum or
+# maximum while the rest share what is left (CSS Flexbox 1 §9.7). A column
+# with a maximum height shrinks its boxes to fit under it.
+#
+# `boxes_grow_and_shrink_as_a_browser_flexes_them` in build/repositories.rs
+# checks that a browser gives each scene's boxes their twin's places and
+# sizes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "boxes grow and shrink in a flex container by their factors, held at their minimum and maximum, in the painter and in a browser"
+
+run {
+  args: ["test", "//lib/flex", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/flex/test/__snapshots__/grow.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/grow-maximum.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/shrink.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/shrink-minimum.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/column-grow.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/column-shrink.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/column-maximum.diff.png"  exists: false }

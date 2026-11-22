@@ -217,8 +217,9 @@ pub fn widths(case: &Path, tag: &str) -> Vec<(String, String)> {
 /// mounted.
 ///
 /// Each page is mounted the way [`computed`] mounts it, at its snapshot's
-/// width. A snapshot's boxes are in tree order, each as `<colour> at <x>,<y>`
-/// from the top left of the snapshot's outermost element, by `offsetOf`.
+/// width. A snapshot's boxes are in tree order, each as `<colour> at <x>,<y>
+/// <width>x<height>` from the top left of the snapshot's outermost element,
+/// by `offsetOf` and `sizeOf`.
 pub fn flow_places(case: &Path) -> Vec<(String, String)> {
     read_snapshots(case, &format!("{COLOURS}{FLOW_PLACES}"), "flow ")
 }
@@ -1219,7 +1220,7 @@ for (const { root, name, tree } of snapshots) {
     own(element, colour);
     if (colour.length === 0) continue;
     const at = (dimension) => offsetOf(element, dimension) - offsetOf(outer, dimension);
-    boxes.push(`${colour[0]} at ${at("width")},${at("height")}`);
+    boxes.push(`${colour[0]} at ${at("width")},${at("height")} ${sizeOf(element, "width")}x${sizeOf(element, "height")}`);
   }
   console.log(`flow ${name}: ${boxes.join(", ")}`);
 }

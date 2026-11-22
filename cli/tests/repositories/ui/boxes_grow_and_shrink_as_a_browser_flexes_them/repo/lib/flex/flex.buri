@@ -1,0 +1,23 @@
+//! Boxes for a flex container to grow and shrink: bars 40px tall for a row,
+//! pillars 40px wide for a column.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Color, Style };
+
+/// A bar 40px tall and `width` wide, painted `colour`, with `extra` styles.
+export fn bar<C>(colour: Color, width: Int, extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(width)), .Height(.Px(40)), .Group(extra), .Background(colour)],
+        children: [],
+    })
+}
+
+/// A pillar 40px wide and `height` tall, painted `colour`, with `extra`
+/// styles.
+export fn pillar<C>(colour: Color, height: Int, extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Width(.Px(40)), .Height(.Px(height)), .Group(extra), .Background(colour)],
+        children: [],
+    })
+}
