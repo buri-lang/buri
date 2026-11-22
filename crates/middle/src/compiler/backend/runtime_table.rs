@@ -2134,8 +2134,24 @@ pub const ENTRIES: &[Entry] = &[
 ];
 
 /// The entry for a key, or `None` where the archive has no body for it.
+///
+/// Through an index built once per process: lowering asks once per runtime
+/// call and the stencil emitter once or twice more, and a scan of the table's
+/// rows was a string compare per row. The first row with a key wins, as in a
+/// scan.
 pub fn entry(key: &str) -> Option<&'static Entry> {
-    ENTRIES.iter().find(|e| e.key == key)
+    static INDEX: std::sync::OnceLock<crate::hash::Map<&'static str, &'static Entry>> =
+        std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut index = crate::hash::Map::default();
+            for e in ENTRIES {
+                index.entry(e.key).or_insert(e);
+            }
+            index
+        })
+        .get(key)
+        .copied()
 }
 
 // ---------------------------------------------------------------------------

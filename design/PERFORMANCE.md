@@ -3888,8 +3888,9 @@ times per function. Eight changes in `crates/stencil`, each its own commit:
   the block, and a field is typed only when it is still a candidate. -3.4%.
 - **One operand table.** `Inst::operands` ran in five passes. `jit::Operands`
   lists every row once per function. -2.3%.
-- **The runtime table indexed.** `runtime_table::entry` scans 300 rows, once or
-  twice per runtime call. `stencil::runtime::entry` asks an index. -0.6%.
+- **The runtime table indexed.** `runtime_table::entry` scanned 300 rows, once or
+  twice per runtime call. It asks an index instead. -0.6%. Lowering and
+  erasure ask too, which is -0.5% of the `ci` dev-codegen instructions.
 
 `BURI_PROFILE=1 buri build`, cold, `emit` instructions, the lower of two
 alternating runs:
