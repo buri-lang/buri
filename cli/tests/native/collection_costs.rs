@@ -1109,8 +1109,9 @@ const CAPTURE_BOUND: f64 = 143.0;
 
 /// **A list operation calls a lambda that captures one word directly**: the
 /// step is the lambda's own function, handed the closure's environment, rather
-/// than a call through the closure's thunk. A wider environment, like the
-/// `Str`, goes through the thunk, and is counted where the lambda keeps it.
+/// than a call through the closure's thunk. The lambda that keeps the `Str`
+/// is counted too: its wider environment is called directly only because its
+/// body is written out in its loop.
 #[test]
 fn a_capturing_step_is_called_directly() {
     let (fewer, more) = CAPTURE_ROUNDS;

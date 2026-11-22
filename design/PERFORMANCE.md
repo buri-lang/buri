@@ -11977,6 +11977,13 @@ match         611302246     1865847841      615665934      615666118       0.328
   closure a direct step leaves unused saved 0.02% on lists' stencil and `-O1`
   counts, but LLVM's release build then indexed the loop rather than stepping
   a pointer, and lists ran 0.93% more there, so the closure is still built.
+- A step with a wider record is called directly too when its body is a few
+  reads, operations and records with no branch (`FnLower::straight`). The
+  middle end then writes it out in its loop (`steps::inline`), so LLVM never
+  sees the call either. A `map` through `x * a + b + i` dropped from 52.7 to
+  19.7 instructions an element on macOS copy-and-patch. kvstore ran 11,000
+  fewer stencil instructions and 3,500 fewer at `-O1` and release. sort and
+  every other program kept their counts.
 - The glue's element loop steps its pointer and tests it for the end in one
   stencil, not two, so the pointer isn't stored and loaded straight back.
   lists was 1.65 times `-O1`.

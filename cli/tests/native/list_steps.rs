@@ -195,3 +195,100 @@ test "spare record" {
 "#;
     crate::odd_sizes::passes("list-steps-spare", test, 1);
 }
+
+/// **A step that captures several values answers as it did**: `buri test` on
+/// every backend, with steps that capture three values each. One builds a
+/// record of what it captured, one adds them up, one divides, one branches,
+/// and one is too long to write out in its loop, so the first two are called
+/// directly and written out in their loops and the rest go through their
+/// closures.
+#[test]
+fn a_step_that_captures_several_values_answers_as_it_did() {
+    let test = r#"
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Pair { a: Int, b: Int }
+struct Held { n: Int, name: Str, f: Float, p: Pair }
+
+test "wide captures" {
+    let ctx = context { Allocator: alloc() };
+    let xs = list.range(ctx, 0, 4);
+    let name = "n".concat(ctx, "4");
+    let f = 1.5;
+    let p = Pair { a: 7, b: xs.length() };
+    let a = xs.length() - 1;
+    let b = a + 2;
+    let c = a + 4;
+    let held = xs.map(ctx, fn(x) => Held { n: x, name: name, f: f, p: p });
+    let sums = xs.map(ctx, fn(x) => x * a + b - c);
+    let quotients = xs.map(ctx, fn(x) => (x + a + b) / c);
+    let branches = xs.map(ctx, fn(x) => if (x > a - 1) { b } else { c });
+    let long = xs.map(ctx, fn(x) => x * a + b * x + c * x + a * b + b * c + c * a + x * x + a + b + c);
+    assert.equal(held.length(), 4);
+    assert.equal(held.get(3).map(fn(h) => h.n + h.p.a + h.p.b).withDefault(-1), 14);
+    assert.equal(held.get(2).map(fn(h) => h.name.length()).withDefault(-1), 2);
+    assert.equal(held.get(1).map(fn(h) => h.f).withDefault(0.0), 1.5);
+    assert.equal(sums.get(3).withDefault(-1), 7);
+    assert.equal(quotients.get(3).withDefault(-1), 1);
+    assert.equal(branches.get(0).withDefault(-1), 7);
+    assert.equal(branches.get(3).withDefault(-1), 5);
+    assert.equal(long.get(2).withDefault(-1), 120);
+}
+"#;
+    crate::odd_sizes::passes("list-steps-wide", test, 1);
+}
+
+/// [`MAPS`], with a step that captures three values: the round and two
+/// numbers `main` was handed.
+const WIDE_MAPS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn rounds<C: Allocator>(ctx: C, xs: [Int], a: Int, b: Int, i: Int, n: Int, last: [Int]): [Int] {
+  if (i >= n) { last } else { rounds(ctx, xs, a, b, i + 1, n, xs.map(ctx, fn(x) => x * a + b + i)) }
+}
+
+fn sum(xs: [Int]): Int { xs.fold(fn(acc, x) => acc + x, 0) }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let xs = list.range(ctx, 0, 64);
+  let a = xs.length() / 21;
+  io.println(ctx, "${sum(rounds(ctx, xs, a, a - 3, 0, n, []))}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **A `map` through a lambda that captures several values costs no call an
+/// element.** A step whose environment is wider than a word went through its
+/// closure. Now it is called directly, so its body is written out in the loop
+/// as [`a_map_through_a_small_lambda_costs_no_call_an_element`]'s is. Rounds
+/// and elements are [`ROUNDS`]'s, so the noise is as small.
+#[test]
+fn a_map_through_a_lambda_that_captures_several_values_costs_no_call_an_element() {
+    let (fewer, more) = ROUNDS;
+    let elements = (more - fewer) * 64;
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-steps-wide-map", WIDE_MAPS);
+        let n = steps_cost(backend, &binary, ROUNDS, sum_after);
+        let tenths = n.map(|n| n * 10 / elements);
+        eprintln!("{backend}: {tenths:?} tenths of an instruction an element");
+        if backend == "stencil" {
+            if let Some(tenths) = tenths {
+                assert!(
+                    tenths < WIDE_BOUND_TENTHS,
+                    "{backend}: {tenths} tenths of an instruction an element"
+                );
+            }
+        }
+    }
+}
+
+/// See [`a_map_through_a_lambda_that_captures_several_values_costs_no_call_an_element`].
+const WIDE_BOUND_TENTHS: u64 = 362;

@@ -177,6 +177,11 @@ enum Via {
 /// two, so a run starts where an index's low bits are zero.
 const SORT_RUN: usize = 4;
 
+/// The most expressions [`FnLower::straight`] reads of a step's body: well
+/// under the instructions `steps::inline` copies, as each expression lowers
+/// to one or two of them and a read of a capture is one more.
+const STRAIGHT: usize = 12;
+
 /// A `sortBy`'s comparator, and the tag of the `Greater` it answers.
 struct Order<'a> {
     callee: &'a Via,
@@ -272,6 +277,46 @@ impl FnLower<'_> {
         )
     }
 
+    /// Whether the lifted lambda `func`'s body is a few reads, operations and
+    /// records with no branch, which `steps::inline` writes out in its loop
+    /// whatever its environment. A wider environment called directly costs
+    /// LLVM a move of each word a call, where the thunk loaded them in pairs,
+    /// so only a step that is no call once written out takes one.
+    fn straight(&self, func: FuncIdx) -> bool {
+        fn walk(e: &Expr, left: &mut usize) -> bool {
+            let Some(l) = left.checked_sub(1) else {
+                return false;
+            };
+            *left = l;
+            let leaf = match &e.kind {
+                ExprKind::Int(..)
+                | ExprKind::Float(_)
+                | ExprKind::Bool(_)
+                | ExprKind::Char(_)
+                | ExprKind::Unit
+                | ExprKind::Local(_)
+                | ExprKind::Field { .. }
+                | ExprKind::TupleIndex { .. }
+                | ExprKind::StructLit { .. }
+                | ExprKind::Tuple(_)
+                | ExprKind::Unary { .. }
+                | ExprKind::Block { .. } => true,
+                // Either may abort, which is a branch.
+                ExprKind::Prim { op, .. } => !matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem),
+                _ => false,
+            };
+            let mut ok = leaf;
+            typed::children(e, &mut |c| ok = ok && walk(c, left));
+            ok
+        }
+        let mut left = STRAIGHT;
+        self.program
+            .funcs
+            .get(func)
+            .body()
+            .is_some_and(|b| walk(b, &mut left))
+    }
+
     /// A call of `key`, lowered as its loop.
     pub(super) fn list_call(&mut self, key: &str, args: &[Expr], ret: &Ty) -> ValueId {
         // The step a call site names: a lambda `middle::closures` lifted, a
@@ -292,13 +337,14 @@ impl FnLower<'_> {
                     func: *f,
                     env: None,
                 }),
-                ExprKind::Closure { func, env } if self.one_word(env) => self
-                    .last_closure
-                    .filter(|(closure, _)| *closure == v)
-                    .map(|(_, record)| Named {
-                        func: *func,
-                        env: Some((record, Ty::tuple(env.iter().map(|e| e.ty)))),
-                    }),
+                ExprKind::Closure { func, env } if self.one_word(env) || self.straight(*func) => {
+                    self.last_closure
+                        .filter(|(closure, _)| *closure == v)
+                        .map(|(_, record)| Named {
+                            func: *func,
+                            env: Some((record, Ty::tuple(env.iter().map(|e| e.ty)))),
+                        })
+                }
                 _ => None,
             };
         }
