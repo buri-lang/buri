@@ -217,16 +217,21 @@ impl Screen {
                     }
                 }
                 '\u{1b}' => {
-                    assert_eq!(chars.next(), Some('['), "an escape that isn't CSI");
+                    // The terminal hands bytes over in pieces of any size, so
+                    // the last escape may not have all arrived yet. The screen
+                    // is as it was before it.
+                    let Some(open) = chars.next() else { break };
+                    assert_eq!(open, '[', "an escape that isn't CSI");
                     let mut params = String::new();
                     let end = loop {
-                        let c = chars.next().expect("an escape cut short");
+                        let Some(c) = chars.next() else { break None };
                         if c.is_ascii_digit() || c == ';' {
                             params.push(c);
                         } else {
-                            break c;
+                            break Some(c);
                         }
                     };
+                    let Some(end) = end else { break };
                     match end {
                         'A' => row = row.saturating_sub(params.parse().unwrap_or(1)),
                         'J' => {
@@ -520,15 +525,13 @@ fn a_failure_prints_above_the_block_whole() {
     held.hold("begun", "test-lib_b");
     let term = Terminal::start(&held, &scratch, &["test", "--jobs=4"], &[], ROOMY);
     let b = held.reached("begun", "test-lib_b");
-    let screen = term.shows("[Building 2/2 · Testing 1/2 · 1 failed]");
-    assert!(
-        screen
-            .lines()
-            .iter()
-            .any(|l| l == "  test   //lib/b .. 00:00"),
-        "{}",
-        indent(&screen.text())
-    );
+    // Both lines at once: a frame can reach the screen in pieces, its counts
+    // before its rows.
+    term.until("the counts with one failed, and b's row", |s| {
+        let lines = s.lines();
+        let shows = |line: &str| lines.iter().any(|l| l == line);
+        shows("[Building 2/2 · Testing 1/2 · 1 failed]") && shows("  test   //lib/b .. 00:00")
+    });
     b.go();
     let (status, screen) = term.finish();
     assert!(!status.success(), "{}", indent(&screen.text()));
