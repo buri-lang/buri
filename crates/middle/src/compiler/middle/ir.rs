@@ -781,6 +781,13 @@ pub enum Inst {
     /// Stores `value` as element `index` of a block an [`Inst::ArrayAlloc`]
     /// in this function made, which nothing else holds yet. The value's counts
     /// move into the block. `ty` is the list the `ArrayAlloc` made.
+    ///
+    /// A record the instruction just before it makes is read by nothing
+    /// else. Only a `map` storing what its step answers and a `zip` storing
+    /// its pair put a `MakeStruct` there, and neither loop reads the record
+    /// again; any other read would come after the store, in a block the
+    /// store's own dominates, and those are the loop's own (`lower/lists.rs`).
+    /// So a backend may build such a record straight into the element.
     ArraySet {
         array: ValueId,
         ty: ListTy,

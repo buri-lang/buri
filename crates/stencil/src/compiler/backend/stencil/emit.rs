@@ -716,8 +716,8 @@ impl<'a> Jit<'a> {
         }
     }
 
-    /// The `MakeStruct` at `k`, where the `ArraySet` after it is the record's
-    /// one use, no field is made here for it alone, and every field is whole
+    /// The `MakeStruct` at `k`, where the `ArraySet` after it stores the
+    /// record, no field is made here for it alone, and every field is whole
     /// frame words, not boxed:
     /// `(fields, record, array, list, index)`. A narrower field leaves padding
     /// a copy of the whole record would have written, and a boxed one is a
@@ -748,7 +748,9 @@ impl<'a> Jit<'a> {
         else {
             return None;
         };
-        if value != dest || *uses.get(*dest) != 1 {
+        // The store is the record's one read ([`Inst::ArraySet`]), so its
+        // frame temp, which is never written, is never read either.
+        if value != dest {
             return None;
         }
         // A field a load or arithmetic defines here for the record alone is

@@ -78,8 +78,9 @@ fn every_way_of_making_a_list_holds_what_it_was_given() {
 
 /// Maps four numbers to records of each shape a record can be stored into its
 /// element in: whole words, a text, a float and a record among its fields; a
-/// narrow field; a field behind a pointer; and a field made for the record
-/// alone. Prints each list's records.
+/// narrow field; a field behind a pointer; a field made for the record
+/// alone; and a step that makes a second record besides the one it answers.
+/// Prints each list's records.
 const RECORDS: &str = r#"
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -104,11 +105,17 @@ export fn main(host: NativeHost): Result<(), Str> {
   let flags = ns.map(ctx, fn(x) => Flag { n: x, on: on });
   let nodes = ns.map(ctx, fn(x) => Node { v: x, next: .None });
   let twice = ns.map(ctx, fn(x) => Twice { a: x * 2, b: x });
+  let spare = ns.map(ctx, fn(x) => {
+    let t = Twice { a: x, b: x + 1 };
+    let other = Twice { a: t.b, b: x };
+    t
+  });
   let lines = [
     wide.mapCtx(ctx, fn(c, w) => str.format(c, "${w.n}${w.i}${w.name}${w.f}${w.p.a}${w.p.b}")).join(ctx, ","),
     flags.mapCtx(ctx, fn(c, r) => str.format(c, "${r.n}${r.on}")).join(ctx, ","),
     nodes.mapCtx(ctx, fn(c, r) => str.format(c, "${r.v}${r.next.isSome()}")).join(ctx, ","),
     twice.mapCtx(ctx, fn(c, r) => str.format(c, "${r.a}${r.b}")).join(ctx, ","),
+    spare.mapCtx(ctx, fn(c, r) => str.format(c, "${r.a}${r.b}")).join(ctx, ","),
   ];
   io.println(ctx, lines.join(ctx, "\n")).mapErr(fn(_e) => "stdout")
 }
@@ -126,6 +133,7 @@ fn a_record_made_for_each_element_holds_every_field() {
         "0true,1true,2true,3true",
         "0false,1false,2false,3false",
         "00,21,42,63",
+        "01,12,23,34",
     ]
     .join("\n")
         + "\n";

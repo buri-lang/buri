@@ -165,3 +165,33 @@ fn a_map_through_a_small_lambda_costs_no_call_an_element() {
 
 /// See [`a_map_through_a_small_lambda_costs_no_call_an_element`].
 const MAP_BOUND_TENTHS: u64 = 251;
+
+/// **A step that makes a record besides the one it answers answers its
+/// own.** `buri test` on every backend: the record the step answers is stored
+/// in its element, and the spare one made after it is not.
+#[test]
+fn a_step_that_makes_a_spare_record_answers_its_own() {
+    let test = r#"
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Twice { a: Int, b: Int }
+
+test "spare record" {
+    let ctx = context { Allocator: alloc() };
+    let rs = list.range(ctx, 0, 4).map(ctx, fn(x) => {
+        let t = Twice { a: x, b: x + 1 };
+        let other = Twice { a: t.b, b: x };
+        t
+    });
+    let sums = rs.map(ctx, fn(r) => r.a * 10 + r.b);
+    assert.equal(sums.length(), 4);
+    assert.equal(sums.get(0).withDefault(-1), 1);
+    assert.equal(sums.get(1).withDefault(-1), 12);
+    assert.equal(sums.get(3).withDefault(-1), 34);
+}
+"#;
+    crate::odd_sizes::passes("list-steps-spare", test, 1);
+}
