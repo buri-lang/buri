@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 16636 16714 99.53%
+total 16682 16760 99.53%
 area cli/build 1780 1782 99.89%
 area cli/documentation 485 486 99.79%
 area cli/format 94 94 100.00%
@@ -19,11 +19,11 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1094 1114 98.20%
 area crates/llvm 580 580 100.00%
-area crates/middle 2692 2716 99.12%
+area crates/middle 2710 2734 99.12%
 area crates/project 1338 1340 99.85%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1354 1360 99.56%
+area crates/stencil 1382 1388 99.57%
 area crates/syntax 1268 1268 100.00%
 282 283 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -166,6 +166,7 @@ area crates/syntax 1268 1268 100.00%
 62 62 crates/middle/src/compiler/middle/pairs.rs
 703 708 crates/middle/src/compiler/middle/rc.rs
 100 100 crates/middle/src/compiler/middle/slices.rs
+18 18 crates/middle/src/compiler/middle/steps.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 60 60 crates/middle/src/compiler/middle/vacate.rs
 182 182 crates/project/src/build/buildfile.rs
@@ -208,9 +209,9 @@ area crates/syntax 1268 1268 100.00%
 2 2 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 35 36 crates/stencil/src/compiler/backend/stencil/elf.rs
-364 364 crates/stencil/src/compiler/backend/stencil/emit.rs
+378 378 crates/stencil/src/compiler/backend/stencil/emit.rs
 100 100 crates/stencil/src/compiler/backend/stencil/glue.rs
-630 632 crates/stencil/src/compiler/backend/stencil/jit.rs
+644 646 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 14 14 crates/stencil/src/compiler/backend/stencil/lists.rs
 46 48 crates/stencil/src/compiler/backend/stencil/mod.rs
