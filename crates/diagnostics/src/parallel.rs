@@ -191,7 +191,10 @@ where
     G: FnMut(R),
 {
     if width(items.len()) <= 1 {
-        items.iter().enumerate().for_each(|(i, item)| fold(f(i, item)));
+        items
+            .iter()
+            .enumerate()
+            .for_each(|(i, item)| fold(f(i, item)));
     } else {
         map_items(items, f).into_iter().for_each(fold);
     }

@@ -187,8 +187,8 @@ pub fn run_with(
             let mut keys = Keys::default();
             let body = f.body().filter(|_| built(i));
             let func = lower_one(
-                program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types,
-                &mut keys, i, f, body,
+                program, tables, plan, &counts, &cycles, &entries, &unit_of, &mut types, &mut keys,
+                i, f, body,
             );
             (func, types.list, keys)
         },
