@@ -4,7 +4,9 @@
 # leaves by each box's grow factor, and what its boxes run past it by each
 # box's shrink factor times its size, and holds a box at its minimum or
 # maximum while the rest share what is left (CSS Flexbox 1 §9.7). A column
-# with a maximum height shrinks its boxes to fit under it.
+# with a maximum height shrinks its boxes to fit under it. A box with no
+# minimum of its own shrinks no narrower than its content when it only clips,
+# and as far as it must when it scrolls on either axis (§4.5).
 #
 # `boxes_grow_and_shrink_as_a_browser_flexes_them` in build/repositories.rs
 # checks that a browser gives each scene's boxes their twin's places and
@@ -27,3 +29,5 @@ path { path: "lib/flex/test/__snapshots__/shrink-minimum.diff.png"  exists: fals
 path { path: "lib/flex/test/__snapshots__/column-grow.diff.png"  exists: false }
 path { path: "lib/flex/test/__snapshots__/column-shrink.diff.png"  exists: false }
 path { path: "lib/flex/test/__snapshots__/column-maximum.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/shrink-clipped.diff.png"  exists: false }
+path { path: "lib/flex/test/__snapshots__/shrink-scrolled.diff.png"  exists: false }

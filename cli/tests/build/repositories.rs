@@ -1400,6 +1400,8 @@ fn boxes_grow_and_shrink_as_a_browser_flexes_them() {
         ("column-grow", "red at 0,0 40x60, blue at 0,60 40x40"),
         ("column-shrink", shrunk_column),
         ("column-maximum", shrunk_column),
+        ("shrink-clipped", "red at 0,0 80x40, blue at 80,0 20x40"),
+        ("shrink-scrolled", "red at 0,0 50x40, blue at 50,0 50x40"),
     ]
     .iter()
     .flat_map(|(name, boxes)| (0..2).map(move |_| format!("{name}: {boxes}")))

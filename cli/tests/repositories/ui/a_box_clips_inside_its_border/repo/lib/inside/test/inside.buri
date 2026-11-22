@@ -1,0 +1,62 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A box that clips cuts its child at the inside of its border.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/inside" import { framed, red };
+
+test "a child that runs past a box that clips leaves its border showing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "square", framed([.Clip(true)], red(60, [])), .Hover, []);
+}
+
+test "the child drawn the plain way where the square scene leaves it showing" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "square", framed([], red(40, [])), .Hover, []);
+}
+
+test "a rounded box that clips cuts its child to its inner corners" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "rounded",
+        framed([.Radius(.Px(20)), .Clip(true)], red(60, [])),
+        .Hover,
+        [],
+    );
+}
+
+test "the child cut by a plain box at the corners the rounded scene cuts it to" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "rounded",
+        framed(
+            [.Radius(.Px(20))],
+            ui.stack({
+                styles: [
+                    .Width(.Px(40)),
+                    .Height(.Px(40)),
+                    .Radius(.Px(10)),
+                    .Clip(true),
+                ],
+                children: [red(40, [])],
+            }),
+        ),
+        .Hover,
+        [],
+    );
+}

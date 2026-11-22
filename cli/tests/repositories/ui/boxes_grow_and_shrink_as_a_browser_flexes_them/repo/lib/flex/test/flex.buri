@@ -288,3 +288,97 @@ test "the pillars laid out the plain way where the column-maximum scene puts the
         [],
     );
 }
+
+test "a box that clips keeps its content's width as its minimum" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-clipped",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Height(.Px(40)),
+                        .Clip(true),
+                        .Background(.Rgb(255, 0, 0)),
+                    ],
+                    children: [bar(.Transparent, 80, [])],
+                }),
+                bar(.Rgb(0, 0, 255), 80, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the shrink-clipped scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-clipped",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 80, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 20, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a box that scrolls on one axis has no minimum on either" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-scrolled",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                ui.stack({
+                    styles: [
+                        .Height(.Px(40)),
+                        .Scroll(.Y),
+                        .Background(.Rgb(255, 0, 0)),
+                    ],
+                    children: [bar(.Transparent, 80, [])],
+                }),
+                bar(.Rgb(0, 0, 255), 80, []),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the bars laid out the plain way where the shrink-scrolled scene puts them" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "shrink-scrolled",
+        ui.stack({
+            styles: [.Layout(.Row), .Width(.Px(100))],
+            children: [
+                bar(.Rgb(255, 0, 0), 50, [.Shrink(0)]),
+                bar(.Rgb(0, 0, 255), 50, [.Shrink(0)]),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}

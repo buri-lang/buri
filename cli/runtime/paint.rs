@@ -1651,7 +1651,11 @@ struct Computed {
     /// whether an [`escape`](Computed::escape) box that runs off the page
     /// slides back onto it, inline then block ([`shifted`]).
     shift: [bool; 2],
+    /// `overflow` on each axis, inline then block, is anything but `visible`.
     clipped: [bool; 2],
+    /// `overflow` on each axis is `clip`, which cuts without making the box
+    /// a scroll container ([`Computed::scroller`]).
+    clip: [bool; 2],
 
     background: Rgba,
     colour: Rgba,
@@ -1784,6 +1788,7 @@ impl Computed {
             try_order: None,
             shift: [false; 2],
             clipped: [false; 2],
+            clip: [false; 2],
             background: Rgba::CLEAR,
             colour: Rgba::BLACK,
             border_width: [Len::Px(0.0); 4],
@@ -2269,9 +2274,18 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "inset-block-end" => set_sides(&mut style.inset, [3], len(value)),
         // A textarea reads `visible` as `auto`, so it always clips: Blink's
         // `StyleAdjuster` makes it a scroll container whatever it was given.
-        "overflow" => style.clipped = [value != "visible" || scrolls(style); 2],
-        "overflow-x" => style.clipped[0] = value != "visible" || scrolls(style),
-        "overflow-y" => style.clipped[1] = value != "visible" || scrolls(style),
+        "overflow" => {
+            style.clipped = [value != "visible" || scrolls(style); 2];
+            style.clip = [value == "clip"; 2];
+        }
+        "overflow-x" => {
+            style.clipped[0] = value != "visible" || scrolls(style);
+            style.clip[0] = value == "clip";
+        }
+        "overflow-y" => {
+            style.clipped[1] = value != "visible" || scrolls(style);
+            style.clip[1] = value == "clip";
+        }
 
         "background-color" => {
             style.background = match colour(value) {
@@ -2423,6 +2437,7 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             // A textarea scrolls: it cuts its lines off at its padding box.
             if scrolls(style) {
                 style.clipped = [true; 2];
+                style.clip = [false; 2];
             }
         }
         // A slider's bounds and where its thumb sits. Bounds that are not two
@@ -2853,7 +2868,7 @@ fn wrap_columns(
             Len::Percent(_) => !held && !out,
             Len::Px(_) => false,
         };
-        let grows_past = in_column && auto && c.min[1] == Len::Auto && !c.clipped[1];
+        let grows_past = in_column && auto && c.min[1] == Len::Auto && !c.scroller();
         let id = ids.get(index).copied().flatten();
         let percent = |len: Len| matches!(len, Len::Percent(_));
         let resolves = percent(c.size[1]) || percent(c.min[1]) || percent(c.max[1]);
@@ -2923,9 +2938,14 @@ fn holds_definite(p: &Computed, c: &Computed) -> bool {
 }
 
 fn taffy_style(c: &Computed) -> Style {
-    let overflow = |on: bool| {
-        if on {
+    // `taffy` gives `Hidden` no automatic minimum and keeps it for `Clip`
+    // and `Visible`, as a browser does for a scroll container and for a box
+    // that only cuts.
+    let overflow = |axis: usize| {
+        if c.scroller() {
             Overflow::Hidden
+        } else if c.clipped[axis] {
+            Overflow::Clip
         } else {
             Overflow::Visible
         }
@@ -3045,8 +3065,8 @@ fn taffy_style(c: &Computed) -> Style {
             }
         },
         overflow: Point {
-            x: overflow(c.clipped[0]),
-            y: overflow(c.clipped[1]),
+            x: overflow(0),
+            y: overflow(1),
         },
         ..Style::default()
     }
@@ -3529,6 +3549,17 @@ fn editor_size(style: &Computed) -> (f32, f32) {
 /// Whether `style` is a textarea's, which a browser makes a scroll container
 /// whatever its `overflow`: it cuts its lines off at its padding box, and as
 /// a flex item it has no automatic minimum size.
+impl Computed {
+    /// Whether the box is a scroll container: `overflow` hidden, scroll or
+    /// auto on either axis, which a flex item gives no automatic minimum.
+    /// The other axis follows, `visible` computing to `auto` and `clip` to
+    /// `hidden` (CSS Overflow 3 §3.1), so it is both axes or neither. `clip`
+    /// alone cuts without making one.
+    fn scroller(&self) -> bool {
+        (0..2).any(|axis| self.clipped[axis] && !self.clip[axis])
+    }
+}
+
 fn scrolls(style: &Computed) -> bool {
     style.field && style.editor == Editor::Lines
 }
@@ -4332,10 +4363,11 @@ impl Reach<'_> {
             return;
         }
         // Any `overflow` but `visible` — the `clip` a `Clip` writes and the `auto`
-        // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
-        // container is measured at its own box and never at what it scrolls.
+        // a `Scroll` writes alike — cuts what is under it to the inside of this
+        // box's border, so a scroll container is measured at its own box and
+        // never at what it scrolls.
         let inner = if style.clipped[0] || style.clipped[1] {
-            Some(box_.met_by(clip))
+            Some(box_.shrink(style.border_widths()).met_by(clip))
         } else {
             clip
         };
@@ -5658,13 +5690,22 @@ impl Painter<'_> {
         // user-agent sheet sets to `clip !important`: an editor taller than a
         // short field is cut off at the field's edges. That `clip` makes no
         // scroll container, so it leaves the layout alone.
+        //
+        // A browser clips overflow at the padding box, inside the border, with
+        // each corner's radii less the border on their own axes. A picture is
+        // cut at its own rounded box.
         let owned;
         let inner = if style.clipped[0]
             || style.clipped[1]
             || rounds
             || (style.field && style.editor == Editor::Line)
         {
-            owned = clipped(clip, box_, radii, canvas.width(), canvas.height());
+            let (frame, corners) = if rounds {
+                (box_, radii)
+            } else {
+                (box_.shrink(widths), inner_radii(radii, box_, widths))
+            };
+            owned = clipped(clip, frame, corners, canvas.width(), canvas.height());
             owned.as_deref()
         } else {
             clip
@@ -6323,6 +6364,24 @@ fn rounded(l: f32, t: f32, r: f32, b: f32, radii: Radii) -> Option<tiny_skia::Pa
 ///
 /// Scaling all four together rather than clipping each one is what keeps a box
 /// with one big corner and one small one looking like the browser's.
+/// The corners of the box inside a border of `widths`, inline start and end
+/// then block start and end: each radius the box's own, clamped to its size,
+/// less the border on its axis, the across one by the side edge and the down
+/// one by the top or bottom edge, and none below zero (CSS Backgrounds 3
+/// §5.2).
+fn inner_radii(radii: Radii, box_: Box2, widths: [f32; 4]) -> Radii {
+    let size = [(box_.r - box_.l) as f32, (box_.b - box_.t) as f32];
+    let [tl, tr, bl, br] = clamp_radii(radii, size[0], size[1]);
+    let pull =
+        |[x, y]: [f32; 2], across: f32, down: f32| [(x - across).max(0.0), (y - down).max(0.0)];
+    [
+        pull(tl, widths[0], widths[2]),
+        pull(tr, widths[1], widths[2]),
+        pull(bl, widths[0], widths[3]),
+        pull(br, widths[1], widths[3]),
+    ]
+}
+
 fn clamp_radii(radii: Radii, width: f32, height: f32) -> Radii {
     let mut out = radii.map(|corner| corner.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 }));
     let [tl, tr, bl, br] = out;

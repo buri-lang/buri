@@ -1,0 +1,33 @@
+//! A blue frame 60px square with a 10px border, and red boxes to put in it.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// A box 60px square inside a blue border 10px wide, with `extra` styles,
+/// holding `child`.
+export fn framed<C>(extra: [Style], child: Node<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(60)),
+            .Height(.Px(60)),
+            .BorderWidth(.Px(10)),
+            .BorderColor(.Rgb(0, 0, 255)),
+            .Group(extra),
+        ],
+        children: [child],
+    })
+}
+
+/// A red box `size` px square, with `extra` styles.
+export fn red<C>(size: Int, extra: [Style]): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(size)),
+            .Height(.Px(size)),
+            .Group(extra),
+            .Background(.Rgb(255, 0, 0)),
+        ],
+        children: [],
+    })
+}

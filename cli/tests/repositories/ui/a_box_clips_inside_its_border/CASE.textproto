@@ -1,0 +1,19 @@
+# A box that clips cuts what it holds at the inside of its border, each scene
+# beside a twin that draws the part a browser leaves showing. Both tests of a
+# pair compare against one golden. A browser clips overflow at the padding
+# box, so a child that runs past the box leaves the border showing, and a
+# rounded box clips to its inner corners, each radius less the border on its
+# own axis (CSS Overflow 3 §2.1, CSS Backgrounds 3 §5.2).
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a box that clips cuts its children at the inside of its border, round its inner corners, in the painter"
+
+run {
+  args: ["test", "//lib/inside", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/inside/test/__snapshots__/square.diff.png"  exists: false }
+path { path: "lib/inside/test/__snapshots__/rounded.diff.png"  exists: false }
