@@ -1551,10 +1551,12 @@ struct Loops {
     /// header and the range of [`Loops::blocks`] that is its blocks.
     found: Vec<(ir::BlockId, usize, usize)>,
     blocks: Vec<ir::BlockId>,
-    /// [`Jit::promote`]'s: the header of each region it takes, and the
-    /// operands of one instruction.
+    /// [`Jit::promote`]'s: the header of each region it takes, the
+    /// operands of one instruction, and each read of a loop variable outside
+    /// its own region, as `(variable, block)`, in order.
     headers: Vec<ir::BlockId>,
     ops: Vec<ir::ValueId>,
+    outside: Vec<(ir::ValueId, ir::BlockId)>,
 }
 
 impl Loops {
@@ -4527,6 +4529,8 @@ fn promote(
     // Where every value is used, and whether every one of those uses can
     // read a register: one inside the value's own region.
     let ops = &mut loops.ops;
+    let outside = &mut loops.outside;
+    outside.clear();
     for (bi, b) in code.iter() {
         let inside = *body.get(bi);
         let mut note = |o: ir::ValueId, ok: bool| {
@@ -4539,6 +4543,9 @@ fn promote(
             v.slot_inside |= ours && !ok;
             v.outside |= !ours;
             v.reg_ok &= ok && ours;
+            if v.owner != 0 && !ours {
+                outside.push((o, bi));
+            }
         };
         for i in &b.insts {
             ops.clear();
@@ -4565,9 +4572,14 @@ fn promote(
                 v.slot_inside |= ours && !(*p == *a && own);
                 v.outside |= !ours;
                 v.reg_ok &= *p == *a && own;
+                if v.owner != 0 && !ours {
+                    outside.push((*a, bi));
+                }
             }
         }
     }
+    outside.sort_unstable();
+    outside.dedup();
 
     // Each region numbers its registers from the first: none is live
     // outside its own region, so two regions never meet in one.
@@ -4765,7 +4777,6 @@ fn exit_spills(
             }
         }
     }
-    let mut ops = Vec::new();
     for p in wanted {
         let k = *out.get(p);
         // Whether the block left from still holds `p` in its register.
@@ -4778,19 +4789,10 @@ fn exit_spills(
         };
         let start = spills.len();
         let mut every = true;
-        for (z, b) in code.iter() {
-            if *body.get(z) == n {
-                continue;
-            }
-            ops.clear();
-            for i in &b.insts {
-                i.operands(&mut ops);
-            }
-            b.term.operands(&mut ops);
-            ops.extend(b.term.targets().flat_map(|t| t.args.iter().copied()));
-            if !ops.contains(&p) {
-                continue;
-            }
+        let from = loops.outside.partition_point(|(v, _)| *v < p);
+        let reads = loops.outside.get(from..).unwrap_or_default();
+        for (_, z) in reads.iter().take_while(|(v, _)| *v == p) {
+            let z = *z;
             let past = exits
                 .iter()
                 .find(|(x, y)| loops.dom.dominates(*y, z) && holds(*x));
