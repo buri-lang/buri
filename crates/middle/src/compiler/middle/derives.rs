@@ -305,7 +305,7 @@ pub fn run(program: &mut Program) -> Derives {
     route_cells(program, &built.routed);
     let kept = rewrite(program, &users, &built.routed, &built.hash_ty, &forwards);
     if !forwards.is_empty() {
-        fold_forwards(program, built.base, &forwards, kept);
+        fold_forwards(program, built.base, &built.out.instances, &forwards, kept);
     }
     for f in &mut program.funcs {
         prim_to_json_body(f);
@@ -3909,22 +3909,30 @@ fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
     }
 }
 
-/// Writes out every forwarding call left in a generated body, then drops each
-/// forwarding function nothing names any more, `named` being the ones a call
-/// site outside them still calls. A backend compiles nothing under a dropped
-/// function.
+/// Writes out every forwarding call left in a generated `Equal` or `Ordered`,
+/// the only generated bodies that call one, then drops each forwarding
+/// function nothing names any more, `named` being the ones a call site outside
+/// them still calls. A backend compiles nothing under a dropped function.
 fn fold_forwards(
     program: &mut Program,
     base: usize,
+    instances: &[Instance],
     forwards: &HashMap<FuncIdx, Forward>,
     mut named: crate::hash::Set<FuncIdx>,
 ) {
-    let generated: Vec<FuncIdx> = program.funcs.ids().skip(base).collect();
+    let compares: crate::hash::Set<FuncIdx> = instances
+        .iter()
+        .filter(|i| matches!(i.op, Op::Eq | Op::Compare))
+        .map(|i| i.func)
+        .collect();
     named.extend(program.cell_equal.values().copied());
-    for i in &generated {
-        if let Some(body) = program.funcs.get_mut(*i).body_mut() {
-            inline_forwards(body, forwards);
-            names(body, &mut named);
+    let generated: Vec<FuncIdx> = program.funcs.ids().skip(base).collect();
+    for i in generated {
+        if let Some(body) = program.funcs.get_mut(i).body_mut() {
+            if compares.contains(&i) {
+                inline_forwards(body, forwards);
+                names(body, &mut named);
+            }
         }
     }
     for f in forwards.keys() {
