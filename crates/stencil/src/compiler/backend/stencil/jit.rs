@@ -1558,7 +1558,7 @@ struct Loops {
 
 impl Loops {
     /// Every promotable loop, smallest first, in [`Loops::found`].
-    fn promotable(&mut self, code: &ir::Code) {
+    fn promotable(&mut self, code: &ir::Code, calls: &dyn Fn(&ir::Inst) -> bool) {
         let Loops {
             preds,
             dom,
@@ -1573,7 +1573,7 @@ impl Loops {
         } = self;
         *barrier = code.per_block_in(barrier, false);
         for (id, x) in barrier.iter_mut() {
-            *x = code.get(id).insts.iter().any(is_barrier);
+            *x = code.get(id).insts.iter().any(calls);
         }
         preds.fill(
             code,
@@ -1762,6 +1762,7 @@ impl<'a> Jit<'a> {
                 st.cross = code.per_value_in(&mut st.cross, 0);
                 st.region = code.per_block_in(&mut st.region, 0);
                 let taken = self.promote(
+                    prog,
                     code,
                     &opnd,
                     &st.uses,
@@ -1771,7 +1772,7 @@ impl<'a> Jit<'a> {
                     &mut st.region,
                     &mut st.spills,
                 );
-                self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
+                self.regalloc(prog, code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
                 st.blk = Labels::for_code(&mut st.blk, code);
@@ -3592,6 +3593,7 @@ impl<'a> Jit<'a> {
     )]
     fn promote(
         &mut self,
+        prog: &ir::Program,
         code: &ir::Code,
         opnd: &Operands,
         uses: &ir::PerValue<u32>,
@@ -3603,7 +3605,9 @@ impl<'a> Jit<'a> {
     ) -> (usize, usize) {
         let Bufs { loops, vars, .. } = &mut self.bufs;
         let tables = Reads { code, opnd, uses };
-        promote(loops, vars, tables, out, wt, cross, region, spills)
+        let (types, layouts) = (self.tables, &self.layouts);
+        let calls = |i: &ir::Inst| is_barrier(i) || boxes_a_field(prog, types, layouts, i);
+        promote(loops, vars, tables, &calls, out, wt, cross, region, spills)
     }
 
     /// The CPS register assignment.
@@ -3619,6 +3623,7 @@ impl<'a> Jit<'a> {
     /// that crosses a call or a block boundary stays in the frame.
     fn regalloc(
         &mut self,
+        prog: &ir::Program,
         code: &ir::Code,
         out: &mut ir::PerValue<Option<Reg>>,
         taken: (usize, usize),
@@ -3651,7 +3656,7 @@ impl<'a> Jit<'a> {
                 for o in opnd.inst(bi, k) {
                     note_use(&mut uses, bi, *o, k);
                 }
-                barrier.push(is_barrier(i));
+                barrier.push(is_barrier(i) || boxes_a_field(prog, self.tables, &self.layouts, i));
             }
             barrier.push(false);
             for o in opnd.term(code, bi) {
@@ -4481,6 +4486,7 @@ fn promote(
     loops_buf: &mut Loops,
     vars_buf: &mut ir::PerValue<Var>,
     tables: Reads<'_>,
+    calls: &dyn Fn(&ir::Inst) -> bool,
     out: &mut ir::PerValue<Option<Reg>>,
     wt: &mut ir::PerValue<bool>,
     cross: &mut ir::PerValue<u32>,
@@ -4504,7 +4510,7 @@ fn promote(
         return (0, 0);
     }
     let mut loops = std::mem::take(loops_buf);
-    loops.promotable(code);
+    loops.promotable(code, calls);
     // `region` has a row per block, every one `0` (`Jit::function`), and
     // region `n`'s header is `headers[n - 1]`.
     let mut headers = std::mem::take(&mut loops.headers);
@@ -4884,6 +4890,36 @@ fn reads_register(code: &ir::Code, i: &ir::Inst, o: ir::ValueId) -> bool {
     }
 }
 
+/// Whether `i` builds a record or variant with a field behind a pointer, whose
+/// `box/*` stencil allocates it: a call, so as much a barrier as
+/// [`is_barrier`]'s.
+fn boxes_a_field(prog: &ir::Program, tables: &Tables, layouts: &Layouts<'_>, i: &ir::Inst) -> bool {
+    match i {
+        ir::Inst::MakeStruct { ty, .. } => {
+            let owner = &prog.type_info(ty.id()).ty;
+            layouts.recursive(owner)
+                && prog
+                    .types
+                    .fields(*ty)
+                    .iter()
+                    .any(|t| layouts.boxes(owner, t))
+        }
+        ir::Inst::MakeEnum {
+            ty,
+            variant,
+            fields,
+            ..
+        } if !fields.is_empty() => {
+            let owner = &prog.type_info(ty.id()).ty;
+            layouts.recursive(owner)
+                && variant_types(tables, owner, variant.index())
+                    .iter()
+                    .any(|t| layouts.boxes(owner, t))
+        }
+        _ => false,
+    }
+}
+
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
         ir::Inst::CallIntrinsic { .. } => true,
@@ -4892,12 +4928,13 @@ fn is_barrier(i: &ir::Inst) -> bool {
         // be live in the CPS file across one. Missing this is not a slow
         // program, it is a wrong one: the register a loop variable was
         // promoted into comes back holding whatever the helper left.
-        ir::Inst::Binary { prim, .. } => {
-            matches!(
-                prim,
-                crate::compiler::semantics::types::Prim::Str
-                    | crate::compiler::semantics::types::Prim::Template
-            )
+        // So is a 128-bit divide or remainder, which the runtime works out
+        // (`sources.rs::wide`).
+        ir::Inst::Binary { prim, op, .. } => {
+            use crate::compiler::semantics::types::Prim;
+            matches!(prim, Prim::Str | Prim::Template)
+                || matches!(prim, Prim::I128 | Prim::U128)
+                    && matches!(op, ir::BinOp::Div | ir::BinOp::Rem)
         }
         ir::Inst::Call { .. }
         | ir::Inst::Parallel(_)
@@ -5063,6 +5100,7 @@ mod tests {
             &mut Loops::default(),
             &mut spare,
             tables,
+            &is_barrier,
             &mut out,
             &mut wt,
             &mut cross,

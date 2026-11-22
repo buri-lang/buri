@@ -743,6 +743,14 @@ impl<'a> Layouts<'a> {
         self.cycles.boxes(owner, field)
     }
 
+    /// Whether `owner` is in a cycle, so that some field of it may be boxed:
+    /// [`Layouts::boxes`] is `false` for every field of any other type.
+    pub fn recursive(&self, owner: &Ty) -> bool {
+        owner
+            .head()
+            .is_some_and(|con| self.cycles.groups.get(con).recursive)
+    }
+
     fn compute(&mut self, ty: &Ty) -> Rc<Layout> {
         if let Some(layout) = self.memo.get(ty) {
             return Rc::clone(layout);

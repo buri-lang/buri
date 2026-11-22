@@ -516,3 +516,58 @@ fn an_int_and_a_float_in_registers_of_one_number_each_take_their_next_value() {
 
 /// See [`an_int_and_a_float_in_registers_of_one_number_each_take_their_next_value`].
 const SHARED_NUMBER_BOUND_TENTHS: u64 = 130;
+
+/// **A loop that calls the runtime inside one instruction keeps its
+/// variables**: a record of a recursive type built each round, whose field of
+/// its own type is put behind a pointer the runtime allocates; a variant of a
+/// recursive enum built the same way; and a 128-bit divide and remainder,
+/// which the runtime works out. The loop's `Int`s are read after each.
+#[test]
+fn a_loop_whose_step_calls_the_runtime_keeps_its_variables() {
+    let test = r#"
+from "core/testing/assert" import * as assert;
+
+struct Node { v: Int, next: Option<Node> }
+enum Chain { End, Link(Int, Chain) }
+
+fn nodes(i: Int, n: Int, acc: Option<Node>): Option<Node> {
+    if (i == n) { acc } else { nodes(i + 1, n, .Some(Node { v: i * 3, next: acc })) }
+}
+
+fn nsum(o: Option<Node>, acc: Int): Int {
+    match (o) {
+        .Some(x) => nsum(x.next, acc + x.v),
+        .None => acc,
+    }
+}
+
+fn links(i: Int, n: Int, acc: Chain): Chain {
+    if (i == n) { acc } else { links(i + 1, n, .Link(i * 5, acc)) }
+}
+
+fn lsum(c: Chain, acc: Int): Int {
+    match (c) {
+        .Link(k, rest) => lsum(rest, acc + k),
+        .End => acc,
+    }
+}
+
+fn wide(i: Int, n: Int, b: I128, k: I128, acc: I128): I128 {
+    if (i == n) { acc } else { wide(i + 1, n, b, k + 1, acc + b / k + b % k) }
+}
+
+test "a record boxing a field" {
+    assert.equal(nsum(nodes(0, 100, .None), 0), 14850);
+}
+
+test "a variant boxing a field" {
+    assert.equal(lsum(links(0, 100, .End), 0), 24750);
+}
+
+test "a 128-bit divide and remainder" {
+    let want: I128 = 4499205338329425058049;
+    assert.equal(wide(0, 50, 1000000000000000000000, 1, 0), want);
+}
+"#;
+    crate::odd_sizes::passes("loop-runtime-calls", test, 3);
+}
