@@ -4193,6 +4193,11 @@ fn lay_out(
                             height: known.height.unwrap_or(height),
                         };
                     }
+                    // Empty text makes no line box, so it takes no room: a
+                    // field's empty label is no taller than nothing.
+                    if text.is_empty() {
+                        return known.unwrap_or(Size::ZERO);
+                    }
                     let (width, wrap) = match (known.width, available.width) {
                         (Some(w), _) | (None, AvailableSpace::Definite(w)) => {
                             (Some(w), Wrap::WordOrGlyph)

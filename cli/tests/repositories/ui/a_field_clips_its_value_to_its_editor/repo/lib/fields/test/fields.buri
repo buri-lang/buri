@@ -7,6 +7,7 @@
 from "platform/effect" import { Allocator, Ui };
 from "platform/effect/testing" import { alloc, headless, snapshot };
 from "ui/node" import * as ui;
+from "ui/signal" import { signal };
 from "ui/style" import { Style };
 from "//lib/fields" import { filled, line, lines };
 
@@ -288,6 +289,56 @@ test "the boxes laid out the plain way where the padded-area scene puts them" {
         ui.stack({
             styles: ground(),
             children: [lines(168, .Rem(3.15), paragraph(), [.PaddingY(.Px(6))])],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "a textarea shrinks to the row its label lays it out in" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "narrow",
+        ui.stack({
+            styles: [.Layout(.Column), .Width(.Px(100))],
+            children: [
+                ui.field({
+                    label: .Const(""),
+                    kind: .Multiline,
+                    value: signal(ctx, paragraph()),
+                    styles: [.Group(red()), .Height(.Px(40))],
+                    hint: .None,
+                    around: .None,
+                    isInvalid: .None,
+                    isDisabled: .None,
+                }),
+            ],
+        }),
+        .Hover,
+        [],
+    );
+}
+
+test "the box laid out the plain way where the narrow scene puts it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "narrow",
+        ui.stack({
+            styles: [.Layout(.Column), .Width(.Px(100))],
+            children: [
+                ui.stack({
+                    styles: [.Group(red()), .Height(.Px(40)), .Clip(true)],
+                    children: [ui.text({ content: .Const(paragraph()) })],
+                }),
+            ],
         }),
         .Hover,
         [],

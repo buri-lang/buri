@@ -5,7 +5,9 @@
 # spin button (15px) or a search field's clear button (9px at 13px type,
 # scaled with the type and held to 5 to 21, plus 4px of margin) takes at the
 # end, whether or not the button shows. It cuts a textarea's off at its
-# edges, whatever its height and padding, because a textarea scrolls.
+# edges, whatever its height and padding, because a textarea scrolls. A
+# textarea is a scroll container, so it shrinks to fit the row its label lays
+# it out in, and an empty label makes no line, so it takes no room.
 #
 # `a_field_clips_its_value_to_its_editor` in build/repositories.rs checks that
 # a browser gives each field its twin's place and size.
@@ -27,3 +29,4 @@ path { path: "lib/fields/test/__snapshots__/padded.diff.png"  exists: false }
 path { path: "lib/fields/test/__snapshots__/multiline.diff.png"  exists: false }
 path { path: "lib/fields/test/__snapshots__/tall.diff.png"  exists: false }
 path { path: "lib/fields/test/__snapshots__/padded-area.diff.png"  exists: false }
+path { path: "lib/fields/test/__snapshots__/narrow.diff.png"  exists: false }

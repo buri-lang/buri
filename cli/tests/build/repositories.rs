@@ -1287,7 +1287,8 @@ fn a_field_without_a_width_is_twenty_characters_wide() {
 /// `a_field_clips_its_value_to_its_editor`: each as wide as its twin's box,
 /// so the painter cuts each value off inside a box the browser agrees on. A
 /// number field's spin button and a search field's clear button take their
-/// room from inside the field, never add to it.
+/// room from inside the field, never add to it. A textarea shrinks to the
+/// row its label lays it out in, and an empty label takes no room.
 #[test]
 fn a_field_clips_its_value_to_its_editor() {
     let case = tests_dir().join("repositories/ui/a_field_clips_its_value_to_its_editor");
@@ -1313,8 +1314,15 @@ fn a_field_clips_its_value_to_its_editor() {
             "multiline: textarea=168",
             "tall: textarea=168",
             "padded-area: textarea=168",
+            "narrow: textarea=100",
         ]
     );
+    let narrow: Vec<String> = crate::harness::web_pages::flow_places(&case)
+        .iter()
+        .filter(|(name, _)| name == "narrow")
+        .map(|(name, boxes)| format!("{name}: {boxes}"))
+        .collect();
+    assert_eq!(narrow, ["narrow: red at 0,0 100x40"; 2]);
 }
 
 /// Where a browser lays out the boxes of
