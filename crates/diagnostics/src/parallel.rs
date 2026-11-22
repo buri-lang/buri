@@ -196,6 +196,7 @@ where
             .enumerate()
             .for_each(|(i, item)| fold(f(i, item)));
     } else {
+        crate::profile::work(crate::profile::Work::ResultsHeldForAFold, items.len());
         map_items(items, f).into_iter().for_each(fold);
     }
 }

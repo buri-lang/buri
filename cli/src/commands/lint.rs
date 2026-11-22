@@ -1844,6 +1844,7 @@ impl Text {
         let mut names: crate::hash::Map<&str, (bool, bool)> = crate::hash::Map::default();
         for at in idents.iter().copied() {
             let name = source.get(at.start as usize..at.end as usize).unwrap_or("");
+            crate::profile::work(crate::profile::Work::NamesLookedUpForLint, 1);
             let (used, seen) = names.entry(name).or_default();
             if !*used
                 && !imports

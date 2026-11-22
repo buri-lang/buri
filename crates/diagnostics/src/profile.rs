@@ -246,9 +246,14 @@ pub enum Work {
     /// Bytes of code the stencil backend copied to join a unit's parts
     /// (`stencil/mod.rs`).
     UnitCodeBytesCopied,
+    /// Results a fold over the cores held until every one was made
+    /// (`parallel.rs`).
+    ResultsHeldForAFold,
+    /// Names lint looked up for the identifiers a module writes (`lint.rs`).
+    NamesLookedUpForLint,
 }
 
-const WORKS: usize = Work::UnitCodeBytesCopied as usize + 1;
+const WORKS: usize = Work::NamesLookedUpForLint as usize + 1;
 
 const WORK_NAMES: [&str; WORKS] = [
     "derive nodes built",
@@ -288,6 +293,8 @@ const WORK_NAMES: [&str; WORKS] = [
     "functions read for erasure",
     "runtime keys spelled",
     "unit code bytes copied",
+    "results held for a fold",
+    "names looked up for lint",
 ];
 
 static WORK: [AtomicU64; WORKS] = [const { AtomicU64::new(0) }; WORKS];

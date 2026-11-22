@@ -472,6 +472,67 @@ fn the_function_table_moves_no_function_as_it_fills() {
     );
 }
 
+/// **On one thread, each lowered function is folded in as it is made.** The
+/// lowering kept every function's result until the last was made, which
+/// wrote each to memory nothing had touched and read it back from there for
+/// the fold. On two threads the results still wait for one another, so the
+/// count there is every function, and on one it is none. The program runs
+/// either way.
+#[test]
+fn a_build_on_one_thread_folds_each_function_as_it_is_lowered() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let (items, body) = many_recursive(300);
+    let held = |threads: &str| {
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(
+            &["build", "//app"],
+            &[("BURI_PROFILE", "1"), ("BURI_THREADS", threads)],
+        );
+        run.ok();
+        let binary = scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()));
+        let ran = std::process::Command::new(binary).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), "45150\n");
+        work_count(&run.all(), "results held for a fold").unwrap()
+    };
+    assert_eq!(held("1"), 0.0, "one thread holds nothing");
+    assert!(held("2") > 300.0, "two threads hold every function");
+}
+
+/// **Lint looks each identifier a module writes up once.** It looked each up
+/// in two tables, one for the names written outside an import and one for
+/// the names counted as undeclared. A function of [`many_recursive`] writes
+/// seven identifiers, so 200 more of them are 1,400 more identifiers, and the
+/// two tables looked up 2,800 more names. The bound is 2,100, halfway. The
+/// program runs.
+#[test]
+fn lint_looks_each_identifier_up_once() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::missing("build::profile", &why);
+        return;
+    }
+    let looked_up = |n: usize| {
+        let (items, body) = many_recursive(n);
+        let scratch = large_shape("native", &items, &body);
+        let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
+        run.ok();
+        let binary = scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()));
+        let ran = std::process::Command::new(binary).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&ran.stdout),
+            format!("{}\n", n * (n + 1) / 2)
+        );
+        work_count(&run.all(), "names looked up for lint").unwrap()
+    };
+    let more = looked_up(400) - looked_up(200);
+    assert!(
+        more <= 2100.0,
+        "{more} more names looked up for 1,400 more identifiers"
+    );
+}
+
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
 /// has no counter, there is nothing to compare and this asserts nothing.
 ///
