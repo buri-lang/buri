@@ -4638,15 +4638,21 @@ fn promote(
         let Some(header) = n.checked_sub(1).and_then(|k| headers.get(k as usize)) else {
             continue;
         };
-        // Only where every way on is a back edge. The value takes the
-        // parameter's register before the terminator, so a block past it
-        // would read the parameter's register and find the next value in it,
-        // inside the region or out of it, where `exit_spills` writes the
-        // register to the slot.
-        if b.term.targets().any(|t| t.block != *header) {
+        // Only where every way on is a back edge or out of the region. The
+        // value takes the parameter's register before the terminator, so a
+        // block of the region past it would read the parameter's register and
+        // find the next value in it. Out of the region, `exit_spills` leaves
+        // such a block's ways out alone.
+        if b.term
+            .targets()
+            .any(|t| t.block != *header && *body.get(t.block) == n)
+        {
             continue;
         }
         for t in b.term.targets() {
+            if t.block != *header {
+                continue;
+            }
             for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
                 let Some(k) = *out.get(*p) else {
                     continue;
@@ -4727,9 +4733,10 @@ fn promote(
 /// way in, and a read past it is past nothing but that way out since the
 /// last time the loop ran: the loop is entered only at its header, so getting
 /// back to the block means leaving through it again. So its register still
-/// holds the variable there: `promote` writes a next value into it only in a
-/// block whose every way on is back to the header. A variable some read of
-/// which is past no such block keeps `wt`.
+/// holds the variable there, unless the block left from also goes back to the
+/// header, where `promote` may have written the next value into it: such a
+/// way out is not counted. A variable some read of which is past no counted
+/// way out keeps `wt`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the tables `promote` has just filled"
@@ -4759,10 +4766,11 @@ fn exit_spills(
     if wanted.is_empty() {
         return;
     }
-    // The blocks the region is left into that nothing else enters.
+    // The blocks the region is left into that nothing else enters, from a
+    // block that does not also go back.
     let mut exits: Vec<ir::BlockId> = Vec::new();
     for (x, b) in code.iter() {
-        if *body.get(x) != n {
+        if *body.get(x) != n || b.term.targets().any(|t| t.block == h) {
             continue;
         }
         for t in b.term.targets() {
@@ -5065,17 +5073,19 @@ mod tests {
     }
 
     /// The back edge's value takes its parameter's register only where every
-    /// way on is back to the header: a block past it, in the loop or out of
-    /// it, would read the parameter there.
+    /// way on is back to the header or out of the loop: a block of the loop
+    /// past it would read the parameter there. A block out of it reads the
+    /// parameter's slot, which every way back writes, because the block left
+    /// from may have overwritten the register.
     #[test]
     fn a_next_value_shares_its_register_only_when_the_loop_reads_no_more() {
-        let (i, next) = next_value_registers(Way::Back);
-        assert!(i.is_some());
-        assert_eq!(next, i);
-        for way in [Way::Inside, Way::Out] {
+        for way in [Way::Back, Way::Out] {
             let (i, next) = next_value_registers(way);
             assert!(i.is_some());
-            assert_eq!(next, None);
+            assert_eq!(next, i);
         }
+        let (i, next) = next_value_registers(Way::Inside);
+        assert!(i.is_some());
+        assert_eq!(next, None);
     }
 }

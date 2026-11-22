@@ -618,9 +618,11 @@ const MERGE_SORTS: (u64, u64) = (10, 40);
 /// backend, in instructions: its share of the insertion sort and of every
 /// merge pass. It measured 321 once each merge step's index stayed in its
 /// register, and 368 before, when every step stored the index and
-/// read it back. The bound sits between the two, so the old code fails it,
-/// with room for the counter's noise of well under 1%.
-const MERGE_BOUND: f64 = 345.0;
+/// read it back. On macOS it measured 320 once a step that leaves the loop as
+/// well as going round kept its next value in its register too, and 338 while
+/// such a step stored it. The bound sits halfway between those two, so the
+/// old code fails it, with room for the counter's noise of well under 1%.
+const MERGE_BOUND: f64 = 329.0;
 
 /// **A merge step keeps its indexes in registers**: the index a step moves
 /// past is computed into the register the loop holds it in, tested there,
