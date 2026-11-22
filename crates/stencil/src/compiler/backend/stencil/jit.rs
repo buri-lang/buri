@@ -619,8 +619,6 @@ struct Bufs {
 struct Var {
     /// The region the value is a loop variable of, numbered from one, or `0`.
     owner: u32,
-    /// How many times it is read.
-    uses: u32,
     /// Inside its own region, how many more of its reads take a register than
     /// take the frame slot. A variable read mostly from its slot is one the
     /// edges write twice for little.
@@ -1551,11 +1549,10 @@ struct Loops {
     /// header and the range of [`Loops::blocks`] that is its blocks.
     found: Vec<(ir::BlockId, usize, usize)>,
     blocks: Vec<ir::BlockId>,
-    /// [`Jit::promote`]'s: the header of each region it takes, the
-    /// operands of one instruction, and each read of a loop variable outside
-    /// its own region, as `(variable, block)`, in order.
+    /// [`Jit::promote`]'s: the header of each region it takes, and each read
+    /// of a loop variable outside its own region, as `(variable, block)`, in
+    /// order.
     headers: Vec<ir::BlockId>,
-    ops: Vec<ir::ValueId>,
     outside: Vec<(ir::ValueId, ir::BlockId)>,
 }
 
@@ -1766,6 +1763,8 @@ impl<'a> Jit<'a> {
                 st.region = code.per_block_in(&mut st.region, 0);
                 let taken = self.promote(
                     code,
+                    &opnd,
+                    &st.uses,
                     &mut st.reg,
                     &mut st.wt,
                     &mut st.cross,
@@ -3587,9 +3586,15 @@ impl<'a> Jit<'a> {
     ///
     /// Answers how many integer and floating registers the promotion took, so
     /// that the paper's own expression-temporary allocator can have the rest.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the tables `function` already built, and the ones this fills"
+    )]
     fn promote(
         &mut self,
         code: &ir::Code,
+        opnd: &Operands,
+        uses: &ir::PerValue<u32>,
         out: &mut ir::PerValue<Option<Reg>>,
         wt: &mut ir::PerValue<bool>,
         cross: &mut ir::PerValue<u32>,
@@ -3597,7 +3602,8 @@ impl<'a> Jit<'a> {
         spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
     ) -> (usize, usize) {
         let Bufs { loops, vars, .. } = &mut self.bufs;
-        promote(loops, vars, code, out, wt, cross, region, spills)
+        let tables = Reads { code, opnd, uses };
+        promote(loops, vars, tables, out, wt, cross, region, spills)
     }
 
     /// The CPS register assignment.
@@ -4457,6 +4463,15 @@ impl Dominance {
     }
 }
 
+/// What [`promote`] reads of the function: its code, what each instruction
+/// and terminator reads ([`Operands`]), and how often each value is read.
+#[derive(Clone, Copy)]
+struct Reads<'t> {
+    code: &'t ir::Code,
+    opnd: &'t Operands,
+    uses: &'t ir::PerValue<u32>,
+}
+
 /// [`Jit::promote`], over the buffers it keeps between functions.
 #[allow(
     clippy::too_many_arguments,
@@ -4465,13 +4480,14 @@ impl Dominance {
 fn promote(
     loops_buf: &mut Loops,
     vars_buf: &mut ir::PerValue<Var>,
-    code: &ir::Code,
+    tables: Reads<'_>,
     out: &mut ir::PerValue<Option<Reg>>,
     wt: &mut ir::PerValue<bool>,
     cross: &mut ir::PerValue<u32>,
     region: &mut ir::PerBlock<u32>,
     spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
 ) -> (usize, usize) {
+    let Reads { code, opnd, uses } = tables;
     spills.clear();
     // Every register but the last: one has to be left for the expression
     // temporaries the paper's own allocator keeps there, or the arithmetic
@@ -4512,7 +4528,6 @@ fn promote(
     let body: &ir::PerBlock<u32> = region;
     let init = Var {
         owner: 0,
-        uses: 0,
         gain: 0,
         reg_ok: true,
         slot_inside: false,
@@ -4527,14 +4542,12 @@ fn promote(
 
     // Where every value is used, and whether every one of those uses can
     // read a register: one inside the value's own region.
-    let ops = &mut loops.ops;
     let outside = &mut loops.outside;
     outside.clear();
     for (bi, b) in code.iter() {
         let inside = *body.get(bi);
         let mut note = |o: ir::ValueId, ok: bool| {
             let v = vars.get_mut(o);
-            v.uses += 1;
             let ours = inside != 0 && v.owner == inside;
             if ours {
                 v.gain += if ok { 1 } else { -1 };
@@ -4546,17 +4559,17 @@ fn promote(
                 outside.push((o, bi));
             }
         };
-        for i in &b.insts {
-            ops.clear();
-            i.operands(ops);
-            for o in ops.iter() {
+        for (k, i) in b.insts.iter().enumerate() {
+            for o in opnd.inst(bi, k) {
                 note(*o, reads_register(code, i, *o));
             }
         }
-        ops.clear();
-        b.term.operands(ops);
+        // The terminator's row is its own operands and then its edges'
+        // arguments, which are read below.
+        let row = opnd.term(code, bi);
+        let args: usize = b.term.targets().map(|t| t.args.len()).sum();
         let ok = matches!(b.term, ir::Term::Branch { .. });
-        for o in ops.iter() {
+        for o in row.iter().take(row.len().saturating_sub(args)) {
             note(*o, ok);
         }
         // An edge argument is a register use only when it lands in the same
@@ -4566,7 +4579,6 @@ fn promote(
             for (p, a) in code.get(t.block).params.iter().zip(t.args.iter()) {
                 let own = vars.get(*p).owner != 0;
                 let v = vars.get_mut(*a);
-                v.uses += 1;
                 let ours = inside != 0 && v.owner == inside;
                 v.slot_inside |= ours && !(*p == *a && own);
                 v.outside |= !ours;
@@ -4599,7 +4611,7 @@ fn promote(
                     | ir::Type::F64
             );
             let v = vars.get(*p);
-            if !scalar || v.uses == 0 || v.gain <= 0 {
+            if !scalar || *uses.get(*p) == 0 || v.gain <= 0 {
                 continue;
             }
             let k = if float { &mut kf } else { &mut ki };
@@ -4655,17 +4667,15 @@ fn promote(
                 // register, as the loop's own test of `i + 1` does. A read
                 // anywhere else would find the slot, which nothing writes.
                 let mut here = 0;
-                for i in b.insts.iter().skip(di + 1) {
-                    ops.clear();
-                    i.operands(ops);
-                    let n = ops.iter().filter(|o| **o == *a).count() as u32;
+                for (k, i) in b.insts.iter().enumerate().skip(di + 1) {
+                    let n = opnd.inst(bi, k).iter().filter(|o| **o == *a).count() as u32;
                     if n != 0 && !reads_register(code, i, *a) {
                         here = u32::MAX;
                         break;
                     }
                     here += n;
                 }
-                if here.saturating_add(1) != vars.get(*a).uses {
+                if here.saturating_add(1) != *uses.get(*a) {
                     continue;
                 }
                 if !matches!(
@@ -4680,20 +4690,12 @@ fn promote(
                 ) {
                     continue;
                 }
-                let mut clash = false;
-                for i in b.insts.iter().skip(di + 1) {
-                    ops.clear();
-                    i.operands(ops);
-                    clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
-                }
-                ops.clear();
-                b.term.operands(ops);
-                for tt in b.term.targets() {
-                    // The hand-over itself, `a` at `p` in `t`, reads no
-                    // register: `a` has none yet.
-                    ops.extend_from_slice(&tt.args);
-                }
-                clash |= ops.iter().any(|o| *out.get(*o) == Some(k));
+                // The rows past `a`'s definition, the terminator's with its
+                // edges' arguments. The hand-over itself, `a` at `p` in `t`,
+                // reads no register: `a` has none yet.
+                let clash = (di + 1..=b.insts.len())
+                    .flat_map(|k| opnd.inst(bi, k))
+                    .any(|o| *out.get(*o) == Some(k));
                 if clash {
                     continue;
                 }
@@ -5030,7 +5032,6 @@ mod tests {
         code.get_mut(exit).term = ir::Term::Return(acc);
         let mut spare = code.per_value(Var {
             owner: 0,
-            uses: 0,
             gain: 0,
             reg_ok: true,
             slot_inside: false,
@@ -5040,10 +5041,18 @@ mod tests {
         let mut wt = code.per_value(true);
         let mut cross = code.per_value(0);
         let mut region = code.per_block(0);
+        let mut opnd = Operands::default();
+        opnd.fill(&code);
+        let uses = count_uses(&code, &opnd, &mut code.per_value(0));
+        let tables = Reads {
+            code: &code,
+            opnd: &opnd,
+            uses: &uses,
+        };
         promote(
             &mut Loops::default(),
             &mut spare,
-            &code,
+            tables,
             &mut out,
             &mut wt,
             &mut cross,
