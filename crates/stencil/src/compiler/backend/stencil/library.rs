@@ -1031,6 +1031,7 @@ mod tests {
             k.br_r2,
             k.eq_u64_fi,
             k.lt_u64_ff,
+            k.lt_u64_fi,
             k.inc_lt,
             k.tag_eq8,
             k.tag_eq32,
