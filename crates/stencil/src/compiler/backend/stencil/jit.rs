@@ -4692,10 +4692,12 @@ fn promote(
                 }
                 // The rows past `a`'s definition, the terminator's with its
                 // edges' arguments. The hand-over itself, `a` at `p` in `t`,
-                // reads no register: `a` has none yet.
+                // reads no register: `a` has none yet. A register of the
+                // other file has the same number and is another register.
+                let float = code.ty_of(*a) == ir::Type::F64;
                 let clash = (di + 1..=b.insts.len())
                     .flat_map(|k| opnd.inst(bi, k))
-                    .any(|o| *out.get(*o) == Some(k));
+                    .any(|o| *out.get(*o) == Some(k) && (code.ty_of(*o) == ir::Type::F64) == float);
                 if clash {
                     continue;
                 }

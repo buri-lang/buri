@@ -463,3 +463,56 @@ fn a_next_value_computed_before_a_test_is_computed_where_the_loop_takes_it() {
 
 /// See [`a_next_value_computed_before_a_test_is_computed_where_the_loop_takes_it`].
 const NEXT_BEFORE_BOUND_TENTHS: u64 = 150;
+
+/// `main` takes a count `n` and runs a loop of `n` steps over an `Int`, a
+/// bound and a `Float`, each of whose next values is computed on the way
+/// round, then prints whether the `Float` settled where it should.
+const SHARED_NUMBER: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Environment, Stdout };
+
+fn walk(i: Int, n: Int, x: Float): Float {
+  if (i >= n) { x } else { walk(i + 1, n, x * 0.5 + 1.0) }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Environment: host.env, Stdout: host.stdout };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  io.println(ctx, "${walk(0, n, 0.0) == 2.0}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// **An `Int` and a `Float` in registers of the same number each take their
+/// next value there.** Each file numbers its registers from zero, so the two
+/// both had the first, and the copy-and-patch backend took the `Int`'s next
+/// value for a write over the `Float`, and kept it in a slot of its own. In
+/// instructions a step on copy-and-patch: 14.0 on macOS, now 12.0. The bound
+/// is 13.0, halfway, many times the noise of a difference of 30 million
+/// steps, which is under 0.001 a step.
+#[test]
+fn an_int_and_a_float_in_registers_of_one_number_each_take_their_next_value() {
+    let (fewer, more) = READ_AFTER_STEPS;
+    let steps = more - fewer;
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("loop-shared-number-steps", SHARED_NUMBER);
+        let n = crate::collection_costs::steps_cost(backend, &binary, READ_AFTER_STEPS, |_| {
+            String::from("true\n")
+        });
+        // In tenths of an instruction a step.
+        let tenths = n.map(|n| n * 10 / steps);
+        eprintln!("{backend}: {tenths:?} tenths of an instruction a step");
+        if backend == "stencil" {
+            if let Some(tenths) = tenths {
+                assert!(
+                    tenths < SHARED_NUMBER_BOUND_TENTHS,
+                    "{backend}: {tenths} tenths of an instruction a step"
+                );
+            }
+        }
+    }
+}
+
+/// See [`an_int_and_a_float_in_registers_of_one_number_each_take_their_next_value`].
+const SHARED_NUMBER_BOUND_TENTHS: u64 = 130;
