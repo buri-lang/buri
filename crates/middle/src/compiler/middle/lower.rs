@@ -86,7 +86,7 @@ use crate::compiler::middle::ir::{
 };
 use crate::compiler::middle::layout::{self, EnumHead};
 use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
-use crate::compiler::middle::{pairs, rc, slices};
+use crate::compiler::middle::{edge_values, pairs, rc, slices};
 use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, NumberLit, OptionOrResult, PatKind,
@@ -939,6 +939,7 @@ impl FnLower<'_> {
         pairs::cancel(&mut self.code);
         slices::sink(&mut self.code);
         slices::offsets(&mut self.code);
+        edge_values::sink(&mut self.code);
         if self.code.return_in_place() {
             self.code.retain_reachable();
         }

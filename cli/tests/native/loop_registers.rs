@@ -125,7 +125,8 @@ test "next values read again" {
 /// **A next value computed before a branch reaches every way back**: `k + 1`
 /// computed before the loop picks a way and handed on by each way, by ways
 /// nested two deep, and also read on one way. And ways back each behind a
-/// test whose other way out reads the loop's own `i`, not `i + 1`.
+/// test whose other way out reads the loop's own `i`, not `i + 1`. And `i + 1`
+/// computed after another operation the step does first.
 #[test]
 fn a_next_value_computed_before_a_branch_reaches_every_way_back() {
     let test = r#"
@@ -171,7 +172,17 @@ fn out(i: Int, n: Int, acc: Int): Int {
     }
 }
 
+fn later(i: Int, n: Int, acc: Int): Int {
+    if (i >= n) { acc } else {
+        let t = acc % 3;
+        let j = i + 1;
+        if (t == 0) { later(j, n, acc + 2) } else { later(j, n, acc + 1) }
+    }
+}
+
 test "next values before a branch" {
+    assert.equal(later(0, 100, 0), 150);
+    assert.equal(later(5, 1000, 7), 1499);
     assert.equal(out(0, 5000, 0), 28338);
     assert.equal(out(10, 77, 1), 451);
     assert.equal(out(999990, 1000000000000, 0), 15);
@@ -386,3 +397,69 @@ fn a_loop_read_after_it_ends_keeps_its_variables_in_registers() {
 
 /// See [`a_loop_read_after_it_ends_keeps_its_variables_in_registers`].
 const READ_AFTER_BOUND_TENTHS: u64 = 5;
+
+/// `main` takes a count `n` and runs a loop of `n` steps, each of which
+/// computes the next count `j`, then goes round one of two ways, each passing
+/// `j` on, then prints what it answers.
+const NEXT_BEFORE: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Environment, Stdout };
+
+fn walk(i: Int, n: Int, acc: Int): Int {
+  if (i >= n) {
+    acc
+  } else {
+    let j = i + 1;
+    if (acc % 3 == 0) { walk(j, n, acc + 2) } else { walk(j, n, acc + 1) }
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Environment: host.env, Stdout: host.stdout };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  io.println(ctx, "${walk(0, n, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// What [`NEXT_BEFORE`] prints after `n` steps.
+fn next_before_answer(n: u64) -> String {
+    let acc = (0..n).fold(0u64, |acc, _| if acc % 3 == 0 { acc + 2 } else { acc + 1 });
+    format!("{acc}\n")
+}
+
+/// **A next value computed before a test is computed where the loop takes
+/// it.** The copy-and-patch backend kept `j` in a slot of its own and copied
+/// it into the loop's register on whichever way the step went. Now each way
+/// computes it there itself. In instructions a step on copy-and-patch: 16.0
+/// on macOS, now 14.0. The bound is 15.0, halfway, many times the noise of a
+/// difference of 30 million steps, which is under 0.001 a step.
+#[test]
+fn a_next_value_computed_before_a_test_is_computed_where_the_loop_takes_it() {
+    let (fewer, more) = READ_AFTER_STEPS;
+    let steps = more - fewer;
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("loop-next-before-steps", NEXT_BEFORE);
+        let n = crate::collection_costs::steps_cost(
+            backend,
+            &binary,
+            READ_AFTER_STEPS,
+            next_before_answer,
+        );
+        // In tenths of an instruction a step.
+        let tenths = n.map(|n| n * 10 / steps);
+        eprintln!("{backend}: {tenths:?} tenths of an instruction a step");
+        if backend == "stencil" {
+            if let Some(tenths) = tenths {
+                assert!(
+                    tenths < NEXT_BEFORE_BOUND_TENTHS,
+                    "{backend}: {tenths} tenths of an instruction a step"
+                );
+            }
+        }
+    }
+}
+
+/// See [`a_next_value_computed_before_a_test_is_computed_where_the_loop_takes_it`].
+const NEXT_BEFORE_BOUND_TENTHS: u64 = 150;

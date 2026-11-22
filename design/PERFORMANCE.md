@@ -11522,6 +11522,23 @@ function, which a program rarely instantiates more of. The profile counts
 quarter of the functions made: a program of 600 functions moved 1,020 of
 them before.
 
+### 6.198 A loop's next value is computed where the loop takes it, 2026-11-22
+
+```text
+a step, stencil, macOS, instructions               before    after
+a next value computed before a test                 16.0      13.9
+```
+
+A loop step that computes its next index before it branches, as a merge
+does, handed the same value back on each way round. The value couldn't
+share the loop parameter's frame slot, so each way back copied it there.
+`edge_values` now writes the operation out again in each block that hands
+it on, and a block reached only from one of those reads that block's copy.
+It moves only an integer operation that can't abort and that only jumps
+read. It costs about 185 a line on `ci`, which §6.197 paid for: `ci` dev
+codegen cost is 60122.8 a line with both, against 60145.5 before them.
+`native::loop_registers` bounds the step at 15.0.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

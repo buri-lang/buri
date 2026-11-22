@@ -62,6 +62,7 @@ pub mod coverage;
 pub mod dce;
 pub mod decision;
 pub mod derives;
+pub mod edge_values;
 pub mod fingerprint;
 pub mod flags;
 pub mod forward;
