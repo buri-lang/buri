@@ -2941,10 +2941,10 @@ fn taffy_style(c: &Computed) -> Style {
     // `taffy` gives `Hidden` no automatic minimum and keeps it for `Clip`
     // and `Visible`, as a browser does for a scroll container and for a box
     // that only cuts.
-    let overflow = |axis: usize| {
+    let overflow = |clipped: bool| {
         if c.scroller() {
             Overflow::Hidden
-        } else if c.clipped[axis] {
+        } else if clipped {
             Overflow::Clip
         } else {
             Overflow::Visible
@@ -3065,8 +3065,8 @@ fn taffy_style(c: &Computed) -> Style {
             }
         },
         overflow: Point {
-            x: overflow(0),
-            y: overflow(1),
+            x: overflow(c.clipped[0]),
+            y: overflow(c.clipped[1]),
         },
         ..Style::default()
     }
@@ -3556,7 +3556,10 @@ impl Computed {
     /// `hidden` (CSS Overflow 3 §3.1), so it is both axes or neither. `clip`
     /// alone cuts without making one.
     fn scroller(&self) -> bool {
-        (0..2).any(|axis| self.clipped[axis] && !self.clip[axis])
+        self.clipped
+            .iter()
+            .zip(self.clip)
+            .any(|(&clipped, clip)| clipped && !clip)
     }
 }
 
