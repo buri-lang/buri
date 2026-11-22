@@ -190,7 +190,9 @@ test "next values before a branch" {
 /// **A loop's variables are read after it ends**: totals read by the code
 /// after the loop, an `Int` and a `Float`, a loop with two ways out reading
 /// different totals, and an inner loop's total read before the outer loop
-/// goes round again.
+/// goes round again. And loops left into a block that only tests, left from
+/// a block that has just computed the next value, and left two ways into one
+/// block, by an `Int` and a `Float` handed back unchanged.
 #[test]
 fn a_loops_variables_are_read_after_it_ends() {
     let test = r#"
@@ -215,7 +217,32 @@ fn outer(i: Int, n: Int, acc: Int): Int {
     }
 }
 
+fn tested(i: Int, n: Int, acc: Int): Int {
+    if (i >= n) { if (acc > 5) { acc } else { 0 - acc } } else { tested(i + 1, n, acc + i % 7) }
+}
+
+fn moved(i: Int, n: Int, acc: Int): Int {
+    let j = i + 1;
+    if (j >= n) { acc + i } else { moved(j, n, acc + j % 5) }
+}
+
+fn joined(i: Int, n: Int, k: Int): Int {
+    if (i >= n || k > 1000000) { k + n + i } else { joined(i + 1, n, k) }
+}
+
+fn fjoined(i: Int, n: Int, x: Float): Float {
+    if (i >= n || x > 1000.0) { x * 2.0 } else { fjoined(i + 1, n, x) }
+}
+
 test "read after the loop" {
+    assert.equal(tested(0, 100, 0), 295);
+    assert.equal(tested(0, 2, 0), -1);
+    assert.equal(moved(0, 100, 0), 299);
+    assert.equal(moved(0, 1, 3), 3);
+    assert.equal(joined(0, 50, 7), 107);
+    assert.equal(joined(0, 50, 2000000), 2000050);
+    assert.equal(fjoined(0, 40, 1.25), 2.5);
+    assert.equal(fjoined(0, 40, 2000.0), 4000.0);
     assert.equal(fsum(0, 1000, 0.25), 1000.5);
     assert.equal(exits(0, 0, 0), 16016);
     assert.equal(exits(50, 4990, 0), 15061);

@@ -28,6 +28,7 @@ use crate::compiler::backend::intrinsic_keys::{
     checked_kind, json_arm, native_body, CheckedKind, JsonArm, Leaf, Num,
 };
 use crate::compiler::semantics::types::variant_types;
+use crate::diagnostics::Invariant as _;
 
 /// Where an edge's register half reads from.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2416,9 +2417,7 @@ impl<'a> Jit<'a> {
     pub(crate) fn spill(&mut self, code: &ir::Code, st: &Fn2, b: ir::BlockId) {
         let at = st.spills.partition_point(|(y, _)| *y < b);
         for (_, p) in st.spills.iter().skip(at).take_while(|(y, _)| *y == b) {
-            let Some(k) = *st.reg.get(*p) else {
-                continue;
-            };
+            let k = (*st.reg.get(*p)).or_ice("`promote` spills only a variable it gave a register");
             let g = code.ty_of(*p) == ir::Type::F64;
             self.emit(
                 &key![if g { "stwg" } else { "stw" }, "/r", k],
