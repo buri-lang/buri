@@ -463,7 +463,9 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 
 /// Two types with the same layout share the operations that do not print a
-/// name, and do not share the ones that do.
+/// name, and do not share the ones that do. Two fields each, because a call
+/// to the comparison of a struct of one field is written out where it is
+/// made.
 #[test]
 fn layout_identical_types_share_the_operations_that_read_no_names() {
     let src = r#"
@@ -471,17 +473,17 @@ from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 
-struct Meters { v: Int }
-struct Seconds { v: Int }
+struct Meters { v: Int, w: Int }
+struct Seconds { v: Int, w: Int }
 derive Equal, Show for Meters;
 derive Equal, Show for Seconds;
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let a = Meters { v: 1 };
-  let b = Seconds { v: 1 };
-  let _ = io.println(ctx, "${a == Meters { v: 2 }}").ignore();
-  let _ = io.println(ctx, "${b == Seconds { v: 2 }}").ignore();
+  let a = Meters { v: 1, w: 0 };
+  let b = Seconds { v: 1, w: 0 };
+  let _ = io.println(ctx, "${a == Meters { v: 2, w: 0 }}").ignore();
+  let _ = io.println(ctx, "${b == Seconds { v: 2, w: 0 }}").ignore();
   let _ = io.println(ctx, a.show(ctx)).ignore();
   let _ = io.println(ctx, b.show(ctx)).ignore();
   .Ok(())
@@ -590,7 +592,8 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// A derive inside a tail-recursive body is inside an `ExprKind::Loop` by
 /// the time this pass runs, and the rewrite has to reach it: one left
 /// behind arrives at `lower`, which stops the build there, because this pass
-/// was supposed to have replaced it.
+/// was supposed to have replaced it. Two fields, so that the derive stays a
+/// call rather than being written out.
 #[test]
 fn a_call_site_inside_a_loop_is_rewritten_too() {
     let src = r#"
@@ -598,13 +601,13 @@ from "platform/effect" import { Allocator, Stdout };
 from "node" import { NodeHost };
 from "core/io" import * as io;
 
-struct P { x: Int }
+struct P { x: Int, y: Int }
 derive Equal, Show for P;
 
 export fn seek(n: Int, needle: P): Int {
   if (n <= 0) {
 0
-  } else if (P { x: n } == needle) {
+  } else if (P { x: n, y: 0 } == needle) {
 n
   } else {
 seek(n - 1, needle)
@@ -613,7 +616,7 @@ seek(n - 1, needle)
 
 export fn main(host: NodeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${seek(3, P { x: 2 })}").ignore();
+  let _ = io.println(ctx, "${seek(3, P { x: 2, y: 0 })}").ignore();
   .Ok(())
 }
 "#;

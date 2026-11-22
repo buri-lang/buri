@@ -11388,6 +11388,33 @@ dying list is walked once. `insertAt` on a shared list gives its count back
 the same way. `native::shared_splices` checks both on `Int`s and texts
 under the heap check, and bounds a step halfway on each backend.
 
+### 6.190 A struct of one field compares as its field does, 2026-11-21
+
+```text
+four compares of Id(Str), a step, instructions    before    after
+stencil, macOS                                    440       208
+stencil, arm64 Linux                              480       208
+LLVM release, arm64 Linux                         332       208
+the Strs themselves, stencil, either              208
+```
+
+`Id(a) == Id(b)` built two structs and called `$derive$eq$Id`, whose whole
+body is `a.0 == b.0`. `derives` now writes such a body out at the call when
+each operand is a name, a field of one, or a struct written out right there,
+whose field it takes as it stands. A call's answer stays an argument to the
+call: reading its field and dropping the rest costs the stencil backend a
+retain and a release the call never made. A derived function no call names
+any more is dropped. `native::one_field_derives` checks every way of writing
+an operand under the heap check, and bounds a step at 40 over the `Str`s'
+own cost on each backend.
+
+### 6.191 A test bundle is copied once, 2026-11-21
+
+`write_bundle` grew a copy of the whole JavaScript bundle to append the seed,
+the clock and the driver. Whether `realloc` moved it depended on the heap,
+and a move copied the bundle again: the `test-build` dev-codegen cost rose
+0.33% on d2535dba8 with no codegen change. The script is now sized once.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

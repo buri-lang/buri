@@ -300,9 +300,13 @@ pub fn run(program: &mut Program) -> Derives {
     }
     g.drain();
     let built = g.finish();
+    let forwards = forwards(&built);
     program.funcs = built.funcs;
     route_cells(program, &built.routed);
-    rewrite(program, &users, &built.routed, &built.hash_ty);
+    let kept = rewrite(program, &users, &built.routed, &built.hash_ty, &forwards);
+    if !forwards.is_empty() {
+        fold_forwards(program, built.base, &forwards, kept);
+    }
     for f in &mut program.funcs {
         prim_to_json_body(f);
     }
@@ -375,6 +379,8 @@ fn types_of(program: &Program) -> HashMap<usize, Ty> {
 /// What generation produced, before it is spliced into the program.
 struct Built {
     funcs: Dense<FuncIdx, Func>,
+    /// Where the generated functions start in `funcs`.
+    base: usize,
     routed: HashMap<(Op, usize), FuncIdx>,
     /// The type `Hash` accumulates in, needed for the seed at a call site.
     hash_ty: Ty,
@@ -875,6 +881,7 @@ impl Generator {
         let hash_ty = self.result_ty(Op::Hash);
         Built {
             funcs: self.funcs,
+            base: self.base,
             routed: self.routed,
             hash_ty,
             out: self.out,
@@ -3579,12 +3586,14 @@ fn rewrite(
     users: &[FuncIdx],
     routed: &HashMap<(Op, usize), FuncIdx>,
     hash_ty: &Ty,
-) {
+    forwards: &HashMap<FuncIdx, Forward>,
+) -> crate::hash::Set<FuncIdx> {
     crate::profile::work(crate::profile::Work::BodiesRewrittenForDerives, users.len());
+    let mut kept = crate::hash::Set::default();
     for i in users {
         let body = program.funcs.get_mut(*i).body_mut();
         body.into_iter()
-            .for_each(|b| rewrite_expr(b, routed, hash_ty));
+            .for_each(|b| rewrite_expr(b, routed, hash_ty, forwards, &mut kept));
     }
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
@@ -3612,6 +3621,7 @@ fn rewrite(
         };
         reporter_body(program.funcs.get_mut(i), &key, show);
     }
+    kept
 }
 
 /// Gives `json.decode(ctx, value)` the body `decoder(value, "$")`: the path
@@ -3728,9 +3738,17 @@ pub const REPORT_SHOWN: &str = "testing_assert.reportShown";
 /// not return.
 pub const EXPECTED_SHOWN: &str = "testing_assert.failExpectedShown";
 
-fn rewrite_expr(e: &mut Expr, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
+/// `kept` gathers each function that only forwards and that a call site still
+/// calls, because its arguments weren't cheap to project ([`projects_cheaply`]).
+fn rewrite_expr(
+    e: &mut Expr,
+    routed: &HashMap<(Op, usize), FuncIdx>,
+    hash_ty: &Ty,
+    forwards: &HashMap<FuncIdx, Forward>,
+    kept: &mut crate::hash::Set<FuncIdx>,
+) {
     // Children first: an argument may itself be a structural call.
-    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, hash_ty));
+    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, hash_ty, forwards, kept));
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -3759,5 +3777,177 @@ fn rewrite_expr(e: &mut Expr, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &
     };
     if let Some(kind) = replacement {
         e.kind = kind;
+        expand(e, forwards);
+        if let ExprKind::CallFunc { func, .. } = &e.kind {
+            kept.insert(*func);
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Writing out a call that only forwards
+// ---------------------------------------------------------------------------
+
+/// A generated `Equal` or `Ordered` whose whole body is one operation on a
+/// projection of each operand: `a.0 == b.0`, or `str.compare(a.0, b.0)`, for
+/// a struct of one field. A call to it is written out as that operation on the
+/// call's own arguments, which is the comparison the program would have
+/// written by hand, without the call around it.
+///
+/// Each operand appears in the body exactly once and in order, so writing the
+/// body out evaluates the arguments as the call did, once each, first to last.
+struct Forward {
+    body: Expr,
+}
+
+/// The most forwarding calls one call site is written out through: a struct of
+/// one field whose field is another such struct forwards twice. The bound is
+/// what keeps a chain that came back to itself finite; no type nests this deep
+/// by hand.
+const FORWARDS_MAX: usize = 8;
+
+/// The generated `Equal`s and `Ordered`s that only forward ([`Forward`]).
+fn forwards(built: &Built) -> HashMap<FuncIdx, Forward> {
+    built
+        .out
+        .instances
+        .iter()
+        .filter(|i| matches!(i.op, Op::Eq | Op::Compare))
+        .filter_map(|i| Some((i.func, forward_of(built.funcs.get(i.func))?)))
+        .collect()
+}
+
+fn forward_of(f: &Func) -> Option<Forward> {
+    let body = f.body()?;
+    let [a, b] = operands(body)? else {
+        return None;
+    };
+    let params = [f.params.first().copied(), f.params.get(1).copied()];
+    ([root(a), root(b)] == params).then(|| Forward { body: body.clone() })
+}
+
+/// The two operands of a primitive operation or a call.
+fn operands(e: &Expr) -> Option<&[Expr]> {
+    match &e.kind {
+        ExprKind::Prim { args, .. } => Some(&args[..]),
+        ExprKind::Intrinsic { args, .. } | ExprKind::CallFunc { args, .. } => Some(args),
+        _ => None,
+    }
+}
+
+fn operands_mut(e: &mut Expr) -> Option<&mut [Expr]> {
+    match &mut e.kind {
+        ExprKind::Prim { args, .. } => Some(&mut args[..]),
+        ExprKind::Intrinsic { args, .. } | ExprKind::CallFunc { args, .. } => Some(args),
+        _ => None,
+    }
+}
+
+/// The local a chain of projections reads.
+fn root(e: &Expr) -> Option<LocalId> {
+    match &e.kind {
+        ExprKind::Local(l) => Some(*l),
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => root(base),
+        _ => None,
+    }
+}
+
+/// Whether a field of `e` is read without anything around the read: `e` is a
+/// local, or a projection of one, or a struct of one field written out at the
+/// call, whose field [`graft`] takes as it stands.
+///
+/// A field of anything else, say a call's answer, keeps the field and drops
+/// the rest, and the copy-and-patch backend writes that out as a retain and a
+/// release the call never made.
+fn projects_cheaply(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::StructLit { fields, .. } => fields.len() == 1,
+        _ => Generator::duplicable(e),
+    }
+}
+
+/// The chain of projections with `value` in place of the local it reads.
+///
+/// The one field of a struct written out at the call, `Id(a).0`, is `a`
+/// itself: nothing is built to read it back.
+fn graft(chain: &mut Expr, value: Expr) {
+    let (ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. }) = &mut chain.kind else {
+        *chain = value;
+        return;
+    };
+    graft(base, value);
+    // A struct written out here has one field: [`projects_cheaply`] let in
+    // no other.
+    if let ExprKind::StructLit { fields, .. } = &mut base.kind {
+        *chain = fields
+            .pop()
+            .or_ice("a struct written out at a forward has one field");
+    }
+}
+
+/// Writes out `e`, a call whose arguments are already rewritten, while it is a
+/// call to a function that only forwards.
+fn expand(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
+    for _ in 0..FORWARDS_MAX {
+        let ExprKind::CallFunc { func, args } = &mut e.kind else {
+            return;
+        };
+        let Some(forward) = forwards.get(func) else {
+            return;
+        };
+        if !args.iter().all(projects_cheaply) {
+            return;
+        }
+        let args = std::mem::take(args);
+        let mut body = forward.body.clone();
+        let parts = operands_mut(&mut body).or_ice("a forward's body has two operands");
+        for (part, value) in parts.iter_mut().zip(args) {
+            graft(part, value);
+        }
+        body.span = e.span;
+        *e = body;
+    }
+}
+
+/// Writes out every forwarding call left in a generated body, then drops each
+/// forwarding function nothing names any more, `named` being the ones a call
+/// site outside them still calls. A backend compiles nothing under a dropped
+/// function.
+fn fold_forwards(
+    program: &mut Program,
+    base: usize,
+    forwards: &HashMap<FuncIdx, Forward>,
+    mut named: crate::hash::Set<FuncIdx>,
+) {
+    let generated: Vec<FuncIdx> = program.funcs.ids().skip(base).collect();
+    named.extend(program.cell_equal.values().copied());
+    for i in &generated {
+        if let Some(body) = program.funcs.get_mut(*i).body_mut() {
+            inline_forwards(body, forwards);
+            names(body, &mut named);
+        }
+    }
+    for f in forwards.keys() {
+        if !named.contains(f) {
+            program.funcs.get_mut(*f).kind = FuncKind::Dropped;
+        }
+    }
+}
+
+fn inline_forwards(e: &mut Expr, forwards: &HashMap<FuncIdx, Forward>) {
+    typed::children_mut(e, &mut |c| inline_forwards(c, forwards));
+    expand(e, forwards);
+}
+
+/// Every function `e` calls or takes the address of.
+fn names(e: &Expr, out: &mut crate::hash::Set<FuncIdx>) {
+    match &e.kind {
+        ExprKind::CallFunc { func, .. }
+        | ExprKind::FuncRef(func)
+        | ExprKind::Closure { func, .. } => {
+            out.insert(*func);
+        }
+        _ => {}
+    }
+    typed::children(e, &mut |c| names(c, out));
 }

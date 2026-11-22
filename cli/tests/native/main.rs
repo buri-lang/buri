@@ -516,3 +516,7 @@ mod text_compares;
 // built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod shared_splices;
+// A struct of one field compared through its derives, every way an operand is
+// written: what each answers, and what a step costs next to the field itself.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod one_field_derives;
