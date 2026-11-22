@@ -5343,11 +5343,18 @@ fn a_match_over_many_counted_variants_is_linear_in_its_arms() {
     );
 }
 
-/// A struct of `n` `Str` fields, shared into a list, copied out and dropped,
-/// so its retain, release and copy glue and the list's element glue all run.
+/// A struct of `n` `Str` fields and an optional one, shared into a list,
+/// copied out and dropped, so its retain, release and copy glue and the
+/// list's element glue all run. The optional field is tested before it is
+/// counted, so the retain and the release walk the struct in a frame, as
+/// a struct of only `Str`s no longer needs.
 fn shared_wide_struct(n: usize) -> String {
     let fields: String = (0..n).map(|i| format!("    f{i}: Str,\n")).collect();
-    let inits: Vec<String> = (0..n).map(|i| format!("f{i}: s")).collect();
+    let fields = format!("{fields}    maybe: Option<Str>,\n");
+    let inits: Vec<String> = (0..n)
+        .map(|i| format!("f{i}: s"))
+        .chain([String::from("maybe: .Some(s)")])
+        .collect();
     format!(
         r#"
 from "core/alloc" import * as alloc;

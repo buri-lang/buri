@@ -74,7 +74,7 @@ use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
 use super::jit::{Fn2, FrameSig, Jit, Label, RET, V};
 use super::region::Emitted;
 use super::rtcall::Src;
-use crate::compiler::backend::counts::{Field, Op, Site};
+use crate::compiler::backend::counts::{Field, Glue as Contents, Op, Site};
 use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, Words, CAP_MASK, CLOSURE_ENV};
@@ -513,6 +513,9 @@ impl Jit<'_> {
         if !self.one_load(size) {
             return self.walk_glue_in_place(ty, op);
         }
+        if self.frameless_glue(&[(ty, Words::ZERO)], op) {
+            return;
+        }
         let frame = frame_for(size);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + round8(size));
@@ -548,6 +551,9 @@ impl Jit<'_> {
     /// A retain or a release over each value at its offset from the pointer,
     /// reading only the words it counts or tests ([`Jit::walk_through`]).
     fn through_glue(&mut self, values: &[(Ty, Words)], op: Op) {
+        if self.frameless_glue(values, op) {
+            return;
+        }
         let frame = frame_for(8);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + 8);
@@ -557,6 +563,62 @@ impl Jit<'_> {
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
+    }
+
+    /// A retain or a release over each value at its offset from the pointer,
+    /// with no frame of its own, when all it counts is block pointers at
+    /// fixed offsets ([`Jit::flat_blocks`]): the pointer the glue is called
+    /// with is the base each count stencil reads its block through, so there
+    /// is no stub, no frame and no copy of the value. Answers whether it
+    /// emitted the glue.
+    ///
+    /// The stub saves only the return address, and a count stencil that calls
+    /// out saves its own, so the body returns straight to the caller. The
+    /// stack is as aligned at the first stencil as it was at the stub's call.
+    fn frameless_glue(&mut self, values: &[(Ty, Words)], op: Op) -> bool {
+        if op == Op::Copy {
+            return false;
+        }
+        let mut blocks = Vec::new();
+        for (ty, at) in values {
+            if !self.flat_blocks(ty, *at, 0, &mut blocks) {
+                return false;
+            }
+        }
+        let mut st = self.glue_frame(0, 0);
+        let base = self.fixups_len();
+        for (at, glue) in &blocks {
+            self.block_op(&mut st, at.bytes(), None, glue, op);
+        }
+        self.emit("ret", &[]);
+        self.resolve_helper_blocks(base, &st);
+        true
+    }
+
+    /// Adds to `out` each block pointer a retain or a release of the value of
+    /// `ty` at `at` counts, with its glue, by [`Jit::walk_through`]'s rules.
+    /// Answers `false` where the walk would test a tag or a niche, follow a
+    /// box, or call a field's own glue.
+    fn flat_blocks(
+        &mut self,
+        ty: &Ty,
+        at: Words,
+        depth: u32,
+        out: &mut Vec<(Words, Contents)>,
+    ) -> bool {
+        let sites = self.rc_sites(ty);
+        for site in sites.iter() {
+            match site {
+                Site::Block { offset, glue } => out.push((at.plus(*offset), glue.clone())),
+                Site::Field(f) if !f.boxed && !self.field_out_of_line(&f.ty, depth) => {
+                    if !self.flat_blocks(&f.ty, at.plus(f.offset), depth + 1, out) {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+        true
     }
 
     /// A retain or a release over the value at `G_PTR + at`, reading only the

@@ -132,8 +132,8 @@ const SPLICE_COUNTS: (u64, u64) = (100_000, 900_000);
 /// | --- | --- | --- | --- |
 /// | stencil, replace `Int`s | 352 | 315 | 333 |
 /// | stencil, insert `Int`s | 382 | 360 | 371 |
-/// | stencil, replace texts | 1,447 | 1,321 | 1,384 |
-/// | stencil, insert texts | 1,531 | 1,493 | 1,512 |
+/// | stencil, replace texts | 1,447 | 1,096 | 1,208 |
+/// | stencil, insert texts | 1,531 | 1,253 | 1,373 |
 /// | LLVM, replace `Int`s | 287 | 250 | 268 |
 /// | LLVM, insert `Int`s | 318 | 296 | 307 |
 /// | LLVM, replace texts | 935 | 809 | 872 |
@@ -143,6 +143,11 @@ const SPLICE_COUNTS: (u64, u64) = (100_000, 900_000);
 /// or more, about 40 times the 0.03% two runs differ by, and the new code
 /// has the same room to grow. The splices are the runtime's, so every
 /// backend is bounded.
+///
+/// Copy-and-patch's text rows have a second step. Each text the copy keeps
+/// takes its count through the retain glue, which had a frame and a copy of
+/// the text around one increment: 1,321 and 1,493 before the glue lost them.
+/// Those bounds sit halfway from there.
 #[test]
 fn a_splice_of_a_held_list_costs_one_copy() {
     let (fewer, more) = SPLICE_COUNTS;
@@ -153,8 +158,8 @@ fn a_splice_of_a_held_list_costs_one_copy() {
         for (mode, bound) in [
             ("replace-ints", if llvm { 268.0 } else { 333.0 }),
             ("insert-ints", if llvm { 307.0 } else { 371.0 }),
-            ("replace-texts", if llvm { 872.0 } else { 1_384.0 }),
-            ("insert-texts", if llvm { 978.0 } else { 1_512.0 }),
+            ("replace-texts", if llvm { 872.0 } else { 1_208.0 }),
+            ("insert-texts", if llvm { 978.0 } else { 1_373.0 }),
         ] {
             let binary = build(
                 &format!("shared-splices-cost-{mode}"),

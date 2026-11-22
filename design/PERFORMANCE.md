@@ -11435,6 +11435,27 @@ never cleared, so its counts don't move. `native::filled_lists` checks every
 way of making a list under the heap check, and bounds the extra cost of a
 wide record's step halfway between the two.
 
+### 6.193 Retain and release glue without a frame, 2026-11-21
+
+```text
+a step, stencil, instructions                       before    after
+arm64 Linux, replace in 16 held texts               1,365     1,140
+arm64 Linux, insert into 16 held texts              1,542     1,302
+macOS, replace in 16 held texts                     1,321     1,096
+macOS, insert into 16 held texts                    1,493     1,253
+```
+
+A copy of a list of texts retains each text through the element glue. The
+glue saved the return address, set up a frame, copied the 24-byte text into
+it and then incremented one count: 26 instructions a text, 11 of them the
+increment. Now a retain or a release of a value whose counts are all block
+pointers at fixed offsets, with no tag, niche, box or out-of-line field to
+walk, has no stub or frame: each count stencil reads its block through the
+pointer the glue was called with. A count stencil that calls out saves its
+own return address, so the glue returns straight to its caller. LLVM's
+counts don't move. `native::shared_splices` bounds both text splices halfway
+between the two figures.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree
@@ -11805,14 +11826,14 @@ On the arm64 VM, 2026-11-21:
 
 ```text
 program         stencil            -O0            -O1        release  stencil/O0  stencil/O1
-strings      1628525334     1694763411     1212142271     1199742280       0.961       1.344
-floats        544625753      567621414      452621315      449621537       0.959       1.203
-lists        1977067865     2281754349     1197764200     1189123390       0.866       1.651
-maps         1162799495     1589915694      758299033      757110718       0.731       1.533
-kvstore       858604087     1233649613      596649715      590974786       0.696       1.439
-sort          748699821     1100222177      279302281      316060976       0.680       2.681
-tree          927360319     1366495242     1122703164     1122703255       0.679       0.826
-match         611302241     1865847840      615665935      615666118       0.328       0.993
+strings      1628525330     1694763412     1212142271     1199742280       0.961       1.344
+floats        544625753      567621405      452621315      449621537       0.959       1.203
+lists        1924091488     2281754348     1197764200     1189123381       0.843       1.606
+maps         1162384334     1589737782      758121121      756932806       0.731       1.533
+kvstore       841357687     1233329426      596329550      590654611       0.682       1.411
+sort          746703294     1100222177      279302281      316060976       0.679       2.673
+tree          927360319     1366495234     1122703164     1122703255       0.679       0.826
+match         611302246     1865847841      615665934      615666118       0.328       0.993
 ```
 
 - sort's comparator is `compare` at an integer, so the lowering tests the two
@@ -11908,6 +11929,16 @@ match         611302241     1865847840      615665935      615666118       0.328
   never call the runtime, where each was a call of six arguments with the
   registers saved around it. A step of five 13-byte comparisons went from
   456 to 378 instructions on macOS, and maps ran 1.1% fewer.
+- A list every element of which is stored as it is made, a literal's or a
+  `map`'s, takes a block that isn't cleared first. Only `filter` and
+  `filterMap` leave slots unwritten, so only their blocks are still cleared.
+  lists went from 1.651 to 1.635 times `-O1`.
+- The retain and release glue of a value whose counts are all block pointers
+  at fixed places, such as a `Str` or a record of them, has no frame. It
+  counts each block through the pointer it was called with, where it had
+  saved the return address, set up a frame and copied the value into it
+  first. A text's retain went from 26 instructions to 11. lists went from
+  1.635 to 1.606 times `-O1`, and kvstore from 1.439 to 1.411.
 - Rewriting maps' `hasSlot` as `(bitmap & bit) != 0` took its stencil count
   down 2.1% on top of the `core/bits` change, but `-O1` and release rose
   0.37%, so it isn't in. `== bit` does the same.
