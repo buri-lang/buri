@@ -1707,7 +1707,10 @@ impl<'a> Jit<'a> {
                 stem,
                 width,
                 counted,
-            } => self.bits_at(st, stem, width, counted, d, at(0), at(1)),
+            } => {
+                let known = args.get(1).and_then(|v| *st.constants.get(*v));
+                self.bits_at(st, stem, width, counted, d, at(0), (at(1), known));
+            }
             route::Body::Number(num, op) => {
                 let reads_first = match (op, answer) {
                     (route::Number::Convert(_), ir::Answer::InlineRes(_)) => false,
@@ -2687,7 +2690,7 @@ impl<'a> Jit<'a> {
                 stem,
                 width,
                 counted,
-            } => self.bits_at(st, stem, width, counted, ret0, p(0), p(1)),
+            } => self.bits_at(st, stem, width, counted, ret0, p(0), (p(1), None)),
             route::Body::Concat => {
                 let argc = prog.funcs.get(fi).sig.params.len();
                 self.str_concat(st, Self::concat_strs(argc).map(p), ret0, false);
@@ -3920,8 +3923,8 @@ impl Jit<'_> {
     /// why none is a runtime call. The check is the whole of what is not the
     /// instruction: `$shiftCount` aborts on a count that is negative or at or
     /// beyond the operand's width, and `cli/tests/crash/shift_*` pins the
-    /// message — so the check is unconditional and the abort is the runtime's
-    /// shared one. A machine shift *masks* the count instead, which is a
+    /// message — so every count the build cannot see is checked, and the abort
+    /// is the runtime's shared one. A machine shift *masks* the count instead, which is a
     /// different answer rather than an undefined one and would be silently
     /// wrong.
     #[allow(
@@ -3937,7 +3940,7 @@ impl Jit<'_> {
         counted: bool,
         d: u32,
         a: u32,
-        count: u32,
+        (count, known): (u32, Option<u64>),
     ) {
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
@@ -3954,7 +3957,7 @@ impl Jit<'_> {
             );
             return;
         }
-        self.shift_count_check(st, count, width);
+        self.shift_count_check(st, count, width, known);
         let key2 = key!["bits/", stem, "/", width];
         self.emit(
             &key2,
@@ -3973,23 +3976,22 @@ impl Jit<'_> {
     /// The count arrives as an `Int` — sixty-four bits — whatever the operand's
     /// width is, so the check is at sixty-four bits and the shift takes the
     /// value unchanged.
-    fn shift_count_check(&mut self, st: &mut Fn2, count: u32, width: u32) {
+    ///
+    /// A literal count in range has nothing to check: `known` is the count's
+    /// literal, when it has one, and a negative one reads as a word past any
+    /// width. Any other count is one fused compare and branch, falling into
+    /// the abort.
+    fn shift_count_check(&mut self, st: &mut Fn2, count: u32, width: u32, known: Option<u64>) {
+        if known.is_some_and(|k| k < u64::from(width)) {
+            return;
+        }
         let ok = st.label();
-        let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
+        let key = self.arm_key(self.lib.known.lt_u64_fi, Jump::F);
         self.emit(
-            "bin/lt/u64/fi/f",
+            key,
             &[
-                Lit::D.of(u64::from(scr)),
                 Lit::A.of(u64::from(count)),
                 Word::K.lit(u64::from(width)),
-                Jump::Cont.to(V::Fall),
-            ],
-        );
-        let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
-        self.emit(
-            brkey,
-            &[
-                Lit::A.of(u64::from(scr)),
                 Jump::T.to(V::Blk(ok)),
                 Jump::F.to(V::Fall),
             ],

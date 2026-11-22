@@ -257,6 +257,8 @@ pub struct Known {
     pub eq_u64_fi: usize,
     /// `brcmp/lt/u64/ff`: two frame words, unsigned.
     pub lt_u64_ff: usize,
+    /// `brcmp/lt/u64/fi`: a frame word against a literal, unsigned.
+    pub lt_u64_fi: usize,
     /// `incbr/lt`: a counted loop's increment and test.
     pub inc_lt: usize,
     /// `tagbr/eq8`, `tagbr/eq32` and `tagbr/eq`: an enum's tag of one, four
@@ -274,13 +276,14 @@ pub struct Known {
 
 impl Known {
     /// Every key a [`Known`] holds, in its fields' order.
-    pub const KEYS: [&'static str; 13] = [
+    pub const KEYS: [&'static str; 14] = [
         "br/f",
         "br/r0",
         "br/r1",
         "br/r2",
         "brcmp/eq/u64/fi",
         "brcmp/lt/u64/ff",
+        "brcmp/lt/u64/fi",
         "incbr/lt",
         "tagbr/eq8",
         "tagbr/eq32",
@@ -292,7 +295,7 @@ impl Known {
 
     /// Each key's index in `index`, or the first key it lacks.
     fn find(index: &Index) -> Result<Known, String> {
-        let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, inc_lt, tag_eq8, tag_eq32, tag_eq, ld_eq, ld_eq8, eq_r2] =
+        let [br_f, br_r0, br_r1, br_r2, eq_u64_fi, lt_u64_ff, lt_u64_fi, inc_lt, tag_eq8, tag_eq32, tag_eq, ld_eq, ld_eq8, eq_r2] =
             Known::KEYS.map(|key| index.find(key).map(|i| i as usize).ok_or(key));
         let missing = |key: &str| format!("the library has no `{key}` stencil");
         Ok(Known {
@@ -302,6 +305,7 @@ impl Known {
             br_r2: br_r2.map_err(missing)?,
             eq_u64_fi: eq_u64_fi.map_err(missing)?,
             lt_u64_ff: lt_u64_ff.map_err(missing)?,
+            lt_u64_fi: lt_u64_fi.map_err(missing)?,
             inc_lt: inc_lt.map_err(missing)?,
             tag_eq8: tag_eq8.map_err(missing)?,
             tag_eq32: tag_eq32.map_err(missing)?,

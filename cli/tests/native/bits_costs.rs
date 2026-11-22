@@ -74,3 +74,73 @@ fn a_bits_operation_runs_in_its_caller_without_a_call() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// `k` steps, each shifting a word by the literal counts 5 and 3 and by a
+/// count read at run time. `main` takes `k` and prints the last word.
+const SHIFTS: &str = r#"
+from "core/bits" import * as bits;
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn rounds(i: Int, n: Int, w: U64): U64 {
+  if (i >= n) {
+    w
+  } else {
+    let mixed = bits.shiftRightU64(w, 5) ^ bits.shiftLeftU64(w, 3) ^ i.wrapToU64();
+    rounds(i + 1, n, mixed ^ bits.shiftRightU64(mixed, i % 61))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  io.println(ctx, "${rounds(0, k, 81985529216486895)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// What [`SHIFTS`] prints for `k` steps.
+fn shifts_answer(k: u64) -> String {
+    let mut w = 81_985_529_216_486_895u64;
+    for i in 0..k {
+        let mixed = (w >> 5) ^ (w << 3) ^ i;
+        w = mixed ^ (mixed >> (i % 61));
+    }
+    format!("{w}\n")
+}
+
+/// The two counts of steps [`SHIFTS_BOUND`] is measured between, wide
+/// enough that the difference runs to hundreds of millions of instructions.
+const SHIFTS_STEPS: (u64, u64) = (1_000_000, 11_000_000);
+
+/// What one step of [`SHIFTS`] costs on the copy-and-patch backend, in
+/// instructions. It measured 69.0 when every count was compared with the
+/// width into a boolean and that boolean branched on, and 48.0 with the
+/// literal counts unchecked and the other one a fused compare and branch. The
+/// bound sits halfway, so the old code fails it by 110 million instructions,
+/// far past the counter's noise of well under 1%.
+const SHIFTS_BOUND: f64 = 58.0;
+
+/// **A shift by a literal count in range has no range check, and a shift by
+/// a count read at run time checks it with one compare and branch.** A
+/// literal count is known in range when the program is built, so checking
+/// it on every step is waste.
+#[test]
+fn a_shift_by_a_literal_count_skips_the_range_check() {
+    let (fewer, more) = SHIFTS_STEPS;
+    let steps = more - fewer;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("bits-literal-shifts", SHIFTS);
+        let n = crate::collection_costs::steps_cost(backend, &binary, SHIFTS_STEPS, shifts_answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && each.is_some_and(|e| e > SHIFTS_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a step, over {SHIFTS_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
