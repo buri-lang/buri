@@ -192,7 +192,9 @@ test "next values before a branch" {
 /// different totals, and an inner loop's total read before the outer loop
 /// goes round again. And loops left into a block that only tests, left from
 /// a block that has just computed the next value, and left two ways into one
-/// block, by an `Int` and a `Float` handed back unchanged.
+/// block, by an `Int` and a `Float` handed back unchanged. And a `match` whose
+/// two patterns leave the loop into one arm, reading a `Float` handed back
+/// unchanged and one stepped by it or by a constant.
 #[test]
 fn a_loops_variables_are_read_after_it_ends() {
     let test = r#"
@@ -234,7 +236,25 @@ fn fjoined(i: Int, n: Int, x: Float): Float {
     if (i >= n || x > 1000.0) { x * 2.0 } else { fjoined(i + 1, n, x) }
 }
 
+fn either(i: Int, n: Int, k: Float, x: Float): Float {
+    match ((i >= n, x > 1000.0)) {
+        (true, _) | (_, true) => x + k,
+        _ => either(i + 1, n, k, x + k),
+    }
+}
+
+fn halves(i: Int, n: Int, k: Float, x: Float): Float {
+    match ((i >= n, x > 1000.0)) {
+        (true, _) | (_, true) => x + k,
+        _ => halves(i + 1, n, k, x + 0.5),
+    }
+}
+
 test "read after the loop" {
+    assert.equal(either(0, 40, 2.0, 1.25), 83.25);
+    assert.equal(either(0, 1000, 3.0, 0.5), 1005.5);
+    assert.equal(halves(0, 40, 2.0, 1.25), 23.25);
+    assert.equal(halves(0, 5000, 2.0, 0.0), 1002.5);
     assert.equal(tested(0, 100, 0), 295);
     assert.equal(tested(0, 2, 0), -1);
     assert.equal(moved(0, 100, 0), 299);

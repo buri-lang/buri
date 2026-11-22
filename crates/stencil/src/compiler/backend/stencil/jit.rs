@@ -3990,11 +3990,10 @@ pub(crate) fn copyless_test<'c>(
     let ir::Term::Branch { cond, then, else_ } = &header.term else {
         return None;
     };
-    if st.spills_at(t.block)
-        || header.insts.len() != 1
-        || !then.args.is_empty()
-        || !else_.args.is_empty()
-    {
+    // A block whose start writes a loop variable's slot ([`Fn2::spills`])
+    // is never `t`'s: its one way in is a branch out of the loop, and a jump
+    // out of a loop has no way back into it, so it is not in the loop.
+    if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
         return None;
     }
     let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
@@ -4627,14 +4626,12 @@ fn promote(
         let Some(header) = n.checked_sub(1).and_then(|k| headers.get(k as usize)) else {
             continue;
         };
-        // Only where every way on is a back edge or out of the region. The
-        // value takes the parameter's register before the terminator, so a
-        // block of the region past it would read the parameter's register and
-        // find the next value in it; outside, a read is from the frame slot.
-        if b.term
-            .targets()
-            .any(|t| t.block != *header && *body.get(t.block) == n)
-        {
+        // Only where every way on is a back edge. The value takes the
+        // parameter's register before the terminator, so a block past it
+        // would read the parameter's register and find the next value in it,
+        // inside the region or out of it, where `exit_spills` writes the
+        // register to the slot.
+        if b.term.targets().any(|t| t.block != *header) {
             continue;
         }
         for t in b.term.targets() {
@@ -4710,7 +4707,7 @@ fn promote(
         }
     }
     for (n, h) in (1u32..).zip(headers.iter()) {
-        exit_spills(&loops, &vars, code, body, n, *h, out, cross, wt, spills);
+        exit_spills(&loops, &vars, code, body, n, *h, out, wt, spills);
     }
     spills.sort_unstable();
     *vars_buf = vars;
@@ -4729,9 +4726,9 @@ fn promote(
 /// way in, and a read past it is past nothing but that way out since the
 /// last time the loop ran: the loop is entered only at its header, so getting
 /// back to the block means leaving through it again. So its register still
-/// holds the variable there, unless the block left from has written the
-/// variable's next value into it. A variable some read of which is past no
-/// such block keeps `wt`.
+/// holds the variable there: `promote` writes a next value into it only in a
+/// block whose every way on is back to the header. A variable some read of
+/// which is past no such block keeps `wt`.
 #[allow(
     clippy::too_many_arguments,
     reason = "the tables `promote` has just filled"
@@ -4744,7 +4741,6 @@ fn exit_spills(
     n: u32,
     h: ir::BlockId,
     out: &ir::PerValue<Option<Reg>>,
-    cross: &ir::PerValue<u32>,
     wt: &mut ir::PerValue<bool>,
     spills: &mut Vec<(ir::BlockId, ir::ValueId)>,
 ) {
@@ -4762,9 +4758,8 @@ fn exit_spills(
     if wanted.is_empty() {
         return;
     }
-    // The ways out of the region, `(from, into)`, into a block nothing else
-    // enters.
-    let mut exits: Vec<(ir::BlockId, ir::BlockId)> = Vec::new();
+    // The blocks the region is left into that nothing else enters.
+    let mut exits: Vec<ir::BlockId> = Vec::new();
     for (x, b) in code.iter() {
         if *body.get(x) != n {
             continue;
@@ -4773,31 +4768,19 @@ fn exit_spills(
             let y = t.block;
             let only = loops.preds.of(Node::Block(y)).iter().all(|p| *p == x);
             if *body.get(y) != n && only {
-                exits.push((x, y));
+                exits.push(y);
             }
         }
     }
     for p in wanted {
-        let k = *out.get(p);
-        // Whether the block left from still holds `p` in its register.
-        let holds = |x: ir::BlockId| {
-            !code.get(x).insts.iter().any(|i| {
-                i.results()
-                    .iter()
-                    .any(|r| *out.get(*r) == k && *cross.get(*r) == n)
-            })
-        };
         let start = spills.len();
         let mut every = true;
         let from = loops.outside.partition_point(|(v, _)| *v < p);
         let reads = loops.outside.get(from..).unwrap_or_default();
         for (_, z) in reads.iter().take_while(|(v, _)| *v == p) {
             let z = *z;
-            let past = exits
-                .iter()
-                .find(|(x, y)| loops.dom.dominates(*y, z) && holds(*x));
-            match past {
-                Some((_, y)) => spills.push((*y, p)),
+            match exits.iter().find(|y| loops.dom.dominates(**y, z)) {
+                Some(y) => spills.push((*y, p)),
                 None => {
                     every = false;
                     break;
