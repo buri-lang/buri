@@ -283,6 +283,7 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
     let units = lower(source).emit(profile);
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
 
+    crate::sweep::claim("native-llvm", name);
     let dir = workspace().join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -412,6 +413,7 @@ fn build_tests_at(
     let units = expect(llvm::Llvm::default().emit(&program, &analysis.checked.tables, &opts));
     assert!(!units.is_empty(), "the backend emitted no codegen unit");
 
+    crate::sweep::claim("native-llvm", name);
     let dir = workspace().join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();

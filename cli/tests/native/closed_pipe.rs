@@ -87,6 +87,7 @@ fn built(name: &str, source: &str) -> Vec<Built> {
 }
 
 fn scratch(name: &str) -> PathBuf {
+    crate::sweep::claim("closed-pipe", name);
     PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("closed-pipe-{name}-{}", std::process::id()))
 }

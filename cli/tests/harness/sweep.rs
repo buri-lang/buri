@@ -23,8 +23,9 @@
 //!   kept therefore survives that run and every run for hours after it, which is
 //!   when somebody is reading it — `cli/tests/README.md` states the contract and
 //!   this is the bound on it.
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 #[path = "kept.rs"]
@@ -88,6 +89,32 @@ pub fn once() {
     DONE.get_or_init(sweep);
 }
 
+/// Claims `<tree>/<name>` in this process for the test running on this
+/// thread.
+///
+/// Two tests of one process that build into one directory race: one's
+/// `remove_dir_all` takes the other's files mid-link, which showed only
+/// under Valgrind's slower runs. The claim makes it fail every time: the
+/// first test to ask owns the name, and any other test asking panics. The
+/// directories are per process, so tests in two processes never share one.
+pub fn claim(tree: &str, name: &str) {
+    static CLAIMS: Mutex<BTreeMap<(String, String), String>> = Mutex::new(BTreeMap::new());
+    let me = std::thread::current();
+    let owner = me
+        .name()
+        .map_or_else(|| format!("{:?}", me.id()), str::to_owned);
+    let other = CLAIMS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry((tree.to_string(), name.to_string()))
+        .or_insert_with(|| owner.clone())
+        .clone();
+    assert!(
+        other == owner,
+        "`{other}` and `{owner}` both build in `{tree}/{name}`; give each test its own name"
+    );
+}
+
 /// One test's directory, `<tree>-<pid>/<name>` under the scratch root.
 ///
 /// It goes when the test passes, so a run holds only the running tests' trees.
@@ -97,6 +124,7 @@ pub struct Owned(PathBuf);
 /// A fresh, empty [`Owned`] directory.
 pub fn owned(tree: &str, name: &str) -> Owned {
     once();
+    claim(tree, name);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("{tree}-{}", std::process::id()))
         .join(name);
@@ -240,6 +268,33 @@ mod sweep_tests {
         assert!(root.join("loose-file").is_file());
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A test may claim its own name again, and another test asking for it
+    /// fails at once, rather than racing the first one's build.
+    #[test]
+    fn two_tests_cannot_share_a_build_directory() {
+        let ask = |test: &str| {
+            std::thread::Builder::new()
+                .name(test.to_string())
+                .spawn(move || {
+                    claim("sweep-claim-test", "shared/name");
+                    claim("sweep-claim-test", "shared/name");
+                })
+                .unwrap()
+                .join()
+        };
+        assert!(
+            ask("first").is_ok(),
+            "a test could not claim its name twice"
+        );
+        let second = ask("second").expect_err("a second test took the name");
+        assert_eq!(
+            second.downcast_ref::<String>().map(String::as_str),
+            Some(
+                "`first` and `second` both build in `sweep-claim-test/shared/name`; give each test its own name"
+            )
+        );
     }
 
     /// A second ask in the same run reads the first one's answer and computes

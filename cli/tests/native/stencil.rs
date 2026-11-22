@@ -93,6 +93,7 @@ fn host_platform() -> Platform {
 /// returns rather than an error, and a full-suite run that never completes.
 fn workspace(name: &str) -> PathBuf {
     crate::sweep::once();
+    crate::sweep::claim("native-stencil", name);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-stencil-{}", std::process::id()))
         .join(name);

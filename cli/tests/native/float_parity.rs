@@ -150,6 +150,7 @@ console.log("checked " + checked + " mismatches " + bad);
 /// test names its own subtree and deletes only what it owns.
 fn workspace(name: &str) -> PathBuf {
     crate::sweep::once();
+    crate::sweep::claim("float-parity", name);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("float-parity-{}", std::process::id()))
         .join(name);

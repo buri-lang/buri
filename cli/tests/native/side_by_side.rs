@@ -33,6 +33,7 @@ done
 /// A fresh scratch directory for `row`, with the barrier script and an empty
 /// `arrived/` in it.
 fn scratch(row: &str) -> PathBuf {
+    crate::sweep::claim("buri-side", row);
     let dir = std::env::temp_dir().join(format!("buri-side-{row}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("arrived")).unwrap();
