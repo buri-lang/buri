@@ -1,0 +1,43 @@
+//! A rounded blue frame 10px wide, and a red picture to put in it.
+
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/shape" import * as shape;
+from "ui/style" import { Style };
+
+/// A box `width` by `height` px inside a blue border 10px wide with corners
+/// 30px round, with `extra` styles, holding `children`.
+export fn frame<C>(
+    width: Int,
+    height: Int,
+    extra: [Style],
+    children: [Node<C>],
+): Node<C> {
+    ui.stack({
+        styles: [
+            .Width(.Px(width)),
+            .Height(.Px(height)),
+            .BorderWidth(.Px(10)),
+            .BorderColor(.Rgb(0, 0, 255)),
+            .Radius(.Px(30)),
+            .Group(extra),
+        ],
+        children: children,
+    })
+}
+
+/// A picture that is red all over, with `styles`.
+export fn red<C>(styles: [Style]): Node<C> {
+    ui.drawing({
+        alt: .AccessibilityText("red"),
+        size: .Const((10.0, 10.0)),
+        styles: styles,
+        shapes: [
+            shape.rect({
+                at: .Const((0.0, 0.0)),
+                size: .Const((10.0, 10.0)),
+                fill: .Some(.Const(.Rgb(255, 0, 0))),
+            }),
+        ],
+    })
+}

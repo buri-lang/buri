@@ -1,0 +1,99 @@
+// Each scene beside its twin: both tests of a pair compare against one
+// golden. A rounded picture is cut at its content box, its corners less its
+// border and padding.
+
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, snapshot };
+from "ui/node" import * as ui;
+from "//lib/framed" import { frame, red };
+
+test "a padded rounded picture shows its padding round its picture" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "even",
+        red([
+            .Width(.Px(80)),
+            .Height(.Px(80)),
+            .Padding(.Px(10)),
+            .BorderWidth(.Px(10)),
+            .BorderColor(.Rgb(0, 0, 255)),
+            .Radius(.Px(30)),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "the picture cut by a box inside the padding at corners 10px round" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "even",
+        frame(80, 80, [.Padding(.Px(10))], [
+            ui.stack({
+                styles: [
+                    .Width(.Px(40)),
+                    .Height(.Px(40)),
+                    .Radius(.Px(10)),
+                    .Clip(true),
+                ],
+                children: [red([.Width(.Px(40)), .Height(.Px(40))])],
+            }),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "a picture padded more down than across has corners less round down" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "uneven",
+        red([
+            .Width(.Px(92)),
+            .Height(.Px(76)),
+            .PaddingX(.Px(4)),
+            .PaddingY(.Px(12)),
+            .BorderWidth(.Px(10)),
+            .BorderColor(.Rgb(0, 0, 255)),
+            .Radius(.Px(30)),
+        ]),
+        .Hover,
+        [],
+    );
+}
+
+test "the picture cut by a box at corners 16px across and 8px down" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "uneven",
+        frame(92, 76, [.PaddingX(.Px(4)), .PaddingY(.Px(12))], [
+            ui.stack({
+                styles: [
+                    .Width(.Px(64)),
+                    .Height(.Px(32)),
+                    .Radius(.Percent(25.0)),
+                    .Clip(true),
+                ],
+                children: [red([.Width(.Px(64)), .Height(.Px(32))])],
+            }),
+        ]),
+        .Hover,
+        [],
+    );
+}

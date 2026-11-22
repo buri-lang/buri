@@ -3566,6 +3566,24 @@ impl Computed {
             .zip(self.clip)
             .any(|(&clipped, clip)| clipped && !clip)
     }
+
+    /// The axes the box cuts what it holds on, inline then block. `clip`
+    /// beside `visible` cuts its own axis alone; any other `overflow` but
+    /// `visible` cuts both, the `visible` beside it computing to `auto` or
+    /// `hidden` (CSS Overflow 3 §3.1). A single-line field cuts both
+    /// whatever its `overflow`: the user-agent sheet gives an `<input>`
+    /// `overflow: clip !important`.
+    fn cuts(&self) -> [bool; 2] {
+        if self.field && self.editor == Editor::Line {
+            return [true; 2];
+        }
+        match (self.clipped, self.clip) {
+            ([true, false], [true, _]) => [true, false],
+            ([false, true], [_, true]) => [false, true],
+            ([false, false], _) => [false; 2],
+            _ => [true; 2],
+        }
+    }
 }
 
 fn scrolls(style: &Computed) -> bool {
@@ -4374,8 +4392,19 @@ impl Reach<'_> {
         // a `Scroll` writes alike — cuts what is under it to the inside of this
         // box's border, so a scroll container is measured at its own box and
         // never at what it scrolls.
-        let inner = if style.clipped[0] || style.clipped[1] {
-            Some(box_.shrink(style.border_widths()).met_by(clip))
+        let cuts = style.cuts();
+        let inner = if cuts[0] || cuts[1] {
+            let page = Box2 {
+                l: i32::MIN,
+                t: i32::MIN,
+                r: i32::MAX,
+                b: i32::MAX,
+            };
+            Some(
+                box_.shrink(style.border_widths())
+                    .open(cuts, page)
+                    .met_by(clip),
+            )
         } else {
             clip
         };
@@ -5688,12 +5717,17 @@ impl Painter<'_> {
             return;
         }
 
-        // A picture is clipped to its own rounded box, the way a browser clips
-        // an `<img>`'s content to the corner its `border-radius` names, and it
-        // is drawn inside whatever border the element carries. That is what
-        // makes an avatar round rather than a round box with a square picture
-        // sitting in it.
+        // A picture is clipped to its own rounded content box, the way a
+        // browser clips an `<img>`'s or an `<svg>`'s content: inside its
+        // padding, each corner's radii less the border and padding on their
+        // own axes. That is what makes an avatar round rather than a round
+        // box with a square picture sitting in it.
         let rounds = node.picture.is_some() && radii.iter().flatten().any(|r| *r > 0.0);
+        let basis = layout.size.width;
+        let mut inset = style.padding.map(|side| resolve_length(side, basis));
+        for (side, width) in inset.iter_mut().zip(widths) {
+            *side += width;
+        }
         // An `<input>` clips what is in it whatever its `overflow`, which the
         // user-agent sheet sets to `clip !important`: an editor taller than a
         // short field is cut off at the field's edges. That `clip` makes no
@@ -5701,17 +5735,24 @@ impl Painter<'_> {
         //
         // A browser clips overflow at the padding box, inside the border, with
         // each corner's radii less the border on their own axes. A picture is
-        // cut at its own rounded box.
+        // cut at its rounded content box.
         let owned;
-        let inner = if style.clipped[0]
-            || style.clipped[1]
-            || rounds
-            || (style.field && style.editor == Editor::Line)
-        {
+        // `clip` on one axis beside `visible` on the other cuts that axis
+        // alone, square, and leaves the other running off the page both ways.
+        let cuts = style.cuts();
+        let inner = if cuts[0] || cuts[1] || rounds {
             let (frame, corners) = if rounds {
-                (box_, radii)
-            } else {
+                (box_.shrink(inset), inner_radii(radii, box_, inset))
+            } else if cuts == [true, true] {
                 (box_.shrink(widths), inner_radii(radii, box_, widths))
+            } else {
+                let page = Box2 {
+                    l: -1,
+                    t: -1,
+                    r: (canvas.width() as f32 / DEVICE_SCALE).ceil() as i32 + 1,
+                    b: (canvas.height() as f32 / DEVICE_SCALE).ceil() as i32 + 1,
+                };
+                (box_.shrink(widths).open(cuts, page), circular(0.0))
             };
             owned = clipped(clip, frame, corners, canvas.width(), canvas.height());
             owned.as_deref()
@@ -5728,14 +5769,7 @@ impl Painter<'_> {
             // a picture: the box a drawing fills is the content box. Without it
             // a padded icon painted over its own frame, and a bordered picture
             // painted over its own border.
-            let basis = layout.size.width;
-            let content = box_.shrink([
-                resolve_length(style.padding[0], basis) + widths[0],
-                resolve_length(style.padding[1], basis) + widths[1],
-                resolve_length(style.padding[2], basis) + widths[2],
-                resolve_length(style.padding[3], basis) + widths[3],
-            ]);
-            self.picture(canvas, content, index, style, inner, art);
+            self.picture(canvas, box_.shrink(inset), index, style, inner, art);
             return;
         }
         let mut item = 0_u32;
@@ -6206,6 +6240,18 @@ impl Box2 {
             t: self.t.saturating_add(px(y)),
             r: self.r.saturating_add(px(x)),
             b: self.b.saturating_add(px(y)),
+        }
+    }
+
+    /// The same box, its sides on each axis `kept` does not name moved out to
+    /// `page`'s, inline then block.
+    fn open(self, kept: [bool; 2], page: Self) -> Self {
+        let [across, down] = kept;
+        Self {
+            l: if across { self.l } else { page.l },
+            t: if down { self.t } else { page.t },
+            r: if across { self.r } else { page.r },
+            b: if down { self.b } else { page.b },
         }
     }
 
@@ -9087,6 +9133,36 @@ mod tests {
         assert_eq!(at(&clipped, 8 * S, 8 * S), [255, 0, 0, 255]);
         // `Clip(false)` is `visible`, and it paints the corner over.
         assert_eq!(at(&render_ok(visible, "", "rest"), 0, 0), [255, 0, 0, 255]);
+    }
+
+    /// `clip` on one axis beside `visible` on the other cuts that axis alone,
+    /// square whatever the box's radius, as a browser cuts it: a child
+    /// running past a rounded box both ways shows past it on the other axis
+    /// as if it had stopped at the box's edge on this one. `hidden` beside
+    /// `clip` turns the `clip` to `hidden`, which cuts both.
+    #[test]
+    fn a_clip_on_one_axis_cuts_that_axis_alone() {
+        let scene = |overflow: &str, child: &str| {
+            format!(
+                "buri-scene 1\nviewport 20 20\n\
+                 e 0 width:10px;height:10px;border-radius:5px;{overflow}\n\
+                 e 1 {child};flex-shrink:0;background-color:rgb(255,0,0)\n"
+            )
+        };
+        let painted = |overflow: &str, child: &str| render_ok(&scene(overflow, child), "", "rest");
+        let whole = "width:20px;height:20px";
+        assert_eq!(
+            painted("overflow-x:clip", whole).rgba,
+            painted("overflow:visible", "width:10px;height:20px").rgba
+        );
+        assert_eq!(
+            painted("overflow-y:clip", whole).rgba,
+            painted("overflow:visible", "width:20px;height:10px").rgba
+        );
+        assert_eq!(
+            painted("overflow-x:clip;overflow-y:hidden", whole).rgba,
+            painted("overflow:clip", whole).rgba
+        );
     }
 
     /// A rule scoped to `[aria-invalid=true]` is a state like a pseudo-class:

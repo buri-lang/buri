@@ -1,0 +1,19 @@
+# A rounded picture is cut at its content box, each scene beside a twin that
+# draws the part a browser leaves showing. Both tests of a pair compare
+# against one golden. A browser clips a replaced element's content to its
+# content box, each corner's radii less the border and padding on their own
+# axes (CSS Backgrounds 3 §5.3), so a padded, bordered avatar shows its
+# padding round the picture rather than the picture under its padding.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a rounded picture is cut at its content box, round corners less its border and padding, in the painter"
+
+run {
+  args: ["test", "//lib/framed", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+path { path: "lib/framed/test/__snapshots__/even.diff.png"  exists: false }
+path { path: "lib/framed/test/__snapshots__/uneven.diff.png"  exists: false }
