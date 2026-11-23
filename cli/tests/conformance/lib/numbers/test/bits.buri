@@ -597,3 +597,18 @@ test "the 64-bit counts see both halves" {
     assert.equal(bits.leadingZeros(4294967296), 31);
     assert.equal(bits.trailingZeros(-4294967296), 32);
 }
+
+fn spread(n: Int): Int {
+    if (n <= 0) { 0 } else { 1 + spread(n - 1) }
+}
+
+test "a shift count can come from any computation" {
+    let n = 3 + "".length();
+    let w: U64 = 45 + "".length().wrapToU64();
+    let f = 2.25 + "".length().toF64();
+    assert.equal(bits.shiftLeftU64(1, spread(n)), 8);
+    assert.equal(bits.shiftLeftU64(1, n.wrappingAdd(2)), 32);
+    assert.equal(bits.shiftLeftU64(1, f.wrapToI64()), 4);
+    assert.equal(bits.shiftLeftU64(1, (w & w - 3).wrapToI64()), 1099511627776);
+    assert.equal(bits.shiftLeftU64(1, (w & 31).wrapToI64()), 8192);
+}
