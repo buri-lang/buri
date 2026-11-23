@@ -132,6 +132,29 @@ const PAIRS: &[u8; 200] = b"\
 6061626364656667686970717273747576777879\
 8081828384858687888990919293949596979899";
 
+/// Four digits at a time, `"0000"` through `"9999"`: entry `i` is `i` padded
+/// with leading zeros, so a number below 10000 is the last of its entry's
+/// bytes.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`i` counts below 10000 and `at` from 4 down past each digit, inside the table"
+)]
+pub(crate) static QUADS: [[u8; 4]; 10_000] = {
+    let mut t = [[b'0'; 4]; 10_000];
+    let mut i = 0;
+    while i < 10_000 {
+        let mut v = i;
+        let mut at = 4;
+        while v > 0 {
+            at -= 1;
+            t[i][at] = b'0' + (v % 10) as u8;
+            v /= 10;
+        }
+        i += 1;
+    }
+    t
+};
+
 /// How many decimal digits `v` has.
 pub(crate) fn decimal_len(v: u64) -> usize {
     #[expect(
@@ -168,9 +191,17 @@ pub(crate) unsafe fn write_decimal(mut v: u64, end: *mut u8) {
     let pairs = PAIRS.as_ptr();
     let mut at = end;
     // SAFETY: each step writes just below `at`, and the steps write
-    // `decimal_len(v)` bytes in all, which the caller has room for. A pair's
-    // offset is `2 * (v % 100)`, or `2 * v` with `v < 100`: inside the table.
+    // `decimal_len(v)` bytes in all, which the caller has room for. A quad's
+    // index is `v % 10000`, and a pair's offset is `2 * (v % 100)`, or `2 * v`
+    // with `v < 100`: inside their tables.
     unsafe {
+        while v >= 10_000 {
+            let quad = (v % 10_000) as usize;
+            v /= 10_000;
+            at = at.sub(4);
+            at.cast::<[u8; 4]>()
+                .write_unaligned(QUADS.as_ptr().add(quad).read());
+        }
         while v >= 100 {
             let pair = (v % 100) as usize * 2;
             v /= 100;

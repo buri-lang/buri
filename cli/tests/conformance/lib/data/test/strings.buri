@@ -866,6 +866,47 @@ test "fromInt round-trips through toInt" {
     assert.equal(assert.some(str.fromInt(ctx, -1234).toInt()), -1234);
 }
 
+test "fromInt renders each width of number up to and past four digits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(str.fromInt(ctx, 9), "9");
+    assert.equal(str.fromInt(ctx, 10), "10");
+    assert.equal(str.fromInt(ctx, 99), "99");
+    assert.equal(str.fromInt(ctx, 100), "100");
+    assert.equal(str.fromInt(ctx, 999), "999");
+    assert.equal(str.fromInt(ctx, 1000), "1000");
+    assert.equal(str.fromInt(ctx, 9999), "9999");
+    assert.equal(str.fromInt(ctx, 10000), "10000");
+    assert.equal(str.fromInt(ctx, -9999), "-9999");
+    assert.equal(str.fromInt(ctx, -1), "-1");
+}
+
+test "appending to a string from fromInt leaves it unchanged" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let five = str.fromInt(ctx, 5);
+    let x = five.concat(ctx, "x");
+    let accent = five.concat(ctx, "é");
+    assert.equal(five, "5");
+    assert.equal(x, "5x");
+    assert.equal(accent, "5é");
+    assert.equal(accent.length(), 2);
+    assert.equal(str.fromInt(ctx, 5), "5");
+}
+
+test "a string from fromInt slices and indexes like any other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = str.fromInt(ctx, 1234);
+    assert.equal(n.slice(1, 3), "23");
+    assert.equal(assert.some(n.charAt(3)), '4');
+    assert.equal(n.length(), 4);
+    assert.equal("é".concat(ctx, str.fromInt(ctx, 42)), "é42");
+}
+
 test "fromFloat round-trips through toFloat" {
     let ctx = context {
         Allocator: alloc(),

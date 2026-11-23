@@ -1576,6 +1576,26 @@ pub unsafe extern "C" fn buri_rt_str_from_chars(ptr: *const u8, count: u64, out:
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
+    // A number below 10000 is a view of its digits in [`crate::fmt::QUADS`],
+    // as a literal is a view of static bytes (VALUE-MODEL.md §3): a null
+    // `base`, which takes no count, is never freed, and is never unique, so no
+    // append writes into the table. A negative `n` is past the table's end as
+    // a `usize`, so one compare sends every other number on.
+    if let Some(digits) = crate::fmt::QUADS.get(n as usize) {
+        let len = 1 + usize::from(n >= 10) + usize::from(n >= 100) + usize::from(n >= 1000);
+        // SAFETY: the digits end at the entry's end, and `len` of them fit in
+        // its four bytes.
+        let ptr = unsafe { digits.as_ptr().add(digits.len() - len) };
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe {
+            out.write(BuriStr {
+                base: std::ptr::null_mut(),
+                ptr,
+                len: len as u64 | BURI_RT_STR_ASCII,
+            });
+        }
+        return;
+    }
     let len = int_len(n);
     // A miss is a tail call, so a hit saves no registers.
     let Some(base) = crate::memory::alloc_hit(len as u64) else {

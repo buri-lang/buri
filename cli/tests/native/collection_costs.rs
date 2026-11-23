@@ -70,7 +70,19 @@ pub(crate) fn per_op(
         "{backend} {mode}: blocks still live at exit"
     );
     let instructions = idle_n.zip(busy_n).map(|(a, b)| b.saturating_sub(a) / ops);
-    (instructions, busy_blocks.saturating_sub(idle_blocks))
+    // The idle run prints 0, whose text is static digits. A busy answer
+    // outside 0 to 9999 takes a block for its text, and that block is the
+    // printing's, not the operations'.
+    let printed = u64::from(
+        expected
+            .trim()
+            .parse::<i64>()
+            .is_ok_and(|n| !(0..10_000).contains(&n)),
+    );
+    (
+        instructions,
+        busy_blocks.saturating_sub(idle_blocks + printed),
+    )
 }
 
 /// The instructions `more - fewer` steps cost, from a run of each, not

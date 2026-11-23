@@ -435,6 +435,10 @@ mod zeroed_blocks;
 // every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod int_text;
+// `str.fromInt` of numbers below 10000: what the program prints, and what a
+// step costs, counted rather than timed, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod small_ints;
 // Short lists built by pushes: what each holds at every length, beside lists
 // that share a prefix, and what building one costs, counted rather than
 // timed, on every backend built in.
