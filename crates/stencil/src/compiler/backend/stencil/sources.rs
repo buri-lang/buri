@@ -1756,6 +1756,14 @@ fn runtime_calls(o: &mut Out) {
                  (AT({uty}, _JIT_A) << AT(uint64_t, _JIT_B)); TAIL; }}"
             ),
         );
+        // A literal shifted left, `1 << n` in a mask, as the immediate.
+        o.push(
+            &format!("bits/shl/{w}/k"),
+            format!(
+                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = (uint64_t)({uty})\
+                 (({uty})(uintptr_t)_JIT_K << AT(uint64_t, _JIT_B)); TAIL; }}"
+            ),
+        );
         o.push(
             &format!("bits/shr/{w}"),
             format!(

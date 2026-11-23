@@ -2687,6 +2687,75 @@ export fn main(host: NativeHost): Result<(), Str> {
         "5\n",
         "shift out of range",
     );
+    // A masked count the mask doesn't keep in range: `w & 63` reaches past
+    // a `U32`'s width, and `w & 255` made an `I8` reads 200 as negative.
+    abort_agrees(
+        "row 14 masked count past the width",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+let ONE: U32 = 1;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let w: U64 = 31 + "".length().wrapToU64();
+  let _ = io.println(host.stdout, "${bits.shiftLeftU32(ONE, (w & 63).wrapToI64())}").ignore();
+  let v = w + 9;
+  let _ = io.println(host.stdout, "${bits.shiftLeftU32(ONE, (v & 63).wrapToI64())}").ignore();
+  .Ok(())
+}
+"#,
+        "2147483648\n",
+        "shift out of range",
+    );
+    abort_agrees(
+        "row 14 masked count made negative",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let w: U64 = 200 + "".length().wrapToU64();
+  let _ = io.println(host.stdout, "${bits.shiftLeftU64(1, (w & 255).wrapToI8().toI64())}").ignore();
+  .Ok(())
+}
+"#,
+        "",
+        "shift out of range",
+    );
+}
+
+/// Shifts by counts read at run time that no mask bounds: a function's
+/// answer, a `wrappingAdd`, a float made an `Int`, and an `&` of two words.
+/// Each is in range here, and every backend prints the same words.
+#[test]
+fn row_14_counts_no_mask_bounds_agree() {
+    rows_or_skip!();
+    agree(
+        "row 14 unbounded counts",
+        r#"
+from "core/bits" import * as bits;
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+fn spread(n: Int): Int { if (n <= 0) { 0 } else { 1 + spread(n - 1) } }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let n = 3 + "".length();
+  let w: U64 = 45 + "".length().wrapToU64();
+  let f = 2.25 + "".length().toF64();
+  let a = bits.shiftLeftU64(1, spread(n));
+  let b = bits.shiftLeftU64(1, n.wrappingAdd(2));
+  let c = bits.shiftLeftU64(1, f.wrapToI64());
+  let d = bits.shiftLeftU64(1, (w & (w - 3)).wrapToI64());
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d}").ignore();
+  .Ok(())
+}
+"#,
+        "8 32 4 1099511627776\n",
+    );
 }
 
 /// A rotate or shift by a literal 63, the largest count a 64-bit word takes,

@@ -3932,15 +3932,14 @@ impl<'a> Jit<'a> {
         // whose immediate variant this level has: the right one, or the left
         // one of a stencil such as `k - x` whose right operand is no constant.
         // A `wrapping<Op>` call is that operation (`Emit::open_body`), so its
-        // right operand is one too.
+        // right operand is one too, and so is the left one of a `core/bits`
+        // left shift, which is `1 << n` in a mask.
         let mut imm = code.per_value_in(&mut self.bufs.imm, 0);
         for block in code.blocks() {
             for i in &block.insts {
-                if let Some((name, tag, rhs)) = self.wrapping_rhs(prog, i) {
-                    if constants.get(rhs).is_some()
-                        && self.has(&key!["bin/", name, "/", tag, "/fi/f"])
-                    {
-                        *imm.get_mut(rhs) += 1;
+                if let Some((key, operand)) = self.call_immediate(prog, i) {
+                    if constants.get(operand).is_some() && self.has(key.as_str()) {
+                        *imm.get_mut(operand) += 1;
                     }
                     continue;
                 }
@@ -3977,26 +3976,31 @@ impl<'a> Jit<'a> {
         self.bufs.imm = imm;
     }
 
-    /// The stencil name, type tag and right operand of a `wrapping<Op>` call,
-    /// which `Emit::open_body` writes as the `bin/<op>` it is.
-    pub(super) fn wrapping_rhs(
+    /// The operand of a runtime call that `Emit::open_body` can write as an
+    /// immediate, and the stencil it writes then: a `wrapping<Op>` call's
+    /// right one, as the `bin/<op>` it is, and a `core/bits` left shift's left
+    /// one, as `bits/shl/<width>/k`.
+    pub(super) fn call_immediate(
         &self,
         prog: &ir::Program,
         i: &ir::Inst,
-    ) -> Option<(&'static str, &'static str, ir::ValueId)> {
+    ) -> Option<(super::jit::Key, ir::ValueId)> {
         let ir::Inst::Call { func, args, .. } = i else {
             return None;
         };
         let ir::Body::Runtime(r) = &prog.funcs.get(*func).body else {
             return None;
         };
-        let super::route::Body::Number(num, super::route::Number::Wrapping(name)) =
-            *self.routes.bodies.get(r.key)
-        else {
-            return None;
-        };
-        let (tag, _, _) = super::emit::prim_tag(num.scalar());
-        Some((name, tag, *args.get(1)?))
+        match *self.routes.bodies.get(r.key) {
+            super::route::Body::Number(num, super::route::Number::Wrapping(name)) => {
+                let (tag, _, _) = super::emit::prim_tag(num.scalar());
+                Some((key!["bin/", name, "/", tag, "/fi/f"], *args.get(1)?))
+            }
+            super::route::Body::Bits {
+                stem: "shl", width, ..
+            } => Some((key!["bits/shl/", width, "/k"], *args.first()?)),
+            _ => None,
+        }
     }
 
     /// Fusions the terminator can absorb.

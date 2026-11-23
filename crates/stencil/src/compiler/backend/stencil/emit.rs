@@ -125,6 +125,75 @@ fn constant(st: &Fn2, v: ir::ValueId) -> u64 {
     st.constants.get(v).unwrap_or(0)
 }
 
+impl Jit<'_> {
+    /// A bound the word in `v`'s slot is under, where the build can see one:
+    /// `k + 1` for a literal `k`, the mask plus one for an `&` with a literal,
+    /// and the operand's own bound through an integer conversion that keeps
+    /// the value.
+    ///
+    /// Asked only of a shift's count, so the function's other code pays
+    /// nothing, and the function's blocks are searched for the definition: a
+    /// value has one, and whatever block it is in, it holds wherever it is
+    /// read. A parameter answers `None`, which costs the range check and
+    /// nothing else. The search ends, because a definition's operands are
+    /// defined before it.
+    ///
+    /// Rule: the bound is of the slot's word, which holds an integer
+    /// zero-extended at its own width. A conversion keeps the value only when
+    /// the source is an integer under half of both widths, so it is neither
+    /// negative nor cut short by the target; that is the one case it passes
+    /// on. A float's word is its bits, not its value, so a float source
+    /// passes nothing on.
+    fn bound_of(
+        &self,
+        prog: &ir::Program,
+        code: &ir::Code,
+        st: &Fn2,
+        v: ir::ValueId,
+    ) -> Option<u64> {
+        if let Some(k) = *st.constants.get(v) {
+            return Some(k.saturating_add(1));
+        }
+        let def = code
+            .blocks()
+            .iter()
+            .flat_map(|b| &b.insts)
+            .find(|i| i.results().contains(&v))?;
+        match *def {
+            Inst::Binary {
+                op: BinOp::BitAnd,
+                lhs,
+                rhs,
+                ..
+            } => [lhs, rhs]
+                .iter()
+                .filter_map(|o| *st.constants.get(*o))
+                .min()
+                .map(|k| k.saturating_add(1)),
+            Inst::Call { func, ref args, .. } => {
+                let ir::Body::Runtime(r) = &prog.funcs.get(func).body else {
+                    return None;
+                };
+                let route::Body::Number(num, route::Number::Convert(to)) =
+                    *self.routes.bodies.get(r.key)
+                else {
+                    return None;
+                };
+                let from = num.scalar();
+                if from.is_float() {
+                    return None;
+                }
+                let b = args
+                    .first()
+                    .and_then(|a| self.bound_of(prog, code, st, *a))?;
+                let half = 1 << from.bits().min(to.bits()).min(64).saturating_sub(1);
+                (b <= half).then_some(b)
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Whether `v` is a `Str` literal defined in the block being emitted, which is
 /// where a template puts its text: `str.concat` asks it of its left side
 /// (`rtcall.rs::str_concat`). Asked only at a concatenation, so the function's
@@ -1708,8 +1777,14 @@ impl<'a> Jit<'a> {
                 width,
                 counted,
             } => {
-                let known = args.get(1).and_then(|v| *st.constants.get(*v));
-                self.bits_at(st, stem, width, counted, d, at(0), (at(1), known));
+                let below = args.get(1).and_then(|v| self.bound_of(prog, code, st, *v));
+                // A literal left operand of a left shift is the stencil's
+                // immediate (`Jit::call_immediate`).
+                let lit = args
+                    .first()
+                    .filter(|a| st.loc(**a) == Loc::Imm)
+                    .map(|a| constant(st, *a));
+                self.bits_at(st, stem, width, counted, d, (at(0), lit), (at(1), below));
             }
             route::Body::Number(num, op) => {
                 let reads_first = match (op, answer) {
@@ -2707,7 +2782,7 @@ impl<'a> Jit<'a> {
                 stem,
                 width,
                 counted,
-            } => self.bits_at(st, stem, width, counted, ret0, p(0), (p(1), None)),
+            } => self.bits_at(st, stem, width, counted, ret0, (p(0), None), (p(1), None)),
             route::Body::Concat => {
                 let argc = prog.funcs.get(fi).sig.params.len();
                 self.str_concat(st, Self::concat_strs(argc).map(p), ret0, false);
@@ -3956,8 +4031,8 @@ impl Jit<'_> {
         width: u32,
         counted: bool,
         d: u32,
-        a: u32,
-        (count, known): (u32, Option<u64>),
+        (a, lit): (u32, Option<u64>),
+        (count, below): (u32, Option<u64>),
     ) {
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
@@ -3974,7 +4049,19 @@ impl Jit<'_> {
             );
             return;
         }
-        self.shift_count_check(st, count, width, known);
+        self.shift_count_check(st, count, width, below);
+        if let Some(k) = lit {
+            self.emit(
+                &key!["bits/", stem, "/", width, "/k"],
+                &[
+                    Lit::D.of(u64::from(d)),
+                    Word::K.lit(k),
+                    Lit::B.of(u64::from(count)),
+                    Jump::Cont.to(V::Fall),
+                ],
+            );
+            return;
+        }
         let key2 = key!["bits/", stem, "/", width];
         self.emit(
             &key2,
@@ -3994,12 +4081,12 @@ impl Jit<'_> {
     /// width is, so the check is at sixty-four bits and the shift takes the
     /// value unchanged.
     ///
-    /// A literal count in range has nothing to check: `known` is the count's
-    /// literal, when it has one, and a negative one reads as a word past any
-    /// width. Any other count is one fused compare and branch, falling into
-    /// the abort.
-    fn shift_count_check(&mut self, st: &mut Fn2, count: u32, width: u32, known: Option<u64>) {
-        if known.is_some_and(|k| k < u64::from(width)) {
+    /// A count known to be in range has nothing to check: `below` is a bound
+    /// the count's word is under, when the build knows one ([`Jit::bound_of`]),
+    /// and a negative count reads as a word past any width. Any other count is
+    /// one fused compare and branch, falling into the abort.
+    fn shift_count_check(&mut self, st: &mut Fn2, count: u32, width: u32, below: Option<u64>) {
+        if below.is_some_and(|b| b <= u64::from(width)) {
             return;
         }
         let ok = st.label();

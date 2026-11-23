@@ -144,3 +144,77 @@ fn a_shift_by_a_literal_count_skips_the_range_check() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// `k` steps, each turning the low five bits of a word into a one-bit mask as
+/// a map's branch does: `1 << (w & 31)`, with the `1` and the `31` named
+/// constants. `main` takes `k` and prints the masks' wrapping sum.
+const MASKS: &str = r#"
+from "core/bits" import * as bits;
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+let ONE: U64 = 1;
+let LOW: U64 = 31;
+
+fn rounds(i: Int, n: Int, w: U64, acc: U64): U64 {
+  if (i >= n) {
+    acc
+  } else {
+    let bit = bits.shiftLeftU64(ONE, (w & LOW).wrapToI64());
+    rounds(i + 1, n, bits.rotateRightU64(w, 5) ^ i.wrapToU64(), acc.wrappingAdd(bit))
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let k = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  io.println(ctx, "${rounds(0, k, 81985529216486895, 0)}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// What [`MASKS`] prints for `k` steps.
+fn masks_answer(k: u64) -> String {
+    let (mut w, mut acc) = (81_985_529_216_486_895u64, 0u64);
+    for i in 0..k {
+        acc = acc.wrapping_add(1 << (w & 31));
+        w = w.rotate_right(5) ^ i;
+    }
+    format!("{acc}\n")
+}
+
+/// The two counts of steps [`MASKS_BOUND`] is measured between.
+const MASKS_STEPS: (u64, u64) = (1_000_000, 11_000_000);
+
+/// What one step of [`MASKS`] costs on the copy-and-patch backend, in
+/// instructions. It measured 41.0 when the masked count was checked against
+/// the width and the `1` was stored to the frame and read back, 38.0 with the
+/// check gone and 36.0 with the `1` the stencil's immediate too. The bound is
+/// a whole instruction a step from each, ten million instructions, so the old
+/// code and either change alone fail it, and the counter's noise (a few
+/// thousandths of an instruction a step) is far inside it.
+const MASKS_BOUND: f64 = 37.0;
+
+/// **A shift by a count the build knows is in range has no range check, and
+/// a literal shifted left is the shift's immediate.** `w & 31` is under 32
+/// whatever `w` is, and still is once it is an `Int`, so checking it on
+/// every step is waste; and the `1` need not be stored to be shifted.
+#[test]
+fn a_masked_shift_count_skips_the_range_check() {
+    let (fewer, more) = MASKS_STEPS;
+    let steps = more - fewer;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("bits-masked-shifts", MASKS);
+        let n = crate::collection_costs::steps_cost(backend, &binary, MASKS_STEPS, masks_answer);
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && each.is_some_and(|e| e > MASKS_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a step, over {MASKS_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
