@@ -319,24 +319,40 @@ fn is_js_space(c: char) -> bool {
 }
 
 /// The byte range left after trimming, as `(start, end)`.
+///
+/// Each end is walked a byte at a time while it is ASCII, which is where most
+/// text's spaces are, and decoded only from the first byte that is not: the
+/// text between the two ends is never read.
 fn trim_range(bytes: &[u8], start: bool, end: bool) -> (usize, usize) {
-    let text = as_text(bytes);
+    let ascii_space = |b: u8| matches!(b, 0x9..=0xd | 0x20);
     let mut from = 0usize;
     let mut to = bytes.len();
     if start {
-        for c in text.chars() {
-            if !is_js_space(c) {
-                break;
+        while bytes.get(from).is_some_and(|b| ascii_space(*b)) {
+            from += 1;
+        }
+        if bytes.get(from).is_some_and(|b| !b.is_ascii()) {
+            for c in as_text(bytes.get(from..).unwrap_or(&[])).chars() {
+                if !is_js_space(c) {
+                    break;
+                }
+                from = from.saturating_add(c.len_utf8());
             }
-            from = from.saturating_add(c.len_utf8());
         }
     }
+    let from = from.min(to);
+    let last = |to: usize| bytes.get(to.checked_sub(1)?).filter(|_| to > from);
     if end {
-        for c in text.chars().rev() {
-            if !is_js_space(c) || to <= from {
-                break;
+        while last(to).is_some_and(|b| ascii_space(*b)) {
+            to -= 1;
+        }
+        if last(to).is_some_and(|b| !b.is_ascii()) {
+            for c in as_text(bytes.get(from..to).unwrap_or(&[])).chars().rev() {
+                if !is_js_space(c) {
+                    break;
+                }
+                to = to.saturating_sub(c.len_utf8());
             }
-            to = to.saturating_sub(c.len_utf8());
         }
     }
     (from, to.max(from))

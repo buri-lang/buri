@@ -192,6 +192,26 @@ test "trimEnd on a string with no trailing space is the identity" {
     assert.equal("  hi".trimEnd(), "  hi");
 }
 
+test "trim removes non-ASCII spaces mixed with ASCII ones at both ends" {
+    assert.equal(" \u{a0} \u{3000}hi\u{2028} \u{feff} ".trim(), "hi");
+}
+
+test "trim of a string of non-ASCII spaces only is empty" {
+    assert.equal("\u{a0}\u{3000}".trim(), "");
+}
+
+test "trim stops at a non-ASCII character that is not a space" {
+    assert.equal(" é hi ü ".trim(), "é hi ü");
+}
+
+test "trimStart removes only leading non-ASCII spaces" {
+    assert.equal("\u{2003} hi\u{2003}".trimStart(), "hi\u{2003}");
+}
+
+test "trimEnd removes only trailing non-ASCII spaces" {
+    assert.equal("\u{2003}hi \u{2003}".trimEnd(), "\u{2003}hi");
+}
+
 // --- startsWith / endsWith / contains -----------------------------------------
 
 test "startsWith accepts a prefix" {

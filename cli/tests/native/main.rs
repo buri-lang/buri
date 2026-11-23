@@ -495,6 +495,10 @@ mod element_releases;
 // costs, counted, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod wrapping_constants;
+// Text trimmed at both ends: what the program prints and what a trim costs,
+// counted, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod trims;
 // The programs the fast paths are for, at the size they're for: fan-outs of
 // every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
 // long sorts, on JavaScript and every backend built in, under the heap check.
