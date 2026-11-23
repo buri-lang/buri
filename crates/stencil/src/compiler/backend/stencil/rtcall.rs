@@ -587,6 +587,11 @@ impl Jit<'_> {
         // a whole frame word is read where it lies; everything else — a literal,
         // a narrow field, an address, a glue symbol — is materialised into the
         // scratch area first, exactly as it always was, and read from there.
+        //
+        // An address as the last of the integers, an out-pointer, is computed
+        // by the `crts/<n>/0/<ret>/a` stencil from its own frame offset
+        // instead, so it is not written to the frame first either.
+        let addr_last = floats.is_empty() && matches!(ints.last(), Some(Src::Addr(_)));
         let place = |i: usize, at: u32, src: &Src| match src {
             Src::Word(from) => *from,
             _ => at + i as u32 * 8,
@@ -596,6 +601,13 @@ impl Jit<'_> {
         let mut iat = [0u32; MAX_INT];
         for ((i, s), at) in ints.iter().enumerate().zip(iat.iter_mut()) {
             *at = place(i, base, s);
+        }
+        if let (true, Some(Src::Addr(from)), Some(at)) = (
+            addr_last,
+            ints.last(),
+            iat.get_mut(ints.len().wrapping_sub(1)),
+        ) {
+            *at = *from;
         }
         let iat = iat.get(..ints.len()).unwrap_or_default();
         let mut fat = [0u32; MAX_FLOAT];
@@ -615,7 +627,13 @@ impl Jit<'_> {
         let fits = |o: &u32| u64::from(*o) / 8 < 4096;
         let dfits = kind == "v" || fits(&dslot);
         if dfits && iat.iter().chain(fat).all(fits) {
-            for (src, at) in ints.iter().zip(iat).chain(floats.iter().zip(fat)) {
+            let marshalled = ints.len().saturating_sub(usize::from(addr_last));
+            for (src, at) in ints
+                .iter()
+                .zip(iat)
+                .take(marshalled)
+                .chain(floats.iter().zip(fat))
+            {
                 if !matches!(src, Src::Word(_)) {
                     self.marshal(*at, src);
                 }
@@ -640,10 +658,12 @@ impl Jit<'_> {
                 *b = t;
             }
             let binds = binds.get(..args + 3).unwrap_or_default();
-            self.emit(
-                &key!["crts/", ints.len(), "/", floats.len(), "/", kind],
-                binds,
-            );
+            let shape = key!["crts/", ints.len(), "/", floats.len(), "/", kind];
+            if addr_last {
+                self.emit(&key![shape.as_str(), "/a"], binds);
+            } else {
+                self.emit(&shape, binds);
+            }
             return;
         }
 

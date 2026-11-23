@@ -1736,6 +1736,24 @@ fn runtime_calls(o: &mut Out) {
                     &format!("crts/{ni}/{nf}/{ret}"),
                     format!("{decl}\nvoid $NAME(ARGS0) {{ {sstore} TAIL0; }}"),
                 );
+                // The same call with its last integer argument the *address*
+                // of its slot rather than the word in it: an out-pointer, which
+                // is otherwise written to the frame by a `lea` and read back.
+                // Integer arguments alone, which is every row with an
+                // out-pointer.
+                if let Some(n) = ni.checked_sub(1).filter(|_| nf == 0) {
+                    let last = super::abi::rt_slot(n);
+                    let mut aargs = sargs.clone();
+                    if let Some(a) = aargs.last_mut() {
+                        *a = format!("(uint64_t)(uintptr_t)((char *)fp + OFF(_{last}))");
+                    }
+                    let acall = format!("{sym}({})", aargs.join(", "));
+                    let astore = return_store(ret, &acall);
+                    o.push(
+                        &format!("crts/{ni}/{nf}/{ret}/a"),
+                        format!("{decl}\nvoid $NAME(ARGS0) {{ {astore} TAIL0; }}"),
+                    );
+                }
             }
         }
     }

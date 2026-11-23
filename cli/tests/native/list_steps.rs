@@ -292,3 +292,74 @@ fn a_map_through_a_lambda_that_captures_several_values_costs_no_call_an_element(
 
 /// See [`a_map_through_a_lambda_that_captures_several_values_costs_no_call_an_element`].
 const WIDE_BOUND_TENTHS: u64 = 362;
+
+/// `main` takes a count `n`, maps 64 numbers to their text through a step
+/// that asks the runtime for it, `n` times, and prints the last texts'
+/// lengths added up. The text comes back through an out-pointer.
+const TEXTS: &str = r#"
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Environment, Stdout };
+
+fn rounds<C: Allocator>(ctx: C, xs: [Int], i: Int, n: Int, last: [Str]): [Str] {
+  if (i >= n) { last } else { rounds(ctx, xs, i + 1, n, xs.mapCtx(ctx, fn(c, x) => str.fromInt(c, x + i))) }
+}
+
+fn total(xs: [Str]): Int { xs.fold(fn(acc, s) => acc + s.length(), 0) }
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
+  let n = env.arguments(ctx).first().andThen(fn(s) => s.toInt()).withDefault(0);
+  let xs = list.range(ctx, 0, 64);
+  io.println(ctx, "${total(rounds(ctx, xs, 0, n, []))}").mapErr(fn(_e) => "stdout")
+}
+"#;
+
+/// What [`TEXTS`] prints after `n` rounds.
+fn lengths_after(n: u64) -> String {
+    let i = n.saturating_sub(1);
+    let total: usize = if n == 0 {
+        0
+    } else {
+        (0..64u64).map(|x| (x + i).to_string().len()).sum()
+    };
+    format!("{total}\n")
+}
+
+/// The two counts of rounds [`TEXTS`] takes: 150 thousand rounds apart, which
+/// is 9.6 million elements and over a billion instructions between the runs.
+const TEXT_ROUNDS: (u64, u64) = (50_000, 200_000);
+
+/// **A runtime call's out-pointer is passed without a trip through the
+/// frame.** The step's `str.fromInt` answers through the address of the
+/// step's slot, which was written to the frame by one stencil and read back
+/// by the call's; the call's stencil now computes it. In instructions an
+/// element on macOS copy-and-patch: 193.4 before, 191.5 now, the same to a
+/// thousandth in two runs. The bound is 192.4, halfway: nine million
+/// instructions from each, where the runs differ by none.
+#[test]
+fn a_runtime_answer_is_written_through_its_slot_address() {
+    let (fewer, more) = TEXT_ROUNDS;
+    let elements = (more - fewer) * 64;
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("list-steps-texts", TEXTS);
+        let n = steps_cost(backend, &binary, TEXT_ROUNDS, lengths_after);
+        // In tenths of an instruction an element.
+        let tenths = n.map(|n| n * 10 / elements);
+        eprintln!("{backend}: {tenths:?} tenths of an instruction an element");
+        if backend == "stencil" {
+            if let Some(tenths) = tenths {
+                assert!(
+                    tenths < TEXT_BOUND_TENTHS,
+                    "{backend}: {tenths} tenths of an instruction an element"
+                );
+            }
+        }
+    }
+}
+
+/// See [`a_runtime_answer_is_written_through_its_slot_address`].
+const TEXT_BOUND_TENTHS: u64 = 1924;
