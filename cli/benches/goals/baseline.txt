@@ -4,19 +4,19 @@
 # lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
-aarch64 ci check cost                                        7323.3
+aarch64 ci check cost                                        7317.5
 aarch64 ci check instructions                                4297.3
 aarch64 ci dev-codegen cost                                 59694.0
 aarch64 ci dev-codegen instructions                         40752.4
 aarch64 ci parse cost                                        2117.5
 aarch64 ci parse instructions                                1520.8
-aarch64 monorepo-ci check cost                              11227.4
+aarch64 monorepo-ci check cost                              11221.5
 aarch64 monorepo-ci check instructions                       6736.4
 aarch64 monorepo-ci dev-codegen cost                        23295.2
 aarch64 monorepo-ci dev-codegen instructions                16906.0
 aarch64 monorepo-ci parse cost                               2684.8
 aarch64 monorepo-ci parse instructions                       1952.7
-aarch64 monorepo-ci test-build check cost                   12597.7
+aarch64 monorepo-ci test-build check cost                   12585.2
 aarch64 monorepo-ci test-build check instructions            7598.7
 aarch64 monorepo-ci test-build dev-codegen cost             25186.3
 aarch64 monorepo-ci test-build dev-codegen instructions     18160.8
