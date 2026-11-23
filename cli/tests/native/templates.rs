@@ -163,17 +163,20 @@ const NUMBERS_STEPS: (u64, u64) = (100_000, 1_100_000);
 const NUMBERS_BOUND: f64 = NUMBERS_BEFORE - (NUMBERS_BEFORE - NUMBERS_AFTER) / 2.0;
 
 /// [`NUMBERS`]'s step before, in instructions.
-const NUMBERS_BEFORE: f64 = 875.2;
+const NUMBERS_BEFORE: f64 = 736.2;
 
 /// [`NUMBERS`]'s step after, in instructions.
-const NUMBERS_AFTER: f64 = 736.2;
+const NUMBERS_AFTER: f64 = 601.1;
 
-/// **The joins after a template's first write into its block.** A step
-/// measured 875.2 instructions when the second join allocated a doubled block
-/// and freed the first join's, and 736.2 once the first join has room for the
-/// whole template (Apple M-series, lowest of three). The bound sits halfway,
-/// so either side of it is 69 instructions a step, 69 million over
-/// [`NUMBERS_STEPS`], where two runs differ by well under a million.
+/// **The joins after a template's first write into its block, and its numbers
+/// take no block of their own.** A step measured 875.2 instructions when the
+/// second join allocated a doubled block and freed the first join's, and 736.2
+/// once the first join had room for the whole template. Each number then still
+/// took a block, freed after the joins; rendered into a digit slot the joins
+/// copy, a step measures 601.1 (Apple M-series, lowest of three; LLVM went
+/// from 571.2 to 448.1). The bound sits halfway, so either side of it is 67
+/// instructions a step, 67 million over [`NUMBERS_STEPS`], where two runs
+/// differ by well under a million.
 #[test]
 fn a_template_of_numbers_joins_without_a_second_block() {
     let (fewer, more) = NUMBERS_STEPS;
@@ -191,4 +194,106 @@ fn a_template_of_numbers_joins_without_a_second_block() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// **A number a template renders takes no block of its own.** Its digits are
+/// copied into the template's one block, so a [`NUMBERS`] step, two numbers
+/// past 9999 between literals, allocates exactly that block. Each number took
+/// a block, freed after the join, so a step allocated three.
+#[test]
+fn a_template_of_numbers_allocates_one_block() {
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("templates-numbers-blocks", NUMBERS);
+        let blocks = |k: u64| {
+            let r = ran_command(std::process::Command::new(&binary).arg(k.to_string()));
+            assert_eq!(r.status, 0, "{backend} {k}: {}", r.stderr);
+            assert_eq!(r.stdout, numbers_summed(k), "{backend} {k}: {}", r.stderr);
+            probed(&r.stderr).0
+        };
+        let (fewer, more) = (2_000, 4_000);
+        let extra = blocks(more) - blocks(fewer);
+        eprintln!("{backend}: {extra} blocks over {} steps", more - fewer);
+        if extra != more - fewer {
+            failures.push(format!(
+                "{backend}: {extra} blocks over {} steps",
+                more - fewer
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A template's numbers are its own, whatever its holes run before the join:
+/// a hole that calls a function rendering numbers in templates of its own,
+/// a string kept from one template while the next renders, the widest and
+/// narrowest integers, every part a number, and numbers beside empty parts.
+#[test]
+fn a_template_keeps_its_numbers_while_its_holes_render_others() {
+    let source = r#"
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Stdout };
+
+fn show<C: Allocator + Stdout>(ctx: C, s: Str): Result<(), Str> {
+  io.println(ctx, "${s} ${s.length()}").mapErr(fn(_e) => "stdout")
+}
+
+fn inner<C: Allocator>(ctx: C, n: Int): Str {
+  str.format(ctx, "<${n}|${n * 7}>")
+}
+
+fn width<C: Allocator>(ctx: C, n: Int): Int {
+  str.format(ctx, "${n}-${n}-${n}").length()
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
+  let a = 123456;
+  let b = -98765432;
+  let e = "";
+  let lo = -9223372036854775807 - 1;
+  let hi = 9223372036854775807;
+  let x: I8 = -5;
+  let u: U32 = 4294967295;
+  let _ = show(ctx, str.format(ctx, "${a}-${inner(ctx, b)}-${a}"))?;
+  let _ = show(ctx, str.format(ctx, "${a}:${width(ctx, 99999999)}:${b}"))?;
+  let _ = show(ctx, str.format(ctx, "[${lo}][${hi}]"))?;
+  let _ = show(ctx, str.format(ctx, "${x}/${u}/${a % 10}/${9999 + a - a}/${10000 + a - a}"))?;
+  let _ = show(ctx, str.format(ctx, "${a}${b}${a}${b}${a}${b}${a}${b}${a}${b}${a}${b}${a}${b}${a}${b}"))?;
+  let _ = show(ctx, str.format(ctx, "${e}${a}"))?;
+  let _ = show(ctx, str.format(ctx, "${a}${e}"))?;
+  let _ = show(ctx, str.format(ctx, "été${b}"))?;
+  let kept = str.format(ctx, "${a}+${b}");
+  let other = str.format(ctx, "${b}+${a}");
+  let _ = show(ctx, kept)?;
+  show(ctx, other)
+}
+"#;
+    let ab = "123456-98765432".repeat(8);
+    let want = format!(
+        "123456-<-98765432|-691358024>-123456 36\n\
+         123456:26:-98765432 19\n\
+         [-9223372036854775808][9223372036854775807] 43\n\
+         -5/4294967295/6/9999/10000 26\n\
+         {ab} {}\n\
+         123456 6\n\
+         123456 6\n\
+         été-98765432 12\n\
+         123456+-98765432 16\n\
+         -98765432+123456 16\n",
+        ab.len()
+    );
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("templates-own-numbers", source);
+        let r = ran_command(&mut std::process::Command::new(&binary));
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, want, "{backend}: {}", r.stderr);
+        assert_eq!(
+            probed(&r.stderr).1,
+            0,
+            "{backend}: blocks still live at exit"
+        );
+    }
 }

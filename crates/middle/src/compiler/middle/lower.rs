@@ -106,6 +106,16 @@ pub(crate) use lists::lend_gets;
 /// is joined by the runtime in one call ([`FnLower::template_joined`]).
 pub(crate) const CONCAT_CHAIN_MAX: usize = 16;
 
+/// Whether a template renders a `prim` hole into a digit slot: the integers
+/// both backends render through `buri_rt_str_from_int`, whose slot form is
+/// `buri_rt_str_from_int_in`.
+fn in_slot(prim: Prim) -> bool {
+    matches!(
+        prim,
+        Prim::I8 | Prim::I16 | Prim::I32 | Prim::I64 | Prim::U8 | Prim::U16 | Prim::U32
+    )
+}
+
 /// The most parts one `list.join` of a long template takes. A longer one is
 /// joined in pieces of this many ([`FnLower::template_joined`]).
 pub(crate) const JOIN_PIECE: usize = 32;
@@ -1988,7 +1998,9 @@ impl FnLower<'_> {
         if parts.len() > CONCAT_CHAIN_MAX {
             return self.template_pieces(ty, parts);
         }
-        let (rendered, _) = self.render(ty, parts);
+        // A template of one part is its own value, so only a join copies a
+        // number out of its digit slot.
+        let (rendered, _) = self.render(ty, parts, parts.len() > 1);
         // A template is written with at least one part; one with none would be
         // the empty string.
         let (mut acc, mut acc_is_mine) = rendered
@@ -2042,9 +2054,24 @@ impl FnLower<'_> {
 
     /// Each part as a string, and whether this template owns it, then which
     /// parts are literals, whose block is null and needs no count.
-    fn render(&mut self, ty: Type, parts: &[TemplatePart]) -> (Vec<(ValueId, bool)>, Vec<bool>) {
+    ///
+    /// With `slots`, an integer of 64 bits or fewer renders into digit slot
+    /// `k`, the `k`th such number here, as a view that takes no block
+    /// ([`Inst::ShowPrim`]'s rule). Those are rendered after every part has
+    /// run, so no hole's own templates write a slot between a rendering and
+    /// the joins that copy it. There are at most [`CONCAT_CHAIN_MAX`] of
+    /// them, which is how many slots the runtime keeps.
+    fn render(
+        &mut self,
+        ty: Type,
+        parts: &[TemplatePart],
+        slots: bool,
+    ) -> (Vec<(ValueId, bool)>, Vec<bool>) {
         let mut rendered: Vec<(ValueId, bool)> = Vec::new();
         let mut literal: Vec<bool> = Vec::new();
+        // Each number to render into a slot: its index in `rendered`, its
+        // type and its value.
+        let mut numbers: Vec<(usize, Prim, ValueId)> = Vec::new();
         for p in parts {
             literal.push(matches!(p, TemplatePart::Text(_)));
             match p {
@@ -2058,14 +2085,34 @@ impl FnLower<'_> {
                 }
                 TemplatePart::Shown { prim, value } => {
                     let v = self.expr(value);
+                    if slots && in_slot(*prim) {
+                        numbers.push((rendered.len(), *prim, v));
+                        rendered.push((v, false));
+                        continue;
+                    }
                     let shown = self.emit(ty, |dest| Inst::ShowPrim {
                         dest,
                         prim: *prim,
                         value: v,
+                        slot: None,
                     });
                     rendered.push((shown, true));
                 }
             }
+        }
+        // A view of a slot is neither counted nor freed, so this template
+        // owns nothing to drop.
+        for (k, (at, prim, v)) in numbers.into_iter().enumerate() {
+            let slot = u8::try_from(k).or_ice("a template joins at most 16 parts");
+            let shown = self.emit(ty, |dest| Inst::ShowPrim {
+                dest,
+                prim,
+                value: v,
+                slot: Some(slot),
+            });
+            *rendered
+                .get_mut(at)
+                .or_ice("each number was pushed at `at`") = (shown, false);
         }
         (rendered, literal)
     }
@@ -2078,7 +2125,7 @@ impl FnLower<'_> {
     fn template_pieces(&mut self, ty: Type, parts: &[TemplatePart]) -> ValueId {
         let mut pieces: Vec<(ValueId, bool)> = Vec::new();
         for piece in parts.chunks(JOIN_PIECE) {
-            let (rendered, literal) = self.render(ty, piece);
+            let (rendered, literal) = self.render(ty, piece, false);
             pieces.push((self.join_parts(ty, &rendered, &literal), true));
         }
         match pieces.as_slice() {

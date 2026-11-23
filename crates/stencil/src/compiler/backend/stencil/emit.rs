@@ -777,10 +777,18 @@ impl<'a> Jit<'a> {
                 ];
                 self.c_call("buri_rt_list_slice", st, &args, &[], dst, "v");
             }
-            Inst::ShowPrim { dest, prim, value } => {
+            Inst::ShowPrim {
+                dest,
+                prim,
+                value,
+                slot,
+            } => {
                 let (d, a) = (st.at(*dest), st.at(*value));
-                // `quoted = false`: a `Char` renders as its own bytes.
-                self.show_prim(st, *prim, a, d, false);
+                match slot {
+                    Some(k) => self.show_int_in(st, *prim, a, d, *k),
+                    // `quoted = false`: a `Char` renders as its own bytes.
+                    None => self.show_prim(st, *prim, a, d, false),
+                }
             }
         }
     }

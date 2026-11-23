@@ -575,6 +575,23 @@ test "a template of many parts keeps them in order and counts characters" {
     assert.equal(str.format(ctx, "${empty}${empty}🎉").length(), 1);
 }
 
+test "a template's numbers keep their digits beside characters that are not ASCII" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let e = "é";
+    let n = 123456;
+    let m = -98765;
+    let s = str.format(ctx, "${e}${n}🎉${m}${e}");
+    assert.equal(s, "é123456🎉-98765é");
+    assert.equal(s.length(), 15);
+    assert.equal(assert.some(s.charAt(7)), '🎉');
+    assert.equal(assert.some(s.charAt(8)), '-');
+    let inner = str.format(ctx, "${n}${e}${str.format(ctx, "${m}🎉${n}")}${m}");
+    assert.equal(inner, "123456é-98765🎉123456-98765");
+    assert.equal(inner.length(), 26);
+}
+
 // --- split / splitAny / lines -------------------------------------------------
 
 test "split cuts on every occurrence" {

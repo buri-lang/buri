@@ -1307,6 +1307,55 @@ impl Jit<'_> {
 }
 
 impl Jit<'_> {
+    /// A template's integer hole rendered into digit slot `slot`, a view the
+    /// template's joins copy (`ir::Inst::ShowPrim`'s `slot`).
+    /// `llvm/emit.rs::show_int_in` is the twin.
+    pub(crate) fn show_int_in(
+        &mut self,
+        st: &mut Fn2,
+        prim: crate::compiler::semantics::types::Prim,
+        src: u32,
+        dest: u32,
+        slot: u8,
+    ) {
+        let at = self.widened(st, prim, src);
+        // The first slot's entry takes no slot, so a template of one number
+        // passes what `buri_rt_str_from_int` took.
+        if slot == 0 {
+            let args = [Src::Word(at), Src::Addr(dest)];
+            self.c_call(runtime::SHOW_INT_IN, st, &args, &[], dest, "v");
+        } else {
+            let args = [Src::Word(at), Src::Imm(u64::from(slot)), Src::Addr(dest)];
+            self.c_call(runtime::SHOW_INT_AT, st, &args, &[], dest, "v");
+        }
+    }
+
+    /// The frame word holding the integer at `src` as the `i64`
+    /// `buri_rt_str_from_int` takes: `src` itself, or the scratch word a
+    /// narrow signed one is sign-extended into ([`Jit::show_prim`] says why).
+    fn widened(
+        &mut self,
+        st: &Fn2,
+        prim: crate::compiler::semantics::types::Prim,
+        src: u32,
+    ) -> u32 {
+        let scr = st.scratch;
+        match int_bits(prim) {
+            Some(bits) => {
+                self.emit(
+                    &key!["sext/", bits],
+                    &[
+                        Lit::D.of(u64::from(scr)),
+                        Lit::A.of(u64::from(src)),
+                        Jump::Cont.to(V::Fall),
+                    ],
+                );
+                scr
+            }
+            None => src,
+        }
+    }
+
     /// `derivePrimShow.<T>` and the template hole `middle::derives` leaves
     /// behind, at a primitive.
     ///
@@ -1382,20 +1431,7 @@ impl Jit<'_> {
             // C signature asks for, and it is needed at exactly the four signed
             // widths below sixty-four.
             Prim::I8 | Prim::I16 | Prim::I32 | Prim::I64 | Prim::U8 | Prim::U16 | Prim::U32 => {
-                let at = match int_bits(prim) {
-                    Some(bits) => {
-                        self.emit(
-                            &key!["sext/", bits],
-                            &[
-                                Lit::D.of(u64::from(scr)),
-                                Lit::A.of(u64::from(src)),
-                                Jump::Cont.to(V::Fall),
-                            ],
-                        );
-                        scr
-                    }
-                    None => src,
-                };
+                let at = self.widened(st, prim, src);
                 self.c_call(
                     runtime::SHOW_INT,
                     st,

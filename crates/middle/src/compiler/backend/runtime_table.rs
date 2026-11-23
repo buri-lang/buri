@@ -2384,6 +2384,13 @@ pub const STR_WRITTEN: &str = "buri_rt_str_written";
 /// every integer of 64 bits or fewer, after a widening by the *source's*
 /// signedness.
 pub const SHOW_INT: &str = "buri_rt_str_from_int";
+/// `buri_rt_str_from_int_in(i64, out)` — [`SHOW_INT`] for a template's join to
+/// copy: a view of this thread's first digit slot rather than a block
+/// (`ir::Inst::ShowPrim`'s `slot`).
+pub const SHOW_INT_IN: &str = "buri_rt_str_from_int_in";
+/// `buri_rt_str_from_int_at(i64, slot, out)` — [`SHOW_INT_IN`] into digit slot
+/// `slot`, for a template's second number on.
+pub const SHOW_INT_AT: &str = "buri_rt_str_from_int_at";
 /// `buri_rt_show_f32(f32, out)` / `buri_rt_show_f64(f64, out)` — the
 /// shortest-round-trip formatter, which has to be one body because it has to
 /// produce the same bytes as JavaScript (VALUE-MODEL.md §12).

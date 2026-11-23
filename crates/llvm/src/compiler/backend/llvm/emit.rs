@@ -1058,9 +1058,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             ir::Inst::Parallel(p) => self.parallel(state, code, p),
             ir::Inst::Handover(h) => self.handover(state, code, h),
-            ir::Inst::ShowPrim { dest, prim, value } => {
-                self.show_prim(state, *dest, *prim, *value, false)
-            }
+            ir::Inst::ShowPrim {
+                dest,
+                prim,
+                value,
+                slot,
+            } => match slot {
+                Some(k) => self.show_int_in(state, *dest, *prim, *value, *k),
+                None => self.show_prim(state, *dest, *prim, *value, false),
+            },
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
             ir::Inst::DecRef { value } => self.decref(state, code, *value),
             ir::Inst::Abort { message } => {
@@ -6340,20 +6346,49 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_out_str(state, runtime::SHOW_U128, &mut argv)
             }
             Prim::I8 | Prim::I16 | Prim::I32 | Prim::I64 | Prim::U8 | Prim::U16 | Prim::U32 => {
-                let v = int(value);
-                // Widened by the **source's** signedness: `U8` to `I64` is a
-                // zero extension and `I8` to `I64` is a sign extension, and
-                // getting that backwards presents as `255` printing as `-1`.
-                let word = self.ctx.i64_type();
-                let wide = if prim.is_signed() {
-                    b.sext(v, word, "show.w")
-                } else {
-                    b.zext(v, word, "show.w")
-                };
-                let mut argv = vec![wide.into()];
+                let mut argv = vec![self.widened(b, prim, value).into()];
                 self.call_out_str(state, runtime::SHOW_INT, &mut argv)
             }
         }
+    }
+
+    /// An integer as the `i64` `buri_rt_str_from_int` takes, widened by the
+    /// **source's** signedness: `U8` to `I64` is a zero extension and `I8` to
+    /// `I64` is a sign extension, and getting that backwards presents as `255`
+    /// printing as `-1`.
+    fn widened(&self, b: At<'ctx>, prim: Prim, value: BasicValueEnum<'ctx>) -> IntValue<'ctx> {
+        let v = int(value);
+        let word = self.ctx.i64_type();
+        if prim.is_signed() {
+            b.sext(v, word, "show.w")
+        } else {
+            b.zext(v, word, "show.w")
+        }
+    }
+
+    /// A template's integer hole rendered into digit slot `slot`, a view the
+    /// template's joins copy (`ir::Inst::ShowPrim`'s `slot`).
+    /// `stencil/rtcall.rs::show_int_in` is the twin.
+    fn show_int_in(
+        &mut self,
+        state: &mut Function<'ctx>,
+        dest: ir::ValueId,
+        prim: Prim,
+        arg: ir::ValueId,
+        slot: u8,
+    ) {
+        let value = self.get(state, arg);
+        let wide = self.widened(state.b, prim, value);
+        // The first slot's entry takes no slot, so a template of one number
+        // passes what `buri_rt_str_from_int` took.
+        let shown = if slot == 0 {
+            self.call_out_str(state, runtime::SHOW_INT_IN, &mut vec![wide.into()])
+        } else {
+            let slot = self.ctx.i64_type().const_int(u64::from(slot), false);
+            let mut argv = vec![wide.into(), slot.into()];
+            self.call_out_str(state, runtime::SHOW_INT_AT, &mut argv)
+        };
+        self.set(state, dest, shown);
     }
 
     /// [`Unit::call_out`] fixed to a `Str` result, returning the register

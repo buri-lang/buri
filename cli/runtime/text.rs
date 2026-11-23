@@ -1621,24 +1621,9 @@ pub unsafe extern "C" fn buri_rt_str_from_chars(ptr: *const u8, count: u64, out:
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
-    // A number below 10000 is a view of its digits in [`crate::fmt::QUADS`],
-    // as a literal is a view of static bytes (VALUE-MODEL.md §3): a null
-    // `base`, which takes no count, is never freed, and is never unique, so no
-    // append writes into the table. A negative `n` is past the table's end as
-    // a `usize`, so one compare sends every other number on.
-    if let Some(digits) = crate::fmt::QUADS.get(n as usize) {
-        let len = 1 + usize::from(n >= 10) + usize::from(n >= 100) + usize::from(n >= 1000);
-        // SAFETY: the digits end at the entry's end, and `len` of them fit in
-        // its four bytes.
-        let ptr = unsafe { digits.as_ptr().add(digits.len() - len) };
+    if let Some(s) = quad(n) {
         // SAFETY: the caller promises a writable, aligned destination.
-        unsafe {
-            out.write(BuriStr {
-                base: std::ptr::null_mut(),
-                ptr,
-                len: len as u64 | BURI_RT_STR_ASCII,
-            });
-        }
+        unsafe { out.write(s) };
         return;
     }
     let len = int_len(n);
@@ -1649,6 +1634,113 @@ pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
     };
     // SAFETY: `base` is a fresh block of `len` bytes; `out` is forwarded.
     unsafe { write_int(n, len, base, out) }
+}
+
+/// A number below 10000 as a view of its digits in [`crate::fmt::QUADS`], as
+/// a literal is a view of static bytes (VALUE-MODEL.md §3): a null `base`,
+/// which takes no count, is never freed, and is never unique, so no append
+/// writes into the table. A negative `n` is past the table's end as a
+/// `usize`, so one compare sends every other number on.
+#[inline(always)]
+fn quad(n: i64) -> Option<BuriStr> {
+    let digits = crate::fmt::QUADS.get(n as usize)?;
+    let len = 1 + usize::from(n >= 10) + usize::from(n >= 100) + usize::from(n >= 1000);
+    Some(BuriStr {
+        base: std::ptr::null_mut(),
+        // SAFETY: the digits end at the entry's end, and `len` of them fit in
+        // its four bytes.
+        ptr: unsafe { digits.as_ptr().add(digits.len() - len) },
+        len: len as u64 | BURI_RT_STR_ASCII,
+    })
+}
+
+/// How many numbers one template can hold in [`DIGITS`] at once: a template
+/// joins at most `lower.rs`'s `CONCAT_CHAIN_MAX` parts.
+const DIGIT_SLOTS: usize = 16;
+
+/// The most bytes an `i64` takes in decimal: `-9223372036854775808`.
+const DIGITS_MAX: usize = 20;
+
+thread_local! {
+    /// [`buri_rt_str_from_int_in`]'s and [`buri_rt_str_from_int_at`]'s
+    /// slots. Its type needs no drop, so an
+    /// access is a plain thread-local address, with no state to test.
+    static DIGITS: std::cell::UnsafeCell<[[u8; DIGITS_MAX]; DIGIT_SLOTS]> =
+        const { std::cell::UnsafeCell::new([[0; DIGITS_MAX]; DIGIT_SLOTS]) };
+}
+
+/// [`buri_rt_str_from_int`] for a template's join to copy: `n`'s digits in
+/// this thread's first digit slot, as a view with a null `base`, which takes
+/// no count and is never freed. A number with a block of its own took that
+/// block and its free on every rendering, and the join copied it out all the
+/// same.
+///
+/// The first slot has an entry of its own, so a template of one number passes
+/// no more than [`buri_rt_str_from_int`] did.
+///
+/// **Rule:** the view holds `n` only until the next rendering into its slot
+/// on this thread. `lower.rs::render` renders a template's numbers into
+/// distinct slots after every hole has run, and only that template's joins
+/// read them, so nothing renders into a slot between its rendering and those
+/// joins.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_str_from_int_in(n: i64, out: *mut BuriStr) {
+    // SAFETY: forwarded.
+    unsafe { digits_in(n, 0, out) }
+}
+
+/// [`buri_rt_str_from_int_in`] into digit slot `slot`, for a template's
+/// second number on. A slot past the last is the last's.
+///
+/// # Safety
+/// As [`buri_rt_str_from_int_in`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_str_from_int_at(n: i64, slot: u64, out: *mut BuriStr) {
+    // SAFETY: forwarded.
+    unsafe { digits_in(n, slot, out) }
+}
+
+/// The body of [`buri_rt_str_from_int_in`] and [`buri_rt_str_from_int_at`].
+///
+/// # Safety
+/// As [`buri_rt_str_from_int_in`].
+#[inline(always)]
+unsafe fn digits_in(n: i64, slot: u64, out: *mut BuriStr) {
+    if let Some(s) = quad(n) {
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out.write(s) };
+        return;
+    }
+    // SAFETY: forwarded.
+    unsafe { digits_written(n, slot, out) }
+}
+
+/// [`digits_in`] for a number of five digits or more, out of line, so a
+/// number below 10000 moves no registers for it.
+///
+/// # Safety
+/// As [`buri_rt_str_from_int_in`].
+#[inline(never)]
+unsafe fn digits_written(n: i64, slot: u64, out: *mut BuriStr) {
+    let len = int_len(n);
+    let at = (slot as usize).min(DIGIT_SLOTS - 1);
+    // SAFETY: this thread's own slots; `at` is inside them, and `len` is at
+    // most `DIGITS_MAX` bytes, which is a slot. `out` is the caller's.
+    unsafe {
+        let base = DIGITS.with(|d| d.get().cast::<[u8; DIGITS_MAX]>().add(at).cast::<u8>());
+        crate::fmt::write_decimal(n.unsigned_abs(), base.add(len));
+        if n < 0 {
+            *base = b'-';
+        }
+        out.write(BuriStr {
+            base: std::ptr::null_mut(),
+            ptr: base,
+            len: len as u64 | BURI_RT_STR_ASCII,
+        });
+    }
 }
 
 /// [`buri_rt_str_from_int`] once the cache had no block of its size.

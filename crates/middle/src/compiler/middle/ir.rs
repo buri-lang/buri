@@ -844,6 +844,16 @@ pub enum Inst {
         dest: ValueId,
         prim: Prim,
         value: ValueId,
+        /// Set only by `lower::template`, on an integer of 64 bits or fewer:
+        /// the answer may be a view of this thread's digit slot `k`
+        /// (`buri_rt_str_from_int_in`), which takes no count and is never
+        /// freed. **Rule:** the slot holds its digits only until the next
+        /// rendering into it, so `lower::template` renders into slots after
+        /// every hole has run, gives each number of one template its own
+        /// slot, and lets only that template's joins read them; nothing
+        /// moves a `ShowPrim` (`jit.rs` and `llvm/emit.rs` treat it as a call
+        /// out).
+        slot: Option<u8>,
     },
 
     // -- reference counting -------------------------------------------------
@@ -2580,12 +2590,16 @@ impl Program {
                 dest: d,
                 prim,
                 value: v,
+                slot,
             } => {
                 dest(out, d);
                 out.push_str("show.");
                 out.push_str(prim.name());
                 out.push(' ');
                 value(out, *v);
+                if let Some(k) = slot {
+                    let _ = write!(out, " in {k}");
+                }
             }
             Inst::IncRef { value: v } => {
                 out.push_str("incref ");
