@@ -1508,11 +1508,23 @@ impl Jit<'_> {
     /// is not a `Ty::Ctx`, and `s.concat(alloc(), t)` used to reach `str_concat`
     /// as three arguments — which this backend refuses by arity, so it was a "report it"
     /// diagnostic on a program the front end was right to accept.
-    pub(crate) const fn concat_strs(argc: usize) -> [usize; 2] {
-        if argc == 3 {
+    ///
+    /// A `str.concatRoom` (`room`) is a template's and has no context either:
+    /// its two `Str`s come first, and the parts still to come follow them.
+    pub(crate) const fn concat_strs(argc: usize, room: bool) -> [usize; 2] {
+        if argc == 3 && !room {
             [0, 2]
         } else {
             [0, 1]
+        }
+    }
+
+    /// The parts a `str.concatRoom` (`room`) joins after this one: its
+    /// arguments past the two `Str`s. A `str.concat` has none.
+    pub(crate) fn concat_rest(args: &[ir::ValueId], room: bool) -> &[ir::ValueId] {
+        match args {
+            [_, _, rest @ ..] if room => rest,
+            _ => &[],
         }
     }
 
@@ -1544,7 +1556,39 @@ impl Jit<'_> {
     /// block to grow in place, so the answer is a fresh block of both lengths:
     /// the `strcat` stencil allocates a short one and copies both sides
     /// itself, and makes the call only for the rest.
-    pub(crate) fn str_concat(&mut self, st: &Fn2, [a, b]: [u32; 2], dest: u32, literal: bool) {
+    ///
+    /// A non-empty `rest` is a template's first join and the parts it joins
+    /// after this one. The fresh block is then exactly the size of every part,
+    /// so the later joins write into it (`buri_rt_str_concat_room`). One part
+    /// passes its length word as it lies, and more are summed into the first
+    /// scratch word, which the call's own arguments start past.
+    pub(crate) fn str_concat(
+        &mut self,
+        st: &Fn2,
+        [a, b]: [u32; 2],
+        dest: u32,
+        literal: bool,
+        rest: &[ir::ValueId],
+    ) {
+        if let Some((first, more)) = rest.split_first() {
+            let room = if more.is_empty() {
+                st.at(*first) + STR_LEN
+            } else {
+                self.imm_to(st.scratch, 0);
+                for part in rest {
+                    self.emit(
+                        "strroom",
+                        &[
+                            Lit::A.of(u64::from(st.at(*part) + STR_LEN)),
+                            Lit::D.of(u64::from(st.scratch)),
+                            Jump::Cont0.to(V::Fall),
+                        ],
+                    );
+                }
+                st.scratch
+            };
+            return self.str_concat_room(st, [a, b], dest, literal, room);
+        }
         if literal {
             return self.emit(
                 "strcat",
@@ -1566,6 +1610,39 @@ impl Jit<'_> {
                 Src::Word(b),
                 Src::Word(b + STR_PTR),
                 Src::Word(b + STR_LEN),
+                Src::Addr(dest),
+            ],
+            &[],
+            0,
+            "v",
+        );
+    }
+
+    /// [`Jit::str_concat`]'s first join of a template, with `room` the slot of
+    /// the byte count of the parts still to come; the callee masks it.
+    fn str_concat_room(&mut self, st: &Fn2, [a, b]: [u32; 2], dest: u32, literal: bool, room: u32) {
+        if literal {
+            return self.emit(
+                "strcat/room",
+                &[
+                    Lit::A.of(u64::from(a)),
+                    Lit::B.of(u64::from(b)),
+                    Lit::C.of(u64::from(room)),
+                    Lit::D.of(u64::from(dest)),
+                    Jump::Cont0.to(V::Fall),
+                ],
+            );
+        }
+        self.c_call(
+            "buri_rt_str_concat_room",
+            st,
+            &[
+                Src::Word(a),
+                Src::Word(a + STR_PTR),
+                Src::Word(a + STR_LEN),
+                Src::Word(b + STR_PTR),
+                Src::Word(b + STR_LEN),
+                Src::Word(room),
                 Src::Addr(dest),
             ],
             &[],

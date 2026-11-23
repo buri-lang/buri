@@ -1989,15 +1989,29 @@ impl FnLower<'_> {
             return self.template_pieces(ty, parts);
         }
         let (rendered, _) = self.render(ty, parts);
-        let mut it = rendered.into_iter();
         // A template is written with at least one part; one with none would be
         // the empty string.
-        let (mut acc, mut acc_is_mine) = it
-            .next()
+        let (mut acc, mut acc_is_mine) = rendered
+            .first()
+            .copied()
             .unwrap_or_else(|| (self.constant(ty, Const::Str("".into())), false));
         let str_ty = self.tables.prim(Prim::Str);
-        for (next, next_is_mine) in it {
-            let joined = self.call_intrinsic(ty, &str_ty, "str.concat", Box::new([acc, next]));
+        let mut tail = rendered.get(1..).unwrap_or_default();
+        let mut first = true;
+        while let Some((&(next, next_is_mine), rest)) = tail.split_first() {
+            // Every part is rendered before the first join, so that join knows
+            // how long the whole string will be: `str.concatRoom` takes the
+            // parts still to come and allocates room for them as well, and
+            // each later join writes into that block instead of allocating.
+            let joined = if first && !rest.is_empty() {
+                let args = [acc, next]
+                    .into_iter()
+                    .chain(rest.iter().map(|&(v, _)| v))
+                    .collect();
+                self.call_intrinsic(ty, &str_ty, "str.concatRoom", args)
+            } else {
+                self.call_intrinsic(ty, &str_ty, "str.concat", Box::new([acc, next]))
+            };
             // *After* the join, not before. On MEMORY.md §5.3's in-place path
             // the result is `acc`'s own block with one more count on it, so
             // this drop takes that count back and frees nothing; on the two
@@ -2012,6 +2026,8 @@ impl FnLower<'_> {
             }
             acc = joined;
             acc_is_mine = true;
+            tail = rest;
+            first = false;
         }
         // `rc::fresh` counts a `Template` as producing a *new* reference, and
         // the plan drops it on that word. A chain of one part does not produce

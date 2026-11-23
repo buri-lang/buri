@@ -6744,7 +6744,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.incref(state, code, src);
                 true
             }
-            ("str.concat", _) => self.concat(state, code, dest, args),
+            ("str.concat", _) => self.concat(state, code, dest, args, &[]),
+            // A template's first join, with the parts still to come after it.
+            ("str.concatRoom", &[l, r, ref rest @ ..]) => {
+                self.concat(state, code, dest, &[l, r], rest)
+            }
             // The two parts of `platform/effect/testing` that are instructions
             // rather than calls. Every other double is stateful — a captured
             // stdout, an in-memory filesystem — and its state lives on the test
@@ -7041,12 +7045,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// a second view into the same block the two ranges can touch, and the
     /// weaker instruction removes the case from the argument rather than
     /// adding a test to it.
+    ///
+    /// `str.concatRoom` is a template's first join, and `rest` the parts the
+    /// template joins after it: paths 2 and 3 then allocate exactly both
+    /// lengths plus all of theirs, so the later joins take path 1. The same
+    /// rule as `cli/runtime/text.rs`'s `buri_rt_str_concat_room`, so both
+    /// backends allocate the same blocks.
     fn concat(
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
         args: &[ir::ValueId],
+        rest: &[ir::ValueId],
     ) -> bool {
         // Two shapes reach this key: `str.concat(self, ctx, other)` from a
         // method call, and `str.concat(a, b)` from `lower::template`, which
@@ -7193,7 +7204,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let floor = word.const_int(layout::GROWTH_FLOOR, false);
         let over = b.icmp(IntPredicate::UGT, doubled, floor, "cat.big");
         let wanted = b.select(over, doubled, floor, "cat.want").into_int_value();
-        let size = b.select(unique, wanted, total, "cat.size").into_int_value();
+        let mut size = b.select(unique, wanted, total, "cat.size").into_int_value();
+        if !rest.is_empty() {
+            size = total;
+            for &part in rest {
+                let value = self.get(state, part);
+                let [_, _, raw] = repr::disassemble_n(b, value);
+                let len = b.and(int(raw), mask, "cat.restlen");
+                size = b.add(size, len, "cat.room");
+            }
+        }
         let alloc = self.rt_alloc();
         state.observed.allocates = true;
         let call = b.call_answering(alloc, &[size.into()], "cat");
@@ -8471,6 +8491,7 @@ pub(super) fn open_coded_key(key: &str) -> bool {
     matches!(
         key,
         "str.concat"
+            | "str.concatRoom"
             | "str.format"
             | "str.length"
             | "list.length"

@@ -558,6 +558,23 @@ test "a literal joined to a string counts characters when either side is not ASC
     assert.equal(assert.some("x".concat(ctx, "🎉").charAt(1)), '🎉');
 }
 
+test "a template of many parts keeps them in order and counts characters" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let e = "é";
+    let x = "x";
+    let n = 42;
+    let empty = "";
+    let s = str.format(ctx, "${e}-${n}-${x}🎉${e}");
+    assert.equal(s, "é-42-x🎉é");
+    assert.equal(s.length(), 8);
+    assert.equal(assert.some(s.charAt(6)), '🎉');
+    assert.equal(str.format(ctx, "${x}${empty}${x}${empty}"), "xx");
+    assert.equal(str.format(ctx, "${x}${e}${x}").length(), 3);
+    assert.equal(str.format(ctx, "${empty}${empty}🎉").length(), 1);
+}
+
 // --- split / splitAny / lines -------------------------------------------------
 
 test "split cuts on every occurrence" {

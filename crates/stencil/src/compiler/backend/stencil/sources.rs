@@ -324,6 +324,9 @@ uint64_t buri_rt_str_scalar_len(uint64_t, uint64_t);
 // `str.concat`, for every case the `strcat` stencil leaves to it.
 void buri_rt_str_concat(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
                         void *);
+// A template's first join, for every case `strcat/room` leaves to it.
+void buri_rt_str_concat_room(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                             void *);
 // 128-bit division, which is a call on every backend: clang would otherwise
 // reach compiler-rt's `__divti3`, and a Buri artifact links `libburi_rt.a` and
 // the C library and nothing else. The runtime's entry also owns the
@@ -859,6 +862,37 @@ fn moves(o: &mut Out) {
          } else { \
            buri_rt_str_concat(a[0], a[1], al, b[0], b[1], bl, &AT(uint64_t, _JIT_D)); \
          } TAIL0; }"
+            .into(),
+    );
+    // A template's first join when its left side is a literal
+    // (`rtcall.rs::str_concat`): `strcat`, with `C` the raw byte count of the
+    // parts still to come. The fresh block holds them too, so the joins after
+    // this one write into it. The hint is `strcat`'s, for the same reason.
+    o.push(
+        "strcat/room",
+        "void $NAME(ARGS0) { const uint64_t *a = &AT(uint64_t, _JIT_A), \
+         *b = &AT(uint64_t, _JIT_B); uint64_t al = a[2], bl = b[2], \
+         rest = AT(uint64_t, _JIT_C); \
+         uint64_t la = al & 0x7FFFFFFFFFFFFFFFull, lb = bl & 0x7FFFFFFFFFFFFFFFull, \
+         n = la + lb; \
+         if (__builtin_expect_with_probability(n - 1 < 128, 1, 0.9)) { \
+           char *p = (char *)(uintptr_t)buri_rt_alloc(n + (rest & 0x7FFFFFFFFFFFFFFFull)); \
+           copy_n(p, (const char *)(uintptr_t)a[1], la); \
+           copy_n(p + la, (const char *)(uintptr_t)b[1], lb); \
+           uint64_t *d = &AT(uint64_t, _JIT_D); \
+           d[0] = (uint64_t)(uintptr_t)p; d[1] = (uint64_t)(uintptr_t)p; \
+           d[2] = n | (al & bl & 0x8000000000000000ull); \
+         } else { \
+           buri_rt_str_concat_room(a[0], a[1], al, b[1], bl, rest, &AT(uint64_t, _JIT_D)); \
+         } TAIL0; }"
+            .into(),
+    );
+    // The byte count of one more part, `A` its length word, added into `D`
+    // for `strcat/room` and `buri_rt_str_concat_room`.
+    o.push(
+        "strroom",
+        "void $NAME(ARGS0) { AT(uint64_t, _JIT_D) += AT(uint64_t, _JIT_A) & 0x7FFFFFFFFFFFFFFFull; \
+         TAIL0; }"
             .into(),
     );
     // `Equal` and `compare` at `Str` (`rtcall.rs::str_order`), with `A` and

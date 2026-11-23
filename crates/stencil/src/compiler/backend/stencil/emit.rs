@@ -1766,9 +1766,10 @@ impl<'a> Jit<'a> {
             route::Body::Allocate => self.mv(d, at(1), 8),
             // `"text".concat(ctx, s)`: the `strcat` stencil, which needs to
             // know the left side is a literal, and only the caller knows.
-            route::Body::Concat if str_literal(code, st, args.first()) => {
-                let strs = Self::concat_strs(args.len()).map(at);
-                self.str_concat(st, strs, d, true);
+            route::Body::Concat(room) if str_literal(code, st, args.first()) => {
+                let strs = Self::concat_strs(args.len(), room).map(at);
+                let rest = Self::concat_rest(args, room);
+                self.str_concat(st, strs, d, true, rest);
             }
             // `core/bits`: each stencil reads its operands before it writes
             // the answer, so the answer may share a slot with either.
@@ -1953,10 +1954,11 @@ impl<'a> Jit<'a> {
             // `str.concat` is a runtime call with no table row, so its
             // arguments are narrowed here rather than flattened: the two
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
-            (route::Call::Concat, _) => {
-                let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
+            (route::Call::Concat(room), _) => {
+                let strs = Self::concat_strs(args.len(), room).map(|i| arg(st, i));
                 let literal = str_literal(code, st, args.first());
-                self.str_concat(st, strs, d, literal);
+                let rest = Self::concat_rest(args, room);
+                self.str_concat(st, strs, d, literal, rest);
             }
             // `middle::derives` names each leaf by its primitive's type.
             (route::Call::Derive(Leaf::Hash, prim), _) => {
@@ -2783,9 +2785,11 @@ impl<'a> Jit<'a> {
                 width,
                 counted,
             } => self.bits_at(st, stem, width, counted, ret0, (p(0), None), (p(1), None)),
-            route::Body::Concat => {
+            // Only `str.concat` is declared, so only it has a body; a
+            // `str.concatRoom` is a template's, and never a function.
+            route::Body::Concat(_) => {
                 let argc = prog.funcs.get(fi).sig.params.len();
-                self.str_concat(st, Self::concat_strs(argc).map(p), ret0, false);
+                self.str_concat(st, Self::concat_strs(argc, false).map(p), ret0, false, &[]);
             }
         }
         self.emit("ret", &[]);
@@ -4157,6 +4161,7 @@ fn open_coded_key(key: &str) -> bool {
         "list.length"
             | "list.empty"
             | "str.concat"
+            | "str.concatRoom"
             | "host_testing.alloc"
             | "host_testing.TestAllocator.allocate"
             | "str.length"

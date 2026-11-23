@@ -5012,7 +5012,7 @@ fn keeps_callee_frame(i: &ir::Inst, routes: &super::route::Routes<'_>) -> bool {
         // step in the frame past this one (`glue.rs`'s entry thunk).
         ir::Inst::CallIntrinsic { key, .. } => matches!(
             routes.calls.get(*key),
-            Call::Concat | Call::Derive(Leaf::Show | Leaf::Hash, _)
+            Call::Concat(_) | Call::Derive(Leaf::Show | Leaf::Hash, _)
         ),
         ir::Inst::Binary { prim, .. } => !matches!(
             prim,

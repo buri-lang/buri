@@ -1178,7 +1178,48 @@ pub unsafe extern "C" fn buri_rt_str_concat(
         return;
     }
     // SAFETY: forwarded.
-    unsafe { concat_slow(a_base, a_ptr, la, b_ptr, lb, ascii, out) }
+    unsafe { concat_slow(a_base, a_ptr, la, b_ptr, lb, ascii, None, out) }
+}
+
+/// `str.concatRoom`: [`buri_rt_str_concat`] at a template's first join, where
+/// `rest` is the byte count of the parts still to be joined after it, raw: a
+/// single part's length word as it lies, so its ASCII flag is masked off here.
+///
+/// Path 1 is the same. Paths 2 and 3 allocate exactly `la + lb + rest` bytes
+/// instead of doubling or of `la + lb`, so every later join of the template
+/// takes path 1 and the finished string sits in a block of exactly its own
+/// size. `"item-${i}-${j}"` allocated twice, at its first and second joins,
+/// and allocates once now.
+///
+/// The right operand's base is not passed, as [`buri_rt_str_concat`] never
+/// reads it, so the out-pointer is still the last of seven words. The lengths
+/// arrive raw for the reason that function gives.
+///
+/// # Safety
+/// As [`buri_rt_str_concat`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_str_concat_room(
+    a_base: *mut u8,
+    a_ptr: *const u8,
+    a_len: u64,
+    b_ptr: *const u8,
+    b_len: u64,
+    rest: u64,
+    out: *mut BuriStr,
+) {
+    let la = (a_len & BURI_RT_STR_LEN_MASK) as usize;
+    let lb = (b_len & BURI_RT_STR_LEN_MASK) as usize;
+    let n = la.saturating_add(lb);
+    let ascii = a_len & b_len & BURI_RT_STR_ASCII;
+    if n == 0 {
+        // Nothing to hold yet, and the next join allocates what it needs.
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out.write(BuriStr::empty()) };
+        return;
+    }
+    let room = (n as u64).saturating_add(rest & BURI_RT_STR_LEN_MASK);
+    // SAFETY: forwarded.
+    unsafe { concat_slow(a_base, a_ptr, la, b_ptr, lb, ascii, Some(room), out) }
 }
 
 /// Whether `n` bytes from `a_ptr` fit in `a_base`'s block of `cap` bytes. The
@@ -1191,11 +1232,14 @@ fn fits(a_base: *mut u8, a_ptr: *const u8, n: usize, cap: u64) -> bool {
 }
 
 /// [`buri_rt_str_concat`]'s three paths, for a result of `la + lb > 0` bytes
-/// whose `ascii` flag is already worked out.
+/// whose `ascii` flag is already worked out. A `room` is the exact size paths
+/// 2 and 3 allocate, which [`buri_rt_str_concat_room`] passes; it is never
+/// below `la + lb`.
 ///
 /// # Safety
 /// As [`buri_rt_str_concat`], with the lengths masked.
 #[inline(never)]
+#[allow(clippy::too_many_arguments)]
 unsafe fn concat_slow(
     a_base: *mut u8,
     a_ptr: *const u8,
@@ -1203,6 +1247,7 @@ unsafe fn concat_slow(
     b_ptr: *const u8,
     lb: usize,
     ascii: u64,
+    room: Option<u64>,
     out: *mut BuriStr,
 ) {
     let n = la.saturating_add(lb);
@@ -1229,10 +1274,10 @@ unsafe fn concat_slow(
         return;
     }
     // Path 2 where the block was unique, and path 3 where it wasn't.
-    let block = buri_rt_alloc(if unique.is_some() {
-        grown(n as u64)
-    } else {
-        n as u64
+    let block = buri_rt_alloc(match (room, unique) {
+        (Some(room), _) => room,
+        (None, Some(_)) => grown(n as u64),
+        (None, None) => n as u64,
     });
     // SAFETY: a fresh block of at least `n` bytes, disjoint from both sources,
     // and each source covers its own length.

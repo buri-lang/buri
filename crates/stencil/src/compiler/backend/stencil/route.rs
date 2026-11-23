@@ -37,7 +37,10 @@ impl<'p> Routes<'p> {
 pub(crate) enum Call {
     FailExpectedShown,
     ReportShown,
-    Concat,
+    /// `str.concat`, or `str.concatRoom` where the flag is set: a template's
+    /// first join, whose arguments past the two `Str`s are the parts still to
+    /// come.
+    Concat(bool),
     Derive(Leaf, Prim),
     Row(&'static Entry),
 }
@@ -68,7 +71,8 @@ pub(crate) enum Body<'p> {
         width: u32,
         counted: bool,
     },
-    Concat,
+    /// As [`Call::Concat`].
+    Concat(bool),
 }
 
 /// One `number.<T>.<op>` operation.
@@ -148,7 +152,8 @@ fn call(key: &str) -> Option<Call> {
     Some(match key {
         "testing_assert.failExpectedShown" => Call::FailExpectedShown,
         "testing_assert.reportShown" => Call::ReportShown,
-        "str.concat" => Call::Concat,
+        "str.concat" => Call::Concat(false),
+        "str.concatRoom" => Call::Concat(true),
         _ => match derive_key(key) {
             Some((leaf, prim)) => Call::Derive(leaf, prim),
             None => Call::Row(runtime::entry(key)?),
@@ -243,7 +248,8 @@ fn open_coded(key: &str) -> Option<Body<'_>> {
         "list.length" => Body::ListLength,
         "str.format" => Body::StrFormat,
         "list.empty" => Body::ListEmpty,
-        "str.concat" => Body::Concat,
+        "str.concat" => Body::Concat(false),
+        "str.concatRoom" => Body::Concat(true),
         _ if char_of(key) => Body::PrimTrait(Prim::Char, PrimOp::Same),
         _ => return prim_trait(key).or_else(|| bits(key)),
     })

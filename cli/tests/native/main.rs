@@ -439,6 +439,11 @@ mod int_text;
 // step costs, counted rather than timed, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod small_ints;
+// Interpolations of three parts or more: what each prints, how many blocks a
+// template takes, and what a step costs, counted rather than timed, on every
+// backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod templates;
 // Short lists built by pushes: what each holds at every length, beside lists
 // that share a prefix, and what building one costs, counted rather than
 // timed, on every backend built in.
