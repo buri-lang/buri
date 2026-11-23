@@ -4,9 +4,9 @@
 # lowers a figure. design/PERFORMANCE.md §6.82; never raise one by hand.
 
 toolchain aarch64 rustc 1.99.0 (b940084d7 2026-09-28); clang version 21.1.7; valgrind-3.26.0
-aarch64 ci check cost                                        7325.0
+aarch64 ci check cost                                        7323.3
 aarch64 ci check instructions                                4297.3
-aarch64 ci dev-codegen cost                                 59726.0
+aarch64 ci dev-codegen cost                                 59712.3
 aarch64 ci dev-codegen instructions                         40752.4
 aarch64 ci parse cost                                        2117.5
 aarch64 ci parse instructions                                1520.8
