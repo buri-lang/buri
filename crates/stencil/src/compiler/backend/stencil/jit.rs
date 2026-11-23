@@ -1788,7 +1788,7 @@ impl<'a> Jit<'a> {
                 );
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
-                self.constants(code, &st.uses, &mut st.constants, &mut st.imm);
+                self.constants(prog, code, &st.uses, &mut st.constants, &mut st.imm);
                 st.blk = Labels::for_code(&mut st.blk, code);
                 // A block a jump goes to past the tests has that jump as one
                 // more way in, which the layout did not count.
@@ -3914,6 +3914,7 @@ impl<'a> Jit<'a> {
     /// stencil is.
     fn constants(
         &mut self,
+        prog: &ir::Program,
         code: &ir::Code,
         total: &ir::PerValue<u32>,
         constants: &mut ir::PerValue<Option<u64>>,
@@ -3930,9 +3931,19 @@ impl<'a> Jit<'a> {
         // A use is immediate-eligible only as an operand of a binary operation
         // whose immediate variant this level has: the right one, or the left
         // one of a stencil such as `k - x` whose right operand is no constant.
+        // A `wrapping<Op>` call is that operation (`Emit::open_body`), so its
+        // right operand is one too.
         let mut imm = code.per_value_in(&mut self.bufs.imm, 0);
         for block in code.blocks() {
             for i in &block.insts {
+                if let Some((name, tag, rhs)) = self.wrapping_rhs(prog, i) {
+                    if constants.get(rhs).is_some()
+                        && self.has(&key!["bin/", name, "/", tag, "/fi/f"])
+                    {
+                        *imm.get_mut(rhs) += 1;
+                    }
+                    continue;
+                }
                 if let ir::Inst::Binary {
                     op, prim, lhs, rhs, ..
                 } = i
@@ -3964,6 +3975,28 @@ impl<'a> Jit<'a> {
             }
         }
         self.bufs.imm = imm;
+    }
+
+    /// The stencil name, type tag and right operand of a `wrapping<Op>` call,
+    /// which `Emit::open_body` writes as the `bin/<op>` it is.
+    pub(super) fn wrapping_rhs(
+        &self,
+        prog: &ir::Program,
+        i: &ir::Inst,
+    ) -> Option<(&'static str, &'static str, ir::ValueId)> {
+        let ir::Inst::Call { func, args, .. } = i else {
+            return None;
+        };
+        let ir::Body::Runtime(r) = &prog.funcs.get(*func).body else {
+            return None;
+        };
+        let super::route::Body::Number(num, super::route::Number::Wrapping(name)) =
+            *self.routes.bodies.get(r.key)
+        else {
+            return None;
+        };
+        let (tag, _, _) = super::emit::prim_tag(num.scalar());
+        Some((name, tag, *args.get(1)?))
     }
 
     /// Fusions the terminator can absorb.

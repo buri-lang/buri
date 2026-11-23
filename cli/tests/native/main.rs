@@ -491,6 +491,10 @@ mod answer_slots;
 // an element costs, counted, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod element_releases;
+// Wrapping arithmetic on a constant: what the program prints and what a step
+// costs, counted, on every backend built in.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod wrapping_constants;
 // The programs the fast paths are for, at the size they're for: fan-outs of
 // every width, maps of colliding-shaped keys, wide ordered maps, deep trees and
 // long sorts, on JavaScript and every backend built in, under the heap check.

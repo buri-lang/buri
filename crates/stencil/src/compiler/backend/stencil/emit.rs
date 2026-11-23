@@ -1741,6 +1741,23 @@ impl<'a> Jit<'a> {
                 if !reads_first && !apart {
                     return false;
                 }
+                // A constant right operand of `wrapping<Op>` is the stencil's
+                // immediate, as it is for the operator (`Jit::constants`).
+                if let (route::Number::Wrapping(name), [_, b]) = (op, args) {
+                    if st.loc(*b) == Loc::Imm {
+                        let (tag, _, _) = prim_tag(num.scalar());
+                        self.emit(
+                            &key!["bin/", name, "/", tag, "/fi/f"],
+                            &[
+                                Lit::A.of(u64::from(at(0))),
+                                Lit::D.of(u64::from(d)),
+                                Word::K.lit(constant(st, *b)),
+                                Jump::Cont.to(V::Fall),
+                            ],
+                        );
+                        return true;
+                    }
+                }
                 self.number_at(prog, st, num.scalar(), (op, answer), (at(0), at(1)), d);
             }
             _ => return false,
