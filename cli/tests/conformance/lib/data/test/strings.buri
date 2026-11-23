@@ -176,6 +176,16 @@ test "trim handles tabs and newlines" {
     assert.equal("\t\nhi\n\t".trim(), "hi");
 }
 
+test "trim removes vertical tabs, form feeds and carriage returns" {
+    assert.equal("\u{b}\u{c}\r hi\r\u{c}\u{b}".trim(), "hi");
+}
+
+test "trim keeps the control characters on either side of the spaces" {
+    assert.equal("\u{8}hi\u{e}".trim(), "\u{8}hi\u{e}");
+    assert.equal(" \u{1f}hi! ".trim(), "\u{1f}hi!");
+    assert.equal("\0@`\u{7f}".trim(), "\0@`\u{7f}");
+}
+
 test "trimStart removes only leading whitespace" {
     assert.equal("  hi  ".trimStart(), "hi  ");
 }

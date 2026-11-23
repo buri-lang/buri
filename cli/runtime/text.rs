@@ -318,41 +318,70 @@ fn is_js_space(c: char) -> bool {
     )
 }
 
-/// The byte range left after trimming, as `(start, end)`.
-///
-/// Each end is walked a byte at a time while it is ASCII, which is where most
-/// text's spaces are, and decoded only from the first byte that is not: the
-/// text between the two ends is never read.
-fn trim_range(bytes: &[u8], start: bool, end: bool) -> (usize, usize) {
-    let ascii_space = |b: u8| matches!(b, 0x9..=0xd | 0x20);
-    let mut from = 0usize;
-    let mut to = bytes.len();
+/// The ASCII bytes `String.trim` removes, tab to carriage return and space,
+/// as bits of a word indexed by the byte: one compare and one shift test a
+/// byte, where a range test and an equality test took two compares.
+const ASCII_SPACES: u64 = 0x1_0000_3E00;
+
+/// Whether `b` is one of [`ASCII_SPACES`].
+#[inline(always)]
+fn ascii_space(b: u8) -> bool {
+    b < 64 && (ASCII_SPACES >> b) & 1 != 0
+}
+
+/// `bytes` less the ASCII spaces at the ends asked for, walked a byte at a
+/// time from each end; the text between the two ends is never read.
+#[inline(always)]
+fn ascii_trimmed(bytes: &[u8], start: bool, end: bool) -> &[u8] {
+    let mut rest = bytes;
     if start {
-        while bytes.get(from).is_some_and(|b| ascii_space(*b)) {
-            from += 1;
-        }
-        if bytes.get(from).is_some_and(|b| !b.is_ascii()) {
-            for c in as_text(bytes.get(from..).unwrap_or(&[])).chars() {
-                if !is_js_space(c) {
-                    break;
-                }
-                from = from.saturating_add(c.len_utf8());
-            }
+        while let [first, tail @ ..] = rest
+            && ascii_space(*first)
+        {
+            rest = tail;
         }
     }
-    let from = from.min(to);
-    let last = |to: usize| bytes.get(to.checked_sub(1)?).filter(|_| to > from);
     if end {
-        while last(to).is_some_and(|b| ascii_space(*b)) {
-            to -= 1;
+        while let [init @ .., last] = rest
+            && ascii_space(*last)
+        {
+            rest = init;
         }
-        if last(to).is_some_and(|b| !b.is_ascii()) {
-            for c in as_text(bytes.get(from..to).unwrap_or(&[])).chars().rev() {
-                if !is_js_space(c) {
-                    break;
-                }
-                to = to.saturating_sub(c.len_utf8());
+    }
+    rest
+}
+
+/// Whether a trimmed end of `rest` is a non-ASCII byte, which may begin a
+/// space that only decoding finds.
+#[inline(always)]
+fn decode_needed(rest: &[u8], start: bool, end: bool) -> bool {
+    let non_ascii = |b: Option<&u8>| b.is_some_and(|b| !b.is_ascii());
+    (start && non_ascii(rest.first())) || (end && non_ascii(rest.last()))
+}
+
+/// The byte range left after trimming, as `(start, end)`.
+///
+/// The ASCII spaces at each end go first ([`ascii_trimmed`]), as most text's
+/// spaces are ASCII, and an end is decoded only from a first byte that is
+/// not.
+fn trim_range(bytes: &[u8], start: bool, end: bool) -> (usize, usize) {
+    let rest = ascii_trimmed(bytes, start, end);
+    let mut from = (rest.as_ptr() as usize).wrapping_sub(bytes.as_ptr() as usize);
+    let mut to = from + rest.len();
+    if start && rest.first().is_some_and(|b| !b.is_ascii()) {
+        for c in as_text(rest).chars() {
+            if !is_js_space(c) {
+                break;
             }
+            from = from.saturating_add(c.len_utf8());
+        }
+    }
+    if end && to > from && bytes.get(to - 1).is_some_and(|b| !b.is_ascii()) {
+        for c in as_text(bytes.get(from..to).unwrap_or(&[])).chars().rev() {
+            if !is_js_space(c) {
+                break;
+            }
+            to = to.saturating_sub(c.len_utf8());
         }
     }
     (from, to.max(from))
@@ -597,6 +626,43 @@ pub unsafe extern "C" fn buri_rt_str_trim_end(
 /// # Safety
 /// As [`buri_rt_str_slice`].
 unsafe fn trim_into(
+    base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    start: bool,
+    end: bool,
+    out: *mut BuriStr,
+) {
+    // SAFETY: the caller promises `len` readable bytes.
+    let rest = ascii_trimmed(unsafe { view(ptr, len) }, start, end);
+    if decode_needed(rest, start, end) {
+        // SAFETY: forwarded.
+        return unsafe { trim_decoded(base, ptr, len, start, end, out) };
+    }
+    let view = if rest.is_empty() {
+        BuriStr::empty()
+    } else {
+        // SAFETY: `base` is the block this view lives in, and a view handed
+        // out is owned by its receiver (`lib.rs` §3).
+        unsafe { buri_rt_incref(base) };
+        BuriStr {
+            base,
+            ptr: rest.as_ptr(),
+            len: rest.len() as u64 | (len & BURI_RT_STR_ASCII),
+        }
+    };
+    // SAFETY: the caller promises `out` is writable.
+    unsafe { out.write(view) }
+}
+
+/// [`trim_into`] where an end has to be decoded: out of line and cold, and
+/// called last, so the ASCII path saves no registers for it.
+///
+/// # Safety
+/// As [`buri_rt_str_slice`].
+#[cold]
+#[inline(never)]
+unsafe fn trim_decoded(
     base: *mut u8,
     ptr: *const u8,
     len: u64,

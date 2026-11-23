@@ -61,3 +61,34 @@ fn a_trim_of_ascii_text_reads_only_its_ends() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// What one step of [`TRIMS`] costs on the copy-and-patch backend once each
+/// byte is tested against a word of space bits and the ASCII path calls
+/// nothing that makes it save registers. It measured 190 before and 135
+/// after; the bound sits halfway, so the old code fails it by 55 million
+/// instructions over [`TRIM_STEPS`], where two runs differ by well under a
+/// million.
+const SPACE_BITS_BOUND: f64 = 162.5;
+
+/// **A trim tests each space byte with one compare and one bit test.** The
+/// ASCII walk at each end reads a byte, checks it against a word of space
+/// bits, and leaves decoding to an out-of-line path that ASCII text never
+/// takes.
+#[test]
+fn a_trim_tests_each_space_byte_against_a_word_of_bits() {
+    let (fewer, more) = TRIM_STEPS;
+    let steps = more - fewer;
+    let mut failures = Vec::new();
+    for (backend, build) in crate::e2e::probed_backends() {
+        let binary = build("trims-bits", TRIMS);
+        let n = steps_cost(backend, &binary, TRIM_STEPS, |k| format!("{}\n", k * 6));
+        let each = n.map(|n| n as f64 / steps as f64);
+        eprintln!("{backend}: {each:?} instructions a step");
+        if backend == "stencil" && each.is_some_and(|e| e > SPACE_BITS_BOUND) {
+            failures.push(format!(
+                "{backend}: {each:?} instructions a step, over {SPACE_BITS_BOUND}"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
