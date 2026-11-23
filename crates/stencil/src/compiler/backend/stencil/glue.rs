@@ -942,13 +942,21 @@ impl Jit<'_> {
     /// An element no one load copies is tested where it is
     /// ([`Jit::unless_spare_in_place`]) and handed to its type's glue through a
     /// pointer, which walks it in place.
+    ///
+    /// A retain or a release of any other element is tested where it is too,
+    /// and walked through its address ([`Jit::walk_through`]), which reads
+    /// only the words it counts or tests. That walk reads through `G_PTR`, so
+    /// the loop runs `G_PTR` itself, and the end goes to `G_INDEX`: the walk
+    /// uses `G_COUNT` for an address. Copying the whole stride into the frame
+    /// first cost two loads, two stores and two adds an element.
     fn elems_glue(&mut self, ty: Ty, op: Op) {
         let l = self.layouts_of(ty);
         let (size, stride) = (l.size.max(1), l.stride.max(1));
         let wide = !self.one_load(stride);
-        // The frame holds a whole *stride*, padding and all, because
+        let through = !wide && op != Op::Copy;
+        // A copy's frame holds a whole *stride*, padding and all, because
         // [`Jit::unless_spare`] reads every byte of the slot.
-        let window = if wide { 8 } else { round8(stride) };
+        let window = if wide || through { 8 } else { round8(stride) };
         let frame = frame_for(window);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
@@ -1000,24 +1008,39 @@ impl Jit<'_> {
                 Jump::Cont.to(V::Fall),
             ],
         );
-        self.mv(G_INDEX, G_PTR, 8);
+        let (at, end) = if through {
+            self.mv(G_INDEX, G_COUNT, 8);
+            (G_PTR, G_INDEX)
+        } else {
+            self.mv(G_INDEX, G_PTR, 8);
+            (G_INDEX, G_COUNT)
+        };
         let base = self.fixups_len();
         let body = st.label();
         let done = st.label();
         let next = st.label();
-        self.glue_loop_test(G_INDEX, G_COUNT, V::Fall, V::Blk(done), Jump::T);
+        self.glue_loop_test(at, end, V::Fall, V::Blk(done), Jump::T);
         let here = self.region.code_addr();
         st.place(body, here);
-        if wide {
-            self.unless_spare_in_place(stride, next);
+        if through {
+            // Where all the walk counts is block pointers, each count tests
+            // its own for null, so an all-zero element is already a walk that
+            // does nothing.
+            let mut blocks = Vec::new();
+            if !self.flat_blocks(&ty, Words::ZERO, 0, &mut blocks) {
+                self.unless_spare_in_place(G_PTR, stride, next);
+            }
+            self.walk_through(&mut st, &ty, Words::ZERO, op, 0);
+        } else if wide {
+            self.unless_spare_in_place(G_INDEX, stride, next);
             let sym = self.helper(Helper::Walk { ty, op });
             self.c_call_sym(sym, &st, &[Src::Word(G_INDEX)]);
         } else {
+            // A copy, the one narrow walk left: it counts the element's
+            // blocks in the frame and stores the element back where it was.
             self.unless_spare(stride, next);
             self.walk_rc(&mut st, &ty, G_VALUE, op, 0);
-            if op == Op::Copy {
-                self.ptr_store(G_VALUE, G_INDEX, 0, size);
-            }
+            self.ptr_store(G_VALUE, G_INDEX, 0, size);
         }
         let here = self.region.code_addr();
         st.place(next, here);
@@ -1027,10 +1050,10 @@ impl Jit<'_> {
         self.emit(
             key,
             &[
-                Lit::D.of(u64::from(G_INDEX)),
-                Lit::A.of(u64::from(G_INDEX)),
+                Lit::D.of(u64::from(at)),
+                Lit::A.of(u64::from(at)),
                 Lit::N.of(u64::from(stride)),
-                Lit::B.of(u64::from(G_COUNT)),
+                Lit::B.of(u64::from(end)),
                 Jump::T.to(V::Blk(body)),
                 Jump::F.to(V::Fall),
             ],
@@ -1062,14 +1085,14 @@ impl Jit<'_> {
         self.all_zero_to(None, G_VALUE, (stride / 8).max(1), skip);
     }
 
-    /// [`Jit::unless_spare`] for an element no one load copies, read where it
-    /// is rather than copied in: the words at `G_INDEX`'s address are tested.
+    /// [`Jit::unless_spare`] for an element read where it is rather than
+    /// copied in: the words at the address in frame word `slot` are tested.
     ///
     /// Only the stride's whole words are read, so the last element's read
     /// stays inside the block. A counted element is word-aligned, so its
     /// stride is whole words anyway.
-    fn unless_spare_in_place(&mut self, stride: u32, skip: Label) {
-        self.all_zero_to(Some(G_INDEX), 0, stride / 8, skip);
+    fn unless_spare_in_place(&mut self, slot: u32, stride: u32, skip: Label) {
+        self.all_zero_to(Some(slot), 0, stride / 8, skip);
     }
 
     /// A branch to `skip` when every one of `words` words is zero, and a fall
