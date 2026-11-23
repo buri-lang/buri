@@ -163,20 +163,21 @@ const NUMBERS_STEPS: (u64, u64) = (100_000, 1_100_000);
 const NUMBERS_BOUND: f64 = NUMBERS_BEFORE - (NUMBERS_BEFORE - NUMBERS_AFTER) / 2.0;
 
 /// [`NUMBERS`]'s step before, in instructions.
-const NUMBERS_BEFORE: f64 = 736.2;
+const NUMBERS_BEFORE: f64 = 601.1;
 
 /// [`NUMBERS`]'s step after, in instructions.
-const NUMBERS_AFTER: f64 = 601.1;
+const NUMBERS_AFTER: f64 = 575.1;
 
 /// **The joins after a template's first write into its block, and its numbers
 /// take no block of their own.** A step measured 875.2 instructions when the
 /// second join allocated a doubled block and freed the first join's, and 736.2
 /// once the first join had room for the whole template. Each number then still
 /// took a block, freed after the joins; rendered into a digit slot the joins
-/// copy, a step measures 601.1 (Apple M-series, lowest of three; LLVM went
-/// from 571.2 to 448.1). The bound sits halfway, so either side of it is 67
-/// instructions a step, 67 million over [`NUMBERS_STEPS`], where two runs
-/// differ by well under a million.
+/// copy, a step measured 601.1 (Apple M-series, lowest of three; LLVM went
+/// from 571.2 to 448.1). Written right-aligned in its slot, a number's start
+/// says how long it is, so nothing counts its digits first: 575.1. The bound
+/// sits halfway, so either side of it is 13 instructions a step, 13 million
+/// over [`NUMBERS_STEPS`], where two runs differ by well under a million.
 #[test]
 fn a_template_of_numbers_joins_without_a_second_block() {
     let (fewer, more) = NUMBERS_STEPS;

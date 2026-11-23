@@ -178,7 +178,8 @@ pub(crate) fn decimal_len(v: u64) -> usize {
 }
 
 /// Write `v`'s decimal digits so they end just before `end`: the
-/// [`decimal_len`]`(v)` bytes below it, and nothing else.
+/// [`decimal_len`]`(v)` bytes below it, and nothing else. Returns where they
+/// start, so a caller with room to spare need not count them first.
 ///
 /// Inline and unchecked, two digits a store. `str.fromInt` and every rendered
 /// integer come here, and a call that checked each byte against its slice cost
@@ -187,7 +188,7 @@ pub(crate) fn decimal_len(v: u64) -> usize {
 /// # Safety
 /// The `decimal_len(v)` bytes below `end` are writable.
 #[inline(always)]
-pub(crate) unsafe fn write_decimal(mut v: u64, end: *mut u8) {
+pub(crate) unsafe fn write_decimal(mut v: u64, end: *mut u8) -> *mut u8 {
     let pairs = PAIRS.as_ptr();
     let mut at = end;
     // SAFETY: each step writes just below `at`, and the steps write
@@ -211,12 +212,13 @@ pub(crate) unsafe fn write_decimal(mut v: u64, end: *mut u8) {
         }
         if v >= 10 {
             let pair = pairs.add(v as usize * 2).cast::<[u8; 2]>();
-            at.sub(2)
-                .cast::<[u8; 2]>()
-                .write_unaligned(pair.read_unaligned());
+            at = at.sub(2);
+            at.cast::<[u8; 2]>().write_unaligned(pair.read_unaligned());
         } else {
-            *at.sub(1) = b'0' + v as u8;
+            at = at.sub(1);
+            *at = b'0' + v as u8;
         }
+        at
     }
 }
 

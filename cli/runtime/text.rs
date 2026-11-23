@@ -1725,20 +1725,22 @@ unsafe fn digits_in(n: i64, slot: u64, out: *mut BuriStr) {
 /// As [`buri_rt_str_from_int_in`].
 #[inline(never)]
 unsafe fn digits_written(n: i64, slot: u64, out: *mut BuriStr) {
-    let len = int_len(n);
     let at = (slot as usize).min(DIGIT_SLOTS - 1);
-    // SAFETY: this thread's own slots; `at` is inside them, and `len` is at
-    // most `DIGITS_MAX` bytes, which is a slot. `out` is the caller's.
+    // SAFETY: this thread's own slots; `at` is inside them. The digits end at
+    // the slot's end, right-aligned so their start says how many there are,
+    // and with the sign they are at most `DIGITS_MAX` bytes, which is a slot.
+    // `out` is the caller's.
     unsafe {
-        let base = DIGITS.with(|d| d.get().cast::<[u8; DIGITS_MAX]>().add(at).cast::<u8>());
-        crate::fmt::write_decimal(n.unsigned_abs(), base.add(len));
+        let end = DIGITS.with(|d| d.get().cast::<[u8; DIGITS_MAX]>().add(at + 1).cast::<u8>());
+        let mut start = crate::fmt::write_decimal(n.unsigned_abs(), end);
         if n < 0 {
-            *base = b'-';
+            start = start.sub(1);
+            *start = b'-';
         }
         out.write(BuriStr {
             base: std::ptr::null_mut(),
-            ptr: base,
-            len: len as u64 | BURI_RT_STR_ASCII,
+            ptr: start,
+            len: end.offset_from_unsigned(start) as u64 | BURI_RT_STR_ASCII,
         });
     }
 }
